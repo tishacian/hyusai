@@ -131,8 +131,10 @@ function escapeRegex(text) {
 }
 
 async function authenticate(browser, { host, email, password, workspace, outDir }) {
-  if (!password) {
-    throw new Error('AGENTIUM_PASSWORD is required. Export it in your shell; do not commit it.');
+  if (!email || !password) {
+    throw new Error(
+      'AGENTIUM_EMAIL and AGENTIUM_PASSWORD are required. Export them in your shell; do not commit them.',
+    );
   }
   const statePath = path.join(outDir, 'auth-state.json');
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -625,7 +627,7 @@ async function captureContinuous(browser, scenes, options) {
 
 async function main() {
   const host = (arg('host', process.env.AGENTIUM_HOST || 'https://agentium.papai.ai') || '').replace(/\/+$/, '');
-  const email = arg('email', process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net');
+  const email = arg('email', process.env.AGENTIUM_EMAIL || '');
   const password = process.env.AGENTIUM_PASSWORD || '';
   const workspace = arg('workspace', process.env.AGENTIUM_WORKSPACE || 'agentium-showcase');
   const scenesPath = path.resolve(arg('scenes', process.env.SCENES_FILE || defaultScenes));

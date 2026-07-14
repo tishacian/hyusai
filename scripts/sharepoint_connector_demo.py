@@ -31,10 +31,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.app.services.connectors.sharepoint_otp import (  # noqa: E402
     MsalAppConfig,
+    SharedFolderIngester,
     SharePointLoginRequired,
     SharePointMsalAuth,
     SharePointSessionStore,
-    SharedFolderIngester,
     derive_session_key,
     generate_master_key,
 )
@@ -102,7 +102,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--user-hint",
-        help="UPN used as MSAL login_hint (e.g. thibaud.ishacian@datategy.net).",
+        help="UPN used as MSAL login_hint (e.g. operator@example.com).",
     )
     parser.add_argument(
         "--verbose",

@@ -35,6 +35,9 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/core/auth.interceptor.spec.ts',
+  'src/app/core/navigation-profile.service.spec.ts',
+  'src/app/core/navigation-telemetry.service.spec.ts',
   'src/app/features/orchestration/flow/flow.store.spec.ts',
   'src/app/features/orchestration/flow/flow-run.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.spec.ts',

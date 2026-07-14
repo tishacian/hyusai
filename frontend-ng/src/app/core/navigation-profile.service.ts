@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { WorkspaceService } from './workspace.service';
+import type { NavigationRedirectDecision } from './navigation-telemetry.service';
 
 export type NavigationProfileKey = 'standard' | 'business_end_user';
 export type NavigationAdvancedAccess = 'admin_only' | 'link' | 'hidden';
@@ -97,17 +98,38 @@ export class NavigationProfileService {
   }
 
   businessRedirectFor(path: string): string | null {
+    return this.businessResolutionFor(path)?.resolvedRoute ?? null;
+  }
+
+  businessResolutionFor(path: string): NavigationRedirectDecision | null {
     if (!this.businessShellActive()) return null;
     const normalized = this.pathOnly(path);
     if (this.isBusinessAllowedPath(normalized)) return null;
-    if (normalized === '/knowledge') return '/knowledge/capture';
+    if (normalized === '/knowledge') {
+      return {
+        requestedRoute: path,
+        resolvedRoute: '/knowledge/capture',
+        owner: 'navigation_profile',
+        reason: 'business_knowledge_compatibility',
+      };
+    }
 
     const systemCapture = normalized.match(/^\/systems\/([^/]+)\/capture$/);
     if (systemCapture?.[1]) {
-      return `/knowledge/capture?systemId=${encodeURIComponent(systemCapture[1])}`;
+      return {
+        requestedRoute: path,
+        resolvedRoute: `/knowledge/capture?systemId=${encodeURIComponent(systemCapture[1])}`,
+        owner: 'navigation_profile',
+        reason: 'business_system_capture_compatibility',
+      };
     }
 
-    return this.effective().defaultRoute;
+    return {
+      requestedRoute: path,
+      resolvedRoute: this.effective().defaultRoute,
+      owner: 'navigation_profile',
+      reason: 'business_profile_disallowed',
+    };
   }
 
   businessProfileConfig(enabled: boolean): NavigationProfileConfig | null {

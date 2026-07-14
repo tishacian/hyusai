@@ -15,4 +15,7 @@ COPY --from=build /app/frontend-ng/dist/agentium/browser /usr/share/nginx/html
 
 EXPOSE 8080
 
+ARG AGENTIUM_IMAGE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
 CMD ["nginx", "-g", "daemon off;"]

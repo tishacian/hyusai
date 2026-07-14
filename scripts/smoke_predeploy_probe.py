@@ -15,8 +15,8 @@ Exit code: 0 if >= 50% PASS, 1 otherwise. No mutation, no push.
 Usage::
 
     AGENTIUM_HOST=https://agentium.papai.ai \
-    AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
-    AGENTIUM_PASSWORD='ponfib-jaNca5-sisfoc' \
+    AGENTIUM_EMAIL='<operator-email>' \
+    AGENTIUM_PASSWORD='<from-secret-manager>' \
     WORKSPACE_SLUG=sentinel-ci \
     python3 scripts/smoke_predeploy_probe.py
 """
@@ -32,12 +32,21 @@ import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+
 from zoneinfo import ZoneInfo
+
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
 
 HOST = os.environ.get("AGENTIUM_HOST", "https://agentium.papai.ai").rstrip("/")
 WORKSPACE = os.environ.get("WORKSPACE_SLUG", "sentinel-ci")
-EMAIL = os.environ.get("AGENTIUM_EMAIL", "thibaud.ishacian@datategy.net")
-PASSWORD = os.environ.get("AGENTIUM_PASSWORD", "ponfib-jaNca5-sisfoc")
+EMAIL = _required_env("AGENTIUM_EMAIL")
+PASSWORD = _required_env("AGENTIUM_PASSWORD")
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "8.0"))
 DEMO_TZ = os.environ.get("DEMO_TZ", "Africa/Abidjan")
 MONTHS_FR = (

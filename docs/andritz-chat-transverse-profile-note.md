@@ -65,7 +65,7 @@ Configuration attendue dans `Workspace.settings` :
   "navigation_profile": {
     "key": "business_end_user",
     "default_route": "/chat",
-    "primary_surfaces": ["chat", "knowledge-capture"],
+    "primary_surfaces": ["chat", "client360-pdr", "knowledge-capture"],
     "advanced_access": "admin_only"
   }
 }
@@ -74,8 +74,8 @@ Configuration attendue dans `Workspace.settings` :
 Effet attendu pour `andritz` :
 
 - les non-admins voient un mini-shell metier ;
-- seules les entrees `Chat transverse` et `Capture de connaissances` sont
-  visibles ;
+- seules les entrees `Chat transverse`, `Client360 PDR` et `Capture de
+  connaissances` sont visibles ;
 - les routes avancees du cockpit sont redirigees vers `/chat` ou
   `/knowledge/capture` ;
 - les admins gardent le cockpit Agentium complet et peuvent previsualiser le
@@ -859,6 +859,7 @@ backend/alembic/versions/
 Verifier :
 
 - non-admin Andritz redirige vers `/chat` ;
+- `/client360` reste accessible dans le mini-shell metier ;
 - `/knowledge` redirige vers `/knowledge/capture` ;
 - `/systems/:id/capture` redirige vers `/knowledge/capture?systemId=:id` ;
 - admin conserve le cockpit complet ;
@@ -971,4 +972,3 @@ Pour travailler sur ce sujet, retenir ceci :
 6. Si le contexte est pauvre, l'assistant doit nommer le manque documentaire.
 7. Si un code projet est explicite, les sources d'autres projets doivent etre
    traitees comme suspectes sauf demande transverse explicite.
-

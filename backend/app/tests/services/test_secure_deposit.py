@@ -23,8 +23,8 @@ from app.services.secure_deposit import (
     build_deposit_archive,
     build_file_preview,
     create_link,
-    promote_file_to_collection,
     preview_deposit_file,
+    promote_file_to_collection,
     receive_file,
     record_staged_file_from_path,
     safe_filename,
@@ -42,7 +42,7 @@ from app.services.secure_deposit_sftp import (
 
 def _workspace_user(db_session):
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     db_session.add(

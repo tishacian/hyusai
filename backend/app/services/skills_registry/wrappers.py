@@ -16,8 +16,8 @@ pulling heavy deps at registry introspection time.
 """
 from __future__ import annotations
 
-import importlib
 import base64
+import importlib
 import re
 import uuid
 from datetime import datetime
@@ -864,7 +864,11 @@ async def _calendar_daily_summary_v1(payload: Dict[str, Any], ctx: Optional[Dict
 
 
 async def _action_plan_create_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.action_plans import action_planner_write_policy, create_action_item, serialize_action_item
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        create_action_item,
+        serialize_action_item,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
@@ -895,7 +899,11 @@ async def _action_plan_create_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
 
 
 async def _action_plan_reschedule_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.action_plans import action_planner_write_policy, serialize_action_item, update_action_item
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        serialize_action_item,
+        update_action_item,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
@@ -924,7 +932,11 @@ async def _action_plan_status_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
 
 
 async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.action_plans import action_planner_write_policy, cancel_action_item, serialize_action_item
+    from app.services.action_plans import (
+        action_planner_write_policy,
+        cancel_action_item,
+        serialize_action_item,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
@@ -1381,27 +1393,42 @@ async def _territorial_action_window_v1(payload: Dict[str, Any], ctx: Optional[D
 
 
 async def _map_layer_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+    from app.services.workspace_maps import mission_room_map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        ensure_workspace_map_seed(db, workspace)
-        return mission_room_map_payload(db, workspace)
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        return mission_room_map_payload(db, workspace, map_row=map_row)
     finally:
         if owns_db:
             db.close()
 
 
+def _workspace_map_for_skill(db: Any, workspace: Any, payload: Dict[str, Any]) -> Any:
+    """Resolve an explicit map reference or the workspace's seeded map.
+
+    The default must remain workspace-aware: Octocity owns a distinct fixture
+    and must never inherit the Sentinel map slug merely because a skill caller
+    omitted ``map_slug``.
+    """
+    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map
+
+    seeded_map = ensure_workspace_map_seed(db, workspace)
+    map_ref = payload.get("map_slug") or payload.get("map_id")
+    if map_ref is None:
+        return seeded_map
+    return get_workspace_map(db, workspace, str(map_ref))
+
+
 async def _map_zone_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.workspace_jobs import create_workspace_job, serialize_job
-    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map, score_map_zones
+    from app.services.workspace_maps import score_map_zones
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        ensure_workspace_map_seed(db, workspace)
-        map_row = get_workspace_map(db, workspace, str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"))
+        map_row = _workspace_map_for_skill(db, workspace, payload)
         job = create_workspace_job(
             db,
             workspace,
@@ -1423,13 +1450,11 @@ async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     from uuid import uuid4
 
     from app.models.workspace_map import WorkspaceMapSignal, WorkspaceMapZone
-    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        ensure_workspace_map_seed(db, workspace)
-        map_row = get_workspace_map(db, workspace, str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"))
+        map_row = _workspace_map_for_skill(db, workspace, payload)
         zone = (
             db.query(WorkspaceMapZone)
             .filter(WorkspaceMapZone.map_id == map_row.id, WorkspaceMapZone.zone_key == str(payload["zone_key"]))
@@ -1452,20 +1477,25 @@ async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
         )
         db.add(signal)
         db.commit()
-        return {"status": "attached", "signal": {"id": signal.id, "zone_key": zone.zone_key, "title": signal.title}}
+        return {
+            "status": "attached",
+            "map_id": map_row.id,
+            "map_slug": map_row.slug,
+            "signal": {"id": signal.id, "zone_key": zone.zone_key, "title": signal.title},
+        }
     finally:
         if owns_db:
             db.close()
 
 
 async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+    from app.services.workspace_maps import mission_room_map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        ensure_workspace_map_seed(db, workspace)
-        body = mission_room_map_payload(db, workspace)
+        map_row = _workspace_map_for_skill(db, workspace, payload)
+        body = mission_room_map_payload(db, workspace, map_row=map_row)
         recommendations = []
         for zone in body.get("zones") or []:
             recommendations.extend(zone.get("scenario_options") or [])
@@ -1476,16 +1506,16 @@ async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional
 
 
 async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+    from app.services.workspace_maps import build_map_command
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        ensure_workspace_map_seed(db, workspace)
+        map_row = _workspace_map_for_skill(db, workspace, payload)
         command = build_map_command(
             db,
             workspace,
-            map_id_or_slug=str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"),
+            map_id_or_slug=map_row.id,
             intent=str(payload.get("intent") or "focus_zone"),
             target=payload.get("target"),
             layers=payload.get("layers"),
@@ -1718,7 +1748,10 @@ async def _visual_snapshot_analyze_v1(payload: Dict[str, Any], ctx: Optional[Dic
 
 async def _visual_observation_sync_knowledge_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.models.workspace_visual import WorkspaceVisualObservation
-    from app.services.visual_intelligence import VISUAL_COLLECTION_SLUG, sync_observation_to_knowledge
+    from app.services.visual_intelligence import (
+        VISUAL_COLLECTION_SLUG,
+        sync_observation_to_knowledge,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")

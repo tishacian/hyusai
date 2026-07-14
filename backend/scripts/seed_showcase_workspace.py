@@ -2,7 +2,8 @@
 
 Usage:
     cd backend
-    python -m scripts.seed_showcase_workspace --reset
+    python -m scripts.seed_showcase_workspace \
+      --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" --reset
 
 The script is deliberately idempotent. With ``--reset`` it removes only
 the target showcase workspace and rows scoped to it, then recreates the
@@ -407,11 +408,23 @@ def now_minus(days: int, hours: int = 0) -> datetime:
     return datetime.utcnow() - timedelta(days=days, hours=hours)
 
 
+def _non_empty_owner_email(value: str) -> str:
+    owner_email = value.strip()
+    if not owner_email:
+        raise argparse.ArgumentTypeError("--owner-email must not be empty")
+    return owner_email
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace-slug", default="agentium-showcase")
     parser.add_argument("--workspace-name", default="Agentium Showcase")
-    parser.add_argument("--owner-email", default="thibaud.ishacian@datategy.net")
+    parser.add_argument(
+        "--owner-email",
+        required=True,
+        type=_non_empty_owner_email,
+        help="Existing Agentium account to provision as workspace owner",
+    )
     parser.add_argument(
         "--smoke-user",
         default="alice@acme.test",

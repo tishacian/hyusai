@@ -50,9 +50,14 @@ function tool(name, args = ['--version']) {
 
 async function main() {
   const host = (arg('host', process.env.AGENTIUM_HOST || 'https://agentium.papai.ai') || '').replace(/\/+$/, '');
-  const email = arg('email', process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net');
+  const email = arg('email', process.env.AGENTIUM_EMAIL || '');
   const password = process.env.AGENTIUM_PASSWORD || '';
-  const skipLogin = hasFlag('no-login') || !password;
+  const skipLogin = hasFlag('no-login');
+  if (!skipLogin && (!email || !password)) {
+    throw new Error(
+      'AGENTIUM_EMAIL and AGENTIUM_PASSWORD are required unless --no-login is explicit.',
+    );
+  }
   const viewport = viewportFromArgs();
   const deviceScaleFactor = Number(arg('scale', process.env.CAPTURE_DEVICE_SCALE_FACTOR || '1'));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');

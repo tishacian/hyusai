@@ -12,8 +12,8 @@ any phrase that does not match deterministically is a P0 risk.
 Usage::
 
     AGENTIUM_HOST=https://agentium.papai.ai \
-    AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
-    AGENTIUM_PASSWORD='***' \
+    AGENTIUM_EMAIL='<operator-email>' \
+    AGENTIUM_PASSWORD='<from-secret-manager>' \
     python3 scripts/qa_deck_phrases_resolve.py
 """
 from __future__ import annotations
@@ -28,10 +28,18 @@ import urllib.error
 import urllib.request
 from typing import Any, Optional
 
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
 HOST = os.environ.get("AGENTIUM_HOST", "https://agentium.papai.ai").rstrip("/")
 WORKSPACE = os.environ.get("WORKSPACE_SLUG", "sentinel-ci")
-EMAIL = os.environ.get("AGENTIUM_EMAIL", "thibaud.ishacian@datategy.net")
-PASSWORD = os.environ.get("AGENTIUM_PASSWORD", "")
+EMAIL = _required_env("AGENTIUM_EMAIL")
+PASSWORD = _required_env("AGENTIUM_PASSWORD")
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "12.0"))
 
 

@@ -112,8 +112,8 @@ API **9 / 14 PASS** ; hors-redeploy **9 / 9** (aucune régression sur ce qui ét
 
 ```bash
 AGENTIUM_HOST=https://agentium.papai.ai \
-AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
-AGENTIUM_PASSWORD='ponfib-jaNca5-sisfoc' \
+AGENTIUM_EMAIL='<operator-email>' \
+AGENTIUM_PASSWORD='<from-secret-manager>' \
 WORKSPACE_SLUG=sentinel-ci \
 python3 scripts/smoke_predeploy_probe.py
 ```

@@ -410,7 +410,7 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
     monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
 
     ws = _workspace(db_session, slug="andritz")
-    user = User(id="user-bhx", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-bhx", username="thib", email="operator@example.test")
     db_session.add(user)
     db_session.flush()
     collection = create_collection(

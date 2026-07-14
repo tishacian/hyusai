@@ -20,15 +20,15 @@ import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const HOST = (process.env.AGENTIUM_HOST || 'https://agentium.papai.ai').replace(/\/+$/, '');
-const EMAIL = process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net';
+const EMAIL = process.env.AGENTIUM_EMAIL || '';
 const PASSWORD = process.env.AGENTIUM_PASSWORD || '';
 const OUT_DIR =
   process.env.OUT_DIR ||
   join(process.cwd(), 'docs/status-screenshots/2026-05-25-qa-trame-v2');
 const WORKSPACE = 'sentinel-ci';
 
-if (!PASSWORD) {
-  throw new Error('AGENTIUM_PASSWORD is required for QA login');
+if (!EMAIL || !PASSWORD) {
+  throw new Error('AGENTIUM_EMAIL and AGENTIUM_PASSWORD are required for QA login');
 }
 
 const NAV_TIMEOUT = 45_000;

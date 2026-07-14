@@ -14,20 +14,33 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
-from app.models.workspace_map import WorkspaceMap, WorkspaceMapLayer, WorkspaceMapScore, WorkspaceMapSignal, WorkspaceMapZone
+from app.models.workspace_map import (
+    WorkspaceMap,
+    WorkspaceMapLayer,
+    WorkspaceMapScore,
+    WorkspaceMapSignal,
+    WorkspaceMapZone,
+)
 from app.services.audit_logger import emit_audit_event
 from app.services.maritime_tracking import (
     fetch_snapshot as fetch_maritime_snapshot,
+)
+from app.services.maritime_tracking import (
     fetch_vessels_in_bbox,
     serialize_vessel,
 )
 from app.services.scenario_engine import generate_scenarios
 from app.services.workspace_jobs import transition_job
 
-
 SENTINEL_MAP_SLUG = "sentinel-ci-strategic-map"
 TERRITORIAL_INTELLIGENCE_COLLECTION = "sentinel-ci-territorial-intelligence"
 GEO_DATA_DIR = Path(__file__).resolve().parents[1] / "resources" / "geo" / "civ"
+
+OCTOCITY_WORKSPACE_SLUG = "octocity-mission-room"
+OCTOCITY_MISSION_ROOM_PROFILE = "octocity_institutional_v1"
+OCTOCITY_MAP_SLUG = "octocity-operating-map"
+OCTOCITY_MAP_FIXTURE_PROFILE = "octocity_france_v1"
+OCTOCITY_MAP_FIXTURE_VERSION = 1
 
 IVORY_COAST_BOUNDS = {
     "west": -8.65,
@@ -426,32 +439,657 @@ SENTINEL_ZONE_SEED = [
 ]
 
 
-def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id: Optional[str] = None) -> WorkspaceMap:
-    existing = (
-        db.query(WorkspaceMap)
-        .filter(WorkspaceMap.workspace_id == workspace.id, WorkspaceMap.slug == SENTINEL_MAP_SLUG)
-        .first()
+# Octocity is a product showcase derived from the Mission Room foundation, not
+# an alias of the Sentinel-CI tenant.  Its map fixture therefore has its own
+# persisted identity and geography.  These coordinates mirror the Octocity
+# frontend fallback and contain no Sentinel/Ivorian source data.
+OCTOCITY_MAP_BOUNDS = {
+    "west": -5.3,
+    "south": 42.35,
+    "east": 8.1,
+    "north": 50.8,
+}
+
+OCTOCITY_ZONE_GEOGRAPHY = {
+    "zone-nord": {
+        "centroid": [2.8, 48.55],
+        "polygon": [[1.0, 47.9], [4.5, 47.9], [4.8, 49.5], [1.3, 49.7], [1.0, 47.9]],
+    },
+    "zone-ouest": {
+        "centroid": [-1.7, 46.3],
+        "polygon": [[-4.8, 44.5], [-0.2, 44.7], [0.0, 48.2], [-4.2, 48.4], [-4.8, 44.5]],
+    },
+    "zone-centre": {
+        "centroid": [3.25, 45.75],
+        "polygon": [[1.0, 44.0], [5.3, 44.0], [5.5, 47.3], [1.2, 47.4], [1.0, 44.0]],
+    },
+    "zone-est": {
+        "centroid": [6.5, 47.6],
+        "polygon": [[4.9, 45.5], [8.0, 45.3], [8.0, 49.7], [5.1, 49.8], [4.9, 45.5]],
+    },
+    "zone-sud": {
+        "centroid": [4.45, 43.35],
+        "polygon": [[-1.0, 42.4], [7.5, 42.4], [7.8, 44.8], [-0.5, 45.0], [-1.0, 42.4]],
+    },
+}
+
+OCTOCITY_ZONE_SEED = [
+    {
+        "key": "zone-nord",
+        "name": "Northern Arc",
+        "level": 72,
+        "tone": "watch",
+        "centroid": {"x": 338, "y": 146},
+        "polygon": "265,62 383,72 444,140 410,222 312,212 235,158",
+        "signals": ["Transport corridor variance", "Public-service backlog", "Regional signal cluster"],
+        "recommendations": ["Prepare an executive review", "Confirm the operating window"],
+        "sources": ["src-octocity-map-001", "src-octocity-news-014"],
+    },
+    {
+        "key": "zone-ouest",
+        "name": "Atlantic Corridor",
+        "level": 61,
+        "tone": "watch",
+        "centroid": {"x": 280, "y": 245},
+        "polygon": "205,155 330,145 370,250 310,345 190,305 165,215",
+        "signals": ["Logistics capacity watch", "Field coordination request"],
+        "recommendations": ["Validate the logistics brief", "Maintain weekly monitoring"],
+        "sources": ["src-octocity-logistics-003"],
+    },
+    {
+        "key": "zone-centre",
+        "name": "Central Hub",
+        "level": 68,
+        "tone": "watch",
+        "centroid": {"x": 425, "y": 270},
+        "polygon": "340,175 475,165 525,275 470,360 350,345 315,255",
+        "signals": ["Decision queue pressure", "Executive calendar constraint"],
+        "recommendations": ["Schedule a coordination review", "Prioritize the human validation queue"],
+        "sources": ["src-octocity-decision-007", "src-octocity-agenda-002"],
+    },
+    {
+        "key": "zone-est",
+        "name": "Rhine Interface",
+        "level": 58,
+        "tone": "stable",
+        "centroid": {"x": 560, "y": 240},
+        "polygon": "485,130 615,150 650,270 590,360 500,330 515,225",
+        "signals": ["Cross-region coordination", "Industrial signal review"],
+        "recommendations": ["Keep the interface brief current"],
+        "sources": ["src-octocity-interface-005"],
+    },
+    {
+        "key": "zone-sud",
+        "name": "Mediterranean Gate",
+        "level": 76,
+        "tone": "critical",
+        "centroid": {"x": 430, "y": 420},
+        "polygon": "285,345 545,340 580,455 485,510 300,485 245,405",
+        "signals": ["Port capacity watch", "Executive action window"],
+        "recommendations": ["Confirm the operating plan", "Prepare a sourced decision brief"],
+        "sources": ["src-octocity-port-011", "src-octocity-action-004"],
+    },
+]
+
+OCTOCITY_CONTEXT_MARKERS = [
+    {"name": "Paris", "kind": "coordination", "coordinates": [2.3522, 48.8566], "weight": 96},
+    {"name": "Lille", "kind": "news_flow", "coordinates": [3.0573, 50.6292], "weight": 78},
+    {"name": "Rennes", "kind": "field_ops", "coordinates": [-1.6778, 48.1173], "weight": 73},
+    {"name": "Nantes", "kind": "logistics", "coordinates": [-1.5536, 47.2184], "weight": 82},
+    {"name": "Bordeaux", "kind": "field_ops", "coordinates": [-0.5792, 44.8378], "weight": 77},
+    {"name": "Toulouse", "kind": "industry", "coordinates": [1.4442, 43.6047], "weight": 74},
+    {"name": "Lyon", "kind": "operations", "coordinates": [4.8357, 45.764], "weight": 86},
+    {"name": "Marseille", "kind": "port", "coordinates": [5.3698, 43.2965], "weight": 88},
+    {"name": "Nice", "kind": "field_ops", "coordinates": [7.262, 43.7102], "weight": 70},
+    {"name": "Strasbourg", "kind": "coordination", "coordinates": [7.7521, 48.5734], "weight": 79},
+]
+
+OCTOCITY_PORTS = [
+    {
+        "id": "port-marseille",
+        "name": "Marseille Logistics Gate",
+        "location": "Marseille",
+        "longitude": 5.3698,
+        "latitude": 43.2965,
+        "score": 64,
+        "tone": "watch",
+        "status": "monitoring",
+        "role": "Synthetic logistics gateway used by the Octocity operating fixture.",
+    },
+    {
+        "id": "port-nantes",
+        "name": "Nantes Atlantic Gate",
+        "location": "Nantes",
+        "longitude": -1.5536,
+        "latitude": 47.2184,
+        "score": 52,
+        "tone": "stable",
+        "status": "monitoring",
+        "role": "Synthetic Atlantic gateway used by the Octocity operating fixture.",
+    },
+]
+
+OCTOCITY_CONTEXT_LINES = [
+    {"name": "Paris-Lyon decision axis", "path": [[2.3522, 48.8566], [4.8357, 45.764]], "tone": "regional"},
+    {"name": "Rhone corridor", "path": [[4.8357, 45.764], [5.3698, 43.2965]], "tone": "watch"},
+    {"name": "Northern coordination link", "path": [[2.3522, 48.8566], [3.0573, 50.6292]], "tone": "regional"},
+    {"name": "Eastern interface link", "path": [[2.3522, 48.8566], [7.7521, 48.5734]], "tone": "regional"},
+    {"name": "Atlantic logistics link", "path": [[-1.5536, 47.2184], [2.3522, 48.8566]], "tone": "watch"},
+]
+
+OCTOCITY_RENDERER_LAYERS = [
+    {
+        "key": "territorial-risk",
+        "label": "Decision heatmap",
+        "short_label": "Heatmap",
+        "deck_group": "territory",
+        "tone": "cyan",
+        "kind": "zone_score",
+        "visible": True,
+        "payload": {"sources": ["octocity_zone_scores"]},
+        "sort_order": 10,
+    },
+    {
+        "key": "open-intelligence",
+        "label": "News signals",
+        "short_label": "News",
+        "deck_group": "press",
+        "tone": "blue",
+        "kind": "signal",
+        "visible": True,
+        "payload": {"sources": ["octocity_open_intelligence"]},
+        "sort_order": 20,
+    },
+    {
+        "key": "regional-context",
+        "label": "Coordination points",
+        "short_label": "Coordination",
+        "deck_group": "region",
+        "tone": "orange",
+        "kind": "regional_context",
+        "visible": True,
+        "payload": {"sources": ["octocity_operating_context"]},
+        "sort_order": 30,
+    },
+    {
+        "key": "agenda-windows",
+        "label": "Executive windows",
+        "short_label": "Agenda",
+        "deck_group": "agenda",
+        "tone": "amber",
+        "kind": "agenda_window",
+        "visible": True,
+        "payload": {"sources": ["institutional_calendar"]},
+        "sort_order": 40,
+    },
+    {
+        "key": "preventive-actions",
+        "label": "Recommended actions",
+        "short_label": "Actions",
+        "deck_group": "actions",
+        "tone": "red",
+        "kind": "action",
+        "visible": True,
+        "payload": {"sources": ["octocity_action_planner"]},
+        "sort_order": 50,
+    },
+]
+
+
+def _is_octocity_workspace(workspace: Workspace) -> bool:
+    settings = workspace.settings if isinstance(workspace.settings, dict) else {}
+    mission_room = settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}
+    return (
+        workspace.slug == OCTOCITY_WORKSPACE_SLUG
+        or mission_room.get("profile") == OCTOCITY_MISSION_ROOM_PROFILE
     )
-    if existing:
-        if existing.projection != "geojson_admin_boundaries_v1":
-            existing.projection = "geojson_admin_boundaries_v1"
-            existing.settings = {
-                **(existing.settings or {}),
-                "policy": "advisory_only",
-                "scope": "government_mission_room",
-                "version": 2,
-                "renderer_source": "geoBoundaries.ADM1.ADM2",
-                "legacy_polygon_mode": "compatibility_only",
+
+
+def _is_octocity_map(map_row: WorkspaceMap) -> bool:
+    settings = map_row.settings if isinstance(map_row.settings, dict) else {}
+    return settings.get("fixture_profile") == OCTOCITY_MAP_FIXTURE_PROFILE
+
+
+def _is_operator_map(map_row: WorkspaceMap) -> bool:
+    return not _is_octocity_map(map_row) and map_row.slug != SENTINEL_MAP_SLUG
+
+
+def _octocity_map_settings() -> dict[str, Any]:
+    return {
+        "policy": "advisory_only",
+        "scope": "octocity_operating_room",
+        "version": 1,
+        "fixture_profile": OCTOCITY_MAP_FIXTURE_PROFILE,
+        "fixture_version": OCTOCITY_MAP_FIXTURE_VERSION,
+        "renderer_source": "octocity.synthetic.france",
+        "legacy_polygon_mode": "compatibility_only",
+    }
+
+
+def _apply_octocity_map_identity(map_row: WorkspaceMap) -> None:
+    map_row.slug = OCTOCITY_MAP_SLUG
+    map_row.name = "Octocity Operating Map"
+    map_row.description = "France operating map with synthetic Octocity signals and human-reviewed actions."
+    map_row.country = "France"
+    map_row.projection = "octocity_france_operating_v1"
+    map_row.view_box = "160 40 500 480"
+    map_row.center = {"x": 420, "y": 270}
+    current_settings = map_row.settings if isinstance(map_row.settings, dict) else {}
+    map_row.settings = {**current_settings, **_octocity_map_settings()}
+
+
+def _octocity_fixture_is_current(db: DBSession, map_row: WorkspaceMap) -> bool:
+    settings = map_row.settings if isinstance(map_row.settings, dict) else {}
+    if (
+        map_row.slug != OCTOCITY_MAP_SLUG
+        or map_row.country != "France"
+        or map_row.projection != "octocity_france_operating_v1"
+        or settings.get("fixture_profile") != OCTOCITY_MAP_FIXTURE_PROFILE
+        or settings.get("fixture_version") != OCTOCITY_MAP_FIXTURE_VERSION
+    ):
+        return False
+
+    zone_rows = (
+        db.query(WorkspaceMapZone)
+        .filter(WorkspaceMapZone.map_id == map_row.id)
+        .all()
+    )
+    zones_by_key = {row.zone_key: row for row in zone_rows}
+    for item in OCTOCITY_ZONE_SEED:
+        row = zones_by_key.get(item["key"])
+        metadata = row.meta_data if row and isinstance(row.meta_data, dict) else {}
+        if (
+            not row
+            or row.name != item["name"]
+            or row.level != item["level"]
+            or row.tone != item["tone"]
+            or row.polygon != item["polygon"]
+            or row.centroid != item["centroid"]
+            or metadata.get("seed") != "octocity"
+            or not set(item["signals"]).issubset(metadata.get("signals") or [])
+            or not set(item["recommendations"]).issubset(metadata.get("recommendations") or [])
+            or not set(item["sources"]).issubset(row.source_refs or [])
+        ):
+            return False
+
+    layers_by_key = {
+        row.key: row
+        for row in db.query(WorkspaceMapLayer)
+        .filter(WorkspaceMapLayer.map_id == map_row.id)
+        .all()
+    }
+    for item in OCTOCITY_RENDERER_LAYERS:
+        row = layers_by_key.get(item["key"])
+        payload = row.payload if row and isinstance(row.payload, dict) else {}
+        if (
+            not row
+            or row.label != item["label"]
+            or row.kind != item["kind"]
+            or row.visible != item["visible"]
+            or row.sort_order != item["sort_order"]
+            or payload.get("seed") != "octocity"
+            or not set(item["payload"].get("sources") or []).issubset(payload.get("sources") or [])
+        ):
+            return False
+
+    signals = (
+        db.query(WorkspaceMapSignal)
+        .filter(WorkspaceMapSignal.map_id == map_row.id)
+        .all()
+    )
+    seeded_signals = {
+        signal.source_id: signal
+        for signal in signals
+        if (signal.meta_data or {}).get("seed") == "octocity"
+    }
+    for item in OCTOCITY_ZONE_SEED:
+        zone = zones_by_key[item["key"]]
+        for index, title in enumerate(item["signals"], start=1):
+            signal = seeded_signals.get(f"{item['key']}-signal-{index}")
+            if not signal or signal.zone_id != zone.id or signal.title != title or signal.summary != title:
+                return False
+
+    scores = (
+        db.query(WorkspaceMapScore)
+        .filter(WorkspaceMapScore.map_id == map_row.id)
+        .all()
+    )
+    scored_zone_ids = {score.zone_id for score in scores}
+    return all(zones_by_key[item["key"]].id in scored_zone_ids for item in OCTOCITY_ZONE_SEED)
+
+
+def _merge_seed_values(
+    current: Any,
+    required: list[str],
+    *,
+    superseded: Optional[list[str]] = None,
+) -> list[str]:
+    """Keep operator additions while replacing values owned by an older fixture."""
+    superseded_values = set(superseded or [])
+    preserved = [
+        value
+        for value in (current if isinstance(current, list) else [])
+        if value not in superseded_values and value not in required
+    ]
+    return [*required, *preserved]
+
+
+def _zone_score_values(db: DBSession, zone: WorkspaceMapZone) -> dict[str, Any]:
+    signals = db.query(WorkspaceMapSignal).filter(WorkspaceMapSignal.zone_id == zone.id).all()
+    signal_score = sum(min(35, max(0, signal.weight)) * signal.confidence for signal in signals)
+    score = max(0, min(100, int(round(zone.level * 0.68 + signal_score * 0.32))))
+    label = _level_label(score)
+    return {
+        "score": score,
+        "level_label": label,
+        "drivers": [signal.title for signal in signals] or list((zone.meta_data or {}).get("signals") or []),
+        "recommendations": generate_scenarios(
+            target_kind="zone",
+            target_id=zone.zone_key,
+            risk_level=label,
+            source_refs=zone.source_refs or [],
+            signal_strength=score,
+        )[:3],
+        "recommended_windows": _recommended_windows(zone.zone_key, score),
+    }
+
+
+def _repair_octocity_map_fixture_rows(
+    db: DBSession,
+    map_row: WorkspaceMap,
+    *,
+    legacy_fixture: bool,
+) -> int:
+    """Upsert Octocity-owned rows without deleting operator-owned map data."""
+    legacy_zones = {item["key"]: item for item in SENTINEL_ZONE_SEED}
+    zones_by_key = {
+        row.zone_key: row
+        for row in db.query(WorkspaceMapZone)
+        .filter(WorkspaceMapZone.map_id == map_row.id)
+        .all()
+    }
+    for item in OCTOCITY_ZONE_SEED:
+        zone = zones_by_key.get(item["key"])
+        if not zone:
+            zone = WorkspaceMapZone(
+                id=str(uuid4()),
+                map_id=map_row.id,
+                zone_key=item["key"],
+                name=item["name"],
+                level=item["level"],
+                tone=item["tone"],
+                polygon=item["polygon"],
+                centroid=item["centroid"],
+                meta_data={},
+                source_refs=[],
+            )
+            db.add(zone)
+            zones_by_key[item["key"]] = zone
+        legacy = legacy_zones.get(item["key"]) or {}
+        metadata = zone.meta_data if isinstance(zone.meta_data, dict) else {}
+        zone.name = item["name"]
+        zone.level = item["level"]
+        zone.tone = item["tone"]
+        zone.polygon = item["polygon"]
+        zone.centroid = item["centroid"]
+        zone.meta_data = {
+            **metadata,
+            "signals": _merge_seed_values(
+                metadata.get("signals"),
+                item["signals"],
+                superseded=legacy.get("signals") if legacy_fixture else None,
+            ),
+            "recommendations": _merge_seed_values(
+                metadata.get("recommendations"),
+                item["recommendations"],
+                superseded=legacy.get("recommendations") if legacy_fixture else None,
+            ),
+            "seed": "octocity",
+        }
+        zone.source_refs = _merge_seed_values(
+            zone.source_refs,
+            item["sources"],
+            superseded=legacy.get("sources") if legacy_fixture else None,
+        )
+
+    legacy_layers = {item["key"]: item for item in DEFAULT_RENDERER_LAYERS}
+    layers_by_key = {
+        row.key: row
+        for row in db.query(WorkspaceMapLayer)
+        .filter(WorkspaceMapLayer.map_id == map_row.id)
+        .all()
+    }
+    octocity_layer_keys = {item["key"] for item in OCTOCITY_RENDERER_LAYERS}
+    if legacy_fixture:
+        for key, layer in layers_by_key.items():
+            legacy_spec = legacy_layers.get(key)
+            if not legacy_spec or key in octocity_layer_keys:
+                continue
+            current_payload = layer.payload if isinstance(layer.payload, dict) else {}
+            legacy_payload = legacy_spec.get("payload") or {}
+            layer.label = "Retired compatibility layer"
+            layer.visible = False
+            layer.payload = {
+                **current_payload,
+                "sources": _merge_seed_values(
+                    current_payload.get("sources"),
+                    [],
+                    superseded=legacy_payload.get("sources") or [],
+                ),
+                "seed": "octocity-retired",
+                "retired": True,
             }
+    for item in OCTOCITY_RENDERER_LAYERS:
+        layer = layers_by_key.get(item["key"])
+        if not layer:
+            layer = WorkspaceMapLayer(id=str(uuid4()), map_id=map_row.id, key=item["key"])
+            db.add(layer)
+            layers_by_key[item["key"]] = layer
+        current_payload = layer.payload if isinstance(layer.payload, dict) else {}
+        legacy_payload = (legacy_layers.get(item["key"]) or {}).get("payload") or {}
+        layer.label = item["label"]
+        layer.kind = item["kind"]
+        layer.visible = item["visible"]
+        layer.sort_order = item["sort_order"]
+        layer.payload = {
+            **current_payload,
+            **item["payload"],
+            "sources": _merge_seed_values(
+                current_payload.get("sources"),
+                item["payload"].get("sources") or [],
+                superseded=legacy_payload.get("sources") if legacy_fixture else None,
+            ),
+            "seed": "octocity",
+        }
+
+    db.flush()
+    seed_signals_by_source: dict[str, WorkspaceMapSignal] = {}
+    for signal in (
+        db.query(WorkspaceMapSignal)
+        .filter(WorkspaceMapSignal.map_id == map_row.id)
+        .all()
+    ):
+        if (signal.meta_data or {}).get("seed") in {"sentinel-ci", "octocity"}:
+            seed_signals_by_source.setdefault(signal.source_id, signal)
+    now = datetime.utcnow()
+    for item in OCTOCITY_ZONE_SEED:
+        zone = zones_by_key[item["key"]]
+        for index, title in enumerate(item["signals"], start=1):
+            source_id = f"{item['key']}-signal-{index}"
+            signal = seed_signals_by_source.get(source_id)
+            if not signal:
+                signal = WorkspaceMapSignal(
+                    id=str(uuid4()),
+                    map_id=map_row.id,
+                    zone_id=zone.id,
+                    source_kind="mission_room",
+                    source_id=source_id,
+                    title=title,
+                    summary=title,
+                    weight=max(8, min(30, int(item["level"] / 4))),
+                    confidence=0.72 if item["level"] >= 50 else 0.62,
+                    occurred_at=now,
+                    meta_data={"seed": "octocity"},
+                )
+                db.add(signal)
+                seed_signals_by_source[source_id] = signal
+            else:
+                signal.zone_id = zone.id
+                signal.source_kind = "mission_room"
+                signal.title = title
+                signal.summary = title
+                signal.weight = max(8, min(30, int(item["level"] / 4)))
+                signal.confidence = 0.72 if item["level"] >= 50 else 0.62
+                signal.meta_data = {**(signal.meta_data or {}), "seed": "octocity"}
+
+    db.flush()
+    scores_by_zone: dict[str, list[WorkspaceMapScore]] = {}
+    for score in (
+        db.query(WorkspaceMapScore)
+        .filter(WorkspaceMapScore.map_id == map_row.id)
+        .order_by(WorkspaceMapScore.computed_at.asc())
+        .all()
+    ):
+        scores_by_zone.setdefault(score.zone_id, []).append(score)
+    for item in OCTOCITY_ZONE_SEED:
+        zone = zones_by_key[item["key"]]
+        existing_scores = scores_by_zone.get(zone.id) or []
+        score_row = existing_scores[0] if existing_scores else None
+        if not score_row:
+            score_row = WorkspaceMapScore(
+                id=str(uuid4()),
+                map_id=map_row.id,
+                zone_id=zone.id,
+                job_id=None,
+                computed_at=now,
+            )
+            db.add(score_row)
+        if legacy_fixture or not existing_scores:
+            for key, value in _zone_score_values(db, zone).items():
+                setattr(score_row, key, value)
+            score_row.computed_at = now
+    db.flush()
+    return len(OCTOCITY_ZONE_SEED)
+
+
+def _seed_map_fixture_rows(
+    db: DBSession,
+    workspace: Workspace,
+    map_row: WorkspaceMap,
+    *,
+    zone_seed: list[dict[str, Any]],
+    layer_specs: list[dict[str, Any]],
+    seed_label: str,
+) -> int:
+    now = datetime.utcnow()
+    _ensure_map_layers(db, map_row, layer_specs=layer_specs, seed_label=seed_label)
+    db.flush()
+    zone_rows: list[WorkspaceMapZone] = []
+    for item in zone_seed:
+        zone = WorkspaceMapZone(
+            id=str(uuid4()),
+            map_id=map_row.id,
+            zone_key=item["key"],
+            name=item["name"],
+            level=item["level"],
+            tone=item["tone"],
+            polygon=item["polygon"],
+            centroid=item["centroid"],
+            meta_data={
+                "signals": item["signals"],
+                "recommendations": item["recommendations"],
+                **({"seed": seed_label} if seed_label == "octocity" else {}),
+            },
+            source_refs=item["sources"],
+        )
+        db.add(zone)
+        zone_rows.append(zone)
+    db.flush()
+    for zone, item in zip(zone_rows, zone_seed):
+        for idx, signal in enumerate(item["signals"]):
+            db.add(
+                WorkspaceMapSignal(
+                    id=str(uuid4()),
+                    map_id=map_row.id,
+                    zone_id=zone.id,
+                    source_kind="mission_room",
+                    source_id=f"{zone.zone_key}-signal-{idx + 1}",
+                    title=signal,
+                    summary=signal,
+                    weight=max(8, min(30, int(item["level"] / 4))),
+                    confidence=0.72 if item["level"] >= 50 else 0.62,
+                    occurred_at=now,
+                    meta_data={"seed": seed_label},
+                )
+            )
+    db.flush()
+    score_map_zones(db, workspace, map_row)
+    return len(zone_rows)
+
+
+def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id: Optional[str] = None) -> WorkspaceMap:
+    octocity = _is_octocity_workspace(workspace)
+    target_slug = OCTOCITY_MAP_SLUG if octocity else SENTINEL_MAP_SLUG
+    candidate_slugs = [target_slug]
+    if octocity:
+        candidate_slugs.append(SENTINEL_MAP_SLUG)
+    candidates = (
+        db.query(WorkspaceMap)
+        .filter(
+            WorkspaceMap.workspace_id == workspace.id,
+            WorkspaceMap.slug.in_(candidate_slugs),
+        )
+        .all()
+    )
+    existing = next((row for row in candidates if row.slug == target_slug), None)
+    existing = existing or next(iter(candidates), None)
+    if existing:
+        changed = False
+        if system_id is not None and existing.system_id != system_id:
+            existing.system_id = system_id
+            changed = True
+        if octocity:
+            existing_settings = existing.settings if isinstance(existing.settings, dict) else {}
+            legacy_fixture = existing_settings.get("fixture_profile") != OCTOCITY_MAP_FIXTURE_PROFILE
+            fixture_current = _octocity_fixture_is_current(db, existing)
+            _apply_octocity_map_identity(existing)
+            if not fixture_current:
+                zones = _repair_octocity_map_fixture_rows(
+                    db,
+                    existing,
+                    legacy_fixture=legacy_fixture,
+                )
+                emit_audit_event(
+                    db=db,
+                    workspace_id=workspace.id,
+                    event_type="map.system.upgraded",
+                    actor="system",
+                    details={"map_id": existing.id, "slug": existing.slug, "zones": zones},
+                )
+                changed = True
+        else:
+            if existing.projection != "geojson_admin_boundaries_v1":
+                existing.projection = "geojson_admin_boundaries_v1"
+                existing.settings = {
+                    **(existing.settings or {}),
+                    "policy": "advisory_only",
+                    "scope": "government_mission_room",
+                    "version": 2,
+                    "renderer_source": "geoBoundaries.ADM1.ADM2",
+                    "legacy_polygon_mode": "compatibility_only",
+                }
+                changed = True
+            _ensure_map_layers(db, existing)
+        if changed:
             existing.updated_at = datetime.utcnow()
-        _ensure_map_layers(db, existing)
         return existing
+
     now = datetime.utcnow()
     map_row = WorkspaceMap(
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=system_id,
-        slug=SENTINEL_MAP_SLUG,
+        slug=target_slug,
         name="Carte strategique executive",
         description="Carte decisionnelle Cote d'Ivoire, zones, signaux et actions preventives non militaires.",
         country="Cote d'Ivoire",
@@ -468,52 +1106,24 @@ def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id:
         created_at=now,
         updated_at=now,
     )
+    if octocity:
+        _apply_octocity_map_identity(map_row)
     db.add(map_row)
     db.flush()
-    _ensure_map_layers(db, map_row)
-    db.flush()
-    zone_rows: list[WorkspaceMapZone] = []
-    for item in SENTINEL_ZONE_SEED:
-        zone = WorkspaceMapZone(
-            id=str(uuid4()),
-            map_id=map_row.id,
-            zone_key=item["key"],
-            name=item["name"],
-            level=item["level"],
-            tone=item["tone"],
-            polygon=item["polygon"],
-            centroid=item["centroid"],
-            meta_data={"signals": item["signals"], "recommendations": item["recommendations"]},
-            source_refs=item["sources"],
-        )
-        db.add(zone)
-        zone_rows.append(zone)
-    db.flush()
-    for zone, item in zip(zone_rows, SENTINEL_ZONE_SEED):
-        for idx, signal in enumerate(item["signals"]):
-            db.add(
-                WorkspaceMapSignal(
-                    id=str(uuid4()),
-                    map_id=map_row.id,
-                    zone_id=zone.id,
-                    source_kind="mission_room",
-                    source_id=f"{zone.zone_key}-signal-{idx + 1}",
-                    title=signal,
-                    summary=signal,
-                    weight=max(8, min(30, int(item["level"] / 4))),
-                    confidence=0.72 if item["level"] >= 50 else 0.62,
-                    occurred_at=now,
-                    meta_data={"seed": "sentinel-ci"},
-                )
-            )
-    db.flush()
-    score_map_zones(db, workspace, map_row)
+    zones = _seed_map_fixture_rows(
+        db,
+        workspace,
+        map_row,
+        zone_seed=OCTOCITY_ZONE_SEED if octocity else SENTINEL_ZONE_SEED,
+        layer_specs=OCTOCITY_RENDERER_LAYERS if octocity else DEFAULT_RENDERER_LAYERS,
+        seed_label="octocity" if octocity else "sentinel-ci",
+    )
     emit_audit_event(
         db=db,
         workspace_id=workspace.id,
         event_type="map.system.seeded",
         actor="system",
-        details={"map_id": map_row.id, "slug": map_row.slug, "zones": len(zone_rows)},
+        details={"map_id": map_row.id, "slug": map_row.slug, "zones": zones},
     )
     return map_row
 
@@ -596,7 +1206,12 @@ def score_map_zones(
     return {"map_id": map_row.id, "zones_scored": len(results), "scores": [serialize_score(score) for score in results]}
 
 
-def serialize_map(map_row: WorkspaceMap, db: Optional[DBSession] = None) -> dict[str, Any]:
+def serialize_map(
+    map_row: WorkspaceMap,
+    db: Optional[DBSession] = None,
+    *,
+    workspace: Optional[Workspace] = None,
+) -> dict[str, Any]:
     payload = {
         "id": map_row.id,
         "slug": map_row.slug,
@@ -619,7 +1234,17 @@ def serialize_map(map_row: WorkspaceMap, db: Optional[DBSession] = None) -> dict
             .order_by(WorkspaceMapScore.computed_at.desc())
             .all()
         }
-        zone_payloads = [serialize_zone(zone, scores.get(zone.id)) for zone in zones]
+        octocity = _is_octocity_map(map_row)
+        operator = _is_operator_map(map_row)
+        zone_payloads = [
+            serialize_zone(
+                zone,
+                scores.get(zone.id),
+                octocity=octocity,
+                operator=operator,
+            )
+            for zone in zones
+        ]
         renderer_payload = workspace_map_renderer_payload(map_row, zone_payloads)
         payload.update(renderer_payload)
     return payload
@@ -1121,8 +1746,10 @@ def _s3_security_geojson_sources() -> dict[str, dict[str, Any]]:
     border_polygons: dict[str, Any] = {"type": "FeatureCollection", "features": []}
     satellite_footprints: dict[str, Any] = {"type": "FeatureCollection", "features": []}
     try:
+        from app.services.intelligence.satellite_imagery import (
+            load_satellite_baseline,  # noqa: PLC0415
+        )
         from app.services.mission_room import SOCIAL_SNAPSHOT, TROOPS_SAHEL  # noqa: PLC0415
-        from app.services.intelligence.satellite_imagery import load_satellite_baseline  # noqa: PLC0415
     except Exception:  # noqa: BLE001
         return {
             "social_geo": social_points,
@@ -1748,8 +2375,25 @@ def _slugify(value: str) -> str:
     return "-".join(part for part in normalized.replace("_", " ").split() if part)
 
 
-def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = None) -> dict[str, Any]:
-    zone_definition = SENTINEL_ZONE_GEOGRAPHY.get(zone.zone_key) or {}
+def serialize_zone(
+    zone: WorkspaceMapZone,
+    score: Optional[WorkspaceMapScore] = None,
+    *,
+    octocity: bool = False,
+    operator: bool = False,
+) -> dict[str, Any]:
+    zone_definition = (
+        {}
+        if octocity or operator
+        else SENTINEL_ZONE_GEOGRAPHY.get(zone.zone_key) or {}
+    )
+    geometry_kind = (
+        "octocity.synthetic.operating_zone"
+        if octocity
+        else "workspace.operator_zone"
+        if operator
+        else "geoBoundaries.ADM1_group"
+    )
     payload = {
         "id": zone.zone_key,
         "zone_id": zone.id,
@@ -1758,7 +2402,7 @@ def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = 
         "tone": _tone_for(score.score if score else zone.level),
         "centroid": zone.centroid or {},
         "polygon": zone.polygon,
-        "geometry_kind": "geoBoundaries.ADM1_group",
+        "geometry_kind": geometry_kind,
         "admin1_refs": list(zone_definition.get("admin1") or []),
         "signals": list((zone.meta_data or {}).get("signals") or []),
         "recommendations": list((zone.meta_data or {}).get("recommendations") or []),
@@ -1790,21 +2434,42 @@ def serialize_score(score: WorkspaceMapScore) -> dict[str, Any]:
     }
 
 
-def mission_room_map_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
-    map_row = ensure_workspace_map_seed(db, workspace)
+def mission_room_map_payload(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    map_row: Optional[WorkspaceMap] = None,
+) -> dict[str, Any]:
+    map_row = map_row or ensure_workspace_map_seed(db, workspace)
+    octocity = _is_octocity_map(map_row)
+    operator = _is_operator_map(map_row)
     zones = db.query(WorkspaceMapZone).filter(WorkspaceMapZone.map_id == map_row.id).order_by(WorkspaceMapZone.level.desc()).all()
     scores = {
         score.zone_id: score
         for score in db.query(WorkspaceMapScore).filter(WorkspaceMapScore.map_id == map_row.id).order_by(WorkspaceMapScore.computed_at.desc()).all()
     }
-    zone_payloads = [serialize_zone(zone, scores.get(zone.id)) for zone in zones]
+    zone_payloads = [
+        serialize_zone(
+            zone,
+            scores.get(zone.id),
+            octocity=octocity,
+            operator=operator,
+        )
+        for zone in zones
+    ]
     return {
-        "map_system": serialize_map(map_row, db),
+        "map_system": serialize_map(map_row, db, workspace=workspace),
         "map": {
             "country": map_row.country,
             "view_box": map_row.view_box,
             "projection": map_row.projection,
-            "accuracy": "geojson_admin_boundaries_v1",
+            "accuracy": (
+                "octocity_synthetic_operating_fixture_v1"
+                if octocity
+                else "workspace_operator_geometry_v1"
+                if operator
+                else "geojson_admin_boundaries_v1"
+            ),
         },
         "zones": zone_payloads,
         "recommended_windows": [
@@ -1825,7 +2490,7 @@ def build_map_command(
     db: DBSession,
     workspace: Workspace,
     *,
-    map_id_or_slug: str = SENTINEL_MAP_SLUG,
+    map_id_or_slug: Optional[str] = None,
     intent: str,
     target: Optional[str] = None,
     layers: Optional[list[str]] = None,
@@ -1836,13 +2501,20 @@ def build_map_command(
     user: Optional[User] = None,
 ) -> dict[str, Any]:
     """Build a provider-neutral map command scoped to the current workspace."""
-    map_row = get_workspace_map(db, workspace, map_id_or_slug)
-    payload = mission_room_map_payload(db, workspace)
+    map_row = (
+        get_workspace_map(db, workspace, map_id_or_slug)
+        if map_id_or_slug
+        else ensure_workspace_map_seed(db, workspace)
+    )
+    payload = mission_room_map_payload(db, workspace, map_row=map_row)
     map_system = payload["map_system"]
+    octocity = _is_octocity_map(map_row) or _is_octocity_workspace(workspace)
     normalized_intent = "show_sources" if intent == "open_source_panel" else intent
     normalized_intent = normalized_intent if normalized_intent in MAP_COMMAND_INTENTS else "focus_zone"
     zones = payload.get("zones") or []
-    selected_port = None if normalized_intent == "reset_view" else _find_port_payload(target)
+    selected_port = None if normalized_intent == "reset_view" else _find_port_payload(target, octocity=octocity)
+    if octocity and normalized_intent in {"focus_port", "show_vessel_snapshot", "show_disruption"} and not selected_port:
+        selected_port = _find_port_payload("port-marseille", octocity=True)
     selected = None if normalized_intent in {"reset_view", "focus_port", "show_vessel_snapshot", "show_disruption"} else _find_zone_payload(zones, target)
     if normalized_intent != "reset_view" and not selected_port:
         selected = selected or payload.get("score_summary", {}).get("top_zone")
@@ -1865,7 +2537,19 @@ def build_map_command(
     if requested_layers:
         active_layers = requested_layers
     elif normalized_intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
-        active_layers = ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
+        if octocity:
+            active_layers = [
+                layer
+                for layer in (
+                    "territorial-risk",
+                    "open-intelligence",
+                    "regional-context",
+                    "preventive-actions",
+                )
+                if layer in allowed_layers
+            ]
+        else:
+            active_layers = ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
     elif normalized_intent in {"set_layers", "reset_view"}:
         active_layers = default_active_layers
     else:
@@ -1873,8 +2557,15 @@ def build_map_command(
     basemap_options = {option.get("key") for option in map_system.get("basemap_options") or []}
     selected_basemap = basemap if basemap in basemap_options else default_state.get("basemap") or "command"
     selected_time_range = time_range if time_range in {item["key"] for item in MAP_TIME_RANGES} else default_state.get("time_range") or "7d"
-    explanation = _command_explanation(normalized_intent, selected, selected_basemap, selected_port=selected_port, time_range=selected_time_range)
-    sources = _port_sources(selected_port) if selected_port else _zone_sources(selected)
+    explanation = _command_explanation(
+        normalized_intent,
+        selected,
+        selected_basemap,
+        selected_port=selected_port,
+        time_range=selected_time_range,
+        octocity=octocity,
+    )
+    sources = _port_sources(selected_port, octocity=octocity) if selected_port else _zone_sources(selected)
     target_key = port_key or selected_key
     target_label = selected_port.get("name") if selected_port else (selected.get("name") if selected else None)
     command = {
@@ -1902,7 +2593,7 @@ def build_map_command(
             else None,
             "annotation": annotation
             or {
-                "label": target_label or "Cote d'Ivoire",
+                "label": target_label or map_row.country or "Workspace map",
                 "summary": explanation,
                 "tone": (selected_port.get("tone") if selected_port else selected.get("tone")) if (selected_port or selected) else "monitoring",
             },
@@ -1945,6 +2636,7 @@ def handle_map_chat_query(
     if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     normalized = (query or "").lower()
+    octocity = assistant_profile == "octave_executive" or _is_octocity_workspace(workspace)
     explicit_map_terms = (
         "carte",
         "zoom",
@@ -1961,7 +2653,7 @@ def handle_map_chat_query(
         "réinitialise",
         "reinitialise",
     )
-    port_target = _extract_port_target(normalized)
+    port_target = _extract_port_target(normalized, octocity=octocity)
     explicit_port_map = bool(port_target) and any(
         term in normalized
         for term in (
@@ -1980,14 +2672,19 @@ def handle_map_chat_query(
     intent = "focus_zone"
     basemap = None
     layers = None
-    target = _extract_zone_target(normalized)
+    target = _extract_zone_target(normalized, octocity=octocity)
     if port_target:
         intent = "focus_port"
         target = port_target
-        layers = ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
+        layers = (
+            ["territorial-risk", "open-intelligence", "regional-context", "preventive-actions"]
+            if octocity
+            else ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
+        )
         if "navire" in normalized or "bateau" in normalized:
             intent = "show_vessel_snapshot"
-        if "risque" in normalized or "douane" in normalized or "douanes" in normalized:
+        disruption_terms = ("risque", "perturbation", "incident") if octocity else ("risque", "douane", "douanes")
+        if any(term in normalized for term in disruption_terms):
             intent = "show_disruption"
     if "source" in normalized:
         intent = "show_sources"
@@ -1995,7 +2692,12 @@ def handle_map_chat_query(
         intent = "show_action_window"
     if "compare" in normalized or "changé" in normalized or "change" in normalized:
         intent = "compare_before_after"
-    if "réinitialise" in normalized or "reinitialise" in normalized or "côte d'ivoire" in normalized or "cote d'ivoire" in normalized:
+    reset_terms = (
+        ("réinitialise", "reinitialise", "france", "octocity")
+        if octocity
+        else ("réinitialise", "reinitialise", "côte d'ivoire", "cote d'ivoire")
+    )
+    if any(term in normalized for term in reset_terms):
         intent = "reset_view"
     if "fond" in normalized or "basemap" in normalized:
         intent = "set_basemap"
@@ -2017,7 +2719,17 @@ def handle_map_chat_query(
         user=user,
     )
     label = command.get("target_label") or "les zones prioritaires"
-    if intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
+    if octocity and intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
+        content = (
+            f"J'affiche {label} dans le contexte opérationnel France avec les signaux ouverts "
+            "et les actions recommandées. Lecture synthétique Octocity, à valider humainement."
+        )
+    elif octocity:
+        content = (
+            f"J'affiche {label} sur la carte opérationnelle France. La vue Octocity relie les "
+            "signaux ouverts, les fenêtres exécutives et les actions recommandées."
+        )
+    elif intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
         content = (
             f"J'affiche {label} avec les couches maritime, douanes, presse et actions. "
             "Lecture demo-safe : ports, corridor Golfe de Guinee, densite indicative et options cabinet."
@@ -2037,7 +2749,604 @@ def handle_map_chat_query(
     }
 
 
-def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, Any]]) -> dict[str, Any]:
+def _octocity_workspace_map_renderer_payload(
+    map_row: WorkspaceMap,
+    zones: list[dict[str, Any]],
+) -> dict[str, Any]:
+    empty_collection = {"type": "FeatureCollection", "features": []}
+    zone_by_key = {str(zone.get("id") or ""): zone for zone in zones}
+    zone_features = []
+    marker_features = []
+    event_features = []
+    camera_presets: dict[str, dict[str, Any]] = {
+        "country": {
+            "longitude": 2.25,
+            "latitude": 46.75,
+            "zoom": 6.32,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 900,
+        }
+    }
+    for port in OCTOCITY_PORTS:
+        camera_presets[port["id"]] = {
+            "longitude": port["longitude"],
+            "latitude": port["latitude"],
+            "zoom": 8.25,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 850,
+        }
+    for key, geography in OCTOCITY_ZONE_GEOGRAPHY.items():
+        zone = zone_by_key.get(key) or {}
+        name = str(zone.get("name") or key)
+        level = int(zone.get("level") or 0)
+        tone = str(zone.get("tone") or "stable")
+        centroid = list(geography["centroid"])
+        zone_features.append(
+            {
+                "type": "Feature",
+                "id": key,
+                "geometry": {"type": "Polygon", "coordinates": [geography["polygon"]]},
+                "properties": {
+                    "id": key,
+                    "zone_id": key,
+                    "name": name,
+                    "level": level,
+                    "tone": tone,
+                    "synthetic": True,
+                },
+            }
+        )
+        marker_features.append(
+            {
+                "type": "Feature",
+                "id": f"{key}-marker",
+                "geometry": {"type": "Point", "coordinates": centroid},
+                "properties": {
+                    "zone_id": key,
+                    "name": name,
+                    "level": level,
+                    "tone": tone,
+                    "synthetic": True,
+                },
+            }
+        )
+        event_features.append(
+            {
+                "type": "Feature",
+                "id": f"event-{key}",
+                "geometry": {"type": "Point", "coordinates": centroid},
+                "properties": {
+                    "name": f"{name} operating signal",
+                    "layer_key": "open-intelligence",
+                    "score": level,
+                    "source_kind": "octocity_synthetic_signal",
+                },
+            }
+        )
+        camera_presets[key] = {
+            "longitude": centroid[0],
+            "latitude": centroid[1],
+            "zoom": 6.45,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 850,
+        }
+
+    context_features = [
+        {
+            "type": "Feature",
+            "id": f"context-{marker['name'].lower().replace(' ', '-')}",
+            "geometry": {"type": "Point", "coordinates": marker["coordinates"]},
+            "properties": {
+                "name": marker["name"],
+                "kind": marker["kind"],
+                "weight": marker["weight"],
+                "scope": "octocity",
+                "source": "octocity-operating-context",
+            },
+        }
+        for marker in OCTOCITY_CONTEXT_MARKERS
+    ]
+    line_features = [
+        {
+            "type": "Feature",
+            "id": f"line-{line['name'].lower().replace(' ', '-')}",
+            "geometry": {"type": "LineString", "coordinates": line["path"]},
+            "properties": {"name": line["name"], "tone": line["tone"], "synthetic": True},
+        }
+        for line in OCTOCITY_CONTEXT_LINES
+    ]
+    source_counts = {
+        "territorial-risk": len(zones),
+        "open-intelligence": sum(len(zone.get("drivers") or zone.get("signals") or []) for zone in zones),
+        "regional-context": len(context_features),
+        "agenda-windows": sum(len(zone.get("recommended_windows") or []) for zone in zones),
+        "preventive-actions": sum(len(zone.get("recommendations") or []) for zone in zones),
+    }
+    layer_catalog = [
+        {
+            "key": layer["key"],
+            "label": layer["label"],
+            "short_label": layer["short_label"],
+            "deck_group": layer["deck_group"],
+            "tone": layer["tone"],
+            "visible": layer["visible"],
+            "kind": layer["kind"],
+            "count": source_counts.get(layer["key"], 0),
+            "confidence": 82 if layer["key"] == "territorial-risk" else 76,
+        }
+        for layer in OCTOCITY_RENDERER_LAYERS
+    ]
+    updated_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    layer_registry = [
+        {
+            **layer,
+            "group": layer["deck_group"],
+            "icon": "target" if layer["key"] == "territorial-risk" else "layer",
+            "status": "ready" if layer["count"] else "empty",
+            "state_label": "ready" if layer["count"] else "empty",
+            "freshness": "synthetic fixture",
+            "freshness_at": updated_at,
+            "failure_reason": None,
+            "default_visible": bool(layer["visible"]),
+            "source_kind": "octocity_fixture",
+            "source_count": layer["count"],
+            "renderer_support": ["maplibre", "deck.gl", "svg-fallback"],
+            "tooltip": {
+                "title": layer["label"],
+                "body": "Synthetic Octocity workspace data for human-reviewed operating decisions.",
+            },
+        }
+        for layer in layer_catalog
+    ]
+    basemap_options = _map_basemap_options()
+    administrative_basemap = next(
+        option for option in basemap_options if option["key"] == "administrative"
+    )
+    active_layers = [layer["key"] for layer in OCTOCITY_RENDERER_LAYERS if layer["visible"]]
+    event_points = {"type": "FeatureCollection", "features": event_features}
+    top_zones = sorted(zones, key=lambda zone: int(zone.get("level") or 0), reverse=True)[:3]
+    return {
+        "map_version": "octocity_map_v1",
+        "rendering_profile": "octocity_operating_v1",
+        "time_range": "7d",
+        "available_time_ranges": MAP_TIME_RANGES,
+        "renderer_config": {
+            "renderer": "maplibre",
+            "rendering_profile": "octocity_operating_v1",
+            "fallback_renderer": "svg",
+            "basemap_policy": "public_osm_carto_with_synthetic_workspace_overlays",
+            "default_basemap": "administrative",
+            "style": administrative_basemap["style"],
+            "initial_view_state": camera_presets["country"],
+            "bounds": [
+                [OCTOCITY_MAP_BOUNDS["west"], OCTOCITY_MAP_BOUNDS["south"]],
+                [OCTOCITY_MAP_BOUNDS["east"], OCTOCITY_MAP_BOUNDS["north"]],
+            ],
+            "regional_bounds": [
+                [OCTOCITY_MAP_BOUNDS["west"], OCTOCITY_MAP_BOUNDS["south"]],
+                [OCTOCITY_MAP_BOUNDS["east"], OCTOCITY_MAP_BOUNDS["north"]],
+            ],
+            "attribution": "OSM/CARTO basemap · synthetic Octocity workspace signals",
+            "interaction_contract": {
+                "commands": sorted(MAP_COMMAND_INTENTS),
+                "scenario_modes": ["explorer", "comprendre", "decider"],
+                "selection": "zone",
+                "events": ["zone_selected", "map_state_updated", "source_panel_requested"],
+            },
+        },
+        "basemap_options": basemap_options,
+        "layer_catalog": layer_catalog,
+        "layer_registry": layer_registry,
+        "default_map_state": {
+            "basemap": "administrative",
+            "active_layers": active_layers,
+            "selected_zone": zones[0]["id"] if zones else None,
+            "camera": camera_presets["country"],
+            "time_range": "7d",
+            "mode": "explorer",
+        },
+        "geodata_metadata": {
+            "source": "Octocity synthetic operating fixture",
+            "license": "demo-only",
+            "synthetic": True,
+            "admin_levels": [],
+        },
+        "country_boundary": copy.deepcopy(empty_collection),
+        "district_boundaries": copy.deepcopy(empty_collection),
+        "admin_boundaries": copy.deepcopy(empty_collection),
+        "cities": {"type": "FeatureCollection", "features": context_features},
+        "region_scores": _region_scores(zones),
+        "event_points": event_points,
+        "maritime_snapshot": {
+            "mode": "disabled_for_octocity_fixture",
+            "density_zones": [],
+            "disruptions": [],
+            "synthetic": True,
+        },
+        "source_health": {
+            "status": "ready",
+            "mode": "synthetic_fixture",
+            "source_count": sum(source_counts.values()),
+        },
+        "forecast_signals": [
+            {
+                "id": f"forecast-{zone.get('id')}",
+                "zone_id": zone.get("id"),
+                "label": f"{zone.get('name')} operating outlook",
+                "score": zone.get("level"),
+                "synthetic": True,
+            }
+            for zone in top_zones
+        ],
+        "scenario_modes": [
+            {"key": "explorer", "label": "Explore", "goal": "Inspect synthetic signals"},
+            {"key": "comprendre", "label": "Understand", "goal": "Review sourced context"},
+            {"key": "decider", "label": "Decide", "goal": "Prepare a human-reviewed action"},
+        ],
+        "default_layer_groups": {
+            "situation": ["territorial-risk", "open-intelligence", "regional-context"],
+            "decision": ["agenda-windows", "preventive-actions"],
+        },
+        "tooltip_templates": {
+            layer["key"]: {
+                "title": layer["label"],
+                "body": "Synthetic Octocity workspace evidence.",
+            }
+            for layer in OCTOCITY_RENDERER_LAYERS
+        },
+        "source_counts": source_counts,
+        "geojson_sources": {
+            "zones": {"type": "FeatureCollection", "features": zone_features},
+            "markers": {"type": "FeatureCollection", "features": marker_features},
+            "context_markers": {"type": "FeatureCollection", "features": context_features},
+            "context_lines": {"type": "FeatureCollection", "features": line_features},
+            "event_points": event_points,
+            "maritime_area": copy.deepcopy(empty_collection),
+            "maritime_points": copy.deepcopy(empty_collection),
+            "maritime_routes": copy.deepcopy(empty_collection),
+            "maritime_density": copy.deepcopy(empty_collection),
+            "social_geo": copy.deepcopy(empty_collection),
+            "military_air": copy.deepcopy(empty_collection),
+            "border_tension": copy.deepcopy(empty_collection),
+            "satellite_footprint": copy.deepcopy(empty_collection),
+        },
+        "camera_presets": camera_presets,
+        "visual_effects": {
+            "zone_halo": True,
+            "marker_pulse": True,
+            "arc_links": [
+                {
+                    "source": [2.3522, 48.8566],
+                    "target": geography["centroid"],
+                    "tone": (zone_by_key.get(key) or {}).get("tone", "stable"),
+                    "level": (zone_by_key.get(key) or {}).get("level", 0),
+                    "label": f"Coordination {(zone_by_key.get(key) or {}).get('name', key)}",
+                }
+                for key, geography in OCTOCITY_ZONE_GEOGRAPHY.items()
+                if int((zone_by_key.get(key) or {}).get("level") or 0) >= 60
+            ],
+            "performance_policy": "disable_effects_on_low_power_device",
+        },
+    }
+
+
+def _coerce_map_bounds(value: Any) -> Optional[list[list[float]]]:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        west, south = float(value[0][0]), float(value[0][1])
+        east, north = float(value[1][0]), float(value[1][1])
+    except (IndexError, TypeError, ValueError):
+        return None
+    if west >= east or south >= north:
+        return None
+    return [[west, south], [east, north]]
+
+
+def _operator_map_bounds(map_row: WorkspaceMap) -> list[list[float]]:
+    settings = map_row.settings if isinstance(map_row.settings, dict) else {}
+    renderer = settings.get("renderer_config")
+    renderer = renderer if isinstance(renderer, dict) else {}
+    for candidate in (
+        renderer.get("bounds"),
+        settings.get("bounds"),
+        settings.get("geo_bounds"),
+    ):
+        bounds = _coerce_map_bounds(candidate)
+        if bounds:
+            return bounds
+    if str(map_row.country or "").strip().lower() == "france":
+        return [
+            [OCTOCITY_MAP_BOUNDS["west"], OCTOCITY_MAP_BOUNDS["south"]],
+            [OCTOCITY_MAP_BOUNDS["east"], OCTOCITY_MAP_BOUNDS["north"]],
+        ]
+    return [[-180.0, -85.0], [180.0, 85.0]]
+
+
+def _operator_zone_feature(
+    zone: dict[str, Any],
+    view_box: tuple[float, float, float, float],
+    bounds: list[list[float]],
+) -> Optional[dict[str, Any]]:
+    polygon = str(zone.get("polygon") or "")
+    coordinates = _polygon_to_lonlat(polygon, view_box, bounds=bounds)
+    geometry: Optional[dict[str, Any]] = None
+    if len(coordinates) >= 4:
+        geometry = {"type": "Polygon", "coordinates": [coordinates]}
+    else:
+        centroid = _point_to_lonlat(zone.get("centroid") or {}, view_box, bounds=bounds)
+        if centroid:
+            geometry = {"type": "Point", "coordinates": centroid}
+    if geometry is None:
+        return None
+    return {
+        "type": "Feature",
+        "id": str(zone.get("id") or zone.get("zone_id") or zone.get("name")),
+        "geometry": geometry,
+        "properties": {
+            "id": zone.get("id"),
+            "zone_id": zone.get("id"),
+            "zone_name": zone.get("name"),
+            "name": zone.get("name"),
+            "level": zone.get("level"),
+            "tone": zone.get("tone"),
+            "signals": zone.get("signals") or [],
+            "recommendations": zone.get("recommendations") or [],
+            "source": "workspace_operator_map",
+        },
+    }
+
+
+def _operator_workspace_map_renderer_payload(
+    map_row: WorkspaceMap,
+    zones: list[dict[str, Any]],
+) -> dict[str, Any]:
+    view_box = _parse_view_box(map_row.view_box)
+    bounds = _operator_map_bounds(map_row)
+    empty_collection: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    zone_features = [
+        feature
+        for zone in zones
+        if (feature := _operator_zone_feature(zone, view_box, bounds)) is not None
+    ]
+    marker_features = []
+    camera_presets: dict[str, dict[str, Any]] = {}
+    west, south = bounds[0]
+    east, north = bounds[1]
+    map_center = _point_to_lonlat(map_row.center or {}, view_box, bounds=bounds) or [
+        round((west + east) / 2, 5),
+        round((south + north) / 2, 5),
+    ]
+    camera_presets["country"] = {
+        "longitude": map_center[0],
+        "latitude": map_center[1],
+        "zoom": 5.4,
+        "pitch": 0,
+        "bearing": 0,
+        "duration_ms": 900,
+    }
+    for zone in zones:
+        centroid = _point_to_lonlat(zone.get("centroid") or {}, view_box, bounds=bounds)
+        if centroid is None:
+            continue
+        zone_key = str(zone.get("id") or zone.get("zone_id") or zone.get("name"))
+        marker_features.append(
+            {
+                "type": "Feature",
+                "id": f"{zone_key}-marker",
+                "geometry": {"type": "Point", "coordinates": centroid},
+                "properties": {
+                    "zone_id": zone.get("id"),
+                    "name": zone.get("name"),
+                    "level": zone.get("level"),
+                    "tone": zone.get("tone"),
+                    "source": "workspace_operator_map",
+                },
+            }
+        )
+        camera_presets[zone_key] = {
+            "longitude": centroid[0],
+            "latitude": centroid[1],
+            "zoom": 7.0,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 850,
+        }
+
+    source_counts = {
+        "territorial-risk": len(zones),
+        "open-intelligence": sum(
+            len(zone.get("drivers") or zone.get("signals") or []) for zone in zones
+        ),
+        "agenda-windows": sum(
+            len(zone.get("recommended_windows") or []) for zone in zones
+        ),
+        "preventive-actions": sum(
+            len(zone.get("recommendations") or []) for zone in zones
+        ),
+    }
+    layer_specs = (
+        ("territorial-risk", "Workspace zones", "Zones", "zone_score"),
+        ("open-intelligence", "Workspace signals", "Signals", "signal"),
+        ("agenda-windows", "Action windows", "Windows", "agenda_window"),
+        ("preventive-actions", "Reviewed actions", "Actions", "action"),
+    )
+    layer_catalog = [
+        {
+            "key": key,
+            "label": label,
+            "short_label": short_label,
+            "deck_group": "workspace",
+            "tone": "cyan" if key == "territorial-risk" else "blue",
+            "visible": True,
+            "kind": kind,
+            "count": source_counts.get(key, 0),
+            "confidence": 75,
+        }
+        for key, label, short_label, kind in layer_specs
+    ]
+    updated_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    layer_registry = [
+        {
+            **layer,
+            "group": "Workspace",
+            "icon": "target" if layer["key"] == "territorial-risk" else "layer",
+            "status": "ready" if layer["count"] else "empty",
+            "state_label": "ready" if layer["count"] else "empty",
+            "freshness": "workspace data",
+            "freshness_at": updated_at,
+            "failure_reason": None,
+            "default_visible": True,
+            "source_kind": "workspace_operator_map",
+            "source_count": layer["count"],
+            "renderer_support": ["maplibre", "deck.gl", "svg-fallback"],
+            "tooltip": {
+                "title": layer["label"],
+                "body": "Workspace-scoped operator data.",
+            },
+        }
+        for layer in layer_catalog
+    ]
+    basemap_options = _map_basemap_options()
+    default_basemap = "administrative"
+    default_style = next(
+        option["style"] for option in basemap_options if option["key"] == default_basemap
+    )
+    settings = map_row.settings if isinstance(map_row.settings, dict) else {}
+    configured_renderer = settings.get("renderer_config")
+    configured_renderer = configured_renderer if isinstance(configured_renderer, dict) else {}
+    renderer_config = {
+        "renderer": "maplibre",
+        "rendering_profile": "workspace_operator_v1",
+        "fallback_renderer": "svg",
+        "basemap_policy": "workspace_operator_with_public_basemap",
+        "default_basemap": default_basemap,
+        "style": default_style,
+        "initial_view_state": camera_presets["country"],
+        "bounds": bounds,
+        "regional_bounds": bounds,
+        "attribution": "Workspace operator data · OpenStreetMap/CARTO basemap",
+        "interaction_contract": {
+            "commands": sorted(MAP_COMMAND_INTENTS),
+            "scenario_modes": ["explorer", "comprendre", "decider"],
+            "selection": "zone",
+            "events": ["zone_selected", "map_state_updated", "source_panel_requested"],
+        },
+    }
+    renderer_config.update(configured_renderer)
+    renderer_config["bounds"] = bounds
+    renderer_config["regional_bounds"] = bounds
+    event_points = {"type": "FeatureCollection", "features": copy.deepcopy(marker_features)}
+    active_layers = [layer["key"] for layer in layer_catalog]
+    forecast_signals = [
+        {
+            "id": f"forecast-{zone.get('id')}",
+            "zone_id": zone.get("id"),
+            "title": f"{zone.get('name')} · {zone.get('tone') or 'monitoring'}",
+            "horizon": "workspace-defined",
+            "score": int(zone.get("level") or 0),
+            "confidence": 70,
+            "drivers": zone.get("drivers") or zone.get("signals") or [],
+            "recommended_action": (zone.get("recommendations") or ["Review signal"])[0],
+            "source_refs": zone.get("sources") or [],
+        }
+        for zone in zones
+    ]
+    return {
+        "map_version": "workspace_map_v1",
+        "rendering_profile": "workspace_operator_v1",
+        "time_range": "7d",
+        "available_time_ranges": MAP_TIME_RANGES,
+        "renderer_config": renderer_config,
+        "basemap_options": basemap_options,
+        "layer_catalog": layer_catalog,
+        "layer_registry": layer_registry,
+        "default_map_state": {
+            "basemap": renderer_config.get("default_basemap") or default_basemap,
+            "active_layers": active_layers,
+            "selected_zone": zones[0].get("id") if zones else None,
+            "camera": camera_presets["country"],
+            "time_range": "7d",
+            "mode": "explorer",
+        },
+        "geodata_metadata": {
+            "source": "Workspace operator map",
+            "license": "workspace-defined",
+            "synthetic": False,
+            "admin_levels": [],
+        },
+        "country_boundary": copy.deepcopy(empty_collection),
+        "district_boundaries": copy.deepcopy(empty_collection),
+        "admin_boundaries": copy.deepcopy(empty_collection),
+        "cities": copy.deepcopy(empty_collection),
+        "region_scores": _region_scores(zones),
+        "event_points": event_points,
+        "maritime_snapshot": {
+            "mode": "workspace_operator",
+            "ports": [],
+            "density_zones": [],
+            "disruptions": [],
+        },
+        "source_health": {
+            "status": "ready",
+            "updated_at": updated_at,
+            "layers": layer_registry,
+            "notes": "Workspace-scoped operator sources.",
+        },
+        "forecast_signals": forecast_signals,
+        "scenario_modes": _scenario_modes_payload(),
+        "default_layer_groups": {
+            "explorer": active_layers,
+            "comprendre": active_layers,
+            "decider": active_layers,
+        },
+        "tooltip_templates": _tooltip_templates(),
+        "source_counts": source_counts,
+        "geojson_sources": {
+            "zones": {"type": "FeatureCollection", "features": zone_features},
+            "markers": {"type": "FeatureCollection", "features": marker_features},
+            "context_markers": copy.deepcopy(empty_collection),
+            "context_lines": copy.deepcopy(empty_collection),
+            "event_points": event_points,
+            "maritime_area": copy.deepcopy(empty_collection),
+            "maritime_points": copy.deepcopy(empty_collection),
+            "maritime_routes": copy.deepcopy(empty_collection),
+            "maritime_density": copy.deepcopy(empty_collection),
+            "social_geo": copy.deepcopy(empty_collection),
+            "military_air": copy.deepcopy(empty_collection),
+            "border_tension": copy.deepcopy(empty_collection),
+            "satellite_footprint": copy.deepcopy(empty_collection),
+        },
+        "camera_presets": camera_presets,
+        "visual_effects": {
+            "zone_halo": True,
+            "marker_pulse": True,
+            "arc_links": [
+                {
+                    "source": map_center,
+                    "target": feature["geometry"]["coordinates"],
+                    "tone": feature["properties"].get("tone"),
+                    "level": feature["properties"].get("level"),
+                    "label": f"Workspace {feature['properties'].get('name')}",
+                }
+                for feature in marker_features
+            ],
+            "performance_policy": "disable_effects_on_low_power_device",
+        },
+    }
+
+
+def workspace_map_renderer_payload(
+    map_row: WorkspaceMap,
+    zones: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if _is_octocity_map(map_row):
+        return _octocity_workspace_map_renderer_payload(map_row, zones)
+    if _is_operator_map(map_row):
+        return _operator_workspace_map_renderer_payload(map_row, zones)
     view_box = _parse_view_box(map_row.view_box)
     source_counts = _source_counts(zones)
     basemap_options = _map_basemap_options()
@@ -2181,14 +3490,24 @@ def _zone_lonlat_centroid(zone: dict[str, Any], view_box: tuple[float, float, fl
     return _point_to_lonlat(zone.get("centroid") or {}, view_box)
 
 
-def _ensure_map_layers(db: DBSession, map_row: WorkspaceMap) -> None:
+def _ensure_map_layers(
+    db: DBSession,
+    map_row: WorkspaceMap,
+    *,
+    layer_specs: Optional[list[dict[str, Any]]] = None,
+    seed_label: Optional[str] = None,
+) -> None:
     existing = {
         layer.key
         for layer in db.query(WorkspaceMapLayer.key).filter(WorkspaceMapLayer.map_id == map_row.id).all()
     }
-    for layer in DEFAULT_RENDERER_LAYERS:
+    for layer in layer_specs or DEFAULT_RENDERER_LAYERS:
         if layer["key"] in existing:
             continue
+        payload = {
+            **layer["payload"],
+            **({"seed": seed_label} if seed_label == "octocity" else {}),
+        }
         db.add(
             WorkspaceMapLayer(
                 id=str(uuid4()),
@@ -2197,7 +3516,7 @@ def _ensure_map_layers(db: DBSession, map_row: WorkspaceMap) -> None:
                 label=layer["label"],
                 kind=layer["kind"],
                 visible=layer["visible"],
-                payload=layer["payload"],
+                payload=payload,
                 sort_order=layer["sort_order"],
             )
         )
@@ -2273,7 +3592,26 @@ def _parse_view_box(view_box: Optional[str]) -> tuple[float, float, float, float
     return 200.0, 40.0, 470.0, 480.0
 
 
-def _point_to_lonlat(point: dict[str, Any], view_box: tuple[float, float, float, float]) -> Optional[list[float]]:
+def _point_to_lonlat(
+    point: Any,
+    view_box: tuple[float, float, float, float],
+    *,
+    bounds: Optional[list[list[float]]] = None,
+) -> Optional[list[float]]:
+    if isinstance(point, (list, tuple)) and len(point) >= 2:
+        try:
+            return [float(point[0]), float(point[1])]
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(point, dict):
+        return None
+    longitude = point.get("longitude", point.get("lon"))
+    latitude = point.get("latitude", point.get("lat"))
+    if longitude is not None and latitude is not None:
+        try:
+            return [float(longitude), float(latitude)]
+        except (TypeError, ValueError):
+            return None
     try:
         x = float(point.get("x"))
         y = float(point.get("y"))
@@ -2282,19 +3620,34 @@ def _point_to_lonlat(point: dict[str, Any], view_box: tuple[float, float, float,
     min_x, min_y, width, height = view_box
     x_ratio = max(0.0, min(1.0, (x - min_x) / width))
     y_ratio = max(0.0, min(1.0, (y - min_y) / height))
-    lon = IVORY_COAST_BOUNDS["west"] + x_ratio * (IVORY_COAST_BOUNDS["east"] - IVORY_COAST_BOUNDS["west"])
-    lat = IVORY_COAST_BOUNDS["north"] - y_ratio * (IVORY_COAST_BOUNDS["north"] - IVORY_COAST_BOUNDS["south"])
+    active_bounds = bounds or [
+        [IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]],
+        [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]],
+    ]
+    west, south = active_bounds[0]
+    east, north = active_bounds[1]
+    lon = west + x_ratio * (east - west)
+    lat = north - y_ratio * (north - south)
     return [round(lon, 5), round(lat, 5)]
 
 
-def _polygon_to_lonlat(polygon: str, view_box: tuple[float, float, float, float]) -> list[list[float]]:
+def _polygon_to_lonlat(
+    polygon: str,
+    view_box: tuple[float, float, float, float],
+    *,
+    bounds: Optional[list[list[float]]] = None,
+) -> list[list[float]]:
     coords: list[list[float]] = []
     for token in polygon.split():
         if "," not in token:
             continue
         try:
             x_raw, y_raw = token.split(",", 1)
-            point = _point_to_lonlat({"x": float(x_raw), "y": float(y_raw)}, view_box)
+            point = _point_to_lonlat(
+                {"x": float(x_raw), "y": float(y_raw)},
+                view_box,
+                bounds=bounds,
+            )
         except ValueError:
             point = None
         if point:
@@ -2360,20 +3713,30 @@ def _find_zone_payload(zones: list[dict[str, Any]], target: Optional[str]) -> Op
     return None
 
 
-def _find_port_payload(target: Optional[str]) -> Optional[dict[str, Any]]:
+def _find_port_payload(target: Optional[str], *, octocity: bool = False) -> Optional[dict[str, Any]]:
     if not target:
         return None
     normalized = target.lower().strip()
-    aliases = {
-        "abidjan": "port-abidjan",
-        "port-abidjan": "port-abidjan",
-        "vridi": "port-abidjan",
-        "san pedro": "port-san-pedro",
-        "san-pedro": "port-san-pedro",
-        "port-san-pedro": "port-san-pedro",
-    }
+    if octocity:
+        ports = OCTOCITY_PORTS
+        aliases = {
+            "marseille": "port-marseille",
+            "port-marseille": "port-marseille",
+            "nantes": "port-nantes",
+            "port-nantes": "port-nantes",
+        }
+    else:
+        ports = MARITIME_PORTS
+        aliases = {
+            "abidjan": "port-abidjan",
+            "port-abidjan": "port-abidjan",
+            "vridi": "port-abidjan",
+            "san pedro": "port-san-pedro",
+            "san-pedro": "port-san-pedro",
+            "port-san-pedro": "port-san-pedro",
+        }
     canonical = aliases.get(normalized, normalized)
-    for port in MARITIME_PORTS:
+    for port in ports:
         if canonical in {str(port.get("id", "")).lower(), str(port.get("name", "")).lower()}:
             return port
         if canonical and canonical in str(port.get("name", "")).lower():
@@ -2381,20 +3744,41 @@ def _find_port_payload(target: Optional[str]) -> Optional[dict[str, Any]]:
     return None
 
 
-def _extract_zone_target(query: str) -> Optional[str]:
-    for key, labels in {
-        "zone-nord": ("nord", "korhogo", "frontaliere nord"),
-        "zone-ouest": ("ouest", "man", "liberia", "guinee"),
-        "zone-centre": ("centre", "yamoussoukro"),
-        "zone-sud": ("sud", "abidjan", "littoral"),
-        "zone-est": ("est", "ghana", "bondoukou"),
-    }.items():
+def _extract_zone_target(query: str, *, octocity: bool = False) -> Optional[str]:
+    labels_by_zone = (
+        {
+            "zone-nord": ("nord", "lille"),
+            "zone-ouest": ("ouest", "rennes", "bordeaux"),
+            "zone-centre": ("centre", "paris", "lyon"),
+            "zone-sud": ("sud", "toulouse", "nice"),
+            "zone-est": ("est", "strasbourg"),
+        }
+        if octocity
+        else {
+            "zone-nord": ("nord", "korhogo", "frontaliere nord"),
+            "zone-ouest": ("ouest", "man", "liberia", "guinee"),
+            "zone-centre": ("centre", "yamoussoukro"),
+            "zone-sud": ("sud", "abidjan", "littoral"),
+            "zone-est": ("est", "ghana", "bondoukou"),
+        }
+    )
+    for key, labels in labels_by_zone.items():
         if any(label in query for label in labels):
             return key
     return None
 
 
-def _extract_port_target(query: str) -> Optional[str]:
+def _extract_port_target(query: str, *, octocity: bool = False) -> Optional[str]:
+    if octocity:
+        if "nantes" in query:
+            return "port-nantes"
+        if "marseille" in query:
+            return "port-marseille"
+        if any(label in query for label in ("abidjan", "golfe de guin", "douane")):
+            return None
+        if any(label in query for label in ("port", "logistique", "maritime", "navire", "bateau")):
+            return "port-marseille"
+        return None
     if any(label in query for label in ("san pedro", "san-pedro")):
         return "port-san-pedro"
     if any(label in query for label in ("port", "abidjan", "vridi", "douane", "douanes", "maritime", "navire", "bateau")):
@@ -2409,8 +3793,11 @@ def _command_explanation(
     *,
     selected_port: Optional[dict[str, Any]] = None,
     time_range: Optional[str] = None,
+    octocity: bool = False,
 ) -> str:
     if intent == "reset_view":
+        if octocity:
+            return "Vue Octocity réinitialisée avec les couches opérationnelles par défaut."
         return "Vue Côte d'Ivoire réinitialisée avec les couches ministérielles par défaut."
     if intent == "set_basemap":
         return f"Fond cartographique basculé sur {basemap or 'le fond par défaut'}."
@@ -2419,6 +3806,11 @@ def _command_explanation(
     if intent == "set_layers":
         return "Couches ministérielles ajustées pour la lecture territoriale demandée."
     if intent in {"focus_port", "show_vessel_snapshot", "show_disruption"} and selected_port:
+        if octocity:
+            return (
+                f"Focus logistique sur {selected_port.get('name')} : signaux ouverts, contexte France et actions "
+                "recommandées activés pour une lecture Octocity à validation humaine."
+            )
         return (
             f"Focus portuaire sur {selected_port.get('name')} : couche maritime, douanes, presse et actions "
             "préventives activées pour une lecture économique et gouvernementale."
@@ -2449,9 +3841,28 @@ def _zone_sources(selected: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _port_sources(selected_port: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+def _port_sources(
+    selected_port: Optional[dict[str, Any]],
+    *,
+    octocity: bool = False,
+) -> list[dict[str, Any]]:
     if not selected_port:
-        return [{"title": "Maritime / douanes", "kind": "maritime_snapshot", "source_label": "Couche maritime"}]
+        return [{"title": "Logistics snapshot", "kind": "logistics_snapshot", "source_label": "Octocity fixture"}]
+    if octocity:
+        return [
+            {
+                "title": selected_port.get("name"),
+                "kind": "logistics_gateway",
+                "source_label": "Octocity synthetic logistics fixture",
+                "port": selected_port.get("id"),
+            },
+            {
+                "title": "Synthetic operating corridor",
+                "kind": "logistics_route",
+                "source_label": "Octocity operating context",
+                "port": selected_port.get("id"),
+            },
+        ]
     return [
         {
             "title": selected_port.get("name"),

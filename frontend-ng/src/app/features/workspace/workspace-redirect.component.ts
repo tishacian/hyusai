@@ -1,6 +1,7 @@
 import { Component, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
 /**
  * Entry point for `/workspace` — redirects to the current workspace's settings page.
@@ -17,12 +18,20 @@ import { WorkspaceService } from '@app/core/workspace.service';
 export class WorkspaceRedirectComponent {
   private readonly workspaceService = inject(WorkspaceService);
   private readonly router = inject(Router);
+  private readonly navigationTelemetry = inject(NavigationTelemetryService);
 
   constructor() {
     effect(() => {
       const current = this.workspaceService.current();
       if (current) {
-        this.router.navigate(['/workspace', current.slug, 'settings'], { replaceUrl: true });
+        const resolvedRoute = `/workspace/${encodeURIComponent(current.slug)}/settings`;
+        this.navigationTelemetry.registerRedirect({
+          requestedRoute: this.router.url || '/workspace',
+          resolvedRoute,
+          owner: 'workspace_entrypoint',
+          reason: 'workspace_settings_entrypoint',
+        });
+        this.router.navigateByUrl(resolvedRoute, { replaceUrl: true });
       }
     });
 

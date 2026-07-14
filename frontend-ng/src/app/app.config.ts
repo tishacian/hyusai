@@ -11,6 +11,7 @@ import { provideLucideIcons } from './shared/ui/icon-registry';
 import { AuthBootstrapService } from './core/auth-bootstrap.service';
 import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 import { HelpService } from './core/help.service';
+import { NavigationTelemetryService } from './core/navigation-telemetry.service';
 
 Chart.register(...registerables);
 
@@ -34,6 +35,12 @@ export const appConfig: ApplicationConfig = {
         return Promise.resolve();
       },
       deps: [HelpService],
+    },
+    {
+      provide: APP_INITIALIZER,
+      multi: true,
+      useFactory: (svc: NavigationTelemetryService) => () => svc.start(),
+      deps: [NavigationTelemetryService],
     },
     provideToastr({
       positionClass: 'toast-top-right',

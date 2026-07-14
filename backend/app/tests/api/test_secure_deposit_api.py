@@ -4,9 +4,9 @@ import io
 import json
 import zipfile
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import pytest
 
 from app.api.v1.endpoints import secure_deposit
 from app.core.config import settings
@@ -209,7 +209,7 @@ def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypat
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(
@@ -264,7 +264,7 @@ def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, m
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(
@@ -556,7 +556,7 @@ def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkey
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(
@@ -972,7 +972,7 @@ def test_sftp_operations_lists_active_sidecar_upload(db_session, monkeypatch, tm
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(
@@ -1015,7 +1015,7 @@ def test_sftp_reconciliation_dry_run_then_quarantine(db_session, monkeypatch, tm
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(
@@ -1089,7 +1089,7 @@ def test_sftp_quarantine_skips_partial_that_became_recent(db_session, monkeypatc
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
     link, _ = create_link(

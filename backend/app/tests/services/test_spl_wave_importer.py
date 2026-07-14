@@ -12,8 +12,8 @@ from app.services.secure_deposit import (
 )
 from app.services.spl_wave_importer import (
     WaveLimits,
-    build_v3_archive_wave_plan,
     build_v2_wave_plans,
+    build_v3_archive_wave_plan,
     build_v3_wave_plans,
     build_wave_plan,
     execute_wave_plan,
@@ -130,7 +130,7 @@ def test_build_wave_plan_dry_run(db_session, monkeypatch, tmp_path):
     user = __import__("app.models.user", fromlist=["User"]).User(
         id="user-1",
         username="thib",
-        email="thibaud.ishacian@datategy.net",
+        email="operator@example.test",
     )
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -186,7 +186,7 @@ def test_build_v2_wave_plans_splits_akk200(db_session, monkeypatch, tmp_path):
     from app.services.secure_deposit import create_link
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -256,7 +256,7 @@ def test_build_wave_plan_allows_solo_archive_over_wave_doc_limit(db_session, mon
     from app.services.secure_deposit import create_link
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -317,7 +317,7 @@ def test_build_v3_wave_plans_isolates_large_archive(db_session, monkeypatch, tmp
     from app.services.spl_wave_importer import record_wave_ledger
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -423,7 +423,7 @@ def test_build_v3_archive_wave_plan_targets_exact_archive(db_session, monkeypatc
     from app.services.spl_wave_importer import record_wave_ledger
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -523,7 +523,7 @@ def test_v3_archive_wave_prefers_received_duplicate_over_rejected(db_session, mo
     )
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -707,7 +707,7 @@ def test_execute_wave_plan_collision_guard_no_clobber(db_session, monkeypatch, t
     )
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(
@@ -794,7 +794,11 @@ def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monk
     from app.models.secure_deposit import DepositFile
     from app.models.user import User
     from app.models.workspace import Workspace
-    from app.services.knowledge_collections import create_or_get_collection, document_manifest_key, original_key
+    from app.services.knowledge_collections import (
+        create_or_get_collection,
+        document_manifest_key,
+        original_key,
+    )
     from app.services.object_store import get_object_store
     from app.services.secure_deposit import create_link
 
@@ -806,7 +810,7 @@ def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monk
     )
 
     workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
-    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
     link, _ = create_link(

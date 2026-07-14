@@ -4,6 +4,7 @@ import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TitleBarComponent } from './title-bar.component';
 import { SideRailComponent } from './side-rail.component';
@@ -87,6 +88,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
 export class ShellComponent {
   private readonly workspaceService = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
+  private readonly navigationTelemetry = inject(NavigationTelemetryService);
   protected readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
@@ -117,16 +119,24 @@ export class ShellComponent {
 
   constructor() {
     this.workspaceService.loadWorkspaces().subscribe(() => {
+      this.navigationTelemetry.flushDeferred();
       const path = (this.router.url || '/').split('?')[0];
-      const businessRedirect = this.navigationProfile.businessRedirectFor(this.router.url || '/');
-      if (businessRedirect) {
-        this.router.navigateByUrl(businessRedirect);
+      const businessResolution = this.navigationProfile.businessResolutionFor(this.router.url || '/');
+      if (businessResolution) {
+        this.navigationTelemetry.registerRedirect(businessResolution);
+        this.router.navigateByUrl(businessResolution.resolvedRoute);
         return;
       }
       if (this.workspaceService.isDemoMode() && (path === '/' || path === '/hypervisor')) {
         const defaultRoute =
           (this.workspaceService.current()?.settings?.['default_route'] as string | undefined) ||
           '/hypervisor/mission-room/cockpit';
+        this.navigationTelemetry.registerRedirect({
+          requestedRoute: this.router.url || '/',
+          resolvedRoute: defaultRoute,
+          owner: 'workspace_shell',
+          reason: 'workspace_default_route',
+        });
         this.router.navigateByUrl(defaultRoute);
       }
     });

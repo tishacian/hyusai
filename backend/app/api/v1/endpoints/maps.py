@@ -14,6 +14,8 @@ from app.models.workspace import Workspace
 from app.models.workspace_map import WorkspaceMapScore, WorkspaceMapZone
 from app.services.workspace_jobs import create_workspace_job, serialize_job
 from app.services.workspace_maps import (
+    OCTOCITY_MAP_FIXTURE_PROFILE,
+    SENTINEL_MAP_SLUG,
     build_map_command,
     ensure_workspace_map_seed,
     get_workspace_map,
@@ -24,7 +26,6 @@ from app.services.workspace_maps import (
     serialize_score,
     serialize_zone,
 )
-
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ async def maps_list(
     db: DBSession = Depends(get_db),
 ):
     rows = list_workspace_maps(db, workspace)
-    return {"maps": [serialize_map(row, db) for row in rows]}
+    return {"maps": [serialize_map(row, db, workspace=workspace) for row in rows]}
 
 
 @router.get("/{map_id_or_slug}")
@@ -71,7 +72,10 @@ async def maps_detail(
         row = get_workspace_map(db, workspace, map_id_or_slug)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Workspace map not found") from exc
-    return {"map": serialize_map(row, db), **mission_room_map_payload(db, workspace)}
+    return {
+        "map": serialize_map(row, db, workspace=workspace),
+        **mission_room_map_payload(db, workspace, map_row=row),
+    }
 
 
 @router.get("/{map_id_or_slug}/zones")
@@ -90,7 +94,20 @@ async def maps_zones(
         score.zone_id: score
         for score in db.query(WorkspaceMapScore).filter(WorkspaceMapScore.map_id == row.id).order_by(WorkspaceMapScore.computed_at.desc()).all()
     }
-    return {"zones": [serialize_zone(zone, scores.get(zone.id)) for zone in zones]}
+    map_settings = row.settings if isinstance(row.settings, dict) else {}
+    octocity = map_settings.get("fixture_profile") == OCTOCITY_MAP_FIXTURE_PROFILE
+    operator = not octocity and row.slug != SENTINEL_MAP_SLUG
+    return {
+        "zones": [
+            serialize_zone(
+                zone,
+                scores.get(zone.id),
+                octocity=octocity,
+                operator=operator,
+            )
+            for zone in zones
+        ]
+    }
 
 
 @router.post("/{map_id_or_slug}/score")
@@ -115,7 +132,11 @@ async def maps_score(
     )
     result = score_map_zones(db, workspace, row, job=job, user=user)
     db.commit()
-    return {"job": serialize_job(job), "result": result, **mission_room_map_payload(db, workspace)}
+    return {
+        "job": serialize_job(job),
+        "result": result,
+        **mission_room_map_payload(db, workspace, map_row=row),
+    }
 
 
 @router.post("/{map_id_or_slug}/command")

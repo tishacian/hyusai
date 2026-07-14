@@ -8,8 +8,13 @@ demo tenant. It is synthetic, idempotent, and safe to reset.
 Run from the backend directory:
 
 ```bash
-python -m scripts.seed_showcase_workspace --reset
+python -m scripts.seed_showcase_workspace \
+  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" \
+  --reset
 ```
+
+`AGENTIUM_EMAIL` must identify the existing operator account that should own
+the workspace. The command fails closed when no owner is supplied.
 
 Useful options:
 
@@ -17,7 +22,7 @@ Useful options:
 python -m scripts.seed_showcase_workspace \
   --workspace-slug agentium-showcase \
   --workspace-name "Agentium Showcase" \
-  --owner-email thibaud.ishacian@datategy.net \
+  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" \
   --reset
 ```
 
@@ -62,7 +67,8 @@ collection returns grounded results.
 - Slug: `agentium-showcase`
 - Name: `Agentium Showcase`
 - Mode: `portfolio`
-- Owner membership: `thibaud.ishacian@datategy.net` when that user exists
+- Owner membership: the existing account passed explicitly with
+  `--owner-email`
 
 The script writes ten synthetic documents and attempts to ingest them into
 the workspace `documents` collection:

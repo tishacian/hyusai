@@ -28,8 +28,9 @@
 # Requirements: bash, curl, python3.
 #
 # Usage:
-#   ./scripts/predemo_reset.sh                       # default credentials & host
-#   AGENTIUM_HOST=https://staging./scripts/predemo_reset.sh
+#   AGENTIUM_EMAIL='<operator-email>' \
+#   AGENTIUM_PASSWORD='<from-secret-manager>' \
+#   ./scripts/predemo_reset.sh
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -37,8 +38,8 @@ set -euo pipefail
 
 AGENTIUM_HOST="${AGENTIUM_HOST:-https://agentium.papai.ai}"
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-sentinel-ci}"
-AGENTIUM_EMAIL="${AGENTIUM_EMAIL:-thibaud.ishacian@datategy.net}"
-AGENTIUM_PASSWORD="${AGENTIUM_PASSWORD:-ponfib-jaNca5-sisfoc}"
+: "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}"
+: "${AGENTIUM_PASSWORD:?AGENTIUM_PASSWORD is required}"
 DEMO_TZ="${DEMO_TZ:-Africa/Abidjan}"
 DEMO_DATE="${DEMO_DATE:-$(TZ="${DEMO_TZ}" date +%F)}"
 DEMO_TIME="${DEMO_TIME:-$(TZ="${DEMO_TZ}" date +%H:%M:%S)}"

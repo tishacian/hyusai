@@ -5,7 +5,7 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const HOST = (process.env.AGENTIUM_HOST || 'https://agentium.papai.ai').replace(/\/+$/, '');
-export const EMAIL = process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net';
+export const EMAIL = process.env.AGENTIUM_EMAIL || '';
 export const PASSWORD = process.env.AGENTIUM_PASSWORD || '';
 export const WORKSPACE = 'sentinel-ci';
 export const NAV_TIMEOUT = 45_000;
@@ -100,8 +100,8 @@ export async function installProbes(page, state) {
 }
 
 export async function login(page, state, outDir) {
-  if (!PASSWORD) {
-    throw new Error('AGENTIUM_PASSWORD is required for QA login');
+  if (!EMAIL || !PASSWORD) {
+    throw new Error('AGENTIUM_EMAIL and AGENTIUM_PASSWORD are required for QA login');
   }
   await installProbes(page, state);
   await page.goto(`${HOST}/`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });

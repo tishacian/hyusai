@@ -1,13 +1,22 @@
 import { HttpInterceptorFn, HttpErrorResponse, HttpRequest, HttpHandlerFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, switchMap, throwError, BehaviorSubject, filter, take } from 'rxjs';
+import {
+  Observable,
+  catchError,
+  defer,
+  finalize,
+  map,
+  shareReplay,
+  switchMap,
+  tap,
+  throwError,
+} from 'rxjs';
 import { TokenStorageService } from './token-storage.service';
 import { AuthApiService } from './auth-api.service';
 import { WorkspaceService } from './workspace.service';
 
-let isRefreshing = false;
-const refreshSubject = new BehaviorSubject<string | null>(null);
+let refreshRequest$: Observable<string> | null = null;
 
 function isWrappedAuthError(error: HttpErrorResponse): boolean {
   if (error.status !== 500) return false;
@@ -48,7 +57,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         !req.url.includes('/auth/') &&
         !isPublicDepositRequest(req.url)
       ) {
-        return handle401(req, next, tokenStorage, authApi, router);
+        // Retry the fully scoped request. Passing the original request here
+        // drops X-Workspace-Slug and lets the backend fall back to another
+        // membership after a token refresh.
+        return handle401(authReq, next, tokenStorage, authApi, router);
       }
       return throwError(() => error);
     })
@@ -62,44 +74,64 @@ function handle401(
   authApi: AuthApiService,
   router: Router
 ) {
-  if (!isRefreshing) {
-    isRefreshing = true;
-    refreshSubject.next(null);
-
-    const refreshToken = tokenStorage.getRefreshToken();
-    if (!refreshToken) {
-      isRefreshing = false;
-      tokenStorage.clear();
-      router.navigate(['/auth/signin'], { queryParams: { redirectURL: router.url } });
-      return throwError(() => new Error('Session expired'));
-    }
-
-    return authApi.refresh(refreshToken).pipe(
-      switchMap((tokens) => {
-        isRefreshing = false;
-        tokenStorage.saveToken(tokens.token);
-        if (tokens.refresh_token) {
-          tokenStorage.saveRefreshToken(tokens.refresh_token);
-        }
-        refreshSubject.next(tokens.token);
-        return next(
-          req.clone({ setHeaders: { Authorization: `Bearer ${tokens.token}` } })
-        );
-      }),
-      catchError((err) => {
-        isRefreshing = false;
-        tokenStorage.clear();
-        router.navigate(['/auth/signin'], { queryParams: { redirectURL: router.url } });
-        return throwError(() => err);
-      })
-    );
+  const requestToken = req.headers.get('Authorization');
+  const currentToken = tokenStorage.getToken();
+  if (currentToken && currentToken !== requestToken) {
+    // Another request already completed the shared refresh while this response
+    // was still in flight. Replay once with the current bearer instead of
+    // rotating the refresh token a second time; keep the request's workspace.
+    return next(req.clone({ setHeaders: { Authorization: currentToken } }));
   }
 
-  return refreshSubject.pipe(
-    filter((token) => token !== null),
-    take(1),
-    switchMap((token) =>
-      next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))
-    )
+  return sharedAccessTokenRefresh(tokenStorage, authApi, router).pipe(
+    // Keep the retry outside the refresh error boundary. A valid new token does
+    // not become invalid merely because the business endpoint returns 403/500.
+    switchMap((token) => next(
+      req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
+    ))
   );
+}
+
+function sharedAccessTokenRefresh(
+  tokenStorage: TokenStorageService,
+  authApi: AuthApiService,
+  router: Router,
+): Observable<string> {
+  if (refreshRequest$) return refreshRequest$;
+
+  const refreshToken = tokenStorage.getRefreshToken();
+  if (!refreshToken) {
+    expireSession(tokenStorage, router);
+    return throwError(() => new Error('Session expired'));
+  }
+
+  let request$: Observable<string>;
+  request$ = defer(() => authApi.refresh(refreshToken)).pipe(
+    tap((tokens) => {
+      tokenStorage.saveToken(tokens.token);
+      if (tokens.refresh_token) {
+        tokenStorage.saveRefreshToken(tokens.refresh_token);
+      }
+    }),
+    map((tokens) => tokens.token),
+    catchError((error) => {
+      // This boundary covers only the refresh exchange. Every subscriber sees
+      // the same terminal error and no queued request can remain suspended.
+      expireSession(tokenStorage, router);
+      return throwError(() => error);
+    }),
+    finalize(() => {
+      // refCount also runs this path when all callers cancel. A later 401 can
+      // therefore start a fresh exchange instead of waiting on stale state.
+      if (refreshRequest$ === request$) refreshRequest$ = null;
+    }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+  refreshRequest$ = request$;
+  return request$;
+}
+
+function expireSession(tokenStorage: TokenStorageService, router: Router): void {
+  tokenStorage.clear();
+  void router.navigate(['/auth/signin'], { queryParams: { redirectURL: router.url } });
 }

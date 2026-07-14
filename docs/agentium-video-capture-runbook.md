@@ -1,7 +1,7 @@
 # Agentium video capture runbook
 
 Goal: qualify and run a local capture bench against `https://agentium.papai.ai`
-with the demo account `thibaud.ishacian@datategy.net`.
+with an explicitly configured demo account.
 
 The current film scenario is the **Agentium C-level Operating System +
 Flow Builder + Octocity** premium demo: Connectors make the platform concrete,
@@ -16,8 +16,8 @@ Playwright dependencies live in `scripts/playwright/node_modules`.
 The account password must stay outside git:
 
 ```bash
-export AGENTIUM_EMAIL=thibaud.ishacian@datategy.net
-export AGENTIUM_PASSWORD='...'
+export AGENTIUM_EMAIL='<operator-email>'
+export AGENTIUM_PASSWORD='<from-secret-manager>'
 export AGENTIUM_HOST=https://agentium.papai.ai
 ```
 

@@ -7,8 +7,10 @@ this module provides a portable demo seed and deterministic advisory payloads.
 from __future__ import annotations
 
 import copy
+import logging
+import os
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Iterable, Optional
 from uuid import uuid4
 
 from sqlalchemy import func
@@ -24,31 +26,44 @@ from app.models.skill import Skill
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.audit_logger import emit_audit_event
-from app.services.workspace_calendar import (
-    ensure_calendar_seed,
-    list_events as list_calendar_events,
-    serialize_event as serialize_calendar_event,
-    summary_payload as calendar_summary_payload,
-)
 from app.services.action_plans import (
     ensure_action_plan_seed,
     list_action_items,
     serialize_action_item,
+)
+from app.services.action_plans import (
     summary_payload as action_plan_summary_payload,
 )
+from app.services.audit_logger import emit_audit_event
+from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
+from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
 from app.services.scenario_engine import generate_scenarios
 from app.services.visual_intelligence import (
     dashboard_payload as visual_dashboard_payload,
+)
+from app.services.visual_intelligence import (
     ensure_visual_intelligence_seed,
 )
-from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
-from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
+from app.services.workspace_calendar import (
+    ensure_calendar_seed,
+)
+from app.services.workspace_calendar import (
+    list_events as list_calendar_events,
+)
+from app.services.workspace_calendar import (
+    serialize_event as serialize_calendar_event,
+)
+from app.services.workspace_calendar import (
+    summary_payload as calendar_summary_payload,
+)
 from app.services.workspace_maps import (
     IVORY_COAST_BOUNDS,
+    OCTOCITY_MAP_BOUNDS,
     ensure_workspace_map_seed,
     mission_room_map_payload,
 )
+
+logger = logging.getLogger(__name__)
 
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
@@ -63,7 +78,14 @@ OCTOCITY_WORKSPACE_SLUG = "octocity-mission-room"
 OCTOCITY_WORKSPACE_NAME = "Octocity Mission Room"
 OCTOCITY_ASSISTANT_NAME = "OCTAVE"
 OCTOCITY_MISSION_ROOM_PROFILE = "octocity_institutional_v1"
-OCTOCITY_OWNER_EMAILS = ("thibaud.ishacian@datategy.net",)
+
+
+def _octocity_owner_emails() -> tuple[str, ...]:
+    return tuple(
+        email.strip()
+        for email in os.environ.get("OCTOCITY_OWNER_EMAILS", "").split(",")
+        if email.strip()
+    )
 
 
 _OCTOCITY_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
@@ -341,6 +363,60 @@ NAVIGATION_ITEMS = [
     {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
     {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
 ]
+
+
+OCTOCITY_NAVIGATION_ITEMS = [
+    {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "octocity_mission_room", "object": "Workbench"},
+    {"key": "strategie", "label": "Carte", "glyph": "sliders", "variant": "octocity_territorial_map", "object": "Workbench"},
+    {"key": "securite", "label": "Securite", "glyph": "shield", "variant": "octocity_intelligence", "object": "Workbench"},
+    {"key": "reputation", "label": "Reputation", "glyph": "pulse", "variant": "octocity_intelligence", "object": "Run"},
+    {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "octocity_mission_room", "object": "Workbench"},
+    {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "octocity_intelligence", "object": "Run"},
+    {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "octocity_decision_desk", "object": "Review Queue"},
+]
+
+_NAVIGATION_REQUIRED_FIELDS = ("key", "label", "glyph", "variant", "object")
+
+
+def _default_navigation_items(workspace: Workspace) -> list[dict[str, Any]]:
+    defaults = OCTOCITY_NAVIGATION_ITEMS if is_octocity_mission_room(workspace) else NAVIGATION_ITEMS
+    return [dict(item) for item in defaults]
+
+
+def _validated_navigation_items(
+    workspace: Workspace,
+    configured_navigation: Any,
+) -> list[dict[str, Any]]:
+    """Return a complete, stable workspace navigation or its safe default.
+
+    Mission Room navigation is a seven-item shell contract.  A partially
+    written JSON setting must not silently truncate the shell, and malformed
+    rows must never turn a navigation request into a 500.  Valid custom labels
+    and variants remain supported when the full key set is present.
+    """
+    defaults = _default_navigation_items(workspace)
+    expected_keys = [item["key"] for item in defaults]
+    if not isinstance(configured_navigation, list) or len(configured_navigation) != len(defaults):
+        return defaults
+
+    configured_by_key: dict[str, dict[str, Any]] = {}
+    for raw_item in configured_navigation:
+        if not isinstance(raw_item, dict):
+            return defaults
+        item = dict(raw_item)
+        if any(
+            not isinstance(item.get(field), str) or not str(item[field]).strip()
+            for field in _NAVIGATION_REQUIRED_FIELDS
+        ):
+            return defaults
+        key = str(item["key"])
+        if key not in expected_keys or key in configured_by_key:
+            return defaults
+        configured_by_key[key] = item
+
+    if set(configured_by_key) != set(expected_keys):
+        return defaults
+    return [configured_by_key[key] for key in expected_keys]
 
 
 SOURCES = [
@@ -3001,7 +3077,11 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
 
 
 def _system_map(db: DBSession, workspace: Workspace) -> dict[str, System]:
-    systems = db.query(System).filter(System.workspace_id == workspace.id).all()
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .all()
+    )
     result: dict[str, System] = {}
     for system in systems:
         variant = (system.flow_definition or {}).get("variant")
@@ -3052,10 +3132,18 @@ def _system_for_navigation_item(
 
 
 def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
-    all_systems = db.query(System).filter(System.workspace_id == workspace.id).all()
+    all_systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .all()
+    )
     systems_by_variant = _system_map(db, workspace)
     settings = workspace.settings if isinstance(workspace.settings, dict) else {}
     mission_room_settings = settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}
+    navigation_items = _validated_navigation_items(
+        workspace,
+        mission_room_settings.get("navigation"),
+    )
     brand = (
         mission_room_settings.get("brand")
         if isinstance(mission_room_settings.get("brand"), dict)
@@ -3089,13 +3177,16 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         "assistant": "/api/v1/chat/stream",
     }
     items: list[dict[str, Any]] = []
-    for item in NAVIGATION_ITEMS:
+    for item in navigation_items:
+        key = str(item.get("key") or "")
+        if key not in api_by_view:
+            continue
         system = _system_for_navigation_item(systems_by_variant, all_systems, item)
         items.append(
             {
                 **item,
-                "route": f"{MISSION_ROOM_ROOT}/{item['key']}",
-                "api": api_by_view[item["key"]],
+                "route": f"{MISSION_ROOM_ROOT}/{key}",
+                "api": api_by_view[key],
                 "system_id": system.id if system else None,
                 "system_name": system.name if system else None,
                 "workbench": item["object"],
@@ -3315,7 +3406,13 @@ def _sovereign_indicators(overview: dict[str, Any], posture: dict[str, Any]) -> 
     ]
 
 
-def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
+def _fused_map_preview(
+    mapped: dict[str, Any],
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    *,
+    workspace: Workspace | None = None,
+) -> dict[str, Any]:
     zones = mapped.get("zones") or _clone(MAP_ZONES)
     score_summary = mapped.get("score_summary") or {}
     top_zone = score_summary.get("top_zone") or (max(zones, key=lambda zone: zone.get("level", 0)) if zones else {})
@@ -3323,7 +3420,7 @@ def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dic
     map_system = mapped.get("map_system") or {}
     default_state = map_system.get("default_map_state") or {}
     camera_presets = map_system.get("camera_presets") or {}
-    renderer = map_system.get("renderer") or {}
+    renderer = map_system.get("renderer_config") or map_system.get("renderer") or {}
     camera = (
         camera_presets.get(top_zone_id)
         or camera_presets.get("zone-nord")
@@ -3336,9 +3433,14 @@ def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dic
             "bearing": 0,
         }
     )
+    fallback_bounds = (
+        OCTOCITY_MAP_BOUNDS
+        if is_octocity_mission_room(workspace)
+        else IVORY_COAST_BOUNDS
+    )
     bounds = renderer.get("bounds") or [
-        [IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]],
-        [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]],
+        [fallback_bounds["west"], fallback_bounds["south"]],
+        [fallback_bounds["east"], fallback_bounds["north"]],
     ]
     zone_scores = [
         {
@@ -4659,7 +4761,7 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         if next_event:
             overview["kpis"]["next_meeting_in"] = f"{next_event.get('time')} · {next_event.get('title')}"
     agenda_day = _agenda_day(overview, calendar_summary)
-    fused_map_preview = _fused_map_preview(mapped, news, visual)
+    fused_map_preview = _fused_map_preview(mapped, news, visual, workspace=workspace)
     arbitration_cards = _arbitration_cards_payload()
     satellite = resolve_satellite_scenes(workspace)
     intelligence_feeds = _intelligence_feeds_payload(news, visual, mapped, source_freshness, satellite)
@@ -7428,7 +7530,7 @@ def _octocity_settings() -> dict[str, Any]:
             },
             "root_route": MISSION_ROOM_ROOT,
             "default_view": "cockpit",
-            "navigation": NAVIGATION_ITEMS,
+            "navigation": [dict(item) for item in OCTOCITY_NAVIGATION_ITEMS],
         },
     }
 
@@ -7454,14 +7556,22 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
     settings = dict(workspace.settings or {})
     settings.update(_octocity_settings())
     workspace.settings = settings
-    members_added = _ensure_workspace_members(
-        db,
-        workspace,
-        OCTOCITY_OWNER_EMAILS,
-        role="owner",
-        role_template="workspace_owner",
-        custom_label="octocity:video-owner",
-    )
+    owner_emails = _octocity_owner_emails()
+    if owner_emails:
+        members_added = _ensure_workspace_members(
+            db,
+            workspace,
+            owner_emails,
+            role="owner",
+            role_template="workspace_owner",
+            custom_label="octocity:video-owner",
+        )
+    else:
+        members_added = 0
+        logger.warning(
+            "Octocity owner auto-provisioning skipped: "
+            "OCTOCITY_OWNER_EMAILS is empty; existing memberships are preserved"
+        )
 
     for slug, name, description in OCTOCITY_COLLECTIONS:
         _ensure_collection(db, workspace, slug, name, description)
@@ -7472,36 +7582,85 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
     ensure_calendar_seed(db, workspace)
     ensure_action_plan_seed(db, workspace)
 
-    mission_before = (
-        db.query(System)
-        .filter(System.workspace_id == workspace.id, System.name == "OCTAVE Mission Room")
-        .count()
-    )
-    _ensure_system(
-        db,
-        workspace,
-        name="OCTAVE Mission Room",
-        objective="Consolider signaux, projets, carte, decisions et actions institutionnelles fictives sous controle humain.",
-        capability_slug="government_mission_room",
-        skill_slugs=[
-            "ministerial_briefing_v1",
-            "news_signal_synthesis_v1",
-            "project_risk_explainer_v1",
-            "territorial_signal_map_v1",
-            "instruction_draft_v1",
-            "calendar_daily_summary_v1",
-            "action_plan_status_v1",
-            "maritime_snapshot_read_v1",
-            "voice_tandem_oracle_v1",
-            "audit_log_v1",
-        ],
-        variant="octocity_mission_room",
-        template_prefix="octocity",
-        created_by="system:octocity_seed",
-    )
-    systems_created = 1 if mission_before == 0 else 0
+    system_specs = [
+        {
+            "name": "OCTAVE Mission Room",
+            "objective": "Consolider signaux, projets, carte, decisions et actions institutionnelles fictives sous controle humain.",
+            "capability_slug": "government_mission_room",
+            "skill_slugs": [
+                "ministerial_briefing_v1",
+                "news_signal_synthesis_v1",
+                "project_risk_explainer_v1",
+                "territorial_signal_map_v1",
+                "instruction_draft_v1",
+                "calendar_daily_summary_v1",
+                "action_plan_status_v1",
+                "maritime_snapshot_read_v1",
+                "voice_tandem_oracle_v1",
+                "audit_log_v1",
+            ],
+            "variant": "octocity_mission_room",
+        },
+        {
+            "name": "OCTAVE Territorial Map",
+            "objective": "Relier les zones, signaux et projets fictifs pour la coordination territoriale Octocity.",
+            "capability_slug": "territorial_action_map",
+            "skill_slugs": [
+                "territorial_signal_map_v1",
+                "territorial_action_window_v1",
+                "map_layer_read_v1",
+                "map_zone_score_v1",
+                "map_command_apply_v1",
+                "audit_log_v1",
+            ],
+            "variant": "octocity_territorial_map",
+        },
+        {
+            "name": "OCTAVE Open Intelligence",
+            "objective": "Qualifier les signaux publics synthetiques et leur niveau de confiance pour Octocity.",
+            "capability_slug": "open_intelligence_watch",
+            "skill_slugs": [
+                "intelligence_batch_v1",
+                "news_signal_synthesis_v1",
+                "source_registry_refresh_v1",
+                "osint_signal_prioritize_v1",
+                "audit_log_v1",
+            ],
+            "variant": "octocity_intelligence",
+            "execution_mode": "continuous_monitoring",
+        },
+        {
+            "name": "OCTAVE Decision Desk",
+            "objective": "Preparer des arbitrages fictifs sources et soumis a validation humaine dans Octocity.",
+            "capability_slug": "executive_instruction_drafting",
+            "skill_slugs": [
+                "instruction_draft_v1",
+                "draft_response_email_v1",
+                "decision_option_rank_v1",
+                "claim_audit_v1",
+                "audit_log_v1",
+            ],
+            "variant": "octocity_decision_desk",
+        },
+    ]
+    systems_created = 0
+    for spec in system_specs:
+        before = db.query(System).filter(System.workspace_id == workspace.id, System.name == spec["name"]).count()
+        system = _ensure_system(
+            db,
+            workspace,
+            **spec,
+            template_prefix="octocity",
+            created_by="system:octocity_seed",
+        )
+        if before == 0 and system:
+            systems_created += 1
 
-    map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "OCTAVE Mission Room").first()
+    # Test and bootstrap sessions disable autoflush.  Flush the newly-created
+    # systems before resolving the map owner so an upgrade can rebind an
+    # existing WorkspaceMap to OCTAVE Territorial Map in the same seed run.
+    db.flush()
+    map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "OCTAVE Territorial Map").first()
     ensure_workspace_map_seed(db, workspace, system_id=map_system.id if map_system else None)
 
     from app.services.systems.bootstrap import (

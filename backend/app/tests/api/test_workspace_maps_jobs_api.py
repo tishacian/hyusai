@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import maps, workspace_jobs
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.workspace_maps import ensure_workspace_map_seed
+from app.models.workspace_map import WorkspaceMap, WorkspaceMapScore, WorkspaceMapZone
+from app.services.workspace_maps import (
+    OCTOCITY_MAP_FIXTURE_PROFILE,
+    OCTOCITY_MAP_SLUG,
+    ensure_workspace_map_seed,
+)
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -148,3 +155,270 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert reset_command.json()["intent"] == "reset_view"
     assert reset_command.json()["map_state"]["selected_zone"] is None
     assert reset_command.json()["map_state"]["camera"]["bearing"] == 0
+
+
+def test_map_command_builds_payload_from_the_requested_map_in_a_multi_map_workspace(db_session):
+    workspace = Workspace(
+        id="workspace-multi-map-command",
+        slug="multi-map-command",
+        name="Multi-map command",
+        mode="standard",
+    )
+    user = User(
+        id="user-multi-map-command",
+        username="multi-map-operator",
+        email="multi-map-operator@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    default_map = ensure_workspace_map_seed(db_session, workspace)
+
+    requested_map = WorkspaceMap(
+        id="requested-map-id",
+        workspace_id=workspace.id,
+        slug="requested-operating-map",
+        name="Requested operating map",
+        description="A second operator-owned map.",
+        country="France",
+        projection="operator_projection_v1",
+        view_box="0 0 100 100",
+        center={"x": 50, "y": 50},
+        settings={"operator": True},
+    )
+    requested_zone = WorkspaceMapZone(
+        id="requested-zone-id",
+        map_id=requested_map.id,
+        zone_key="requested-zone",
+        name="Requested map zone",
+        level=88,
+        tone="critical",
+        polygon="10,10 90,10 90,90 10,90",
+        centroid={"x": 50, "y": 50},
+        meta_data={
+            "signals": ["Second-map signal"],
+            "recommendations": ["Review the requested map"],
+        },
+        source_refs=["requested-map-source"],
+    )
+    requested_score = WorkspaceMapScore(
+        id="requested-score-id",
+        map_id=requested_map.id,
+        zone_id=requested_zone.id,
+        score=88,
+        level_label="critical",
+        drivers=["Second-map signal"],
+        recommendations=[{"title": "Review the requested map"}],
+        recommended_windows=[{"label": "Requested-map window"}],
+    )
+    db_session.add_all([requested_map, requested_zone, requested_score])
+    db_session.commit()
+
+    command = _client(db_session, workspace, user).post(
+        "/api/v1/maps/requested-operating-map/command",
+        json={"intent": "focus_zone", "target": "requested-zone"},
+    )
+
+    assert command.status_code == 200
+    body = command.json()
+    assert body["map_id"] == requested_map.id
+    assert body["map_id"] != default_map.id
+    assert body["map_slug"] == requested_map.slug
+    assert body["target"] == requested_zone.zone_key
+    assert body["target_label"] == requested_zone.name
+    assert body["map_state"]["selected_zone"] == requested_zone.zone_key
+    assert body["sources"][0]["title"] == "requested-map-source"
+
+
+def test_octocity_multi_map_detail_and_score_keep_the_requested_operator_map(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-multi-map",
+        slug="octocity-mission-room",
+        name="Octocity multi-map",
+        mode="demo",
+        settings={"mission_room": {"profile": "octocity_institutional_v1"}},
+    )
+    user = User(
+        id="user-octocity-multi-map",
+        username="octocity-multi-map-operator",
+        email="octocity-multi-map@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    fixture_map = ensure_workspace_map_seed(db_session, workspace)
+    fixture_score_ids = {
+        score.id
+        for score in db_session.query(WorkspaceMapScore)
+        .filter_by(map_id=fixture_map.id)
+        .all()
+    }
+
+    operator_map = WorkspaceMap(
+        id="octocity-operator-map-id",
+        workspace_id=workspace.id,
+        slug="octocity-operator-map",
+        name="Octocity operator map",
+        description="An independently managed operator map.",
+        country="France",
+        projection="operator_local_grid_v1",
+        view_box="0 0 100 100",
+        center={"x": 50, "y": 50},
+        settings={
+            "operator": True,
+            "renderer_config": {"bounds": [[1.0, 43.0], [5.0, 49.0]]},
+        },
+    )
+    operator_zone = WorkspaceMapZone(
+        id="octocity-operator-zone-id",
+        map_id=operator_map.id,
+        zone_key="operator-sector-alpha",
+        name="Operator sector Alpha",
+        level=91,
+        tone="critical",
+        polygon="10,10 90,10 90,90 10,90",
+        centroid={"x": 50, "y": 50},
+        meta_data={
+            "signals": ["Operator-only signal"],
+            "recommendations": ["Operator-only review"],
+        },
+        source_refs=["operator-only-source"],
+    )
+    db_session.add_all([operator_map, operator_zone])
+    db_session.commit()
+
+    client = _client(db_session, workspace, user)
+    detailed = client.get(f"/api/v1/maps/{operator_map.slug}")
+    scored = client.post(f"/api/v1/maps/{operator_map.slug}/score")
+    fixture_detail = client.get(f"/api/v1/maps/{fixture_map.slug}")
+
+    assert detailed.status_code == 200
+    assert scored.status_code == 200
+    assert fixture_detail.status_code == 200
+    for body in (detailed.json(), scored.json()):
+        assert body["map_system"]["id"] == operator_map.id
+        assert body["map_system"]["slug"] == operator_map.slug
+        assert body["map_system"]["map_version"] == "workspace_map_v1"
+        assert body["map_system"]["rendering_profile"] == "workspace_operator_v1"
+        assert body["map_system"]["renderer_config"]["bounds"] == [
+            [1.0, 43.0],
+            [5.0, 49.0],
+        ]
+        assert {zone["id"] for zone in body["zones"]} == {
+            operator_zone.zone_key,
+        }
+        assert body["score_summary"]["top_zone"]["id"] == operator_zone.zone_key
+        assert body["map"]["projection"] == operator_map.projection
+        rendered_zones = body["map_system"]["geojson_sources"]["zones"]["features"]
+        assert {feature["properties"]["zone_id"] for feature in rendered_zones} == {
+            operator_zone.zone_key,
+        }
+        assert operator_zone.zone_key in body["map_system"]["camera_presets"]
+
+    assert scored.json()["result"]["map_id"] == operator_map.id
+    assert {
+        score.id
+        for score in db_session.query(WorkspaceMapScore)
+        .filter_by(map_id=fixture_map.id)
+        .all()
+    } == fixture_score_ids
+    assert fixture_detail.json()["map_system"]["id"] == fixture_map.id
+    assert fixture_detail.json()["map_system"]["map_version"] == "octocity_map_v1"
+    assert fixture_detail.json()["map_system"]["renderer_config"]["bounds"] == [
+        [-5.3, 42.35],
+        [8.1, 50.8],
+    ]
+
+
+def test_octocity_maps_api_returns_only_the_octocity_fixture(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-map-api",
+        slug="octocity-mission-room",
+        name="Octocity Mission Room",
+        mode="demo",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+        },
+    )
+    user = User(
+        id="user-octocity-map-api",
+        username="octocity-operator",
+        email="octocity-operator@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    map_row = ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    client = _client(db_session, workspace, user)
+    listed = client.get("/api/v1/maps/")
+    detailed = client.get(f"/api/v1/maps/{OCTOCITY_MAP_SLUG}")
+    zones = client.get(f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/zones")
+    command = client.post(
+        f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/command",
+        json={"intent": "focus_zone", "target": "zone-sud"},
+    )
+    port_command = client.post(
+        f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/command",
+        json={"intent": "focus_port", "target": "abidjan"},
+    )
+    reset_command = client.post(
+        f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/command",
+        json={"intent": "reset_view"},
+    )
+    scored = client.post(f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/score")
+    recommendations = client.get(f"/api/v1/maps/{OCTOCITY_MAP_SLUG}/recommendations")
+
+    assert listed.status_code == 200
+    assert detailed.status_code == 200
+    assert zones.status_code == 200
+    assert command.status_code == 200
+    assert port_command.status_code == 200
+    assert reset_command.status_code == 200
+    assert scored.status_code == 200
+    assert recommendations.status_code == 200
+    listed_map = listed.json()["maps"][0]
+    assert listed_map["id"] == map_row.id
+    assert listed_map["slug"] == OCTOCITY_MAP_SLUG
+    assert listed_map["country"] == "France"
+    assert listed_map["settings"]["fixture_profile"] == OCTOCITY_MAP_FIXTURE_PROFILE
+    assert listed_map["map_version"] == "octocity_map_v1"
+    assert listed_map["rendering_profile"] == "octocity_operating_v1"
+    assert listed_map["country_boundary"]["features"] == []
+    assert listed_map["district_boundaries"]["features"] == []
+    assert listed_map["admin_boundaries"]["features"] == []
+    assert {feature["properties"]["name"] for feature in listed_map["cities"]["features"]} >= {
+        "Paris",
+        "Lyon",
+        "Marseille",
+    }
+    assert {feature["properties"]["zone_id"] for feature in listed_map["geojson_sources"]["markers"]["features"]} == {
+        "zone-nord",
+        "zone-ouest",
+        "zone-centre",
+        "zone-est",
+        "zone-sud",
+    }
+    assert command.json()["map_slug"] == OCTOCITY_MAP_SLUG
+    assert command.json()["target"] == "zone-sud"
+    assert port_command.json()["target"] == "port-marseille"
+    assert port_command.json()["map_state"]["selected_port"] == "port-marseille"
+    assert "maritime-traffic" not in port_command.json()["map_state"]["active_layers"]
+    assert reset_command.json()["explanation"].startswith("Vue Octocity")
+
+    api_text = json.dumps(
+        {
+            "listed": listed.json(),
+            "detailed": detailed.json(),
+            "zones": zones.json(),
+            "command": command.json(),
+            "port_command": port_command.json(),
+            "reset_command": reset_command.json(),
+            "scored": scored.json(),
+            "recommendations": recommendations.json(),
+        },
+        ensure_ascii=False,
+    ).lower()
+    for forbidden in ("sentinel", "cote d'ivoire", "côte d'ivoire", "abidjan", "aya"):
+        assert forbidden not in api_text

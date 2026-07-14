@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.skills_registry.seed import SEED_SKILLS
+from app.models.workspace import Workspace
+from app.models.workspace_map import (
+    WorkspaceMap,
+    WorkspaceMapScore,
+    WorkspaceMapSignal,
+    WorkspaceMapZone,
+)
 from app.services.skills_registry import wrappers
+from app.services.skills_registry.seed import SEED_SKILLS
+from app.services.workspace_maps import OCTOCITY_MAP_SLUG, SENTINEL_MAP_SLUG
 
 
 @pytest.mark.asyncio
@@ -342,3 +350,127 @@ async def test_chain_wrappers_forward_retrieval_policy_fields(monkeypatch):
     assert captured["deep_retrieval"] is True
     assert captured["context_collection"] == "andritz-notices-techniques-spl-pilot"
     assert captured["retrieval_filters"] == {"source_kind": "markup"}
+
+
+@pytest.mark.asyncio
+async def test_map_wrappers_default_to_each_workspaces_own_map(db_session, monkeypatch):
+    monkeypatch.setattr("app.services.workspace_maps.fetch_vessels_in_bbox", lambda **_kwargs: [])
+    sentinel = Workspace(
+        id="workspace-wrapper-sentinel",
+        slug="wrapper-sentinel",
+        name="Wrapper Sentinel",
+        mode="demo",
+        settings={},
+    )
+    octocity = Workspace(
+        id="workspace-wrapper-octocity",
+        slug="octocity-mission-room",
+        name="Wrapper Octocity",
+        mode="demo",
+        settings={"mission_room": {"profile": "octocity_institutional_v1"}},
+    )
+    db_session.add_all([sentinel, octocity])
+    db_session.commit()
+
+    for workspace, expected_slug in (
+        (sentinel, SENTINEL_MAP_SLUG),
+        (octocity, OCTOCITY_MAP_SLUG),
+    ):
+        context = {"db": db_session, "workspace_id": workspace.id}
+        scored = await wrappers._map_zone_score_v1({}, context)
+        commanded = await wrappers._map_command_apply_v1(
+            {"intent": "reset_view"},
+            context,
+        )
+
+        assert scored["job"]["input_ref"]["slug"] == expected_slug
+        assert scored["result"]["map_id"] == commanded["map_id"]
+        assert commanded["map_slug"] == expected_slug
+
+    octocity_default = await wrappers._map_layer_read_v1(
+        {},
+        {"db": db_session, "workspace_id": octocity.id},
+    )
+    assert octocity_default["map_system"]["slug"] == OCTOCITY_MAP_SLUG
+
+    operator_map = WorkspaceMap(
+        id="wrapper-operator-map-id",
+        workspace_id=octocity.id,
+        slug="wrapper-operator-map",
+        name="Wrapper operator map",
+        description="A second map used to verify explicit wrapper bindings.",
+        country="France",
+        projection="wrapper_operator_v1",
+        view_box="0 0 100 100",
+        center={"x": 50, "y": 50},
+        settings={"renderer_config": {"bounds": [[0.0, 42.0], [6.0, 50.0]]}},
+    )
+    operator_zone = WorkspaceMapZone(
+        id="wrapper-operator-zone-id",
+        map_id=operator_map.id,
+        zone_key="wrapper-operator-zone",
+        name="Wrapper operator zone",
+        level=87,
+        tone="critical",
+        polygon="10,10 90,10 90,90 10,90",
+        centroid={"x": 50, "y": 50},
+        meta_data={
+            "signals": ["Wrapper operator signal"],
+            "recommendations": ["Wrapper operator recommendation"],
+        },
+        source_refs=["wrapper-operator-source"],
+    )
+    operator_score = WorkspaceMapScore(
+        id="wrapper-operator-score-id",
+        map_id=operator_map.id,
+        zone_id=operator_zone.id,
+        score=87,
+        level_label="critical",
+        drivers=["Wrapper operator signal"],
+        recommendations=[{"title": "Wrapper explicit recommendation"}],
+        recommended_windows=[],
+    )
+    db_session.add_all([operator_map, operator_zone, operator_score])
+    db_session.commit()
+    explicit_payload = {"map_slug": operator_map.slug}
+    octocity_context = {"db": db_session, "workspace_id": octocity.id}
+
+    explicit_layer = await wrappers._map_layer_read_v1(
+        explicit_payload,
+        octocity_context,
+    )
+    explicit_recommendations = await wrappers._map_recommendation_generate_v1(
+        explicit_payload,
+        octocity_context,
+    )
+    explicit_signal = await wrappers._map_signal_attach_v1(
+        {
+            **explicit_payload,
+            "zone_key": operator_zone.zone_key,
+            "title": "Explicit wrapper attachment",
+        },
+        octocity_context,
+    )
+
+    assert explicit_layer["map_system"]["id"] == operator_map.id
+    assert {zone["id"] for zone in explicit_layer["zones"]} == {
+        operator_zone.zone_key,
+    }
+    assert explicit_recommendations["recommendations"] == [
+        {"title": "Wrapper explicit recommendation"},
+    ]
+    assert explicit_recommendations["score_summary"]["top_zone"]["id"] == (
+        operator_zone.zone_key
+    )
+    assert explicit_signal["map_id"] == operator_map.id
+    assert explicit_signal["map_slug"] == operator_map.slug
+    attached = db_session.query(WorkspaceMapSignal).filter_by(
+        id=explicit_signal["signal"]["id"]
+    ).one()
+    assert attached.map_id == operator_map.id
+
+    default_signal = await wrappers._map_signal_attach_v1(
+        {"zone_key": "zone-nord", "title": "Default Octocity attachment"},
+        octocity_context,
+    )
+    assert default_signal["map_slug"] == OCTOCITY_MAP_SLUG

@@ -32,7 +32,8 @@ SharePoint jobs.
 
 ### Showcase Seed Is Reset-First
 
-`python -m scripts.seed_showcase_workspace --reset` is the supported path.
+`python -m scripts.seed_showcase_workspace --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" --reset`
+is the supported path.
 Running the seed repeatedly without `--reset` may append story rows such as
 runs, audit events, chat messages, and SharePoint jobs.
 

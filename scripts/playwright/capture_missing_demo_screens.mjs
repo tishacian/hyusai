@@ -9,9 +9,15 @@ import { chromium } from 'playwright';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
 const HOST = (process.env.AGENTIUM_HOST || 'https://agentium.papai.ai').replace(/\/+$/, '');
-const EMAIL = process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net';
-const PASSWORD = process.env.AGENTIUM_PASSWORD || 'ponfib-jaNca5-sisfoc';
+const EMAIL = requiredEnv('AGENTIUM_EMAIL');
+const PASSWORD = requiredEnv('AGENTIUM_PASSWORD');
 const OUT_DIR =
   process.env.OUT_DIR ||
   '/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy';

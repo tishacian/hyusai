@@ -1,23 +1,36 @@
 from __future__ import annotations
 
-from app.models.capability import Capability
+import json
+
+import pytest
+
 from app.models.action_plan import WorkspaceActionItem
+from app.models.audit import AuditLog
 from app.models.calendar import WorkspaceCalendarEvent
+from app.models.capability import Capability
 from app.models.intelligence import FeedSource
 from app.models.knowledge_collection import KnowledgeCollection
-from app.models.rag_preset import RagPreset
 from app.models.knowledge_guide import KnowledgeGuide
+from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace_map import (
+    WorkspaceMap,
+    WorkspaceMapLayer,
+    WorkspaceMapScore,
+    WorkspaceMapSignal,
+    WorkspaceMapZone,
+)
 from app.models.workspace_visual import WorkspaceVisualSource
-from app.services.intelligence.batch import ensure_intelligence_defaults
+from app.services.demo_time_context import resolve_demo_date
 from app.services.document_intelligence import resolve_document_profile
+from app.services.intelligence.batch import ensure_intelligence_defaults
 from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import (
     OCTOCITY_MISSION_ROOM_PROFILE,
-    OCTOCITY_OWNER_EMAILS,
     OCTOCITY_WORKSPACE_SLUG,
+    SENTINEL_WORKSPACE_SLUG,
     cockpit_payload,
     ensure_octocity_mission_room_workspace,
     ensure_sentinel_ci_workspace,
@@ -25,11 +38,16 @@ from app.services.mission_room import (
     navigation_payload,
     octocity_forbidden_terms_present,
     present_payload_for_workspace,
-    SENTINEL_WORKSPACE_SLUG,
 )
 from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
-from app.services.demo_time_context import resolve_demo_date
+from app.services.workspace_maps import (
+    OCTOCITY_MAP_FIXTURE_PROFILE,
+    OCTOCITY_MAP_SLUG,
+    SENTINEL_MAP_SLUG,
+    ensure_workspace_map_seed,
+    handle_map_chat_query,
+)
 
 
 def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
@@ -178,11 +196,15 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert preset.config["asyncRetrieval"] is True
 
 
-def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
+def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
+    db_session, monkeypatch, caplog
+):
+    owner_email = "octocity-owner@example.test"
+    monkeypatch.setenv("OCTOCITY_OWNER_EMAILS", owner_email)
     owner = User(
         id="user-octocity-owner",
         username="octocity-owner",
-        email=OCTOCITY_OWNER_EMAILS[0],
+        email=owner_email,
         role="admin",
         is_active=True,
     )
@@ -191,6 +213,7 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
 
     seed_skills_and_capabilities(db_session)
     first = ensure_octocity_mission_room_workspace(db_session)
+    monkeypatch.delenv("OCTOCITY_OWNER_EMAILS")
     second = ensure_octocity_mission_room_workspace(db_session)
 
     workspace = db_session.query(Workspace).filter(Workspace.slug == OCTOCITY_WORKSPACE_SLUG).one()
@@ -198,6 +221,9 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     assert second["workspace_created"] == 0
     assert first["members_added"] == 1
     assert second["members_added"] == 0
+    assert "existing memberships are preserved" in caplog.text
+    assert first["systems_created"] == 6
+    assert second["systems_created"] == 0
     assert workspace.name == "Octocity Mission Room"
     assert workspace.mode == "demo"
     assert workspace.settings["workspace_app_label"] == "Octocity Mission Room"
@@ -210,9 +236,45 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     ]
     assert workspace.settings["mission_room"]["profile"] == OCTOCITY_MISSION_ROOM_PROFILE
     assert workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
+    assert db_session.query(WorkspaceMember).filter_by(
+        workspace_id=workspace.id,
+        user_id=owner.id,
+    ).one()
 
-    system_names = {row.name for row in db_session.query(System).filter_by(workspace_id=workspace.id).all()}
-    assert {"OCTAVE Mission Room", "Workspace Chat", "Knowledge Capture"}.issubset(system_names)
+    systems = db_session.query(System).filter_by(workspace_id=workspace.id).all()
+    system_names = {row.name for row in systems}
+    assert {
+        "OCTAVE Mission Room",
+        "OCTAVE Territorial Map",
+        "OCTAVE Open Intelligence",
+        "OCTAVE Decision Desk",
+        "Workspace Chat",
+        "Knowledge Capture",
+    }.issubset(system_names)
+    octave_systems = [row for row in systems if row.name.startswith("OCTAVE ")]
+    assert {
+        (row.flow_definition or {}).get("variant")
+        for row in octave_systems
+    } == {
+        "octocity_mission_room",
+        "octocity_territorial_map",
+        "octocity_intelligence",
+        "octocity_decision_desk",
+    }
+    assert all(str((row.flow_definition or {}).get("template_id", "")).startswith("octocity-") for row in octave_systems)
+    assert all("sentinel" not in f"{row.name} {row.objective} {row.flow_definition}".lower() for row in octave_systems)
+    capability_slugs = {
+        row.id: row.slug
+        for row in db_session.query(Capability)
+        .filter(Capability.id.in_([system.capability_id for system in octave_systems]))
+        .all()
+    }
+    assert {row.name: capability_slugs[row.capability_id] for row in octave_systems} == {
+        "OCTAVE Mission Room": "government_mission_room",
+        "OCTAVE Territorial Map": "territorial_action_map",
+        "OCTAVE Open Intelligence": "open_intelligence_watch",
+        "OCTAVE Decision Desk": "executive_instruction_drafting",
+    }
 
     collection_slugs = {
         row.slug
@@ -237,6 +299,10 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
 
     cockpit = present_payload_for_workspace(workspace, cockpit_payload(workspace, db_session))
     assert cockpit["workspace"]["slug"] == OCTOCITY_WORKSPACE_SLUG
+    assert cockpit["fused_map_preview"]["geo_preview"]["camera"]["bounds"] == [
+        [-5.3, 42.35],
+        [8.1, 50.8],
+    ]
     assert octocity_forbidden_terms_present(cockpit) == []
 
     mission_map = present_payload_for_workspace(workspace, map_payload(workspace, db_session))
@@ -257,6 +323,462 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     assert member.role == "member"
     assert member.role_template == "workspace_member"
     assert member.custom_labels == ["explicit:test-member"]
+
+
+def test_octocity_upgrade_rebinds_and_replaces_legacy_sentinel_map_fixture(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-upgrade",
+        slug="octocity-upgrade-pending",
+        name="Legacy Octocity",
+        mode="demo",
+        settings={},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+
+    legacy_map = ensure_workspace_map_seed(db_session, workspace)
+    legacy_map_id = legacy_map.id
+    db_session.commit()
+    assert legacy_map.slug == SENTINEL_MAP_SLUG
+    assert legacy_map.system_id is None
+    assert legacy_map.country == "Cote d'Ivoire"
+    legacy_fixture_ids = {
+        "layers": {
+            row.id
+            for row in db_session.query(WorkspaceMapLayer).filter_by(map_id=legacy_map.id).all()
+        },
+        "zones": {
+            row.id
+            for row in db_session.query(WorkspaceMapZone).filter_by(map_id=legacy_map.id).all()
+        },
+        "signals": {
+            row.id
+            for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=legacy_map.id).all()
+        },
+        "scores": {
+            row.id
+            for row in db_session.query(WorkspaceMapScore).filter_by(map_id=legacy_map.id).all()
+        },
+    }
+
+    workspace.slug = OCTOCITY_WORKSPACE_SLUG
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+    ensure_octocity_mission_room_workspace(db_session)
+
+    map_row = db_session.query(WorkspaceMap).filter_by(workspace_id=workspace.id).one()
+    map_system = db_session.query(System).filter_by(
+        workspace_id=workspace.id,
+        name="OCTAVE Territorial Map",
+    ).one()
+    assert map_row.id == legacy_map_id
+    assert map_row.slug == OCTOCITY_MAP_SLUG
+    assert map_row.system_id == map_system.id
+    assert map_row.country == "France"
+    assert map_row.settings["fixture_profile"] == OCTOCITY_MAP_FIXTURE_PROFILE
+    assert legacy_fixture_ids["layers"].issubset(
+        {
+            row.id
+            for row in db_session.query(WorkspaceMapLayer).filter_by(map_id=map_row.id).all()
+        }
+    )
+    assert legacy_fixture_ids["zones"] == {
+        row.id
+        for row in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
+    }
+    assert legacy_fixture_ids["signals"].issubset(
+        {
+            row.id
+            for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+        }
+    )
+    assert legacy_fixture_ids["scores"] == {
+        row.id
+        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+    }
+
+    persisted_fixture = {
+        "map": {
+            "slug": map_row.slug,
+            "name": map_row.name,
+            "description": map_row.description,
+            "country": map_row.country,
+            "projection": map_row.projection,
+            "settings": map_row.settings,
+        },
+        "layers": [
+            {"key": row.key, "label": row.label, "payload": row.payload}
+            for row in db_session.query(WorkspaceMapLayer).filter_by(map_id=map_row.id).all()
+        ],
+        "zones": [
+            {
+                "key": row.zone_key,
+                "name": row.name,
+                "metadata": row.meta_data,
+                "sources": row.source_refs,
+            }
+            for row in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
+        ],
+        "signals": [
+            {
+                "source_id": row.source_id,
+                "title": row.title,
+                "summary": row.summary,
+                "metadata": row.meta_data,
+            }
+            for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+        ],
+    }
+    fixture_text = json.dumps(persisted_fixture, ensure_ascii=False)
+    for forbidden in ("sentinel", "cote d'ivoire", "côte d'ivoire", "abidjan", "aya"):
+        assert forbidden not in fixture_text.lower()
+    assert all(
+        (row.meta_data or {}).get("seed") == "octocity"
+        for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+    )
+
+    first_zone_count = db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).count()
+    first_score_ids = {
+        row.id
+        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+    }
+    first_signal_ids = {
+        row.id
+        for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+    }
+    first_upgrade_events = db_session.query(AuditLog).filter_by(
+        workspace_id=workspace.id,
+        event_type="map.system.upgraded",
+    ).count()
+    assert first_zone_count == 5
+    assert len(first_score_ids) == 5
+    assert len(first_signal_ids) == 11
+    assert first_upgrade_events == 1
+
+    ensure_octocity_mission_room_workspace(db_session)
+    assert db_session.query(WorkspaceMap).filter_by(workspace_id=workspace.id).count() == 1
+    assert db_session.query(WorkspaceMap).filter_by(id=legacy_map_id, system_id=map_system.id).one()
+    assert db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).count() == first_zone_count
+    assert {
+        row.id
+        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+    } == first_score_ids
+    assert {
+        row.id
+        for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+    } == first_signal_ids
+    assert db_session.query(AuditLog).filter_by(
+        workspace_id=workspace.id,
+        event_type="map.system.upgraded",
+    ).count() == first_upgrade_events
+
+
+def test_octocity_map_seed_repairs_a_missing_zone_score(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-score-repair",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Octocity score repair",
+        mode="demo",
+        settings={"mission_room": {"profile": OCTOCITY_MISSION_ROOM_PROFILE}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+
+    map_row = ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+    scores = db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+    assert len(scores) == 5
+
+    db_session.delete(scores[0])
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    repaired_scores = db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+    assert len(repaired_scores) == 5
+    assert {score.zone_id for score in repaired_scores} == {
+        zone.id
+        for zone in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
+    }
+    assert db_session.query(AuditLog).filter_by(
+        workspace_id=workspace.id,
+        event_type="map.system.upgraded",
+    ).count() == 1
+
+
+def test_octocity_map_repair_preserves_operator_rows_settings_and_existing_ids(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-safe-repair",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Octocity safe repair",
+        mode="demo",
+        settings={"mission_room": {"profile": OCTOCITY_MISSION_ROOM_PROFILE}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    map_row = ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    seed_zone = db_session.query(WorkspaceMapZone).filter_by(
+        map_id=map_row.id,
+        zone_key="zone-sud",
+    ).one()
+    seed_layer = db_session.query(WorkspaceMapLayer).filter_by(
+        map_id=map_row.id,
+        key="territorial-risk",
+    ).one()
+    seed_signal = db_session.query(WorkspaceMapSignal).filter_by(
+        map_id=map_row.id,
+        source_id="zone-sud-signal-1",
+    ).one()
+    seed_ids = {
+        "zone": seed_zone.id,
+        "layer": seed_layer.id,
+        "signal": seed_signal.id,
+    }
+
+    operator_zone = WorkspaceMapZone(
+        id="operator-zone-id",
+        map_id=map_row.id,
+        zone_key="operator-zone",
+        name="Operator review area",
+        level=37,
+        tone="stable",
+        polygon="10,10 20,10 20,20 10,20",
+        centroid={"x": 15, "y": 15},
+        meta_data={"operator": {"owner": "field-team"}, "signals": ["Operator observation"]},
+        source_refs=["operator-source-1"],
+    )
+    operator_layer = WorkspaceMapLayer(
+        id="operator-layer-id",
+        map_id=map_row.id,
+        key="operator-overlay",
+        label="Operator overlay",
+        kind="annotation",
+        visible=False,
+        payload={"operator": True, "sources": ["operator-layer-source"]},
+        sort_order=900,
+    )
+    operator_signal = WorkspaceMapSignal(
+        id="operator-signal-id",
+        map_id=map_row.id,
+        zone_id=operator_zone.id,
+        source_kind="operator_note",
+        source_id="operator-signal-1",
+        title="Operator observation",
+        summary="Human-authored observation",
+        weight=17,
+        confidence=0.91,
+        meta_data={"operator": True},
+    )
+    operator_score = WorkspaceMapScore(
+        id="operator-score-id",
+        map_id=map_row.id,
+        zone_id=operator_zone.id,
+        score=37,
+        level_label="medium",
+        drivers=["Operator observation"],
+        recommendations=[{"title": "Keep the operator review"}],
+        recommended_windows=[{"label": "Operator window"}],
+    )
+    db_session.add_all([operator_zone, operator_layer, operator_signal, operator_score])
+
+    map_row.settings = {
+        **map_row.settings,
+        "fixture_version": 0,
+        "operator_preferences": {"review_mode": "manual", "retention_days": 30},
+    }
+    seed_zone.name = "Obsolete fixture zone"
+    seed_zone.meta_data = {**seed_zone.meta_data, "operator_note": "keep-zone-note"}
+    seed_layer.label = "Obsolete fixture layer"
+    seed_layer.payload = {**seed_layer.payload, "operator_style": {"opacity": 0.42}}
+    seed_signal.title = "Obsolete fixture signal"
+    seed_signal.summary = "Obsolete fixture signal"
+    db_session.commit()
+
+    repaired = ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    assert repaired.id == map_row.id
+    assert repaired.settings["operator_preferences"] == {
+        "review_mode": "manual",
+        "retention_days": 30,
+    }
+    assert repaired.settings["fixture_version"] != 0
+
+    preserved_zone = db_session.query(WorkspaceMapZone).filter_by(id=operator_zone.id).one()
+    preserved_layer = db_session.query(WorkspaceMapLayer).filter_by(id=operator_layer.id).one()
+    preserved_signal = db_session.query(WorkspaceMapSignal).filter_by(id=operator_signal.id).one()
+    preserved_score = db_session.query(WorkspaceMapScore).filter_by(id=operator_score.id).one()
+    assert preserved_zone.name == "Operator review area"
+    assert preserved_zone.meta_data == {
+        "operator": {"owner": "field-team"},
+        "signals": ["Operator observation"],
+    }
+    assert preserved_layer.payload == {"operator": True, "sources": ["operator-layer-source"]}
+    assert preserved_signal.summary == "Human-authored observation"
+    assert preserved_signal.meta_data == {"operator": True}
+    assert preserved_score.drivers == ["Operator observation"]
+
+    repaired_zone = db_session.query(WorkspaceMapZone).filter_by(id=seed_ids["zone"]).one()
+    repaired_layer = db_session.query(WorkspaceMapLayer).filter_by(id=seed_ids["layer"]).one()
+    repaired_signal = db_session.query(WorkspaceMapSignal).filter_by(id=seed_ids["signal"]).one()
+    assert repaired_zone.name == "Mediterranean Gate"
+    assert repaired_zone.meta_data["operator_note"] == "keep-zone-note"
+    assert repaired_layer.label == "Decision heatmap"
+    assert repaired_layer.payload["operator_style"] == {"opacity": 0.42}
+    assert repaired_signal.title == "Port capacity watch"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_target"),
+    [
+        ("OCTAVE, montre le port de Marseille sur la carte", "port-marseille"),
+        ("OCTAVE, montre Marseille avec le filtre douanes", "port-marseille"),
+        ("OCTAVE, affiche la plateforme logistique de Nantes", "port-nantes"),
+    ],
+)
+def test_octave_map_chat_uses_france_logistics_targets_without_sentinel_vocabulary(
+    db_session,
+    query,
+    expected_target,
+):
+    workspace = Workspace(
+        id=f"workspace-octocity-chat-{expected_target}",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Octocity chat",
+        mode="demo",
+        settings={"mission_room": {"profile": OCTOCITY_MISSION_ROOM_PROFILE}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+
+    action = handle_map_chat_query(
+        db_session,
+        workspace,
+        None,
+        query=query,
+        assistant_profile="octave_executive",
+    )
+
+    assert action is not None
+    assert action["command"]["target"] == expected_target
+    assert "France" in action["content"]
+    assert "Octocity" in action["content"]
+    action_text = json.dumps(action, ensure_ascii=False).lower()
+    for forbidden in ("abidjan", "golfe de guinee", "golfe de guinée", "douane"):
+        assert forbidden not in action_text
+
+
+def test_octave_map_chat_does_not_parse_sentinel_locations_or_customs(db_session):
+    workspace = Workspace(
+        id="workspace-octocity-chat-foreign-vocabulary",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Octocity chat vocabulary",
+        mode="demo",
+        settings={"mission_room": {"profile": OCTOCITY_MISSION_ROOM_PROFILE}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+
+    action = handle_map_chat_query(
+        db_session,
+        workspace,
+        None,
+        query="OCTAVE, affiche le port d'Abidjan, le Golfe de Guinée et les douanes sur la carte",
+        assistant_profile="octave_executive",
+    )
+    neutral_action = handle_map_chat_query(
+        db_session,
+        workspace,
+        None,
+        query="OCTAVE, affiche la carte",
+        assistant_profile="octave_executive",
+    )
+
+    assert action is not None
+    assert neutral_action is not None
+    assert action["command"]["target"] == neutral_action["command"]["target"]
+    assert action["command"]["map_state"]["selected_port"] is None
+    action_text = json.dumps(action, ensure_ascii=False).lower()
+    for forbidden in ("abidjan", "golfe de guinee", "golfe de guinée", "douane"):
+        assert forbidden not in action_text
+    assert "france" in action_text
+    assert "octocity" in action_text
+
+
+@pytest.mark.parametrize(
+    "configured_navigation",
+    [
+        [
+            {
+                "key": "cockpit",
+                "label": "Only cockpit",
+                "glyph": "ledger",
+                "variant": "octocity_mission_room",
+                "object": "Workbench",
+            }
+        ],
+        [
+            {
+                "key": "cockpit",
+                "label": "Broken cockpit",
+                "glyph": "ledger",
+                "variant": "octocity_mission_room",
+            },
+            *[
+                {
+                    "key": key,
+                    "label": key,
+                    "glyph": "ledger",
+                    "variant": "octocity_mission_room",
+                    "object": "Workbench",
+                }
+                for key in ("strategie", "securite", "reputation", "agenda", "presse", "decisions")
+            ],
+        ],
+        "not-a-navigation-list",
+    ],
+    ids=("partial-list", "malformed-item", "wrong-type"),
+)
+def test_octocity_navigation_falls_back_to_complete_workspace_defaults(
+    db_session,
+    configured_navigation,
+):
+    seed_skills_and_capabilities(db_session)
+    ensure_octocity_mission_room_workspace(db_session)
+    workspace = db_session.query(Workspace).filter_by(slug=OCTOCITY_WORKSPACE_SLUG).one()
+    settings = dict(workspace.settings or {})
+    mission_room_settings = dict(settings.get("mission_room") or {})
+    mission_room_settings["navigation"] = configured_navigation
+    settings["mission_room"] = mission_room_settings
+    workspace.settings = settings
+    db_session.commit()
+
+    payload = navigation_payload(db_session, workspace)
+
+    assert [item["key"] for item in payload["items"]] == [
+        "cockpit",
+        "strategie",
+        "securite",
+        "reputation",
+        "agenda",
+        "presse",
+        "decisions",
+    ]
+    assert {item["key"]: item["system_name"] for item in payload["items"]} == {
+        "cockpit": "OCTAVE Mission Room",
+        "strategie": "OCTAVE Territorial Map",
+        "securite": "OCTAVE Open Intelligence",
+        "reputation": "OCTAVE Open Intelligence",
+        "agenda": "OCTAVE Mission Room",
+        "presse": "OCTAVE Open Intelligence",
+        "decisions": "OCTAVE Decision Desk",
+    }
+    assert all(str(item["variant"]).startswith("octocity_") for item in payload["items"])
+    assert octocity_forbidden_terms_present(payload) == []
 
 
 def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
@@ -350,6 +872,34 @@ def test_mission_room_navigation_prefers_workspace_intelligence_system(db_sessio
 
     assert presse["system_name"] == "Veille Presse & Signaux Faibles"
     assert "veille" not in {item["key"] for item in payload["items"]}
+
+
+def test_octocity_mission_room_navigation_items_bind_to_active_systems(db_session):
+    seed_skills_and_capabilities(db_session)
+    ensure_octocity_mission_room_workspace(db_session)
+    workspace = db_session.query(Workspace).filter(Workspace.slug == OCTOCITY_WORKSPACE_SLUG).one()
+
+    payload = navigation_payload(db_session, workspace)
+    active_system_ids = {
+        row.id
+        for row in db_session.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .all()
+    }
+
+    assert len(payload["items"]) == 7
+    assert all(item.get("system_id") in active_system_ids for item in payload["items"])
+    assert {item["key"]: item["system_name"] for item in payload["items"]} == {
+        "cockpit": "OCTAVE Mission Room",
+        "strategie": "OCTAVE Territorial Map",
+        "securite": "OCTAVE Open Intelligence",
+        "reputation": "OCTAVE Open Intelligence",
+        "agenda": "OCTAVE Mission Room",
+        "presse": "OCTAVE Open Intelligence",
+        "decisions": "OCTAVE Decision Desk",
+    }
+    assert all(str(item["variant"]).startswith("octocity_") for item in payload["items"])
+    assert octocity_forbidden_terms_present(payload) == []
 
 
 def test_rag_preset_resolver_does_not_borrow_other_workspace_defaults(db_session):

@@ -29,9 +29,9 @@ Le script :
 6. Vérifie cockpit, calendar, vp_status_bar (chip **Zone Nord · Tendue**),
    et la présence de `evt-prefet-nawa` dans le calendrier.
 
-Variables d'env optionnelles : `AGENTIUM_HOST`, `WORKSPACE_SLUG`,
-`AGENTIUM_EMAIL`, `AGENTIUM_PASSWORD`, `DEMO_DATE`, `DEMO_TIME`, `DEMO_LABEL`,
-`DEMO_TZ`.
+Variables d'env obligatoires : `AGENTIUM_EMAIL`, `AGENTIUM_PASSWORD`.
+Variables optionnelles : `AGENTIUM_HOST`, `WORKSPACE_SLUG`, `DEMO_DATE`,
+`DEMO_TIME`, `DEMO_LABEL`, `DEMO_TZ`.
 
 Si l'on déploie une nouvelle version du backend juste avant la démo, relancer
 ce script après le déploiement pour purger un éventuel état persistent.

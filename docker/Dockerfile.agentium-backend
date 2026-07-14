@@ -52,4 +52,7 @@ WORKDIR /app/backend
 
 EXPOSE 8000
 
+ARG AGENTIUM_IMAGE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+
 CMD ["/app/docker/run_backend.sh"]
