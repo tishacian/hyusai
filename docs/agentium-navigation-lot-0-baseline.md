@@ -1,9 +1,15 @@
 # Agentium navigation — Lot 0 contract baseline
 
-Date de capture : 2026-07-14
+Date de capture initiale : 2026-07-14
+Date de clôture Lot 0 : 2026-07-15
 Environnement observé : `https://agentium.papai.ai`, VM `omnirag-demo`
-Révision du checkout déployé : `397fbeb452289f5c5f02d7d5bdd81b057e624540`
+Révision de référence avant Lot 0 : `397fbeb452289f5c5f02d7d5bdd81b057e624540`
+Révision applicative Lot 0 déployée et vérifiée : `1df8b79d63ea7eb62fbba3391f7283b40f94181f`
 Alembic : `056_andritz_chat_asset_binding`
+
+Le commit qui porte l'attestation finale est documentaire, postérieur au
+déploiement et non déployé. Le SHA applicatif exécuté par la VM et les images
+OCI reste celui indiqué ci-dessus.
 
 ## Objet
 
@@ -18,12 +24,12 @@ Les sources de preuve sont :
 - un audit VM et base de données strictement en lecture seule ;
 - les tests de contrat backend et frontend ajoutés au dépôt.
 
-Les tests du candidat reçoivent les identifiants uniquement par variables
+Les tests du Lot 0 reçoivent les identifiants uniquement par variables
 d'environnement et ne les écrivent ni dans les captures, ni dans les rapports
 Playwright. L'audit Lot 0 a toutefois retrouvé un ancien secret opérateur dans
-le contenu suivi. Le candidat supprime ces valeurs par défaut et ajoute un gate
-anti-récidive ; l'historique Git restant concerné, le secret doit être considéré
-comme compromis et remplacé avant déploiement.
+le contenu suivi. Le Lot 0 supprime ces valeurs par défaut et ajoute un gate
+anti-récidive. La rotation a été confirmée avant déploiement ; l'historique Git
+restant concerné, l'ancienne valeur demeure considérée comme compromise.
 
 ## Baseline des workspaces
 
@@ -158,17 +164,22 @@ le type de shell ; il ne transforme pas ce volume observé en égalité stable.
 - shell Mission Room immersif ;
 - assistant `OCTAVE`, branding Agentium/Octocity ;
 - sept entrées visibles et aucun terme Sentinel dans le shell capturé ;
-- état déployé lors de la capture : seulement trois entrées sur sept sont
+- état de référence avant Lot 0 : seulement trois entrées sur sept étaient
   reliées à un System actif. `cockpit`, `strategie`, `agenda` et `decisions`
   retournent `system_id=null` ;
-- état du candidat : les sept entrées sont reliées à quatre Systems OCTAVE
+- état Lot 0 déployé : les sept entrées sont reliées à quatre Systems OCTAVE
   actifs et idempotents (`Mission Room`, `Territorial Map`, `Open
   Intelligence`, `Decision Desk`). Les variants, templates et libellés sont
   propres à Octocity et ne réutilisent pas Sentinel.
 
 Le `xfail(strict=True)` qui matérialisait la dette a été retiré dans le
-candidat. La fermeture runtime exige encore le déploiement, puis l'exécution
-du seed Octocity sur la VM et un nouveau parcours live 7/7.
+Lot 0. Sur le rollout initial, la liste seed-owned est passée de un à quatre
+Systems, soit trois créations ciblées. Sur le SHA final, les quatre IDs sont
+identiques avant/après ; une première réconciliation a restauré le System
+générique `Workspace Chat`, puis la seconde exécution a retourné
+`systems_created: 0`. La carte runtime reste liée à un System actif et contient
+12 layers, 5 zones, 11 signals et 5 scores. Le parcours live final confirme
+les sept liaisons actives et l'absence de contenu Sentinel/AYA.
 
 ## Couverture automatisée ajoutée
 
@@ -212,11 +223,14 @@ E2E live et interdit explicitement le suivi des fichiers runtime
 - `navigation-telemetry.service.spec.ts` : résolution directe, redirects,
   canonicalisation des routes et émission différée sans PII.
 
-Résultat frontend du candidat : `74 passed` ; le build Angular réussit avec les
+Résultat frontend final : `76 passed` ; le build Angular réussit avec les
 warnings de budget/CommonJS déjà présents avant le lot.
 
 Le défaut de retry détecté par le nouveau test a été corrigé en repassant la
-requête déjà enrichie au handler de refresh.
+requête déjà enrichie au handler de refresh. Deux tests supplémentaires
+verrouillent la conservation d'une décision de redirect lorsqu'Angular annule
+une navigation avec `SupersededByNewNavigation`, ainsi que son absence de fuite
+vers une destination concurrente.
 
 ### E2E live opt-in
 
@@ -243,23 +257,25 @@ La suite désactive explicitement trace et vidéo Playwright : une trace réseau
 pourrait sinon sérialiser le corps du login. Les screenshots ne contiennent pas
 le secret et chaque refresh token renouvelable est révoqué en `afterEach`.
 
-Résultat live sur la révision déployée : `7 passed` avec le compte owner fourni
-à l'exécution. Le candidat porte dix scénarios : un huitième vérifie qu'un
-redirect `/workspace` produit une nouvelle ligne `navigation.resolved`
-canonique, pseudonymisée et sans slug dans la route persistée ; le neuvième,
-activé par `E2E_LIVE_FORCE_REFRESH=1`, force un access token expiré, vérifie un
-refresh unique, puis contrôle que toutes les requêtes rejouées conservent le
-slug Andritz. Le dixième, activé par `E2E_LIVE_NON_ADMIN=1`, utilise uniquement
-un compte business déjà provisionné pour prouver le rôle non-admin, le redirect
-`/systems` vers `/chat` sans preview, les trois liens exacts et l'absence de
-side rail. Il ne crée ni compte ni membership et n'effectue aucune mutation de
-workspace. Ces preuves ne pourront être validées contre la VM qu'après
-déploiement du candidat et injection des credentials requis. Les captures sont
-produites dans `frontend-ng/e2e/results/` et ne sont pas versionnées.
+Résultat live final sur `1df8b79d63ea7eb62fbba3391f7283b40f94181f` :
+`9 passed, 1 skipped`. Les neuf contrats owner couvrent les trois applications,
+les deep links, le cockpit admin, les cinq Systems Andritz, le refresh forcé,
+la télémétrie pseudonymisée, Showcase, Sentinel et Octocity. Le dixième contrat
+non-admin est resté ignoré faute de compte business dédié injecté ; sa preuve
+n'est donc pas revendiquée.
+
+Le premier run sur le SHA applicatif initial `a5b6082d…` avait produit
+`8 passed, 1 failed, 1 skipped` : l'UI redirigeait correctement mais Angular
+classait l'événement `/workspace` et sa cible comme deux navigations directes.
+Le hotfix final conserve la décision pendant
+`NavigationCancel(SupersededByNewNavigation)`. Le rerun prouve désormais une
+ligne `navigation.resolved` exacte, canonique, pseudonymisée et sans slug
+dynamique dans la route persistée. Les captures sont produites dans
+`frontend-ng/e2e/results/` et ne sont pas versionnées.
 
 ## Observabilité et sécurité — état Lot 0
 
-### Navigation — contrat implémenté dans le candidat
+### Navigation — contrat déployé et prouvé
 
 Le frontend émet désormais `navigation.resolved` via l'endpoint et la table
 d'audit existants. Le payload versionné distingue :
@@ -274,8 +290,9 @@ d'audit existants. Le payload versionné distingue :
 Les redirects du profil métier, du shell et de l'entrée workspace enregistrent
 leur décision explicite. Les redirects statiques Angular sont inférés depuis
 `NavigationStart` / `NavigationEnd`. Une décision annulée ou en erreur est
-purgée ; l'annulation technique créée par un `UrlTree` n'est conservée que si
-la navigation suivante vise exactement sa destination.
+purgée ; les annulations techniques créées par un `UrlTree` ou une navigation
+superseded ne sont conservées que si la navigation suivante vise exactement
+leur destination.
 
 Le frontend masque déjà les paramètres de routes connus depuis son catalogue.
 La frontière backend, qui reste autoritaire, supprime query et fragment,
@@ -287,20 +304,23 @@ valeur dynamique de route n'est persisté. Si le premier `NavigationEnd`
 précède le chargement des workspaces, la dernière résolution réussie est mise
 en attente puis émise une seule fois lorsque le shell connaît le slug actif.
 
-Cette télémétrie est présente dans le candidat local ; des événements ne seront
-observables sur la VM qu'après déploiement du frontend et du backend associés.
+La preuve live finale retrouve le payload exact `/workspace` vers
+`/workspace/:slug/settings`, avec surface `workspace-admin`, owner
+`workspace_entrypoint`, reason `workspace_settings_entrypoint`, acteur
+`authenticated_user`, trace/agent nuls et sévérité `info`.
 
 ### Sessions
 
-Sur 96 heures, des rafales de 401 synchrones ont été observées avant un login
-manuel réussi. Les tests unitaires couvrent la conservation du slug après
-refresh simple et concurrent. Le scénario live d'expiration forcée est écrit,
-isolé derrière un flag et reste à exécuter sur le candidat déployé.
+Sur 96 heures, des rafales de 401 synchrones avaient été observées avant un
+login manuel réussi. Les tests unitaires couvrent la conservation du slug après
+refresh simple et concurrent. Le scénario live final force un bearer expiré,
+observe un seul refresh, puis vérifie que chaque replay Client360 aboutit en
+`200` avec le même `X-Workspace-Slug: andritz`.
 
 Les parcours live ont été exécutés avec un owner en preview métier. La matrice
-persona est couverte côté API. Le dixième contrat navigateur accepte désormais
-un compte business non-admin existant via variables d'environnement ; la suite
-ne provisionne ni ne modifie ce compte.
+persona est couverte côté API. Le dixième contrat navigateur accepte un compte
+business non-admin existant via variables d'environnement, mais il n'a pas été
+exécuté lors de cette clôture ; la suite ne provisionne ni ne modifie ce compte.
 
 Un warning Keycloak `Non-secure context detected; cookies are not secured` a
 été observé pour le flux backend interne en HTTP. Les réponses OIDC publiques
@@ -310,24 +330,28 @@ ce changement ne prétend pas supprimer le warning interne.
 
 ### Ingress
 
-Le fallback SPA retourne l'index HTML avec un statut 200 pour `/.env` et
-`/.git/config` sur la révision déployée. Aucun fichier sensible n'est exposé.
-Le candidat refuse désormais tout segment caché avant le fallback SPA, sauf le
-chemin ACME explicitement autorisé, et conserve `/kc/` ainsi que la découverte
-OIDC. La preuve attendue après déploiement est `404` pour ces dotpaths et `200`
-pour `/systems` et l'endpoint OIDC.
+Le fallback SPA retournait l'index HTML avec un statut 200 pour `/.env` et
+`/.git/config` sur la révision de référence, sans exposer de fichier sensible.
+Le Lot 0 refuse désormais tout segment caché avant le fallback SPA, sauf le
+chemin ACME explicitement autorisé. La preuve finale donne `404` pour `/.env`,
+`/.git/config` et `/assets/.secret`, puis `200` pour `/systems`,
+`/api/v1/health` et la découverte OIDC. L'issuer reste canonique malgré les
+headers proxy forgés et tous les cookies de session OIDC publics portent
+`Secure`.
 
 ### Provenance des images
 
-Le candidat ajoute le label OCI `org.opencontainers.image.revision` aux images
+Le Lot 0 ajoute le label OCI `org.opencontainers.image.revision` aux images
 frontend, backend et worker. Le script de déploiement injecte le SHA Git complet
 explicitement validé et refuse un build si `origin/demo/agentic` ne pointe plus
 sur ce SHA. Les audits local/post-build n'effectuent aucun fetch et refusent un
 label d'image différent du SHA attendu. Avant le build, chaque image active est
 taguée sous un namespace de rollback dédié au SHA candidat et son ID est écrit
-dans un état no-clobber validé avant toute réutilisation. Les images actuellement
-déployées ne portent pas encore le label OCI : la preuve runtime exige leur
-reconstruction.
+dans un état no-clobber validé avant toute réutilisation. Les trois images
+exécutées portent exactement `1df8b79d63ea7eb62fbba3391f7283b40f94181f`,
+le checkout VM est propre et l'audit `--check-only` ne détecte aucune dérive.
+L'état de rollback applicatif est
+`/home/ubuntu/.local/state/agentium/deployments/1df8b79d63ea7eb62fbba3391f7283b40f94181f.tsv`.
 
 ### Secrets opérateur
 
@@ -336,7 +360,24 @@ Les scripts opérateur et leurs exemples exigent désormais
 avant tout appel réseau si une valeur manque. Un test scanne le contenu suivi à
 partir d'une empreinte non réversible du secret retiré et interdit les defaults
 d'authentification non vides. Ce gate ne nettoie pas l'historique Git et ne
-remplace pas la rotation du compte.
+remplace pas la rotation du compte. La rotation a été confirmée avant le
+déploiement, le gate du contenu suivi est vert et l'entrée temporaire du
+Trousseau utilisée pour les E2E a été supprimée après le run.
+
+## Résultat de clôture
+
+| Gate | Résultat observé |
+|---|---|
+| Backend et frontend | `289 passed` backend, `76 passed` frontend, build production vert |
+| Live owner | `9 passed`, avec refresh forcé et télémétrie persistée |
+| Live non-admin | `1 skipped` ; aucun compte business dédié n'a été injecté |
+| Andritz | trois routes, cinq Systems, IAM et données actives conformes |
+| Showcase | shell Agentium standard et Systems visibles |
+| Sentinel / Octocity | shells immersifs, assistants, branding et sept entrées conformes |
+| Octocity 7/7 | quatre Systems OCTAVE actifs, IDs idempotents, aucune fuite Sentinel/AYA |
+| Ingress / OIDC | dotpaths `404`, endpoints `200`, issuer canonique, cookies `Secure` |
+| Provenance / rollback | trois labels OCI au SHA final, audit sans drift, états applicatif/ingress/seed conservés |
+| Secrets | rotation confirmée, gate anti-récidive vert, secret E2E temporaire supprimé |
 
 ## Gates avant activation d'une nouvelle navigation
 

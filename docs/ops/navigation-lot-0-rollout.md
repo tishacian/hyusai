@@ -285,14 +285,42 @@ unchanged.
 
 ## 6. Record the deployed baseline
 
-After every proof is green, update the baseline with:
+### Immutable execution record — 2026-07-15
 
-- deployed Git SHA and Alembic head;
-- `10 passed` live result when the optional non-admin contract is enabled
-  (`9 passed`, `1 skipped` otherwise);
-- Octocity `7/7` observed rather than candidate-only;
-- dotpaths `404`, OIDC/System/health `200`;
-- OCI labels equal to the deployed SHA.
+- pre-Lot 0 reference: `397fbeb452289f5c5f02d7d5bdd81b057e624540`;
+- initial Lot 0 application rollout: `a5b6082dd4a13633db8ed945b13714b12d60708c`;
+- final deployed application SHA after the telemetry hotfix:
+  `1df8b79d63ea7eb62fbba3391f7283b40f94181f`;
+- Alembic `current=heads`: `056_andritz_chat_asset_binding`;
+- backend, frontend and worker OCI revision labels: `3/3` equal to the final
+  application SHA; VM checkout clean and `deploy-vm.sh --check-only` green;
+- application rollback state:
+  `/home/ubuntu/.local/state/agentium/deployments/1df8b79d63ea7eb62fbba3391f7283b40f94181f.tsv`;
+- ingress candidate/active SHA-256:
+  `aec9a9a8f930ca2a490ab8d5c80d4656d93f4c86665213f4533ec8419921aae3`;
+- ingress rollback backup:
+  `/var/backups/agentium/nginx.before-1df8b79d63ea7eb62fbba3391f7283b40f94181f-20260714T224747Z`;
+- final seed state:
+  `/home/ubuntu/.local/state/agentium/octocity/1df8b79d63ea7eb62fbba3391f7283b40f94181f`;
+- initial rollout seed: one seed-owned System before, four after, three
+  created; final hotfix seed: four before/after, zero new seed-owned IDs,
+  second execution `systems_created: 0` and identical sorted IDs;
+- Octocity runtime: `7/7` navigation bindings active, four bound OCTAVE
+  Systems, no Sentinel/AYA token in the payload;
+- public probes: `/.env=404`, `/.git/config=404`,
+  `/assets/.secret=404`, `/systems=200`, `/api/v1/health=200`, OIDC discovery
+  `200`, canonical issuer under spoofed proxy headers and public OIDC cookies
+  carrying `Secure`;
+- authenticated live result: `9 passed, 1 skipped` on the final SHA. The
+  optional non-admin contract was not executed because no dedicated business
+  credential was injected; no non-admin proof is claimed;
+- the temporary owner secret was removed from the macOS Keychain immediately
+  after the final run.
+
+The commit containing this record is documentation-only, post-deployment and
+must not be confused with the executed application revision. It is intentionally
+not deployed; VM and OCI provenance remain pinned to
+`1df8b79d63ea7eb62fbba3391f7283b40f94181f`.
 
 ## Rollback
 
