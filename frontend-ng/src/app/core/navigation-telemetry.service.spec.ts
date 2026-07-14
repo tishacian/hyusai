@@ -160,6 +160,67 @@ test('explicit redirect records the final destination after a chained Angular re
   });
 });
 
+test('explicit redirect survives a superseded navigation when its replacement wins', () => {
+  const { router, api, telemetry } = makeHarness();
+  router.events.next(new NavigationStart(1, '/workspace'));
+  telemetry.registerRedirect({
+    requestedRoute: '/workspace',
+    resolvedRoute: '/workspace/andritz/settings',
+    owner: 'workspace_entrypoint',
+    reason: 'workspace_settings_entrypoint',
+  });
+  router.events.next(new NavigationCancel(
+    1,
+    '/workspace',
+    'Superseded by /workspace/andritz/settings',
+    NavigationCancellationCode.SupersededByNewNavigation,
+  ));
+  router.events.next(new NavigationStart(2, '/workspace/andritz/settings'));
+  router.events.next(new NavigationEnd(
+    2,
+    '/workspace/andritz/settings',
+    '/workspace/andritz/settings',
+  ));
+
+  assert.equal(api.calls.length, 1);
+  assert.deepEqual(api.calls[0].body.details, {
+    schema_version: 1,
+    requested_route: '/workspace',
+    resolved_route: '/workspace/:slug/settings',
+    effective_workspace: 'andritz',
+    effective_surface: 'workspace-admin',
+    redirect_owner: 'workspace_entrypoint',
+    redirect_reason: 'workspace_settings_entrypoint',
+    redirected: true,
+  });
+});
+
+test('a superseded redirect cannot leak into a different replacement destination', () => {
+  const { router, api, telemetry } = makeHarness();
+  router.events.next(new NavigationStart(1, '/workspace'));
+  telemetry.registerRedirect({
+    requestedRoute: '/workspace',
+    resolvedRoute: '/workspace/andritz/settings',
+    owner: 'workspace_entrypoint',
+    reason: 'workspace_settings_entrypoint',
+  });
+  router.events.next(new NavigationCancel(
+    1,
+    '/workspace',
+    'Superseded by /chat',
+    NavigationCancellationCode.SupersededByNewNavigation,
+  ));
+  router.events.next(new NavigationStart(2, '/chat'));
+  router.events.next(new NavigationEnd(2, '/chat', '/chat'));
+
+  assert.equal(api.calls.length, 1);
+  assert.equal(api.calls[0].body.details.requested_route, '/chat');
+  assert.equal(api.calls[0].body.details.resolved_route, '/chat');
+  assert.equal(api.calls[0].body.details.redirect_owner, 'angular_router');
+  assert.equal(api.calls[0].body.details.redirect_reason, 'direct');
+  assert.equal(api.calls[0].body.details.redirected, false);
+});
+
 test('cancelled or failed redirects cannot leak into a later navigation', () => {
   const { router, api, telemetry } = makeHarness();
   router.events.next(new NavigationStart(1, '/systems'));

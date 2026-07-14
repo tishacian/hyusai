@@ -211,7 +211,15 @@ export class NavigationTelemetryService implements OnDestroy {
       } else if (event instanceof NavigationEnd) {
         this.emitResolved(event);
       } else if (event instanceof NavigationCancel) {
-        if (event.code !== NavigationCancellationCode.Redirect) {
+        // A superseded navigation is followed by the replacement
+        // NavigationStart, just like a UrlTree redirect. Keep the explicit
+        // decision until that start can prove whether the winning destination
+        // is the one that was registered. Guard/resolver/abort cancellations
+        // have no replacement and must still purge it immediately.
+        if (
+          event.code !== NavigationCancellationCode.Redirect &&
+          event.code !== NavigationCancellationCode.SupersededByNewNavigation
+        ) {
           this.pendingRedirect = null;
         }
       } else if (event instanceof NavigationError) {
