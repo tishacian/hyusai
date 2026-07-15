@@ -8,10 +8,9 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import chat
 from app.core.config import settings
 from app.models.context import Context
-from app.models.knowledge_collection import WorkerJob
 from app.models.run import Run, SkillInvocation
-from app.models.workspace_job import WorkspaceJob
 from app.models.workspace import Workspace
+from app.models.workspace_job import WorkspaceJob
 from app.services.knowledge_collections import create_collection
 from app.services.workspace_maps import ensure_workspace_map_seed
 
@@ -96,7 +95,11 @@ class HappyOrchestrator:
                     "total_ms": 46,
                 },
                 "llm_ms": 34,
-                "latency_budget": {"profile": "fast", "retrieval_profile": "chat", "candidate_pool_k": 20},
+                "latency_budget": {
+                    "profile": "fast",
+                    "retrieval_profile": "chat",
+                    "candidate_pool_k": 20,
+                },
                 "cross_encoder_status": "skipped_fast",
                 "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
                 "cross_encoder_scored": 0,
@@ -150,7 +153,11 @@ class DeepRecommendedOrchestrator:
                 "dense_policy": "fast_scoped_dense_auto",
                 "scope_confidence": 0.2,
                 "scope_reason": "Dense corpus fast policy selected an internal scope.",
-                "latency_budget": {"profile": "fast", "deadline_seconds": 8, "candidate_pool_k": 20},
+                "latency_budget": {
+                    "profile": "fast",
+                    "deadline_seconds": 8,
+                    "candidate_pool_k": 20,
+                },
                 "retrieval_scope": {
                     "collections": ["documents"],
                     "filters": {
@@ -284,7 +291,9 @@ def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, mo
     assert run.output_ref["rag_context"]["chunks"] == ["context"]
     retrieval_invocation = (
         db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "semantic_search_v1")
+        .filter(
+            SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "semantic_search_v1"
+        )
         .one()
     )
     assert retrieval_invocation.metrics["cross_encoder_status"] == "skipped_fast"
@@ -313,7 +322,9 @@ def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
 
     assert response.status_code == 200
     assert "data: [DONE]" in response.text
-    assert orchestrator.last_request["context_collection"] == "andritz-non-wovens-france-excel-pilot"
+    assert (
+        orchestrator.last_request["context_collection"] == "andritz-non-wovens-france-excel-pilot"
+    )
     assert orchestrator.last_request["context"]["context_id"] == "ctx-context-chat"
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.output_ref["context_id"] == "ctx-context-chat"
@@ -507,7 +518,10 @@ def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
     assert request["synthesis_k"] == 48
     assert request["source_display_k"] == 24
     assert request["previous_answer"] == "1. Premiere synthese 2. Deuxieme point"
-    assert job.input_ref["partial_result"]["answer_preview"] == "1. Premiere synthese 2. Deuxieme point"
+    assert (
+        job.input_ref["partial_result"]["answer_preview"]
+        == "1. Premiere synthese 2. Deuxieme point"
+    )
     assert request["retrieval_filters"] == {"source_kind": "html"}
     assert job.collection_id == collection.id
     assert job.session_id
@@ -565,7 +579,10 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     assert job.input_ref["request"]["top_k"] == 8
     assert job.input_ref["request"]["candidate_pool_k"] == 80
     assert job.input_ref["request"]["synthesis_k"] == 24
-    assert "retrieval: retrieval_deadline_exceeded" not in job.input_ref["partial_result"]["answer_preview"]
+    assert (
+        "retrieval: retrieval_deadline_exceeded"
+        not in job.input_ref["partial_result"]["answer_preview"]
+    )
     assert "source workspace" in job.input_ref["partial_result"]["answer_preview"]
     assert job.input_ref["request"]["retrieval_filters"] == {
         "collection_slug": "documents",
@@ -650,7 +667,9 @@ def test_grounding_degraded_reply_reports_fallback_reason():
 
 
 def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeypatch):
-    workspace = Workspace(id="ws-completion-degraded", name="Completion Degraded", slug="completion-degraded")
+    workspace = Workspace(
+        id="ws-completion-degraded", name="Completion Degraded", slug="completion-degraded"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="documents")
@@ -722,7 +741,9 @@ def test_worker_dispatch_queue_only_does_not_inline_deep_retrieval(db_session, m
 
 
 def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatch):
-    workspace = Workspace(id="ws-vigie-grounding", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    workspace = Workspace(
+        id="ws-vigie-grounding", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
     orchestrator = CapturingOrchestrator()
@@ -747,8 +768,12 @@ def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatc
     assert run.output_ref["grounding_policy"]["reason"] == "vigie_chat_first"
 
 
-def test_chat_stream_vigie_balanced_request_stays_strict_for_workspace_facts(db_session, monkeypatch):
-    workspace = Workspace(id="ws-vigie-grounding-strict", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+def test_chat_stream_vigie_balanced_request_stays_strict_for_workspace_facts(
+    db_session, monkeypatch
+):
+    workspace = Workspace(
+        id="ws-vigie-grounding-strict", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
     orchestrator = CapturingOrchestrator()
@@ -767,7 +792,10 @@ def test_chat_stream_vigie_balanced_request_stays_strict_for_workspace_facts(db_
     assert "data: [DONE]" in response.text
     assert orchestrator.last_request["grounding_mode"] == "strict"
     assert orchestrator.last_request["grounding_policy"]["requested_mode"] == "balanced"
-    assert orchestrator.last_request["grounding_policy"]["reason"] == "workspace_fact_or_sensitive_state"
+    assert (
+        orchestrator.last_request["grounding_policy"]["reason"]
+        == "workspace_fact_or_sensitive_state"
+    )
     assert orchestrator.last_request["grounding_policy"]["allow_foundational_fallback"] is False
 
 
@@ -807,7 +835,9 @@ def test_chat_stream_generic_profile_can_inherit_balanced_grounding(db_session, 
     assert orchestrator.last_request["grounding_policy"]["reason"] == "profile_default"
 
 
-def test_chat_stream_unconfigured_profile_remains_strict_when_balanced_requested(db_session, monkeypatch):
+def test_chat_stream_unconfigured_profile_remains_strict_when_balanced_requested(
+    db_session, monkeypatch
+):
     workspace = Workspace(id="ws-plain-grounding", name="Plain Grounding", slug="plain-grounding")
     db_session.add(workspace)
     db_session.commit()
@@ -892,7 +922,9 @@ def test_chat_stream_vigie_map_query_emits_map_command(db_session, monkeypatch):
 
 
 def test_chat_stream_vigie_signals_uses_fast_mission_room_reply(db_session, monkeypatch):
-    workspace = Workspace(id="ws-sentinel-vigie", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    workspace = Workspace(
+        id="ws-sentinel-vigie", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
 
@@ -922,7 +954,9 @@ def test_chat_stream_vigie_cockpit_60s_routes_to_priority_summary(db_session, mo
     cockpit shortcut. The narrative comes from ``ATTENTION_REQUIRED`` so the
     Napié cause-racine wording propagates automatically.
     """
-    workspace = Workspace(id="ws-sentinel-cockpit", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    workspace = Workspace(
+        id="ws-sentinel-cockpit", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
 
@@ -953,7 +987,9 @@ def test_chat_stream_vigie_north_situation_drills_to_napie(db_session, monkeypat
     ``aya.explain_why`` and surface the Centre Drones Napié narrative — the
     old hardcoded Konaté/Burkina/CEDEAO Mission Room reply is gone.
     """
-    workspace = Workspace(id="ws-sentinel-north", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    workspace = Workspace(
+        id="ws-sentinel-north", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
     ensure_workspace_map_seed(db_session, workspace)
@@ -983,7 +1019,9 @@ def test_chat_stream_vigie_brief_operationnel_projet_nord_focuses_napie(db_sessi
     """``Brief opérationnel · Projet sensible · Nord`` card prompt must focus
     the map on the Napié project via ``aya.focus_zone_with_project`` — no
     Konaté/Burkina fallback narrative."""
-    workspace = Workspace(id="ws-sentinel-brief", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    workspace = Workspace(
+        id="ws-sentinel-brief", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+    )
     db_session.add(workspace)
     db_session.commit()
     ensure_workspace_map_seed(db_session, workspace)

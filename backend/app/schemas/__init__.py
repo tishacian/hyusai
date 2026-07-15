@@ -1,4 +1,5 @@
 """Shared Pydantic schemas for the canonical mental model."""
+
 from app.schemas.canonical import (
     ControlPlaneVector,
     DecisionState,

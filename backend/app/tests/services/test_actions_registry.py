@@ -19,7 +19,9 @@ from app.services.actions import (
 
 
 def _workspace(slug: str, *, settings: dict | None = None) -> Workspace:
-    return Workspace(id=f"ws-{slug}", slug=slug, name=slug.title(), settings=settings or {}, mode="builder")
+    return Workspace(
+        id=f"ws-{slug}", slug=slug, name=slug.title(), settings=settings or {}, mode="builder"
+    )
 
 
 def _actions_api_client(db_session, workspace: Workspace, *, user_id: str) -> TestClient:
@@ -71,17 +73,30 @@ def test_octocity_inherits_octave_actions_without_aya_pack():
         settings={
             "mission_room": {"profile": "octocity_institutional_v1"},
             "assistant_profile_default": "octave_executive",
-            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+            "actions": {
+                "enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]
+            },
             "assistant_profiles": [
                 {
                     "key": "octave_executive",
-                    "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+                    "actions": {
+                        "enabled_packs": [
+                            "global_voice_v1",
+                            "octave_mission_room_v1",
+                            "octave_security_v1",
+                        ]
+                    },
                 }
             ],
         },
     )
 
-    ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat", assistant_profile="octave_executive")}
+    ids = {
+        action.action_id
+        for action in effective_action_manifests(
+            workspace, surface="chat", assistant_profile="octave_executive"
+        )
+    }
 
     assert "octave.priority_summary" in ids
     assert "octave.show_security_posture" in ids
@@ -94,11 +109,19 @@ def test_octocity_effective_action_contract_is_neutral_and_keeps_legacy_handler(
         settings={
             "mission_room": {"profile": "octocity_institutional_v1"},
             "assistant_profile_default": "octave_executive",
-            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+            "actions": {
+                "enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]
+            },
             "assistant_profiles": [
                 {
                     "key": "octave_executive",
-                    "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+                    "actions": {
+                        "enabled_packs": [
+                            "global_voice_v1",
+                            "octave_mission_room_v1",
+                            "octave_security_v1",
+                        ]
+                    },
                 }
             ],
         },
@@ -133,10 +156,7 @@ def test_octocity_effective_action_contract_is_neutral_and_keeps_legacy_handler(
     manifests_response = client.get("/api/v1/actions/manifests")
     assert manifests_response.status_code == 200
     manifests_payload = manifests_response.json()
-    assert not any(
-        item["action_id"].startswith("aya.")
-        for item in manifests_payload["manifests"]
-    )
+    assert not any(item["action_id"].startswith("aya.") for item in manifests_payload["manifests"])
 
     serialized = json.dumps(
         [payload, execute_payload, manifests_payload],
@@ -180,11 +200,23 @@ def test_sentinel_effective_action_contract_remains_isolated_from_octocity(db_se
         settings={
             "mission_room": {"profile": "sentinel_government_v1"},
             "assistant_profile_default": "vigie_executive",
-            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1", "sentinel_ci_aya_security_v1"]},
+            "actions": {
+                "enabled_packs": [
+                    "global_voice_v1",
+                    "sentinel_ci_aya_v1",
+                    "sentinel_ci_aya_security_v1",
+                ]
+            },
             "assistant_profiles": [
                 {
                     "key": "vigie_executive",
-                    "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1", "sentinel_ci_aya_security_v1"]},
+                    "actions": {
+                        "enabled_packs": [
+                            "global_voice_v1",
+                            "sentinel_ci_aya_v1",
+                            "sentinel_ci_aya_security_v1",
+                        ]
+                    },
                 }
             ],
         },
@@ -206,8 +238,7 @@ def test_sentinel_effective_action_contract_remains_isolated_from_octocity(db_se
     assert manifests_response.status_code == 200
     manifests_payload = manifests_response.json()
     assert not any(
-        item["action_id"].startswith("octave.")
-        for item in manifests_payload["manifests"]
+        item["action_id"].startswith("octave.") for item in manifests_payload["manifests"]
     )
 
     serialized = json.dumps([payload, manifests_payload], ensure_ascii=False).casefold()
@@ -229,16 +260,25 @@ def test_global_voice_actions_are_trans_workspace():
     andritz = _workspace("andritz")
     sentinel = _workspace("sentinel-ci")
 
-    andritz_ids = {action.action_id for action in effective_action_manifests(andritz, surface="voice")}
-    sentinel_ids = {action.action_id for action in effective_action_manifests(sentinel, surface="voice")}
+    andritz_ids = {
+        action.action_id for action in effective_action_manifests(andritz, surface="voice")
+    }
+    sentinel_ids = {
+        action.action_id for action in effective_action_manifests(sentinel, surface="voice")
+    }
 
     assert "voice.stop" in andritz_ids
     assert "voice.stop" in sentinel_ids
-    assert resolve_action(andritz, text="on peut s'arrêter là", surface="voice").action_id == "voice.stop"
+    assert (
+        resolve_action(andritz, text="on peut s'arrêter là", surface="voice").action_id
+        == "voice.stop"
+    )
 
 
 def test_catalog_override_can_enable_aya_in_andritz():
-    workspace = _workspace("andritz", settings={"catalog": {"enabled_capabilities": ["aya_voice_command"]}})
+    workspace = _workspace(
+        "andritz", settings={"catalog": {"enabled_capabilities": ["aya_voice_command"]}}
+    )
 
     ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
 
@@ -329,7 +369,9 @@ def test_octave_wake_word_resolves_mission_room_action():
         settings={
             "mission_room": {"profile": "octocity_institutional_v1"},
             "assistant_profile_default": "octave_executive",
-            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+            "actions": {
+                "enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]
+            },
         },
     )
 
@@ -399,7 +441,9 @@ def test_actions_api_exposes_sentinel_voice_pack_for_vigie(db_session):
     app.dependency_overrides[actions.get_current_user] = lambda: user
     app.dependency_overrides[actions.get_db] = lambda: db_session
 
-    response = TestClient(app).get("/api/v1/actions/effective?surface=voice&assistant_profile=vigie_executive")
+    response = TestClient(app).get(
+        "/api/v1/actions/effective?surface=voice&assistant_profile=vigie_executive"
+    )
 
     assert response.status_code == 200
     ids = {item["action_id"] for item in response.json()["actions"]}

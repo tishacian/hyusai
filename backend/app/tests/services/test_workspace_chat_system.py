@@ -2,12 +2,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import auth as auth_endpoint
+from app.api.v1.endpoints.chat import ChatRequest, _apply_workspace_chat_flow_defaults
+from app.core.iam.roles import WORKSPACE_CONTRIBUTOR
 from app.models.capability import Capability
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.core.iam.roles import WORKSPACE_CONTRIBUTOR
-from app.api.v1.endpoints.chat import ChatRequest, _apply_workspace_chat_flow_defaults
 from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.skills_registry.wrappers import runtime_status
@@ -23,7 +23,9 @@ from app.services.systems.flow_manifest import serialize_flow_manifest
 
 
 def test_workspace_chat_capability_and_system_are_seeded(db_session):
-    workspace = Workspace(id="ws-workspace-chat", name="Operator Workspace", slug="operator-workspace")
+    workspace = Workspace(
+        id="ws-workspace-chat", name="Operator Workspace", slug="operator-workspace"
+    )
     db_session.add(workspace)
     seed_skills_and_capabilities(db_session)
 
@@ -38,11 +40,18 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
     assert system.flow_definition["variant"] == WORKSPACE_CHAT_VARIANT
     assert system.flow_definition["ui"]["entry_route"] == "chat"
     assert system.flow_definition["template_id"] == WORKSPACE_CHAT_VARIANT
-    assert system.flow_definition["runtime_contract"]["source_of_truth"] == "backend/app/api/v1/endpoints/chat.py"
+    assert (
+        system.flow_definition["runtime_contract"]["source_of_truth"]
+        == "backend/app/api/v1/endpoints/chat.py"
+    )
     assert system.flow_definition["prompt_contract"]["base_system_prompt"]
     assert workspace_chat_system_id(db_session, workspace.id) == system.id
-    assert [issue for issue in validate_flow(system.flow_definition) if issue.level == "error"] == []
-    assert [issue for issue in validate_flow(system.flow_definition) if issue.code == "task_no_skill"] == []
+    assert [
+        issue for issue in validate_flow(system.flow_definition) if issue.level == "error"
+    ] == []
+    assert [
+        issue for issue in validate_flow(system.flow_definition) if issue.code == "task_no_skill"
+    ] == []
     node_ids = {node["id"] for node in system.flow_definition["nodes"]}
     assert {
         "router.fast_exit",
@@ -53,11 +62,15 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
         "skill.answer_audit",
         "chat.response",
     }.issubset(node_ids)
-    prompt_node = next(node for node in system.flow_definition["nodes"] if node["id"] == "runtime.prompt_assembly")
+    prompt_node = next(
+        node for node in system.flow_definition["nodes"] if node["id"] == "runtime.prompt_assembly"
+    )
     assert "base_system_prompt" in prompt_node["data"]["prompt_contract"]
     assert "procurement_agent._build_rag_user_prompt" in prompt_node["data"]["runtime_ref"]
 
-    capability = db_session.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).one()
+    capability = (
+        db_session.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).one()
+    )
     assert system.capability_id == capability.id
     assert runtime_status("chat_trivial_bypass_v1") == "bound"
     assert runtime_status("chat_grounding_policy_v1") == "stub"
@@ -122,7 +135,10 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
             "knowledge_scopes": [
                 {
                     "key": "andritz-spl-knowledge-experiment",
-                    "collection_slugs": ["andritz-secure-deposit", "andritz-notices-techniques-spl-pilot"],
+                    "collection_slugs": [
+                        "andritz-secure-deposit",
+                        "andritz-notices-techniques-spl-pilot",
+                    ],
                     "default_mode": "chah",
                     "top_k": 6,
                     "is_default": True,
@@ -160,7 +176,9 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     assert system.retrieval_mode_default == "chah"
 
     request = ChatRequest(query="quelle vitesse AKK200 ?")
-    resolved_id = _apply_workspace_chat_flow_defaults(db_session, workspace=workspace, request=request)
+    resolved_id = _apply_workspace_chat_flow_defaults(
+        db_session, workspace=workspace, request=request
+    )
     assert resolved_id == system.id
     assert request.agent_id == system.id
     assert request.assistant_profile == "andritz_spl_advisor"
@@ -181,7 +199,10 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
 
     manifest = serialize_flow_manifest(db_session, system)
     effective = manifest["effective_config"]
-    assert effective["retrieval_config"]["runtime_read_path"] == "nodes.runtime.settings_budget.data.retrieval_defaults"
+    assert (
+        effective["retrieval_config"]["runtime_read_path"]
+        == "nodes.runtime.settings_budget.data.retrieval_defaults"
+    )
     assert effective["grounding_policy"]["node_id"] == "skill.grounding_policy"
     assert effective["source_policy_config"]["value"]["mode"] == "industrial_grounding"
 
@@ -356,9 +377,7 @@ def test_expert_correction_toggle_is_authoritative_through_resolver(db_session):
         },
     }
     db_session.commit()
-    _set_workspace_source_policy(
-        db_session, workspace, {"expert_fiche_correction_enabled": True}
-    )
+    _set_workspace_source_policy(db_session, workspace, {"expert_fiche_correction_enabled": True})
     trapped = resolve_workspace_chat_source_policy(db_session, workspace)
     assert trapped.get("expert_fiche_correction_enabled") is False  # trap reproduced
 
@@ -368,9 +387,7 @@ def test_expert_correction_toggle_is_authoritative_through_resolver(db_session):
     assert resolved_on.get("expert_fiche_correction_enabled") is True
 
     # Toggle OFF: workspace False + sync -> resolver returns False.
-    _set_workspace_source_policy(
-        db_session, workspace, {"expert_fiche_correction_enabled": False}
-    )
+    _set_workspace_source_policy(db_session, workspace, {"expert_fiche_correction_enabled": False})
     sync_chat_system_expert_correction_policy(db_session, workspace)
     resolved_off = resolve_workspace_chat_source_policy(db_session, workspace)
     assert resolved_off.get("expert_fiche_correction_enabled") is False
@@ -436,9 +453,7 @@ def test_chat_correction_endpoint_403_when_toggle_off(db_session, monkeypatch):
     ensure_workspace_chat_system_default(db_session, workspace.id)
 
     # Toggle OFF (write workspace + sync the chat System).
-    _set_workspace_source_policy(
-        db_session, workspace, {"expert_fiche_correction_enabled": False}
-    )
+    _set_workspace_source_policy(db_session, workspace, {"expert_fiche_correction_enabled": False})
     sync_chat_system_expert_correction_policy(db_session, workspace)
 
     client = _chat_correction_client(db_session, workspace, user, monkeypatch)

@@ -5,6 +5,7 @@ capture the workspace structure and configuration needed to recreate a
 reference workspace without leaking members, credentials, raw files or
 vector payloads.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -27,7 +28,6 @@ from app.services import knowledge_collections
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
 from app.services.iam.config_service import load_iam_config, patch_iam_config
-
 
 BLUEPRINT_KIND = "agentium.workspace.blueprint"
 SCHEMA_VERSION = 1
@@ -105,14 +105,18 @@ def export_workspace_blueprint(
     capabilities_by_id = {c.id: c for c in capabilities}
     contexts_by_id = {c.id: c for c in contexts}
     capability_skill_ids = {
-        skill_id
-        for capability in capabilities
-        for skill_id in (capability.skill_ids or [])
+        skill_id for capability in capabilities for skill_id in (capability.skill_ids or [])
     }
-    skill_slugs_by_id = {
-        row.id: row.slug
-        for row in db.query(Skill.id, Skill.slug).filter(Skill.id.in_(capability_skill_ids)).all()
-    } if capability_skill_ids else {}
+    skill_slugs_by_id = (
+        {
+            row.id: row.slug
+            for row in db.query(Skill.id, Skill.slug)
+            .filter(Skill.id.in_(capability_skill_ids))
+            .all()
+        }
+        if capability_skill_ids
+        else {}
+    )
 
     payload = {
         "kind": BLUEPRINT_KIND,
@@ -134,9 +138,7 @@ def export_workspace_blueprint(
             _serialize_capability(c, workspace_id=workspace.id, skill_slugs_by_id=skill_slugs_by_id)
             for c in capabilities
         ],
-        "contexts": [
-            _serialize_context(c, systems_by_id=systems_by_id) for c in contexts
-        ],
+        "contexts": [_serialize_context(c, systems_by_id=systems_by_id) for c in contexts],
         "systems": [
             _serialize_system(
                 db=db,
@@ -154,11 +156,15 @@ def export_workspace_blueprint(
         },
         "presets": {
             "rag": [
-                _serialize_preset(p, systems_by_id=systems_by_id, capabilities_by_id=capabilities_by_id)
+                _serialize_preset(
+                    p, systems_by_id=systems_by_id, capabilities_by_id=capabilities_by_id
+                )
                 for p in rag_presets
             ],
             "evaluation": [
-                _serialize_preset(p, systems_by_id=systems_by_id, capabilities_by_id=capabilities_by_id)
+                _serialize_preset(
+                    p, systems_by_id=systems_by_id, capabilities_by_id=capabilities_by_id
+                )
                 for p in evaluation_presets
             ],
         },
@@ -305,8 +311,7 @@ def _validate_blueprint(blueprint: Mapping[str, Any]) -> None:
         raise WorkspaceBlueprintError("Blueprint must be a JSON object.")
     if blueprint.get("kind") != BLUEPRINT_KIND:
         raise WorkspaceBlueprintError(
-            f"Unexpected blueprint kind: {blueprint.get('kind')!r} "
-            f"(expected {BLUEPRINT_KIND!r})."
+            f"Unexpected blueprint kind: {blueprint.get('kind')!r} (expected {BLUEPRINT_KIND!r})."
         )
     if blueprint.get("schema_version") != SCHEMA_VERSION:
         raise WorkspaceBlueprintError(
@@ -339,7 +344,9 @@ def _serialize_capability(
         "confidence_threshold": capability.confidence_threshold,
         "sla": capability.sla or {},
         "roi_model": capability.roi_model or {},
-        "source_scope": "workspace" if capability.workspace_id == workspace_id else "global_reference",
+        "source_scope": "workspace"
+        if capability.workspace_id == workspace_id
+        else "global_reference",
     }
 
 
@@ -493,7 +500,7 @@ def _unique_capability_slug(db: DBSession, base_slug: str) -> str:
     index = 2
     while db.query(Capability).filter(Capability.slug == candidate).first():
         suffix = f"-{index}"
-        candidate = f"{base[:120 - len(suffix)]}{suffix}"
+        candidate = f"{base[: 120 - len(suffix)]}{suffix}"
         index += 1
     return candidate
 
@@ -532,7 +539,11 @@ def _apply_contexts(
             continue
         existing = (
             db.query(Context)
-            .filter(Context.workspace_id == workspace.id, Context.name == name, Context.ephemeral.is_(False))
+            .filter(
+                Context.workspace_id == workspace.id,
+                Context.name == name,
+                Context.ephemeral.is_(False),
+            )
             .first()
         )
         if existing:
@@ -581,7 +592,9 @@ def _apply_collections(
             continue
         existing = (
             db.query(KnowledgeCollection)
-            .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == slug)
+            .filter(
+                KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == slug
+            )
             .first()
         )
         if existing:
@@ -589,7 +602,9 @@ def _apply_collections(
             report["actions"].append({"kind": "collection", "slug": slug, "action": "reuse"})
             continue
         report["created"]["collections"] += 1
-        report["actions"].append({"kind": "collection", "slug": slug, "action": "create_metadata_only"})
+        report["actions"].append(
+            {"kind": "collection", "slug": slug, "action": "create_metadata_only"}
+        )
         if not dry_run:
             collection = knowledge_collections.create_collection(
                 db,
@@ -715,7 +730,9 @@ def _apply_presets(
             name = str(item.get("name") or "").strip()
             scope = str(item.get("scope") or "workspace")
             if not name or scope not in {"workspace", "capability", "system"}:
-                report["skipped"].append({"kind": f"{kind}_preset", "name": name, "reason": "invalid_scope_or_name"})
+                report["skipped"].append(
+                    {"kind": f"{kind}_preset", "name": name, "reason": "invalid_scope_or_name"}
+                )
                 continue
             scope_id = None
             if scope == "capability":
@@ -739,7 +756,9 @@ def _apply_presets(
             )
             if existing:
                 report["reused"]["presets"] += 1
-                report["actions"].append({"kind": f"{kind}_preset", "name": name, "action": "reuse"})
+                report["actions"].append(
+                    {"kind": f"{kind}_preset", "name": name, "action": "reuse"}
+                )
                 continue
             report["created"]["presets"] += 1
             report["actions"].append({"kind": f"{kind}_preset", "name": name, "action": "create"})
@@ -771,12 +790,16 @@ def _apply_iam_config(
     capability_overrides = iam.get("capability_overrides")
     if not role_flags and not capability_overrides:
         return
-    report["actions"].append({"kind": "iam_config", "action": "patch" if not dry_run else "dry_run_patch"})
+    report["actions"].append(
+        {"kind": "iam_config", "action": "patch" if not dry_run else "dry_run_patch"}
+    )
     if not dry_run:
         patch_iam_config(
             db,
             workspace_id=workspace.id,
             role_flags=role_flags if isinstance(role_flags, dict) else None,
-            capability_overrides=capability_overrides if isinstance(capability_overrides, dict) else None,
+            capability_overrides=capability_overrides
+            if isinstance(capability_overrides, dict)
+            else None,
             updated_by_user_id=actor.id if actor else None,
         )

@@ -39,16 +39,16 @@ metadata) is intentionally omitted — those are workspace-scoped pieces
 that don't round-trip cleanly; the user re-associates them inside the
 target workspace after import.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Mapping
 
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.skill import Skill
 from app.models.system import System
-
 
 SCHEMA_VERSION = 1
 ENVELOPE_KIND = "agentium.system.export"
@@ -63,7 +63,7 @@ def serialize_for_export(
     db: DBSession,
     system: System,
     exported_by: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a portable JSON envelope for ``system``.
 
     - Pulls the slugs for every ``skill_id`` on the system so the
@@ -96,9 +96,7 @@ def serialize_for_export(
             "coordination_pattern": system.coordination_pattern,
             "default_prompt_type": getattr(system, "default_prompt_type", None),
             "default_model": getattr(system, "default_model", None),
-            "retrieval_mode_default": getattr(
-                system, "retrieval_mode_default", None
-            ),
+            "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
         },
     }
 
@@ -109,7 +107,7 @@ def prepare_import(
     envelope: Mapping[str, Any],
     workspace_id: str,
     target_name: str | None = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Validate ``envelope`` and rehydrate it against the target workspace.
 
     Returns a ``(system_create_kwargs, rebind_report)`` tuple where
@@ -140,9 +138,9 @@ def prepare_import(
 
     # Rebind system-level skill_ids from ``skill_slugs``.
     slugs = list(sys_payload.get("skill_slugs") or [])
-    resolved: List[Dict[str, str]] = []
-    unresolved: List[str] = []
-    skill_ids: List[str] = []
+    resolved: list[dict[str, str]] = []
+    unresolved: list[str] = []
+    skill_ids: list[str] = []
     for slug in slugs:
         skill_id = _lookup_skill_id(db, slug=slug, workspace_id=workspace_id)
         if skill_id:
@@ -155,15 +153,14 @@ def prepare_import(
         if slug not in unresolved and slug not in slugs:
             unresolved.append(slug)
 
-    kwargs: Dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "name": target_name or sys_payload.get("name") or "Imported chain",
         "objective": sys_payload.get("objective") or "",
         "flow_definition": flow,
         "skill_ids": skill_ids,
         "execution_mode": sys_payload.get("execution_mode") or "real_time_decision",
         "execution_profile": sys_payload.get("execution_profile") or {},
-        "coordination_pattern": sys_payload.get("coordination_pattern")
-        or "single_agent",
+        "coordination_pattern": sys_payload.get("coordination_pattern") or "single_agent",
         "default_prompt_type": sys_payload.get("default_prompt_type"),
         "default_model": sys_payload.get("default_model"),
         "retrieval_mode_default": sys_payload.get("retrieval_mode_default"),
@@ -185,8 +182,7 @@ def _validate_envelope(envelope: Mapping[str, Any]) -> None:
         raise ChainExportError("Envelope must be a JSON object.")
     if envelope.get("kind") != ENVELOPE_KIND:
         raise ChainExportError(
-            f"Unexpected envelope kind: {envelope.get('kind')!r} "
-            f"(expected {ENVELOPE_KIND!r})."
+            f"Unexpected envelope kind: {envelope.get('kind')!r} (expected {ENVELOPE_KIND!r})."
         )
     version = envelope.get("schema_version")
     if version != SCHEMA_VERSION:
@@ -197,11 +193,11 @@ def _validate_envelope(envelope: Mapping[str, Any]) -> None:
         raise ChainExportError("Missing ``system`` section in envelope.")
 
 
-def _strip_flow_for_export(flow: Mapping[str, Any]) -> Dict[str, Any]:
+def _strip_flow_for_export(flow: Mapping[str, Any]) -> dict[str, Any]:
     """Return a deep-enough copy of ``flow`` with per-node ``skill_id``
     removed. ``skill_slug`` stays so the receiver can rebind."""
-    out: Dict[str, Any] = {k: v for k, v in flow.items() if k != "nodes"}
-    out_nodes: List[Dict[str, Any]] = []
+    out: dict[str, Any] = {k: v for k, v in flow.items() if k != "nodes"}
+    out_nodes: list[dict[str, Any]] = []
     for n in flow.get("nodes") or []:
         if not isinstance(n, Mapping):
             continue
@@ -218,13 +214,13 @@ def _strip_flow_for_export(flow: Mapping[str, Any]) -> Dict[str, Any]:
 def _rebind_task_skills(
     *,
     db: DBSession,
-    flow: Dict[str, Any],
+    flow: dict[str, Any],
     workspace_id: str,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[str]]:
-    rebinds: List[Dict[str, Any]] = []
-    unresolved: List[str] = []
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[str]]:
+    rebinds: list[dict[str, Any]] = []
+    unresolved: list[str] = []
     nodes = flow.get("nodes") or []
-    out_nodes: List[Dict[str, Any]] = []
+    out_nodes: list[dict[str, Any]] = []
     for n in nodes:
         if not isinstance(n, Mapping):
             out_nodes.append(n)
@@ -255,9 +251,7 @@ def _rebind_task_skills(
     return flow, rebinds, unresolved
 
 
-def _lookup_skill_id(
-    db: DBSession, *, slug: str, workspace_id: str
-) -> str | None:
+def _lookup_skill_id(db: DBSession, *, slug: str, workspace_id: str) -> str | None:
     """Resolve a skill slug against the catalog.
 
     Matches either the workspace-scoped skill (``workspace_id = ws``) or
@@ -274,7 +268,7 @@ def _lookup_skill_id(
     return skill.id if skill else None
 
 
-def _resolve_slugs_from_ids(db: DBSession, skill_ids: List[str]) -> List[str]:
+def _resolve_slugs_from_ids(db: DBSession, skill_ids: list[str]) -> list[str]:
     if not skill_ids:
         return []
     rows = db.query(Skill.id, Skill.slug).filter(Skill.id.in_(skill_ids)).all()

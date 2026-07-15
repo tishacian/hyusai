@@ -6,6 +6,7 @@ rules continue to govern actions inside that application.  Workspaces that
 have not enabled ``app_entitlements_v1`` retain their legacy membership-based
 entry contract.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping

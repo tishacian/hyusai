@@ -17,6 +17,7 @@ Examples::
     python -m app.cli.build_voice_glossary --workspace andritz \
         --collection andritz-notices-techniques-spl-pilot --apply
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,7 +25,7 @@ import asyncio
 import json
 import sys
 from collections import Counter
-from typing import Any, List
+from typing import Any
 
 from app.services.voice_transcript_glossary import (
     _is_acronym_token,
@@ -102,9 +103,9 @@ def _document_service(workspace: Any, collection: str) -> Any:
     )
 
 
-async def _scan_chunk_texts(doc_svc: Any, *, scan_limit: int = 0) -> List[str]:
+async def _scan_chunk_texts(doc_svc: Any, *, scan_limit: int = 0) -> list[str]:
     """Scroll all chunk payloads and return their text content."""
-    texts: List[str] = []
+    texts: list[str] = []
     page = 500
     offset = 0
     while True:
@@ -124,12 +125,12 @@ async def _scan_chunk_texts(doc_svc: Any, *, scan_limit: int = 0) -> List[str]:
 
 
 def _build_terms(
-    texts: List[str],
+    texts: list[str],
     *,
     min_term_count: int,
     max_terms: int,
     acronym_ratio: float = 0.5,
-) -> tuple[List[str], dict[str, Any]]:
+) -> tuple[list[str], dict[str, Any]]:
     """Build an ordered, deduped, capped glossary surface list from chunk texts.
 
     The cap is split between acronyms and distinctive domain nouns so neither
@@ -158,9 +159,7 @@ def _build_terms(
 
     acronyms_ranked = [acronym_surface[k] for k, _c in acronym_counts.most_common()]
     distinctive_ranked = [
-        term_surface[k]
-        for k, count in term_counts.most_common()
-        if count >= min_term_count
+        term_surface[k] for k, count in term_counts.most_common() if count >= min_term_count
     ]
 
     acronym_budget = min(len(acronyms_ranked), int(round(max_terms * acronym_ratio)))
@@ -170,7 +169,7 @@ def _build_terms(
         acronym_budget = min(len(acronyms_ranked), max_terms - len(distinctive_ranked))
         distinctive_budget = max_terms - acronym_budget
 
-    ordered: List[str] = []
+    ordered: list[str] = []
     seen: set = set()
     for surface in acronyms_ranked[:acronym_budget]:
         key = surface.lower()
@@ -201,7 +200,7 @@ def _build_terms(
     return capped, stats
 
 
-def _persist(db: Any, workspace: Any, terms: List[str]) -> None:
+def _persist(db: Any, workspace: Any, terms: list[str]) -> None:
     from sqlalchemy.orm.attributes import flag_modified
 
     settings = dict(workspace.settings or {})
@@ -227,9 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         workspace = _workspace(db, args.workspace)
         doc_svc = _document_service(workspace, args.collection)
         texts = asyncio.run(_scan_chunk_texts(doc_svc, scan_limit=args.scan_limit))
-        terms, stats = _build_terms(
-            texts, min_term_count=args.min_term_count, max_terms=max_terms
-        )
+        terms, stats = _build_terms(texts, min_term_count=args.min_term_count, max_terms=max_terms)
 
         applied = False
         if not dry_run:

@@ -25,7 +25,10 @@ def _workspace(**kwargs) -> Workspace:
         "settings": {
             "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
             "assistant_profiles": [
-                {"key": "vigie_executive", "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}}
+                {
+                    "key": "vigie_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+                }
             ],
         },
     }
@@ -37,7 +40,10 @@ def _workspace(**kwargs) -> Workspace:
     ("phrase", "expected"),
     [
         ("Aya, fais moi un résumé des sujets prioritaires", "aya.priority_summary"),
-        ("Fais moi un zoom sur la région nord projet public composants importés", "aya.focus_zone_with_project"),
+        (
+            "Fais moi un zoom sur la région nord projet public composants importés",
+            "aya.focus_zone_with_project",
+        ),
         ("Montre moi le trafic maritime à destination d'Abidjan", "aya.show_maritime_traffic"),
         ("OK Aya, quel est mon prochain RDV ?", "aya.open_next_meeting"),
         ("Quels ont été les derniers échanges ?", "aya.summarize_last_exchanges"),
@@ -116,7 +122,10 @@ def _workspace(**kwargs) -> Workspace:
         # Bug demo-eve #1 — polite filler ("OK, très bien") followed by a
         # substantive verb must NOT match ``voice.confirm_yes``; it must
         # route to the port-situation view instead.
-        ("OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?", "aya.show_maritime_traffic"),
+        (
+            "OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?",
+            "aya.show_maritime_traffic",
+        ),
         ("ok montre la situation au port", "aya.show_maritime_traffic"),
         ("AYA, montre la situation au port", "aya.show_maritime_traffic"),
         ("ouvre la vue du port", "aya.show_maritime_traffic"),
@@ -126,7 +135,9 @@ def _workspace(**kwargs) -> Workspace:
 )
 def test_resolver_matches_demo_scenario_phrases(phrase, expected):
     workspace = _workspace()
-    result = resolve_action(workspace, text=phrase, surface="voice", assistant_profile="vigie_executive")
+    result = resolve_action(
+        workspace, text=phrase, surface="voice", assistant_profile="vigie_executive"
+    )
     assert result.matched is True
     assert result.action_id == expected
 
@@ -159,7 +170,9 @@ def test_bare_confirmation_still_matches_confirm_yes():
 
     workspace = _workspace()
     for phrase in ("oui", "ok", "vas-y", "d'accord"):
-        result = resolve_action(workspace, text=phrase, surface="voice", assistant_profile="vigie_executive")
+        result = resolve_action(
+            workspace, text=phrase, surface="voice", assistant_profile="vigie_executive"
+        )
         assert result.matched is True, phrase
         assert result.action_id == "voice.confirm_yes", phrase
 
@@ -179,7 +192,9 @@ def test_voice_confirm_yes_without_awaiting_returns_graceful_message(db_session)
     db_session.commit()
 
     manifest = next(
-        m for m in effective_action_manifests(workspace, surface="voice") if m.action_id == "voice.confirm_yes"
+        m
+        for m in effective_action_manifests(workspace, surface="voice")
+        if m.action_id == "voice.confirm_yes"
     )
     result = asyncio.run(
         execute_flow_action(
@@ -230,7 +245,11 @@ def test_execute_maritime_sets_awaiting_and_propose_effect(db_session):
     db_session.add_all([workspace, user])
     db_session.commit()
 
-    manifest = next(m for m in effective_action_manifests(workspace, surface="chat") if m.action_id == "aya.show_maritime_traffic")
+    manifest = next(
+        m
+        for m in effective_action_manifests(workspace, surface="chat")
+        if m.action_id == "aya.show_maritime_traffic"
+    )
     result = asyncio.run(
         execute_flow_action(
             db_session,

@@ -101,14 +101,21 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
     assert cockpit_body["vp_story"]["assistant"] == "AYA"
     assert cockpit_body["vp_story"]["anchors"]["priority_zone"] == "Zone Nord"
-    assert cockpit_body["vp_story"]["directive_of_day"]["text"] == cockpit_body["directive_of_day"]["text"]
+    assert (
+        cockpit_body["vp_story"]["directive_of_day"]["text"]
+        == cockpit_body["directive_of_day"]["text"]
+    )
     assert cockpit_body["vp_story"]["agenda_day"]["label"] == cockpit_body["agenda_day"]["label"]
     assert [item["id"] for item in cockpit_body["vp_story"]["attention_required"]] == [
         "attention-inter-budget",
         "attention-zone-nord",
         "attention-ambassadeur-france",
     ]
-    ambassadeur = next(item for item in cockpit_body["attention_required"] if item["id"] == "attention-ambassadeur-france")
+    ambassadeur = next(
+        item
+        for item in cockpit_body["attention_required"]
+        if item["id"] == "attention-ambassadeur-france"
+    )
     assert ambassadeur["action_route"] == "/hypervisor/mission-room/decisions"
     assert len(cockpit_body["arbitration_cards"]) >= 3
     assert [card["rank"] for card in cockpit_body["arbitration_cards"]] == sorted(
@@ -117,7 +124,11 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["arbitration_cards"][0]["id"] == "attention-inter-budget"
     assert cockpit_body["arbitration_cards"][0]["domain"] == "PRESSE"
     assert cockpit_body["arbitration_cards"][0]["drill_down"]["view"] == "presse"
-    diplomacy_card = next(card for card in cockpit_body["arbitration_cards"] if card["id"] == "attention-ambassadeur-france")
+    diplomacy_card = next(
+        card
+        for card in cockpit_body["arbitration_cards"]
+        if card["id"] == "attention-ambassadeur-france"
+    )
     assert diplomacy_card["drill_down"]["view"] == "decisions"
     assert diplomacy_card["secondary_drill_down"]["view"] == "agenda"
     assert len(cockpit_body["intelligence_feeds"]) == 8
@@ -137,12 +148,16 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert geo_preview["camera"]["center"]
     assert geo_preview["zone_scores"]
     assert 2 <= len(cockpit_body["press_preview"]) <= 3
-    assert cockpit_body["press_preview"][0]["route"].startswith("/hypervisor/mission-room/presse?highlight=")
+    assert cockpit_body["press_preview"][0]["route"].startswith(
+        "/hypervisor/mission-room/presse?highlight="
+    )
     assert cockpit_body["agenda_timeline"]["separate_from_actions"] is True
     assert cockpit_body["agenda_timeline"]["now_marker"]["label"] == "MAINTENANT"
     # The "now" marker follows the workspace demo time, which rolls with the
     # current Africa/Abidjan clock unless a fixed context is explicitly locked.
-    assert cockpit_body["agenda_timeline"]["now_marker"]["time"] == resolve_demo_time(workspace).strftime("%H:%M")
+    assert cockpit_body["agenda_timeline"]["now_marker"]["time"] == resolve_demo_time(
+        workspace
+    ).strftime("%H:%M")
     assert any(
         isinstance(event.get("countdown"), str)
         and (event["countdown"].startswith("dans ") or event["countdown"] == "imminent")
@@ -156,7 +171,10 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     ]
     assert cockpit_body["demo_narrative"]["steps"][1]["anchor"] == "attention-inter-budget"
     assert cockpit_body["demo_narrative"]["steps"][2]["anchor"] == "package-zone-nord"
-    assert cockpit_body["demo_narrative"]["economic_hook"]["cross_sources"] == ["maritime", "projets"]
+    assert cockpit_body["demo_narrative"]["economic_hook"]["cross_sources"] == [
+        "maritime",
+        "projets",
+    ]
     assert cockpit_body["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
     # Demo trame: chip "Zone Nord · Tendue" doit ouvrir la barre de statut.
     assert cockpit_body["vp_status_bar"][0]["key"] == "zone-nord-tension"
@@ -170,7 +188,12 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["geographic_signal_tiers"][0]["key"] == "ci"
     assert len(cockpit_body["attention_required"]) == 3
     assert len(cockpit_body["sixty_second_cockpit"]["urgences"]) == 3
-    assert cockpit_body["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
+    assert cockpit_body["strategic_posture"]["label"] in {
+        "stable",
+        "monitoring",
+        "elevated",
+        "critical",
+    }
     assert cockpit_body["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
     assert cockpit_body["decision_posture"]["modes"][0]["key"] == "explorer"
     assert cockpit_body["source_freshness"]["items"]
@@ -223,7 +246,11 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
         url="https://example.test/article-ci",
         embedded=True,
         relevance_score=0.87,
-        analysis={"risk_level": "high", "sentiment": "mixed", "entities": ["Cote d'Ivoire", "Abidjan"]},
+        analysis={
+            "risk_level": "high",
+            "sentiment": "mixed",
+            "entities": ["Cote d'Ivoire", "Abidjan"],
+        },
     )
     other_article = FeedArticle(
         id="article-andritz",
@@ -253,7 +280,10 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     news_body = news.json()
     assert news_body["source_health"]["live_news_used"] is True
     assert news_body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
-    assert news_body["vp_story"]["anchors"]["press_signal"] == "Article L'Inter - critique personnelle sur budget defense"
+    assert (
+        news_body["vp_story"]["anchors"]["press_signal"]
+        == "Article L'Inter - critique personnelle sur budget defense"
+    )
     assert news_body["vp_story"]["attention_required"][0]["id"] == "attention-inter-budget"
     assert news_body["source_health"]["last_run_id"] == run.id
     assert news_body["source_health"]["high_risk"] == 1
@@ -261,16 +291,27 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert news_body["geographic_priority"][0]["key"] == "ci"
     assert news_body["viewpoints"][0]["key"] == "interior"
     assert news_body["social_listening"]["rumor_origins"]
-    assert news_body["maritime_intelligence"]["latest_observation"]["domain"] in {"customs", "port_flow"}
+    assert news_body["maritime_intelligence"]["latest_observation"]["domain"] in {
+        "customs",
+        "port_flow",
+    }
     assert news_body["maritime_intelligence"]["active_evidence"]["type"] == "maritime"
-    assert any(feed["url"] == "https://www.portabidjan.ci/rss.xml" for feed in news_body["maritime_intelligence"]["feeds"])
+    assert any(
+        feed["url"] == "https://www.portabidjan.ci/rss.xml"
+        for feed in news_body["maritime_intelligence"]["feeds"]
+    )
     assert news_body["executive_alerts"][0]["article_id"] == article.id
     assert news_body["executive_alerts"][0]["geography_tier"] == "ci"
     assert news_body["executive_alerts"][0]["geo_tier"] == "ci"
     assert news_body["executive_alerts"][0]["velocity"] in {"rapide", "elevee", "moderee", "veille"}
     assert news_body["executive_alerts"][0]["briefing_value"]
     assert news_body["executive_alerts"][0]["viewpoint"] == "politique interieure ivoirienne"
-    assert [section["key"] for section in news_body["geo_sections"]] == ["ci", "cedeao", "africa", "world"]
+    assert [section["key"] for section in news_body["geo_sections"]] == [
+        "ci",
+        "cedeao",
+        "africa",
+        "world",
+    ]
     assert "Andritz" not in str(news_body)
     assert cockpit.status_code == 200
     cockpit_body = cockpit.json()
@@ -400,14 +441,22 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert timeline.status_code == 200
     assert timeline.json()["workspace"]["slug"] == workspace.slug
     assert timeline.json()["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
-    assert timeline.json()["vp_story"]["anchors"]["agenda_signal"] == "Ambassadeur France - dejeuner dans 1h44"
+    assert (
+        timeline.json()["vp_story"]["anchors"]["agenda_signal"]
+        == "Ambassadeur France - dejeuner dans 1h44"
+    )
     assert timeline.json()["agenda_day"]["label"] == "Agenda ministeriel"
     assert timeline.json()["attention_required"][1]["id"] == "attention-zone-nord"
     assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
     assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
     next_event = timeline.json()["calendar"]["next_event"]
-    assert next_event["title"] in {event["title"] for event in timeline.json()["calendar"]["events"]}
-    assert next_event["time"] >= resolve_demo_time(workspace).strftime("%H:%M") or next_event["title"] == timeline.json()["calendar"]["events"][0]["title"]
+    assert next_event["title"] in {
+        event["title"] for event in timeline.json()["calendar"]["events"]
+    }
+    assert (
+        next_event["time"] >= resolve_demo_time(workspace).strftime("%H:%M")
+        or next_event["title"] == timeline.json()["calendar"]["events"][0]["title"]
+    )
     assert len(timeline.json()["action_items"]) >= 1
     assert len(timeline.json()["messages"]) >= 1
     assert decisions.status_code == 200
@@ -448,16 +497,22 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert len(body["executive_decision_packages"]) == 5
     # The root cause (chantier Napié + cargo bloqué) must lead the recommended option,
     # with CEDEAO/regional coordination repositioned as a secondary signal in support.
-    assert body["executive_decision_packages"][0]["recommended_option"].startswith("Priorisation dedouanement cargo Napie")
+    assert body["executive_decision_packages"][0]["recommended_option"].startswith(
+        "Priorisation dedouanement cargo Napie"
+    )
     assert "CEDEAO" in body["executive_decision_packages"][0]["recommended_option"]
     assert body["rumor_trace"]["recommended_action"].startswith("Verifier source primaire")
     assert body["demo_value_metrics"][0]["value"] == "80 -> 3"
     assert len(body["presentation_beats"]) == 4
     assert body["voice_context"]["assistant"] == "AYA"
     assert body["voice_context"]["mode"] == "voice_first"
-    assert body["visual_intelligence_brief"]["source_quality"]["label"] == "Basse resolution publique"
+    assert (
+        body["visual_intelligence_brief"]["source_quality"]["label"] == "Basse resolution publique"
+    )
     assert body["visual_intelligence_brief"]["transcription"]["type"] == "visual_snapshot_analysis"
-    assert body["voice_context"]["visual_intelligence_brief"]["question_answered"].startswith("La valeur ajoutee")
+    assert body["voice_context"]["visual_intelligence_brief"]["question_answered"].startswith(
+        "La valeur ajoutee"
+    )
     assert body["worldmonitor_principles"]["map_dominant"] is True
     assert body["active_evidence"]["title"]
     assert body["active_evidence"]["decision_deadline"]
@@ -465,7 +520,9 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["voice_context"]["demo_script"]["prompt"].startswith("AYA")
     assert body["voice_context"]["active_evidence"]["id"] == body["active_evidence"]["id"]
     assert body["voice_context"]["decision_packages"][0]["id"] == "package-zone-nord"
-    assert body["voice_context"]["rumor_trace"]["headline"] == "Rumeur prioritaire sous verification"
+    assert (
+        body["voice_context"]["rumor_trace"]["headline"] == "Rumeur prioritaire sous verification"
+    )
     assert any(command["intent"] == "rumor_origin" for command in body["voice_context"]["commands"])
     assert body["panel_layout"][0]["key"] == "map"
     assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
@@ -473,15 +530,30 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert any(signal["id"] == "social-rumor-origin" for signal in body["cross_source_signals"])
     assert all(signal["evidence_refs"] for signal in body["cross_source_signals"])
     assert all(signal["decision_deadline"] for signal in body["cross_source_signals"])
-    assert all(signal["aya_context"]["answer_frame"].startswith("Situation") for signal in body["cross_source_signals"])
+    assert all(
+        signal["aya_context"]["answer_frame"].startswith("Situation")
+        for signal in body["cross_source_signals"]
+    )
     assert body["zones"][0]["popup_brief"]["cta"] == "Preparer arbitrage"
     assert body["visual"]["connector"]["id"] == "visual_streams"
     assert body["visual"]["source_health"]["total_sources"] >= 1
     assert body["maritime"]["active_evidence"]["type"] == "maritime"
-    assert body["maritime"]["active_evidence"]["map_focus"]["active_layers"][-1] == "maritime-traffic"
-    assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert (
+        body["maritime"]["active_evidence"]["map_focus"]["active_layers"][-1] == "maritime-traffic"
+    )
+    assert [layer["key"] for layer in body["layers"]] == [
+        "territorial-risk",
+        "open-intelligence",
+        "visual-streams",
+        "maritime-traffic",
+    ]
     assert body["layers"][-1]["enabled"] is False
-    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == [
+        "territorial-risk",
+        "open-intelligence",
+        "visual-streams",
+        "maritime-traffic",
+    ]
     assert "maritime-traffic" not in body["map_system"]["default_map_state"]["active_layers"]
     assert any(layer["key"] == "visual-streams" for layer in body["layers"])
 
@@ -525,7 +597,11 @@ def test_mission_room_security_monitor_payload(db_session):
     assert body["social_feed"]
     assert body["disclaimer"]
 
-    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.security_monitor.viewed").one()
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(event_type="mission_room.security_monitor.viewed")
+        .one()
+    )
     assert audit.workspace_id == workspace.id
     assert audit.details["tracks"] == len(body["theater_sahel"]["tracks"])
 
@@ -583,20 +659,41 @@ def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
     }
 
     stories = {name: body["vp_story"] for name, body in surfaces.items()}
-    assert {story["scenario_id"] for story in stories.values()} == {"sentinel-ci-vp-morning-zone-nord-v1"}
+    assert {story["scenario_id"] for story in stories.values()} == {
+        "sentinel-ci-vp-morning-zone-nord-v1"
+    }
     directive = stories["cockpit"]["directive_of_day"]["text"]
     assert all(story["directive_of_day"]["text"] == directive for story in stories.values())
     assert all(story["anchors"]["priority_zone"] == "Zone Nord" for story in stories.values())
-    assert all(story["anchors"]["rumor_signal"] == "Emoi public - rumeur a contenir" for story in stories.values())
-    assert all(story["anchors"]["maritime_signal"] == "Port d'Abidjan - douanes et flux economiques" for story in stories.values())
-    assert all(story["attention_required"][0]["id"] == "attention-inter-budget" for story in stories.values())
+    assert all(
+        story["anchors"]["rumor_signal"] == "Emoi public - rumeur a contenir"
+        for story in stories.values()
+    )
+    assert all(
+        story["anchors"]["maritime_signal"] == "Port d'Abidjan - douanes et flux economiques"
+        for story in stories.values()
+    )
+    assert all(
+        story["attention_required"][0]["id"] == "attention-inter-budget"
+        for story in stories.values()
+    )
     assert all(story["attention_required"][1]["deadline"] == "15:00" for story in stories.values())
-    assert all(story["decision_queue"][0]["id"] == "package-zone-nord" for story in stories.values())
+    assert all(
+        story["decision_queue"][0]["id"] == "package-zone-nord" for story in stories.values()
+    )
     assert all(story["agenda_day"]["label"] == "Agenda ministeriel" for story in stories.values())
     cockpit = surfaces["cockpit"]
-    assert cockpit["demo_narrative"]["steps"][1]["anchor"] == cockpit["vp_story"]["attention_required"][0]["id"]
-    assert cockpit["demo_narrative"]["steps"][2]["anchor"] == cockpit["vp_story"]["decision_queue"][0]["id"]
-    assert cockpit["arbitration_cards"][0]["id"] == cockpit["vp_story"]["attention_required"][0]["id"]
+    assert (
+        cockpit["demo_narrative"]["steps"][1]["anchor"]
+        == cockpit["vp_story"]["attention_required"][0]["id"]
+    )
+    assert (
+        cockpit["demo_narrative"]["steps"][2]["anchor"]
+        == cockpit["vp_story"]["decision_queue"][0]["id"]
+    )
+    assert (
+        cockpit["arbitration_cards"][0]["id"] == cockpit["vp_story"]["attention_required"][0]["id"]
+    )
     assert surfaces["cockpit"]["directive_of_day"]["text"] == directive
     assert surfaces["briefing"]["directive_of_day"]["text"] == directive
     assert surfaces["monitor"]["directive_of_day"]["text"] == directive
@@ -659,7 +756,9 @@ def test_draft_action_is_advisory_and_audited(db_session):
     assert body["requires_validation"] is True
     assert body["control"]["human_authority_required"] is True
 
-    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.instruction.drafted").one()
+    audit = (
+        db_session.query(AuditLog).filter_by(event_type="mission_room.instruction.drafted").one()
+    )
     assert audit.workspace_id == workspace.id
     assert audit.actor == user.email
     assert audit.details["sent"] is False

@@ -1,8 +1,20 @@
 """Workspace and membership models"""
+
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, String, DateTime, Boolean, JSON, Integer, ForeignKey, UniqueConstraint
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
+
 from app.db.base import Base
 
 
@@ -18,7 +30,9 @@ class Workspace(Base):
     settings = Column(JSON, default=dict)
     mode = Column(String(32), nullable=False, default="executive")
 
-    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    members = relationship(
+        "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
+    )
     iam_config = relationship(
         "WorkspaceIAMConfig",
         back_populates="workspace",
@@ -90,7 +104,9 @@ class WorkspaceMemberAppEntitlement(Base):
 class WorkspaceIAMConfig(Base):
     __tablename__ = "workspace_iam_configs"
 
-    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
+    workspace_id = Column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
     version = Column(Integer, nullable=False, default=1)
     role_flags = Column(JSON, default=dict)
     capability_overrides = Column(JSON, default=dict)

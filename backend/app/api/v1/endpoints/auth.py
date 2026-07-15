@@ -1,4 +1,5 @@
 """Auth and workspace management endpoints — backend proxy to Keycloak"""
+
 import json
 import logging
 import random
@@ -7,32 +8,30 @@ from typing import Optional
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import (
-    _get_token_url,
+    _extract_roles,
     _get_admin_url,
     _get_logout_url,
-    _kc_base_internal,
+    _get_token_url,
     decode_token,
     get_current_user,
-    _extract_roles,
 )
+from app.core.config import settings
 from app.core.iam.roles import (
     WORKSPACE_ADMIN,
-    WORKSPACE_CONTRIBUTOR,
     WORKSPACE_OWNER,
     legacy_role_for_template,
     normalize_role_template,
 )
-from app.core.config import settings
 from app.db.base import get_db
+from app.models.mfa import MfaChallenge
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.models.mfa import MfaChallenge
-from app.services.email import send_email, render_mfa_email
+from app.services.email import render_mfa_email, send_email
 from app.services.iam.app_entitlements import (
     app_entitlements_enabled,
     list_member_app_entitlements,
@@ -322,7 +321,9 @@ async def login(body: LoginRequest, db: DBSession = Depends(get_db)):
         if not sent:
             db.delete(challenge)
             db.commit()
-            logger.error("MFA email failed to send for user %s; falling back to direct login", user.id)
+            logger.error(
+                "MFA email failed to send for user %s; falling back to direct login", user.id
+            )
             return await _issue_tokens(tokens, db, body.remember_me)
 
         return MfaChallengeResponse(
@@ -433,7 +434,9 @@ async def signup(body: SignupRequest, db: DBSession = Depends(get_db)):
 
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{_get_admin_url()}/users", json=kc_user, headers=headers, timeout=15)
+        resp = await client.post(
+            f"{_get_admin_url()}/users", json=kc_user, headers=headers, timeout=15
+        )
 
     if resp.status_code == 409:
         raise HTTPException(status_code=409, detail="User already exists")
@@ -537,14 +540,16 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
     for m in memberships:
         ws = db.query(Workspace).filter(Workspace.id == m.workspace_id).first()
         if ws and ws.is_active:
-            workspaces.append({
-                "id": ws.id,
-                "name": ws.name,
-                "slug": ws.slug,
-                "role": m.role,
-                "mode": getattr(ws, "mode", "executive") or "executive",
-                "app_entitlements": list_member_app_entitlements(db, m),
-            })
+            workspaces.append(
+                {
+                    "id": ws.id,
+                    "name": ws.name,
+                    "slug": ws.slug,
+                    "role": m.role,
+                    "mode": getattr(ws, "mode", "executive") or "executive",
+                    "app_entitlements": list_member_app_entitlements(db, m),
+                }
+            )
 
     kc_data = await _get_kc_user(user.keycloak_sub) if user.keycloak_sub else {}
     attrs = kc_data.get("attributes") or {}
@@ -706,13 +711,15 @@ async def list_sessions(user: User = Depends(get_current_user)):
 
     sessions = []
     for s in resp.json():
-        sessions.append({
-            "id": s.get("id"),
-            "ip_address": s.get("ipAddress"),
-            "start": s.get("start"),
-            "last_access": s.get("lastAccess"),
-            "clients": list((s.get("clients") or {}).values()),
-        })
+        sessions.append(
+            {
+                "id": s.get("id"),
+                "ip_address": s.get("ipAddress"),
+                "start": s.get("start"),
+                "last_access": s.get("lastAccess"),
+                "clients": list((s.get("clients") or {}).values()),
+            }
+        )
     return sessions
 
 
@@ -772,27 +779,38 @@ async def toggle_mfa(
 
 def _slugify(name: str) -> str:
     import re
+
     slug = name.lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")[:100]
 
 
-def _resolve_workspace_and_role(db: DBSession, user: User, slug: str) -> tuple[Workspace, WorkspaceMember]:
+def _resolve_workspace_and_role(
+    db: DBSession, user: User, slug: str
+) -> tuple[Workspace, WorkspaceMember]:
     """Fetch a workspace by slug (non-deleted) and ensure the caller is a member.
 
     Returns (workspace, membership). Raises 404 if workspace missing, 403 if not a member.
     """
-    workspace = db.query(Workspace).filter(
-        Workspace.slug == slug,
-        Workspace.deleted_at.is_(None),
-    ).first()
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.slug == slug,
+            Workspace.deleted_at.is_(None),
+        )
+        .first()
+    )
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    membership = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this workspace")
 
@@ -808,7 +826,10 @@ def _require_admin(membership: WorkspaceMember) -> None:
 
 
 def _require_owner(membership: WorkspaceMember) -> None:
-    if normalize_role_template(getattr(membership, "role_template", None), membership.role) != WORKSPACE_OWNER:
+    if (
+        normalize_role_template(getattr(membership, "role_template", None), membership.role)
+        != WORKSPACE_OWNER
+    ):
         raise HTTPException(status_code=403, detail="Owner access required")
 
 
@@ -857,27 +878,35 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
     memberships = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all()
     result = []
     for m in memberships:
-        ws = db.query(Workspace).filter(
-            Workspace.id == m.workspace_id,
-            Workspace.is_active == True,  # noqa: E712
-            Workspace.deleted_at.is_(None),
-        ).first()
+        ws = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == m.workspace_id,
+                Workspace.is_active == True,  # noqa: E712
+                Workspace.deleted_at.is_(None),
+            )
+            .first()
+        )
         if ws:
-            member_count = db.query(WorkspaceMember).filter(
-                WorkspaceMember.workspace_id == ws.id
-            ).count()
-            result.append({
-                "id": ws.id,
-                "name": ws.name,
-                "slug": ws.slug,
-                "role": m.role,
-                "role_template": normalize_role_template(getattr(m, "role_template", None), m.role),
-                "member_count": member_count,
-                "created_at": ws.created_at.isoformat() if ws.created_at else None,
-                "settings": ws.settings or {},
-                "mode": getattr(ws, "mode", "executive") or "executive",
-                "app_entitlements": list_member_app_entitlements(db, m),
-            })
+            member_count = (
+                db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == ws.id).count()
+            )
+            result.append(
+                {
+                    "id": ws.id,
+                    "name": ws.name,
+                    "slug": ws.slug,
+                    "role": m.role,
+                    "role_template": normalize_role_template(
+                        getattr(m, "role_template", None), m.role
+                    ),
+                    "member_count": member_count,
+                    "created_at": ws.created_at.isoformat() if ws.created_at else None,
+                    "settings": ws.settings or {},
+                    "mode": getattr(ws, "mode", "executive") or "executive",
+                    "app_entitlements": list_member_app_entitlements(db, m),
+                }
+            )
     return result
 
 
@@ -888,15 +917,17 @@ async def get_workspace(
     db: DBSession = Depends(get_db),
 ):
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
-    member_count = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace.id
-    ).count()
+    member_count = (
+        db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace.id).count()
+    )
     return WorkspaceDetail(
         id=workspace.id,
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
-        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
+        role_template=normalize_role_template(
+            getattr(membership, "role_template", None), membership.role
+        ),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -946,15 +977,17 @@ async def update_workspace(
                 extra={"workspace_slug": workspace.slug},
             )
 
-    member_count = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace.id
-    ).count()
+    member_count = (
+        db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace.id).count()
+    )
     return WorkspaceDetail(
         id=workspace.id,
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
-        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
+        role_template=normalize_role_template(
+            getattr(membership, "role_template", None), membership.role
+        ),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -986,15 +1019,17 @@ async def update_workspace_mode(
     workspace.mode = body.mode
     db.commit()
     db.refresh(workspace)
-    member_count = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace.id
-    ).count()
+    member_count = (
+        db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace.id).count()
+    )
     return WorkspaceDetail(
         id=workspace.id,
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
-        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
+        role_template=normalize_role_template(
+            getattr(membership, "role_template", None), membership.role
+        ),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -1048,11 +1083,19 @@ async def restore_workspace(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    membership = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
-    if not membership or normalize_role_template(getattr(membership, "role_template", None), membership.role) != WORKSPACE_OWNER:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if (
+        not membership
+        or normalize_role_template(getattr(membership, "role_template", None), membership.role)
+        != WORKSPACE_OWNER
+    ):
         raise HTTPException(status_code=403, detail="Only the owner can restore")
 
     if workspace.deleted_at is None:
@@ -1078,10 +1121,14 @@ async def transfer_ownership(
     if body.new_owner_user_id == user.id:
         raise HTTPException(status_code=400, detail="You are already the owner")
 
-    new_owner_membership = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == body.new_owner_user_id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+    new_owner_membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == body.new_owner_user_id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if not new_owner_membership:
         raise HTTPException(status_code=404, detail="Target user is not a member of this workspace")
 
@@ -1101,7 +1148,10 @@ async def leave_workspace(
 ):
     """Leave a workspace. Owners must transfer ownership first."""
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
-    if normalize_role_template(getattr(membership, "role_template", None), membership.role) == WORKSPACE_OWNER:
+    if (
+        normalize_role_template(getattr(membership, "role_template", None), membership.role)
+        == WORKSPACE_OWNER
+    ):
         raise HTTPException(
             status_code=400,
             detail="Owner cannot leave. Transfer ownership first, or delete the workspace.",
@@ -1138,9 +1188,12 @@ async def list_members(
     """List all members of a workspace (members can see this list)."""
     workspace, _ = _resolve_workspace_and_role(db, user, slug)
 
-    members = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace.id
-    ).order_by(WorkspaceMember.joined_at.asc()).all()
+    members = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.workspace_id == workspace.id)
+        .order_by(WorkspaceMember.joined_at.asc())
+        .all()
+    )
 
     result: list[MemberDetail] = []
     for m in members:
@@ -1148,27 +1201,27 @@ async def list_members(
         if not u:
             continue
         kc_data = await _get_kc_user(u.keycloak_sub) if u.keycloak_sub else {}
-        result.append(MemberDetail(
-            user_id=u.id,
-            email=u.email,
-            username=u.username,
-            first_name=kc_data.get("firstName"),
-            last_name=kc_data.get("lastName"),
-            role=m.role,
-            role_template=normalize_role_template(getattr(m, "role_template", None), m.role),
-            custom_labels=m.custom_labels or [],
-            app_entitlements=list_member_app_entitlements(db, m),
-            joined_at=m.joined_at,
-            is_current_user=(u.id == user.id),
-            status=_member_invitation_status(kc_data, u.last_login),
-            last_login=u.last_login,
-        ))
+        result.append(
+            MemberDetail(
+                user_id=u.id,
+                email=u.email,
+                username=u.username,
+                first_name=kc_data.get("firstName"),
+                last_name=kc_data.get("lastName"),
+                role=m.role,
+                role_template=normalize_role_template(getattr(m, "role_template", None), m.role),
+                custom_labels=m.custom_labels or [],
+                app_entitlements=list_member_app_entitlements(db, m),
+                joined_at=m.joined_at,
+                is_current_user=(u.id == user.id),
+                status=_member_invitation_status(kc_data, u.last_login),
+                last_login=u.last_login,
+            )
+        )
     return result
 
 
-async def _find_or_create_kc_user(
-    email: str, admin_token: str
-) -> tuple[str, bool]:
+async def _find_or_create_kc_user(email: str, admin_token: str) -> tuple[str, bool]:
     """Look up a Keycloak user by email, provisioning one with the
     ``UPDATE_PASSWORD`` + ``VERIFY_EMAIL`` required actions when missing.
 
@@ -1346,10 +1399,14 @@ async def invite_member(
             db.add(target_user)
             db.flush()
 
-    existing = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == target_user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+    existing = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == target_user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=409, detail="User is already a member")
 
@@ -1400,10 +1457,14 @@ async def update_member_role(
 
     requested_app_entitlements = _validated_app_entitlements(body.app_entitlements)
 
-    target = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user_id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+    target = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if not target:
         raise HTTPException(status_code=404, detail="Member not found")
 
@@ -1455,15 +1516,21 @@ async def remove_member(
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="Cannot remove yourself. Use /leave instead.")
 
-    target = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user_id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+    target = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if not target:
         raise HTTPException(status_code=404, detail="Member not found")
 
     if target.role == "owner":
-        raise HTTPException(status_code=400, detail="Cannot remove the owner. Transfer ownership first.")
+        raise HTTPException(
+            status_code=400, detail="Cannot remove the owner. Transfer ownership first."
+        )
 
     db.delete(target)
     db.commit()

@@ -1142,8 +1142,8 @@ Agentium = Intelligence + Systems + ROI
 
 A unified system where:
 
-> papAI manages computation  
-> Agentium manages intelligence  
+> papAI manages computation
+> Agentium manages intelligence
 > Hypervisor manages decisions
 
 ---

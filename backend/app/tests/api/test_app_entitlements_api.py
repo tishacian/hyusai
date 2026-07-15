@@ -186,8 +186,7 @@ def test_auth_invite_requires_explicit_entitlements_when_feature_is_enabled(
     assert response.json()["detail"] == {
         "code": "APP_ENTITLEMENTS_REQUIRED",
         "message": (
-            "app_entitlements must be provided when workspace application "
-            "entitlements are enabled"
+            "app_entitlements must be provided when workspace application entitlements are enabled"
         ),
     }
     assert (

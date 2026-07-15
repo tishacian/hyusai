@@ -8,6 +8,7 @@ Covers:
   and surfaces unresolved ones without failing.
 - Envelope validation rejects wrong ``kind`` / wrong ``schema_version``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -58,12 +59,8 @@ def test_export_strips_skill_id_but_keeps_slug(db_session) -> None:
         ],
         "edges": [],
     }
-    s = _make_system(
-        db_session, workspace_id="ws-a", flow=flow, skill_ids=[sk.id]
-    )
-    env = export_service.serialize_for_export(
-        db=db_session, system=s, exported_by="alice"
-    )
+    s = _make_system(db_session, workspace_id="ws-a", flow=flow, skill_ids=[sk.id])
+    env = export_service.serialize_for_export(db=db_session, system=s, exported_by="alice")
     assert env["kind"] == export_service.ENVELOPE_KIND
     assert env["schema_version"] == export_service.SCHEMA_VERSION
     task_node = [n for n in env["system"]["flow_definition"]["nodes"] if n["id"] == "t1"][0]
@@ -154,9 +151,7 @@ def test_import_reports_unresolved_slugs_without_failing(db_session) -> None:
 def test_import_rejects_wrong_kind(db_session) -> None:
     envelope = {"kind": "something.else", "schema_version": 1, "system": {}}
     with pytest.raises(export_service.ChainExportError):
-        export_service.prepare_import(
-            db=db_session, envelope=envelope, workspace_id="ws-b"
-        )
+        export_service.prepare_import(db=db_session, envelope=envelope, workspace_id="ws-b")
 
 
 def test_import_rejects_wrong_schema_version(db_session) -> None:
@@ -166,9 +161,7 @@ def test_import_rejects_wrong_schema_version(db_session) -> None:
         "system": {"name": "x", "flow_definition": {"nodes": [], "edges": []}},
     }
     with pytest.raises(export_service.ChainExportError):
-        export_service.prepare_import(
-            db=db_session, envelope=envelope, workspace_id="ws-b"
-        )
+        export_service.prepare_import(db=db_session, envelope=envelope, workspace_id="ws-b")
 
 
 def test_import_allows_target_name_override(db_session) -> None:

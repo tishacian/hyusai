@@ -1,4 +1,5 @@
 """Client360 PDR pre-MVP API."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,8 +19,8 @@ from app.services.client360_alerts import alerts_payload
 from app.services.client360_chat import handle_client360_chat_query
 from app.services.client360_pdr import (
     campaign_stats,
-    client360_scope,
     client360_mail_settings_payload,
+    client360_scope,
     create_campaign,
     create_mail_draft,
     customer_payload,
@@ -39,8 +40,8 @@ from app.services.client360_pdr import (
     send_mail_draft,
     serialize_campaign,
     serialize_impact_event,
-    serialize_mapping_rule,
     serialize_mail_draft,
+    serialize_mapping_rule,
     serialize_opportunity,
     summary_payload,
     upsert_mapping_rule,
@@ -98,7 +99,10 @@ class Client360ActionPatch(BaseModel):
 class ImpactCreate(BaseModel):
     impact_type: str = Field(..., description="response, quote, order, lost, no_response or note")
     attribution: str = Field(default="unknown", description="direct, probable, unknown or none")
-    reason: str = Field(default="unknown", description="price, competitor, no_need, wrong_contact, timing, hub, technical_mismatch, bad_data, other or unknown")
+    reason: str = Field(
+        default="unknown",
+        description="price, competitor, no_need, wrong_contact, timing, hub, technical_mismatch, bad_data, other or unknown",
+    )
     summary: str = ""
     opportunity_id: Optional[str] = None
     mail_draft_id: Optional[str] = None
@@ -168,7 +172,10 @@ class CampaignSelectionCriteria(BaseModel):
 
 class CampaignCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    campaign_type: str = Field(..., description="first_replacement, maintenance_education, renewal, cross_selling, upselling or free")
+    campaign_type: str = Field(
+        ...,
+        description="first_replacement, maintenance_education, renewal, cross_selling, upselling or free",
+    )
     description: str = ""
     status: str = "draft"
     selection_criteria: CampaignSelectionCriteria = Field(default_factory=CampaignSelectionCriteria)
@@ -303,7 +310,9 @@ def client360_opportunity_patch(
     db: DBSession = Depends(get_db),
 ):
     try:
-        opportunity = patch_opportunity(db, workspace, opportunity_id, body.model_dump(exclude_unset=True))
+        opportunity = patch_opportunity(
+            db, workspace, opportunity_id, body.model_dump(exclude_unset=True)
+        )
         db.commit()
         db.refresh(opportunity)
         return {"opportunity": serialize_opportunity(opportunity)}
@@ -361,7 +370,9 @@ def client360_campaign_patch(
 ):
     patch = body.model_dump(exclude_unset=True)
     if isinstance(patch.get("selection_criteria"), dict):
-        patch["selection_criteria"] = {k: v for k, v in patch["selection_criteria"].items() if v is not None}
+        patch["selection_criteria"] = {
+            k: v for k, v in patch["selection_criteria"].items() if v is not None
+        }
     try:
         campaign = patch_campaign(db, workspace, campaign_id, patch)
         db.commit()
@@ -460,7 +471,9 @@ def client360_mapping_patch(
     db: DBSession = Depends(get_db),
 ):
     try:
-        row = patch_mapping_rule(db, workspace, user, mapping_id, body.model_dump(exclude_unset=True))
+        row = patch_mapping_rule(
+            db, workspace, user, mapping_id, body.model_dump(exclude_unset=True)
+        )
         db.commit()
         db.refresh(row)
         return {"mapping": serialize_mapping_rule(row)}

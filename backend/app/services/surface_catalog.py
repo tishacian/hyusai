@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-
 SurfaceStatus = Literal[
     "canonical",
     "compatibility",
@@ -505,9 +504,5 @@ def build_endpoint_catalog(openapi_schema: dict[str, Any]) -> dict[str, Any]:
             "deprecated",
         ],
         "entries": entries,
-        "uncataloged": [
-            entry
-            for entry in entries
-            if entry["domain"] == "Uncataloged"
-        ],
+        "uncataloged": [entry for entry in entries if entry["domain"] == "Uncataloged"],
     }

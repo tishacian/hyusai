@@ -8,7 +8,11 @@ from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.models.workspace_visual import WorkspaceVisualCapture, WorkspaceVisualObservation, WorkspaceVisualSource
+from app.models.workspace_visual import (
+    WorkspaceVisualCapture,
+    WorkspaceVisualObservation,
+    WorkspaceVisualSource,
+)
 from app.services import visual_intelligence as visual_service
 
 
@@ -21,14 +25,18 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     return TestClient(app)
 
 
-def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db_session, monkeypatch):
+def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(
+    db_session, monkeypatch
+):
     monkeypatch.setattr(
         visual_service,
         "_fetch_http_image",
         lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
     )
     monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = Workspace(
+        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+    )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -68,14 +76,23 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
     assert image.headers["content-type"].startswith("image/svg+xml")
     assert b"<svg" in image.content
 
-    collection = db_session.query(KnowledgeCollection).filter_by(slug="sentinel-ci-visual-intelligence").one()
+    collection = (
+        db_session.query(KnowledgeCollection)
+        .filter_by(slug="sentinel-ci-visual-intelligence")
+        .one()
+    )
     assert collection.workspace_id == workspace.id
     assert collection.document_count == 1
-    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() == len(
-        visual_service.ABIDJAN_NET_VISUAL_SOURCES
+    assert db_session.query(WorkspaceVisualSource).filter_by(
+        workspace_id=workspace.id
+    ).count() == len(visual_service.ABIDJAN_NET_VISUAL_SOURCES)
+    assert (
+        db_session.query(WorkspaceVisualCapture).filter_by(workspace_id=workspace.id).count() == 1
     )
-    assert db_session.query(WorkspaceVisualCapture).filter_by(workspace_id=workspace.id).count() == 1
-    assert db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).count() == 1
+    assert (
+        db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).count()
+        == 1
+    )
 
     event_types = {row.event_type for row in db_session.query(AuditLog).all()}
     assert "visual.capture.completed" in event_types
@@ -89,7 +106,9 @@ def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
         lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
     )
     monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
-    sentinel = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    sentinel = Workspace(
+        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+    )
     other = Workspace(id="workspace-other", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([sentinel, other, user])
@@ -135,7 +154,9 @@ def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
             "recommended_next_step": "Maintenir la veille periodique.",
         },
     )
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = Workspace(
+        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+    )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -145,7 +166,9 @@ def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
 
     assert capture.status_code == 202
-    observation_row = db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).one()
+    observation_row = (
+        db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).one()
+    )
     observation = visual_service.serialize_observation(observation_row)
     assert observation["provider"] == "openai"
     assert observation["model"] == "gpt-4o-mini"

@@ -1,11 +1,10 @@
 """Flow-node action executors and awaiting-state handling for Agentium registry."""
+
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import Any, Optional
-from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -154,8 +153,14 @@ def resolve_action_with_awaiting(
     awaiting: Optional[dict[str, Any]] = None,
 ) -> ActionResolution:
     if awaiting:
-        resolved = resolve_action(workspace, text=text, surface=surface, assistant_profile=assistant_profile)
-        if resolved.matched and resolved.action_id == "voice.confirm_yes" and awaiting.get("action_on_yes"):
+        resolved = resolve_action(
+            workspace, text=text, surface=surface, assistant_profile=assistant_profile
+        )
+        if (
+            resolved.matched
+            and resolved.action_id == "voice.confirm_yes"
+            and awaiting.get("action_on_yes")
+        ):
             action_on_yes = str(awaiting["action_on_yes"])
             if is_octocity_mission_room(workspace) and action_on_yes in {
                 "aya.recommend_cacao",
@@ -180,7 +185,9 @@ def resolve_action_with_awaiting(
                 reason="awaiting_declined",
                 manifest=None,
             )
-    return resolve_action(workspace, text=text, surface=surface, assistant_profile=assistant_profile)
+    return resolve_action(
+        workspace, text=text, surface=surface, assistant_profile=assistant_profile
+    )
 
 
 def _action_effect(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -194,6 +201,8 @@ def _assistant_label(workspace: Workspace) -> str:
 def _atlantic_trader_webcam_payload() -> Optional[dict[str, Any]]:
     from app.services.webcam_proxy import (
         get_spec as _get_webcam_spec,
+    )
+    from app.services.webcam_proxy import (
         recommended_webcam_for_vessel,
         webcam_cycle_for_vessel,
     )
@@ -221,7 +230,9 @@ def _atlantic_trader_webcam_payload() -> Optional[dict[str, Any]]:
         "cycle": [
             {
                 "source_id": candidate,
-                "label": (_get_webcam_spec(candidate).label if _get_webcam_spec(candidate) else candidate),
+                "label": (
+                    _get_webcam_spec(candidate).label if _get_webcam_spec(candidate) else candidate
+                ),
                 "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={candidate}",
             }
             for candidate in cycle_ids
@@ -295,11 +306,19 @@ def _resolve_agenda_item_from_prompt(text: str) -> dict[str, Any]:
     }
 
 
-def _manifest_by_id(workspace: Workspace, action_id: str, *, surface: str, assistant_profile: Optional[str]) -> Optional[ActionManifest]:
+def _manifest_by_id(
+    workspace: Workspace, action_id: str, *, surface: str, assistant_profile: Optional[str]
+) -> Optional[ActionManifest]:
     from app.services.actions.registry import effective_action_manifests
 
     return next(
-        (item for item in effective_action_manifests(workspace, surface=surface, assistant_profile=assistant_profile) if item.action_id == action_id),
+        (
+            item
+            for item in effective_action_manifests(
+                workspace, surface=surface, assistant_profile=assistant_profile
+            )
+            if item.action_id == action_id
+        ),
         None,
     )
 
@@ -334,9 +353,13 @@ async def execute_flow_action(
         content = "Je reformule ma derniere reponse de facon plus concise."
     elif handler == "acknowledge_presence":
         content = "Je suis là, Monsieur le Vice Premier Ministre, à votre écoute."
-        effects.append(_action_effect("assistant-acknowledge", {"assistant": _assistant_label(workspace)}))
+        effects.append(
+            _action_effect("assistant-acknowledge", {"assistant": _assistant_label(workspace)})
+        )
     elif handler == "briefing_priorities_v1":
-        result = await _invoke_skill("briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx)
+        result = await _invoke_skill(
+            "briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx
+        )
         priorities = result.get("priorities") or []
         if is_octocity_mission_room(workspace):
             lines = [
@@ -347,16 +370,31 @@ async def execute_flow_action(
             ]
             content = "\n".join(lines)
             sources = [
-                {"title": "Octocity Mission Room", "kind": "cockpit", "source_id": "octocity-cockpit"},
-                {"title": "Open intelligence signal flow", "kind": "news_flow", "source_id": "octocity-news-sim-20260701"},
-                {"title": "Synthetic France map", "kind": "map", "source_id": "src-octocity-map-001"},
+                {
+                    "title": "Octocity Mission Room",
+                    "kind": "cockpit",
+                    "source_id": "octocity-cockpit",
+                },
+                {
+                    "title": "Open intelligence signal flow",
+                    "kind": "news_flow",
+                    "source_id": "octocity-news-sim-20260701",
+                },
+                {
+                    "title": "Synthetic France map",
+                    "kind": "map",
+                    "source_id": "src-octocity-map-001",
+                },
             ]
         else:
             lines = ["Monsieur le Vice Premier Ministre, voici les sujets prioritaires :"]
             for idx, item in enumerate(priorities[:3], start=1):
                 lines.append(f"{idx}. {item.get('title')} — {item.get('summary')}")
             content = "\n".join(lines)
-            sources = [{"title": "Cockpit SENTINEL-CI", "kind": "cockpit", "source_id": item.get("id")} for item in priorities[:3]]
+            sources = [
+                {"title": "Cockpit SENTINEL-CI", "kind": "cockpit", "source_id": item.get("id")}
+                for item in priorities[:3]
+            ]
         extra["priorities"] = priorities
     elif handler == "map_focus_zone_with_project":
         from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
@@ -367,14 +405,23 @@ async def execute_flow_action(
             workspace,
             intent="focus_zone",
             target="zone-nord",
-            layers=["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"],
+            layers=[
+                "territorial-risk",
+                "open-intelligence",
+                "maritime-traffic",
+                "preventive-actions",
+            ],
             user=user,
         )
         db.commit()
         effects.append(
             _action_effect(
                 "assistant-navigate",
-                {"route": "/hypervisor/mission-room/strategie", "queryParams": {"focus": "zone-nord"}, "highlight": "proj-drone-centre-napie"},
+                {
+                    "route": "/hypervisor/mission-room/strategie",
+                    "queryParams": {"focus": "zone-nord"},
+                    "highlight": "proj-drone-centre-napie",
+                },
             )
         )
         effects.append({"chunk_type": "map_command", **command})
@@ -404,7 +451,11 @@ async def execute_flow_action(
                 "assistant-navigate",
                 {
                     "route": "/hypervisor/mission-room/strategie",
-                    "queryParams": {"mode": "live", "panel": "maritime", "vessel": "mv-atlantic-trader"},
+                    "queryParams": {
+                        "mode": "live",
+                        "panel": "maritime",
+                        "vessel": "mv-atlantic-trader",
+                    },
                     "highlight": "cargo-abidjan-supply-001",
                 },
             )
@@ -415,8 +466,19 @@ async def execute_flow_action(
             effects.append(_action_effect("assistant-show-webcam", webcam_payload))
             extra["webcam"] = webcam_payload
         maritime = await _invoke_skill("maritime_snapshot_read_v1", {}, ctx)
-        cargo = next((e for e in (maritime.get("events") or []) if e.get("id") == "cargo-abidjan-supply-001"), None)
-        cargo_line = cargo.get("summary") if cargo else "Trafic maritime Abidjan actif avec vigilance douaniere."
+        cargo = next(
+            (
+                e
+                for e in (maritime.get("events") or [])
+                if e.get("id") == "cargo-abidjan-supply-001"
+            ),
+            None,
+        )
+        cargo_line = (
+            cargo.get("summary")
+            if cargo
+            else "Trafic maritime Abidjan actif avec vigilance douaniere."
+        )
         content = f"Monsieur le Vice Premier Ministre, trafic maritime a destination d'Abidjan : {cargo_line}"
         extra["maritime_snapshot"] = maritime
         awaiting_to_set = {
@@ -476,7 +538,11 @@ async def execute_flow_action(
         effects.append(
             _action_effect(
                 "assistant-draft-open",
-                {"target_type": "customs_email", "target_id": "cargo-abidjan-supply-001", "draft_payload": draft},
+                {
+                    "target_type": "customs_email",
+                    "target_id": "cargo-abidjan-supply-001",
+                    "draft_payload": draft,
+                },
             )
         )
         content = f"Monsieur le Vice Premier Ministre, brouillon pret : **{draft.get('subject')}**. Validation advisory requise."
@@ -501,7 +567,11 @@ async def execute_flow_action(
                 "assistant-navigate",
                 {
                     "route": "/hypervisor/mission-room/strategie",
-                    "queryParams": {"mode": "live", "panel": "maritime", "vessel": "mv-atlantic-trader"},
+                    "queryParams": {
+                        "mode": "live",
+                        "panel": "maritime",
+                        "vessel": "mv-atlantic-trader",
+                    },
                     "highlight": "cargo-abidjan-supply-001",
                 },
             )
@@ -544,7 +614,9 @@ async def execute_flow_action(
         }
         extra["map_command"] = command
     elif handler == "show_customs_record":
-        from app.services.mission_room import SENTINEL_WORKSPACE_SLUG  # noqa: F401 — used for slug check
+        from app.services.mission_room import (
+            SENTINEL_WORKSPACE_SLUG,  # noqa: F401 — used for slug check
+        )
 
         document_id = "proces-verbal-douanes-non-conformite-2026-05-18"
         signed_url = f"/api/v1/mission-room/customs-records/{document_id}.pdf"
@@ -625,19 +697,41 @@ async def execute_flow_action(
         text_focus: Optional[str] = None
         if any(token in text_lower for token in ("nord", "zone nord", "tendu")):
             text_focus = "zone-nord"
-        elif any(token in text_lower for token in ("projet", "napie", "napié", "centre drone", "centre drones", "retard")):
+        elif any(
+            token in text_lower
+            for token in ("projet", "napie", "napié", "centre drone", "centre drones", "retard")
+        ):
             text_focus = "proj-drone-centre-napie"
-        elif any(token in text_lower for token in ("cargo", "cargaison", "cargaisons", "navire", "bateau", "atlantic trader", "bloquee", "bloquée")):
+        elif any(
+            token in text_lower
+            for token in (
+                "cargo",
+                "cargaison",
+                "cargaisons",
+                "navire",
+                "bateau",
+                "atlantic trader",
+                "bloquee",
+                "bloquée",
+            )
+        ):
             text_focus = "cargo-abidjan-supply-001"
-        elif any(token in text_lower for token in ("douanes", "pv douanes", "non conformite", "non conformité")):
+        elif any(
+            token in text_lower
+            for token in ("douanes", "pv douanes", "non conformite", "non conformité")
+        ):
             text_focus = "customs-record-non-conformite-2026-05"
         last_focus = text_focus or _last_focus(workspace) or "zone-nord"
-        trace = evidence_graph_trace(workspace, from_node=last_focus, relation="caused_by", depth=2, db=db)
+        trace = evidence_graph_trace(
+            workspace, from_node=last_focus, relation="caused_by", depth=2, db=db
+        )
         path = trace.get("path") or []
         first_step = path[0] if path else None
         next_step = path[1] if len(path) > 1 else None
         next_node = (next_step or {}).get("node") or {}
-        narrative = next_node.get("narrative_short") or "Aucun cause causale plus profonde identifiee."
+        narrative = (
+            next_node.get("narrative_short") or "Aucun cause causale plus profonde identifiee."
+        )
         explanation = ((first_step or {}).get("edge") or {}).get("explanation") or narrative
         next_focus = next_node.get("id") or last_focus
         set_last_focus(db, workspace, next_focus)
@@ -671,6 +765,8 @@ async def execute_flow_action(
             # without waiting for an explicit ``show_vessel_evidence`` call.
             from app.services.webcam_proxy import (
                 get_spec as _get_webcam_spec,
+            )
+            from app.services.webcam_proxy import (
                 recommended_webcam_for_vessel,
                 webcam_cycle_for_vessel,
             )
@@ -692,7 +788,9 @@ async def execute_flow_action(
                     "cargo_id": "cargo-abidjan-supply-001",
                     "label": spec_for_webcam.label if spec_for_webcam else None,
                     "attribution": spec_for_webcam.attribution if spec_for_webcam else None,
-                    "label_disclaimer": spec_for_webcam.label_disclaimer if spec_for_webcam else None,
+                    "label_disclaimer": spec_for_webcam.label_disclaimer
+                    if spec_for_webcam
+                    else None,
                     "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={webcam_source_id}",
                     "cycle": [
                         {
@@ -756,13 +854,18 @@ async def execute_flow_action(
         event = None
         for row in list_events(db, workspace, status="scheduled"):
             meta = row.meta_data or {}
-            if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
+            if (
+                meta.get("seed_id") == "evt-prefet-nawa"
+                or meta.get("context_ref") == "report-prefet-nawa-2026-05-10"
+            ):
                 event = row
                 break
         if event is None:
             event_id = _current_meeting(workspace)
             if event_id:
-                event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
+                event = next(
+                    (row for row in list_events(db, workspace) if row.id == event_id), None
+                )
         if event is None:
             events = list_events(db, workspace, status="scheduled")
             event = events[0] if events else None
@@ -856,7 +959,9 @@ async def execute_flow_action(
                     db.commit()
                 except LookupError:
                     db.rollback()
-                    content = "Monsieur le Vice Premier Ministre, le rendez-vous cible n'existe plus."
+                    content = (
+                        "Monsieur le Vice Premier Ministre, le rendez-vous cible n'existe plus."
+                    )
                     set_pending_agenda_patch(db, workspace, None)
                     updated = None
                 except Exception as exc:  # noqa: BLE001
@@ -888,7 +993,10 @@ async def execute_flow_action(
         event = None
         for row in list_events(db, workspace, status="scheduled"):
             meta = row.meta_data or {}
-            if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
+            if (
+                meta.get("seed_id") == "evt-prefet-nawa"
+                or meta.get("context_ref") == "report-prefet-nawa-2026-05-10"
+            ):
                 event = row
                 break
         if event is None:
@@ -922,18 +1030,29 @@ async def execute_flow_action(
         else:
             input_schema = manifest.input_schema or {}
             decision_payload = {
-                "agenda_item_ref": str(input_schema.get("agenda_item_ref") or "agenda-cacao-diversification"),
-                "options_offered": list(input_schema.get("options_offered") or [
-                    {"key": "A", "label": "Statu quo"},
-                    {"key": "B", "label": "Diversification anacarde - PPP transformation"},
-                    {"key": "C", "label": "Plan mixte cooperative renforcee"},
-                ]),
+                "agenda_item_ref": str(
+                    input_schema.get("agenda_item_ref") or "agenda-cacao-diversification"
+                ),
+                "options_offered": list(
+                    input_schema.get("options_offered")
+                    or [
+                        {"key": "A", "label": "Statu quo"},
+                        {"key": "B", "label": "Diversification anacarde - PPP transformation"},
+                        {"key": "C", "label": "Plan mixte cooperative renforcee"},
+                    ]
+                ),
                 "chosen_option": str(input_schema.get("chosen_option") or "B"),
-                "rationale": str(input_schema.get("rationale") or "Diversification anacarde - alignement Banque mondiale, EUDR."),
-                "source_refs": list(input_schema.get("source_refs") or [
-                    "sentinel-ci-anacarde-diversification-v1",
-                    "report-prefet-nawa-2026-05-10",
-                ]),
+                "rationale": str(
+                    input_schema.get("rationale")
+                    or "Diversification anacarde - alignement Banque mondiale, EUDR."
+                ),
+                "source_refs": list(
+                    input_schema.get("source_refs")
+                    or [
+                        "sentinel-ci-anacarde-diversification-v1",
+                        "report-prefet-nawa-2026-05-10",
+                    ]
+                ),
             }
             decision = log_decision_for_workspace(
                 db,
@@ -952,10 +1071,14 @@ async def execute_flow_action(
                     },
                 )
             )
-            content = (
-                f"Decision loggee : option {decision.chosen_option} - {decision_payload['rationale']}."
-            )
-            sources = [{"title": "Registre des decisions de reunion", "kind": "meeting_decision", "source_id": decision.id}]
+            content = f"Decision loggee : option {decision.chosen_option} - {decision_payload['rationale']}."
+            sources = [
+                {
+                    "title": "Registre des decisions de reunion",
+                    "kind": "meeting_decision",
+                    "source_id": decision.id,
+                }
+            ]
             extra["decision"] = serialize_decision(decision)
     elif handler == "recall_past_decisions":
         from app.services.meeting_decisions import list_decisions_for_workspace, serialize_decision
@@ -964,9 +1087,7 @@ async def execute_flow_action(
         decisions = list_decisions_for_workspace(db, workspace, topic=str(topic))
         serialized = [serialize_decision(item) for item in decisions[:5]]
         if not serialized:
-            content = (
-                f"Monsieur le Vice Premier Ministre, aucune decision passee enregistree sur le theme {topic} pour le moment."
-            )
+            content = f"Monsieur le Vice Premier Ministre, aucune decision passee enregistree sur le theme {topic} pour le moment."
         else:
             lines = [f"Monsieur le Vice Premier Ministre, decisions passees liees a {topic} :"]
             for item in serialized:
@@ -975,18 +1096,27 @@ async def execute_flow_action(
                 )
             content = "\n".join(lines)
             sources = [
-                {"title": "Registre des decisions de reunion", "kind": "meeting_decision", "source_id": item.get("id")}
+                {
+                    "title": "Registre des decisions de reunion",
+                    "kind": "meeting_decision",
+                    "source_id": item.get("id"),
+                }
                 for item in serialized
             ]
         extra["decisions"] = serialized
     elif handler == "open_next_meeting":
-        cal = await _invoke_skill("calendar_daily_summary_v1", {"day": resolve_demo_date(workspace).isoformat()}, ctx)
+        cal = await _invoke_skill(
+            "calendar_daily_summary_v1", {"day": resolve_demo_date(workspace).isoformat()}, ctx
+        )
         nxt = cal.get("next_event") or {}
         highlight = nxt.get("metadata", {}).get("seed_id") or nxt.get("id") or "evt-prefet-nawa"
         effects.append(
             _action_effect(
                 "assistant-navigate",
-                {"route": "/hypervisor/mission-room/agenda", "queryParams": {"highlight": highlight}},
+                {
+                    "route": "/hypervisor/mission-room/agenda",
+                    "queryParams": {"highlight": highlight},
+                },
             )
         )
         content = (
@@ -1031,7 +1161,11 @@ async def execute_flow_action(
     elif handler == "recommend_cacao":
         recs = await _invoke_skill(
             "generate_recommendations_v1",
-            {"topic": "cacao_diversification", "chiffrage": True, "context_collection": "sentinel-ci-ministerial-briefs"},
+            {
+                "topic": "cacao_diversification",
+                "chiffrage": True,
+                "context_collection": "sentinel-ci-ministerial-briefs",
+            },
             ctx,
         )
         options = recs.get("options") or []
@@ -1047,7 +1181,10 @@ async def execute_flow_action(
         effects.append(
             _action_effect(
                 "assistant-navigate",
-                {"route": "/hypervisor/mission-room/decisions", "queryParams": {"focus": "package-cacao-diversification"}},
+                {
+                    "route": "/hypervisor/mission-room/decisions",
+                    "queryParams": {"focus": "package-cacao-diversification"},
+                },
             )
         )
         awaiting_to_set = {
@@ -1134,8 +1271,16 @@ async def execute_flow_action(
                 "Le PDF est temporairement indisponible — la synthese reste consultable."
             )
         sources = [
-            {"title": "Rapport Prefet Nawa - 10 mai 2026", "kind": "ministerial_brief", "source_id": "report-prefet-nawa-2026-05-10"},
-            {"title": "Guide Anacarde - diversification cacao", "kind": "knowledge_guide", "source_id": "sentinel-ci-anacarde-diversification-v1"},
+            {
+                "title": "Rapport Prefet Nawa - 10 mai 2026",
+                "kind": "ministerial_brief",
+                "source_id": "report-prefet-nawa-2026-05-10",
+            },
+            {
+                "title": "Guide Anacarde - diversification cacao",
+                "kind": "knowledge_guide",
+                "source_id": "sentinel-ci-anacarde-diversification-v1",
+            },
         ]
         awaiting_to_clear = True
         extra["report"] = report
@@ -1154,7 +1299,11 @@ async def execute_flow_action(
         effects.append(
             _action_effect(
                 "assistant-draft-open",
-                {"target_type": "calendar_slot", "target_id": slot.get("calendar_event_draft_id"), "draft_payload": slot},
+                {
+                    "target_type": "calendar_slot",
+                    "target_id": slot.get("calendar_event_draft_id"),
+                    "draft_payload": slot,
+                },
             )
         )
         proposed = slot.get("proposed_slot") or {}
@@ -1302,7 +1451,10 @@ async def execute_flow_action(
                         ),
                         "snapshot": snapshot,
                         "sources": [
-                            {"title": "Snapshot social Abidjan — 14h25", "id": "src-social-snapshot-2026-05-25"},
+                            {
+                                "title": "Snapshot social Abidjan — 14h25",
+                                "id": "src-social-snapshot-2026-05-25",
+                            },
                         ],
                         "advisory_only": True,
                     },
@@ -1397,7 +1549,10 @@ async def execute_flow_action(
                         "aya_sentence": trace.get("aya_sentence"),
                         "verdict_label": "DÉMENTI OFFICIEL FANCI",
                         "sources": [
-                            {"title": "Dossier rumeur frontière Nord", "id": "src-rumor-frontier-nord-2026-05-25"},
+                            {
+                                "title": "Dossier rumeur frontière Nord",
+                                "id": "src-rumor-frontier-nord-2026-05-25",
+                            },
                         ],
                         "advisory_only": True,
                     },
@@ -1518,8 +1673,14 @@ async def execute_flow_action(
                         "watch_zones": snapshot.get("watch_zones") or [],
                         "cedeao_bases": snapshot.get("cedeao_bases") or [],
                         "sources": [
-                            {"title": "Snapshot ADS-B advisory Sahel — 14h30", "id": "src-troops-sahel-2026-05-25"},
-                            {"title": "Note posture sécurité Sahel — 25 mai 2026", "id": "src-note-posture-sahel-2026-05-25"},
+                            {
+                                "title": "Snapshot ADS-B advisory Sahel — 14h30",
+                                "id": "src-troops-sahel-2026-05-25",
+                            },
+                            {
+                                "title": "Note posture sécurité Sahel — 25 mai 2026",
+                                "id": "src-note-posture-sahel-2026-05-25",
+                            },
                         ],
                         "advisory_only": True,
                     },
@@ -1616,14 +1777,22 @@ async def execute_flow_action(
                 for key in ("subject", "body_markdown", "body", "recipient")
             ).lower()
             if not (
-                any(token in draft_content for token in ("securite", "security", "rumeur", "frontiere", "fanci"))
-                and not any(token in draft_content for token in ("cacao", "nawa", "diversification"))
+                any(
+                    token in draft_content
+                    for token in ("securite", "security", "rumeur", "frontiere", "fanci")
+                )
+                and not any(
+                    token in draft_content for token in ("cacao", "nawa", "diversification")
+                )
             ):
                 draft = None
         if not draft or not isinstance(draft, dict):
             draft = {
                 "subject": "Communiqué de sécurité — frontière Nord, démenti officiel",
-                "to": ["Direction de la communication présidentielle", "Cellule veille SENTINEL-CI"],
+                "to": [
+                    "Direction de la communication présidentielle",
+                    "Cellule veille SENTINEL-CI",
+                ],
                 "body_markdown": (
                     "Le Cabinet du Vice Premier Ministre confirme que les informations circulant depuis "
                     "la fin de matinée au sujet d'une incursion à la frontière Nord ont été "
@@ -1676,7 +1845,9 @@ async def execute_flow_action(
         extra["draft"] = draft
     elif handler == "voice_navigate_view":
         view = (manifest.input_schema or {}).get("default_view") or "cockpit"
-        effects.append(_action_effect("assistant-navigate", {"route": f"/hypervisor/mission-room/{view}"}))
+        effects.append(
+            _action_effect("assistant-navigate", {"route": f"/hypervisor/mission-room/{view}"})
+        )
         content = f"J'ouvre la vue {view}."
     elif handler == "voice_confirm_yes":
         # Reached when ``voice.confirm_yes`` resolves but no awaiting
@@ -1702,7 +1873,11 @@ async def execute_flow_action(
         workspace_id=workspace.id,
         event_type=manifest.audit_event,
         actor=ctx["actor"],
-        details={"action_id": manifest.action_id, "text": text, "effects": [e.get("effect") for e in effects if e.get("effect")]},
+        details={
+            "action_id": manifest.action_id,
+            "text": text,
+            "effects": [e.get("effect") for e in effects if e.get("effect")],
+        },
     )
 
     result = {
@@ -1756,7 +1931,9 @@ async def handle_registry_chat_action(
             "action_effects": [],
         }
 
-    manifest = _manifest_by_id(workspace, resolution.action_id, surface="chat", assistant_profile=assistant_profile)
+    manifest = _manifest_by_id(
+        workspace, resolution.action_id, surface="chat", assistant_profile=assistant_profile
+    )
     if not manifest:
         return None
     if manifest.handler.kind == "legacy_adapter":

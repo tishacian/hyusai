@@ -14,6 +14,7 @@ The check happens lazily on first use, cached in
 cheap to call. Imports of the underlying services stay lazy to avoid
 pulling heavy deps at registry introspection time.
 """
+
 from __future__ import annotations
 
 import base64
@@ -23,13 +24,13 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Optional
 
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SkillCallable = Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Awaitable[Dict[str, Any]]]
+SkillCallable = Callable[[dict[str, Any], Optional[dict[str, Any]]], Awaitable[dict[str, Any]]]
 
 
 # workspace_id -> slug cache (process-lifetime). The run_engine ctx
@@ -39,10 +40,10 @@ SkillCallable = Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Awaitable[D
 # Without it every DAG retrieval targets a non-existent un-prefixed collection
 # (0 chunks, embedding never reached). We resolve the slug from the id once and
 # memoise it. Only successful lookups are cached so a transient failure retries.
-_WORKSPACE_SLUG_CACHE: Dict[str, str] = {}
+_WORKSPACE_SLUG_CACHE: dict[str, str] = {}
 
 
-def _resolve_workspace_slug(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Optional[str]:
+def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Optional[str]:
     """Resolve the workspace slug, falling back to a DB lookup by id.
 
     Parity with the classic ``/chat`` path which always sets ``workspace_slug``.
@@ -69,15 +70,19 @@ def _resolve_workspace_slug(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Opt
         finally:
             db.close()
     except Exception as exc:  # noqa: BLE001 — never crash retrieval on a slug lookup
-        logger.warning("skills_registry: workspace slug lookup failed", workspace_id=workspace_id, error=str(exc))
+        logger.warning(
+            "skills_registry: workspace slug lookup failed",
+            workspace_id=workspace_id,
+            error=str(exc),
+        )
         return None
     if resolved:
         _WORKSPACE_SLUG_CACHE[workspace_id] = resolved
     return resolved
 
 
-def _rag_runtime_kwargs(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-    kwargs: Dict[str, Any] = {}
+def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
     for key in ("top_k", "candidate_pool_k", "synthesis_k", "source_display_k"):
         value = payload.get(key)
         if value is not None:
@@ -112,14 +117,16 @@ def _rag_runtime_kwargs(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[st
 # ---------------------------------------------------------------------------
 # Fallbacks
 # ---------------------------------------------------------------------------
-async def _unimplemented(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _unimplemented(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     raise NotImplementedError(
         "This canonical skill has no runtime wrapper bound. Add it to `_REGISTRY` in "
         "`skills_registry/wrappers.py` or mark it as a stub."
     )
 
 
-async def _stub(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _stub(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Degraded placeholder for skills whose runtime is not yet available."""
     logger.info("skills_registry: stub invocation", payload_keys=list(payload.keys()))
     return {
@@ -130,9 +137,9 @@ async def _stub(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -
 
 
 async def _translation_showcase_stub(
-    payload: Dict[str, Any],
-    ctx: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Structured simulation for showcase Translation Suite stages.
 
     The real project-mt runtime is intentionally not invoked from Agentium
@@ -142,7 +149,9 @@ async def _translation_showcase_stub(
     ctx = ctx or {}
     skill_slug = str(payload.get("skill_slug") or ctx.get("skill_slug") or "translation_stage")
     verdict = str(payload.get("expected_verdict") or payload.get("verdict") or "ACCEPT_4D")
-    agent_identity = payload.get("agent_identity") or ctx.get("agent_identity") or "agent.translation.showcase"
+    agent_identity = (
+        payload.get("agent_identity") or ctx.get("agent_identity") or "agent.translation.showcase"
+    )
     logger.info(
         "translation_showcase_stub: simulated stage",
         skill_slug=skill_slug,
@@ -172,7 +181,9 @@ async def _translation_showcase_stub(
 # ---------------------------------------------------------------------------
 # Concrete wrappers
 # ---------------------------------------------------------------------------
-async def _chat_trivial_bypass_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chat_trivial_bypass_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.chat_trivial_bypass import maybe_trivial_bypass
 
     bypass = maybe_trivial_bypass(str(payload.get("query") or ""))
@@ -186,7 +197,9 @@ async def _chat_trivial_bypass_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
     }
 
 
-async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _llm_rag_answer_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     ctx = ctx or {}
     query = str(payload.get("query") or "")
 
@@ -207,7 +220,13 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
                 "answer": _no_context_message(lang_target),
                 "citations": [],
                 "decision_steps": [],
-                "meta": {"retrieval": {"raw_chunks_retrieved": 0, "source": "join_context", "no_context": True}},
+                "meta": {
+                    "retrieval": {
+                        "raw_chunks_retrieved": 0,
+                        "source": "join_context",
+                        "no_context": True,
+                    }
+                },
             }
         model = payload.get("model") or ctx.get("default_model")
         prompt = _build_grounded_answer_prompt(
@@ -265,7 +284,9 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
     }
 
 
-async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _semantic_search_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
 
     ctx = ctx or {}
@@ -281,7 +302,7 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
     # byte-identical to before.
     bound_collection = runtime_kwargs.get("context_collection")
 
-    def _build_request(*, with_collection: bool) -> Dict[str, Any]:
+    def _build_request(*, with_collection: bool) -> dict[str, Any]:
         kwargs = dict(runtime_kwargs)
         if not with_collection:
             kwargs.pop("context_collection", None)
@@ -317,7 +338,9 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
         # retrieve_rag_context only builds the facet when this profile is set AND
         # query_targets_projects(query) — so arming it here is a no-op for ordinary
         # queries and reaches classic parity for inventory ones.
-        if _is_inventory_query(str(payload.get("query") or "")) and not request.get("answer_profile"):
+        if _is_inventory_query(str(payload.get("query") or "")) and not request.get(
+            "answer_profile"
+        ):
             request["answer_profile"] = "transversal_inventory"
         request = {key: value for key, value in request.items() if value is not None}
         apply_retrieval_profile_to_request(request)
@@ -376,8 +399,8 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 
 
 def _merge_multi_hop_searches(
-    searches: list[Dict[str, Any]], *, limit: int
-) -> list[Dict[str, Any]]:
+    searches: list[dict[str, Any]], *, limit: int
+) -> list[dict[str, Any]]:
     """RRF-merge + dedupe several ``semantic_search_v1`` result sets.
 
     Reuses ``comparative_retrieval.merge_comparative_results`` (RRF over rank
@@ -391,10 +414,10 @@ def _merge_multi_hop_searches(
         merge_comparative_results,
     )
 
-    def _split(res: Dict[str, Any]) -> Tuple[list[str], list[float], list[Dict[str, Any]]]:
+    def _split(res: dict[str, Any]) -> tuple[list[str], list[float], list[dict[str, Any]]]:
         chunks: list[str] = []
         scores: list[float] = []
-        metas: list[Dict[str, Any]] = []
+        metas: list[dict[str, Any]] = []
         for row in (res or {}).get("results") or []:
             if isinstance(row, dict):
                 content = row.get("content") or row.get("text") or row.get("snippet") or ""
@@ -420,15 +443,18 @@ def _merge_multi_hop_searches(
     subs: list[Any] = []
     for index, res in enumerate(searches[1:], start=1):
         chunks, scores, metas = _split(res)
-        subs.append(_SubResult(entity=f"hop_{index}", chunks=chunks, scores=scores, metadatas=metas))
+        subs.append(
+            _SubResult(entity=f"hop_{index}", chunks=chunks, scores=scores, metadatas=metas)
+        )
     chunks, scores, metas, _diag = merge_comparative_results(primary, subs, limit=limit)
     return [
-        {"content": chunks[i], "score": scores[i], "metadata": metas[i]}
-        for i in range(len(chunks))
+        {"content": chunks[i], "score": scores[i], "metadata": metas[i]} for i in range(len(chunks))
     ]
 
 
-async def _multi_hop_retrieve_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _multi_hop_retrieve_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Parallel multi-hop retrieval over decomposed sub-queries (Phase 4).
 
     Consumes ``plan.thinking.sub_queries`` and runs one ``semantic_search_v1``
@@ -479,7 +505,7 @@ async def _multi_hop_retrieve_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
         if payload.get(key) is not None
     }
 
-    async def _one(sub_query: str) -> Dict[str, Any]:
+    async def _one(sub_query: str) -> dict[str, Any]:
         try:
             return await _semantic_search_v1({**base, "query": sub_query}, ctx)
         except Exception as exc:  # noqa: BLE001 — one bad hop must not sink the lane
@@ -512,7 +538,9 @@ async def _multi_hop_retrieve_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
     }
 
 
-async def _document_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _document_ingestion_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.rag.document_service import DocumentService
 
     ctx = ctx or {}
@@ -528,7 +556,9 @@ async def _document_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
     }
 
 
-async def _eval_radar_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _eval_radar_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.evaluation.judge import get_judge_service
 
     judge = get_judge_service()
@@ -548,7 +578,9 @@ async def _eval_radar_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] 
     }
 
 
-async def _claim_audit_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _claim_audit_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.evaluation.judge import get_judge_service
 
     judge = get_judge_service()
@@ -572,7 +604,9 @@ async def _claim_audit_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
     }
 
 
-async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _intelligence_batch_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.db.base import SessionLocal
     from app.models.workspace import Workspace
     from app.services.intelligence.batch import get_dashboard_data, run_batch
@@ -583,7 +617,7 @@ async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
     errors = 0
     events: list[str] = []
     knowledge_sync: dict[str, Any] = {"status": "skipped"}
-    target_id = (payload.get("target_id") or (payload.get("feed_ids") or [None])[0])
+    target_id = payload.get("target_id") or (payload.get("feed_ids") or [None])[0]
     async for event in run_batch(
         target_id=target_id,
         workspace_id=ctx.get("workspace_id"),
@@ -617,10 +651,15 @@ async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             knowledge_sync = {"status": "error", "error": str(exc)}
         finally:
             db.close()
-    return {"ingested": ingested, "errors": errors, "events": events, "knowledge_sync": knowledge_sync}
+    return {
+        "ingested": ingested,
+        "errors": errors,
+        "events": events,
+        "knowledge_sync": knowledge_sync,
+    }
 
 
-def _workspace_from_context(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Any:
+def _workspace_from_context(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> Any:
     ctx = ctx or {}
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id") or "demo-workspace"
     workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug") or "workspace"
@@ -628,7 +667,9 @@ def _workspace_from_context(payload: Dict[str, Any], ctx: Optional[Dict[str, Any
     return SimpleNamespace(id=workspace_id, slug=workspace_slug, name=workspace_name)
 
 
-async def _ministerial_briefing_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _ministerial_briefing_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import briefing_payload
 
     workspace = _workspace_from_context(payload, ctx)
@@ -640,7 +681,9 @@ async def _ministerial_briefing_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
     }
 
 
-async def _news_signal_synthesis_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _news_signal_synthesis_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
     workspace = _workspace_from_context(payload, ctx)
@@ -652,7 +695,9 @@ async def _news_signal_synthesis_v1(payload: Dict[str, Any], ctx: Optional[Dict[
     }
 
 
-async def _project_risk_explainer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _project_risk_explainer_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import projects_payload
 
     workspace = _workspace_from_context(payload, ctx)
@@ -676,7 +721,9 @@ async def _project_risk_explainer_v1(payload: Dict[str, Any], ctx: Optional[Dict
     }
 
 
-async def _territorial_signal_map_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _territorial_signal_map_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -688,7 +735,9 @@ async def _territorial_signal_map_v1(payload: Dict[str, Any], ctx: Optional[Dict
             db.close()
 
 
-async def _scenario_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _scenario_generate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.scenario_engine import generate_scenarios
 
     return {
@@ -704,13 +753,17 @@ async def _scenario_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     }
 
 
-async def _scenario_compare_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _scenario_compare_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.scenario_engine import compare_scenarios
 
     return compare_scenarios(list(payload.get("options") or []))
 
 
-async def _scenario_recommend_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _scenario_recommend_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.scenario_engine import recommend_scenario
 
     return recommend_scenario(
@@ -724,7 +777,9 @@ async def _scenario_recommend_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
     )
 
 
-async def _instruction_draft_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _instruction_draft_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import draft_instruction_payload
 
     ctx = ctx or {}
@@ -740,7 +795,9 @@ async def _instruction_draft_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     )
 
 
-def _calendar_db_and_workspace(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> tuple[Any, Any]:
+def _calendar_db_and_workspace(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> tuple[Any, Any]:
     from app.db.base import SessionLocal
     from app.models.workspace import Workspace
 
@@ -765,28 +822,39 @@ def _calendar_db_and_workspace(payload: Dict[str, Any], ctx: Optional[Dict[str, 
     return db, workspace
 
 
-async def _calendar_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _calendar_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_calendar import list_events, serialize_event
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
         events = list_events(db, workspace, status=payload.get("status"))
-        return {"events": [serialize_event(event, workspace=workspace) for event in events], "workspace_id": workspace.id}
+        return {
+            "events": [serialize_event(event, workspace=workspace) for event in events],
+            "workspace_id": workspace.id,
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _calendar_create_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _calendar_create_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, create_event, serialize_event
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        start_at = datetime.fromisoformat(str(payload["start_at"]).replace("Z", "+00:00")).replace(tzinfo=None)
+        start_at = datetime.fromisoformat(str(payload["start_at"]).replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
         end_at = (
-            datetime.fromisoformat(str(payload["end_at"]).replace("Z", "+00:00")).replace(tzinfo=None)
+            datetime.fromisoformat(str(payload["end_at"]).replace("Z", "+00:00")).replace(
+                tzinfo=None
+            )
             if payload.get("end_at")
             else None
         )
@@ -806,13 +874,19 @@ async def _calendar_create_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
             metadata={"created_from": "skill", "skill_slug": "calendar_create_event_v1"},
         )
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _calendar_update_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _calendar_update_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, serialize_event, update_event
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -821,18 +895,33 @@ async def _calendar_update_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
         if calendar_write_policy(workspace) == "approval_required":
             return {"status": "proposal", "applied": False, "proposal": payload}
         updates = dict(payload.get("updates") or {})
-        for key in ("title", "description", "location", "participants", "priority", "status", "start_at", "end_at"):
+        for key in (
+            "title",
+            "description",
+            "location",
+            "participants",
+            "priority",
+            "status",
+            "start_at",
+            "end_at",
+        ):
             if key in payload and key not in updates:
                 updates[key] = payload[key]
         event = update_event(db, workspace, None, str(payload["event_id"]), updates=updates)
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _calendar_cancel_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _calendar_cancel_event_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_calendar import calendar_write_policy, cancel_event, serialize_event
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -840,15 +929,27 @@ async def _calendar_cancel_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
     try:
         if calendar_write_policy(workspace) == "approval_required":
             return {"status": "proposal", "applied": False, "proposal": payload}
-        event = cancel_event(db, workspace, None, str(payload["event_id"]), reason=str(payload.get("reason") or "skill"))
+        event = cancel_event(
+            db,
+            workspace,
+            None,
+            str(payload["event_id"]),
+            reason=str(payload.get("reason") or "skill"),
+        )
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
+        return {
+            "status": "applied",
+            "applied": True,
+            "event": serialize_event(event, workspace=workspace),
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _calendar_daily_summary_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _calendar_daily_summary_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from datetime import date as dt_date
 
     from app.services.workspace_calendar import summary_payload
@@ -863,7 +964,9 @@ async def _calendar_daily_summary_v1(payload: Dict[str, Any], ctx: Optional[Dict
             db.close()
 
 
-async def _action_plan_create_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _action_plan_create_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
         create_action_item,
@@ -898,7 +1001,9 @@ async def _action_plan_create_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             db.close()
 
 
-async def _action_plan_reschedule_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _action_plan_reschedule_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
         serialize_action_item,
@@ -910,7 +1015,13 @@ async def _action_plan_reschedule_v1(payload: Dict[str, Any], ctx: Optional[Dict
     try:
         if action_planner_write_policy(workspace) == "approval_required":
             return {"status": "proposal", "applied": False, "proposal": payload}
-        item = update_action_item(db, workspace, None, str(payload["item_id"]), {"due_at": payload.get("due_at"), "status": "planned"})
+        item = update_action_item(
+            db,
+            workspace,
+            None,
+            str(payload["item_id"]),
+            {"due_at": payload.get("due_at"), "status": "planned"},
+        )
         db.commit()
         return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
     finally:
@@ -918,20 +1029,32 @@ async def _action_plan_reschedule_v1(payload: Dict[str, Any], ctx: Optional[Dict
             db.close()
 
 
-async def _action_plan_status_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _action_plan_status_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.action_plans import list_action_items, serialize_action_item, summary_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
-        rows = list_action_items(db, workspace, status=payload.get("status"), include_cancelled=bool(payload.get("include_cancelled", True)))
-        return {"items": [serialize_action_item(row) for row in rows], "summary": summary_payload(db, workspace)}
+        rows = list_action_items(
+            db,
+            workspace,
+            status=payload.get("status"),
+            include_cancelled=bool(payload.get("include_cancelled", True)),
+        )
+        return {
+            "items": [serialize_action_item(row) for row in rows],
+            "summary": summary_payload(db, workspace),
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _action_plan_cancel_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.action_plans import (
         action_planner_write_policy,
         cancel_action_item,
@@ -943,7 +1066,13 @@ async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
     try:
         if action_planner_write_policy(workspace) == "approval_required":
             return {"status": "proposal", "applied": False, "proposal": payload}
-        item = cancel_action_item(db, workspace, None, str(payload["item_id"]), reason=str(payload.get("reason") or "skill"))
+        item = cancel_action_item(
+            db,
+            workspace,
+            None,
+            str(payload["item_id"]),
+            reason=str(payload.get("reason") or "skill"),
+        )
         db.commit()
         return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
     finally:
@@ -951,7 +1080,9 @@ async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             db.close()
 
 
-async def _time_context_set_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _time_context_set_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.demo_time_context import demo_time_context_defaults
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -962,22 +1093,34 @@ async def _time_context_set_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
         mode = str(payload.get("mode") or defaults["mode"])
         settings["demo_time_context"] = {
             "mode": mode,
-            "current_date": str(payload.get("current_date") or payload.get("date") or defaults["current_date"]),
-            "current_time": str(payload.get("current_time") or defaults.get("current_time") or "10:30:00"),
+            "current_date": str(
+                payload.get("current_date") or payload.get("date") or defaults["current_date"]
+            ),
+            "current_time": str(
+                payload.get("current_time") or defaults.get("current_time") or "10:30:00"
+            ),
             "label": str(payload.get("label") or defaults["label"]),
             "timezone": str(payload.get("timezone") or defaults["timezone"]),
-            "lock_fixed": bool(payload.get("lock_fixed") or payload.get("locked") or mode.lower() == "fixed"),
+            "lock_fixed": bool(
+                payload.get("lock_fixed") or payload.get("locked") or mode.lower() == "fixed"
+            ),
         }
         workspace.settings = settings
         db.add(workspace)
         db.commit()
-        return {"status": "applied", "applied": True, "demo_time_context": settings["demo_time_context"]}
+        return {
+            "status": "applied",
+            "applied": True,
+            "demo_time_context": settings["demo_time_context"],
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _briefing_priorities_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _briefing_priorities_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import ATTENTION_REQUIRED, cockpit_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -996,7 +1139,11 @@ async def _briefing_priorities_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
                     "sources": item.get("source_refs") or item.get("sources") or [],
                 }
             )
-        return {"status": "ready", "priorities": priorities, "cockpit": {"decision_sentence": cockpit.get("decision_sentence")}}
+        return {
+            "status": "ready",
+            "priorities": priorities,
+            "cockpit": {"decision_sentence": cockpit.get("decision_sentence")},
+        }
     finally:
         if owns_db:
             db.close()
@@ -1006,8 +1153,17 @@ def _load_prefet_report_text() -> str:
     from pathlib import Path
 
     candidates = [
-        Path(__file__).resolve().parents[3] / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md",
-        Path(__file__).resolve().parents[2] / ".." / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md",
+        Path(__file__).resolve().parents[3]
+        / "docs"
+        / "demo-data"
+        / "sentinel-ci-kb"
+        / "rapport-prefet-nawa-2026-05-10.md",
+        Path(__file__).resolve().parents[2]
+        / ".."
+        / "docs"
+        / "demo-data"
+        / "sentinel-ci-kb"
+        / "rapport-prefet-nawa-2026-05-10.md",
     ]
     for path in candidates:
         if path.exists():
@@ -1015,9 +1171,13 @@ def _load_prefet_report_text() -> str:
     return ""
 
 
-async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _summarize_long_document_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     document_id = str(payload.get("document_id") or "report-prefet-nawa-2026-05-10")
-    focus_topics = list(payload.get("focus_topics") or ["cacao", "diversification", "infrastructures"])
+    focus_topics = list(
+        payload.get("focus_topics") or ["cacao", "diversification", "infrastructures"]
+    )
     report_text = _load_prefet_report_text()
     citations = [
         {
@@ -1028,7 +1188,9 @@ async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dic
             "pages": 70,
         }
     ]
-    key_topics = [topic for topic in focus_topics if topic.lower() in report_text.lower()] or focus_topics
+    key_topics = [
+        topic for topic in focus_topics if topic.lower() in report_text.lower()
+    ] or focus_topics
     summary_lines = [
         "Monsieur le Vice Premier Ministre, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
         "- Contexte : region Nawa / Soubre, filiere cacao dominante, pression sur prix FCFA et infrastructures.",
@@ -1037,7 +1199,9 @@ async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dic
         "- Recommandations prefet : transformation locale a court terme, montee en charge cooperative, financement mixte.",
     ]
     if "cacao" in report_text.lower():
-        summary_lines.append("- Emergence cacao : sections filiere et chiffrage publics confirment un gap transformation ~4,2-6,8 Mds FCFA.")
+        summary_lines.append(
+            "- Emergence cacao : sections filiere et chiffrage publics confirment un gap transformation ~4,2-6,8 Mds FCFA."
+        )
     return {
         "status": "ready",
         "summary_markdown": "\n".join(summary_lines),
@@ -1047,7 +1211,9 @@ async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dic
     }
 
 
-async def _generate_recommendations_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _generate_recommendations_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     topic = str(payload.get("topic") or "cacao_diversification")
     chiffrage = bool(payload.get("chiffrage", True))
     options = [
@@ -1077,12 +1243,19 @@ async def _generate_recommendations_v1(payload: Dict[str, Any], ctx: Optional[Di
         "status": "ready",
         "topic": topic,
         "options": options,
-        "sources": [{"source_id": "src-prefet-nawa-report-001", "document_id": "report-prefet-nawa-2026-05-10"}],
+        "sources": [
+            {
+                "source_id": "src-prefet-nawa-report-001",
+                "document_id": "report-prefet-nawa-2026-05-10",
+            }
+        ],
         "human_validation_required": True,
     }
 
 
-async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _draft_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     template_kind = str(payload.get("template_kind") or "customs_priority")
     target_id = str(payload.get("target_id") or "")
     context_refs = list(payload.get("context_refs") or [])
@@ -1227,13 +1400,20 @@ async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
             "## Chiffrage indicatif\n4,2 a 6,8 milliards FCFA (ordres de grandeur publics).\n\n"
             "## Prochaines etapes\nArbitrage cabinet, puis RDV ministere de l'Economie."
         ),
-        "sources": [{"source_id": "src-prefet-nawa-report-001", "document_id": "report-prefet-nawa-2026-05-10"}],
+        "sources": [
+            {
+                "source_id": "src-prefet-nawa-report-001",
+                "document_id": "report-prefet-nawa-2026-05-10",
+            }
+        ],
         "requires_validation": True,
         "target_id": target_id,
     }
 
 
-async def _causal_drill_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _causal_drill_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Drill the evidence graph following ``caused_by`` from ``last_focus``.
 
     Used by ``aya.explain_why`` (Phase A). Returns a path with citations
@@ -1255,7 +1435,9 @@ async def _causal_drill_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]
     if not workspace:
         return {"status": "error", "reason": "workspace_not_found", "path": []}
 
-    trace = evidence_graph_trace(workspace, from_node=from_node, relation=relation, depth=depth, db=db)
+    trace = evidence_graph_trace(
+        workspace, from_node=from_node, relation=relation, depth=depth, db=db
+    )
     path = trace.get("path") or []
     next_step = path[1] if len(path) > 1 else None
     next_node = (next_step or {}).get("node") or {}
@@ -1277,7 +1459,9 @@ async def _causal_drill_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]
     }
 
 
-async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _update_meeting_agenda_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Propose adding agenda items to a workspace calendar event.
 
     Phase H: produces a confirmation-drawer payload first (no DB write).
@@ -1320,7 +1504,10 @@ async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[
     if event is None:
         for row in list_events(db, workspace, status="scheduled"):
             meta = row.meta_data or {}
-            if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
+            if (
+                meta.get("seed_id") == "evt-prefet-nawa"
+                or meta.get("context_ref") == "report-prefet-nawa-2026-05-10"
+            ):
                 event = row
                 break
         if event is None:
@@ -1342,7 +1529,9 @@ async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[
     }
 
 
-async def _schedule_meeting_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _schedule_meeting_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.demo_time_context import resolve_demo_date
     from app.services.workspace_calendar import summary_payload
 
@@ -1352,11 +1541,17 @@ async def _schedule_meeting_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
         day = resolve_demo_date(workspace)
         cal = summary_payload(db, workspace, day=day)
         windows = cal.get("free_slots") or cal.get("available_windows") or []
-        slot = windows[0] if windows else {"start": f"{day.isoformat()}T16:30:00", "end": f"{day.isoformat()}T17:15:00"}
+        slot = (
+            windows[0]
+            if windows
+            else {"start": f"{day.isoformat()}T16:30:00", "end": f"{day.isoformat()}T17:15:00"}
+        )
         draft_id = f"draft-{uuid.uuid4().hex[:12]}"
         proposed = {
             "date": day.isoformat(),
-            "time": str(slot.get("start", "")).split("T")[-1][:5] if isinstance(slot.get("start"), str) else "16:30",
+            "time": str(slot.get("start", "")).split("T")[-1][:5]
+            if isinstance(slot.get("start"), str)
+            else "16:30",
             "location": "Ministere de l'Economie — Plateau",
             "duration_min": int(payload.get("duration_min") or 45),
             "participants": ["Vice Premier Ministre", "Ministre de l'Economie", "AYA"],
@@ -1375,7 +1570,9 @@ async def _schedule_meeting_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
             db.close()
 
 
-async def _territorial_action_window_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _territorial_action_window_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1385,14 +1582,18 @@ async def _territorial_action_window_v1(payload: Dict[str, Any], ctx: Optional[D
         target_id = payload.get("target_id") or payload.get("zone_id")
         windows = body.get("recommended_windows") or []
         if target_id:
-            windows = [window for window in windows if window.get("target_id") == target_id] or windows
+            windows = [
+                window for window in windows if window.get("target_id") == target_id
+            ] or windows
         return {"status": "ready", "recommended_windows": windows, "map": body.get("map")}
     finally:
         if owns_db:
             db.close()
 
 
-async def _map_layer_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _map_layer_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_maps import mission_room_map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1405,7 +1606,7 @@ async def _map_layer_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
             db.close()
 
 
-def _workspace_map_for_skill(db: Any, workspace: Any, payload: Dict[str, Any]) -> Any:
+def _workspace_map_for_skill(db: Any, workspace: Any, payload: dict[str, Any]) -> Any:
     """Resolve an explicit map reference or the workspace's seeded map.
 
     The default must remain workspace-aware: Octocity owns a distinct fixture
@@ -1421,7 +1622,9 @@ def _workspace_map_for_skill(db: Any, workspace: Any, payload: Dict[str, Any]) -
     return get_workspace_map(db, workspace, str(map_ref))
 
 
-async def _map_zone_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _map_zone_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_jobs import create_workspace_job, serialize_job
     from app.services.workspace_maps import score_map_zones
 
@@ -1446,7 +1649,9 @@ async def _map_zone_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
             db.close()
 
 
-async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _map_signal_attach_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from uuid import uuid4
 
     from app.models.workspace_map import WorkspaceMapSignal, WorkspaceMapZone
@@ -1457,7 +1662,10 @@ async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
         map_row = _workspace_map_for_skill(db, workspace, payload)
         zone = (
             db.query(WorkspaceMapZone)
-            .filter(WorkspaceMapZone.map_id == map_row.id, WorkspaceMapZone.zone_key == str(payload["zone_key"]))
+            .filter(
+                WorkspaceMapZone.map_id == map_row.id,
+                WorkspaceMapZone.zone_key == str(payload["zone_key"]),
+            )
             .first()
         )
         if not zone:
@@ -1488,7 +1696,9 @@ async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
             db.close()
 
 
-async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _map_recommendation_generate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_maps import mission_room_map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1499,13 +1709,18 @@ async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional
         recommendations = []
         for zone in body.get("zones") or []:
             recommendations.extend(zone.get("scenario_options") or [])
-        return {"recommendations": recommendations, "score_summary": body.get("score_summary") or {}}
+        return {
+            "recommendations": recommendations,
+            "score_summary": body.get("score_summary") or {},
+        }
     finally:
         if owns_db:
             db.close()
 
 
-async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _map_command_apply_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_maps import build_map_command
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1530,7 +1745,9 @@ async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
             db.close()
 
 
-async def _source_registry_refresh_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _source_registry_refresh_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import cockpit_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1548,7 +1765,9 @@ async def _source_registry_refresh_v1(payload: Dict[str, Any], ctx: Optional[Dic
             db.close()
 
 
-async def _osint_signal_prioritize_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _osint_signal_prioritize_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1566,7 +1785,9 @@ async def _osint_signal_prioritize_v1(payload: Dict[str, Any], ctx: Optional[Dic
             db.close()
 
 
-async def _rumor_origin_trace_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _rumor_origin_trace_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import news_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1586,7 +1807,9 @@ async def _rumor_origin_trace_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             db.close()
 
 
-async def _evidence_graph_build_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _evidence_graph_build_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import evidence_graph_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1598,7 +1821,9 @@ async def _evidence_graph_build_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
             db.close()
 
 
-async def _situation_posture_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _situation_posture_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import cockpit_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1618,7 +1843,9 @@ async def _situation_posture_score_v1(payload: Dict[str, Any], ctx: Optional[Dic
             db.close()
 
 
-async def _maritime_snapshot_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _maritime_snapshot_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1639,7 +1866,9 @@ async def _maritime_snapshot_read_v1(payload: Dict[str, Any], ctx: Optional[Dict
             db.close()
 
 
-async def _decision_option_rank_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _decision_option_rank_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import decisions_payload
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1666,7 +1895,9 @@ async def _decision_option_rank_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
             db.close()
 
 
-async def _draft_response_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _draft_response_email_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.mission_room import draft_instruction_payload
 
     ctx = ctx or {}
@@ -1686,7 +1917,9 @@ async def _draft_response_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
             db.close()
 
 
-async def _visual_source_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _visual_source_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.visual_intelligence import dashboard_payload, ensure_visual_intelligence_seed
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1699,7 +1932,9 @@ async def _visual_source_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             db.close()
 
 
-async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _visual_snapshot_capture_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.visual_intelligence import (
         dispatch_visual_capture_job,
         ensure_visual_intelligence_seed,
@@ -1713,7 +1948,11 @@ async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dic
     try:
         ensure_visual_intelligence_seed(db, workspace)
         source_id = payload.get("source_id")
-        source = get_source(db, workspace, str(source_id)) if source_id else (list_sources(db, workspace)[0])
+        source = (
+            get_source(db, workspace, str(source_id))
+            if source_id
+            else (list_sources(db, workspace)[0])
+        )
         job = queue_visual_capture(db, workspace, source)
         db.commit()
         task_id = dispatch_visual_capture_job(db, workspace, job, source)
@@ -1724,7 +1963,9 @@ async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dic
             db.close()
 
 
-async def _visual_snapshot_analyze_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _visual_snapshot_analyze_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.models.workspace_visual import WorkspaceVisualObservation
     from app.services.visual_intelligence import serialize_observation
 
@@ -1734,7 +1975,10 @@ async def _visual_snapshot_analyze_v1(payload: Dict[str, Any], ctx: Optional[Dic
         capture_id = str(payload.get("capture_id") or "")
         observation = (
             db.query(WorkspaceVisualObservation)
-            .filter(WorkspaceVisualObservation.workspace_id == workspace.id, WorkspaceVisualObservation.capture_id == capture_id)
+            .filter(
+                WorkspaceVisualObservation.workspace_id == workspace.id,
+                WorkspaceVisualObservation.capture_id == capture_id,
+            )
             .order_by(WorkspaceVisualObservation.created_at.desc())
             .first()
         )
@@ -1746,7 +1990,9 @@ async def _visual_snapshot_analyze_v1(payload: Dict[str, Any], ctx: Optional[Dic
             db.close()
 
 
-async def _visual_observation_sync_knowledge_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _visual_observation_sync_knowledge_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.models.workspace_visual import WorkspaceVisualObservation
     from app.services.visual_intelligence import (
         VISUAL_COLLECTION_SLUG,
@@ -1759,7 +2005,10 @@ async def _visual_observation_sync_knowledge_v1(payload: Dict[str, Any], ctx: Op
         observation_id = str(payload.get("observation_id") or "")
         observation = (
             db.query(WorkspaceVisualObservation)
-            .filter(WorkspaceVisualObservation.workspace_id == workspace.id, WorkspaceVisualObservation.id == observation_id)
+            .filter(
+                WorkspaceVisualObservation.workspace_id == workspace.id,
+                WorkspaceVisualObservation.id == observation_id,
+            )
             .first()
         )
         if not observation:
@@ -1772,7 +2021,9 @@ async def _visual_observation_sync_knowledge_v1(payload: Dict[str, Any], ctx: Op
             db.close()
 
 
-async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _sharepoint_ingestion_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     # Real ingestion goes through the OAuth/MSAL flow in
     # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
     # flow from a background skill still needs a tenant-scoped token
@@ -1791,7 +2042,9 @@ async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
     }
 
 
-async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_transcribe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
@@ -1811,7 +2064,9 @@ async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
     }
 
 
-async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_tts_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
@@ -1830,7 +2085,9 @@ async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
     }
 
 
-async def _voice_realtime_session_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_realtime_session_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import (
         build_openai_realtime_session,
         list_voice_runtime_providers,
@@ -1849,7 +2106,9 @@ async def _voice_realtime_session_v1(payload: Dict[str, Any], ctx: Optional[Dict
         metadata={"transport": payload.get("transport") or "backend_ws"},
     )
     catalog = list_voice_runtime_providers()
-    provider_meta = next((item for item in catalog.get("providers", []) if item.get("slug") == provider), None)
+    provider_meta = next(
+        (item for item in catalog.get("providers", []) if item.get("slug") == provider), None
+    )
     return {
         "provider": provider,
         "model": payload.get("model"),
@@ -1861,7 +2120,9 @@ async def _voice_realtime_session_v1(payload: Dict[str, Any], ctx: Optional[Dict
     }
 
 
-async def _voice_realtime_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_realtime_transcribe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
@@ -1888,7 +2149,9 @@ async def _voice_realtime_transcribe_v1(payload: Dict[str, Any], ctx: Optional[D
     }
 
 
-async def _voice_realtime_speak_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_realtime_speak_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
@@ -1905,11 +2168,15 @@ async def _voice_realtime_speak_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
         "requested_provider": result.get("requested_provider") or payload.get("provider"),
         "bytes": result.get("bytes"),
         "fallback": result.get("fallback", False),
-        "events": [{"type": "audio.out", "bytes": result.get("bytes"), "provider": result.get("provider")}],
+        "events": [
+            {"type": "audio.out", "bytes": result.get("bytes"), "provider": result.get("provider")}
+        ],
     }
 
 
-async def _voice_realtime_translate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_realtime_translate_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider(payload.get("provider") or "openai_realtime")
@@ -1931,7 +2198,9 @@ async def _voice_realtime_translate_v1(payload: Dict[str, Any], ctx: Optional[Di
     }
 
 
-async def _voice_oracle_turn_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_oracle_turn_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.knowledge_capture import evaluate_expert_answer
 
     evaluation = evaluate_expert_answer(
@@ -1948,14 +2217,16 @@ async def _voice_oracle_turn_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     }
 
 
-async def _voice_tandem_oracle_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _voice_tandem_oracle_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.voice_tandem_oracle import VoiceTandemOracle
 
     ctx = ctx or {}
     oracle = VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
     turn_id = str(payload.get("turn_id") or ctx.get("turn_id") or "flow-turn")
     duration_ms = int(payload.get("duration_ms") or 0)
-    events: list[Dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     partial_text = payload.get("partial_text") or payload.get("text")
     if partial_text:
         events.extend(
@@ -1972,15 +2243,21 @@ async def _voice_tandem_oracle_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
                 force=True,
             )
         )
-    final_text = payload.get("final_text") or (payload.get("text") if payload.get("is_final") else None)
+    final_text = payload.get("final_text") or (
+        payload.get("text") if payload.get("is_final") else None
+    )
     if final_text:
         events.extend(
             oracle.commit_final(
                 str(final_text),
                 turn_id=turn_id,
-                evaluation=payload.get("evaluation") if isinstance(payload.get("evaluation"), dict) else None,
+                evaluation=payload.get("evaluation")
+                if isinstance(payload.get("evaluation"), dict)
+                else None,
                 next_prompt=payload.get("next_prompt"),
-                sources=payload.get("sources") if isinstance(payload.get("sources"), list) else None,
+                sources=payload.get("sources")
+                if isinstance(payload.get("sources"), list)
+                else None,
                 duration_ms=duration_ms,
             )
         )
@@ -1994,7 +2271,7 @@ async def _voice_tandem_oracle_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
     }
 
 
-def _audio_bytes_from_payload(payload: Dict[str, Any]) -> bytes:
+def _audio_bytes_from_payload(payload: dict[str, Any]) -> bytes:
     if payload.get("audio_bytes"):
         raw = payload["audio_bytes"]
         if isinstance(raw, bytes):
@@ -2010,10 +2287,14 @@ def _audio_bytes_from_payload(payload: Dict[str, Any]) -> bytes:
         if not path.exists() or not path.is_file():
             raise ValueError("voice_transcribe_v1: audio_ref does not resolve to a local file")
         return path.read_bytes()
-    raise ValueError("voice_transcribe_v1: one of audio_bytes, audio_base64 or audio_ref is required")
+    raise ValueError(
+        "voice_transcribe_v1: one of audio_bytes, audio_base64 or audio_ref is required"
+    )
 
 
-async def _knowledge_gap_analysis_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _knowledge_gap_analysis_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.knowledge_capture import build_knowledge_gaps
 
     return {
@@ -2026,7 +2307,9 @@ async def _knowledge_gap_analysis_v1(payload: Dict[str, Any], ctx: Optional[Dict
     }
 
 
-async def _expert_interview_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _expert_interview_plan_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.knowledge_capture import build_interview_plan
 
     return {
@@ -2040,7 +2323,9 @@ async def _expert_interview_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[
     }
 
 
-async def _expert_answer_evaluator_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _expert_answer_evaluator_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.knowledge_capture import evaluate_expert_answer
 
     return evaluate_expert_answer(
@@ -2050,7 +2335,9 @@ async def _expert_answer_evaluator_v1(payload: Dict[str, Any], ctx: Optional[Dic
     )
 
 
-async def _capture_structuring_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _capture_structuring_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     # The persisted endpoint uses `structure_capture_payload` on an ORM
     # session. The skill contract also supports already-serialized session
     # payloads for DAG/runtime callers.
@@ -2091,7 +2378,9 @@ async def _capture_structuring_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
     return {"proposal": proposal}
 
 
-async def _audit_log_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _audit_log_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     event_id = str(uuid.uuid4())
     logger.info(
         "audit_log_v1: event",
@@ -2104,7 +2393,9 @@ async def _audit_log_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
     return {"id": event_id, "status": "recorded"}
 
 
-async def _ollama_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _ollama_llm_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.model_clients.ollama_client import OllamaClient
 
     client = OllamaClient()
@@ -2116,7 +2407,9 @@ async def _ollama_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] 
     }
 
 
-async def _azure_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _azure_llm_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     # Azure OpenAI is OpenAI-compatible — reuse the OpenAI client.
     from app.services.model_clients.openai_client import OpenAIClient
 
@@ -2165,7 +2458,9 @@ async def _azure_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
     }
 
 
-async def _chain_naive_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chain_naive_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.rag.chains import answer_naive
 
     ctx = ctx or {}
@@ -2178,7 +2473,9 @@ async def _chain_naive_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
     )
 
 
-async def _chain_hybrid_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chain_hybrid_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.rag.chains import answer_hybrid
 
     ctx = ctx or {}
@@ -2191,7 +2488,9 @@ async def _chain_hybrid_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]
     )
 
 
-async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chain_mixed_hah_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     from app.services.rag.chains import answer_mixed_hah
 
     ctx = ctx or {}
@@ -2244,9 +2543,33 @@ _LANE_BUDGETS = {
 # ``mode`` AND with the classic lane budgets above so the deep branch carries
 # deep_retrieval=True + the full deep budget downstream.
 _RETRIEVAL_BY_MODE = {
-    "fast": {"latency_profile": "fast", "retrieval_profile": "oracle_fast", "top_k": 5, "synthesis_k": 12, "candidate_pool_k": 20, "rag_pipeline_mode": "chah", "deep_retrieval": False},
-    "balanced": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
-    "deep": {"latency_profile": "deep", "retrieval_profile": "deep_async", "top_k": 8, "synthesis_k": 24, "candidate_pool_k": 80, "rag_pipeline_mode": "chah", "deep_retrieval": True},
+    "fast": {
+        "latency_profile": "fast",
+        "retrieval_profile": "oracle_fast",
+        "top_k": 5,
+        "synthesis_k": 12,
+        "candidate_pool_k": 20,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": False,
+    },
+    "balanced": {
+        "latency_profile": "balanced",
+        "retrieval_profile": "chat",
+        "top_k": 8,
+        "synthesis_k": 16,
+        "candidate_pool_k": 40,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": False,
+    },
+    "deep": {
+        "latency_profile": "deep",
+        "retrieval_profile": "deep_async",
+        "top_k": 8,
+        "synthesis_k": 24,
+        "candidate_pool_k": 80,
+        "rag_pipeline_mode": "chah",
+        "deep_retrieval": True,
+    },
 }
 
 _SELF_CORRECT_ACTIONS = ("escalate_deep", "translate", "declare_partial")
@@ -2276,7 +2599,7 @@ def _is_inventory_query(query: str) -> bool:
     return bool(_INVENTORY_RE.search(query or ""))
 
 
-def _project_inventory_passage(inventory: Any) -> Optional[Dict[str, Any]]:
+def _project_inventory_passage(inventory: Any) -> Optional[dict[str, Any]]:
     """Turn the project_code facet into a top authoritative context passage.
 
     ``retrieve_rag_context`` attaches the exhaustive cross-project enumeration
@@ -2287,7 +2610,11 @@ def _project_inventory_passage(inventory: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(inventory, dict):
         return None
     projects = inventory.get("projects") or []
-    codes = [str(p.get("project_code")) for p in projects if isinstance(p, dict) and p.get("project_code")]
+    codes = [
+        str(p.get("project_code"))
+        for p in projects
+        if isinstance(p, dict) and p.get("project_code")
+    ]
     if not codes:
         return None
     terms = ", ".join(str(t) for t in (inventory.get("terms") or []) if t) or "cet equipement"
@@ -2311,11 +2638,14 @@ def _has_known_corpus_anchor(query: str) -> bool:
     q = query or ""
     return bool(_PROJECT_CODE_RE.search(q) or _KNOWN_ENTITY_RE.search(q))
 
+
 # Clarify gating (C3). Andritz project/identifier codes: 2-4 letters + 2-3
 # digits (+ optional -N), plus the D.NN bearing style. A request carrying one is
 # specific enough to answer — never to clarify.
 _PROJECT_CODE_RE = re.compile(r"\b([A-Z]{2,4}\d{2,3}(?:-\d)?|D\.\d{2,3}|CU\d{3}[A-Z]?-?\d?)\b")
-_QUESTION_WORD_RE = re.compile(r"\b(quel|quelle|comment|pourquoi|where|how|what|why|wo|wie|was|warum)\b", re.IGNORECASE)
+_QUESTION_WORD_RE = re.compile(
+    r"\b(quel|quelle|comment|pourquoi|where|how|what|why|wo|wie|was|warum)\b", re.IGNORECASE
+)
 # Schema-example phrases the planner must never echo back as a real scope/plan.
 _PLACEHOLDER_SCOPES = {
     "perimetre de recherche",
@@ -2336,7 +2666,7 @@ def _is_placeholder_text(value: Any) -> bool:
     return text in _PLACEHOLDER_SCOPES or text.startswith(("<", "the concrete search"))
 
 
-def _assess_clarify_gate(query: str, *, has_history: bool) -> Dict[str, Any]:
+def _assess_clarify_gate(query: str, *, has_history: bool) -> dict[str, Any]:
     """Deterministic sufficiency check — should a clarify actually be allowed?
 
     Mirrors ``agentic_chat_spike.assess_sufficiency``: clarify is only justified
@@ -2348,15 +2678,11 @@ def _assess_clarify_gate(query: str, *, has_history: bool) -> Dict[str, Any]:
     has_question = bool(_QUESTION_WORD_RE.search(q)) or "?" in q
     word_count = len(q.split())
     # Ambiguous = very short / no question framing AND no anchoring signal.
-    ambiguous = (
-        not has_project
-        and not has_history
-        and (word_count <= 3 or not has_question)
-    )
+    ambiguous = not has_project and not has_history and (word_count <= 3 or not has_question)
     return {"has_project_code": has_project, "ambiguous": ambiguous, "allow_clarify": ambiguous}
 
 
-def _resolve_model_preferences(model: Optional[str]) -> Dict[str, Any]:
+def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
     """Map a (possibly provider-prefixed) model string to ModelRouter prefs.
 
     Provider-neutral: produces ``{"provider","model"}`` for
@@ -2370,7 +2696,10 @@ def _resolve_model_preferences(model: Optional[str]) -> Dict[str, Any]:
     default_provider = getattr(settings, "default_provider", None) or "ollama"
     raw = (model or "").strip()
     if not raw:
-        return {"provider": default_provider, "model": getattr(settings, "default_model", None) or ""}
+        return {
+            "provider": default_provider,
+            "model": getattr(settings, "default_model", None) or "",
+        }
     for sep in (":", "/"):
         if sep in raw:
             head, tail = raw.split(sep, 1)
@@ -2383,7 +2712,7 @@ def _resolve_model_preferences(model: Optional[str]) -> Dict[str, Any]:
     return {"provider": default_provider, "model": raw}
 
 
-async def _route_llm_complete(prompt: str, model: Optional[str], ctx: Dict[str, Any]) -> str:
+async def _route_llm_complete(prompt: str, model: Optional[str], ctx: dict[str, Any]) -> str:
     """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
 
     Normalises the heterogeneous client return shapes (OpenAI ``content`` vs
@@ -2396,11 +2725,13 @@ async def _route_llm_complete(prompt: str, model: Optional[str], ctx: Dict[str, 
     client = await router.get_client(prefs)
     result = await client.generate(model=prefs["model"], prompt=prompt)
     if isinstance(result, dict):
-        return str(result.get("content") or result.get("response") or result.get("completion") or "").strip()
+        return str(
+            result.get("content") or result.get("response") or result.get("completion") or ""
+        ).strip()
     return str(result or "").strip()
 
 
-def _loads_lenient_json(text: str) -> Optional[Dict[str, Any]]:
+def _loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
     """Best-effort JSON-object recovery from an LLM completion.
 
     Tolerates ```json fences, surrounding prose and trailing commas by
@@ -2430,7 +2761,7 @@ def _loads_lenient_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _coerce_enum(value: Any, allowed: Tuple[str, ...], default: str) -> str:
+def _coerce_enum(value: Any, allowed: tuple[str, ...], default: str) -> str:
     text = str(value or "").strip().lower()
     return text if text in allowed else default
 
@@ -2447,20 +2778,22 @@ def _coerce_chunk_texts(raw: Any) -> list[str]:
             if item.strip():
                 out.append(item)
         elif isinstance(item, dict):
-            text = item.get("content") or item.get("text") or item.get("snippet") or item.get("chunk")
+            text = (
+                item.get("content") or item.get("text") or item.get("snippet") or item.get("chunk")
+            )
             if isinstance(text, str) and text.strip():
                 out.append(text)
     return out
 
 
-def _context_passages(raw: Any) -> list[Dict[str, Any]]:
+def _context_passages(raw: Any) -> list[dict[str, Any]]:
     """Normalise ``semantic_search_v1.results`` into citeable passages.
 
     Each passage is ``{content, metadata, score}``. Strings are accepted too
     (metadata-less). Empty / blank entries are dropped so an empty join is
     distinguishable from a populated one (drives the abstain-vs-answer split).
     """
-    out: list[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     if not isinstance(raw, (list, tuple)):
         return out
     for item in raw:
@@ -2477,11 +2810,13 @@ def _context_passages(raw: Any) -> list[Dict[str, Any]]:
             )
             if isinstance(text, str) and text.strip():
                 metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-                out.append({"content": text.strip(), "metadata": metadata, "score": item.get("score")})
+                out.append(
+                    {"content": text.strip(), "metadata": metadata, "score": item.get("score")}
+                )
     return out
 
 
-def _passage_source_label(metadata: Dict[str, Any], index: int) -> str:
+def _passage_source_label(metadata: dict[str, Any], index: int) -> str:
     md = metadata or {}
     return str(
         md.get("document_filename")
@@ -2492,9 +2827,9 @@ def _passage_source_label(metadata: Dict[str, Any], index: int) -> str:
     )
 
 
-def _citations_from_passages(passages: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+def _citations_from_passages(passages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build citation rows from passage metadata (chunk_id / document / score)."""
-    citations: list[Dict[str, Any]] = []
+    citations: list[dict[str, Any]] = []
     for index, passage in enumerate(passages, start=1):
         md = passage.get("metadata") or {}
         citations.append(
@@ -2510,7 +2845,7 @@ def _citations_from_passages(passages: list[Dict[str, Any]]) -> list[Dict[str, A
 
 def _build_grounded_answer_prompt(
     query: str,
-    passages: list[Dict[str, Any]],
+    passages: list[dict[str, Any]],
     lang_target: Optional[str],
     answer_profile: Optional[str],
 ) -> str:
@@ -2589,15 +2924,15 @@ def _is_abstention(text: Any) -> bool:
 
 
 def _merge_passages(
-    primary: list[Dict[str, Any]], extra: list[Dict[str, Any]]
-) -> list[Dict[str, Any]]:
+    primary: list[dict[str, Any]], extra: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Union two passage lists, de-duplicating on content (primary kept first).
 
     ``escalate_deep`` re-retrieves on the DEEP lane, whose wider query expansion
     can drop a carrier chunk the original (balanced) pass surfaced. Merging keeps
     the original context so a re-ground never loses ground it already had.
     """
-    merged: list[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     for passage in list(primary) + list(extra):
         content = str(passage.get("content") or "").strip()
@@ -2705,7 +3040,7 @@ def _derive_comparative_sub_queries(query: str) -> list[str]:
     return [entity for entity in entities if isinstance(entity, str) and entity.strip()]
 
 
-def _coerce_sub_queries(parsed: Dict[str, Any], query: str, answer_profile: str) -> list[str]:
+def _coerce_sub_queries(parsed: dict[str, Any], query: str, answer_profile: str) -> list[str]:
     """Coerce the planner's ``sub_queries`` into a clean 0/2-4 item list.
 
     Contract: populated (2-4 deduped, non-echo sub-questions) only when the
@@ -2741,7 +3076,9 @@ def _coerce_sub_queries(parsed: Dict[str, Any], query: str, answer_profile: str)
     return cleaned[:4]
 
 
-def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = False) -> Dict[str, Any]:
+def _coerce_plan(
+    parsed: dict[str, Any], query: str, *, has_history: bool = False
+) -> dict[str, Any]:
     """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
 
     GATES (2026-06-26):
@@ -2768,10 +3105,24 @@ def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = Fals
     retrieval_defaults = dict(_RETRIEVAL_BY_MODE[mode])
     raw_retrieval = parsed.get("retrieval") if isinstance(parsed.get("retrieval"), dict) else {}
     retrieval = {
-        "latency_profile": _coerce_enum(raw_retrieval.get("latency_profile"), _PLAN_ENUMS["latency_profile"], retrieval_defaults["latency_profile"]),
-        "retrieval_profile": _coerce_enum(raw_retrieval.get("retrieval_profile"), _PLAN_ENUMS["retrieval_profile"], retrieval_defaults["retrieval_profile"]),
-        "rag_pipeline_mode": _coerce_enum(raw_retrieval.get("rag_pipeline_mode"), _PLAN_ENUMS["rag_pipeline_mode"], retrieval_defaults["rag_pipeline_mode"]),
-        "deep_retrieval": bool(raw_retrieval.get("deep_retrieval", retrieval_defaults["deep_retrieval"])),
+        "latency_profile": _coerce_enum(
+            raw_retrieval.get("latency_profile"),
+            _PLAN_ENUMS["latency_profile"],
+            retrieval_defaults["latency_profile"],
+        ),
+        "retrieval_profile": _coerce_enum(
+            raw_retrieval.get("retrieval_profile"),
+            _PLAN_ENUMS["retrieval_profile"],
+            retrieval_defaults["retrieval_profile"],
+        ),
+        "rag_pipeline_mode": _coerce_enum(
+            raw_retrieval.get("rag_pipeline_mode"),
+            _PLAN_ENUMS["rag_pipeline_mode"],
+            retrieval_defaults["rag_pipeline_mode"],
+        ),
+        "deep_retrieval": bool(
+            raw_retrieval.get("deep_retrieval", retrieval_defaults["deep_retrieval"])
+        ),
     }
 
     def _coerce_budget(key: str) -> int:
@@ -2834,7 +3185,9 @@ def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = Fals
 
     # oos_reason only survives when the action is still reject_oos (a demoted
     # reject_oos must not leak a stale refusal reason into an answer plan).
-    oos_reason = _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
+    oos_reason = (
+        _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
+    )
 
     answer_profile = _as_str("answer_profile", "technical")
     # Multi-hop decomposition (Phase 4): 2-4 sub-queries for comparison /
@@ -2856,7 +3209,9 @@ def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = Fals
     }
 
 
-async def _chat_agentic_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chat_agentic_plan_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Provider-neutral agentic planner (LLM via ModelRouter).
 
     OUT (frozen §7): ``{action, mode, answer_profile, scope_hint,
@@ -2877,11 +3232,15 @@ async def _chat_agentic_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     try:
         completion = await _route_llm_complete(prompt, model, ctx)
     except Exception as exc:  # noqa: BLE001 — never crash the DAG on a model hiccup
-        logger.warning("chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc))
+        logger.warning(
+            "chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc)
+        )
     return _coerce_plan(_loads_lenient_json(completion) or {}, query, has_history=has_history)
 
 
-def _build_self_correct_prompt(query: str, draft: str, action: str, composite: Any, hallucination_rate: Any) -> str:
+def _build_self_correct_prompt(
+    query: str, draft: str, action: str, composite: Any, hallucination_rate: Any
+) -> str:
     guidance = {
         "escalate_deep": "Approfondis et re-ancre la reponse sur les sources industrielles Andritz ; supprime toute affirmation non etayee.",
         "translate": "Reformule la reponse dans la langue cible attendue de l'utilisateur, sans changer le fond.",
@@ -2928,7 +3287,9 @@ def _pick_self_correct_action(
     return "declare_partial"
 
 
-async def _chat_self_correct_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _chat_self_correct_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Provider-neutral bounded self-correction reactor (LLM via ModelRouter).
 
     Picks ONE action (escalate_deep|translate|declare_partial) and returns the
@@ -2998,7 +3359,11 @@ async def _chat_self_correct_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
             {
                 "query": query,
                 "context": [
-                    {"content": p["content"], "metadata": p.get("metadata") or {}, "score": p.get("score")}
+                    {
+                        "content": p["content"],
+                        "metadata": p.get("metadata") or {},
+                        "score": p.get("score"),
+                    }
                     for p in passages
                 ],
                 "lang_target": lang_target,
@@ -3046,7 +3411,9 @@ async def _chat_self_correct_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     }
 
 
-async def _response_eval_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _response_eval_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Wrapper around ``ResponseEvaluator`` — SOURCE UNIQUE of the 0-100 composite.
 
     OUT (frozen §7): ``{composite (0-100), hallucination_rate (0-1),
@@ -3068,7 +3435,9 @@ async def _response_eval_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any
         raw_context = payload.get("citations") or []
     chunk_texts = _coerce_chunk_texts(raw_context)
 
-    metrics = await ResponseEvaluator().evaluate(query=query, response=answer, source_chunks=chunk_texts)
+    metrics = await ResponseEvaluator().evaluate(
+        query=query, response=answer, source_chunks=chunk_texts
+    )
     relevance = float(metrics.get("relevance") or 0.0)
     factuality = float(metrics.get("factuality") or 0.0)
     coherence = float(metrics.get("coherence") or 0.0)
@@ -3093,94 +3462,190 @@ async def _response_eval_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any
 # ``expected_module_path`` is the module whose import must succeed for
 # the wrapper to be considered `bound`. A ``None`` path means the
 # wrapper is self-contained (loggers, stubs, in-process helpers).
-_REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
-    "llm_rag_answer_v1":       (_llm_rag_answer_v1,       "app.services.rag.rag_service",          "bound"),
-    "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.context",              "bound"),
-    "multi_hop_retrieve_v1":   (_multi_hop_retrieve_v1,   "app.services.rag.comparative_retrieval", "bound"),
-    "chat_trivial_bypass_v1":  (_chat_trivial_bypass_v1,  None,                                     "bound"),
-    "chat_grounding_policy_v1": (_stub,                   None,                                     "stub"),
-    "chat_action_resolver_v1": (_stub,                    None,                                     "stub"),
-    "document_ingestion_v1":   (_document_ingestion_v1,   "app.services.rag.document_service",     "bound"),
-    "eval_radar_v1":           (_eval_radar_v1,           "app.services.evaluation.judge",         "bound"),
-    "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),
-    "intelligence_batch_v1":   (_intelligence_batch_v1,   "app.services.intelligence.batch",       "bound"),
-    "ministerial_briefing_v1": (_ministerial_briefing_v1, "app.services.mission_room",             "bound"),
-    "news_signal_synthesis_v1": (_news_signal_synthesis_v1, "app.services.mission_room",           "bound"),
-    "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room",         "bound"),
-    "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room",         "bound"),
-    "instruction_draft_v1":    (_instruction_draft_v1,    "app.services.mission_room",             "bound"),
-    "scenario_generate_v1":    (_scenario_generate_v1,    "app.services.scenario_engine",          "bound"),
-    "scenario_compare_v1":     (_scenario_compare_v1,     "app.services.scenario_engine",          "bound"),
-    "scenario_recommend_v1":   (_scenario_recommend_v1,   "app.services.scenario_engine",          "bound"),
-    "calendar_read_v1":        (_calendar_read_v1,        "app.services.workspace_calendar",       "bound"),
-    "calendar_create_event_v1": (_calendar_create_event_v1, "app.services.workspace_calendar",     "bound"),
-    "calendar_update_event_v1": (_calendar_update_event_v1, "app.services.workspace_calendar",     "bound"),
-    "calendar_cancel_event_v1": (_calendar_cancel_event_v1, "app.services.workspace_calendar",     "bound"),
-    "calendar_daily_summary_v1": (_calendar_daily_summary_v1, "app.services.workspace_calendar",   "bound"),
-    "action_plan_create_v1":    (_action_plan_create_v1,    "app.services.action_plans",           "bound"),
-    "action_plan_reschedule_v1": (_action_plan_reschedule_v1, "app.services.action_plans",         "bound"),
-    "action_plan_status_v1":    (_action_plan_status_v1,    "app.services.action_plans",           "bound"),
-    "action_plan_cancel_v1":    (_action_plan_cancel_v1,    "app.services.action_plans",           "bound"),
-    "time_context_set_v1":      (_time_context_set_v1,      "app.services.demo_time_context",    "bound"),
-    "briefing_priorities_v1":     (_briefing_priorities_v1,     "app.services.mission_room",           "bound"),
-    "summarize_long_document_v1": (_summarize_long_document_v1, "app.services.mission_room",           "bound"),
-    "generate_recommendations_v1": (_generate_recommendations_v1, "app.services.mission_room",          "bound"),
-    "draft_email_v1":           (_draft_email_v1,           "app.services.mission_room",             "bound"),
-    "causal_drill_v1":          (_causal_drill_v1,          "app.services.mission_room",             "bound"),
-    "update_meeting_agenda_v1": (_update_meeting_agenda_v1, "app.services.workspace_calendar",       "bound"),
-    "schedule_meeting_v1":      (_schedule_meeting_v1,      "app.services.workspace_calendar",     "bound"),
-    "territorial_action_window_v1": (_territorial_action_window_v1, "app.services.mission_room",   "bound"),
-    "map_layer_read_v1":        (_map_layer_read_v1,        "app.services.workspace_maps",          "bound"),
-    "map_zone_score_v1":        (_map_zone_score_v1,        "app.services.workspace_maps",          "bound"),
-    "map_signal_attach_v1":     (_map_signal_attach_v1,     "app.services.workspace_maps",          "bound"),
-    "map_recommendation_generate_v1": (_map_recommendation_generate_v1, "app.services.workspace_maps", "bound"),
-    "map_command_apply_v1":     (_map_command_apply_v1,     "app.services.workspace_maps",          "bound"),
-    "source_registry_refresh_v1": (_source_registry_refresh_v1, "app.services.mission_room",          "bound"),
-    "osint_signal_prioritize_v1": (_osint_signal_prioritize_v1, "app.services.mission_room",          "bound"),
-    "rumor_origin_trace_v1":    (_rumor_origin_trace_v1,    "app.services.mission_room",             "bound"),
-    "evidence_graph_build_v1":  (_evidence_graph_build_v1,  "app.services.mission_room",             "bound"),
-    "situation_posture_score_v1": (_situation_posture_score_v1, "app.services.mission_room",          "bound"),
-    "maritime_snapshot_read_v1": (_maritime_snapshot_read_v1, "app.services.workspace_maps",          "bound"),
-    "decision_option_rank_v1":  (_decision_option_rank_v1,  "app.services.mission_room",             "bound"),
-    "draft_response_email_v1":  (_draft_response_email_v1,  "app.services.mission_room",             "bound"),
-    "visual_source_read_v1":    (_visual_source_read_v1,    "app.services.visual_intelligence",     "bound"),
-    "visual_snapshot_capture_v1": (_visual_snapshot_capture_v1, "app.services.visual_intelligence",  "bound"),
-    "visual_snapshot_analyze_v1": (_visual_snapshot_analyze_v1, "app.services.visual_intelligence",  "bound"),
-    "visual_observation_sync_knowledge_v1": (_visual_observation_sync_knowledge_v1, "app.services.visual_intelligence", "bound"),
-    "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
-    "translation_archive_ingest_v1": (_translation_showcase_stub, None,                            "stub"),
-    "translation_memory_retrieve_v1": (_translation_showcase_stub, None,                           "stub"),
-    "translation_label_index_resolve_v1": (_translation_showcase_stub, None,                       "stub"),
-    "translation_pivot_normalize_v1": (_translation_showcase_stub, None,                           "stub"),
-    "translation_fanout_v1": (_translation_showcase_stub, None,                                   "stub"),
-    "translation_j2450_qa_v1": (_translation_showcase_stub, None,                                 "stub"),
-    "translation_post_guard_v1": (_translation_showcase_stub, None,                               "stub"),
-    "translation_cdt_gate_v1": (_translation_showcase_stub, None,                                 "stub"),
-    "translation_package_delivery_v1": (_translation_showcase_stub, None,                         "stub"),
-    "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
-    "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),
-    "voice_realtime_session_v1": (_voice_realtime_session_v1, "app.services.voice_runtime",         "bound"),
-    "voice_realtime_transcribe_v1": (_voice_realtime_transcribe_v1, "app.services.voice_runtime",   "bound"),
-    "voice_realtime_speak_v1":  (_voice_realtime_speak_v1, "app.services.voice_runtime",            "bound"),
-    "voice_realtime_translate_v1": (_voice_realtime_translate_v1, "app.services.voice_runtime",     "bound"),
-    "voice_oracle_turn_v1":     (_voice_oracle_turn_v1,   "app.services.knowledge_capture",         "bound"),
-    "voice_tandem_oracle_v1":   (_voice_tandem_oracle_v1, "app.services.voice_tandem_oracle",       "bound"),
-    "knowledge_gap_analysis_v1": (_knowledge_gap_analysis_v1, "app.services.knowledge_capture",     "bound"),
-    "expert_interview_plan_v1": (_expert_interview_plan_v1, "app.services.knowledge_capture",      "bound"),
-    "expert_answer_evaluator_v1": (_expert_answer_evaluator_v1, "app.services.knowledge_capture",  "bound"),
-    "capture_structuring_v1":  (_capture_structuring_v1,  "app.services.knowledge_capture",        "bound"),
-    "audit_log_v1":            (_audit_log_v1,            None,                                    "bound"),
-    "ollama_llm_v1":           (_ollama_llm_v1,           "app.services.model_clients.ollama_client", "bound"),
-    "azure_llm_v1":            (_azure_llm_v1,            "app.services.model_clients.openai_client", "bound"),
-    "chain_naive_v1":          (_chain_naive_v1,          "app.services.rag.chains.naive",         "bound"),
-    "chain_hybrid_v1":         (_chain_hybrid_v1,         "app.services.rag.chains.hybrid",        "bound"),
-    "chain_mixed_hah_v1":      (_chain_mixed_hah_v1,      "app.services.rag.chains.mixed_hah",     "bound"),
-    "chat_agentic_plan_v1":    (_chat_agentic_plan_v1,    "app.services.model_router",             "bound"),
-    "chat_self_correct_v1":    (_chat_self_correct_v1,    "app.services.model_router",             "bound"),
-    "response_eval_v1":        (_response_eval_v1,        "app.services.metrics.evaluator",        "bound"),
+_REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
+    "llm_rag_answer_v1": (_llm_rag_answer_v1, "app.services.rag.rag_service", "bound"),
+    "semantic_search_v1": (_semantic_search_v1, "app.services.rag.context", "bound"),
+    "multi_hop_retrieve_v1": (
+        _multi_hop_retrieve_v1,
+        "app.services.rag.comparative_retrieval",
+        "bound",
+    ),
+    "chat_trivial_bypass_v1": (_chat_trivial_bypass_v1, None, "bound"),
+    "chat_grounding_policy_v1": (_stub, None, "stub"),
+    "chat_action_resolver_v1": (_stub, None, "stub"),
+    "document_ingestion_v1": (_document_ingestion_v1, "app.services.rag.document_service", "bound"),
+    "eval_radar_v1": (_eval_radar_v1, "app.services.evaluation.judge", "bound"),
+    "claim_audit_v1": (_claim_audit_v1, "app.services.evaluation.judge", "bound"),
+    "intelligence_batch_v1": (_intelligence_batch_v1, "app.services.intelligence.batch", "bound"),
+    "ministerial_briefing_v1": (_ministerial_briefing_v1, "app.services.mission_room", "bound"),
+    "news_signal_synthesis_v1": (_news_signal_synthesis_v1, "app.services.mission_room", "bound"),
+    "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room", "bound"),
+    "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room", "bound"),
+    "instruction_draft_v1": (_instruction_draft_v1, "app.services.mission_room", "bound"),
+    "scenario_generate_v1": (_scenario_generate_v1, "app.services.scenario_engine", "bound"),
+    "scenario_compare_v1": (_scenario_compare_v1, "app.services.scenario_engine", "bound"),
+    "scenario_recommend_v1": (_scenario_recommend_v1, "app.services.scenario_engine", "bound"),
+    "calendar_read_v1": (_calendar_read_v1, "app.services.workspace_calendar", "bound"),
+    "calendar_create_event_v1": (
+        _calendar_create_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_update_event_v1": (
+        _calendar_update_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_cancel_event_v1": (
+        _calendar_cancel_event_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "calendar_daily_summary_v1": (
+        _calendar_daily_summary_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "action_plan_create_v1": (_action_plan_create_v1, "app.services.action_plans", "bound"),
+    "action_plan_reschedule_v1": (_action_plan_reschedule_v1, "app.services.action_plans", "bound"),
+    "action_plan_status_v1": (_action_plan_status_v1, "app.services.action_plans", "bound"),
+    "action_plan_cancel_v1": (_action_plan_cancel_v1, "app.services.action_plans", "bound"),
+    "time_context_set_v1": (_time_context_set_v1, "app.services.demo_time_context", "bound"),
+    "briefing_priorities_v1": (_briefing_priorities_v1, "app.services.mission_room", "bound"),
+    "summarize_long_document_v1": (
+        _summarize_long_document_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "generate_recommendations_v1": (
+        _generate_recommendations_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "draft_email_v1": (_draft_email_v1, "app.services.mission_room", "bound"),
+    "causal_drill_v1": (_causal_drill_v1, "app.services.mission_room", "bound"),
+    "update_meeting_agenda_v1": (
+        _update_meeting_agenda_v1,
+        "app.services.workspace_calendar",
+        "bound",
+    ),
+    "schedule_meeting_v1": (_schedule_meeting_v1, "app.services.workspace_calendar", "bound"),
+    "territorial_action_window_v1": (
+        _territorial_action_window_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "map_layer_read_v1": (_map_layer_read_v1, "app.services.workspace_maps", "bound"),
+    "map_zone_score_v1": (_map_zone_score_v1, "app.services.workspace_maps", "bound"),
+    "map_signal_attach_v1": (_map_signal_attach_v1, "app.services.workspace_maps", "bound"),
+    "map_recommendation_generate_v1": (
+        _map_recommendation_generate_v1,
+        "app.services.workspace_maps",
+        "bound",
+    ),
+    "map_command_apply_v1": (_map_command_apply_v1, "app.services.workspace_maps", "bound"),
+    "source_registry_refresh_v1": (
+        _source_registry_refresh_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "osint_signal_prioritize_v1": (
+        _osint_signal_prioritize_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "rumor_origin_trace_v1": (_rumor_origin_trace_v1, "app.services.mission_room", "bound"),
+    "evidence_graph_build_v1": (_evidence_graph_build_v1, "app.services.mission_room", "bound"),
+    "situation_posture_score_v1": (
+        _situation_posture_score_v1,
+        "app.services.mission_room",
+        "bound",
+    ),
+    "maritime_snapshot_read_v1": (
+        _maritime_snapshot_read_v1,
+        "app.services.workspace_maps",
+        "bound",
+    ),
+    "decision_option_rank_v1": (_decision_option_rank_v1, "app.services.mission_room", "bound"),
+    "draft_response_email_v1": (_draft_response_email_v1, "app.services.mission_room", "bound"),
+    "visual_source_read_v1": (_visual_source_read_v1, "app.services.visual_intelligence", "bound"),
+    "visual_snapshot_capture_v1": (
+        _visual_snapshot_capture_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "visual_snapshot_analyze_v1": (
+        _visual_snapshot_analyze_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "visual_observation_sync_knowledge_v1": (
+        _visual_observation_sync_knowledge_v1,
+        "app.services.visual_intelligence",
+        "bound",
+    ),
+    "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None, "stub"),
+    "translation_archive_ingest_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_memory_retrieve_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_label_index_resolve_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_pivot_normalize_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_fanout_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_j2450_qa_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_post_guard_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_cdt_gate_v1": (_translation_showcase_stub, None, "stub"),
+    "translation_package_delivery_v1": (_translation_showcase_stub, None, "stub"),
+    "voice_transcribe_v1": (_voice_transcribe_v1, "app.services.voice_runtime", "bound"),
+    "voice_tts_v1": (_voice_tts_v1, "app.services.voice_runtime", "bound"),
+    "voice_realtime_session_v1": (
+        _voice_realtime_session_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_realtime_transcribe_v1": (
+        _voice_realtime_transcribe_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_realtime_speak_v1": (_voice_realtime_speak_v1, "app.services.voice_runtime", "bound"),
+    "voice_realtime_translate_v1": (
+        _voice_realtime_translate_v1,
+        "app.services.voice_runtime",
+        "bound",
+    ),
+    "voice_oracle_turn_v1": (_voice_oracle_turn_v1, "app.services.knowledge_capture", "bound"),
+    "voice_tandem_oracle_v1": (
+        _voice_tandem_oracle_v1,
+        "app.services.voice_tandem_oracle",
+        "bound",
+    ),
+    "knowledge_gap_analysis_v1": (
+        _knowledge_gap_analysis_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "expert_interview_plan_v1": (
+        _expert_interview_plan_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "expert_answer_evaluator_v1": (
+        _expert_answer_evaluator_v1,
+        "app.services.knowledge_capture",
+        "bound",
+    ),
+    "capture_structuring_v1": (_capture_structuring_v1, "app.services.knowledge_capture", "bound"),
+    "audit_log_v1": (_audit_log_v1, None, "bound"),
+    "ollama_llm_v1": (_ollama_llm_v1, "app.services.model_clients.ollama_client", "bound"),
+    "azure_llm_v1": (_azure_llm_v1, "app.services.model_clients.openai_client", "bound"),
+    "chain_naive_v1": (_chain_naive_v1, "app.services.rag.chains.naive", "bound"),
+    "chain_hybrid_v1": (_chain_hybrid_v1, "app.services.rag.chains.hybrid", "bound"),
+    "chain_mixed_hah_v1": (_chain_mixed_hah_v1, "app.services.rag.chains.mixed_hah", "bound"),
+    "chat_agentic_plan_v1": (_chat_agentic_plan_v1, "app.services.model_router", "bound"),
+    "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
+    "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
 }
 
-_RESOLVED_STATUS: Dict[str, str] = {}
+_RESOLVED_STATUS: dict[str, str] = {}
 
 
 def resolve(slug: str) -> SkillCallable:
@@ -3225,14 +3690,14 @@ def runtime_status(slug: str) -> str:
         return "stub"
 
 
-def bound_slugs() -> Dict[str, str]:
+def bound_slugs() -> dict[str, str]:
     """Return `{slug: status}` for every registered skill (tri-state)."""
     return {slug: runtime_status(slug) for slug in _REGISTRY}
 
 
-def registry_snapshot() -> Dict[str, Dict[str, Any]]:
+def registry_snapshot() -> dict[str, dict[str, Any]]:
     """Richer report for admin / observability endpoints."""
-    snap: Dict[str, Dict[str, Any]] = {}
+    snap: dict[str, dict[str, Any]] = {}
     for slug, (_fn, module_path, hint) in _REGISTRY.items():
         snap[slug] = {
             "status": runtime_status(slug),

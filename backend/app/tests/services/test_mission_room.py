@@ -84,10 +84,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["workspace_app_default_view"] == "cockpit"
     assert workspace.settings["hide_provider_details"] is True
     assert workspace.settings["mission_room"]["label"] == "AYA"
-    assert (
-        workspace.settings["mission_room"]["profile"]
-        == SENTINEL_MISSION_ROOM_PROFILE
-    )
+    assert workspace.settings["mission_room"]["profile"] == SENTINEL_MISSION_ROOM_PROFILE
     assert [item["key"] for item in workspace.settings["mission_room"]["navigation"]] == [
         "cockpit",
         "strategie",
@@ -116,9 +113,13 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["voice_output"]["flush_first_chars"] == 18
     assert workspace.settings["voice_output"]["flush_next_chars"] == 56
     assert workspace.settings["voice_output"]["flush_timeout_ms"] == 450
-    assert workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
+    assert (
+        workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
+    )
     assert workspace.settings["document_intelligence"]["ocr"]["enabled"] is True
-    assert workspace.settings["demo_time_context"]["current_date"] == resolve_demo_date().isoformat()
+    assert (
+        workspace.settings["demo_time_context"]["current_date"] == resolve_demo_date().isoformat()
+    )
     assert workspace.settings["demo_time_context"]["mode"] == "rolling"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
@@ -151,24 +152,45 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert len(members) == 1
     assert members[0].user_id == user.id
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() >= 15
-    assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
+    assert (
+        db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
+    )
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
     assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() >= 8
     feeds = db_session.query(FeedSource).filter_by(workspace_id=workspace.id).all()
     assert len(feeds) >= 12
-    assert {feed.category for feed in feeds} >= {"ci-local", "ci-agency", "ci-public", "ci-national", "cedeao", "world"}
-    assert workspace.settings["mission_room"]["region_scope"] == ["Cote d'Ivoire", "West Africa", "Sahel", "Gulf of Guinea"]
+    assert {feed.category for feed in feeds} >= {
+        "ci-local",
+        "ci-agency",
+        "ci-public",
+        "ci-national",
+        "cedeao",
+        "world",
+    }
+    assert workspace.settings["mission_room"]["region_scope"] == [
+        "Cote d'Ivoire",
+        "West Africa",
+        "Sahel",
+        "Gulf of Guinea",
+    ]
     assert "trace_rumor_origin" in workspace.settings["assistant_profiles"][0]["allowed_actions"]
     assert workspace.settings["assistant_profiles"][0]["actions"]["enabled_packs"] == [
         "global_voice_v1",
         "sentinel_ci_aya_v1",
         "sentinel_ci_aya_security_v1",
     ]
-    assert workspace.settings["assistant_profiles"][0]["voice_loop"]["default_mode"] == "session_loop"
+    assert (
+        workspace.settings["assistant_profiles"][0]["voice_loop"]["default_mode"] == "session_loop"
+    )
     assert workspace.settings["assistant_profiles"][0]["voice_loop"]["enabled_default"] is False
-    assert workspace.settings["assistant_profiles"][0]["voice_loop"]["manual_start_required"] is True
+    assert (
+        workspace.settings["assistant_profiles"][0]["voice_loop"]["manual_start_required"] is True
+    )
     assert workspace.settings["assistant_profiles"][0]["voice_output"]["flush_timeout_ms"] == 450
-    assert workspace.settings["assistant_profiles"][0]["response_style"]["address_as"] == "Monsieur le Vice Premier Ministre"
+    assert (
+        workspace.settings["assistant_profiles"][0]["response_style"]["address_as"]
+        == "Monsieur le Vice Premier Ministre"
+    )
     sentinel_navigation = present_payload_for_workspace(
         workspace,
         navigation_payload(db_session, workspace),
@@ -179,7 +201,9 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     sentinel_runtime = json.dumps(sentinel_navigation, ensure_ascii=False)
     for forbidden in ("Octocity", "OCTAVE", "octocity_", "octave."):
         assert forbidden not in sentinel_runtime
-    guides = db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
+    guides = (
+        db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
+    )
     assert {guide.guide_key for guide in guides} >= {
         "sentinel-ci-aya-mission-room-v1",
         "sentinel-ci-open-intelligence-v1",
@@ -201,7 +225,12 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     document_profile = resolve_document_profile(workspace=workspace)
     assert document_profile.source == "workspace_profile"
     assert document_profile.profile["key"] == "sentinel_ci_ministerial"
-    assert document_profile.profile["synonyms"]["decision"] == ["arbitrage", "instruction", "validation", "deadline"]
+    assert document_profile.profile["synonyms"]["decision"] == [
+        "arbitrage",
+        "instruction",
+        "validation",
+        "deadline",
+    ]
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id
     assert preset.config["mode"] == "chah"
@@ -211,9 +240,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert preset.config["asyncRetrieval"] is True
 
 
-def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
-    db_session, monkeypatch, caplog
-):
+def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session, monkeypatch, caplog):
     owner_email = "octocity-owner@example.test"
     monkeypatch.setenv("OCTOCITY_OWNER_EMAILS", owner_email)
     owner = User(
@@ -250,13 +277,19 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
         "octave_security_v1",
     ]
     assert workspace.settings["mission_room"]["profile"] == OCTOCITY_MISSION_ROOM_PROFILE
-    assert workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
+    assert (
+        workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
+    )
     assert workspace.settings["workspace_app_label"] != "SENTINEL-CI"
     assert "sentinel_ci_aya_v1" not in workspace.settings["actions"]["enabled_packs"]
-    assert db_session.query(WorkspaceMember).filter_by(
-        workspace_id=workspace.id,
-        user_id=owner.id,
-    ).one()
+    assert (
+        db_session.query(WorkspaceMember)
+        .filter_by(
+            workspace_id=workspace.id,
+            user_id=owner.id,
+        )
+        .one()
+    )
 
     systems = db_session.query(System).filter_by(workspace_id=workspace.id).all()
     system_names = {row.name for row in systems}
@@ -269,17 +302,20 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
         "Knowledge Capture",
     }.issubset(system_names)
     octave_systems = [row for row in systems if row.name.startswith("OCTAVE ")]
-    assert {
-        (row.flow_definition or {}).get("variant")
-        for row in octave_systems
-    } == {
+    assert {(row.flow_definition or {}).get("variant") for row in octave_systems} == {
         "octocity_mission_room",
         "octocity_territorial_map",
         "octocity_intelligence",
         "octocity_decision_desk",
     }
-    assert all(str((row.flow_definition or {}).get("template_id", "")).startswith("octocity-") for row in octave_systems)
-    assert all("sentinel" not in f"{row.name} {row.objective} {row.flow_definition}".lower() for row in octave_systems)
+    assert all(
+        str((row.flow_definition or {}).get("template_id", "")).startswith("octocity-")
+        for row in octave_systems
+    )
+    assert all(
+        "sentinel" not in f"{row.name} {row.objective} {row.flow_definition}".lower()
+        for row in octave_systems
+    )
     capability_slugs = {
         row.id: row.slug
         for row in db_session.query(Capability)
@@ -328,7 +364,11 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
     mission_map = present_payload_for_workspace(workspace, map_payload(workspace, db_session))
     assert octocity_forbidden_terms_present(mission_map) == []
 
-    member = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id, user_id=owner.id).one()
+    member = (
+        db_session.query(WorkspaceMember)
+        .filter_by(workspace_id=workspace.id, user_id=owner.id)
+        .one()
+    )
     assert member.role == "owner"
     assert member.role_template == "workspace_owner"
     assert member.custom_labels == ["octocity:video-owner"]
@@ -387,34 +427,30 @@ def test_octocity_upgrade_rebinds_and_replaces_legacy_sentinel_map_fixture(db_se
     ensure_octocity_mission_room_workspace(db_session)
 
     map_row = db_session.query(WorkspaceMap).filter_by(workspace_id=workspace.id).one()
-    map_system = db_session.query(System).filter_by(
-        workspace_id=workspace.id,
-        name="OCTAVE Territorial Map",
-    ).one()
+    map_system = (
+        db_session.query(System)
+        .filter_by(
+            workspace_id=workspace.id,
+            name="OCTAVE Territorial Map",
+        )
+        .one()
+    )
     assert map_row.id == legacy_map_id
     assert map_row.slug == OCTOCITY_MAP_SLUG
     assert map_row.system_id == map_system.id
     assert map_row.country == "France"
     assert map_row.settings["fixture_profile"] == OCTOCITY_MAP_FIXTURE_PROFILE
     assert legacy_fixture_ids["layers"].issubset(
-        {
-            row.id
-            for row in db_session.query(WorkspaceMapLayer).filter_by(map_id=map_row.id).all()
-        }
+        {row.id for row in db_session.query(WorkspaceMapLayer).filter_by(map_id=map_row.id).all()}
     )
     assert legacy_fixture_ids["zones"] == {
-        row.id
-        for row in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
     }
     assert legacy_fixture_ids["signals"].issubset(
-        {
-            row.id
-            for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
-        }
+        {row.id for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()}
     )
     assert legacy_fixture_ids["scores"] == {
-        row.id
-        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
     }
 
     persisted_fixture = {
@@ -459,17 +495,19 @@ def test_octocity_upgrade_rebinds_and_replaces_legacy_sentinel_map_fixture(db_se
 
     first_zone_count = db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).count()
     first_score_ids = {
-        row.id
-        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
     }
     first_signal_ids = {
-        row.id
-        for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
     }
-    first_upgrade_events = db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="map.system.upgraded",
-    ).count()
+    first_upgrade_events = (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="map.system.upgraded",
+        )
+        .count()
+    )
     assert first_zone_count == 5
     assert len(first_score_ids) == 5
     assert len(first_signal_ids) == 11
@@ -478,19 +516,24 @@ def test_octocity_upgrade_rebinds_and_replaces_legacy_sentinel_map_fixture(db_se
     ensure_octocity_mission_room_workspace(db_session)
     assert db_session.query(WorkspaceMap).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(WorkspaceMap).filter_by(id=legacy_map_id, system_id=map_system.id).one()
-    assert db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).count() == first_zone_count
+    assert (
+        db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).count() == first_zone_count
+    )
     assert {
-        row.id
-        for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
     } == first_score_ids
     assert {
-        row.id
-        for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
+        row.id for row in db_session.query(WorkspaceMapSignal).filter_by(map_id=map_row.id).all()
     } == first_signal_ids
-    assert db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="map.system.upgraded",
-    ).count() == first_upgrade_events
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="map.system.upgraded",
+        )
+        .count()
+        == first_upgrade_events
+    )
 
 
 def test_octocity_map_seed_repairs_a_missing_zone_score(db_session):
@@ -517,13 +560,17 @@ def test_octocity_map_seed_repairs_a_missing_zone_score(db_session):
     repaired_scores = db_session.query(WorkspaceMapScore).filter_by(map_id=map_row.id).all()
     assert len(repaired_scores) == 5
     assert {score.zone_id for score in repaired_scores} == {
-        zone.id
-        for zone in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
+        zone.id for zone in db_session.query(WorkspaceMapZone).filter_by(map_id=map_row.id).all()
     }
-    assert db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="map.system.upgraded",
-    ).count() == 1
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="map.system.upgraded",
+        )
+        .count()
+        == 1
+    )
 
 
 def test_octocity_map_repair_preserves_operator_rows_settings_and_existing_ids(db_session):
@@ -539,18 +586,30 @@ def test_octocity_map_repair_preserves_operator_rows_settings_and_existing_ids(d
     map_row = ensure_workspace_map_seed(db_session, workspace)
     db_session.commit()
 
-    seed_zone = db_session.query(WorkspaceMapZone).filter_by(
-        map_id=map_row.id,
-        zone_key="zone-sud",
-    ).one()
-    seed_layer = db_session.query(WorkspaceMapLayer).filter_by(
-        map_id=map_row.id,
-        key="territorial-risk",
-    ).one()
-    seed_signal = db_session.query(WorkspaceMapSignal).filter_by(
-        map_id=map_row.id,
-        source_id="zone-sud-signal-1",
-    ).one()
+    seed_zone = (
+        db_session.query(WorkspaceMapZone)
+        .filter_by(
+            map_id=map_row.id,
+            zone_key="zone-sud",
+        )
+        .one()
+    )
+    seed_layer = (
+        db_session.query(WorkspaceMapLayer)
+        .filter_by(
+            map_id=map_row.id,
+            key="territorial-risk",
+        )
+        .one()
+    )
+    seed_signal = (
+        db_session.query(WorkspaceMapSignal)
+        .filter_by(
+            map_id=map_row.id,
+            source_id="zone-sud-signal-1",
+        )
+        .one()
+    )
     seed_ids = {
         "zone": seed_zone.id,
         "layer": seed_layer.id,
@@ -865,7 +924,10 @@ def test_intelligence_defaults_are_workspace_scoped(db_session):
     assert global_added is True
     assert workspace_added is True
     assert db_session.query(FeedSource).filter(FeedSource.workspace_id.is_(None)).count() == 2
-    assert db_session.query(FeedSource).filter(FeedSource.workspace_id == "workspace-demo").count() == 2
+    assert (
+        db_session.query(FeedSource).filter(FeedSource.workspace_id == "workspace-demo").count()
+        == 2
+    )
 
 
 def test_mission_room_navigation_prefers_workspace_intelligence_system(db_session):
@@ -874,7 +936,9 @@ def test_mission_room_navigation_prefers_workspace_intelligence_system(db_sessio
     workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
 
     # Simulate the generic boot seed adding a second variant=intelligence System.
-    capability = db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    capability = (
+        db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    )
     db_session.add(
         System(
             workspace_id=workspace.id,

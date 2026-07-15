@@ -24,6 +24,7 @@ Routes:
   ``actions.pending_agenda_patch`` so the next demo run starts from a clean
   state.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -49,7 +50,6 @@ from app.services.workspace_calendar import (
     ensure_calendar_seed,
 )
 
-
 router = APIRouter()
 
 
@@ -57,9 +57,7 @@ def _actor(user: User) -> str:
     return user.email or user.username or user.id
 
 
-def _require_workspace_admin(
-    db: DBSession, user: User, workspace: Workspace
-) -> WorkspaceMember:
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> WorkspaceMember:
     membership = (
         db.query(WorkspaceMember)
         .filter(
@@ -203,8 +201,12 @@ def reports_rebuild(
         event_type="admin.reports.rebuild",
         actor=_actor(user),
         details={
-            "prefet_status": (output["prefet"] or {}).get("status") if isinstance(output["prefet"], dict) else None,
-            "strategic_status": (output["strategic_cacao"] or {}).get("topic") if isinstance(output["strategic_cacao"], dict) else None,
+            "prefet_status": (output["prefet"] or {}).get("status")
+            if isinstance(output["prefet"], dict)
+            else None,
+            "strategic_status": (output["strategic_cacao"] or {}).get("topic")
+            if isinstance(output["strategic_cacao"], dict)
+            else None,
         },
     )
     return output

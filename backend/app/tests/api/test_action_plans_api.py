@@ -20,14 +20,18 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
 
 
 def test_action_plans_are_workspace_scoped_and_audited(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = Workspace(
+        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+    )
     other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, other, user])
     db_session.commit()
 
     other_client = _client(db_session, other, user)
-    other_created = other_client.post("/api/v1/action-plans/", json={"title": "Andritz private action"})
+    other_created = other_client.post(
+        "/api/v1/action-plans/", json={"title": "Andritz private action"}
+    )
     assert other_created.status_code == 200
 
     client = _client(db_session, workspace, user)

@@ -17,8 +17,9 @@ Vague E / E3.1 — versioning + DAG validation:
 - New routes ``/systems/{id}/versions`` + ``/rollback`` expose the
   history and restore flow.
 """
+
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -29,9 +30,9 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.db.base import get_db
+from app.models.capability import Capability
 from app.models.run import Run
 from app.models.system import System
-from app.models.capability import Capability
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
@@ -47,11 +48,11 @@ class SystemCreate(BaseModel):
     name: str
     objective: str = ""
     capability_id: Optional[str] = None
-    skill_ids: List[str] = []
-    flow_definition: Dict[str, Any] = {}
-    settings: Dict[str, Any] = {}
+    skill_ids: list[str] = []
+    flow_definition: dict[str, Any] = {}
+    settings: dict[str, Any] = {}
     execution_mode: str = "real_time_decision"
-    execution_profile: Optional[Dict[str, Any]] = None
+    execution_profile: Optional[dict[str, Any]] = None
     coordination_pattern: str = "single_agent"
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
@@ -66,11 +67,11 @@ class SystemUpdate(BaseModel):
     name: Optional[str] = None
     objective: Optional[str] = None
     capability_id: Optional[str] = None
-    skill_ids: Optional[List[str]] = None
-    flow_definition: Optional[Dict[str, Any]] = None
-    settings: Optional[Dict[str, Any]] = None
+    skill_ids: Optional[list[str]] = None
+    flow_definition: Optional[dict[str, Any]] = None
+    settings: Optional[dict[str, Any]] = None
     execution_mode: Optional[str] = None
-    execution_profile: Optional[Dict[str, Any]] = None
+    execution_profile: Optional[dict[str, Any]] = None
     coordination_pattern: Optional[str] = None
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
@@ -82,7 +83,7 @@ class SystemUpdate(BaseModel):
 
 
 class RunCreate(BaseModel):
-    input_ref: Dict[str, Any] = {}
+    input_ref: dict[str, Any] = {}
     trigger: str = "manual"
 
 
@@ -142,7 +143,7 @@ def _actor_display_name(user: User) -> str:
 
 
 # ---------------- Helpers ----------------
-def _serialize(s: System) -> Dict[str, Any]:
+def _serialize(s: System) -> dict[str, Any]:
     return {
         "id": s.id,
         "workspace_id": s.workspace_id,
@@ -168,7 +169,7 @@ def _serialize(s: System) -> Dict[str, Any]:
     }
 
 
-def _event_trigger_state(s: System) -> Dict[str, Any]:
+def _event_trigger_state(s: System) -> dict[str, Any]:
     """Read-only projection of a System's event-trigger piloting state.
 
     Combines the GLOBAL master switch (``settings.enable_event_triggers``)
@@ -325,7 +326,7 @@ async def get_system_flow_manifest(
     return serialize_flow_manifest(db, s)
 
 
-def _connected_asset_collection_slugs(flow: Optional[Dict[str, Any]]) -> List[str]:
+def _connected_asset_collection_slugs(flow: Optional[dict[str, Any]]) -> list[str]:
     """Collection slugs declared by ``asset`` nodes that are WIRED into the graph.
 
     An asset node counts only when it has at least one outbound edge (it actually
@@ -337,12 +338,8 @@ def _connected_asset_collection_slugs(flow: Optional[Dict[str, Any]]) -> List[st
         return []
     nodes = flow.get("nodes") or []
     edges = flow.get("edges") or []
-    connected_sources = {
-        str(e.get("from"))
-        for e in edges
-        if isinstance(e, dict) and e.get("from")
-    }
-    slugs: List[str] = []
+    connected_sources = {str(e.get("from")) for e in edges if isinstance(e, dict) and e.get("from")}
+    slugs: list[str] = []
     for node in nodes:
         if not isinstance(node, dict) or node.get("kind") != "asset":
             continue
@@ -357,7 +354,7 @@ def _connected_asset_collection_slugs(flow: Optional[Dict[str, Any]]) -> List[st
 
 
 def _sync_membrane_collection_allowlist(
-    db: DBSession, system: System, flow: Optional[Dict[str, Any]]
+    db: DBSession, system: System, flow: Optional[dict[str, Any]]
 ) -> None:
     """Phase 2 (``p2-membrane``, flag-gated): mirror the graph's connected asset
     collections into the membrane inbound allowlist on the bound ControlPolicy.
@@ -408,11 +405,7 @@ async def update_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
 
@@ -474,11 +467,7 @@ async def get_system_event_trigger(
     Read-only: master switch + per-System mode + circuit-breaker status. The
     Flow Builder inspector reads this when an SFTP trigger node is selected.
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
     return _event_trigger_state(s)
@@ -499,15 +488,11 @@ async def update_system_event_trigger(
     and clears its provenance (``disabled_reason`` / ``disabled_at``). Governance
     stays code-enforced and is never relaxed here.
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if body.mode is not None:
         mode = str(body.mode).lower()
         if mode not in (triggers.TRIGGER_MODE_DRY_RUN, triggers.TRIGGER_MODE_LIVE):
@@ -604,11 +589,7 @@ async def list_system_versions(
     panel can stay responsive even at the 500-row window ceiling.
     Fetch the full body with ``GET /systems/{id}/versions/{n}``.
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
     rows, total = version_service.list_versions(
@@ -638,11 +619,7 @@ async def get_system_version(
     editor when hovering a row to preview, or when starting a
     rollback to confirm the target.
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
     v = version_service.get_version(
@@ -672,11 +649,7 @@ async def rollback_system_version(
     newly created version (or the target itself if the rollback is
     a no-op because the target is already the current flow).
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
     try:
@@ -708,7 +681,7 @@ class SystemImportBody(BaseModel):
     seeding mirror ``POST /systems``.
     """
 
-    envelope: Dict[str, Any]
+    envelope: dict[str, Any]
     target_name: Optional[str] = None
 
 
@@ -725,17 +698,11 @@ async def export_system(
     audit metadata) and replaces per-node ``skill_id`` with ``skill_slug``
     so the receiver can rebind against its own catalog.
     """
-    s = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
-    )
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
     actor = _actor_display_name(user)
-    payload = export_service.serialize_for_export(
-        db=db, system=s, exported_by=actor
-    )
+    payload = export_service.serialize_for_export(db=db, system=s, exported_by=actor)
     emit_audit_event(
         workspace_id=workspace.id,
         event_type="chain.export",

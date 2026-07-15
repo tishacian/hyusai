@@ -4,9 +4,10 @@ Blueprints export and recreate workspace structure/configuration only. They
 intentionally exclude users, credentials, raw files, vectors and historical
 runtime evidence.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -23,7 +24,7 @@ router = APIRouter()
 
 
 class WorkspaceBlueprintApplyRequest(BaseModel):
-    blueprint: Dict[str, Any] = Field(default_factory=dict)
+    blueprint: dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = True
     activate_systems: bool = False
 
@@ -49,7 +50,7 @@ async def export_current_workspace_blueprint(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     _require_workspace_admin(db, user, workspace)
     payload = workspace_blueprints.export_workspace_blueprint(
         db=db,
@@ -66,7 +67,7 @@ async def validate_workspace_blueprint(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     _require_workspace_admin(db, user, workspace)
     try:
         return workspace_blueprints.apply_workspace_blueprint(
@@ -90,7 +91,7 @@ async def apply_workspace_blueprint(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     _require_workspace_admin(db, user, workspace)
     try:
         report = workspace_blueprints.apply_workspace_blueprint(

@@ -6,9 +6,10 @@ use the same SystemViewComponent to render it with the intelligence-specific
 facets. This module provides the idempotent seeding hook called at startup
 for every existing workspace (Vague A — P0, commit 2/5).
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -82,11 +83,11 @@ CLIENT360_PDR_OBJECTIVE = (
 )
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-def _as_list(value: Any) -> List[Any]:
+def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else []
 
 
@@ -99,7 +100,9 @@ def _workspace_family(workspace: Workspace) -> str:
     # would fall back to the "generic" heuristic, so honour the raw stamp here
     # without widening the global family vocabulary.
     if family == "generic":
-        stamped = str(_as_dict(getattr(workspace, "settings", None)).get("family") or "").strip().lower()
+        stamped = (
+            str(_as_dict(getattr(workspace, "settings", None)).get("family") or "").strip().lower()
+        )
         if stamped == "industrial":
             return "industrial"
     return family
@@ -111,7 +114,7 @@ def _workspace_family(workspace: Workspace) -> str:
 INDUSTRIAL_FAMILIES = {"andritz", "industrial"}
 
 
-def _profile_by_key(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:
+def _profile_by_key(settings: dict[str, Any], key: Optional[str]) -> dict[str, Any]:
     if not key:
         return {}
     for profile in _as_list(settings.get("assistant_profiles")):
@@ -120,7 +123,7 @@ def _profile_by_key(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, A
     return {}
 
 
-def _find_profile_key(settings: Dict[str, Any], preferred: List[str]) -> Optional[str]:
+def _find_profile_key(settings: dict[str, Any], preferred: list[str]) -> Optional[str]:
     keys = {
         str(profile.get("key"))
         for profile in _as_list(settings.get("assistant_profiles"))
@@ -133,7 +136,7 @@ def _find_profile_key(settings: Dict[str, Any], preferred: List[str]) -> Optiona
     return str(default) if isinstance(default, str) and default else None
 
 
-def _default_scope(settings: Dict[str, Any], profile: Dict[str, Any]) -> Optional[str]:
+def _default_scope(settings: dict[str, Any], profile: dict[str, Any]) -> Optional[str]:
     scoped = profile.get("default_knowledge_scope")
     if isinstance(scoped, str) and scoped:
         return scoped
@@ -146,7 +149,7 @@ def _default_scope(settings: Dict[str, Any], profile: Dict[str, Any]) -> Optiona
     return None
 
 
-def _scope_config(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:
+def _scope_config(settings: dict[str, Any], key: Optional[str]) -> dict[str, Any]:
     if not key:
         return {}
     for scope in _as_list(settings.get("knowledge_scopes")):
@@ -182,7 +185,7 @@ def _workspace_chat_objective(workspace: Workspace, family: str) -> str:
     )
 
 
-def _retrieval_defaults_for_scope(scope: Dict[str, Any]) -> Dict[str, Any]:
+def _retrieval_defaults_for_scope(scope: dict[str, Any]) -> dict[str, Any]:
     """Derive the full retrieval funnel from the scope, not just a bare top_k.
 
     The chat endpoint folds these values whenever the client leaves the budget
@@ -207,12 +210,16 @@ def _retrieval_defaults_for_scope(scope: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
+def _workspace_chat_profile(workspace: Workspace) -> dict[str, Any]:
     settings = _as_dict(workspace.settings)
     family = _workspace_family(workspace)
     profile_key = _find_profile_key(
         settings,
-        ["andritz_spl_advisor"] if family == "andritz" else ["vigie_executive"] if family == "sentinel_ci" else [],
+        ["andritz_spl_advisor"]
+        if family == "andritz"
+        else ["vigie_executive"]
+        if family == "sentinel_ci"
+        else [],
     )
     profile = _profile_by_key(settings, profile_key)
     scope_key = _default_scope(settings, profile)
@@ -225,7 +232,7 @@ def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
         **_as_dict(profile.get("actions")),
     }
 
-    source_policy: Dict[str, Any] = {
+    source_policy: dict[str, Any] = {
         "mode": "workspace_scoped",
         "require_citations": True,
         "preserve_user_terms": True,
@@ -274,8 +281,10 @@ def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
     }
 
 
-def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, Skill]) -> Dict[str, object]:
-    def prompt_contract() -> Dict[str, object]:
+def _workspace_chat_flow_definition(
+    profile: dict[str, Any], skills: dict[str, Skill]
+) -> dict[str, object]:
+    def prompt_contract() -> dict[str, object]:
         try:
             from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
             from app.services.industrial_answer_profile import (
@@ -291,7 +300,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "Answer questions accurately and concisely using the retrieved context.\n"
                 "When the context contains relevant information, cite it specifically.\n"
                 "If no relevant context is available, say so clearly rather than guessing.\n"
-                "Do not reproduce generic supplier-document footers such as \"contact the supplier for more information\" "
+                'Do not reproduce generic supplier-document footers such as "contact the supplier for more information" '
                 "as advice in the chat; the workspace users are already domain experts.\n\n"
                 "Be professional, precise, and helpful."
             )
@@ -320,7 +329,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
         is_industrial = str(profile.get("family") or "") in INDUSTRIAL_FAMILIES
         answer_policy = industrial_answer_policy() if is_industrial else default_answer_policy()
         answer_shaping_instructions = [
-            "Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+            'Start with the direct factual answer or synthesis; do not open with discovery phrases such as "I found" or "the documents indicate".',
             "Use numeric source ids after the answer when workspace sources exist; do not emit raw filename references as citations.",
             "For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
             "If retrieved content is thin or contradictory, name the gap explicitly.",
@@ -360,13 +369,13 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
         x: int,
         y: int,
         slug: Optional[str] = None,
-        data: Optional[Dict[str, object]] = None,
-        config: Optional[Dict[str, object]] = None,
-        inputs: Optional[List[Dict[str, object]]] = None,
-        outputs: Optional[List[Dict[str, object]]] = None,
-    ) -> Dict[str, object]:
+        data: Optional[dict[str, object]] = None,
+        config: Optional[dict[str, object]] = None,
+        inputs: Optional[list[dict[str, object]]] = None,
+        outputs: Optional[list[dict[str, object]]] = None,
+    ) -> dict[str, object]:
         skill = skills.get(slug or "")
-        node_config: Dict[str, object] = dict(config or {})
+        node_config: dict[str, object] = dict(config or {})
         if slug:
             node_config["skill_slug"] = slug
             node_config["skill_id"] = skill.id if skill else None
@@ -384,7 +393,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             "outputs": outputs or [],
         }
 
-    nodes: List[Dict[str, object]] = [
+    nodes: list[dict[str, object]] = [
         node(
             "chat.request",
             kind="source",
@@ -460,9 +469,18 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             },
             config={
                 "branches": [
-                    {"label": "trivial_bypass", "condition": "maybe_trivial_bypass(query) && no pending action"},
-                    {"label": "canonical_answer", "condition": "no context_id and no knowledge_scope and canonical answer match"},
-                    {"label": "workspace_action", "condition": "registry/calendar/action-plan/visual/map/vigie handler matches"},
+                    {
+                        "label": "trivial_bypass",
+                        "condition": "maybe_trivial_bypass(query) && no pending action",
+                    },
+                    {
+                        "label": "canonical_answer",
+                        "condition": "no context_id and no knowledge_scope and canonical answer match",
+                    },
+                    {
+                        "label": "workspace_action",
+                        "condition": "registry/calendar/action-plan/visual/map/vigie handler matches",
+                    },
                     {"label": "rag_orchestrator", "condition": "default route"},
                 ],
                 "default_branch": "rag_orchestrator",
@@ -566,8 +584,16 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "provider_defaults": "workspace settings defaultProvider/defaultModel, then global settings",
                 "budget_policy": {
                     "fast": {"top_k_max": 8, "candidate_pool_k_max": 20, "source_display_k_max": 8},
-                    "balanced": {"top_k_max": 12, "candidate_pool_k_max": 80, "source_display_k_max": 24},
-                    "deep": {"top_k_max": 24, "candidate_pool_k_max": 200, "source_display_k_max": 24},
+                    "balanced": {
+                        "top_k_max": 12,
+                        "candidate_pool_k_max": 80,
+                        "source_display_k_max": 24,
+                    },
+                    "deep": {
+                        "top_k_max": 24,
+                        "candidate_pool_k_max": 200,
+                        "source_display_k_max": 24,
+                    },
                 },
             },
             inputs=[{"name": "policy", "schema": "object"}],
@@ -656,8 +682,14 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             },
             config={
                 "branches": [
-                    {"label": "fast_finalize", "condition": "no deep recommendation or direct answer sufficient"},
-                    {"label": "queue_deep_search", "condition": "retrieval degraded or Deep Search requested"},
+                    {
+                        "label": "fast_finalize",
+                        "condition": "no deep recommendation or direct answer sufficient",
+                    },
+                    {
+                        "label": "queue_deep_search",
+                        "condition": "retrieval degraded or Deep Search requested",
+                    },
                 ],
                 "default_branch": "fast_finalize",
                 "runtime_ref": "chat._queue_auto_deep_retrieval_job",
@@ -745,7 +777,16 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             data={
                 "description": "Persist trivial, canonical or action responses with the same Run ledger contract.",
                 "runtime_ref": "chat._persist_trivial_bypass_turn + chat._persist_chat_run",
-                "triggers": ["trivial_bypass", "canonical_answer", "action_registry", "calendar_action", "action_plan", "visual_observation", "map_command", "vigie_quick_brief"],
+                "triggers": [
+                    "trivial_bypass",
+                    "canonical_answer",
+                    "action_registry",
+                    "calendar_action",
+                    "action_plan",
+                    "visual_observation",
+                    "map_command",
+                    "vigie_quick_brief",
+                ],
             },
             inputs=[{"name": "shortcut_response", "schema": "object"}],
             outputs=[{"name": "run", "schema": "object"}],
@@ -772,28 +813,77 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
         ),
     ]
     edges = [
-        {"from": "chat.request", "to": "runtime.session_system_context", "kind": "data", "label": "request"},
-        {"from": "runtime.session_system_context", "to": "runtime.query_validation", "kind": "data"},
+        {
+            "from": "chat.request",
+            "to": "runtime.session_system_context",
+            "kind": "data",
+            "label": "request",
+        },
+        {
+            "from": "runtime.session_system_context",
+            "to": "runtime.query_validation",
+            "kind": "data",
+        },
         {"from": "runtime.query_validation", "to": "router.fast_exit", "kind": "data"},
-        {"from": "router.fast_exit", "to": "skill.trivial_bypass", "kind": "branch", "branch_label": "trivial_bypass"},
-        {"from": "router.fast_exit", "to": "runtime.canonical_answer", "kind": "branch", "branch_label": "canonical_answer"},
-        {"from": "router.fast_exit", "to": "skill.action_resolver", "kind": "branch", "branch_label": "workspace_action"},
+        {
+            "from": "router.fast_exit",
+            "to": "skill.trivial_bypass",
+            "kind": "branch",
+            "branch_label": "trivial_bypass",
+        },
+        {
+            "from": "router.fast_exit",
+            "to": "runtime.canonical_answer",
+            "kind": "branch",
+            "branch_label": "canonical_answer",
+        },
+        {
+            "from": "router.fast_exit",
+            "to": "skill.action_resolver",
+            "kind": "branch",
+            "branch_label": "workspace_action",
+        },
         {"from": "skill.trivial_bypass", "to": "runtime.shortcut_persist", "kind": "data"},
         {"from": "runtime.canonical_answer", "to": "runtime.shortcut_persist", "kind": "data"},
         {"from": "skill.action_resolver", "to": "runtime.shortcut_persist", "kind": "data"},
-        {"from": "router.fast_exit", "to": "skill.grounding_policy", "kind": "branch", "branch_label": "rag_orchestrator"},
+        {
+            "from": "router.fast_exit",
+            "to": "skill.grounding_policy",
+            "kind": "branch",
+            "branch_label": "rag_orchestrator",
+        },
         {"from": "skill.grounding_policy", "to": "runtime.settings_budget", "kind": "data"},
         {"from": "runtime.settings_budget", "to": "runtime.orchestrator", "kind": "data"},
-        {"from": "runtime.orchestrator", "to": "skill.fast_retrieval", "kind": "data", "label": "retrieval chunk"},
+        {
+            "from": "runtime.orchestrator",
+            "to": "skill.fast_retrieval",
+            "kind": "data",
+            "label": "retrieval chunk",
+        },
         {"from": "skill.fast_retrieval", "to": "runtime.prompt_assembly", "kind": "data"},
         {"from": "runtime.prompt_assembly", "to": "skill.fast_answer", "kind": "data"},
         {"from": "skill.fast_answer", "to": "runtime.deep_router", "kind": "data"},
-        {"from": "runtime.deep_router", "to": "runtime.response_validation", "kind": "branch", "branch_label": "fast_finalize"},
-        {"from": "runtime.deep_router", "to": "skill.deep_search", "kind": "branch", "branch_label": "queue_deep_search"},
+        {
+            "from": "runtime.deep_router",
+            "to": "runtime.response_validation",
+            "kind": "branch",
+            "branch_label": "fast_finalize",
+        },
+        {
+            "from": "runtime.deep_router",
+            "to": "skill.deep_search",
+            "kind": "branch",
+            "branch_label": "queue_deep_search",
+        },
         {"from": "skill.deep_search", "to": "skill.answer_audit", "kind": "data"},
         {"from": "runtime.response_validation", "to": "skill.answer_audit", "kind": "data"},
         {"from": "runtime.shortcut_persist", "to": "chat.response", "kind": "data"},
-        {"from": "skill.answer_audit", "to": "skill.claim_audit", "kind": "control", "label": "async eval"},
+        {
+            "from": "skill.answer_audit",
+            "to": "skill.claim_audit",
+            "kind": "control",
+            "label": "async eval",
+        },
         {"from": "skill.answer_audit", "to": "chat.response", "kind": "data"},
     ]
     return {
@@ -902,7 +992,7 @@ def resolve_workspace_chat_source_policy(
     workspace: Workspace,
     *,
     system: Optional[System] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve the effective chat ``source_policy`` for a workspace.
 
     Layers the workspace chat System policy (its ``settings.source_policy``,
@@ -918,7 +1008,7 @@ def resolve_workspace_chat_source_policy(
     """
     if system is None:
         system = _find_workspace_chat_system(db, workspace.id)
-    system_policy: Dict[str, Any] = {}
+    system_policy: dict[str, Any] = {}
     if system is not None:
         system_policy = _as_dict(_as_dict(system.settings).get("source_policy")) or _as_dict(
             _as_dict(system.flow_definition).get("source_policy")
@@ -997,7 +1087,9 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
     if not workspace:
         return None
 
-    capability = db.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).first()
+    capability = (
+        db.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).first()
+    )
     if not capability:
         logger.warning(
             "workspace_chat_system_seed.skip.missing_capability",
@@ -1044,7 +1136,9 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
         existing.status = "active"
         existing.default_prompt_type = existing.default_prompt_type or "factual"
         existing.retrieval_mode_default = (
-            _as_dict(profile.get("retrieval_defaults")).get("mode") or existing.retrieval_mode_default or "auto"
+            _as_dict(profile.get("retrieval_defaults")).get("mode")
+            or existing.retrieval_mode_default
+            or "auto"
         )
         _dedupe_seeded_chat_systems(db, workspace_id)
         db.commit()
@@ -1090,7 +1184,7 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
     return system
 
 
-def ensure_workspace_chat_system_for_all_workspaces(db: DBSession) -> Dict[str, int]:
+def ensure_workspace_chat_system_for_all_workspaces(db: DBSession) -> dict[str, int]:
     report = {"created": 0, "skipped": 0, "already": 0}
     workspaces = (
         db.query(Workspace)
@@ -1110,7 +1204,9 @@ def ensure_workspace_chat_system_for_all_workspaces(db: DBSession) -> Dict[str, 
 
 
 def _ensure_client360_capability(db: DBSession) -> Capability:
-    capability = db.query(Capability).filter(Capability.slug == CLIENT360_PDR_CAPABILITY_SLUG).first()
+    capability = (
+        db.query(Capability).filter(Capability.slug == CLIENT360_PDR_CAPABILITY_SLUG).first()
+    )
     payload = {
         "name": "Client360 PDR Opportunity Engine",
         "description": (
@@ -1139,7 +1235,7 @@ def _ensure_client360_capability(db: DBSession) -> Capability:
     return capability
 
 
-def _client360_flow_definition() -> Dict[str, Any]:
+def _client360_flow_definition() -> dict[str, Any]:
     return {
         "variant": CLIENT360_PDR_VARIANT,
         "schema_version": 2,
@@ -1197,7 +1293,9 @@ def _client360_flow_definition() -> Dict[str, Any]:
             ],
             "prediction_policy": "explainable_potential_only",
             "email_send_policy": "manual_only",
-            "model_policy": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["model_resolution_order"],
+            "model_policy": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"][
+                "model_resolution_order"
+            ],
             "mvp_in_scope": CLIENT360_MVP_CONTRACT["mvp_in_scope"],
             "deferred_scope": CLIENT360_MVP_CONTRACT["deferred_scope"],
         },
@@ -1214,7 +1312,10 @@ def _find_client360_system(db: DBSession, workspace_id: str) -> Optional[System]
     for system in rows:
         flow = _as_dict(system.flow_definition)
         settings = _as_dict(getattr(system, "settings", None))
-        if flow.get("variant") == CLIENT360_PDR_VARIANT or settings.get("system_type") == "client360_pdr":
+        if (
+            flow.get("variant") == CLIENT360_PDR_VARIANT
+            or settings.get("system_type") == "client360_pdr"
+        ):
             return system
     return next((s for s in rows if s.name == CLIENT360_PDR_SYSTEM_NAME), None)
 
@@ -1321,7 +1422,7 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
     return system
 
 
-def ensure_client360_pdr_system_for_all_workspaces(db: DBSession) -> Dict[str, int]:
+def ensure_client360_pdr_system_for_all_workspaces(db: DBSession) -> dict[str, int]:
     report = {"created": 0, "skipped": 0, "already": 0}
     workspaces = (
         db.query(Workspace)
@@ -1343,9 +1444,7 @@ def ensure_client360_pdr_system_for_all_workspaces(db: DBSession) -> Dict[str, i
     return report
 
 
-def ensure_intelligence_system_default(
-    db: DBSession, workspace_id: str
-) -> Optional[System]:
+def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
     """Create the workspace's default Intelligence System if missing.
 
     Idempotent on ``(workspace_id, capability_id, name=INTELLIGENCE_SYSTEM_NAME)``.
@@ -1353,9 +1452,7 @@ def ensure_intelligence_system_default(
     required capability/skill haven't been seeded yet.
     """
     capability = (
-        db.query(Capability)
-        .filter(Capability.slug == INTELLIGENCE_CAPABILITY_SLUG)
-        .first()
+        db.query(Capability).filter(Capability.slug == INTELLIGENCE_CAPABILITY_SLUG).first()
     )
     if not capability:
         logger.warning(
@@ -1365,10 +1462,8 @@ def ensure_intelligence_system_default(
         )
         return None
 
-    skill = (
-        db.query(Skill).filter(Skill.slug == INTELLIGENCE_SKILL_SLUG).first()
-    )
-    skill_ids: List[str] = [skill.id] if skill else []
+    skill = db.query(Skill).filter(Skill.slug == INTELLIGENCE_SKILL_SLUG).first()
+    skill_ids: list[str] = [skill.id] if skill else []
 
     existing = (
         db.query(System)
@@ -1391,7 +1486,7 @@ def ensure_intelligence_system_default(
             db.commit()
         return existing
 
-    flow_definition: Dict[str, object] = {
+    flow_definition: dict[str, object] = {
         "variant": "intelligence",
         "nodes": [
             {
@@ -1445,7 +1540,7 @@ def ensure_intelligence_system_default(
 
 def ensure_intelligence_system_for_all_workspaces(
     db: DBSession,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Ensure every active workspace has its Intelligence System seeded.
 
     Safe to call on every boot — the per-workspace helper is idempotent.
@@ -1477,12 +1572,12 @@ def ensure_intelligence_system_for_all_workspaces(
     return report
 
 
-def _skill_lookup(db: DBSession, slugs: List[str]) -> Dict[str, Skill]:
+def _skill_lookup(db: DBSession, slugs: list[str]) -> dict[str, Skill]:
     rows = db.query(Skill).filter(Skill.slug.in_(slugs)).all()
     return {skill.slug: skill for skill in rows}
 
 
-def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, object]:
+def _expert_capture_flow_definition(skills: dict[str, Skill]) -> dict[str, object]:
     def task(
         node_id: str,
         *,
@@ -1490,10 +1585,10 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
         label: str,
         x: int,
         y: int,
-        inputs_map: Optional[Dict[str, str]] = None,
-        outputs_map: Optional[Dict[str, str]] = None,
-        data: Optional[Dict[str, object]] = None,
-    ) -> Dict[str, object]:
+        inputs_map: Optional[dict[str, str]] = None,
+        outputs_map: Optional[dict[str, str]] = None,
+        data: Optional[dict[str, object]] = None,
+    ) -> dict[str, object]:
         skill = skills.get(slug)
         return {
             "id": node_id,
@@ -1510,7 +1605,7 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             },
         }
 
-    nodes: List[Dict[str, object]] = [
+    nodes: list[dict[str, object]] = [
         {
             "id": "capture.session_request",
             "type": "source",
@@ -1554,7 +1649,11 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             y=100,
             inputs_map={"provider": "system.voice_runtime.provider"},
             outputs_map={"provider": "turn.voice_provider", "events": "turn.voice_events"},
-            data={"menu": "Voice", "runtime": "cascade_openai", "capability": "voice2voice_interaction"},
+            data={
+                "menu": "Voice",
+                "runtime": "cascade_openai",
+                "capability": "voice2voice_interaction",
+            },
         ),
         task(
             "skill.voice_transcribe",
@@ -1564,7 +1663,11 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             y=100,
             inputs_map={"audio_ref": "turn.audio_ref"},
             outputs_map={"transcript": "turn.transcript"},
-            data={"menu": "Voice", "runtime": "cascade_openai", "supports": ["text.partial", "text.final", "barge_in"]},
+            data={
+                "menu": "Voice",
+                "runtime": "cascade_openai",
+                "supports": ["text.partial", "text.final", "barge_in"],
+            },
         ),
         task(
             "skill.semantic_search_prefetch",
@@ -1572,7 +1675,10 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             label="Pseudo realtime retrieval prefetch",
             x=1540,
             y=100,
-            inputs_map={"query": "turn.partial_transcript", "collection": "context.environment_state.collection"},
+            inputs_map={
+                "query": "turn.partial_transcript",
+                "collection": "context.environment_state.collection",
+            },
             outputs_map={"results": "turn.retrieval_refs"},
             data={"menu": "Knowledge", "mode": "chah", "top_k": 4, "timeout_ms": 2500},
         ),
@@ -1582,7 +1688,11 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             label="Evaluate answer / correction",
             x=1840,
             y=100,
-            inputs_map={"answer": "turn.final_transcript", "question": "capture.current_question", "gap": "capture.current_gap"},
+            inputs_map={
+                "answer": "turn.final_transcript",
+                "question": "capture.current_question",
+                "gap": "capture.current_gap",
+            },
             outputs_map={"evaluation": "turn.evaluation"},
             data={"menu": "Evaluation", "phase": "turn"},
         ),
@@ -1611,7 +1721,11 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             label="Commit voice action",
             x=2440,
             y=100,
-            inputs_map={"answer": "turn.final_transcript", "question": "capture.current_question", "gap": "capture.current_gap"},
+            inputs_map={
+                "answer": "turn.final_transcript",
+                "question": "capture.current_question",
+                "gap": "capture.current_gap",
+            },
             outputs_map={"action": "turn.voice_action"},
             data={"menu": "Voice", "events": ["oracle.action", "runtime.metric"]},
         ),
@@ -1624,8 +1738,14 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             "data": {"menu": "Conversation-only", "description": "Intent + sufficiency gate."},
             "config": {
                 "branches": [
-                    {"label": "follow_up_required", "condition": "evaluation.verdict != 'sufficient'"},
-                    {"label": "proposal_requested", "condition": "intent in ['proposal_requested', 'accept_confirmed']"},
+                    {
+                        "label": "follow_up_required",
+                        "condition": "evaluation.verdict != 'sufficient'",
+                    },
+                    {
+                        "label": "proposal_requested",
+                        "condition": "intent in ['proposal_requested', 'accept_confirmed']",
+                    },
                 ],
                 "default_branch": "follow_up_required",
             },
@@ -1656,7 +1776,10 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             "kind": "hitl",
             "label": "HITL proposal confirmation",
             "position": {"x": 3340, "y": 210},
-            "data": {"menu": "Governance", "description": "Voice confirmation, amendment, then final accept/reject."},
+            "data": {
+                "menu": "Governance",
+                "description": "Voice confirmation, amendment, then final accept/reject.",
+            },
             "config": {
                 "prompt": "Validate, amend, reject, or request another capture turn before ingestion.",
                 "approvers": ["expert", "operator"],
@@ -1671,14 +1794,17 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             y=160,
             inputs_map={"event": "capture.event"},
             outputs_map={"event_id": "capture.audit_event_id"},
-            data={"menu": "Traceability", "events": [
-                "stt_partial",
-                "stt_final",
-                "retrieval_prefetch_completed",
-                "conversation_intent_detected",
-                "proposal_generated",
-                "proposal_reviewed",
-            ]},
+            data={
+                "menu": "Traceability",
+                "events": [
+                    "stt_partial",
+                    "stt_final",
+                    "retrieval_prefetch_completed",
+                    "conversation_intent_detected",
+                    "proposal_generated",
+                    "proposal_reviewed",
+                ],
+            },
         ),
         {
             "id": "sink.knowledge_update",
@@ -1686,18 +1812,37 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             "kind": "sink",
             "label": "Reviewed knowledge update",
             "position": {"x": 3640, "y": 160},
-            "data": {"menu": "Knowledge", "description": "Accepted proposal ready for ingestion into the selected Knowledge collection."},
+            "data": {
+                "menu": "Knowledge",
+                "description": "Accepted proposal ready for ingestion into the selected Knowledge collection.",
+            },
             "inputs": [{"name": "proposal", "schema": "object", "required": True}],
         },
     ]
     edges = [
         {"from": "capture.session_request", "to": "skill.knowledge_gap_analysis", "kind": "data"},
-        {"from": "skill.knowledge_gap_analysis", "to": "skill.expert_interview_plan", "kind": "data"},
-        {"from": "skill.expert_interview_plan", "to": "skill.voice_realtime_session", "kind": "control"},
+        {
+            "from": "skill.knowledge_gap_analysis",
+            "to": "skill.expert_interview_plan",
+            "kind": "data",
+        },
+        {
+            "from": "skill.expert_interview_plan",
+            "to": "skill.voice_realtime_session",
+            "kind": "control",
+        },
         {"from": "skill.voice_realtime_session", "to": "skill.voice_transcribe", "kind": "control"},
         {"from": "skill.voice_transcribe", "to": "skill.semantic_search_prefetch", "kind": "data"},
-        {"from": "skill.semantic_search_prefetch", "to": "skill.expert_answer_evaluator", "kind": "data"},
-        {"from": "skill.expert_answer_evaluator", "to": "skill.voice_tandem_oracle", "kind": "data"},
+        {
+            "from": "skill.semantic_search_prefetch",
+            "to": "skill.expert_answer_evaluator",
+            "kind": "data",
+        },
+        {
+            "from": "skill.expert_answer_evaluator",
+            "to": "skill.voice_tandem_oracle",
+            "kind": "data",
+        },
         {"from": "skill.voice_tandem_oracle", "to": "skill.voice_oracle_turn", "kind": "data"},
         {"from": "skill.voice_oracle_turn", "to": "decision.answer_route", "kind": "data"},
         {
@@ -1734,7 +1879,14 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
             "provider": "cascade_openai",
             "capability": "voice2voice_interaction",
             "transport": "backend_ws",
-            "events": ["text.partial", "text.final", "audio.out", "barge_in", "oracle.action", "runtime.metric"],
+            "events": [
+                "text.partial",
+                "text.final",
+                "audio.out",
+                "barge_in",
+                "oracle.action",
+                "runtime.metric",
+            ],
         },
         "ui": {
             "type": "knowledge_capture",
@@ -1758,7 +1910,9 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
 
 
 def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
-    capability = db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
+    capability = (
+        db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
+    )
     if not capability:
         logger.warning(
             "expert_capture_system_seed.skip.missing_capability",
@@ -1852,7 +2006,7 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
     return system
 
 
-def ensure_expert_capture_system_for_all_workspaces(db: DBSession) -> Dict[str, int]:
+def ensure_expert_capture_system_for_all_workspaces(db: DBSession) -> dict[str, int]:
     report = {"created": 0, "skipped": 0, "already": 0}
     workspaces = (
         db.query(Workspace)

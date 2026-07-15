@@ -138,12 +138,7 @@ def test_dry_run_reports_actions_without_writing(db_session):
 
     assert report["dry_run"] is True
     assert report["created"]["systems"] == 1
-    assert (
-        db_session.query(System)
-        .filter(System.workspace_id == target.id)
-        .count()
-        == 0
-    )
+    assert db_session.query(System).filter(System.workspace_id == target.id).count() == 0
 
 
 def test_apply_workspace_blueprint_creates_draft_system_and_metadata(db_session):
@@ -171,7 +166,10 @@ def test_apply_workspace_blueprint_creates_draft_system_and_metadata(db_session)
     )
     collection = (
         db_session.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == target.id, KnowledgeCollection.slug == "andritz-secure-deposit")
+        .filter(
+            KnowledgeCollection.workspace_id == target.id,
+            KnowledgeCollection.slug == "andritz-secure-deposit",
+        )
         .one()
     )
 

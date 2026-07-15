@@ -6,8 +6,7 @@ from uuid import uuid4
 
 from app.models.client360 import Client360Opportunity
 from app.models.workspace import Workspace
-from app.services import client360_chat
-from app.services import client360_pdr
+from app.services import client360_chat, client360_pdr
 from app.services.actions.registry import ANDRITZ_ACTIONS
 
 
@@ -61,7 +60,9 @@ def test_not_registered_in_research_chat_actions() -> None:
     """The Client360 assistant is dedicated to the Client360 app; it must NOT be
     wired into the general Andritz research-chat action registry (otherwise the
     research chat would redirect Client360-sounding questions)."""
-    manifest = next((m for m in ANDRITZ_ACTIONS if m.action_id == client360_chat.CLIENT360_NL_ACTION_ID), None)
+    manifest = next(
+        (m for m in ANDRITZ_ACTIONS if m.action_id == client360_chat.CLIENT360_NL_ACTION_ID), None
+    )
     assert manifest is None
 
 
@@ -122,14 +123,18 @@ def test_deterministic_translation_parses_top_n(db_session) -> None:
     workspace = _seed_workspace(db_session)
     _seed_opportunity(db_session, workspace)
     items = client360_pdr.list_opportunities(db_session, workspace, limit=500)
-    filters = client360_chat._deterministic_filters("top 3 opportunités", client360_chat._facets(items))
+    filters = client360_chat._deterministic_filters(
+        "top 3 opportunités", client360_chat._facets(items)
+    )
     assert filters["limit"] == 3
 
 
 def test_sanitize_drops_unknown_keys_and_out_of_vocab_values(db_session) -> None:
     workspace = _seed_workspace(db_session)
     _seed_opportunity(db_session, workspace)
-    facets = client360_chat._facets(client360_pdr.list_opportunities(db_session, workspace, limit=500))
+    facets = client360_chat._facets(
+        client360_pdr.list_opportunities(db_session, workspace, limit=500)
+    )
     sanitized = client360_chat._sanitize_filters(
         {
             "status": "won'; DROP TABLE opportunities;--",
@@ -154,7 +159,9 @@ def test_sanitize_drops_unknown_keys_and_out_of_vocab_values(db_session) -> None
 def test_sanitize_remaps_country_to_canonical(db_session) -> None:
     workspace = _seed_workspace(db_session)
     _seed_opportunity(db_session, workspace, country="Greece")
-    facets = client360_chat._facets(client360_pdr.list_opportunities(db_session, workspace, limit=500))
+    facets = client360_chat._facets(
+        client360_pdr.list_opportunities(db_session, workspace, limit=500)
+    )
     sanitized = client360_chat._sanitize_filters({"country": "greece"}, facets)
     assert sanitized["country"] == "Greece"
 
@@ -189,7 +196,9 @@ def test_llm_translation_is_bounded(db_session, monkeypatch) -> None:
 
     items = client360_pdr.list_opportunities(db_session, workspace, limit=500)
     filters, method = _run(
-        client360_chat.translate_query_to_filters(db_session, workspace, "opportunités gagnées", items)
+        client360_chat.translate_query_to_filters(
+            db_session, workspace, "opportunités gagnées", items
+        )
     )
     assert method == "llm"
     assert filters == {"status": "won", "confidence": "high"}

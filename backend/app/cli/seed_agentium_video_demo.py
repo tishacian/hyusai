@@ -7,6 +7,7 @@ This intentionally avoids resetting either workspace. It only replaces rows
 tagged with ``video_demo = agentium_clevel_v1`` and updates demo-safe workspace
 settings used by the filmed Connector and Hypervisor surfaces.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -111,14 +112,12 @@ def _workspace(db, slug: str) -> Workspace:
 
 
 def _system_by_name(db, workspace: Workspace, name: str) -> System | None:
-    return (
-        db.query(System)
-        .filter(System.workspace_id == workspace.id, System.name == name)
-        .first()
-    )
+    return db.query(System).filter(System.workspace_id == workspace.id, System.name == name).first()
 
 
-def _ensure_video_capability(db, workspace: Workspace, spec: dict[str, Any], system: System) -> Capability:
+def _ensure_video_capability(
+    db, workspace: Workspace, spec: dict[str, Any], system: System
+) -> Capability:
     slug = str(spec["capability_slug"])
     capability = db.query(Capability).filter(Capability.slug == slug).first()
     if not capability:
@@ -135,7 +134,11 @@ def _ensure_video_capability(db, workspace: Workspace, spec: dict[str, Any], sys
     capability.input_unit = "governed_run"
     capability.output_unit = "audited_outcome"
     capability.skill_ids = list(system.skill_ids or spec.get("skills") or [])
-    capability.pricing = {"unit": "per_outcome", "unit_price": float(spec["cost"]), "currency": "USD"}
+    capability.pricing = {
+        "unit": "per_outcome",
+        "unit_price": float(spec["cost"]),
+        "currency": "USD",
+    }
     capability.value_per_outcome = float(spec["value"])
     capability.confidence_threshold = 0.85
     capability.sla = {"max_latency_ms": int(spec["duration_ms"]), "review": "human_in_the_loop"}
@@ -152,11 +155,7 @@ def _ensure_video_capability(db, workspace: Workspace, spec: dict[str, Any], sys
 
 
 def _cleanup_video_rows(db, workspace: Workspace) -> int:
-    runs = (
-        db.query(Run)
-        .filter(Run.workspace_id == workspace.id)
-        .all()
-    )
+    runs = db.query(Run).filter(Run.workspace_id == workspace.id).all()
     tagged_run_ids = [
         run.id
         for run in runs
@@ -164,20 +163,39 @@ def _cleanup_video_rows(db, workspace: Workspace) -> int:
     ]
     deleted = 0
     if tagged_run_ids:
-        deleted += db.query(SkillInvocation).filter(SkillInvocation.run_id.in_(tagged_run_ids)).delete(synchronize_session=False)
-        deleted += db.query(EvaluationScore).filter(EvaluationScore.run_id.in_(tagged_run_ids)).delete(synchronize_session=False)
-        deleted += db.query(Decision).filter(
-            Decision.workspace_id == workspace.id,
-            Decision.target_id.in_(tagged_run_ids),
-        ).delete(synchronize_session=False)
-        deleted += db.query(Run).filter(Run.id.in_(tagged_run_ids)).delete(synchronize_session=False)
+        deleted += (
+            db.query(SkillInvocation)
+            .filter(SkillInvocation.run_id.in_(tagged_run_ids))
+            .delete(synchronize_session=False)
+        )
+        deleted += (
+            db.query(EvaluationScore)
+            .filter(EvaluationScore.run_id.in_(tagged_run_ids))
+            .delete(synchronize_session=False)
+        )
+        deleted += (
+            db.query(Decision)
+            .filter(
+                Decision.workspace_id == workspace.id,
+                Decision.target_id.in_(tagged_run_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+        deleted += (
+            db.query(Run).filter(Run.id.in_(tagged_run_ids)).delete(synchronize_session=False)
+        )
     tagged_decision_ids = [
         decision.id
         for decision in db.query(Decision).filter(Decision.workspace_id == workspace.id).all()
-        if isinstance(decision.rationale, dict) and decision.rationale.get("video_demo") == VIDEO_DEMO_TAG
+        if isinstance(decision.rationale, dict)
+        and decision.rationale.get("video_demo") == VIDEO_DEMO_TAG
     ]
     if tagged_decision_ids:
-        deleted += db.query(Decision).filter(Decision.id.in_(tagged_decision_ids)).delete(synchronize_session=False)
+        deleted += (
+            db.query(Decision)
+            .filter(Decision.id.in_(tagged_decision_ids))
+            .delete(synchronize_session=False)
+        )
     return deleted
 
 

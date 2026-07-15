@@ -4,10 +4,11 @@ A System is the deployable composition: an Objective + a Capability + a
 Context + a flow of certified Skills, governed by a ControlPolicy and an
 optional AdaptivePolicy. Every Run executes against a single System.
 """
+
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -24,8 +25,8 @@ class System(Base):
     capability_id = Column(String(36), ForeignKey("capabilities.id"), nullable=True, index=True)
 
     # Composition
-    skill_ids = Column(JSON, default=list)         # list[str] — refs Skill.id
-    flow_definition = Column(JSON, default=dict)   # drawflow-style JSON for the Flow
+    skill_ids = Column(JSON, default=list)  # list[str] — refs Skill.id
+    flow_definition = Column(JSON, default=dict)  # drawflow-style JSON for the Flow
     settings = Column(JSON, nullable=False, default=dict)
 
     # Execution — canonical modes: real_time_decision | batch_processing |

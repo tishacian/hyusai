@@ -6,10 +6,11 @@ from uuid import uuid4
 from app.models.action_plan import WorkspaceActionItem
 from app.models.capability import Capability
 from app.models.client360 import (
+    Client360Campaign,
     Client360DataSource,
     Client360ImpactEvent,
-    Client360MappingRule,
     Client360MailDraft,
+    Client360MappingRule,
     Client360Opportunity,
 )
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
@@ -18,7 +19,6 @@ from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import client360_pdr as client360_module
-from app.models.client360 import Client360Campaign
 from app.services.client360_pdr import (
     build_customer_timeline,
     build_installed_base_tree,
@@ -45,7 +45,9 @@ from app.services.systems.bootstrap import (
 )
 
 
-def _seed_workspace(db_session, *, slug: str = "andritz", settings: dict | None = None) -> Workspace:
+def _seed_workspace(
+    db_session, *, slug: str = "andritz", settings: dict | None = None
+) -> Workspace:
     workspace = Workspace(id=str(uuid4()), name=slug.title(), slug=slug, settings=settings or {})
     db_session.add(workspace)
     db_session.flush()
@@ -115,8 +117,14 @@ def test_calculates_explainable_pdr_potential_and_gaps(db_session) -> None:
     assert serialized["potential_gap_qty"] == 252
     assert serialized["confidence_label"] == "high"
     assert serialized["confidence_score"] >= 0.78
-    assert any(reason["code"] == "sap_sales_history" and reason["met"] for reason in serialized["score_reasons"])
-    assert serialized["recommended_action"] in {"prepare_inspection_or_spa", "draft_expertise_email"}
+    assert any(
+        reason["code"] == "sap_sales_history" and reason["met"]
+        for reason in serialized["score_reasons"]
+    )
+    assert serialized["recommended_action"] in {
+        "prepare_inspection_or_spa",
+        "draft_expertise_email",
+    }
     assert "periodicity_missing" not in serialized["data_gaps"]
 
     incomplete = _seed_opportunity(
@@ -210,13 +218,22 @@ def test_client360_system_seed_is_andritz_scoped_and_idempotent(db_session) -> N
     assert system.flow_definition["variant"] == CLIENT360_PDR_VARIANT
     assert system.flow_definition["schema_version"] == 2
     assert "product_contract" in system.flow_definition
-    assert system.flow_definition["agent_routing"]["mail_draft"]["route_id"] == "client360_pdr_mail_writer"
+    assert (
+        system.flow_definition["agent_routing"]["mail_draft"]["route_id"]
+        == "client360_pdr_mail_writer"
+    )
     assert system.settings["surface_routes"] == ["/client360"]
     assert system.settings["product_contract"]["official_name"] == "Client360 PDR"
-    assert system.settings["client360_pdr_mail"]["model_resolution"] == "agentium_system_capability_workspace"
+    assert (
+        system.settings["client360_pdr_mail"]["model_resolution"]
+        == "agentium_system_capability_workspace"
+    )
     assert system.execution_mode == "human_augmented"
     assert "sap_pdr_mapping" in system.flow_definition["runtime_contract"]["engines"]
-    assert "POST /api/v1/client360/engines/opportunities/run" in system.flow_definition["runtime_contract"]["entrypoints"]
+    assert (
+        "POST /api/v1/client360/engines/opportunities/run"
+        in system.flow_definition["runtime_contract"]["entrypoints"]
+    )
     db_session.refresh(workspace)
     assert workspace.settings["navigation_profile"]["primary_surfaces"] == [
         "chat",
@@ -345,7 +362,13 @@ def test_send_mail_draft_uses_workspace_smtp_and_marks_sent(monkeypatch, db_sess
 def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -> None:
     workspace = _seed_workspace(
         db_session,
-        settings={"client360_pdr_mail": {"ai_enabled": True, "provider": "openai", "model": "test-mail-model"}},
+        settings={
+            "client360_pdr_mail": {
+                "ai_enabled": True,
+                "provider": "openai",
+                "model": "test-mail-model",
+            }
+        },
     )
     user = _seed_user(db_session)
     opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
@@ -840,7 +863,9 @@ def test_opportunity_engine_dry_run_does_not_persist(db_session) -> None:
     assert db_session.query(Client360MappingRule).count() == 0
 
 
-def _seed_campaign_opportunity(db_session, workspace, *, customer_key, email="buyer@example.test", **overrides):
+def _seed_campaign_opportunity(
+    db_session, workspace, *, customer_key, email="buyer@example.test", **overrides
+):
     meta_data = {"contact": {"email": email}} if email else {}
     return _seed_opportunity(
         db_session,
@@ -898,7 +923,11 @@ def test_generate_campaign_drafts_dedups_missing_email(db_session) -> None:
 
     assert result["created"] == 1
     assert result["skipped"].get("missing_contact_email") == 1
-    draft = db_session.query(Client360MailDraft).filter(Client360MailDraft.campaign_id == campaign.id).one()
+    draft = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .one()
+    )
     assert draft.status == "draft_generated"
     assert draft.meta_data["campaign_id"] == campaign.id
     db_session.refresh(campaign)
@@ -923,7 +952,10 @@ def test_generate_campaign_drafts_dedups_active_campaign(db_session) -> None:
     assert result["created"] == 0
     assert result["skipped"].get("active_campaign_conflict") == 1
     assert (
-        db_session.query(Client360MailDraft).filter(Client360MailDraft.campaign_id == second.id).count() == 0
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == second.id)
+        .count()
+        == 0
     )
 
 
@@ -932,11 +964,17 @@ def test_campaign_stats_reports_transformation_and_potential(db_session) -> None
     user = _seed_user(db_session)
     opportunity = _seed_campaign_opportunity(db_session, workspace, customer_key="septona")
 
-    campaign = create_campaign(db_session, workspace, user, name="Transfo", campaign_type="first_replacement")
+    campaign = create_campaign(
+        db_session, workspace, user, name="Transfo", campaign_type="first_replacement"
+    )
     generate_campaign_drafts(db_session, workspace, user, campaign.id)
     db_session.commit()
 
-    draft = db_session.query(Client360MailDraft).filter(Client360MailDraft.campaign_id == campaign.id).one()
+    draft = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .one()
+    )
     draft.status = "sent"
     draft.sent_at = datetime(2026, 7, 1, 9, 0, 0)
     db_session.flush()
@@ -1056,14 +1094,38 @@ def test_installed_base_tree_aggregates_by_tech_line_machine() -> None:
 
 def test_customer_timeline_merges_and_sorts_desc() -> None:
     opportunities = [
-        {"id": "o1", "part_family": "wear belts", "status": "detected", "updated_at": "2026-02-10T09:00:00", "created_at": "2026-01-01T09:00:00"},
+        {
+            "id": "o1",
+            "part_family": "wear belts",
+            "status": "detected",
+            "updated_at": "2026-02-10T09:00:00",
+            "created_at": "2026-01-01T09:00:00",
+        },
     ]
     drafts = [
-        {"id": "d1", "opportunity_id": "o1", "subject": "Brouillon", "created_at": "2026-01-15T09:00:00", "sent_at": None},
-        {"id": "d2", "opportunity_id": "o1", "subject": "Envoye", "created_at": "2026-01-20T09:00:00", "sent_at": "2026-03-01T09:00:00"},
+        {
+            "id": "d1",
+            "opportunity_id": "o1",
+            "subject": "Brouillon",
+            "created_at": "2026-01-15T09:00:00",
+            "sent_at": None,
+        },
+        {
+            "id": "d2",
+            "opportunity_id": "o1",
+            "subject": "Envoye",
+            "created_at": "2026-01-20T09:00:00",
+            "sent_at": "2026-03-01T09:00:00",
+        },
     ]
     impacts = [
-        {"id": "i1", "opportunity_id": "o1", "impact_type": "order", "summary": "Commande", "occurred_at": "2026-02-01T09:00:00"},
+        {
+            "id": "i1",
+            "opportunity_id": "o1",
+            "impact_type": "order",
+            "summary": "Commande",
+            "occurred_at": "2026-02-01T09:00:00",
+        },
     ]
 
     timeline = build_customer_timeline(opportunities, drafts, impacts)
@@ -1080,7 +1142,11 @@ def test_customer_timeline_merges_and_sorts_desc() -> None:
 def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None:
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     opportunity = _seed_opportunity(
-        db_session, workspace, technology="JETLACE", line_label="Line 1", machine_label="Needlepunch"
+        db_session,
+        workspace,
+        technology="JETLACE",
+        line_label="Line 1",
+        machine_label="Needlepunch",
     )
     _seed_draft(db_session, workspace, opportunity, created_at=datetime(2026, 1, 15, 9, 0, 0))
     _seed_impact(db_session, workspace, opportunity, occurred_at=datetime(2026, 2, 1, 9, 0, 0))
@@ -1089,7 +1155,14 @@ def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None
     payload = customer_payload(db_session, workspace, "septona")
 
     # New keys are additive; legacy keys remain present.
-    for key in ("customer", "opportunities", "mail_drafts", "impact_events", "market_signals", "data_gaps"):
+    for key in (
+        "customer",
+        "opportunities",
+        "mail_drafts",
+        "impact_events",
+        "market_signals",
+        "data_gaps",
+    ):
         assert key in payload
     assert payload["installed_base"][0]["technology"] == "JETLACE"
     assert {event["kind"] for event in payload["timeline"]} >= {"mail_draft", "impact_order"}
@@ -1108,7 +1181,13 @@ def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None
 def test_customer_payload_summary_uses_llm_when_configured(monkeypatch, db_session) -> None:
     workspace = _seed_workspace(
         db_session,
-        settings={"client360_pdr_mail": {"ai_enabled": True, "provider": "openai", "model": "test-summary-model"}},
+        settings={
+            "client360_pdr_mail": {
+                "ai_enabled": True,
+                "provider": "openai",
+                "model": "test-summary-model",
+            }
+        },
     )
     _seed_opportunity(db_session, workspace)
     db_session.commit()

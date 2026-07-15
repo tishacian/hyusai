@@ -1,4 +1,5 @@
 """Workspace Knowledge Scope endpoints."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -13,6 +14,7 @@ from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.document_intelligence import DocumentQueryEngine
 from app.services.knowledge_guides import (
     create_guide,
     effective_guides,
@@ -26,7 +28,6 @@ from app.services.rag.knowledge_scopes import (
 )
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 from app.services.table_intelligence import TableQueryEngine
-from app.services.document_intelligence import DocumentQueryEngine
 
 router = APIRouter()
 
@@ -89,7 +90,9 @@ def _require_workspace_admin(db: Session, user: User, workspace: Workspace) -> N
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
         .first()
     )
-    if not membership or not is_admin_template(getattr(membership, "role_template", None), membership.role):
+    if not membership or not is_admin_template(
+        getattr(membership, "role_template", None), membership.role
+    ):
         raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
@@ -97,9 +100,7 @@ def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any
     from app.services.knowledge_collections import collection_inventory
 
     rows = (
-        db.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == workspace_id)
-        .all()
+        db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).all()
     )
     stats: dict[str, dict[str, Any]] = {}
     for row in rows:

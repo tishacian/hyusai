@@ -45,8 +45,7 @@ def test_endpoint_catalog_covers_all_openapi_routes():
     assert ("GET", "/api/v1/actions/effective") in paths
     assert ("GET", "/api/v1/knowledge-capture/sessions") in paths
     assert any(
-        entry["path"].startswith("/api/v1/deposit-links/")
-        and entry["status"] == "public-external"
+        entry["path"].startswith("/api/v1/deposit-links/") and entry["status"] == "public-external"
         for entry in body["entries"]
     )
 

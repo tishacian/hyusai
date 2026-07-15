@@ -176,4 +176,3 @@ SSH
 Update `docs/vague-d-plan.md` — replace the D7 row's status with
 `COMPLETED` and append a dated deploy line to the "Journal" section at
 the bottom of the plan.
-

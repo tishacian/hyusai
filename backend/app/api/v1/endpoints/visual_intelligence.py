@@ -1,4 +1,5 @@
 """Workspace visual intelligence API."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -28,7 +29,6 @@ from app.services.visual_intelligence import (
     update_source,
 )
 from app.services.workspace_jobs import serialize_job
-
 
 router = APIRouter()
 
@@ -150,7 +150,9 @@ def visual_source_capture(
         except Exception:  # noqa: BLE001
             pass
         db.commit()
-        raise HTTPException(status_code=502, detail=f"Visual capture could not be queued: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Visual capture could not be queued: {exc}"
+        ) from exc
     db.commit()
     return {
         "job_id": job.id,

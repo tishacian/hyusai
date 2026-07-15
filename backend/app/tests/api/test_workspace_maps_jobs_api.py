@@ -30,7 +30,9 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
 
 
 def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = Workspace(
+        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+    )
     other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, other, user])
@@ -46,41 +48,72 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.json()["maps"][0]["map_version"] == "situation_map_v3"
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
     assert listed.json()["maps"][0]["rendering_profile"] == "executive_command_v1"
-    assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_carto_with_self_hosted_ready"
+    assert (
+        listed.json()["maps"][0]["renderer_config"]["basemap_policy"]
+        == "public_osm_carto_with_self_hosted_ready"
+    )
     assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "command"
     assert -8.8 <= listed.json()["maps"][0]["renderer_config"]["bounds"][0][0] <= -8.4
     assert listed.json()["maps"][0]["renderer_config"]["regional_bounds"][0][0] <= -13.0
-    assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"command", "administrative", "dark", "contours"}
+    assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {
+        "command",
+        "administrative",
+        "dark",
+        "contours",
+    }
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["zoom"] <= 5.9
     assert listed.json()["maps"][0]["default_map_state"]["time_range"] == "7d"
-    assert {item["key"] for item in listed.json()["maps"][0]["available_time_ranges"]} >= {"24h", "7d", "30d"}
+    assert {item["key"] for item in listed.json()["maps"][0]["available_time_ranges"]} >= {
+        "24h",
+        "7d",
+        "30d",
+    }
     layer_keys = {item["key"] for item in listed.json()["maps"][0]["layer_catalog"]}
     registry_keys = {item["key"] for item in listed.json()["maps"][0]["layer_registry"]}
     assert listed.json()["maps"][0]["layer_catalog"][0]["key"] == "territorial-risk"
     assert "regional-context" in layer_keys
     assert "maritime-traffic" in layer_keys
     assert "maritime-traffic" in registry_keys
-    maritime_registry = next(item for item in listed.json()["maps"][0]["layer_registry"] if item["key"] == "maritime-traffic")
+    maritime_registry = next(
+        item
+        for item in listed.json()["maps"][0]["layer_registry"]
+        if item["key"] == "maritime-traffic"
+    )
     assert maritime_registry["status"] == "ready"
     assert maritime_registry["freshness_at"]
     assert maritime_registry["source_kind"] == "maritime_snapshot"
     assert listed.json()["maps"][0]["geodata_metadata"]["source"].startswith("geoBoundaries")
-    assert listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"] == "ADM0"
-    assert listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM1"
+    assert (
+        listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"]
+        == "ADM0"
+    )
+    assert (
+        listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"]
+        == "ADM1"
+    )
     assert listed.json()["maps"][0]["admin_boundaries"]["features"]
-    assert listed.json()["maps"][0]["admin_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM2"
+    assert (
+        listed.json()["maps"][0]["admin_boundaries"]["features"][0]["properties"]["admin_level"]
+        == "ADM2"
+    )
     assert listed.json()["maps"][0]["cities"]["features"]
     zone_features = listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
     assert len(zone_features) >= 14
-    assert {feature["properties"]["admin_name"] for feature in zone_features if feature["properties"]["id"] == "zone-nord"} >= {
+    assert {
+        feature["properties"]["admin_name"]
+        for feature in zone_features
+        if feature["properties"]["id"] == "zone-nord"
+    } >= {
         "Savanes",
         "Denguele",
         "Woroba",
     }
     context_markers = listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
     assert context_markers
-    assert {"Accra", "Bamako", "Ouagadougou"} <= {feature["properties"]["name"] for feature in context_markers}
+    assert {"Accra", "Bamako", "Ouagadougou"} <= {
+        feature["properties"]["name"] for feature in context_markers
+    }
     assert any(feature["properties"].get("scope") == "regional" for feature in context_markers)
     assert listed.json()["maps"][0]["event_points"]["features"]
     assert listed.json()["maps"][0]["geojson_sources"]["maritime_points"]["features"]
@@ -96,7 +129,9 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
         "decider",
     }
     assert listed.json()["maps"][0]["forecast_signals"]
-    assert listed.json()["maps"][0]["renderer_config"]["interaction_contract"]["scenario_modes"] == [
+    assert listed.json()["maps"][0]["renderer_config"]["interaction_contract"][
+        "scenario_modes"
+    ] == [
         "explorer",
         "comprendre",
         "decider",
@@ -118,7 +153,11 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
 
     command = client.post(
         "/api/v1/maps/sentinel-ci-strategic-map/command",
-        json={"intent": "focus_zone", "target": "zone-nord", "layers": ["territorial-risk", "open-intelligence"]},
+        json={
+            "intent": "focus_zone",
+            "target": "zone-nord",
+            "layers": ["territorial-risk", "open-intelligence"],
+        },
     )
     assert command.status_code == 200
     command_body = command.json()
@@ -249,9 +288,7 @@ def test_octocity_multi_map_detail_and_score_keep_the_requested_operator_map(db_
     fixture_map = ensure_workspace_map_seed(db_session, workspace)
     fixture_score_ids = {
         score.id
-        for score in db_session.query(WorkspaceMapScore)
-        .filter_by(map_id=fixture_map.id)
-        .all()
+        for score in db_session.query(WorkspaceMapScore).filter_by(map_id=fixture_map.id).all()
     }
 
     operator_map = WorkspaceMap(
@@ -318,9 +355,7 @@ def test_octocity_multi_map_detail_and_score_keep_the_requested_operator_map(db_
     assert scored.json()["result"]["map_id"] == operator_map.id
     assert {
         score.id
-        for score in db_session.query(WorkspaceMapScore)
-        .filter_by(map_id=fixture_map.id)
-        .all()
+        for score in db_session.query(WorkspaceMapScore).filter_by(map_id=fixture_map.id).all()
     } == fixture_score_ids
     assert fixture_detail.json()["map_system"]["id"] == fixture_map.id
     assert fixture_detail.json()["map_system"]["map_version"] == "octocity_map_v1"
@@ -393,7 +428,10 @@ def test_octocity_maps_api_returns_only_the_octocity_fixture(db_session):
         "Lyon",
         "Marseille",
     }
-    assert {feature["properties"]["zone_id"] for feature in listed_map["geojson_sources"]["markers"]["features"]} == {
+    assert {
+        feature["properties"]["zone_id"]
+        for feature in listed_map["geojson_sources"]["markers"]["features"]
+    } == {
         "zone-nord",
         "zone-ouest",
         "zone-centre",

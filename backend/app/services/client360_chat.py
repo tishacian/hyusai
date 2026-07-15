@@ -20,6 +20,7 @@ Guardrails (deterministic, explainable, workspace-scoped):
 - Opportunity ``evidence_refs`` are preserved in the response, and a
   "Ouvrir dans Client360" CTA (route ``/client360``) is attached.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -319,7 +320,9 @@ async def translate_query_to_filters(
     try:
         llm_result = await _llm_filters(db, workspace, query, facets)
     except Exception:  # noqa: BLE001 - degrade to deterministic extraction.
-        _logger.warning("Client360 NL translation via LLM failed; using deterministic fallback", exc_info=True)
+        _logger.warning(
+            "Client360 NL translation via LLM failed; using deterministic fallback", exc_info=True
+        )
         llm_result = None
     if llm_result is not None:
         return llm_result, "llm"
@@ -330,7 +333,11 @@ def _detect_intent(query: str) -> str:
     normalized = _norm(query)
     if "campagne" in normalized or "campaign" in normalized:
         return "campaign"
-    if "fiche client" in normalized or "parc installe" in normalized or "installed base" in normalized:
+    if (
+        "fiche client" in normalized
+        or "parc installe" in normalized
+        or "installed base" in normalized
+    ):
         return "customer"
     return "opportunities"
 
@@ -340,7 +347,9 @@ def _evidence_refs_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for item in items:
         for ref in item.get("evidence_refs") or []:
-            key = json.dumps(ref, sort_keys=True, default=str) if isinstance(ref, dict) else str(ref)
+            key = (
+                json.dumps(ref, sort_keys=True, default=str) if isinstance(ref, dict) else str(ref)
+            )
             if key in seen:
                 continue
             seen.add(key)
@@ -351,11 +360,18 @@ def _evidence_refs_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _sources_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
     for item in items:
-        title = " · ".join(
-            part
-            for part in (item.get("customer_name"), item.get("part_family"), item.get("part_reference"))
-            if part
-        ) or "Opportunité Client360"
+        title = (
+            " · ".join(
+                part
+                for part in (
+                    item.get("customer_name"),
+                    item.get("part_family"),
+                    item.get("part_reference"),
+                )
+                if part
+            )
+            or "Opportunité Client360"
+        )
         sources.append(
             {
                 "title": title,
@@ -427,7 +443,11 @@ def _opportunities_response(
     return {
         "intent": "opportunities",
         "content": "\n".join(lines),
-        "result": {"opportunities": items, "count": len(items), "potential_gap_value": round(total_gap_value, 2)},
+        "result": {
+            "opportunities": items,
+            "count": len(items),
+            "potential_gap_value": round(total_gap_value, 2),
+        },
         "sources": _sources_for(items),
         "evidence_refs": _evidence_refs_for(items),
         "cta": _cta({key: str(value) for key, value in filters.items() if key != "limit"}),
@@ -480,7 +500,11 @@ def _campaign_response(
     campaigns = list_campaigns(db, workspace, limit=100)
     normalized = _norm(query)
     matched = next(
-        (row for row in campaigns if row.get("name") and _norm(row["name"]) and _norm(row["name"]) in normalized),
+        (
+            row
+            for row in campaigns
+            if row.get("name") and _norm(row["name"]) and _norm(row["name"]) in normalized
+        ),
         None,
     )
     if matched:

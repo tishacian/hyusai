@@ -3,6 +3,7 @@
 These tests stand up a minimal FastAPI app overriding the auth + DB
 dependencies so we can hit the route without booting Keycloak / Postgres.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI

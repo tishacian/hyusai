@@ -11,6 +11,7 @@ The legacy substring heuristic and the global CSV fallbacks stay in place
 until every deployment has been stamped (scripts/stamp_workspace_families.py),
 then they can be retired.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -54,11 +55,7 @@ def feature_enabled(workspace: Any, feature: str, *, csv_fallback: str = "") -> 
     if isinstance(features, Mapping) and feature in features:
         return bool(features[feature])
     slug = str(getattr(workspace, "slug", "") or "").strip().lower()
-    allowed = {
-        item.strip().lower()
-        for item in str(csv_fallback or "").split(",")
-        if item.strip()
-    }
+    allowed = {item.strip().lower() for item in str(csv_fallback or "").split(",") if item.strip()}
     return slug in allowed
 
 

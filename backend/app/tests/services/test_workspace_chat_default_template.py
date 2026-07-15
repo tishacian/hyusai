@@ -10,7 +10,9 @@ orchestration was promoted into the default ``chat_transverse_v1`` template:
   ``industrial_answer_policy`` + industrial source policy (incl.
   ``reject_cross_project_sources``) — the Andritz preservation guarantee.
 """
+
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.industrial_answer_profile import (
     default_answer_policy,
     industrial_answer_policy,
@@ -20,7 +22,6 @@ from app.services.systems.bootstrap import (
     WORKSPACE_CHAT_SYSTEM_NAME,
     ensure_workspace_chat_system_default,
 )
-from app.models.workspace import Workspace
 
 
 def _chat_system(db_session, workspace: Workspace) -> System:

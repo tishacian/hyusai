@@ -3,6 +3,7 @@
 V1 promotes a small pilot set. V2 expands by project code with a wave ledger.
 V3 ingests remaining unique archives (folder + size-aware batches) with ledger resume.
 """
+
 from __future__ import annotations
 
 import json
@@ -227,7 +228,9 @@ def inspect_archive_deposit_file(
     filename = str(deposit_file.filename or "")
     default_files, default_mb = _archive_limits(filename, limits)
     max_files = int(max_files or default_files)
-    max_uncompressed_mb = float(max_uncompressed_mb if max_uncompressed_mb is not None else default_mb)
+    max_uncompressed_mb = float(
+        max_uncompressed_mb if max_uncompressed_mb is not None else default_mb
+    )
     compressed_mb = float(deposit_file.size_bytes or 0) / (1024 * 1024)
     base = ArchiveInspectResult(
         deposit_file_id=deposit_file.id,
@@ -410,7 +413,9 @@ def build_v2_wave_plans(
 ) -> list[WavePlan]:
     """Split V2 work into promotable batches (large AKK200 isolated)."""
     limits = WaveLimits.v2()
-    filenames = resolve_archives_for_projects(db, workspace=workspace, projects=projects or V2_DEFAULT_PROJECTS)
+    filenames = resolve_archives_for_projects(
+        db, workspace=workspace, projects=projects or V2_DEFAULT_PROJECTS
+    )
     akk = [name for name in filenames if "AKK200" in name.upper()]
     rest = [name for name in filenames if name not in akk]
     batches: list[list[str]] = []
@@ -618,7 +623,10 @@ def copy_collection_documents(
 ) -> dict[str, Any]:
     source = (
         db.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == source_slug)
+        .filter(
+            KnowledgeCollection.workspace_id == workspace.id,
+            KnowledgeCollection.slug == source_slug,
+        )
         .first()
     )
     if not source:
@@ -669,7 +677,10 @@ def copy_collection_documents(
             "skipped_missing": skipped_missing,
         }
 
-    store.write_text(target_manifest_key, json.dumps(target_manifest, ensure_ascii=True, indent=2, sort_keys=True))
+    store.write_text(
+        target_manifest_key,
+        json.dumps(target_manifest, ensure_ascii=True, indent=2, sort_keys=True),
+    )
     update_collection_status(
         db,
         target.id,
@@ -677,7 +688,9 @@ def copy_collection_documents(
         document_names=document_names,
         document_count=len(document_names),
     )
-    job = create_worker_job(db, workspace_id=workspace.id, collection_id=target.id, kind="document_ingest_index")
+    job = create_worker_job(
+        db, workspace_id=workspace.id, collection_id=target.id, kind="document_ingest_index"
+    )
     job.result = {
         "ingest_options": {
             "mode": "incremental",
@@ -688,7 +701,12 @@ def copy_collection_documents(
     db.commit()
     dispatch_worker_job(db, job)
     db.commit()
-    return {"status": "queued", "collection_slug": target.slug, "copied_documents": copied, "job_id": job.id}
+    return {
+        "status": "queued",
+        "collection_slug": target.slug,
+        "copied_documents": copied,
+        "job_id": job.id,
+    }
 
 
 def execute_wave_plan(
@@ -758,7 +776,9 @@ def execute_wave_plan(
             # fresh unique name and recorded so the overwrite is visible.
             target_key = original_key(collection, document_name)
             if document_name in document_name_set or store.exists(target_key):
-                existing_source = str((document_manifest.get(document_name) or {}).get("source_deposit_path") or "")
+                existing_source = str(
+                    (document_manifest.get(document_name) or {}).get("source_deposit_path") or ""
+                )
                 if existing_source and existing_source != new_source:
                     guard_used = set(wave_used_names) | document_name_set
                     disambiguated = _unique_archive_name(document_name, guard_used)
@@ -835,7 +855,9 @@ def execute_wave_plan(
             "collisions": collisions,
         }
 
-    store.write_text(manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True))
+    store.write_text(
+        manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True)
+    )
     update_collection_status(
         db,
         collection.id,
@@ -843,7 +865,9 @@ def execute_wave_plan(
         document_names=document_names,
         document_count=len(document_names),
     )
-    job = create_worker_job(db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index")
+    job = create_worker_job(
+        db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index"
+    )
     promoted_filenames = [item["filename"] for item in promoted_archives]
     ingest_options: dict[str, Any] = {
         "mode": "incremental",
@@ -919,7 +943,9 @@ def execute_v2_wave_plans(
         skip_ledger=skip_ledger,
     ):
         if not any(item.promotable for item in plan.archives):
-            results.append({"status": "skipped", "wave_id": plan.wave_id, "reason": "no_promotable_archives"})
+            results.append(
+                {"status": "skipped", "wave_id": plan.wave_id, "reason": "no_promotable_archives"}
+            )
             continue
         if any(item.filename == "__wave_limit__" for item in plan.archives):
             results.append({"status": "blocked", "wave_id": plan.wave_id, "plan": plan.as_dict()})
@@ -960,7 +986,9 @@ def execute_v3_wave_plans(
         batch_index=batch_index,
     ):
         if not any(item.promotable for item in plan.archives):
-            results.append({"status": "skipped", "wave_id": plan.wave_id, "reason": "no_promotable_archives"})
+            results.append(
+                {"status": "skipped", "wave_id": plan.wave_id, "reason": "no_promotable_archives"}
+            )
             continue
         if any(item.filename == "__wave_limit__" for item in plan.archives):
             results.append({"status": "blocked", "wave_id": plan.wave_id, "plan": plan.as_dict()})

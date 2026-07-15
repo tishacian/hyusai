@@ -1,7 +1,8 @@
 """Workspace IAM administration and dry-run evaluation API."""
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -22,16 +23,16 @@ from app.core.iam.roles import (
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.iam.app_entitlements import (
+    list_member_app_entitlements,
+    normalize_app_entitlements,
+    replace_member_app_entitlements,
+)
 from app.services.iam.config_service import (
     effective_role_flags,
     is_iam_enforced_for_workspace,
     load_iam_config,
     patch_iam_config,
-)
-from app.services.iam.app_entitlements import (
-    list_member_app_entitlements,
-    normalize_app_entitlements,
-    replace_member_app_entitlements,
 )
 from app.services.iam.engine import AuthorizationEngine
 from app.services.iam.manifest import CAPTURE_MANIFEST, iter_permissions
@@ -40,24 +41,26 @@ router = APIRouter()
 
 
 class IamConfigPatch(BaseModel):
-    role_flags: Optional[Dict[str, Any]] = None
-    capability_overrides: Optional[Dict[str, Any]] = None
+    role_flags: Optional[dict[str, Any]] = None
+    capability_overrides: Optional[dict[str, Any]] = None
 
 
 class MemberIamUpdate(BaseModel):
     role_template: str
-    custom_labels: List[str] = Field(default_factory=list)
-    app_entitlements: Optional[List[str]] = None
+    custom_labels: list[str] = Field(default_factory=list)
+    app_entitlements: Optional[list[str]] = None
 
 
 class IamEvaluateRequest(BaseModel):
     subject_user_id: Optional[str] = None
     resource_kind: str
     action: str
-    resource_attrs: Dict[str, Any] = Field(default_factory=dict)
+    resource_attrs: dict[str, Any] = Field(default_factory=dict)
 
 
-def _member_payload(db: DBSession, membership: WorkspaceMember, current_user_id: str) -> Dict[str, Any]:
+def _member_payload(
+    db: DBSession, membership: WorkspaceMember, current_user_id: str
+) -> dict[str, Any]:
     user = db.query(User).filter(User.id == membership.user_id).first()
     return {
         "user_id": membership.user_id,
@@ -100,8 +103,10 @@ async def iam_summary(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
-    _admin_gate(db, user=user, workspace=workspace, resource_kind="workspace", action="manage_members")
+) -> dict[str, Any]:
+    _admin_gate(
+        db, user=user, workspace=workspace, resource_kind="workspace", action="manage_members"
+    )
     members = (
         db.query(WorkspaceMember)
         .filter(WorkspaceMember.workspace_id == workspace.id)
@@ -127,12 +132,14 @@ async def iam_matrix(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     membership = current_membership(db, user, workspace)
     if not membership:
         raise HTTPException(status_code=403, detail={"code": "WORKSPACE_ACCESS_DENIED"})
     config = load_iam_config(db, workspace.id, create=False)
-    role_template = normalize_role_template(getattr(membership, "role_template", None), membership.role)
+    role_template = normalize_role_template(
+        getattr(membership, "role_template", None), membership.role
+    )
     permissions = []
     engine = AuthorizationEngine()
     for rule in iter_permissions():
@@ -176,7 +183,7 @@ async def patch_config(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     _admin_gate(db, user=user, workspace=workspace)
     config = patch_iam_config(
         db,
@@ -200,8 +207,10 @@ async def update_member_iam(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
-    _admin_gate(db, user=user, workspace=workspace, resource_kind="workspace", action="manage_members")
+) -> dict[str, Any]:
+    _admin_gate(
+        db, user=user, workspace=workspace, resource_kind="workspace", action="manage_members"
+    )
     try:
         requested_app_entitlements = (
             normalize_app_entitlements(body.app_entitlements)
@@ -276,7 +285,7 @@ async def evaluate_iam(
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     _admin_gate(db, user=user, workspace=workspace)
     subject = user
     if body.subject_user_id and body.subject_user_id != user.id:

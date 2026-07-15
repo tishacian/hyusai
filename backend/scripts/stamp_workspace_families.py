@@ -10,6 +10,7 @@ Run it once per deployment before retiring the substring fallback:
 
 Idempotent: workspaces already stamped with a known family are left untouched.
 """
+
 from __future__ import annotations
 
 import argparse

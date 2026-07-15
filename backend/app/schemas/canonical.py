@@ -12,10 +12,11 @@ Mental model references:
 - ExecutionMode: §20.1–§20.5
 - RuntimeStatus: `docs/skills-runtime.md`
 """
+
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -106,7 +107,7 @@ class DecisionUnit(BaseModel):
 
     decision_id: str
     outcome: Outcome
-    context: Dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
     run_id: Optional[str] = None
 
 
@@ -127,7 +128,7 @@ class ControlPlaneVector(BaseModel):
     autonomy: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     risk_tolerance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
-    def as_dict(self) -> Dict[str, float]:
+    def as_dict(self) -> dict[str, float]:
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
@@ -171,4 +172,4 @@ class RuntimeStatusReport(BaseModel):
     status: RuntimeStatus
     reason: Optional[str] = None
     version: Optional[str] = None
-    dependencies: List[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)

@@ -4,11 +4,12 @@ V1 intentionally keeps manifests in code and workspace/profile overrides in
 ``workspace.settings.actions``. This gives Agentium a transverse action model
 without a migration and keeps AYA legacy handlers intact behind adapters.
 """
+
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, replace
 import re
-from typing import Any, Callable, Dict, Iterable, Optional
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -17,7 +18,6 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import handle_action_plan_chat_action
 from app.services.audit_logger import emit_audit_event
-
 
 Surface = str
 HandlerKind = str
@@ -37,7 +37,7 @@ class ActionManifest:
     description: str
     surfaces: tuple[Surface, ...]
     phrases: tuple[str, ...] = ()
-    input_schema: Dict[str, Any] = field(default_factory=dict)
+    input_schema: dict[str, Any] = field(default_factory=dict)
     required_permission: str = "action.execute"
     confirmation_policy: str = "confirm"
     handler: ActionHandler = field(default_factory=lambda: ActionHandler("flow_node", "noop"))
@@ -46,7 +46,9 @@ class ActionManifest:
     capability_template: Optional[str] = None
     direct_safe: bool = False
 
-    def to_payload(self, *, visible: bool = True, inherited_from: Optional[str] = None, demo_safe: bool = False) -> dict[str, Any]:
+    def to_payload(
+        self, *, visible: bool = True, inherited_from: Optional[str] = None, demo_safe: bool = False
+    ) -> dict[str, Any]:
         payload = asdict(self)
         payload["visible"] = visible
         payload["inherited_from"] = inherited_from or self.pack
@@ -70,7 +72,9 @@ class ActionResolution:
     reason: str = "no_match"
     manifest: Optional[ActionManifest] = None
 
-    def to_payload(self, *, include_manifest: bool = True, demo_safe: bool = False) -> dict[str, Any]:
+    def to_payload(
+        self, *, include_manifest: bool = True, demo_safe: bool = False
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "matched": self.matched,
             "action_id": self.action_id,
@@ -132,7 +136,19 @@ GLOBAL_VOICE_ACTIONS = (
         label="Confirm proposal",
         description="Confirm the active assistant proposal.",
         surfaces=("voice", "chat"),
-        phrases=("oui", "yes", "valide", "d'accord", "daccord", "confirme", "confirmes", "ok", "vas y", "vas-y", "allons y"),
+        phrases=(
+            "oui",
+            "yes",
+            "valide",
+            "d'accord",
+            "daccord",
+            "confirme",
+            "confirmes",
+            "ok",
+            "vas y",
+            "vas-y",
+            "allons y",
+        ),
         required_permission="voice_runtime.read",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "voice_confirm_yes"),
@@ -146,7 +162,16 @@ GLOBAL_VOICE_ACTIONS = (
         label="Decline proposal",
         description="Decline the active assistant proposal.",
         surfaces=("voice", "chat"),
-        phrases=("non", "no", "annule", "annuler", "pas maintenant", "later", "stop", "laisse tomber"),
+        phrases=(
+            "non",
+            "no",
+            "annule",
+            "annuler",
+            "pas maintenant",
+            "later",
+            "stop",
+            "laisse tomber",
+        ),
         required_permission="voice_runtime.read",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "awaiting_declined"),
@@ -160,7 +185,15 @@ GLOBAL_VOICE_ACTIONS = (
         label="Navigate workspace view",
         description="Navigate to a mission-room or workspace view.",
         surfaces=("voice", "chat", "ui"),
-        phrases=("ouvre le cockpit", "ouvre la carte", "ouvre l'agenda", "ouvre la presse", "ouvre les arbitrages", "go cockpit", "go map"),
+        phrases=(
+            "ouvre le cockpit",
+            "ouvre la carte",
+            "ouvre l'agenda",
+            "ouvre la presse",
+            "ouvre les arbitrages",
+            "go cockpit",
+            "go map",
+        ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "voice_navigate_view"),
@@ -178,7 +211,13 @@ ANDRITZ_ACTIONS = (
         label="Find a value",
         description="Find a sourced business parameter value in Andritz Knowledge.",
         surfaces=("chat", "voice", "flow"),
-        phrases=("trouve la valeur", "retrouve le diamètre", "retrouver le diamètre", "à combien correspond", "find the value"),
+        phrases=(
+            "trouve la valeur",
+            "retrouve le diamètre",
+            "retrouver le diamètre",
+            "à combien correspond",
+            "find the value",
+        ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "rag_find_parameter_value"),
@@ -222,7 +261,9 @@ ANDRITZ_ACTIONS = (
         phrases=("démarre une capture", "lance une session de capture", "start capture session"),
         required_permission="capture_session.create",
         confirmation_policy="confirm",
-        handler=ActionHandler("backend_route", "knowledge_capture_start", "/api/v1/knowledge-capture"),
+        handler=ActionHandler(
+            "backend_route", "knowledge_capture_start", "/api/v1/knowledge-capture"
+        ),
         audit_event="action.andritz.capture.start_requested",
         pack="andritz_industrial_v1",
         capability_template="expert_knowledge_capture",
@@ -263,7 +304,9 @@ ANDRITZ_ACTIONS = (
         phrases=("promouvoir le fichier", "promote deposit file"),
         required_permission="deposit_file.promote",
         confirmation_policy="confirm",
-        handler=ActionHandler("backend_route", "secure_deposit_promote", "/api/v1/sftp/deposits/{file_id}/promote"),
+        handler=ActionHandler(
+            "backend_route", "secure_deposit_promote", "/api/v1/sftp/deposits/{file_id}/promote"
+        ),
         audit_event="action.andritz.deposit.promote_requested",
         pack="andritz_industrial_v1",
         capability_template="secure_deposit",
@@ -314,7 +357,12 @@ SENTINEL_AYA_ACTIONS = (
         label="Create cabinet action",
         description="Create or propose a cabinet action item using AYA's existing action-plan handler.",
         surfaces=("chat", "voice", "ui", "flow"),
-        phrases=("crée une action", "ajoute une action", "planifie une action", "prépare une action"),
+        phrases=(
+            "crée une action",
+            "ajoute une action",
+            "planifie une action",
+            "prépare une action",
+        ),
         required_permission="action.execute",
         confirmation_policy="confirm",
         handler=ActionHandler("legacy_adapter", "action_plans"),
@@ -1406,10 +1454,14 @@ _OCTAVE_PUBLIC_ACTION_IDS = {
 }
 
 
-def _octave_aliases(actions: tuple[ActionManifest, ...], *, pack: str) -> tuple[ActionManifest, ...]:
+def _octave_aliases(
+    actions: tuple[ActionManifest, ...], *, pack: str
+) -> tuple[ActionManifest, ...]:
     aliases: list[ActionManifest] = []
     for manifest in actions:
-        suffix = manifest.action_id.split(".", 1)[1] if "." in manifest.action_id else manifest.action_id
+        suffix = (
+            manifest.action_id.split(".", 1)[1] if "." in manifest.action_id else manifest.action_id
+        )
         action_id = _OCTAVE_PUBLIC_ACTION_IDS.get(manifest.action_id, f"octave.{suffix}")
         audit_event = _octave_text(manifest.audit_event)
         if manifest.action_id in _OCTAVE_PUBLIC_ACTION_IDS:
@@ -1434,7 +1486,7 @@ OCTAVE_MISSION_ROOM_ACTIONS = _octave_aliases(SENTINEL_AYA_ACTIONS, pack="octave
 OCTAVE_SECURITY_ACTIONS = _octave_aliases(SENTINEL_AYA_SECURITY_ACTIONS, pack="octave_security_v1")
 
 
-PACKS: Dict[str, tuple[ActionManifest, ...]] = {
+PACKS: dict[str, tuple[ActionManifest, ...]] = {
     "global_voice_v1": GLOBAL_VOICE_ACTIONS,
     "andritz_industrial_v1": ANDRITZ_ACTIONS,
     "sentinel_ci_aya_v1": SENTINEL_AYA_ACTIONS,
@@ -1550,7 +1602,9 @@ def resolve_action(
         # action and the executor returns the stub binding message even
         # though no proposal is awaiting.
         if manifest.action_id in {"voice.confirm_yes", "voice.confirm_no"}:
-            if token_count > _CONFIRM_MAX_TOKENS and not _matches_confirm_phrase_exactly(normalized, manifest):
+            if token_count > _CONFIRM_MAX_TOKENS and not _matches_confirm_phrase_exactly(
+                normalized, manifest
+            ):
                 continue
         scored.append((score, manifest))
 
@@ -1592,9 +1646,7 @@ _VESSEL_HINT_RE = re.compile(r"\b(?:cargo|cargaison|atlantic\s*trader|navire|mv)
 _SECURITY_COMMUNIQUE_VERB_RE = re.compile(
     r"\b(?:redige|redaction|prepare|preparation|brouillon|ecris|ecrire|draft)\b"
 )
-_SECURITY_COMMUNIQUE_NOUN_RE = re.compile(
-    r"\b(?:communique|statement)\b"
-)
+_SECURITY_COMMUNIQUE_NOUN_RE = re.compile(r"\b(?:communique|statement)\b")
 
 # Maximum normalized-token count allowed for a query to still match
 # ``voice.confirm_yes`` / ``voice.confirm_no``. Anything longer must match
@@ -1685,9 +1737,24 @@ def execute_action(
     confirm: bool = False,
     payload: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    manifest = next((item for item in effective_action_manifests(workspace, surface=surface, assistant_profile=assistant_profile) if item.action_id == action_id), None)
+    manifest = next(
+        (
+            item
+            for item in effective_action_manifests(
+                workspace, surface=surface, assistant_profile=assistant_profile
+            )
+            if item.action_id == action_id
+        ),
+        None,
+    )
     if not manifest:
-        audit_id = _audit(db, workspace, user, "action.denied", {"action_id": action_id, "surface": surface, "reason": "not_visible"})
+        audit_id = _audit(
+            db,
+            workspace,
+            user,
+            "action.denied",
+            {"action_id": action_id, "surface": surface, "reason": "not_visible"},
+        )
         return {
             "matched": False,
             "action_id": action_id,
@@ -1727,7 +1794,13 @@ def execute_action(
             query=text,
             assistant_profile=assistant_profile or "vigie_executive",
         )
-        audit_id = _audit(db, workspace, user, manifest.audit_event, {"action_id": manifest.action_id, "result": result})
+        audit_id = _audit(
+            db,
+            workspace,
+            user,
+            manifest.audit_event,
+            {"action_id": manifest.action_id, "result": result},
+        )
         return {
             "matched": bool(result),
             "action_id": manifest.action_id,
@@ -1739,7 +1812,13 @@ def execute_action(
             "reason": "executed" if result else "legacy_adapter_no_result",
         }
 
-    audit_id = _audit(db, workspace, user, manifest.audit_event, {"action_id": manifest.action_id, "payload": payload or {}, "surface": surface})
+    audit_id = _audit(
+        db,
+        workspace,
+        user,
+        manifest.audit_event,
+        {"action_id": manifest.action_id, "payload": payload or {}, "surface": surface},
+    )
     return {
         "matched": True,
         "action_id": manifest.action_id,
@@ -1778,8 +1857,14 @@ def handle_transverse_chat_action(
     actions are exposed for UI/Voice/Flow and still let normal RAG answer.
     """
 
-    resolution = resolve_action(workspace, text=query, surface="chat", assistant_profile=assistant_profile)
-    if resolution.matched and resolution.manifest and resolution.manifest.handler.kind == "legacy_adapter":
+    resolution = resolve_action(
+        workspace, text=query, surface="chat", assistant_profile=assistant_profile
+    )
+    if (
+        resolution.matched
+        and resolution.manifest
+        and resolution.manifest.handler.kind == "legacy_adapter"
+    ):
         result = execute_action(
             db,
             workspace,
@@ -1893,7 +1978,9 @@ def _capability_template_packs(settings: dict[str, Any]) -> list[str]:
     return packs
 
 
-def _assistant_profile_packs(settings: dict[str, Any], assistant_profile: Optional[str]) -> list[str]:
+def _assistant_profile_packs(
+    settings: dict[str, Any], assistant_profile: Optional[str]
+) -> list[str]:
     if not assistant_profile:
         return []
     profiles = settings.get("assistant_profiles")

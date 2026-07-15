@@ -1,4 +1,5 @@
 """Workspace visual intelligence for provider-neutral situation monitoring."""
+
 from __future__ import annotations
 
 import base64
@@ -25,9 +26,11 @@ from app.services.audit_logger import emit_audit_event
 from app.services.object_store import get_object_store
 from app.services.workspace_jobs import create_workspace_job, serialize_job, transition_job
 
-
 VISUAL_COLLECTION_SLUG = "sentinel-ci-visual-intelligence"
-LEGACY_DEFAULT_SOURCE_NAMES = ("Abidjan - couche webcam publique", "Abidjan Plateau - veille visuelle")
+LEGACY_DEFAULT_SOURCE_NAMES = (
+    "Abidjan - couche webcam publique",
+    "Abidjan Plateau - veille visuelle",
+)
 ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "name": "Abidjan.net - Pont General-de-Gaulle",
@@ -37,7 +40,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/F9fa32yXTo?autoplay=1",
         "nest_token": "F9fa32yXTo",
         "region": "Abidjan / Pont General-de-Gaulle",
-        "map_location": {"label": "Pont General-de-Gaulle · Abidjan", "longitude": -4.016, "latitude": 5.315, "zone_id": "zone-sud", "zoom": 11.1},
+        "map_location": {
+            "label": "Pont General-de-Gaulle · Abidjan",
+            "longitude": -4.016,
+            "latitude": 5.315,
+            "zone_id": "zone-sud",
+            "zoom": 11.1,
+        },
         "priority": 1,
         "default_vigilance_score": 42,
     },
@@ -49,7 +58,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/v4xT9u9Elg?autoplay=1",
         "nest_token": "v4xT9u9Elg",
         "region": "Abidjan / Plateau",
-        "map_location": {"label": "Boulevard Lagunaire · Plateau", "longitude": -4.020, "latitude": 5.321, "zone_id": "zone-sud", "zoom": 11.2},
+        "map_location": {
+            "label": "Boulevard Lagunaire · Plateau",
+            "longitude": -4.020,
+            "latitude": 5.321,
+            "zone_id": "zone-sud",
+            "zoom": 11.2,
+        },
         "priority": 2,
         "default_vigilance_score": 40,
     },
@@ -61,7 +76,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/9KPnrmunvf?autoplay=1",
         "nest_token": "9KPnrmunvf",
         "region": "Abidjan / Marcory",
-        "map_location": {"label": "Echangeur de Marcory · Abidjan", "longitude": -3.993, "latitude": 5.300, "zone_id": "zone-sud", "zoom": 11.2},
+        "map_location": {
+            "label": "Echangeur de Marcory · Abidjan",
+            "longitude": -3.993,
+            "latitude": 5.300,
+            "zone_id": "zone-sud",
+            "zoom": 11.2,
+        },
         "priority": 3,
         "default_vigilance_score": 44,
     },
@@ -73,7 +94,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/7kMbTt?autoplay=1",
         "nest_token": "7kMbTt",
         "region": "Abidjan / Treichville",
-        "map_location": {"label": "Grand carrefour Treichville · Abidjan", "longitude": -4.002, "latitude": 5.295, "zone_id": "zone-sud", "zoom": 11.0},
+        "map_location": {
+            "label": "Grand carrefour Treichville · Abidjan",
+            "longitude": -4.002,
+            "latitude": 5.295,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
         "priority": 4,
         "default_vigilance_score": 45,
     },
@@ -85,7 +112,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/kRwGtt?autoplay=1",
         "nest_token": "kRwGtt",
         "region": "Abidjan / Koumassi",
-        "map_location": {"label": "Grand carrefour Koumassi · Abidjan", "longitude": -3.948, "latitude": 5.296, "zone_id": "zone-sud", "zoom": 11.0},
+        "map_location": {
+            "label": "Grand carrefour Koumassi · Abidjan",
+            "longitude": -3.948,
+            "latitude": 5.296,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
         "priority": 5,
         "default_vigilance_score": 43,
     },
@@ -97,7 +130,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/aI5d42?autoplay=1",
         "nest_token": "aI5d42",
         "region": "Abidjan / Cocody",
-        "map_location": {"label": "Carrefour Sococe 2 Plateaux · Cocody", "longitude": -3.991, "latitude": 5.378, "zone_id": "zone-sud", "zoom": 11.0},
+        "map_location": {
+            "label": "Carrefour Sococe 2 Plateaux · Cocody",
+            "longitude": -3.991,
+            "latitude": 5.378,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
         "priority": 6,
         "default_vigilance_score": 39,
     },
@@ -109,7 +148,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/qESphtavfu?autoplay=1",
         "nest_token": "qESphtavfu",
         "region": "Abidjan / Yopougon",
-        "map_location": {"label": "Yopougon Sable · Abidjan", "longitude": -4.083, "latitude": 5.334, "zone_id": "zone-sud", "zoom": 11.0},
+        "map_location": {
+            "label": "Yopougon Sable · Abidjan",
+            "longitude": -4.083,
+            "latitude": 5.334,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
         "priority": 7,
         "default_vigilance_score": 46,
     },
@@ -121,7 +166,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "embed_url": "https://video.nest.com/embedded/live/3SWh5rcBTO?autoplay=1",
         "nest_token": "3SWh5rcBTO",
         "region": "Cote d'Ivoire / Assinie",
-        "map_location": {"label": "Plage d'Assinie · littoral", "longitude": -3.289, "latitude": 5.132, "zone_id": "zone-est", "zoom": 10.3},
+        "map_location": {
+            "label": "Plage d'Assinie · littoral",
+            "longitude": -3.289,
+            "latitude": 5.132,
+            "zone_id": "zone-est",
+            "zoom": 10.3,
+        },
         "priority": 8,
         "default_vigilance_score": 34,
     },
@@ -144,7 +195,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_page": "https://www.apmterminals.com/en/apapa/practical-information/gate-cameras",
         "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1",
         "region": "Demo : Apapa (Lagos)",
-        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa gate #1)", "longitude": -4.018, "latitude": 5.244, "zone_id": "zone-sud", "zoom": 12.0},
+        "map_location": {
+            "label": "Port d'Abidjan - Vridi (vue demo Apapa gate #1)",
+            "longitude": -4.018,
+            "latitude": 5.244,
+            "zone_id": "zone-sud",
+            "zoom": 12.0,
+        },
         "priority": 9,
         "default_vigilance_score": 41,
         "label_disclaimer": "Reference visuelle - demo Abidjan (source : APM Terminals Apapa, Lagos)",
@@ -188,7 +245,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_page": "https://www.apmterminals.com/en/apapa/practical-information/gate-cameras",
         "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2",
         "region": "Demo : Apapa (Lagos) · gate cam #2",
-        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa gate #2)", "longitude": -4.020, "latitude": 5.245, "zone_id": "zone-sud", "zoom": 12.0},
+        "map_location": {
+            "label": "Port d'Abidjan - Vridi (vue demo Apapa gate #2)",
+            "longitude": -4.020,
+            "latitude": 5.245,
+            "zone_id": "zone-sud",
+            "zoom": 12.0,
+        },
         "priority": 13,
         "default_vigilance_score": 39,
         "label_disclaimer": "Reference visuelle - demo Abidjan (source : APM Terminals Apapa, Lagos)",
@@ -232,7 +295,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_page": "https://portabidjan.ci/fr/visite-virtuelle/phototheque",
         "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue",
         "region": "Abidjan / Vridi - vue aerienne PAA",
-        "map_location": {"label": "Port d'Abidjan - vue aerienne (PAA)", "longitude": -4.010, "latitude": 5.246, "zone_id": "zone-sud", "zoom": 11.5},
+        "map_location": {
+            "label": "Port d'Abidjan - vue aerienne (PAA)",
+            "longitude": -4.010,
+            "latitude": 5.246,
+            "zone_id": "zone-sud",
+            "zoom": 11.5,
+        },
         "priority": 14,
         "default_vigilance_score": 33,
         "label_disclaimer": "Phototheque officielle PAA - reference visuelle (pas de live)",
@@ -273,7 +342,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_page": "https://portabidjan.ci/fr/visite-virtuelle/phototheque",
         "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-terminal-petrolier",
         "region": "Abidjan / Vridi - terminal petrolier",
-        "map_location": {"label": "Terminal petrolier - Port d'Abidjan", "longitude": -4.022, "latitude": 5.241, "zone_id": "zone-sud", "zoom": 13.0},
+        "map_location": {
+            "label": "Terminal petrolier - Port d'Abidjan",
+            "longitude": -4.022,
+            "latitude": 5.241,
+            "zone_id": "zone-sud",
+            "zoom": 13.0,
+        },
         "priority": 15,
         "default_vigilance_score": 31,
         "label_disclaimer": "Phototheque officielle PAA - reference visuelle (pas de live)",
@@ -315,7 +390,13 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_page": "https://www.vesselfinder.com/?bbox=-4.10,5.20,-3.90,5.30",
         "embed_url": "https://www.vesselfinder.com/aismap?zoom=11&lat=5.25&lon=-3.99&names=true&track=true",
         "region": "Abidjan / Vridi · overlay AIS VesselFinder",
-        "map_location": {"label": "Port d'Abidjan - overlay VesselFinder", "longitude": -3.99, "latitude": 5.25, "zone_id": "zone-sud", "zoom": 11.0},
+        "map_location": {
+            "label": "Port d'Abidjan - overlay VesselFinder",
+            "longitude": -3.99,
+            "latitude": 5.25,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
         "priority": 16,
         "default_vigilance_score": 36,
         "label_disclaimer": "Source publique VesselFinder - attribution dans l'iframe",
@@ -523,7 +604,10 @@ def ensure_visual_intelligence_seed(
     for index, spec in enumerate(ABIDJAN_NET_VISUAL_SOURCES):
         existing = (
             db.query(WorkspaceVisualSource)
-            .filter(WorkspaceVisualSource.workspace_id == workspace.id, WorkspaceVisualSource.name == spec["name"])
+            .filter(
+                WorkspaceVisualSource.workspace_id == workspace.id,
+                WorkspaceVisualSource.name == spec["name"],
+            )
             .first()
         )
         if not existing and index == 0 and legacy_source:
@@ -553,13 +637,21 @@ def ensure_visual_intelligence_seed(
                 workspace_id=workspace.id,
                 event_type="visual.source.seeded",
                 actor="system",
-                details={"source_id": existing.id, "adapter": existing.adapter, "collection": collection.slug},
+                details={
+                    "source_id": existing.id,
+                    "adapter": existing.adapter,
+                    "collection": collection.slug,
+                },
             )
         else:
             _apply_seed_source(existing, spec, default_policy, system_id=system_id)
             db.flush()
         seeded_source_ids.append(existing.id)
-    return {"collection": collection.slug, "source_id": seeded_source_ids[0], "source_created": source_created}
+    return {
+        "collection": collection.slug,
+        "source_id": seeded_source_ids[0],
+        "source_created": source_created,
+    }
 
 
 def _default_visual_policy() -> dict[str, Any]:
@@ -581,41 +673,43 @@ def _apply_seed_source(
 ) -> None:
     metadata = dict(source.meta_data or {})
     seeded_metadata = _webcam_metadata(spec)
-    metadata.update({
-        key: value
-        for key, value in seeded_metadata.items()
-        if key not in metadata
-        or key
-        in {
-            "provider",
-            "video_provider",
-            "layer_kind",
-            "stream_kind",
-            "embed_url",
-            "player_url",
-            "preview_url",
-            "source_page",
-            "preferred_render",
-            "embed_status",
-            "fallback_reason",
-            "analysis_mode",
-            "attribution",
-            "timelapse_policy",
-            "priority",
-            "nest_public_token",
-            "refresh_seconds",
-            "resolution_tier",
-            "resolution_label",
-            "native_resolution_hint",
-            "evidence_grade",
-            "analysis_constraints",
-            "best_use",
-            "map_location",
-            "zone_id",
-            "camera_label",
-            "map_zoom",
+    metadata.update(
+        {
+            key: value
+            for key, value in seeded_metadata.items()
+            if key not in metadata
+            or key
+            in {
+                "provider",
+                "video_provider",
+                "layer_kind",
+                "stream_kind",
+                "embed_url",
+                "player_url",
+                "preview_url",
+                "source_page",
+                "preferred_render",
+                "embed_status",
+                "fallback_reason",
+                "analysis_mode",
+                "attribution",
+                "timelapse_policy",
+                "priority",
+                "nest_public_token",
+                "refresh_seconds",
+                "resolution_tier",
+                "resolution_label",
+                "native_resolution_hint",
+                "evidence_grade",
+                "analysis_constraints",
+                "best_use",
+                "map_location",
+                "zone_id",
+                "camera_label",
+                "map_zoom",
+            }
         }
-    })
+    )
     source.name = spec["name"]
     source.description = spec["description"]
     source.source_url = spec["source_url"]
@@ -635,7 +729,10 @@ def _apply_seed_source(
 def ensure_visual_collection(db: DBSession, workspace: Workspace) -> KnowledgeCollection:
     existing = (
         db.query(KnowledgeCollection)
-        .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == VISUAL_COLLECTION_SLUG)
+        .filter(
+            KnowledgeCollection.workspace_id == workspace.id,
+            KnowledgeCollection.slug == VISUAL_COLLECTION_SLUG,
+        )
         .first()
     )
     if existing:
@@ -679,7 +776,10 @@ def _source_priority(source: WorkspaceVisualSource) -> int:
 def get_source(db: DBSession, workspace: Workspace, source_id: str) -> WorkspaceVisualSource:
     row = (
         db.query(WorkspaceVisualSource)
-        .filter(WorkspaceVisualSource.id == source_id, WorkspaceVisualSource.workspace_id == workspace.id)
+        .filter(
+            WorkspaceVisualSource.id == source_id,
+            WorkspaceVisualSource.workspace_id == workspace.id,
+        )
         .first()
     )
     if not row:
@@ -726,7 +826,9 @@ def create_source(
     )
     db.add(row)
     db.flush()
-    _audit(db, workspace, user, "visual.source.created", {"source_id": row.id, "adapter": row.adapter})
+    _audit(
+        db, workspace, user, "visual.source.created", {"source_id": row.id, "adapter": row.adapter}
+    )
     return row
 
 
@@ -762,7 +864,13 @@ def update_source(
         touched.append(key)
     row.updated_at = datetime.utcnow()
     db.flush()
-    _audit(db, workspace, user, "visual.source.updated", {"source_id": row.id, "updates": sorted(touched)})
+    _audit(
+        db,
+        workspace,
+        user,
+        "visual.source.updated",
+        {"source_id": row.id, "updates": sorted(touched)},
+    )
     return row
 
 
@@ -806,7 +914,9 @@ def dispatch_visual_capture_job(
         return f"eager:{job.id}"
     from app.workers.tasks import visual_snapshot_capture
 
-    result = visual_snapshot_capture.apply_async(args=(job.id,), queue=settings.celery_task_default_queue)
+    result = visual_snapshot_capture.apply_async(
+        args=(job.id,), queue=settings.celery_task_default_queue
+    )
     job.result = {**(job.result or {}), "celery_task_id": result.id}
     db.flush()
     return result.id
@@ -826,7 +936,10 @@ def run_visual_capture_job(job_id: str) -> dict[str, Any]:
         source_id = (job.input_ref or {}).get("source_id")
         source = (
             db.query(WorkspaceVisualSource)
-            .filter(WorkspaceVisualSource.id == source_id, WorkspaceVisualSource.workspace_id == workspace.id)
+            .filter(
+                WorkspaceVisualSource.id == source_id,
+                WorkspaceVisualSource.workspace_id == workspace.id,
+            )
             .first()
         )
         if not source:
@@ -861,7 +974,9 @@ def capture_source(
         digest = hashlib.sha256(content).hexdigest()
         ext = _extension_for_mime(mime_type)
         store = get_object_store()
-        object_key = store.key("workspaces", workspace.id, "visual-intelligence", source.id, f"{capture_id}.{ext}")
+        object_key = store.key(
+            "workspaces", workspace.id, "visual-intelligence", source.id, f"{capture_id}.{ext}"
+        )
         store.write_bytes(object_key, content)
         capture = WorkspaceVisualCapture(
             id=capture_id,
@@ -880,8 +995,12 @@ def capture_source(
         )
         db.add(capture)
         db.flush()
-        transition_job(db, workspace, job, "running", progress=70, stage="analyze_snapshot", user=user)
-        observation = _analyze_capture(db, workspace, source, capture, capture_meta, content, mime_type)
+        transition_job(
+            db, workspace, job, "running", progress=70, stage="analyze_snapshot", user=user
+        )
+        observation = _analyze_capture(
+            db, workspace, source, capture, capture_meta, content, mime_type
+        )
         capture.status = "analyzed"
         source.last_captured_at = capture.captured_at
         source.status = "active"
@@ -894,7 +1013,11 @@ def capture_source(
             "completed",
             progress=100,
             stage="synced_to_knowledge",
-            result={"capture_id": capture.id, "observation_id": observation.id, "knowledge_object_key": sync_key},
+            result={
+                "capture_id": capture.id,
+                "observation_id": observation.id,
+                "knowledge_object_key": sync_key,
+            },
             user=user,
         )
         _audit(
@@ -919,7 +1042,9 @@ def capture_source(
         }
     except Exception as exc:  # noqa: BLE001
         source.status = "error"
-        transition_job(db, workspace, job, "failed", progress=100, stage="failed", error=str(exc), user=user)
+        transition_job(
+            db, workspace, job, "failed", progress=100, stage="failed", error=str(exc), user=user
+        )
         failed = WorkspaceVisualCapture(
             id=capture_id,
             workspace_id=workspace.id,
@@ -935,15 +1060,26 @@ def capture_source(
             captured_at=datetime.utcnow(),
         )
         db.add(failed)
-        _audit(db, workspace, user, "visual.capture.failed", {"source_id": source.id, "job_id": job.id, "error": str(exc)})
+        _audit(
+            db,
+            workspace,
+            user,
+            "visual.capture.failed",
+            {"source_id": source.id, "job_id": job.id, "error": str(exc)},
+        )
         db.flush()
         raise
 
 
-def list_captures(db: DBSession, workspace: Workspace, source_id: str, *, limit: int = 50) -> list[WorkspaceVisualCapture]:
+def list_captures(
+    db: DBSession, workspace: Workspace, source_id: str, *, limit: int = 50
+) -> list[WorkspaceVisualCapture]:
     return (
         db.query(WorkspaceVisualCapture)
-        .filter(WorkspaceVisualCapture.workspace_id == workspace.id, WorkspaceVisualCapture.source_id == source_id)
+        .filter(
+            WorkspaceVisualCapture.workspace_id == workspace.id,
+            WorkspaceVisualCapture.source_id == source_id,
+        )
         .order_by(WorkspaceVisualCapture.captured_at.desc())
         .limit(max(1, min(limit, 200)))
         .all()
@@ -953,7 +1089,10 @@ def list_captures(db: DBSession, workspace: Workspace, source_id: str, *, limit:
 def get_capture(db: DBSession, workspace: Workspace, capture_id: str) -> WorkspaceVisualCapture:
     row = (
         db.query(WorkspaceVisualCapture)
-        .filter(WorkspaceVisualCapture.id == capture_id, WorkspaceVisualCapture.workspace_id == workspace.id)
+        .filter(
+            WorkspaceVisualCapture.id == capture_id,
+            WorkspaceVisualCapture.workspace_id == workspace.id,
+        )
         .first()
     )
     if not row:
@@ -961,7 +1100,9 @@ def get_capture(db: DBSession, workspace: Workspace, capture_id: str) -> Workspa
     return row
 
 
-def latest_observations(db: DBSession, workspace: Workspace, *, limit: int = 5) -> list[WorkspaceVisualObservation]:
+def latest_observations(
+    db: DBSession, workspace: Workspace, *, limit: int = 5
+) -> list[WorkspaceVisualObservation]:
     return (
         db.query(WorkspaceVisualObservation)
         .filter(WorkspaceVisualObservation.workspace_id == workspace.id)
@@ -1005,11 +1146,17 @@ def dashboard_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "total_sources": len(sources),
             "captures": len(captures),
             "observations": len(observations),
-            "last_capture_at": latest_capture.captured_at.isoformat() if latest_capture and latest_capture.captured_at else None,
-            "last_analysis_at": latest.created_at.isoformat() if latest and latest.created_at else None,
+            "last_capture_at": latest_capture.captured_at.isoformat()
+            if latest_capture and latest_capture.captured_at
+            else None,
+            "last_analysis_at": latest.created_at.isoformat()
+            if latest and latest.created_at
+            else None,
             "freshness_status": freshness,
             "next_capture_at": next_capture_at.isoformat() if next_capture_at else None,
-            "coverage_label": "Flux visuels habilites" if active_sources else "Aucune source active",
+            "coverage_label": "Flux visuels habilites"
+            if active_sources
+            else "Aucune source active",
         },
         "posture": posture,
         "sources": [serialize_source(source) for source in sources],
@@ -1054,7 +1201,17 @@ def handle_visual_chat_query(
     if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     lowered = (query or "").lower()
-    triggers = ("visuel", "visuelle", "webcam", "camera", "caméra", "capture", "image", "flux", "observation")
+    triggers = (
+        "visuel",
+        "visuelle",
+        "webcam",
+        "camera",
+        "caméra",
+        "capture",
+        "image",
+        "flux",
+        "observation",
+    )
     if not any(token in lowered for token in triggers):
         return None
     workspace_settings = dict((workspace.settings or {}).get("visual_intelligence") or {})
@@ -1147,7 +1304,9 @@ def serialize_source(source: WorkspaceVisualSource) -> dict[str, Any]:
         "capture_cadence_minutes": source.capture_cadence_minutes,
         "policy": source.policy or {},
         "metadata": source.meta_data or {},
-        "last_captured_at": source.last_captured_at.isoformat() if source.last_captured_at else None,
+        "last_captured_at": source.last_captured_at.isoformat()
+        if source.last_captured_at
+        else None,
         "freshness_status": freshness,
         "next_capture_at": next_capture_at.isoformat() if next_capture_at else None,
         "created_at": source.created_at.isoformat() if source.created_at else None,
@@ -1257,13 +1416,27 @@ def _webcam_metadata(spec: dict[str, Any]) -> dict[str, Any]:
 
 def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str, Any]]:
     if source.adapter == "demo_static" or source.source_url.startswith("demo://"):
-        return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True}
+        return (
+            _demo_snapshot(source),
+            "image/svg+xml",
+            {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True},
+        )
     if source.adapter == "http_image" and (source.meta_data or {}).get("provider") == "windy":
         try:
             return _capture_windy_webcam(source)
         except Exception:
             if (source.meta_data or {}).get("demo_fallback"):
-                return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True, "fallback": "windy_unavailable"}
+                return (
+                    _demo_snapshot(source),
+                    "image/svg+xml",
+                    {
+                        "adapter": source.adapter,
+                        "width": 960,
+                        "height": 540,
+                        "demo_safe": True,
+                        "fallback": "windy_unavailable",
+                    },
+                )
             raise
     if source.adapter == "browser_screenshot":
         if not settings.visual_capture_browser_enabled:
@@ -1278,12 +1451,23 @@ def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str,
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
             try:
-                page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
+                page = browser.new_page(
+                    viewport={"width": 1280, "height": 720}, device_scale_factor=1
+                )
                 page.goto(source.source_url, wait_until="networkidle", timeout=timeout_ms)
                 content = page.screenshot(type="png", full_page=False)
             finally:
                 browser.close()
-        return content, "image/png", {"adapter": source.adapter, "source_url": source.source_url, "width": 1280, "height": 720}
+        return (
+            content,
+            "image/png",
+            {
+                "adapter": source.adapter,
+                "source_url": source.source_url,
+                "width": 1280,
+                "height": 720,
+            },
+        )
     if source.adapter != "http_image":
         raise RuntimeError(f"unsupported_visual_adapter:{source.adapter}")
     if not source.source_url.startswith(("http://", "https://")):
@@ -1292,16 +1476,38 @@ def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str,
         content, mime_type = _fetch_http_image(source.source_url)
     except Exception:
         if (source.meta_data or {}).get("demo_fallback"):
-            return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True, "fallback": "http_image_unavailable"}
+            return (
+                _demo_snapshot(source),
+                "image/svg+xml",
+                {
+                    "adapter": source.adapter,
+                    "width": 960,
+                    "height": 540,
+                    "demo_safe": True,
+                    "fallback": "http_image_unavailable",
+                },
+            )
         raise
-    return content, mime_type, {"adapter": source.adapter, "source_url": source.source_url, "provider": (source.meta_data or {}).get("provider")}
+    return (
+        content,
+        mime_type,
+        {
+            "adapter": source.adapter,
+            "source_url": source.source_url,
+            "provider": (source.meta_data or {}).get("provider"),
+        },
+    )
 
 
 def _fetch_http_image(url: str) -> tuple[bytes, str]:
-    with httpx.Client(timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True
+    ) as client:
         response = client.get(url, headers={"User-Agent": "AgentiumVisualIntelligence/1.0"})
         response.raise_for_status()
-    mime_type = response.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    mime_type = (
+        response.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    )
     if not mime_type.startswith("image/"):
         raise RuntimeError(f"visual_source_not_image:{mime_type}")
     return response.content, mime_type
@@ -1315,8 +1521,12 @@ def _capture_windy_webcam(source: WorkspaceVisualSource) -> tuple[bytes, str, di
     if not settings.visual_capture_windy_api_key:
         raise RuntimeError("windy_api_key_missing")
     url = f"https://api.windy.com/webcams/api/v3/webcams/{webcam_id}?include=images,urls"
-    with httpx.Client(timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True) as client:
-        response = client.get(url, headers={"x-windy-api-key": settings.visual_capture_windy_api_key})
+    with httpx.Client(
+        timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True
+    ) as client:
+        response = client.get(
+            url, headers={"x-windy-api-key": settings.visual_capture_windy_api_key}
+        )
         response.raise_for_status()
     payload = response.json()
     webcam = (payload.get("webcams") or [payload])[0]
@@ -1329,14 +1539,18 @@ def _capture_windy_webcam(source: WorkspaceVisualSource) -> tuple[bytes, str, di
     if not image_url:
         raise RuntimeError("windy_preview_unavailable")
     content, mime_type = _fetch_http_image(image_url)
-    return content, mime_type, {
-        "adapter": source.adapter,
-        "provider": "windy",
-        "webcam_id": webcam_id,
-        "source_url": image_url,
-        "player_url": (webcam.get("urls") or {}).get("player") or metadata.get("player_url"),
-        "last_updated": webcam.get("lastUpdatedOn"),
-    }
+    return (
+        content,
+        mime_type,
+        {
+            "adapter": source.adapter,
+            "provider": "windy",
+            "webcam_id": webcam_id,
+            "source_url": image_url,
+            "player_url": (webcam.get("urls") or {}).get("player") or metadata.get("player_url"),
+            "last_updated": webcam.get("lastUpdatedOn"),
+        },
+    )
 
 
 def _analyze_capture(
@@ -1367,7 +1581,9 @@ def _analyze_capture(
         "cote-ivoire",
         "validation-humaine",
     ]
-    confidence = _bounded_float(analysis.get("confidence"), default=0.68 if capture_meta.get("demo_safe") else 0.62)
+    confidence = _bounded_float(
+        analysis.get("confidence"), default=0.68 if capture_meta.get("demo_safe") else 0.62
+    )
     score = _bounded_int(analysis.get("vigilance_score"), default=default_score, lower=0, upper=100)
     level = str(analysis.get("level_label") or _level_label(score)).lower()
     if level not in {"stable", "monitoring", "elevated", "critical"}:
@@ -1406,7 +1622,11 @@ def _analyze_capture(
         workspace_id=workspace.id,
         event_type="visual.observation.created",
         actor="system",
-        details={"source_id": source.id, "capture_id": capture.id, "observation_id": observation.id},
+        details={
+            "source_id": source.id,
+            "capture_id": capture.id,
+            "observation_id": observation.id,
+        },
     )
     return observation
 
@@ -1418,7 +1638,11 @@ def _run_visual_analysis(
     content: bytes,
     mime_type: str,
 ) -> dict[str, Any]:
-    if not settings.visual_analysis_enabled or capture_meta.get("demo_safe") or not mime_type.startswith("image/"):
+    if (
+        not settings.visual_analysis_enabled
+        or capture_meta.get("demo_safe")
+        or not mime_type.startswith("image/")
+    ):
         return {"analysis": "rule_based", "provider": "rule_based"}
     provider = (settings.visual_analysis_provider or "openai").lower()
     try:
@@ -1426,7 +1650,11 @@ def _run_visual_analysis(
             return _run_openai_visual_analysis(source, capture, content, mime_type)
         if provider in {"local_http", "http"}:
             return _run_http_visual_analysis(source, capture, content, mime_type)
-        return {"analysis": "rule_based", "provider": "rule_based", "error": f"unsupported_visual_analysis_provider:{provider}"}
+        return {
+            "analysis": "rule_based",
+            "provider": "rule_based",
+            "error": f"unsupported_visual_analysis_provider:{provider}",
+        }
     except Exception as exc:  # noqa: BLE001
         return {"analysis": "rule_based", "provider": "rule_based", "error": str(exc)[:240]}
 
@@ -1438,13 +1666,23 @@ def _run_openai_visual_analysis(
     mime_type: str,
 ) -> dict[str, Any]:
     if not settings.openai_api_key:
-        return {"analysis": "rule_based", "provider": "rule_based", "error": "openai_api_key_missing"}
+        return {
+            "analysis": "rule_based",
+            "provider": "rule_based",
+            "error": "openai_api_key_missing",
+        }
     try:
         from openai import OpenAI
     except Exception as exc:  # noqa: BLE001
-        return {"analysis": "rule_based", "provider": "rule_based", "error": f"openai_sdk_unavailable:{exc}"}
+        return {
+            "analysis": "rule_based",
+            "provider": "rule_based",
+            "error": f"openai_sdk_unavailable:{exc}",
+        }
 
-    client = OpenAI(api_key=settings.openai_api_key, timeout=settings.visual_analysis_timeout_seconds)
+    client = OpenAI(
+        api_key=settings.openai_api_key, timeout=settings.visual_analysis_timeout_seconds
+    )
     image_b64 = base64.b64encode(content).decode("ascii")
     prompt = _visual_analysis_prompt(source, capture)
     response = client.chat.completions.create(
@@ -1465,7 +1703,13 @@ def _run_openai_visual_analysis(
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}", "detail": "low"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_b64}",
+                            "detail": "low",
+                        },
+                    },
                 ],
             },
         ],
@@ -1487,14 +1731,20 @@ def _run_http_visual_analysis(
     mime_type: str,
 ) -> dict[str, Any]:
     if not settings.visual_analysis_endpoint_url:
-        return {"analysis": "rule_based", "provider": "rule_based", "error": "visual_analysis_endpoint_missing"}
+        return {
+            "analysis": "rule_based",
+            "provider": "rule_based",
+            "error": "visual_analysis_endpoint_missing",
+        }
     payload = {
         "image_base64": base64.b64encode(content).decode("ascii"),
         "mime_type": mime_type,
         "prompt": _visual_analysis_prompt(source, capture),
         "source": {"id": source.id, "name": source.name, "region": source.region},
     }
-    with httpx.Client(timeout=settings.visual_analysis_timeout_seconds, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=settings.visual_analysis_timeout_seconds, follow_redirects=True
+    ) as client:
         response = client.post(settings.visual_analysis_endpoint_url, json=payload)
         response.raise_for_status()
     data = response.json()
@@ -1610,14 +1860,24 @@ def _posture_summary(label: str, score: int) -> str:
     if label == "critical":
         return f"Posture critique ({score}/100) : confirmation operateur immediate recommandee."
     if label == "elevated":
-        return f"Posture elevee ({score}/100) : observation a rapprocher des signaux presse et agenda."
+        return (
+            f"Posture elevee ({score}/100) : observation a rapprocher des signaux presse et agenda."
+        )
     if label == "monitoring":
         return f"Posture en surveillance ({score}/100) : source exploitable, aucun signal visuel critique automatise."
     return f"Posture stable ({score}/100) : veille visuelle nominale."
 
 
-def _audit(db: DBSession, workspace: Workspace, user: Optional[User], event_type: str, details: dict[str, Any]) -> None:
+def _audit(
+    db: DBSession,
+    workspace: Workspace,
+    user: Optional[User],
+    event_type: str,
+    details: dict[str, Any],
+) -> None:
     actor = "system"
     if user:
         actor = user.email or user.username or user.id
-    emit_audit_event(db=db, workspace_id=workspace.id, event_type=event_type, actor=actor, details=details)
+    emit_audit_event(
+        db=db, workspace_id=workspace.id, event_type=event_type, actor=actor, details=details
+    )

@@ -1,13 +1,14 @@
 """Keycloak OIDC authentication — JWT validation and FastAPI dependencies"""
-import time
+
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
 import httpx
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session as DBSession
 
@@ -136,7 +137,9 @@ def _extract_roles(payload: dict) -> list[str]:
     return client_roles.get("roles", [])
 
 
-def _ensure_personal_workspace(db: DBSession, user: User, display_name: Optional[str] = None) -> None:
+def _ensure_personal_workspace(
+    db: DBSession, user: User, display_name: Optional[str] = None
+) -> None:
     """If the user has no workspace memberships, create a Personal workspace.
 
     Idempotent: if the user already belongs to any workspace (even as member),
@@ -236,18 +239,26 @@ def get_current_workspace(
       wrong or the user was fully removed).
     """
     if x_workspace_slug:
-        workspace = db.query(Workspace).filter(
-            Workspace.slug == x_workspace_slug,
-            Workspace.is_active == True,  # noqa: E712
-            Workspace.deleted_at.is_(None),
-        ).first()
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.slug == x_workspace_slug,
+                Workspace.is_active == True,  # noqa: E712
+                Workspace.deleted_at.is_(None),
+            )
+            .first()
+        )
         if not workspace:
             raise HTTPException(status_code=404, detail=f"Workspace '{x_workspace_slug}' not found")
 
-        membership = db.query(WorkspaceMember).filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        ).first()
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.user_id == user.id,
+                WorkspaceMember.workspace_id == workspace.id,
+            )
+            .first()
+        )
         if not membership:
             raise HTTPException(
                 status_code=403,
