@@ -28,6 +28,11 @@ from app.services.iam.config_service import (
     load_iam_config,
     patch_iam_config,
 )
+from app.services.iam.app_entitlements import (
+    list_member_app_entitlements,
+    normalize_app_entitlements,
+    replace_member_app_entitlements,
+)
 from app.services.iam.engine import AuthorizationEngine
 from app.services.iam.manifest import CAPTURE_MANIFEST, iter_permissions
 
@@ -42,6 +47,7 @@ class IamConfigPatch(BaseModel):
 class MemberIamUpdate(BaseModel):
     role_template: str
     custom_labels: List[str] = Field(default_factory=list)
+    app_entitlements: Optional[List[str]] = None
 
 
 class IamEvaluateRequest(BaseModel):
@@ -63,6 +69,7 @@ def _member_payload(db: DBSession, membership: WorkspaceMember, current_user_id:
             membership.role,
         ),
         "custom_labels": membership.custom_labels or [],
+        "app_entitlements": list_member_app_entitlements(db, membership),
         "joined_at": membership.joined_at.isoformat() if membership.joined_at else None,
         "is_current_user": membership.user_id == current_user_id,
     }
@@ -195,6 +202,20 @@ async def update_member_iam(
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
     _admin_gate(db, user=user, workspace=workspace, resource_kind="workspace", action="manage_members")
+    try:
+        requested_app_entitlements = (
+            normalize_app_entitlements(body.app_entitlements)
+            if body.app_entitlements is not None
+            else None
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_APP_ENTITLEMENT",
+                "message": str(exc),
+            },
+        ) from exc
     if body.role_template not in CANONICAL_WORKSPACE_ROLES:
         raise HTTPException(status_code=400, detail="Unknown role_template")
     if body.role_template == WORKSPACE_OWNER:
@@ -236,6 +257,14 @@ async def update_member_iam(
     target.role_template = body.role_template
     target.role = legacy_role_for_template(body.role_template)
     target.custom_labels = body.custom_labels
+    if requested_app_entitlements is not None:
+        replace_member_app_entitlements(
+            db,
+            target,
+            requested_app_entitlements,
+            granted_by_user_id=user.id,
+            grant_source="iam_member_update",
+        )
     db.commit()
     db.refresh(target)
     return {"status": "ok", "member": _member_payload(db, target, user.id)}

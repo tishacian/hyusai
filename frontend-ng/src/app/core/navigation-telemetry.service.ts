@@ -25,6 +25,7 @@ export type NavigationRedirectReason =
   | 'business_knowledge_compatibility'
   | 'business_system_capture_compatibility'
   | 'workspace_default_route'
+  | 'workspace_extension_unavailable'
   | 'workspace_settings_entrypoint';
 
 export interface NavigationRedirectDecision {

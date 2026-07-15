@@ -35,6 +35,7 @@ const pureSpecs = [
   'src/app/core/workspace-view-context.spec.ts',
   'src/app/core/navigation.catalog.spec.ts',
   'src/app/core/workspace-experience.spec.ts',
+  'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
 ];
 
@@ -69,6 +70,7 @@ const storeSpecs = [
   'src/app/features/layout/semantic-zoom-breadcrumb.component.spec.ts',
   'src/app/features/layout/title-bar.component.spec.ts',
   'src/app/features/mission-room/mission-room.component.spec.ts',
+  'src/app/features/mission-room/mission-room.routes.spec.ts',
   'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
   'src/app/features/knowledge/knowledge-capture.component.spec.ts',
   'src/app/features/knowledge/capture-fil/capture-engine.spec.ts',

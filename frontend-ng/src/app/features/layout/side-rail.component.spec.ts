@@ -39,3 +39,39 @@ test('side rail delegates every lens route to the route-owned navigation project
   assert.equal(rail.routeFor(govern), '/systems/system-42?lens=govern');
   assert.deepEqual(calls, [['govern', '/governance']]);
 });
+
+test('demo rail uses Mission Room home only when the extension is enabled', () => {
+  let current = {
+    mode: 'demo',
+    settings: { mission_room: { enabled: true } },
+  };
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          current: () => current,
+          mode: () => 'demo',
+          isDemoMode: () => true,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'hypervisor',
+          urlForLens: (_target: string, fallback: string) => fallback,
+          urlTreeForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(SideRailComponent);
+  const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
+
+  assert.equal(rail.routeFor(hypervisor), '/hypervisor/mission-room/cockpit');
+
+  current = { mode: 'demo', settings: { mission_room: { enabled: false } } };
+  assert.equal(rail.routeFor(hypervisor), '/hypervisor');
+});

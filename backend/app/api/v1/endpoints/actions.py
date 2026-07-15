@@ -14,7 +14,7 @@ from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.actions.registry import (
-    all_action_manifests,
+    catalog_action_manifests,
     effective_action_manifests,
     execute_action,
     resolve_action,
@@ -64,7 +64,7 @@ async def list_action_manifests(
             inherited_from=manifest.pack,
             demo_safe=demo_safe,
         )
-        for manifest in all_action_manifests()
+        for manifest in catalog_action_manifests(workspace)
         if not surface or surface in manifest.surfaces
     ]
     return {"manifests": manifests}

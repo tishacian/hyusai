@@ -1357,9 +1357,19 @@ def _octave_text(value: str) -> str:
         ("Vice Premier Ministre", "Directrice de Coordination"),
         ("Vice-Premier Ministre", "Directrice de Coordination"),
         ("Abidjan", "Meridian"),
+        ("abidjan", "meridian"),
         ("Nawa", "Liora"),
+        ("nawa", "liora"),
         ("Napié", "Auralis"),
         ("Napie", "Auralis"),
+        ("napié", "auralis"),
+        ("napie", "auralis"),
+        ("Prefet", "Coordinateur territorial"),
+        ("Préfet", "Coordinateur territorial"),
+        ("prefet", "coordinateur territorial"),
+        ("préfet", "coordinateur territorial"),
+        ("Sahel", "Northern Belt"),
+        ("sahel", "northern belt"),
         ("CEDEAO", "Alliance Aurora"),
         ("FANCI", "Garde Civique d'Asteria"),
         ("Cote d'Ivoire", "Asteria"),
@@ -1389,19 +1399,30 @@ def _octave_payload(value: Any) -> Any:
     return value
 
 
+_OCTAVE_PUBLIC_ACTION_IDS = {
+    # Keep the historical flow-node handler below, but do not expose the
+    # Sentinel fixture's sector in Octocity's public action contract.
+    "aya.recommend_cacao": "octave.recommend_diversification",
+}
+
+
 def _octave_aliases(actions: tuple[ActionManifest, ...], *, pack: str) -> tuple[ActionManifest, ...]:
     aliases: list[ActionManifest] = []
     for manifest in actions:
         suffix = manifest.action_id.split(".", 1)[1] if "." in manifest.action_id else manifest.action_id
+        action_id = _OCTAVE_PUBLIC_ACTION_IDS.get(manifest.action_id, f"octave.{suffix}")
+        audit_event = _octave_text(manifest.audit_event)
+        if manifest.action_id in _OCTAVE_PUBLIC_ACTION_IDS:
+            audit_event = f"action.{action_id}"
         aliases.append(
             replace(
                 manifest,
-                action_id=f"octave.{suffix}",
+                action_id=action_id,
                 label=_octave_text(manifest.label),
                 description=_octave_text(manifest.description),
                 phrases=tuple(_octave_text(phrase) for phrase in manifest.phrases),
                 input_schema=_octave_payload(manifest.input_schema),
-                audit_event=_octave_text(manifest.audit_event),
+                audit_event=audit_event,
                 pack=pack,
                 capability_template="octave_voice_command",
             )
@@ -1427,6 +1448,27 @@ def all_action_manifests() -> list[ActionManifest]:
     manifests: list[ActionManifest] = []
     for pack in PACKS.values():
         manifests.extend(pack)
+    return manifests
+
+
+def catalog_action_manifests(workspace: Workspace) -> list[ActionManifest]:
+    """Return the public catalog without another Mission Room's namespace."""
+
+    manifests = all_action_manifests()
+    if _is_octocity_workspace(workspace):
+        return [
+            manifest
+            for manifest in manifests
+            if not manifest.action_id.startswith("aya.")
+            and not manifest.pack.startswith("sentinel_ci_aya_")
+        ]
+    if _is_sentinel_workspace(workspace):
+        return [
+            manifest
+            for manifest in manifests
+            if not manifest.action_id.startswith("octave.")
+            and not manifest.pack.startswith("octave_")
+        ]
     return manifests
 
 
@@ -1708,7 +1750,14 @@ def execute_action(
             "action": manifest.action_id,
             "applied": False,
             "content": f"Action proposée : {manifest.label}.",
-            "handler": asdict(manifest.handler),
+            # Handler names are implementation details. Preserve the response
+            # shape without leaking legacy Sentinel vocabulary through an
+            # otherwise neutral Octocity action contract.
+            "handler": (
+                {"kind": "managed", "name": "managed"}
+                if _is_octocity_workspace(workspace)
+                else asdict(manifest.handler)
+            ),
         },
         "audit_id": audit_id,
         "reason": "proposed",
@@ -1771,24 +1820,50 @@ def handle_transverse_chat_action(
     )
 
 
-def _workspace_default_packs(workspace: Workspace) -> list[str]:
+def _is_octocity_workspace(workspace: Workspace) -> bool:
     slug = (workspace.slug or "").lower()
     name = (workspace.name or "").lower()
     settings = workspace.settings or {}
     mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
     enabled_caps = set(_list(catalog.get("enabled_capabilities")))
-    packs: list[str] = []
-    if "andritz" in slug or "andritz" in name:
-        packs.append("andritz_industrial_v1")
-    if (
+    return bool(
         slug == "octocity-mission-room"
         or "octocity" in slug
         or "octocity" in name
         or mission_room.get("profile") == "octocity_institutional_v1"
         or settings.get("assistant_profile_default") == "octave_executive"
         or "octave_voice_command" in enabled_caps
-    ):
+    )
+
+
+def _is_sentinel_workspace(workspace: Workspace) -> bool:
+    slug = (workspace.slug or "").lower()
+    name = (workspace.name or "").lower()
+    settings = workspace.settings or {}
+    mission_room = _as_dict(settings.get("mission_room"))
+    catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
+    enabled_caps = set(_list(catalog.get("enabled_capabilities")))
+    return bool(
+        "sentinel" in slug
+        or "sentinel" in name
+        or mission_room.get("profile") == "sentinel_government_v1"
+        or settings.get("demo_profile") == "government_mission_room"
+        or settings.get("assistant_profile_default") == "vigie_executive"
+        or "aya_voice_command" in enabled_caps
+    )
+
+
+def _workspace_default_packs(workspace: Workspace) -> list[str]:
+    slug = (workspace.slug or "").lower()
+    name = (workspace.name or "").lower()
+    settings = workspace.settings or {}
+    catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
+    enabled_caps = set(_list(catalog.get("enabled_capabilities")))
+    packs: list[str] = []
+    if "andritz" in slug or "andritz" in name:
+        packs.append("andritz_industrial_v1")
+    if _is_octocity_workspace(workspace):
         packs.append("octave_mission_room_v1")
         packs.append("octave_security_v1")
     if "sentinel" in slug or "sentinel" in name or "aya_voice_command" in enabled_caps:

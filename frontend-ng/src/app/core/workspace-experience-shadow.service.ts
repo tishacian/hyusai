@@ -206,6 +206,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
           slug: runtimeWorkspace.slug,
           mode: runtimeWorkspace.mode,
           settings: runtimeWorkspace.settings,
+          appEntitlements: runtimeWorkspace.app_entitlements,
         },
         scenario: { ...critical.input.scenario },
       };
@@ -294,6 +295,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
         slug: workspace.slug,
         mode: workspace.mode,
         settings: workspace.settings,
+        appEntitlements: workspace.app_entitlements,
       },
       scenario: {
         role: workspace.role,
@@ -352,6 +354,12 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
       /^\/systems\/([^/]+)\/capture$/,
     );
     if (!requested?.[1]) return false;
+    let requestedSystemId: string;
+    try {
+      requestedSystemId = decodeURIComponent(requested[1]);
+    } catch {
+      requestedSystemId = requested[1];
+    }
     const queryStart = decision.resolvedRoute.indexOf('?');
     if (queryStart < 0) return false;
     const fragmentStart = decision.resolvedRoute.indexOf('#', queryStart + 1);
@@ -359,7 +367,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
       queryStart + 1,
       fragmentStart < 0 ? decision.resolvedRoute.length : fragmentStart,
     );
-    return new URLSearchParams(query).get('systemId') === requested[1];
+    return new URLSearchParams(query).get('systemId') === requestedSystemId;
   }
 
   private pathOnly(route: string): string {
@@ -619,6 +627,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
         slug: workspace.slug,
         mode: workspace.mode ?? null,
         settings: workspace.settings ?? null,
+        appEntitlements: workspace.app_entitlements ?? null,
       },
     });
   }

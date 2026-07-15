@@ -151,37 +151,54 @@ async function discoverShowcaseGraph(page: Page): Promise<{
   system: SystemRow;
   run: RunRow;
 }> {
+  const systemsResult = await api<SystemRow[] | { systems: SystemRow[] }>(
+    page,
+    showcaseSlug,
+    '/systems',
+  );
+  expect(systemsResult.ok, 'Showcase Systems must be readable').toBe(true);
+  const systems = unwrap(systemsResult.body, 'systems').filter(
+    (row): row is SystemRow & { capability_id: string } => Boolean(row.capability_id),
+  );
+  expect(systems.length, 'Showcase needs a System linked to a Capability').toBeGreaterThan(0);
+
   const capabilityResult = await api<CapabilityRow[] | { capabilities: CapabilityRow[] }>(
     page,
     showcaseSlug,
     '/capabilities',
   );
   expect(capabilityResult.ok, 'Showcase capabilities must be readable').toBe(true);
-  const capability = unwrap(capabilityResult.body, 'capabilities').find((row) =>
-    row.slug === 'showcase_contract_risk' || row.name === 'Contract Risk',
+  const capabilitiesById = new Map(
+    unwrap(capabilityResult.body, 'capabilities').map((capability) => [capability.id, capability]),
   );
-  expect(capability, 'seeded Contract Risk Capability is missing').toBeTruthy();
 
-  const systemsResult = await api<SystemRow[] | { systems: SystemRow[] }>(
-    page,
-    showcaseSlug,
-    `/systems?capability_id=${encodeURIComponent(capability!.id)}`,
-  );
-  expect(systemsResult.ok, 'Capability-scoped Showcase Systems must be readable').toBe(true);
-  const system = unwrap(systemsResult.body, 'systems').find((row) =>
-    row.name === 'Contract Risk Copilot',
-  );
-  expect(system, 'seeded Contract Risk Copilot System is missing').toBeTruthy();
+  for (const system of systems) {
+    const capability = capabilitiesById.get(system.capability_id);
+    if (!capability) continue;
 
-  const runsResult = await api<RunRow[] | { runs: RunRow[] }>(
-    page,
-    showcaseSlug,
-    `/runs?system_id=${encodeURIComponent(system!.id)}&capability_id=${encodeURIComponent(capability!.id)}`,
-  );
-  expect(runsResult.ok, 'System-scoped Showcase Runs must be readable').toBe(true);
-  const run = unwrap(runsResult.body, 'runs')[0];
-  expect(run, 'seeded Contract Risk Copilot Run is missing').toBeTruthy();
-  return { capability: capability!, system: system!, run };
+    const runsResult = await api<RunRow[] | { runs: RunRow[] }>(
+      page,
+      showcaseSlug,
+      `/runs?system_id=${encodeURIComponent(system.id)}&capability_id=${encodeURIComponent(capability.id)}&limit=1`,
+    );
+    expect(runsResult.ok, 'System-scoped Showcase Runs must be readable').toBe(true);
+    const run = unwrap(runsResult.body, 'runs').find((row) => row.system_id === system.id);
+    if (!run) continue;
+
+    const scopedSystemsResult = await api<SystemRow[] | { systems: SystemRow[] }>(
+      page,
+      showcaseSlug,
+      `/systems?capability_id=${encodeURIComponent(capability.id)}`,
+    );
+    expect(scopedSystemsResult.ok, 'Capability-scoped Showcase Systems must be readable').toBe(true);
+    expect(
+      unwrap(scopedSystemsResult.body, 'systems').some((row) => row.id === system.id),
+      'discovered Showcase System must remain visible in its Capability scope',
+    ).toBe(true);
+    return { capability, system, run };
+  }
+
+  throw new Error('Showcase needs a real System → Capability → Run graph for the routed-axes canary');
 }
 
 async function expectRealBreadcrumb(

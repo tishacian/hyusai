@@ -61,6 +61,7 @@ class WorkspaceStub {
     role?: 'member' | 'admin';
     mode?: WorkspaceMode;
     settings?: Record<string, unknown>;
+    appEntitlements?: WorkspaceInfo['app_entitlements'];
   } = {}): void {
     const slug = options.slug || 'andritz';
     this.currentSlug.set(slug);
@@ -72,6 +73,7 @@ class WorkspaceStub {
         role: options.role || 'member',
         mode: options.mode || 'builder',
         settings: options.settings || {},
+        app_entitlements: options.appEntitlements,
       },
     ]);
   }
@@ -134,6 +136,11 @@ const BUSINESS_PROFILE = {
   },
 };
 
+const V2_BUSINESS_PROFILE = {
+  ...BUSINESS_PROFILE,
+  features: { workspace_experience_v2: true },
+};
+
 test('business policy matrix is owned once and every destination is terminal', () => {
   const { resolver } = makeHarness({ settings: BUSINESS_PROFILE });
 
@@ -166,6 +173,57 @@ test('business policy keeps the admin shell until preview is explicitly enabled'
   expectTerminal(resolver, resolver.resolve('/systems'));
 });
 
+test('V2 business redirects are executed only by the navigation resolver', () => {
+  const { resolver } = makeHarness({ settings: V2_BUSINESS_PROFILE });
+
+  assert.deepEqual(expectTerminal(resolver, resolver.resolve('/systems')), {
+    requestedRoute: '/systems',
+    resolvedRoute: '/chat',
+    owner: 'navigation_resolver',
+    reason: 'business_profile_disallowed',
+  });
+  assert.deepEqual(
+    expectTerminal(resolver, resolver.resolve('/systems/system%2042/capture')),
+    {
+      requestedRoute: '/systems/system%2042/capture',
+      resolvedRoute: '/knowledge/capture?systemId=system%2042',
+      owner: 'navigation_resolver',
+      reason: 'business_system_capture_compatibility',
+    },
+  );
+});
+
+test('app entitlements redirect denied business surfaces to an entitled terminal route', () => {
+  const { resolver } = makeHarness({
+    settings: {
+      ...V2_BUSINESS_PROFILE,
+      features: {
+        workspace_experience_v2: true,
+        app_entitlements_v1: true,
+      },
+    },
+    appEntitlements: ['client360-pdr'],
+  });
+
+  assert.equal(expectTerminal(resolver, resolver.resolve('/chat')).resolvedRoute, '/client360');
+  assert.equal(resolver.resolve('/client360/opportunities'), null);
+  const deniedCapture = expectTerminal(resolver, resolver.resolve('/systems/system-42/capture'));
+  assert.equal(deniedCapture.resolvedRoute, '/client360');
+  assert.equal(deniedCapture.reason, 'business_profile_disallowed');
+
+  const failClosed = makeHarness({
+    settings: {
+      ...V2_BUSINESS_PROFILE,
+      features: {
+        workspace_experience_v2: true,
+        app_entitlements_v1: true,
+      },
+    },
+  }).resolver;
+  assert.equal(expectTerminal(failClosed, failClosed.resolve('/chat')).resolvedRoute, '/account/profile');
+  assert.equal(failClosed.resolve('/account/profile'), null);
+});
+
 test('an unsafe or self-referential business default falls back to chat', () => {
   const { resolver } = makeHarness({
     settings: {
@@ -182,7 +240,10 @@ test('an unsafe or self-referential business default falls back to chat', () => 
 test('demo hypervisor resolves once to the configured default route', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
-    settings: { default_route: '/hypervisor/mission-room/cockpit' },
+    settings: {
+      default_route: '/hypervisor/mission-room/cockpit',
+      mission_room: { enabled: true },
+    },
   });
 
   assert.deepEqual(expectTerminal(resolver, resolver.resolve('/hypervisor')), {
@@ -191,6 +252,57 @@ test('demo hypervisor resolves once to the configured default route', () => {
     owner: 'navigation_resolver',
     reason: 'workspace_default_route',
   });
+});
+
+test('Mission Room fallback and deep links require the workspace extension', () => {
+  const disabled = makeHarness({ mode: 'demo' }).resolver;
+  assert.equal(disabled.resolve('/hypervisor'), null);
+  assert.deepEqual(disabled.resolve('/hypervisor/mission-room/cockpit'), {
+    requestedRoute: '/hypervisor/mission-room/cockpit',
+    resolvedRoute: '/hypervisor',
+    owner: 'navigation_resolver',
+    reason: 'workspace_extension_unavailable',
+  });
+
+  const enabled = makeHarness({
+    mode: 'demo',
+    settings: { mission_room: { enabled: true } },
+  }).resolver;
+  assert.equal(
+    expectTerminal(enabled, enabled.resolve('/hypervisor')).resolvedRoute,
+    '/hypervisor/mission-room/cockpit',
+  );
+  assert.equal(enabled.resolve('/hypervisor/mission-room/cockpit'), null);
+
+  const explicit = makeHarness({
+    mode: 'demo',
+    settings: { default_route: '/intelligence' },
+  }).resolver;
+  assert.equal(expectTerminal(explicit, explicit.resolve('/hypervisor')).resolvedRoute, '/intelligence');
+});
+
+test('a stale Mission Room default cannot loop while the extension is disabled', () => {
+  const { resolver } = makeHarness({
+    mode: 'demo',
+    settings: { default_route: '/hypervisor/mission-room/cockpit' },
+  });
+
+  assert.equal(resolver.resolve('/hypervisor'), null);
+  assert.equal(
+    expectTerminal(resolver, resolver.resolve('/hypervisor/mission-room/cockpit')).resolvedRoute,
+    '/hypervisor',
+  );
+});
+
+test('business policy resolves a Mission Room deep link directly to its terminal surface', () => {
+  const { resolver } = makeHarness({ settings: V2_BUSINESS_PROFILE });
+
+  const decision = expectTerminal(
+    resolver,
+    resolver.resolve('/hypervisor/mission-room/cockpit'),
+  );
+  assert.equal(decision.resolvedRoute, '/chat');
+  assert.equal(decision.reason, 'business_profile_disallowed');
 });
 
 test('demo entry aliases cannot create a self redirect or an Angular alias cycle', () => {

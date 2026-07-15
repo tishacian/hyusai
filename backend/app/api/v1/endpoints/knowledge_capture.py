@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.logging import get_logger
-from app.core.iam.dependencies import current_membership, enforce_permission
+from app.core.iam.dependencies import current_membership, enforce_permission, require_app_entitlement
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
 from app.db.base import get_db
@@ -31,6 +31,7 @@ from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
+from app.services.iam.app_entitlements import KNOWLEDGE_CAPTURE_APP
 from app.services.object_store import get_object_store
 from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
@@ -104,7 +105,7 @@ from app.services.knowledge_collections import (
 )
 from app.services.voice_runtime import list_voice_runtime_providers
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_app_entitlement(KNOWLEDGE_CAPTURE_APP))])
 logger = get_logger(__name__)
 
 CAPTURE_CAPABILITY = "expert_knowledge_capture"

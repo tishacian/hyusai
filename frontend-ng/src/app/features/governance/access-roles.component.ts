@@ -3,12 +3,14 @@ import { FormsModule } from '@angular/forms';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import {
+  BUSINESS_WORKSPACE_APPS,
   IamMatrix,
   IamMatrixPermission,
   IamSummary,
   RoleTemplate,
   WorkspaceMemberDetail,
   WorkspaceService,
+  type WorkspaceAppEntitlement,
 } from '@app/core/workspace.service';
 
 @Component({
@@ -124,6 +126,27 @@ import {
                   </div>
                   @if (!canEditMemberRole(member) && memberRoleTemplate(member) === 'workspace_owner') {
                     <p class="mt-2 pl-10 text-[11px] text-gray-500">{{ memberRoleLockedReason(member) }}</p>
+                  }
+                  @if (appEntitlementsEnabled()) {
+                    <fieldset class="mt-3 rounded border border-white/[0.08] bg-black/10 px-3 py-2">
+                      <legend class="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                        Application access
+                      </legend>
+                      <div class="flex flex-wrap gap-x-5 gap-y-2">
+                        @for (app of appOptions; track app.key) {
+                          <label class="inline-flex items-center gap-2 text-xs text-gray-300">
+                            <input
+                              type="checkbox"
+                              [checked]="memberHasApp(member, app.key)"
+                              [disabled]="!canSaveMember(member)"
+                              (change)="setMemberApp(member, app.key, $event)"
+                              class="h-4 w-4 rounded border-white/20 bg-black/30 text-cyan-500 focus:ring-cyan-400/60 disabled:opacity-50"
+                            />
+                            {{ app.label }}
+                          </label>
+                        }
+                      </div>
+                    </fieldset>
                   }
                 </article>
               }
@@ -314,6 +337,8 @@ export class AccessRolesComponent implements OnInit {
   ];
 
   readonly currentWorkspace = computed(() => this.workspace.current());
+  readonly appEntitlementsEnabled = this.workspace.appEntitlementsEnabled;
+  readonly appOptions = BUSINESS_WORKSPACE_APPS;
 
   ngOnInit(): void {
     this.load();
@@ -403,6 +428,24 @@ export class AccessRolesComponent implements OnInit {
       .filter(Boolean);
   }
 
+  memberHasApp(member: WorkspaceMemberDetail, app: WorkspaceAppEntitlement): boolean {
+    return (member.app_entitlements || []).includes(app);
+  }
+
+  setMemberApp(
+    member: WorkspaceMemberDetail,
+    app: WorkspaceAppEntitlement,
+    event: Event,
+  ): void {
+    const enabled = (event.target as HTMLInputElement).checked;
+    const selected = new Set(member.app_entitlements || []);
+    if (enabled) selected.add(app);
+    else selected.delete(app);
+    member.app_entitlements = BUSINESS_WORKSPACE_APPS
+      .map((option) => option.key)
+      .filter((key) => selected.has(key));
+  }
+
   flagValue(key: string): boolean {
     return Boolean(this.roleFlags()[key]);
   }
@@ -432,11 +475,15 @@ export class AccessRolesComponent implements OnInit {
       return;
     }
     this.saving.set(true);
+    const update = {
+      role_template: roleTemplate,
+      custom_labels: member.custom_labels || [],
+      ...(this.appEntitlementsEnabled()
+        ? { app_entitlements: member.app_entitlements || [] }
+        : {}),
+    };
     this.workspace
-      .updateIamMember(member.user_id, {
-        role_template: roleTemplate,
-        custom_labels: member.custom_labels || [],
-      })
+      .updateIamMember(member.user_id, update)
       .subscribe({
         next: () => {
           this.saving.set(false);

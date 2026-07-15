@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.dependencies import require_app_entitlement
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -44,8 +45,9 @@ from app.services.client360_pdr import (
     summary_payload,
     upsert_mapping_rule,
 )
+from app.services.iam.app_entitlements import CLIENT360_APP
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_app_entitlement(CLIENT360_APP))])
 
 
 class MailDraftCreate(BaseModel):

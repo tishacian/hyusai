@@ -30,6 +30,7 @@ from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import (
     OCTOCITY_MISSION_ROOM_PROFILE,
     OCTOCITY_WORKSPACE_SLUG,
+    SENTINEL_MISSION_ROOM_PROFILE,
     SENTINEL_WORKSPACE_SLUG,
     cockpit_payload,
     ensure_octocity_mission_room_workspace,
@@ -83,6 +84,10 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["workspace_app_default_view"] == "cockpit"
     assert workspace.settings["hide_provider_details"] is True
     assert workspace.settings["mission_room"]["label"] == "AYA"
+    assert (
+        workspace.settings["mission_room"]["profile"]
+        == SENTINEL_MISSION_ROOM_PROFILE
+    )
     assert [item["key"] for item in workspace.settings["mission_room"]["navigation"]] == [
         "cockpit",
         "strategie",
@@ -164,6 +169,16 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["assistant_profiles"][0]["voice_loop"]["manual_start_required"] is True
     assert workspace.settings["assistant_profiles"][0]["voice_output"]["flush_timeout_ms"] == 450
     assert workspace.settings["assistant_profiles"][0]["response_style"]["address_as"] == "Monsieur le Vice Premier Ministre"
+    sentinel_navigation = present_payload_for_workspace(
+        workspace,
+        navigation_payload(db_session, workspace),
+    )
+    assert sentinel_navigation["app"]["label"] == "SENTINEL-CI"
+    assert sentinel_navigation["app"]["assistant_label"] == "AYA"
+    assert sentinel_navigation["app"]["profile"] == SENTINEL_MISSION_ROOM_PROFILE
+    sentinel_runtime = json.dumps(sentinel_navigation, ensure_ascii=False)
+    for forbidden in ("Octocity", "OCTAVE", "octocity_", "octave."):
+        assert forbidden not in sentinel_runtime
     guides = db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
     assert {guide.guide_key for guide in guides} >= {
         "sentinel-ci-aya-mission-room-v1",
@@ -236,6 +251,8 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
     ]
     assert workspace.settings["mission_room"]["profile"] == OCTOCITY_MISSION_ROOM_PROFILE
     assert workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
+    assert workspace.settings["workspace_app_label"] != "SENTINEL-CI"
+    assert "sentinel_ci_aya_v1" not in workspace.settings["actions"]["enabled_packs"]
     assert db_session.query(WorkspaceMember).filter_by(
         workspace_id=workspace.id,
         user_id=owner.id,
@@ -293,7 +310,10 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.config["ragCollectionName"] == "octocity-open-intelligence"
 
-    nav = navigation_payload(db_session, workspace)
+    nav = present_payload_for_workspace(
+        workspace,
+        navigation_payload(db_session, workspace),
+    )
     assert nav["app"]["assistant_label"] == "OCTAVE"
     assert nav["app"]["brand"]["style"] == "agentium"
 

@@ -19,7 +19,15 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
 
 
 def _seed(db_session) -> tuple[Workspace, User]:
-    workspace = Workspace(id="workspace-trace", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = Workspace(
+        id="workspace-trace",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={
+            "mission_room": {"enabled": True, "profile": "sentinel_government_v1"},
+        },
+    )
     user = User(id="user-trace", username="vp", email="vp@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -7,12 +9,41 @@ from app.api.v1.endpoints import actions
 from app.core.iam.roles import WORKSPACE_OWNER
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.actions import effective_action_manifests, execute_action, handle_transverse_chat_action, resolve_action
 from app.services.action_plans import list_action_items
+from app.services.actions import (
+    effective_action_manifests,
+    execute_action,
+    handle_transverse_chat_action,
+    resolve_action,
+)
 
 
 def _workspace(slug: str, *, settings: dict | None = None) -> Workspace:
     return Workspace(id=f"ws-{slug}", slug=slug, name=slug.title(), settings=settings or {}, mode="builder")
+
+
+def _actions_api_client(db_session, workspace: Workspace, *, user_id: str) -> TestClient:
+    user = User(
+        id=user_id,
+        username=user_id,
+        email=f"{user_id}@example.test",
+        is_active=True,
+    )
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+        role_template=WORKSPACE_OWNER,
+    )
+    db_session.add_all([workspace, user, membership])
+    db_session.commit()
+
+    app = FastAPI()
+    app.include_router(actions.router, prefix="/api/v1/actions")
+    app.dependency_overrides[actions.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[actions.get_current_user] = lambda: user
+    app.dependency_overrides[actions.get_db] = lambda: db_session
+    return TestClient(app)
 
 
 def test_andritz_inherits_industrial_actions_but_not_aya():
@@ -55,6 +86,143 @@ def test_octocity_inherits_octave_actions_without_aya_pack():
     assert "octave.priority_summary" in ids
     assert "octave.show_security_posture" in ids
     assert "aya.priority_summary" not in ids
+
+
+def test_octocity_effective_action_contract_is_neutral_and_keeps_legacy_handler(db_session):
+    workspace = _workspace(
+        "octocity-mission-room",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+            "assistant_profile_default": "octave_executive",
+            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+            "assistant_profiles": [
+                {
+                    "key": "octave_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+                }
+            ],
+        },
+    )
+    workspace.mode = "demo"
+    client = _actions_api_client(db_session, workspace, user_id="octocity-actions-owner")
+
+    response = client.get("/api/v1/actions/effective?assistant_profile=octave_executive")
+
+    assert response.status_code == 200
+    payload = response.json()
+    action_ids = {item["action_id"] for item in payload["actions"]}
+    packs = {item["pack"] for item in payload["actions"]}
+    assert packs == {"global_voice_v1", "octave_mission_room_v1", "octave_security_v1"}
+    assert "octave.recommend_diversification" in action_ids
+    assert "octave.recommend_cacao" not in action_ids
+    assert not any(action_id.startswith("aya.") for action_id in action_ids)
+
+    execute_response = client.post(
+        "/api/v1/actions/execute",
+        json={
+            "action_id": "octave.recommend_diversification",
+            "surface": "chat",
+            "assistant_profile": "octave_executive",
+            "confirm": True,
+        },
+    )
+    assert execute_response.status_code == 200
+    execute_payload = execute_response.json()
+    assert execute_payload["result"]["handler"] == {"kind": "managed", "name": "managed"}
+
+    manifests_response = client.get("/api/v1/actions/manifests")
+    assert manifests_response.status_code == 200
+    manifests_payload = manifests_response.json()
+    assert not any(
+        item["action_id"].startswith("aya.")
+        for item in manifests_payload["manifests"]
+    )
+
+    serialized = json.dumps(
+        [payload, execute_payload, manifests_payload],
+        ensure_ascii=False,
+    ).casefold()
+    for forbidden in (
+        "sentinel",
+        "aya",
+        "cacao",
+        "cocoa",
+        "anacarde",
+        "nawa",
+        "abidjan",
+        "cedeao",
+        "fanci",
+        "cote d'ivoire",
+        "côte d'ivoire",
+        "vice premier ministre",
+        "prefet",
+        "préfet",
+        "sahel",
+        "napié",
+        "napie",
+    ):
+        assert forbidden not in serialized
+
+    public_manifest = next(
+        manifest
+        for manifest in effective_action_manifests(
+            workspace,
+            assistant_profile="octave_executive",
+        )
+        if manifest.action_id == "octave.recommend_diversification"
+    )
+    assert public_manifest.handler.name == "recommend_cacao"
+
+
+def test_sentinel_effective_action_contract_remains_isolated_from_octocity(db_session):
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={
+            "mission_room": {"profile": "sentinel_government_v1"},
+            "assistant_profile_default": "vigie_executive",
+            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1", "sentinel_ci_aya_security_v1"]},
+            "assistant_profiles": [
+                {
+                    "key": "vigie_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1", "sentinel_ci_aya_security_v1"]},
+                }
+            ],
+        },
+    )
+    workspace.mode = "demo"
+    client = _actions_api_client(db_session, workspace, user_id="sentinel-actions-owner")
+
+    response = client.get("/api/v1/actions/effective?assistant_profile=vigie_executive")
+
+    assert response.status_code == 200
+    payload = response.json()
+    action_ids = {item["action_id"] for item in payload["actions"]}
+    packs = {item["pack"] for item in payload["actions"]}
+    assert packs == {"global_voice_v1", "sentinel_ci_aya_v1", "sentinel_ci_aya_security_v1"}
+    assert "aya.recommend_cacao" in action_ids
+    assert not any(action_id.startswith("octave.") for action_id in action_ids)
+
+    manifests_response = client.get("/api/v1/actions/manifests")
+    assert manifests_response.status_code == 200
+    manifests_payload = manifests_response.json()
+    assert not any(
+        item["action_id"].startswith("octave.")
+        for item in manifests_payload["manifests"]
+    )
+
+    serialized = json.dumps([payload, manifests_payload], ensure_ascii=False).casefold()
+    for forbidden in (
+        "octocity",
+        "octave",
+        "asteria",
+        "meridian",
+        "liora",
+        "auralis",
+        "alliance aurora",
+        "bio-composites",
+        "fibre solaire",
+    ):
+        assert forbidden not in serialized
 
 
 def test_global_voice_actions_are_trans_workspace():

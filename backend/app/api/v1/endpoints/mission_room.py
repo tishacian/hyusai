@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
+from app.extensions.registry import MISSION_ROOM_EXTENSION_ID, require_workspace_extension
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
@@ -45,7 +46,9 @@ from app.services.intelligence.satellite_imagery import (
 )
 from app.services.macro_indicators import macro_indicators_payload
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(require_workspace_extension(MISSION_ROOM_EXTENSION_ID))]
+)
 
 
 class DraftInstructionRequest(BaseModel):

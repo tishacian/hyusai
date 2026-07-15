@@ -177,6 +177,7 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
         ("navigation_resolver", "business_profile_disallowed"),
         ("navigation_resolver", "business_system_capture_compatibility"),
         ("navigation_resolver", "workspace_default_route"),
+        ("navigation_resolver", "workspace_extension_unavailable"),
         ("navigation_resolver", "workspace_settings_entrypoint"),
     ),
 )

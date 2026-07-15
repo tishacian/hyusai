@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -9,6 +10,7 @@ from app.models.workspace import Workspace
 from app.services.actions.executor import (
     execute_flow_action,
     get_awaiting_state,
+    handle_registry_chat_action,
     resolve_action_with_awaiting,
     set_awaiting_state,
 )
@@ -251,3 +253,106 @@ def test_execute_maritime_sets_awaiting_and_propose_effect(db_session):
     awaiting = get_awaiting_state(db_session, workspace, session_id="sess-maritime")
     assert awaiting is not None
     assert awaiting["action_on_yes"] == "aya.draft_customs_email"
+
+
+def test_octocity_deferred_action_keeps_neutral_resolvable_id(db_session, monkeypatch):
+    workspace = _workspace(
+        id="ws-octocity-actions",
+        slug="octocity-mission-room",
+        name="Octocity Mission Room",
+        mode="demo",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+            "assistant_profile_default": "octave_executive",
+            "actions": {
+                "enabled_packs": [
+                    "global_voice_v1",
+                    "octave_mission_room_v1",
+                    "octave_security_v1",
+                ]
+            },
+            "assistant_profiles": [
+                {
+                    "key": "octave_executive",
+                    "actions": {
+                        "enabled_packs": [
+                            "global_voice_v1",
+                            "octave_mission_room_v1",
+                            "octave_security_v1",
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+    user = User(id="u-octocity", username="director", email="director@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    async def fake_invoke(skill_id, payload, ctx):
+        del payload, ctx
+        if skill_id == "summarize_long_document_v1":
+            return {"summary_markdown": "Coordination brief.", "citations": []}
+        if skill_id == "generate_recommendations_v1":
+            return {"options": [], "sources": []}
+        raise AssertionError(f"Unexpected skill invocation: {skill_id}")
+
+    monkeypatch.setattr("app.services.actions.executor._invoke_skill", fake_invoke)
+    manifest = next(
+        item
+        for item in effective_action_manifests(
+            workspace,
+            surface="chat",
+            assistant_profile="octave_executive",
+        )
+        if item.action_id == "octave.summarize_last_exchanges"
+    )
+
+    proposal = asyncio.run(
+        execute_flow_action(
+            db_session,
+            workspace,
+            user,
+            manifest=manifest,
+            text="Summarize the latest exchanges",
+            session_id="sess-octocity",
+        )
+    )
+    awaiting = get_awaiting_state(db_session, workspace, session_id="sess-octocity")
+    assert awaiting is not None
+    assert awaiting["action_on_yes"] == "octave.recommend_diversification"
+    propose_effect = next(
+        item for item in proposal["action_effects"] if item.get("effect") == "assistant-propose"
+    )
+    assert propose_effect["confirm_action"] == "octave.recommend_diversification"
+
+    for legacy_action_id in (
+        "aya.recommend_cacao",
+        "octave.recommend_cacao",
+        "octave.recommend_bio-composites",
+    ):
+        legacy_resolution = resolve_action_with_awaiting(
+            workspace,
+            text="oui",
+            surface="chat",
+            assistant_profile="octave_executive",
+            awaiting={"action_on_yes": legacy_action_id},
+        )
+        assert legacy_resolution.action_id == "octave.recommend_diversification"
+
+    confirmed = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="oui",
+            assistant_profile="octave_executive",
+            session_id="sess-octocity",
+        )
+    )
+    assert confirmed is not None
+    assert confirmed["action"] == "octave.recommend_diversification"
+
+    serialized = json.dumps([proposal, confirmed], ensure_ascii=False).casefold()
+    for forbidden in ("sentinel", "aya", "cacao", "prefet", "préfet", "sahel"):
+        assert forbidden not in serialized

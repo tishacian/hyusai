@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { findOctocityForbiddenPresentationTerms } from '../../src/app/features/mission-room/mission-room.presentation';
 
 /**
  * Lot 0 — live workspace contract.
@@ -26,11 +27,18 @@ const username = process.env['E2E_USERNAME'];
 const password = process.env['E2E_PASSWORD'];
 const businessUsername = process.env['E2E_BUSINESS_USERNAME'];
 const businessPassword = process.env['E2E_BUSINESS_PASSWORD'];
+const configuredAndritzMemberCount = Number(
+  process.env['E2E_EXPECTED_ANDRITZ_MEMBERS'] ?? '',
+);
+const expectedAndritzMemberCount = Number.isInteger(configuredAndritzMemberCount)
+  && configuredAndritzMemberCount > 0
+  ? configuredAndritzMemberCount
+  : null;
 const previewStorageKey = 'agentium_business_navigation_preview_slugs';
 
 // A Playwright trace records network postData, including the login request.
 // Live credentials must never be serialized into retained failure artifacts.
-test.use({ trace: 'off', video: 'off' });
+test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 
 type LoginResult = {
   ok: boolean;
@@ -121,6 +129,22 @@ async function attachViewport(page: Page, testInfo: TestInfo, name: string): Pro
   const path = testInfo.outputPath(name);
   await page.screenshot({ path, animations: 'disabled' });
   await testInfo.attach(name, { path, contentType: 'image/png' });
+}
+
+async function missionPresentationCorpus(page: Page): Promise<string> {
+  const root = page.locator('[data-mission-room-extension="mission-room"]');
+  await expect(root).toHaveCount(1);
+  return root.evaluate((element) => {
+    const attributes = ['aria-label', 'aria-description', 'title', 'placeholder', 'alt'];
+    const values: string[] = [element.textContent || ''];
+    for (const candidate of [element, ...Array.from(element.querySelectorAll('*'))]) {
+      for (const attribute of attributes) {
+        const value = candidate.getAttribute(attribute);
+        if (value) values.push(value);
+      }
+    }
+    return values.join('\n');
+  });
 }
 
 test.describe('Lot 0 — live workspace experience contract', () => {
@@ -408,7 +432,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await expect(page.locator('app-side-rail')).toHaveCount(0);
   });
 
-  test('deployed Andritz profile, IAM flags and active Systems match the Lot 0 baseline', async ({ page }) => {
+  test('deployed Andritz profile, entitlements and active Systems match the Lot 4 contract', async ({ page }) => {
     await login(page, false);
     const baseline = await page.evaluate(async (slug) => {
       const token = localStorage.getItem('agentium_token') ?? '';
@@ -426,7 +450,16 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         statuses: [workspaceResponse.status, iamResponse.status, systemsResponse.status],
         mode: workspace.mode,
         navigationProfile: workspace.settings?.navigation_profile,
+        features: {
+          app_entitlements_v1: workspace.settings?.features?.app_entitlements_v1,
+          workspace_experience_v2: workspace.settings?.features?.workspace_experience_v2,
+        },
         iam: iam.config,
+        memberAppEntitlements: Array.isArray(iam.members)
+          ? iam.members.map((member: { app_entitlements?: string[] }) =>
+              Array.isArray(member.app_entitlements) ? member.app_entitlements : [],
+            )
+          : [],
         activeSystems: systems
           .filter((system: { status?: string }) => system.status === 'active')
           .map((system: { name?: string; flow_definition?: { variant?: string } }) => ({
@@ -444,6 +477,23 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       primary_surfaces: ['chat', 'client360-pdr', 'knowledge-capture'],
       advanced_access: 'admin_only',
     });
+    expect(baseline.features).toEqual({
+      app_entitlements_v1: true,
+      workspace_experience_v2: true,
+    });
+    expect(baseline.memberAppEntitlements.length).toBeGreaterThan(0);
+    if (expectedAndritzMemberCount !== null) {
+      expect(baseline.memberAppEntitlements).toHaveLength(expectedAndritzMemberCount);
+    }
+    for (const grants of baseline.memberAppEntitlements) {
+      expect(grants).toEqual(['chat', 'client360-pdr', 'knowledge-capture']);
+    }
+    expect(
+      baseline.memberAppEntitlements.reduce(
+        (total: number, grants: string[]) => total + grants.length,
+        0,
+      ),
+    ).toBe(baseline.memberAppEntitlements.length * 3);
     expect(baseline.iam).toEqual({
       version: 3,
       role_flags: {
@@ -702,6 +752,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       brandLines: ['REPUBLIQUE DE', "COTE D'IVOIRE"],
       brandEmblem: '/assets/brand/sentinel-ci-emblem.png?v=20260518-1',
       brandStyle: 'sentinel',
+      actionPacks: ['global_voice_v1', 'sentinel_ci_aya_v1', 'sentinel_ci_aya_security_v1'],
       screenshot: 'sentinel-mission-room.png',
     },
     {
@@ -711,6 +762,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       brandLines: ['AGENTIUM', 'MISSION ROOM'],
       brandEmblem: '/assets/brand/agentium-mark.svg',
       brandStyle: 'agentium',
+      actionPacks: ['global_voice_v1', 'octave_mission_room_v1', 'octave_security_v1'],
       screenshot: 'octocity-mission-room.png',
     },
   ]) {
@@ -749,17 +801,20 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       const binding = await page.evaluate(async (slug) => {
         const token = localStorage.getItem('agentium_token') ?? '';
         const headers = { Authorization: token, 'X-Workspace-Slug': slug };
-        const [navigationResponse, systemsResponse] = await Promise.all([
+        const [navigationResponse, systemsResponse, workspaceResponse] = await Promise.all([
           fetch('/api/v1/mission-room/navigation', { headers }),
           fetch('/api/v1/systems', { headers }),
+          fetch(`/api/v1/auth/workspaces/${encodeURIComponent(slug)}`, { headers }),
         ]);
         const navigation = await navigationResponse.json().catch(() => ({}));
         const systemsBody = await systemsResponse.json().catch(() => []);
+        const workspaceBody = await workspaceResponse.json().catch(() => ({}));
         const systems = Array.isArray(systemsBody) ? systemsBody : systemsBody.systems ?? [];
         return {
-          statuses: [navigationResponse.status, systemsResponse.status],
+          statuses: [navigationResponse.status, systemsResponse.status, workspaceResponse.status],
           app: navigation.app,
           items: Array.isArray(navigation.items) ? navigation.items : [],
+          actionPacks: workspaceBody?.settings?.actions?.enabled_packs ?? [],
           activeSystemIds: systems
             .filter((system: { id?: string; status?: string }) => system.status === 'active')
             .map((system: { id?: string }) => system.id)
@@ -767,7 +822,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         };
       }, missionRoom.slug);
 
-      expect(binding.statuses).toEqual([200, 200]);
+      expect(binding.statuses).toEqual([200, 200, 200]);
       expect(binding.app?.assistant_label).toBe(missionRoom.assistant);
       expect(binding.app?.label).toBe(missionRoom.appLabel);
       expect(binding.items.map((item: { key?: string }) => item.key)).toEqual([
@@ -780,6 +835,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         'decisions',
       ]);
       expect(binding.items).toHaveLength(7);
+      expect(binding.actionPacks).toEqual(missionRoom.actionPacks);
       for (const item of binding.items as Array<{ key?: string; system_id?: string | null }>) {
         expect(item.system_id, `${missionRoom.slug}:${item.key} has no System binding`).toBeTruthy();
         expect(
@@ -814,6 +870,30 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         expect(
           binding.items.every((item: { variant?: string }) => item.variant?.startsWith('octocity_')),
         ).toBe(true);
+
+        for (const route of [
+          '/hypervisor/mission-room/cockpit',
+          '/hypervisor/mission-room/securite/monitor',
+          '/hypervisor/mission-room/veille-sociale',
+          '/hypervisor/mission-room/agenda/meeting/e2e-presentation-contract',
+        ]) {
+          await page.goto(route);
+          const root = page.locator('[data-mission-room-extension="mission-room"]');
+          await expect(root).toHaveAttribute(
+            'data-mission-room-profile',
+            'octocity_institutional_v1',
+          );
+          await expect.poll(
+            async () => findOctocityForbiddenPresentationTerms(
+              await missionPresentationCorpus(page),
+            ),
+            { message: `${route} must not render Sentinel vocabulary` },
+          ).toEqual([]);
+        }
+        await page.goto('/hypervisor/mission-room/cockpit');
+      } else {
+        const corpus = await missionPresentationCorpus(page);
+        expect(corpus).not.toMatch(/Octocity|\bOCTAVE\b|\bAsteria\b|\bMeridian\b/i);
       }
       await attachViewport(page, testInfo, missionRoom.screenshot);
     });

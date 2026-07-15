@@ -109,6 +109,7 @@ def db_session():
         "skills",
         "audit_logs",
         "workspace_iam_configs",
+        "workspace_member_app_entitlements",
         "workspace_members",
         "workspaces",
         "users",

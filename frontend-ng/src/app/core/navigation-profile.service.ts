@@ -5,9 +5,14 @@ import {
   agentiumSurfaceRoute,
   pathAllowedBySurfaceIds,
 } from './navigation.catalog';
+import {
+  resolveWorkspaceExperienceV2,
+  type WorkspaceExperienceV2,
+} from './workspace-experience';
 
 export type NavigationProfileKey = 'standard' | 'business_end_user';
 export type NavigationAdvancedAccess = 'admin_only' | 'link' | 'hidden';
+export type BusinessNavigationSurfaceId = (typeof BUSINESS_NAVIGATION_SURFACE_IDS)[number];
 
 export interface NavigationProfileConfig {
   key?: NavigationProfileKey | string | null;
@@ -45,6 +50,10 @@ export class NavigationProfileService {
 
   readonly configuredBusinessProfile = computed(() => this.config().key === 'business_end_user');
   readonly admin = computed(() => this.workspace.isAdmin());
+  readonly workspaceExperienceV2Enabled = computed(() =>
+    this.featureEnabled('workspace_experience_v2'),
+  );
+  readonly appEntitlementsEnabled = computed(() => this.featureEnabled('app_entitlements_v1'));
   readonly preview = computed(() => {
     const slug = this.workspace.currentSlug();
     return Boolean(
@@ -54,17 +63,47 @@ export class NavigationProfileService {
       this.previewSlugs().includes(slug),
     );
   });
-  readonly businessShellActive = computed(() =>
-    this.configuredBusinessProfile() && (!this.admin() || this.preview()),
+  private readonly workspaceExperienceV2 = computed(() =>
+    this.resolveWorkspaceExperience('/chat'),
   );
+  readonly businessShellActive = computed(() => {
+    const experience = this.workspaceExperienceV2();
+    return experience
+      ? experience.business.active
+      : this.configuredBusinessProfile() && (!this.admin() || this.preview());
+  });
 
   readonly effective = computed<EffectiveNavigationProfile>(() => {
+    const experience = this.workspaceExperienceV2();
+    if (experience) {
+      return {
+        key: experience.business.configured ? 'business_end_user' : 'standard',
+        configured: experience.business.configured,
+        active: experience.business.active,
+        preview: experience.business.preview,
+        admin: experience.business.admin,
+        defaultRoute: experience.homeRoute,
+        primarySurfaces: [...experience.primarySurfaceIds],
+        advancedAccess: experience.advancedAccess,
+      };
+    }
+
     const config = this.config();
     const configured = config.key === 'business_end_user';
-    const defaultRoute = this.normalizeRoute(config.default_route) || DEFAULT_BUSINESS_ROUTE;
-    const primarySurfaces = Array.isArray(config.primary_surfaces) && config.primary_surfaces.length
+    const configuredDefault = this.normalizeRoute(config.default_route) || DEFAULT_BUSINESS_ROUTE;
+    const declaredSurfaces = Array.isArray(config.primary_surfaces) && config.primary_surfaces.length
       ? config.primary_surfaces.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       : DEFAULT_BUSINESS_SURFACES;
+    // Before app entitlements are enabled the business shell contract remains
+    // exactly the historical three applications, even if a stale/partial
+    // navigation_profile payload is present. The flag is the only boundary
+    // allowed to make those links membership-specific.
+    const primarySurfaces = this.appEntitlementsEnabled()
+      ? this.entitledBusinessSurfaces(declaredSurfaces)
+      : [...DEFAULT_BUSINESS_SURFACES];
+    const defaultRoute = this.appEntitlementsEnabled()
+      ? this.entitledDefaultRoute(configuredDefault, primarySurfaces)
+      : configuredDefault;
     const advancedAccess = this.normalizeAdvancedAccess(config.advanced_access);
     return {
       key: configured ? 'business_end_user' : 'standard',
@@ -96,6 +135,29 @@ export class NavigationProfileService {
     );
   }
 
+  businessSurfaceEnabled(surfaceId: BusinessNavigationSurfaceId): boolean {
+    return this.effective().primarySurfaces.includes(surfaceId);
+  }
+
+  resolveWorkspaceExperience(requestedRoute: string): WorkspaceExperienceV2 | null {
+    const workspace = this.workspace.current();
+    if (!workspace || !this.workspaceExperienceV2Enabled()) return null;
+    return resolveWorkspaceExperienceV2({
+      workspace: {
+        slug: workspace.slug,
+        mode: workspace.mode,
+        settings: workspace.settings,
+        appEntitlements: workspace.app_entitlements,
+      },
+      scenario: {
+        role: workspace.role,
+        roleTemplate: workspace.role_template,
+        businessPreview: this.preview(),
+        requestedRoute,
+      },
+    });
+  }
+
   businessProfileConfig(enabled: boolean): NavigationProfileConfig | null {
     if (!enabled) return null;
     return {
@@ -116,6 +178,29 @@ export class NavigationProfileService {
     return value === 'link' || value === 'hidden' || value === 'admin_only'
       ? value
       : 'admin_only';
+  }
+
+  private featureEnabled(feature: string): boolean {
+    const raw = this.workspace.current()?.settings?.['features'];
+    return Boolean(raw && typeof raw === 'object' && !Array.isArray(raw) && (
+      raw as Record<string, unknown>
+    )[feature] === true);
+  }
+
+  private entitledBusinessSurfaces(declaredSurfaces: readonly string[]): string[] {
+    if (!this.appEntitlementsEnabled()) return [...declaredSurfaces];
+    const grants = new Set(this.workspace.current()?.app_entitlements ?? []);
+    const declared = new Set(declaredSurfaces);
+    return BUSINESS_NAVIGATION_SURFACE_IDS.filter((surfaceId) =>
+      grants.has(surfaceId) && declared.has(surfaceId));
+  }
+
+  private entitledDefaultRoute(configuredRoute: string, primarySurfaces: readonly string[]): string {
+    if (pathAllowedBySurfaceIds(configuredRoute, [...primarySurfaces, 'account'])) {
+      return configuredRoute;
+    }
+    const firstSurface = primarySurfaces[0];
+    return firstSurface ? agentiumSurfaceRoute(firstSurface) : '/account/profile';
   }
 
   private pathOnly(value: string): string {

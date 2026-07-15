@@ -9,6 +9,10 @@ import {
 import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  MISSION_ROOM_EXTENSION,
+  missionRoomExtensionState,
+} from '@app/features/mission-room/mission-room.extension';
 import { I18nService } from '@app/core/i18n.service';
 import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -231,17 +235,23 @@ export class SideRailComponent {
   }
 
   routeFor(v: CockpitVerb): string {
-    const fallback = v.key === 'hypervisor' && this.workspace.isDemoMode()
-      ? '/hypervisor/mission-room/cockpit'
-      : v.primaryRoute;
+    const fallback = this.fallbackRoute(v);
     return this.navigation.urlForLens(v.key, fallback);
   }
 
   routeTreeFor(v: CockpitVerb): UrlTree {
-    const fallback = v.key === 'hypervisor' && this.workspace.isDemoMode()
-      ? '/hypervisor/mission-room/cockpit'
-      : v.primaryRoute;
+    const fallback = this.fallbackRoute(v);
     return this.navigation.urlTreeForLens(v.key, fallback);
+  }
+
+  private fallbackRoute(v: CockpitVerb): string {
+    return (
+      v.key === 'hypervisor' &&
+      this.workspace.isDemoMode() &&
+      missionRoomExtensionState(this.workspace.current()).enabled
+    )
+      ? MISSION_ROOM_EXTENSION.defaultRoute
+      : v.primaryRoute;
   }
 
   onEnter(): void {

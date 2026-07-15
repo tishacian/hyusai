@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.dependencies import require_app_entitlement
 from app.core.iam.roles import is_admin_template
 from app.core.logging import get_logger
 from app.db.base import get_db
@@ -12,12 +13,13 @@ from app.models.user import Session as SessionModel, Message, User
 from app.models.knowledge_collection import WorkerJob
 from app.models.workspace_job import WorkspaceJob
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.app_entitlements import CHAT_APP
 from app.services.workspace_jobs import serialize_job
 from datetime import datetime
 import uuid
 
 logger = get_logger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_app_entitlement(CHAT_APP))])
 
 
 class SessionCreate(BaseModel):

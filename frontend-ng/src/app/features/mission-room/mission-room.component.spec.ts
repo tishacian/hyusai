@@ -163,7 +163,7 @@ test('MissionRoom observes the authoritative navigation payload only after insta
       shell: 'immersive',
       default_route: '/hypervisor/mission-room/cockpit',
       default_view: 'cockpit',
-      profile: '',
+      profile: 'sentinel_government_v1',
     },
     items: [{
       key: 'cockpit',

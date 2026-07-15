@@ -33,6 +33,12 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.mfa import MfaChallenge
 from app.services.email import send_email, render_mfa_email
+from app.services.iam.app_entitlements import (
+    app_entitlements_enabled,
+    list_member_app_entitlements,
+    normalize_app_entitlements,
+    replace_member_app_entitlements,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -139,12 +145,14 @@ class MemberInvite(BaseModel):
     role: str = "member"
     role_template: Optional[str] = None
     custom_labels: list[str] = []
+    app_entitlements: Optional[list[str]] = None
 
 
 class MemberUpdate(BaseModel):
     role: str
     role_template: Optional[str] = None
     custom_labels: Optional[list[str]] = None
+    app_entitlements: Optional[list[str]] = None
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -167,6 +175,7 @@ class WorkspaceDetail(BaseModel):
     deleted_at: Optional[datetime] = None
     settings: dict = {}
     mode: str = "executive"
+    app_entitlements: list[str] = Field(default_factory=list)
 
 
 class MemberDetail(BaseModel):
@@ -178,12 +187,28 @@ class MemberDetail(BaseModel):
     role: str
     role_template: Optional[str] = None
     custom_labels: list[str] = []
+    app_entitlements: list[str] = Field(default_factory=list)
     joined_at: datetime
     is_current_user: bool
     # Invitation lifecycle: "active" once onboarding is complete, "pending"
     # while the invitee still has to set a password / verify their email.
     status: str = "active"
     last_login: Optional[datetime] = None
+
+
+def _validated_app_entitlements(value: Optional[list[str]]) -> Optional[list[str]]:
+    if value is None:
+        return None
+    try:
+        return normalize_app_entitlements(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_APP_ENTITLEMENT",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +543,7 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
                 "slug": ws.slug,
                 "role": m.role,
                 "mode": getattr(ws, "mode", "executive") or "executive",
+                "app_entitlements": list_member_app_entitlements(db, m),
             })
 
     kc_data = await _get_kc_user(user.keycloak_sub) if user.keycloak_sub else {}
@@ -822,6 +848,7 @@ async def create_workspace(
         created_at=workspace.created_at,
         settings=workspace.settings or {},
         mode=getattr(workspace, "mode", "executive") or "executive",
+        app_entitlements=list_member_app_entitlements(db, membership),
     )
 
 
@@ -849,6 +876,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                 "created_at": ws.created_at.isoformat() if ws.created_at else None,
                 "settings": ws.settings or {},
                 "mode": getattr(ws, "mode", "executive") or "executive",
+                "app_entitlements": list_member_app_entitlements(db, m),
             })
     return result
 
@@ -875,6 +903,7 @@ async def get_workspace(
         deleted_at=workspace.deleted_at,
         settings=workspace.settings or {},
         mode=getattr(workspace, "mode", "executive") or "executive",
+        app_entitlements=list_member_app_entitlements(db, membership),
     )
 
 
@@ -931,6 +960,7 @@ async def update_workspace(
         created_at=workspace.created_at,
         settings=workspace.settings or {},
         mode=getattr(workspace, "mode", "executive") or "executive",
+        app_entitlements=list_member_app_entitlements(db, membership),
     )
 
 
@@ -970,6 +1000,7 @@ async def update_workspace_mode(
         created_at=workspace.created_at,
         settings=workspace.settings or {},
         mode=workspace.mode or "executive",
+        app_entitlements=list_member_app_entitlements(db, membership),
     )
 
 
@@ -1126,6 +1157,7 @@ async def list_members(
             role=m.role,
             role_template=normalize_role_template(getattr(m, "role_template", None), m.role),
             custom_labels=m.custom_labels or [],
+            app_entitlements=list_member_app_entitlements(db, m),
             joined_at=m.joined_at,
             is_current_user=(u.id == user.id),
             status=_member_invitation_status(kc_data, u.last_login),
@@ -1267,6 +1299,19 @@ async def invite_member(
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
 
+    requested_app_entitlements = _validated_app_entitlements(body.app_entitlements)
+    if app_entitlements_enabled(workspace) and requested_app_entitlements is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "APP_ENTITLEMENTS_REQUIRED",
+                "message": (
+                    "app_entitlements must be provided when workspace application "
+                    "entitlements are enabled"
+                ),
+            },
+        )
+
     if body.role not in ("admin", "member"):
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
     role_template = normalize_role_template(body.role_template, body.role)
@@ -1316,6 +1361,14 @@ async def invite_member(
         custom_labels=body.custom_labels or [],
     )
     db.add(new_member)
+    db.flush()
+    replace_member_app_entitlements(
+        db,
+        new_member,
+        requested_app_entitlements or [],
+        granted_by_user_id=user.id,
+        grant_source="workspace_invitation",
+    )
     db.commit()
     logger.info(
         "Invited teammate to workspace workspace_id=%s target_user=%s role=%s provisioned_in_keycloak=%s",
@@ -1329,6 +1382,7 @@ async def invite_member(
         "user_id": target_user.id,
         "role": legacy_role_for_template(role_template),
         "role_template": role_template,
+        "app_entitlements": list_member_app_entitlements(db, new_member),
         "invitation_email_sent": created_in_kc,
     }
 
@@ -1343,6 +1397,8 @@ async def update_member_role(
 ):
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
+
+    requested_app_entitlements = _validated_app_entitlements(body.app_entitlements)
 
     target = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == user_id,
@@ -1371,8 +1427,19 @@ async def update_member_role(
     target.role = legacy_role_for_template(role_template)
     if body.custom_labels is not None:
         target.custom_labels = body.custom_labels
+    if requested_app_entitlements is not None:
+        replace_member_app_entitlements(
+            db,
+            target,
+            requested_app_entitlements,
+            granted_by_user_id=user.id,
+            grant_source="workspace_member_update",
+        )
     db.commit()
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "app_entitlements": list_member_app_entitlements(db, target),
+    }
 
 
 @router.delete("/workspaces/{slug}/members/{user_id}")

@@ -12,6 +12,11 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.config_service import is_iam_enforced_for_workspace
+from app.services.iam.app_entitlements import (
+    app_entitlements_enabled,
+    member_has_app_entitlement,
+    normalize_app_entitlements,
+)
 from app.services.iam.engine import AuthorizationEngine, Decision
 
 
@@ -21,6 +26,16 @@ class PermissionContext:
     workspace: Workspace
     membership: Optional[WorkspaceMember]
     decision: Decision
+
+
+@dataclass(frozen=True)
+class AppEntitlementContext:
+    user: User
+    workspace: Workspace
+    membership: Optional[WorkspaceMember]
+    app_key: str
+    enforced: bool
+    granted: bool
 
 
 def current_membership(db: DBSession, user: User, workspace: Workspace) -> Optional[WorkspaceMember]:
@@ -39,6 +54,17 @@ def permission_denied_exception(decision: Decision) -> HTTPException:
             "message": "Workspace permission denied",
             "reason": decision.reason,
             "policy_id": decision.policy_id,
+        },
+    )
+
+
+def app_entitlement_denied_exception(app_key: str) -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "code": "WORKSPACE_APP_ACCESS_DENIED",
+            "message": "Workspace application access denied",
+            "app_key": app_key,
         },
     )
 
@@ -117,5 +143,56 @@ def require_permission(
             audit_prefix=audit_prefix,
         )
         return PermissionContext(user=user, workspace=workspace, membership=membership, decision=decision)
+
+    return dependency
+
+
+def require_app_entitlement(app_key: str):
+    """Feature-gated, fail-closed application entry dependency.
+
+    This is an outer application gate only.  Existing endpoint-level IAM
+    dependencies still decide which operations an entitled member may perform.
+    """
+
+    normalized = normalize_app_entitlements([app_key])
+    if len(normalized) != 1:
+        raise ValueError("Exactly one application entitlement key is required")
+    canonical_app_key = normalized[0]
+
+    async def dependency(
+        user: User = Depends(get_current_user),
+        workspace: Workspace = Depends(get_current_workspace),
+        db: DBSession = Depends(get_db),
+    ) -> AppEntitlementContext:
+        enforced = app_entitlements_enabled(workspace)
+        if not enforced:
+            return AppEntitlementContext(
+                user=user,
+                workspace=workspace,
+                membership=None,
+                app_key=canonical_app_key,
+                enforced=False,
+                granted=True,
+            )
+
+        membership = current_membership(db, user, workspace)
+        if membership is None:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "WORKSPACE_ACCESS_DENIED",
+                    "message": "Not a member of this workspace",
+                },
+            )
+        if not member_has_app_entitlement(db, membership, canonical_app_key):
+            raise app_entitlement_denied_exception(canonical_app_key)
+        return AppEntitlementContext(
+            user=user,
+            workspace=workspace,
+            membership=membership,
+            app_key=canonical_app_key,
+            enforced=True,
+            granted=True,
+        )
 
     return dependency

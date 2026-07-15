@@ -3,9 +3,12 @@ import { NavigationProfileService } from './navigation-profile.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
 import { WorkspaceService } from './workspace.service';
 import { agentiumSurfaceRoute } from './navigation.catalog';
+import {
+  MISSION_ROOM_EXTENSION,
+  missionRoomExtensionState,
+} from '@app/features/mission-room/mission-room.extension';
 
 const DEFAULT_BUSINESS_ROUTE = agentiumSurfaceRoute('chat');
-const DEFAULT_DEMO_ROUTE = agentiumSurfaceRoute('mission-room');
 
 /**
  * Single owner for policy-driven navigation redirects.
@@ -22,6 +25,7 @@ export class NavigationResolverService {
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
       this.resolveBusinessProfile(requestedRoute) ||
+      this.resolveUnavailableWorkspaceExtension(requestedRoute) ||
       this.resolveDemoEntrypoint(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
     );
@@ -57,12 +61,30 @@ export class NavigationResolverService {
   }
 
   private resolveBusinessProfile(requestedRoute: string): NavigationRedirectDecision | null {
+    const experience = this.navigationProfile.resolveWorkspaceExperience(requestedRoute);
+    if (experience) {
+      if (!experience.business.active) return null;
+      const routeResolution = experience.routeResolution;
+      if (routeResolution.redirectReason === 'none') return null;
+      let resolvedRoute = routeResolution.resolvedRoute;
+      if (routeResolution.redirectReason === 'business_system_capture_compatibility') {
+        const systemId = this.systemCaptureId(requestedRoute);
+        if (systemId) {
+          resolvedRoute = `${agentiumSurfaceRoute('knowledge-capture')}?systemId=${encodeURIComponent(systemId)}`;
+        }
+      }
+      return this.decision(requestedRoute, resolvedRoute, routeResolution.redirectReason);
+    }
+
     if (!this.navigationProfile.businessShellActive()) return null;
 
     const path = this.pathOnly(requestedRoute);
     if (this.navigationProfile.isBusinessAllowedPath(path)) return null;
 
-    if (path === agentiumSurfaceRoute('knowledge')) {
+    if (
+      path === agentiumSurfaceRoute('knowledge')
+      && this.navigationProfile.businessSurfaceEnabled('knowledge-capture')
+    ) {
       return this.decision(
         requestedRoute,
         agentiumSurfaceRoute('knowledge-capture'),
@@ -70,11 +92,11 @@ export class NavigationResolverService {
       );
     }
 
-    const systemCapture = path.match(/^\/systems\/([^/]+)\/capture$/);
-    if (systemCapture?.[1]) {
+    const systemId = this.systemCaptureId(requestedRoute);
+    if (systemId && this.navigationProfile.businessSurfaceEnabled('knowledge-capture')) {
       return this.decision(
         requestedRoute,
-        `${agentiumSurfaceRoute('knowledge-capture')}?systemId=${encodeURIComponent(systemCapture[1])}`,
+        `${agentiumSurfaceRoute('knowledge-capture')}?systemId=${encodeURIComponent(systemId)}`,
         'business_system_capture_compatibility',
       );
     }
@@ -82,8 +104,26 @@ export class NavigationResolverService {
     const configuredDefault = this.absoluteRoute(this.navigationProfile.effective().defaultRoute);
     const resolvedRoute = configuredDefault && this.navigationProfile.isBusinessAllowedPath(configuredDefault)
       ? configuredDefault
-      : DEFAULT_BUSINESS_ROUTE;
+      : this.navigationProfile.appEntitlementsEnabled()
+        ? '/account/profile'
+        : DEFAULT_BUSINESS_ROUTE;
     return this.decision(requestedRoute, resolvedRoute, 'business_profile_disallowed');
+  }
+
+  private resolveUnavailableWorkspaceExtension(
+    requestedRoute: string,
+  ): NavigationRedirectDecision | null {
+    const path = this.pathOnly(requestedRoute);
+    if (
+      path !== MISSION_ROOM_EXTENSION.routeRoot
+      && !path.startsWith(`${MISSION_ROOM_EXTENSION.routeRoot}/`)
+    ) return null;
+    if (missionRoomExtensionState(this.workspace.current()).enabled) return null;
+    return this.decision(
+      requestedRoute,
+      agentiumSurfaceRoute('hypervisor'),
+      'workspace_extension_unavailable',
+    );
   }
 
   private resolveDemoEntrypoint(requestedRoute: string): NavigationRedirectDecision | null {
@@ -95,7 +135,13 @@ export class NavigationResolverService {
     const configuredDefault = this.absoluteRoute(
       this.workspace.current()?.settings?.['default_route'],
     );
-    const resolvedRoute = configuredDefault || DEFAULT_DEMO_ROUTE;
+    const extension = missionRoomExtensionState(this.workspace.current());
+    const safeConfiguredDefault = configuredDefault && (
+      extension.enabled || !this.isMissionRoomRoute(configuredDefault)
+    ) ? configuredDefault : null;
+    const resolvedRoute = safeConfiguredDefault || (
+      extension.enabled ? MISSION_ROOM_EXTENSION.defaultRoute : agentiumSurfaceRoute('hypervisor')
+    );
     const resolvedPath = this.pathOnly(resolvedRoute);
     // `/` is the Angular alias of `/hypervisor`; redirecting between the two
     // would form a cross-owner loop even though neither URL is textually equal.
@@ -148,7 +194,25 @@ export class NavigationResolverService {
     return route.startsWith('/') ? route : null;
   }
 
+  private systemCaptureId(value: string): string | null {
+    const encoded = this.pathOnly(value).match(/^\/systems\/([^/]+)\/capture$/)?.[1];
+    if (!encoded) return null;
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+
   private pathOnly(value: string): string {
     return (value || '/').split('?')[0].split('#')[0] || '/';
+  }
+
+  private isMissionRoomRoute(value: string): boolean {
+    const path = this.pathOnly(value);
+    return (
+      path === MISSION_ROOM_EXTENSION.routeRoot ||
+      path.startsWith(`${MISSION_ROOM_EXTENSION.routeRoot}/`)
+    );
   }
 }

@@ -53,14 +53,23 @@ class WorkspaceStub {
     return workspace?.role === 'admin' || workspace?.role === 'owner';
   });
 
-  setRole(role: 'member' | 'admin'): void {
+  setRole(role: 'member' | 'admin', options: {
+    workspaceExperienceV2?: boolean;
+    appEntitlementsV1?: boolean;
+    appEntitlements?: WorkspaceInfo['app_entitlements'];
+  } = {}): void {
     this.workspaces.set([
       {
         id: 'workspace-andritz',
         name: 'Andritz',
         slug: 'andritz',
         role,
+        app_entitlements: options.appEntitlements ?? [],
         settings: {
+          features: {
+            workspace_experience_v2: options.workspaceExperienceV2 === true,
+            app_entitlements_v1: options.appEntitlementsV1 === true,
+          },
           navigation_profile: {
             key: 'business_end_user',
             default_route: '/chat',
@@ -94,9 +103,12 @@ afterEach(() => {
   }
 });
 
-function makeHarness(role: 'member' | 'admin') {
+function makeHarness(
+  role: 'member' | 'admin',
+  options: Parameters<WorkspaceStub['setRole']>[1] = {},
+) {
   const workspace = new WorkspaceStub();
-  workspace.setRole(role);
+  workspace.setRole(role, options);
   const injector = Injector.create({
     providers: [
       NavigationProfileService,
@@ -123,6 +135,25 @@ test('business profile resolves the three Andritz applications in their stable o
   });
 });
 
+test('a partial legacy profile cannot hide an app before the entitlement flag', () => {
+  const { workspace, profile } = makeHarness('member');
+  workspace.workspaces.update((items) => items.map((item) => ({
+    ...item,
+    settings: {
+      ...item.settings,
+      navigation_profile: {
+        key: 'business_end_user',
+        default_route: '/chat',
+        primary_surfaces: ['chat'],
+        advanced_access: 'admin_only',
+      },
+    },
+  })));
+
+  assert.equal(profile.appEntitlementsEnabled(), false);
+  assert.deepEqual(profile.effective().primarySurfaces, ANDRITZ_SURFACES);
+});
+
 test('admin keeps the full Agentium shell unless business preview is enabled', () => {
   const { profile } = makeHarness('admin');
 
@@ -147,4 +178,42 @@ test('business allowed paths remain stable inputs for the navigation resolver', 
   assert.equal(profile.isBusinessAllowedPath('/client360/opportunities'), true);
   assert.equal(profile.isBusinessAllowedPath('/knowledge/capture?systemId=system-42'), true);
   assert.equal(profile.isBusinessAllowedPath('/systems'), false);
+});
+
+test('V2 produces the business shell policy when its workspace flag is enabled', () => {
+  const { profile } = makeHarness('member', {
+    workspaceExperienceV2: true,
+    appEntitlements: [],
+  });
+
+  assert.equal(profile.workspaceExperienceV2Enabled(), true);
+  assert.equal(profile.resolveWorkspaceExperience('/systems')?.routeResolution.resolvedRoute, '/chat');
+  assert.deepEqual(profile.effective().primarySurfaces, ANDRITZ_SURFACES);
+  assert.equal(profile.effective().defaultRoute, '/chat');
+  assert.equal(profile.businessShellActive(), true);
+});
+
+test('app entitlements filter both legacy and V2 profiles and missing grants fail closed', () => {
+  for (const workspaceExperienceV2 of [false, true]) {
+    const { profile } = makeHarness('member', {
+      workspaceExperienceV2,
+      appEntitlementsV1: true,
+      appEntitlements: ['client360-pdr'],
+    });
+    assert.deepEqual(profile.effective().primarySurfaces, ['client360-pdr']);
+    assert.equal(profile.effective().defaultRoute, '/client360');
+    assert.equal(profile.businessSurfaceEnabled('chat'), false);
+    assert.equal(profile.businessSurfaceEnabled('client360-pdr'), true);
+    assert.equal(profile.isBusinessAllowedPath('/chat'), false);
+    assert.equal(profile.isBusinessAllowedPath('/client360/opportunities'), true);
+  }
+
+  const { profile: missing } = makeHarness('member', {
+    workspaceExperienceV2: true,
+    appEntitlementsV1: true,
+  });
+  assert.deepEqual(missing.effective().primarySurfaces, []);
+  assert.equal(missing.effective().defaultRoute, '/account/profile');
+  assert.equal(missing.isBusinessAllowedPath('/chat'), false);
+  assert.equal(missing.isBusinessAllowedPath('/account/profile'), true);
 });

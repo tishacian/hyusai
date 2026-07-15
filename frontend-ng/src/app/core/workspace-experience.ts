@@ -1,12 +1,12 @@
 /**
- * Pure, side-effect-free workspace experience model used by the Lot 2 shadow
- * resolver.  Nothing in this module navigates, mutates a store, or depends on
- * Angular; the legacy projection remains the executed source of truth.
+ * Pure, side-effect-free workspace experience model. The V2 projection is
+ * executed only when the workspace feature flag is enabled; the independent
+ * legacy projection remains the compatibility oracle and rollback path.
  */
 
 export const WORKSPACE_EXPERIENCE_SCHEMA_VERSION = 2 as const;
 export const WORKSPACE_EXPERIENCE_EVIDENCE_SCHEMA_VERSION = 1 as const;
-export const WORKSPACE_EXPERIENCE_RESOLVER_VERSION = 'workspace-experience-v2.shadow.1' as const;
+export const WORKSPACE_EXPERIENCE_RESOLVER_VERSION = 'workspace-experience-v2.flagged.1' as const;
 
 export const BUSINESS_PRIMARY_SURFACE_IDS = [
   'chat',
@@ -71,6 +71,7 @@ export interface WorkspaceExperienceWorkspace {
   slug: string;
   mode?: string | null;
   settings?: Readonly<Record<string, unknown>> | null;
+  appEntitlements?: readonly string[] | null;
 }
 
 export interface WorkspaceExperienceScenario {
@@ -111,6 +112,7 @@ export interface WorkspaceExperienceRouteResolution {
     | 'business_knowledge_compatibility'
     | 'business_system_capture_compatibility'
     | 'workspace_default_route'
+    | 'workspace_extension_unavailable'
     | 'workspace_settings_entrypoint';
 }
 
@@ -226,7 +228,7 @@ const STANDARD_CHROME: WorkspaceExperienceChrome = {
 };
 
 const GOVERNMENT_MISSION_ROOM: WorkspaceExperienceMissionRoomProjection = {
-  profile: 'government_mission_room',
+  profile: 'sentinel_government_v1',
   label: 'SENTINEL-CI',
   assistantLabel: 'AYA',
   assistantProfile: 'vigie_executive',
@@ -284,12 +286,38 @@ function isAdminScenario(scenario: WorkspaceExperienceScenario): boolean {
     || template === 'workspace_admin';
 }
 
-function isBusinessAllowedPath(path: string): boolean {
+function featureEnabled(input: WorkspaceExperienceInput, feature: string): boolean {
+  return record(settings(input)['features'])[feature] === true;
+}
+
+function entitledBusinessSurfaces(input: WorkspaceExperienceInput): string[] {
+  if (!featureEnabled(input, 'app_entitlements_v1')) {
+    return [...BUSINESS_PRIMARY_SURFACE_IDS];
+  }
+  const grants = Array.isArray(input.workspace.appEntitlements)
+    ? new Set(input.workspace.appEntitlements.filter((item): item is string => typeof item === 'string'))
+    : new Set<string>();
+  return BUSINESS_PRIMARY_SURFACE_IDS.filter((surfaceId) => grants.has(surfaceId));
+}
+
+function businessSurfaceRoute(surfaceId: string): string | null {
+  if (surfaceId === 'chat') return '/chat';
+  if (surfaceId === 'client360-pdr') return '/client360';
+  if (surfaceId === 'knowledge-capture') return '/knowledge/capture';
+  return null;
+}
+
+function businessSurfaceEnabled(input: WorkspaceExperienceInput, surfaceId: string): boolean {
+  return entitledBusinessSurfaces(input).includes(surfaceId);
+}
+
+function isBusinessAllowedPath(input: WorkspaceExperienceInput, path: string): boolean {
   const normalized = pathOnly(path);
-  return normalized === '/chat'
-    || normalized === '/client360'
-    || normalized.startsWith('/client360/')
-    || normalized === '/knowledge/capture'
+  return (businessSurfaceEnabled(input, 'chat') && normalized === '/chat')
+    || (businessSurfaceEnabled(input, 'client360-pdr') && (
+      normalized === '/client360' || normalized.startsWith('/client360/')
+    ))
+    || (businessSurfaceEnabled(input, 'knowledge-capture') && normalized === '/knowledge/capture')
     || normalized === '/account'
     || normalized.startsWith('/account/');
 }
@@ -299,7 +327,12 @@ function configuredBusinessRoute(input: WorkspaceExperienceInput): string {
   // The resolver may execute a configured query string, but the experience
   // contract deliberately retains paths only. Query values must never enter a
   // report or its fingerprint.
-  return configured && isBusinessAllowedPath(configured) ? pathOnly(configured) : '/chat';
+  if (configured && isBusinessAllowedPath(input, configured)) return pathOnly(configured);
+  for (const surfaceId of entitledBusinessSurfaces(input)) {
+    const route = businessSurfaceRoute(surfaceId);
+    if (route) return route;
+  }
+  return '/account/profile';
 }
 
 function declaredBusinessSurfaces(input: WorkspaceExperienceInput): string[] {
@@ -360,7 +393,7 @@ function missionRenderedBrandLabel(
 
 function missionProjection(
   input: WorkspaceExperienceInput,
-  profile: 'government_mission_room' | 'octocity_institutional_v1',
+  profile: 'sentinel_government_v1' | 'octocity_institutional_v1',
 ): WorkspaceExperienceMissionRoomProjection {
   const defaults = profile === 'octocity_institutional_v1' ? OCTOCITY_MISSION_ROOM : GOVERNMENT_MISSION_ROOM;
   const appLabel = missionAppLabel(input, defaults.label);
@@ -389,12 +422,16 @@ const ADAPTERS: WorkspaceExperienceAdapter[] = [
   {
     id: 'mission_room_sentinel_legacy',
     priority: 200,
-    matches: (input) => settings(input)['demo_profile'] === 'government_mission_room'
-      && missionConfig(input)['profile'] !== 'octocity_institutional_v1',
+    matches: (input) => {
+      const profile = missionConfig(input)['profile'];
+      return profile === 'sentinel_government_v1'
+        || profile === 'government_mission_room'
+        || (profile === undefined && settings(input)['demo_profile'] === 'government_mission_room');
+    },
     apply: (input, state) => ({
       ...state,
-      missionRoom: missionProjection(input, 'government_mission_room'),
-      provenance: [...state.provenance, 'mission_room:government_mission_room'],
+      missionRoom: missionProjection(input, 'sentinel_government_v1'),
+      provenance: [...state.provenance, 'mission_room:sentinel_government_v1'],
     }),
   },
   {
@@ -488,7 +525,10 @@ function inspectConfiguration(input: WorkspaceExperienceInput): WorkspaceExperie
     const profile = missionConfig(input)['profile'];
     if (profile !== undefined && profile !== null && typeof profile !== 'string') {
       result.push(issue('error', 'malformed_mission_room_profile', '/workspace/settings/mission_room/profile'));
-    } else if (typeof profile === 'string' && profile !== 'octocity_institutional_v1') {
+    } else if (
+      typeof profile === 'string'
+      && !['sentinel_government_v1', 'government_mission_room', 'octocity_institutional_v1'].includes(profile)
+    ) {
       result.push(issue('unknown_adapter', 'unknown_mission_room_profile', '/workspace/settings/mission_room/profile'));
     }
     const navigation = missionConfig(input)['navigation'];
@@ -529,11 +569,14 @@ function resolveRoute(
   let semanticTargetPreserved: boolean | null = null;
   let redirectReason: WorkspaceExperienceRouteResolution['redirectReason'] = 'none';
 
-  if (businessActive && !isBusinessAllowedPath(requestedRoute)) {
-    if (requestedRoute === '/knowledge') {
+  if (businessActive && !isBusinessAllowedPath(input, requestedRoute)) {
+    if (requestedRoute === '/knowledge' && businessSurfaceEnabled(input, 'knowledge-capture')) {
       resolvedRoute = '/knowledge/capture';
       redirectReason = 'business_knowledge_compatibility';
-    } else if (/^\/systems\/[^/]+\/capture$/.test(requestedRoute)) {
+    } else if (
+      /^\/systems\/[^/]+\/capture$/.test(requestedRoute)
+      && businessSurfaceEnabled(input, 'knowledge-capture')
+    ) {
       resolvedRoute = '/knowledge/capture';
       semanticQueryKeys = ['systemId'];
       semanticTargetPreserved = true;
@@ -631,7 +674,7 @@ function project(
   const routeResolution = resolveRoute(input, businessActive, owner);
   const kind = shellKind(input, routeResolution.resolvedRoute, businessActive, state.workspaceAppShell);
   const cockpitVerbs = cockpitVerbsFor(input, kind);
-  const primarySurfaceIds = businessActive ? [...BUSINESS_PRIMARY_SURFACE_IDS] : [...cockpitVerbs];
+  const primarySurfaceIds = businessActive ? entitledBusinessSurfaces(input) : [...cockpitVerbs];
   const workspaceAppConfigured = Boolean(state.workspaceAppShell || state.missionRoom);
   const immersiveRouteScope = state.workspaceAppShell === 'immersive' ? '/hypervisor/mission-room/**' : null;
   return {
@@ -774,11 +817,15 @@ export function resolveLegacyWorkspaceExperience(
   // Systems binding; this projection retains only profile/config/navigation.
   const explicitOctocity = mission['profile'] === 'octocity_institutional_v1'
     || config['demo_profile'] === 'octocity_mission_room';
-  const government = config['demo_profile'] === 'government_mission_room' && !explicitOctocity;
+  const government = (
+    mission['profile'] === 'sentinel_government_v1'
+    || mission['profile'] === 'government_mission_room'
+    || config['demo_profile'] === 'government_mission_room'
+  ) && !explicitOctocity;
   const legacyMissionProfile = explicitOctocity
     ? 'octocity_institutional_v1'
     : government
-      ? 'government_mission_room'
+      ? 'sentinel_government_v1'
       : null;
   let missionRoom: WorkspaceExperienceMissionRoomProjection | null = null;
   if (legacyMissionProfile) {
@@ -1184,7 +1231,13 @@ function observedSemanticTargetPreserved(
     queryStart + 1,
     fragmentStart < 0 ? decision.resolvedRoute.length : fragmentStart,
   );
-  return new URLSearchParams(query).get('systemId') === requested[1];
+  let requestedSystemId: string;
+  try {
+    requestedSystemId = decodeURIComponent(requested[1]);
+  } catch {
+    requestedSystemId = requested[1];
+  }
+  return new URLSearchParams(query).get('systemId') === requestedSystemId;
 }
 
 function semanticQueryKeysFromRoute(route: string): string[] {
@@ -1425,6 +1478,7 @@ const SENTINEL_SETTINGS = {
   default_route: '/hypervisor/mission-room/cockpit',
   mission_room: {
     enabled: true,
+    profile: 'sentinel_government_v1',
     navigation: MISSION_ROOM_NAVIGATION_KEYS.map((key) => ({ key })),
   },
 };

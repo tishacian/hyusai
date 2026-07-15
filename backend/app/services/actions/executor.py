@@ -156,9 +156,16 @@ def resolve_action_with_awaiting(
     if awaiting:
         resolved = resolve_action(workspace, text=text, surface=surface, assistant_profile=assistant_profile)
         if resolved.matched and resolved.action_id == "voice.confirm_yes" and awaiting.get("action_on_yes"):
+            action_on_yes = str(awaiting["action_on_yes"])
+            if is_octocity_mission_room(workspace) and action_on_yes in {
+                "aya.recommend_cacao",
+                "octave.recommend_cacao",
+                "octave.recommend_bio-composites",
+            }:
+                action_on_yes = "octave.recommend_diversification"
             return ActionResolution(
                 True,
-                action_id=str(awaiting["action_on_yes"]),
+                action_id=action_on_yes,
                 confidence=resolved.confidence,
                 requires_confirmation=False,
                 reason="awaiting_yes",
@@ -312,7 +319,10 @@ async def execute_flow_action(
     effects: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     content = ""
-    extra: dict[str, Any] = {"action_id": manifest.action_id, "handler": handler}
+    extra: dict[str, Any] = {
+        "action_id": manifest.action_id,
+        "handler": "managed" if is_octocity_mission_room(workspace) else handler,
+    }
     awaiting_to_set: Optional[dict[str, Any]] = None
     awaiting_to_clear = False
 

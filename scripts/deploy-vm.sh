@@ -10,6 +10,8 @@
 #
 # Options :
 #   --check-only       N'effectue QUE l'audit local de dérive (aucun fetch/reset/build).
+#   --build-only       Capture le rollback et construit le candidat sans l'activer.
+#   --activate-only    Active des images déjà construites et vérifiées, sans rebuild.
 #   --no-frontend      Ne rebuild pas agentium-frontend (backend + worker seulement).
 #   --services "a b"   Liste explicite de services à rebuild (défaut: backend frontend worker-cpu).
 #   --branch <name>    Branche cible (défaut: demo/agentic).
@@ -27,6 +29,8 @@ COMPOSE_FILE="compose.agentium.yml"
 ENV_FILE="./env/agentium.vm.env"
 SERVICES="agentium-backend agentium-frontend agentium-worker-cpu"
 CHECK_ONLY=0
+BUILD_ONLY=0
+ACTIVATE_ONLY=0
 FORCE=0
 EXPECTED_SHA=""
 PREVIOUS_SHA=""
@@ -36,6 +40,8 @@ STATE_DIR="${AGENTIUM_DEPLOY_STATE_DIR:-$HOME/.local/state/agentium/deployments}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check-only) CHECK_ONLY=1; shift ;;
+    --build-only) BUILD_ONLY=1; shift ;;
+    --activate-only) ACTIVATE_ONLY=1; shift ;;
     --no-frontend) SERVICES="agentium-backend agentium-worker-cpu"; shift ;;
     --services) SERVICES="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
@@ -55,6 +61,9 @@ say()  { printf '%s\n' "==> $*"; }
 ok()   { printf '%s\n' "${c_grn}OK${c_rst}  $*"; }
 warn() { printf '%s\n' "${c_ylw}!! ${c_rst} $*"; }
 die()  { printf '%s\n' "${c_red}XX${c_rst}  $*" >&2; exit 1; }
+
+[[ "$BUILD_ONLY" -eq 0 || "$ACTIVATE_ONLY" -eq 0 ]] || \
+  die "--build-only et --activate-only sont incompatibles"
 
 cd "$REPO_DIR" || die "Dépôt introuvable: $REPO_DIR"
 
@@ -170,8 +179,53 @@ load_compose_env() {
   FRONTEND_PORT="${AGENTIUM_FRONTEND_HOST_PORT:-$(read_env_value AGENTIUM_FRONTEND_HOST_PORT)}"
   BACKEND_PORT="${BACKEND_PORT:-8001}"
   FRONTEND_PORT="${FRONTEND_PORT:-8081}"
+  IMAGE_TAG="${AGENTIUM_IMAGE_TAG:-$(read_env_value AGENTIUM_IMAGE_TAG)}"
+  IMAGE_TAG="${IMAGE_TAG:-local}"
   [[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "Port backend invalide: $BACKEND_PORT"
   [[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || die "Port frontend invalide: $FRONTEND_PORT"
+}
+
+candidate_image_ref() {
+  case "$1" in
+    agentium-backend) printf 'agentium-backend:%s\n' "$IMAGE_TAG" ;;
+    agentium-frontend) printf 'agentium-frontend:%s\n' "$IMAGE_TAG" ;;
+    agentium-worker-cpu) printf 'agentium-worker:%s\n' "$IMAGE_TAG" ;;
+    *) die "Service sans image candidate vérifiable: $1" ;;
+  esac
+}
+
+verify_candidate_images() {
+  local expected_sha="$1" svc image_ref image_revision
+  for svc in "${SELECTED_SERVICES[@]}"; do
+    image_ref="$(candidate_image_ref "$svc")"
+    image_revision="$(
+      docker image inspect \
+        --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+        "$image_ref" 2>/dev/null || true
+    )"
+    [[ "$image_revision" == "$expected_sha" ]] || \
+      die "$svc : image candidate '$image_ref' non alignée sur $expected_sha"
+    ok "$svc : image candidate vérifiée (${expected_sha:0:12})"
+  done
+}
+
+verify_database_at_image_head() {
+  local current_heads image_heads
+  cd "$REPO_DIR/docker"
+  current_heads="$(
+    docker compose --profile tools --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      run --rm --no-deps agentium-migrate alembic current \
+      | awk '/\(head\)/ { print $1 }' | sort -u
+  )"
+  image_heads="$(
+    docker compose --profile tools --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      run --rm --no-deps agentium-migrate alembic heads \
+      | awk '/\(head\)/ { print $1 }' | sort -u
+  )"
+  cd "$REPO_DIR"
+  [[ -n "$current_heads" && "$current_heads" == "$image_heads" ]] || \
+    die "Schéma DB non aligné sur l'image candidate (current='${current_heads:-absent}', heads='${image_heads:-absent}')"
+  ok "schéma DB aligné sur le head candidat: $current_heads"
 }
 
 wait_for_http_200() {
@@ -244,7 +298,7 @@ validate_rollback_state() {
 record_rollback_state() {
   local target_sha="$1" previous_sha="$2"
   local state_file="$STATE_DIR/${target_sha}.tsv" tmp_file
-  local svc image_id image_ref rollback_ref tagged_id
+  local svc image_id image_ref image_revision rollback_ref tagged_id
   mkdir -p "$STATE_DIR"
   chmod 0700 "$STATE_DIR"
   if [[ -e "$state_file" ]]; then
@@ -266,6 +320,13 @@ record_rollback_state() {
       image_ref="$(docker inspect --format '{{.Config.Image}}' "$svc")"
       [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || die "ID d'image invalide pour $svc"
       [[ -n "$image_ref" ]] || die "Référence d'image absente pour $svc"
+      image_revision="$(
+        docker image inspect \
+          --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+          "$image_id" 2>/dev/null || true
+      )"
+      [[ "$image_revision" == "$previous_sha" ]] || \
+        die "$svc : image active non alignée sur le SHA précédent $previous_sha"
       rollback_ref="agentium-rollback/${svc}:${target_sha}"
       tagged_id="$(docker image inspect --format '{{.Id}}' "$rollback_ref" 2>/dev/null || true)"
       if [[ -n "$tagged_id" && "$tagged_id" != "$image_id" ]]; then
@@ -309,14 +370,17 @@ rollback_from_state() {
     die "Checkout courant différent du SHA candidat de l'état de rollback"
   while IFS=$'\t' read -r kind svc image_id image_ref rollback_ref; do
     [[ "$kind" == "service" ]] || continue
-    docker ps --format '{{.Names}}' | grep -qx "$svc" || \
-      die "$svc n'est plus actif; rollback automatique refusé"
+    docker inspect "$svc" >/dev/null 2>&1 || \
+      die "$svc est introuvable; rollback automatique refusé"
     runtime_image_id="$(docker inspect --format '{{.Image}}' "$svc")"
     runtime_revision="$(docker image inspect \
       --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
       "$runtime_image_id" 2>/dev/null || true)"
     if [[ "$runtime_revision" != "$target_sha" && "$runtime_image_id" != "$image_id" ]]; then
       die "$svc n'est ni le candidat ni l'image de rollback enregistrée"
+    fi
+    if ! docker ps --format '{{.Names}}' | grep -qx "$svc"; then
+      warn "$svc est arrêté; il sera recréé depuis l'image de rollback"
     fi
   done < "$state_file"
 
@@ -363,11 +427,15 @@ rollback_from_state() {
 
 if [[ -n "$ROLLBACK_STATE" ]]; then
   [[ "$CHECK_ONLY" -eq 0 ]] || die "--rollback-state est incompatible avec --check-only"
+  [[ "$BUILD_ONLY" -eq 0 && "$ACTIVATE_ONLY" -eq 0 ]] || \
+    die "--rollback-state est incompatible avec les modes de rollout par étapes"
   rollback_from_state "$ROLLBACK_STATE"
   exit 0
 fi
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
+  [[ "$BUILD_ONLY" -eq 0 && "$ACTIVATE_ONLY" -eq 0 ]] || \
+    die "--check-only est incompatible avec les modes de rollout par étapes"
   EXPECTED_SHA="${EXPECTED_SHA:-$(git rev-parse HEAD)}"
   validate_full_sha "$EXPECTED_SHA" "--sha"
   say "Audit de dérive local (lecture seule) — branche $BRANCH @ ${EXPECTED_SHA:0:12}"
@@ -386,7 +454,10 @@ if [[ -z "$PREVIOUS_SHA" ]]; then
   PREVIOUS_SHA="$(git rev-parse HEAD)"
 fi
 validate_full_sha "$PREVIOUS_SHA" "--previous-sha"
-say "Déploiement VM — branche $BRANCH, SHA ${EXPECTED_SHA:0:12}, services: $SERVICES"
+ROLLOUT_MODE="deploy"
+[[ "$BUILD_ONLY" -eq 1 ]] && ROLLOUT_MODE="build-only"
+[[ "$ACTIVATE_ONLY" -eq 1 ]] && ROLLOUT_MODE="activate-only"
+say "Déploiement VM ($ROLLOUT_MODE) — branche $BRANCH, SHA ${EXPECTED_SHA:0:12}, services: $SERVICES"
 
 # 1) Garde-fou : ne pas écraser silencieusement des modifs suivies non commitées
 dirty="$(git status --porcelain | grep -vE 'uvicorn\.log|\.pyc$' || true)"
@@ -409,14 +480,35 @@ DEPLOY_SHA="$(git rev-parse HEAD)"
 export AGENTIUM_IMAGE_REVISION="$DEPLOY_SHA"
 ok "checkout épinglé à ${DEPLOY_SHA:0:12}"
 
-# 3) Capturer les images actives avant tout build, puis rebuild/recreate.
+# 3) Capturer les images actives avant tout build, puis construire ou vérifier
+# le candidat. Le mode en deux temps permet une migration sous quiescence API
+# sans exposer le nouveau backend avant que son schéma existe.
 load_compose_env
-record_rollback_state "$DEPLOY_SHA" "$PREVIOUS_SHA"
+if [[ "$ACTIVATE_ONLY" -eq 1 ]]; then
+  ROLLBACK_STATE_PATH="$STATE_DIR/${DEPLOY_SHA}.tsv"
+  validate_rollback_state "$ROLLBACK_STATE_PATH" "$DEPLOY_SHA" "$PREVIOUS_SHA" 1
+  verify_candidate_images "$DEPLOY_SHA"
+else
+  record_rollback_state "$DEPLOY_SHA" "$PREVIOUS_SHA"
+  cd "$REPO_DIR/docker"
+  say "docker compose build $SERVICES"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build "${SELECTED_SERVICES[@]}"
+  cd "$REPO_DIR"
+  verify_candidate_images "$DEPLOY_SHA"
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    ok "Candidat $DEPLOY_SHA construit sans activation; rollback: $ROLLBACK_STATE_PATH"
+    exit 0
+  fi
+fi
+
+# A normal one-shot deploy also fails closed when a migration is pending. Lot 4
+# intentionally reaches this gate only on --activate-only, after 057 was run
+# while the previous backend was quiesced.
+verify_database_at_image_head
+
 cd "$REPO_DIR/docker"
-say "docker compose build $SERVICES"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build "${SELECTED_SERVICES[@]}"
 say "docker compose up -d $SERVICES"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d "${SELECTED_SERVICES[@]}"
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-build "${SELECTED_SERVICES[@]}"
 cd "$REPO_DIR"
 
 # 4) Backend et frontend sélectionnés doivent tous deux devenir sains.

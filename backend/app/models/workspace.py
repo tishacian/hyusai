@@ -40,8 +40,51 @@ class WorkspaceMember(Base):
 
     workspace = relationship("Workspace", back_populates="members")
     user = relationship("User", back_populates="workspace_memberships")
+    app_entitlements = relationship(
+        "WorkspaceMemberAppEntitlement",
+        back_populates="membership",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (UniqueConstraint("user_id", "workspace_id", name="uq_user_workspace"),)
+
+
+class WorkspaceMemberAppEntitlement(Base):
+    """Explicit access grant to a workspace application for one membership.
+
+    Row existence is the grant.  Missing rows therefore remain fail-closed
+    when the workspace entitlement feature is enabled, while deleting a
+    membership removes every associated grant through the database cascade.
+    """
+
+    __tablename__ = "workspace_member_app_entitlements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_member_id = Column(
+        Integer,
+        ForeignKey("workspace_members.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    app_key = Column(String(80), nullable=False, index=True)
+    granted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    granted_by_user_id = Column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    grant_source = Column(String(80), nullable=False, default="manual")
+
+    membership = relationship("WorkspaceMember", back_populates="app_entitlements")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_member_id",
+            "app_key",
+            name="uq_workspace_member_app_entitlement",
+        ),
+    )
 
 
 class WorkspaceIAMConfig(Base):

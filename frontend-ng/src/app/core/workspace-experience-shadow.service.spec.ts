@@ -51,6 +51,7 @@ const SENTINEL: WorkspaceInfo = {
     assistant_profile_default: 'vigie_executive',
     mission_room: {
       enabled: true,
+      profile: 'sentinel_government_v1',
       label: 'AYA',
       navigation: MISSION_ROOM_NAVIGATION_KEYS.map((key) => ({ key })),
     },
@@ -186,7 +187,7 @@ function sentinelNavigationPayload() {
       shell: 'immersive',
       default_route: '/hypervisor/mission-room/cockpit',
       default_view: 'cockpit',
-      profile: '',
+      profile: 'sentinel_government_v1',
       brand: {},
     },
     items: MISSION_ROOM_NAVIGATION_KEYS.map((key) => ({

@@ -25,41 +25,47 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       </div>
 
       <nav class="business-nav" aria-label="Navigation métier">
-        <a
-          routerLink="/chat"
-          routerLinkActive="business-nav-active"
-          [routerLinkActiveOptions]="{ exact: true }"
-          class="business-nav-link"
-          title="Recherche"
-          aria-label="Recherche"
-        >
-          <app-icon name="message-square" [size]="14" />
-          <span class="business-nav-text business-nav-text-full">Recherche</span>
-          <span class="business-nav-text business-nav-text-short">Recherche</span>
-        </a>
-        <a
-          routerLink="/client360"
-          routerLinkActive="business-nav-active"
-          class="business-nav-link"
-          title="Client360 PDR"
-          aria-label="Client360 PDR"
-        >
-          <app-icon name="target" [size]="14" />
-          <span class="business-nav-text business-nav-text-full">Client360 PDR</span>
-          <span class="business-nav-text business-nav-text-short">Client360</span>
-        </a>
-        <a
-          routerLink="/knowledge/capture"
-          routerLinkActive="business-nav-active"
-          [routerLinkActiveOptions]="{ exact: true }"
-          class="business-nav-link"
-          title="Capture de connaissances"
-          aria-label="Capture de connaissances"
-        >
-          <app-icon name="mic" [size]="14" />
-          <span class="business-nav-text business-nav-text-full">Capture de connaissances</span>
-          <span class="business-nav-text business-nav-text-short">Capture</span>
-        </a>
+        @if (navigation.businessSurfaceEnabled('chat')) {
+          <a
+            routerLink="/chat"
+            routerLinkActive="business-nav-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            class="business-nav-link"
+            title="Recherche"
+            aria-label="Recherche"
+          >
+            <app-icon name="message-square" [size]="14" />
+            <span class="business-nav-text business-nav-text-full">Recherche</span>
+            <span class="business-nav-text business-nav-text-short">Recherche</span>
+          </a>
+        }
+        @if (navigation.businessSurfaceEnabled('client360-pdr')) {
+          <a
+            routerLink="/client360"
+            routerLinkActive="business-nav-active"
+            class="business-nav-link"
+            title="Client360 PDR"
+            aria-label="Client360 PDR"
+          >
+            <app-icon name="target" [size]="14" />
+            <span class="business-nav-text business-nav-text-full">Client360 PDR</span>
+            <span class="business-nav-text business-nav-text-short">Client360</span>
+          </a>
+        }
+        @if (navigation.businessSurfaceEnabled('knowledge-capture')) {
+          <a
+            routerLink="/knowledge/capture"
+            routerLinkActive="business-nav-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            class="business-nav-link"
+            title="Capture de connaissances"
+            aria-label="Capture de connaissances"
+          >
+            <app-icon name="mic" [size]="14" />
+            <span class="business-nav-text business-nav-text-full">Capture de connaissances</span>
+            <span class="business-nav-text business-nav-text-short">Capture</span>
+          </a>
+        }
       </nav>
 
       <div class="business-actions">

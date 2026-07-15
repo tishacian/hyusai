@@ -64,6 +64,7 @@ def test_vm_deploy_has_fail_closed_health_and_immutable_rollback_state() -> None
     assert 'printf \'service\\t%s\\t%s\\t%s\\t%s\\n\'' in script
     assert 'rollback_ref="agentium-rollback/${svc}:${target_sha}"' in script
     assert 'docker tag "$image_id" "$rollback_ref"' in script
+    assert '[[ "$image_revision" == "$previous_sha" ]]' in script
     assert 'validate_rollback_state "$state_file"' in script
     assert 'if ln "$tmp_file" "$state_file"' in script
     assert 'docker tag "$rollback_ref" "$image_ref"' in script
@@ -71,6 +72,8 @@ def test_vm_deploy_has_fail_closed_health_and_immutable_rollback_state() -> None
     assert '[[ "$current_head" == "$target_sha" ]]' in script
     assert '[[ "$runtime_revision" != "$target_sha"' in script
     assert '"$runtime_image_id" != "$image_id"' in script
+    assert 'docker inspect "$svc" >/dev/null 2>&1' in script
+    assert 'il sera recréé depuis l\'image de rollback' in script
 
 
 def test_vm_check_only_audit_never_fetches_the_remote() -> None:
@@ -80,3 +83,21 @@ def test_vm_check_only_audit_never_fetches_the_remote() -> None:
     assert "git fetch" not in audit
     assert 'head="$(git rev-parse HEAD)"' in audit
     assert 'if [[ "$head" == "$expected_sha" ]]' in audit
+
+
+def test_vm_deploy_supports_verified_build_then_activation() -> None:
+    script = DEPLOY_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "--build-only) BUILD_ONLY=1" in script
+    assert "--activate-only) ACTIVATE_ONLY=1" in script
+    assert 'verify_candidate_images "$DEPLOY_SHA"' in script
+    assert 'ROLLBACK_STATE_PATH="$STATE_DIR/${DEPLOY_SHA}.tsv"' in script
+    assert 'validate_rollback_state "$ROLLBACK_STATE_PATH"' in script
+    assert 'if [[ "$BUILD_ONLY" -eq 1 ]]' in script
+    assert "verify_database_at_image_head()" in script
+    assert "agentium-migrate alembic current" in script
+    assert "agentium-migrate alembic heads" in script
+    assert script.index("verify_database_at_image_head\n") < script.index(
+        'up -d --no-build "${SELECTED_SERVICES[@]}"'
+    )
+    assert 'up -d --no-build "${SELECTED_SERVICES[@]}"' in script

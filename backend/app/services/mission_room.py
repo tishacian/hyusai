@@ -69,6 +69,7 @@ logger = logging.getLogger(__name__)
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
 SENTINEL_ASSISTANT_NAME = "AYA"
+SENTINEL_MISSION_ROOM_PROFILE = "sentinel_government_v1"
 SENTINEL_EVIDENCE_GRAPH_COLLECTION = "sentinel-ci-evidence-graph"
 SENTINEL_MARITIME_INTELLIGENCE_COLLECTION = "sentinel-ci-maritime-intelligence"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
@@ -89,6 +90,10 @@ def _octocity_owner_emails() -> tuple[str, ...]:
 
 
 _OCTOCITY_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    # Public action ids are presentation contracts. Keep this exact alias
+    # ahead of the generic AYA/OCTAVE and sector-name substitutions so a
+    # persisted confirmation can still resolve to an effective manifest.
+    ("aya.recommend_cacao", "octave.recommend_diversification"),
     ("sentinel_ci_aya_security_v1", "octave_security_v1"),
     ("sentinel_ci_aya_v1", "octave_mission_room_v1"),
     ("sentinel_ci", "octocity"),
@@ -6796,6 +6801,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             ],
             "mission_room": {
                 "enabled": True,
+                "profile": SENTINEL_MISSION_ROOM_PROFILE,
                 "country": "Cote d'Ivoire",
                 "country_code": "CI",
                 "region_scope": ["Cote d'Ivoire", "West Africa", "Sahel", "Gulf of Guinea"],

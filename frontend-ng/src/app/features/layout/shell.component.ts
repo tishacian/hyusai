@@ -15,6 +15,7 @@ import { BusinessShellHeaderComponent } from './business-shell-header.component'
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
 import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component';
 import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draft-drawer.component';
+import { missionRoomUsesImmersiveShell } from '@app/features/mission-room/mission-room.extension';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -110,11 +111,7 @@ export class ShellComponent {
     if (/^\/workspace\/[^/]+\/chat$/.test(path)) {
       return true;
     }
-    return (
-      this.workspaceService.isDemoMode() &&
-      path.startsWith('/hypervisor/mission-room') &&
-      (workspace?.settings?.['workspace_app_shell'] as string | undefined) === 'immersive'
-    );
+    return missionRoomUsesImmersiveShell(workspace, path);
   });
 
   constructor() {

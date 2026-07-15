@@ -22,6 +22,28 @@ test('Client360 stays classified under Operate in the standard admin cockpit', (
   assert.equal(matchCockpitVerb('/client360/opportunities')?.key, 'operate');
 });
 
+test('Andritz business app catalog keeps its three stable routes and API prefixes', () => {
+  assert.deepEqual(
+    BUSINESS_NAVIGATION_SURFACE_IDS.map((surfaceId) => {
+      const surface = agentiumSurfaceById(surfaceId);
+      return {
+        id: surfaceId,
+        route: surface?.route,
+        apiPrefix: surface?.apiPrefix,
+      };
+    }),
+    [
+      { id: 'chat', route: '/chat', apiPrefix: '/api/v1/chat' },
+      { id: 'client360-pdr', route: '/client360', apiPrefix: '/api/v1/client360' },
+      {
+        id: 'knowledge-capture',
+        route: '/knowledge/capture',
+        apiPrefix: '/api/v1/knowledge-capture',
+      },
+    ],
+  );
+});
+
 test('surface registry owns unique ids and every rail section references it', () => {
   assert.equal(
     new Set(AGENTIUM_SURFACE_ROUTES.map((surface) => surface.id)).size,

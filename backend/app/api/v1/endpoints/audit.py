@@ -96,6 +96,7 @@ _REDIRECT_REASONS = frozenset(
         "business_system_capture_compatibility",
         "direct",
         "workspace_default_route",
+        "workspace_extension_unavailable",
         "workspace_settings_entrypoint",
     }
 )
@@ -107,6 +108,7 @@ _REDIRECT_OWNER_BY_REASON = {
     "business_profile_disallowed": "navigation_resolver",
     "business_system_capture_compatibility": "navigation_resolver",
     "workspace_default_route": "navigation_resolver",
+    "workspace_extension_unavailable": "navigation_resolver",
     "workspace_settings_entrypoint": "navigation_resolver",
 }
 

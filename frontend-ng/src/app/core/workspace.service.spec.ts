@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injector, signal } from '@angular/core';
 import { firstValueFrom, of, Subject } from 'rxjs';
 import {
+  BUSINESS_WORKSPACE_APPS,
   WorkspaceService,
   type WorkspaceDetail,
   type WorkspaceInfo,
@@ -174,6 +175,62 @@ test('workspace settings writes can pin an explicit workspace header', async () 
       workspaceSlug: 'andritz',
     }]);
     assert.equal(metadataRefreshes, 1, 'current workspace feature changes are observable');
+  } finally {
+    restoreStorage();
+  }
+});
+
+test('member administration sends an explicit canonical app entitlement decision', async () => {
+  const restoreStorage = installStorage();
+  try {
+    const seen: Array<{ url: string; body: unknown }> = [];
+    const http = {
+      post: (url: string, body: unknown) => {
+        seen.push({ url, body });
+        return of({
+          status: 'ok',
+          user_id: 'user-invitee',
+          role: 'member',
+          app_entitlements: BUSINESS_WORKSPACE_APPS.map((app) => app.key),
+          invitation_email_sent: false,
+        });
+      },
+      put: (url: string, body: unknown) => {
+        seen.push({ url, body });
+        return of({ status: 'ok', member: { user_id: 'user-member' } });
+      },
+    };
+    const injector = Injector.create({
+      providers: [WorkspaceService, { provide: HttpClient, useValue: http }],
+    });
+    const workspace = injector.get(WorkspaceService);
+    const grants = BUSINESS_WORKSPACE_APPS.map((app) => app.key);
+
+    await firstValueFrom(workspace.inviteMember('andritz', 'invitee@example.com', 'member', grants));
+    await firstValueFrom(workspace.updateIamMember('user-member', {
+      role_template: 'workspace_contributor',
+      custom_labels: [],
+      app_entitlements: ['chat'],
+    }));
+
+    assert.deepEqual(seen, [
+      {
+        url: '/api/v1/auth/workspaces/andritz/members',
+        body: {
+          email: 'invitee@example.com',
+          role: 'member',
+          app_entitlements: grants,
+        },
+      },
+      {
+        url: '/api/v1/iam/members/user-member',
+        body: {
+          role_template: 'workspace_contributor',
+          custom_labels: [],
+          app_entitlements: ['chat'],
+        },
+      },
+    ]);
   } finally {
     restoreStorage();
   }

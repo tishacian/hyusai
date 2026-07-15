@@ -23,6 +23,7 @@ from app.core.logging import get_logger
 from app.core.monitoring import metrics_collector
 from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
+from app.core.iam.dependencies import require_app_entitlement
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.run import Run
@@ -48,6 +49,7 @@ from app.services.industrial_answer_profile import (
     industrial_answer_policy,
     resolve_answer_profile,
 )
+from app.services.iam.app_entitlements import CHAT_APP
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
 from app.services.systems.bootstrap import workspace_chat_system_id
@@ -63,7 +65,7 @@ from app.services.mission_room import (
     source_index,
 )
 logger = get_logger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_app_entitlement(CHAT_APP))])
 query_validator = QueryValidator()
 response_validator = ResponseValidator()
 

@@ -1,6 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
+import { WorkspaceService } from './workspace.service';
+import {
+  MISSION_ROOM_EXTENSION,
+  missionRoomExtensionState,
+} from '@app/features/mission-room/mission-room.extension';
 
 const DEFAULT_FAVICON = '/assets/brand/favicon.svg';
 const DEFAULT_TITLE = 'Agentium';
@@ -8,6 +13,7 @@ const DEFAULT_TITLE = 'Agentium';
 @Injectable({ providedIn: 'root' })
 export class FaviconService {
   private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
   private initialized = false;
 
   init(): void {
@@ -34,7 +40,12 @@ export class FaviconService {
       link.setAttribute('href', href);
     }
     link.setAttribute('type', type);
-    document.title = path.startsWith('/hypervisor/mission-room') ? 'Agentium Mission Room' : DEFAULT_TITLE;
+    document.title = (
+      path.startsWith(MISSION_ROOM_EXTENSION.routeRoot) &&
+      missionRoomExtensionState(this.workspace.current()).enabled
+    )
+      ? 'Agentium Mission Room'
+      : DEFAULT_TITLE;
   }
 
   private ensureIconLink(): HTMLLinkElement {

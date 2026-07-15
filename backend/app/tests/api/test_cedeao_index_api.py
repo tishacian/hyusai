@@ -32,7 +32,10 @@ def test_cedeao_index_endpoint_returns_baseline_payload_for_demo_workspace(db_se
         slug="sentinel-ci-cedeao-demo",
         name="SENTINEL-CI",
         mode="demo",
-        settings={"feature_flag": {"security_live_osint": True}},
+        settings={
+            "feature_flag": {"security_live_osint": True},
+            "mission_room": {"enabled": True, "profile": "sentinel_government_v1"},
+        },
     )
     user = User(
         id="user-cedeao",
@@ -68,7 +71,9 @@ def test_cedeao_index_endpoint_emits_audit_event(db_session):
         slug="sentinel-ci-cedeao-audit",
         name="SENTINEL-CI",
         mode="demo",
-        settings={},
+        settings={
+            "mission_room": {"enabled": True, "profile": "sentinel_government_v1"},
+        },
     )
     user = User(
         id="user-cedeao-audit",
@@ -100,7 +105,10 @@ def test_cedeao_index_endpoint_serves_cached_live_when_flag_on(db_session):
         slug="sentinel-ci-cedeao-live",
         name="SENTINEL-CI",
         mode="prod",
-        settings={"feature_flag": {"security_live_osint": True}},
+        settings={
+            "feature_flag": {"security_live_osint": True},
+            "mission_room": {"enabled": True, "profile": "sentinel_government_v1"},
+        },
     )
     user = User(
         id="user-cedeao-live",

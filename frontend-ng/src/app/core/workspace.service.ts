@@ -3,6 +3,15 @@ import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo';
+export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture';
+export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
+  key: WorkspaceAppEntitlement;
+  label: string;
+}> = Object.freeze([
+  { key: 'chat', label: 'Recherche' },
+  { key: 'client360-pdr', label: 'Client360 PDR' },
+  { key: 'knowledge-capture', label: 'Capture de connaissances' },
+]);
 
 export interface WorkspaceInfo {
   id: string;
@@ -14,6 +23,7 @@ export interface WorkspaceInfo {
   created_at?: string;
   mode?: WorkspaceMode;
   settings?: Record<string, unknown>;
+  app_entitlements?: WorkspaceAppEntitlement[];
 }
 
 export interface WorkspaceDetail {
@@ -28,6 +38,7 @@ export interface WorkspaceDetail {
   deleted_at?: string | null;
   settings?: Record<string, unknown>;
   mode?: WorkspaceMode;
+  app_entitlements?: WorkspaceAppEntitlement[];
 }
 
 export interface WorkspaceMemberDetail {
@@ -43,6 +54,7 @@ export interface WorkspaceMemberDetail {
   is_current_user: boolean;
   status?: 'active' | 'pending';
   last_login?: string | null;
+  app_entitlements?: WorkspaceAppEntitlement[];
 }
 
 /**
@@ -56,6 +68,7 @@ export interface InviteMemberResponse {
   user_id: string;
   role: 'admin' | 'member';
   role_template?: RoleTemplate;
+  app_entitlements: WorkspaceAppEntitlement[];
   invitation_email_sent: boolean;
 }
 
@@ -176,6 +189,15 @@ export class WorkspaceService {
   readonly isDemoSafeMode = computed(() =>
     this.isDemoMode() || this.demoSafeFromSettings(this.current()?.settings),
   );
+  readonly appEntitlementsEnabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['app_entitlements_v1'] === true,
+    );
+  });
 
   captureRequestScope(): WorkspaceRequestScope {
     const state = this.state();
@@ -329,16 +351,33 @@ export class WorkspaceService {
   inviteMember(
     slug: string,
     email: string,
-    role: 'admin' | 'member' = 'member'
+    role: 'admin' | 'member' = 'member',
+    appEntitlements?: readonly WorkspaceAppEntitlement[],
   ): Observable<InviteMemberResponse> {
+    const body: {
+      email: string;
+      role: 'admin' | 'member';
+      app_entitlements?: readonly WorkspaceAppEntitlement[];
+    } = { email, role };
+    if (appEntitlements !== undefined) body.app_entitlements = appEntitlements;
     return this.http.post<InviteMemberResponse>(
       `/api/v1/auth/workspaces/${slug}/members`,
-      { email, role }
+      body,
     );
   }
 
-  updateMemberRole(slug: string, userId: string, role: 'admin' | 'member'): Observable<unknown> {
-    return this.http.patch(`/api/v1/auth/workspaces/${slug}/members/${userId}`, { role });
+  updateMemberRole(
+    slug: string,
+    userId: string,
+    role: 'admin' | 'member',
+    appEntitlements?: readonly WorkspaceAppEntitlement[],
+  ): Observable<unknown> {
+    const body: {
+      role: 'admin' | 'member';
+      app_entitlements?: readonly WorkspaceAppEntitlement[];
+    } = { role };
+    if (appEntitlements !== undefined) body.app_entitlements = appEntitlements;
+    return this.http.patch(`/api/v1/auth/workspaces/${slug}/members/${userId}`, body);
   }
 
   getIamSummary(): Observable<IamSummary> {
@@ -355,7 +394,11 @@ export class WorkspaceService {
 
   updateIamMember(
     userId: string,
-    body: { role_template: RoleTemplate; custom_labels: string[] },
+    body: {
+      role_template: RoleTemplate;
+      custom_labels: string[];
+      app_entitlements?: readonly WorkspaceAppEntitlement[];
+    },
   ): Observable<{ status: 'ok'; member: WorkspaceMemberDetail }> {
     return this.http.put<{ status: 'ok'; member: WorkspaceMemberDetail }>(`/api/v1/iam/members/${userId}`, body);
   }

@@ -172,6 +172,37 @@ test('explicit redirect records the final destination after a chained Angular re
   });
 });
 
+test('workspace extension rejection emits the resolver-owned audit reason', () => {
+  const { router, api, telemetry } = makeHarness();
+  router.events.next(new NavigationStart(1, '/hypervisor/mission-room/cockpit'));
+  telemetry.registerRedirect({
+    requestedRoute: '/hypervisor/mission-room/cockpit',
+    resolvedRoute: '/hypervisor',
+    owner: 'navigation_resolver',
+    reason: 'workspace_extension_unavailable',
+  });
+  router.events.next(new NavigationCancel(
+    1,
+    '/hypervisor/mission-room/cockpit',
+    'Redirecting to /hypervisor',
+    NavigationCancellationCode.Redirect,
+  ));
+  router.events.next(new NavigationStart(2, '/hypervisor'));
+  router.events.next(new NavigationEnd(2, '/hypervisor', '/hypervisor'));
+
+  assert.equal(api.calls.length, 1);
+  assert.deepEqual(api.calls[0].body.details, {
+    schema_version: 1,
+    requested_route: '/hypervisor/mission-room/cockpit',
+    resolved_route: '/hypervisor',
+    effective_workspace: 'andritz',
+    effective_surface: 'hypervisor',
+    redirect_owner: 'navigation_resolver',
+    redirect_reason: 'workspace_extension_unavailable',
+    redirected: true,
+  });
+});
+
 test('explicit redirect survives a superseded navigation when its replacement wins', () => {
   const { router, api, telemetry } = makeHarness();
   router.events.next(new NavigationStart(1, '/workspace'));

@@ -5,7 +5,12 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
-import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.service';
+import {
+  BUSINESS_WORKSPACE_APPS,
+  WorkspaceMemberDetail,
+  WorkspaceService,
+  type WorkspaceAppEntitlement,
+} from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -79,6 +84,26 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               <option value="member">Member</option>
               <option value="admin">Admin</option>
             </select>
+            @if (appEntitlementsEnabled()) {
+              <fieldset class="w-full rounded-md border border-white/10 bg-black/15 px-3 py-2">
+                <legend class="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Application access
+                </legend>
+                <div class="flex flex-wrap gap-x-5 gap-y-2">
+                  @for (app of appOptions; track app.key) {
+                    <label class="inline-flex items-center gap-2 text-sm text-gray-200">
+                      <input
+                        type="checkbox"
+                        [checked]="inviteHasApp(app.key)"
+                        (change)="setInviteApp(app.key, $event)"
+                        class="h-4 w-4 rounded border-white/20 bg-black/30 text-cyan-500 focus:ring-cyan-400/60"
+                      />
+                      {{ app.label }}
+                    </label>
+                  }
+                </div>
+              </fieldset>
+            }
             <button
               type="submit"
               [disabled]="!inviteEmail.trim() || inviting()"
@@ -143,6 +168,17 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                     }
                   </div>
                   <div class="text-sm text-gray-400 truncate">{{ m.email }}</div>
+                  @if (appEntitlementsEnabled()) {
+                    <div class="mt-1 flex flex-wrap gap-1" aria-label="Application access">
+                      @for (app of appOptions; track app.key) {
+                        @if ((m.app_entitlements || []).includes(app.key)) {
+                          <span class="rounded border border-cyan-400/20 bg-cyan-500/[0.07] px-1.5 py-0.5 text-[10px] text-cyan-200">
+                            {{ app.label }}
+                          </span>
+                        }
+                      }
+                    </div>
+                  }
                   <div class="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1">
                     <app-icon name="clock" [size]="11" />
                     @if (isPending(m)) {
@@ -267,6 +303,9 @@ export class WorkspaceMembersComponent {
 
   inviteEmail = '';
   inviteRole: 'admin' | 'member' = 'member';
+  inviteAppEntitlements: WorkspaceAppEntitlement[] = BUSINESS_WORKSPACE_APPS.map((app) => app.key);
+  readonly appOptions = BUSINESS_WORKSPACE_APPS;
+  readonly appEntitlementsEnabled = this.workspaceService.appEntitlementsEnabled;
 
   readonly canAdmin = computed(() => {
     return this.workspaceService.isAdmin();
@@ -299,7 +338,10 @@ export class WorkspaceMembersComponent {
     const email = this.inviteEmail.trim();
     if (!email) return;
     this.inviting.set(true);
-    this.workspaceService.inviteMember(slug, email, this.inviteRole).subscribe({
+    const appEntitlements = this.appEntitlementsEnabled()
+      ? [...this.inviteAppEntitlements]
+      : undefined;
+    this.workspaceService.inviteMember(slug, email, this.inviteRole, appEntitlements).subscribe({
       next: (res) => {
         this.inviting.set(false);
         if (res?.invitation_email_sent) {
@@ -311,6 +353,7 @@ export class WorkspaceMembersComponent {
           );
         }
         this.inviteEmail = '';
+        this.inviteAppEntitlements = BUSINESS_WORKSPACE_APPS.map((app) => app.key);
         this.load(slug);
       },
       error: (err) => {
@@ -324,6 +367,20 @@ export class WorkspaceMembersComponent {
         this.toastr.error(err?.error?.detail || 'Failed to invite', 'Error');
       },
     });
+  }
+
+  inviteHasApp(app: WorkspaceAppEntitlement): boolean {
+    return this.inviteAppEntitlements.includes(app);
+  }
+
+  setInviteApp(app: WorkspaceAppEntitlement, event: Event): void {
+    const enabled = (event.target as HTMLInputElement).checked;
+    const selected = new Set(this.inviteAppEntitlements);
+    if (enabled) selected.add(app);
+    else selected.delete(app);
+    this.inviteAppEntitlements = BUSINESS_WORKSPACE_APPS
+      .map((option) => option.key)
+      .filter((key) => selected.has(key));
   }
 
   changeRole(member: WorkspaceMemberDetail, ev: Event): void {

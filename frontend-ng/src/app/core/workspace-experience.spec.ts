@@ -44,6 +44,7 @@ const SENTINEL_SETTINGS = {
   assistant_profile_default: 'vigie_executive',
   mission_room: {
     enabled: true,
+    profile: 'sentinel_government_v1',
     label: 'AYA',
     navigation: MISSION_ROOM_NAVIGATION_KEYS.map((key) => ({ key })),
   },
@@ -77,7 +78,7 @@ const SENTINEL_OBSERVATION: MissionNavigationObservation = {
     shell: 'immersive',
     default_route: '/hypervisor/mission-room/cockpit',
     default_view: 'cockpit',
-    profile: '',
+    profile: 'sentinel_government_v1',
     brand: {},
   },
   items: MISSION_ROOM_NAVIGATION_KEYS.map((key) => ({
@@ -170,6 +171,52 @@ test('Andritz member keeps the rendered business experience and hard-coded surfa
     businessHeader: true,
     missionRail: false,
   });
+});
+
+test('app entitlements filter the V2 business policy in canonical order and fail closed', () => {
+  const settings = {
+    ...BUSINESS_SETTINGS,
+    features: { app_entitlements_v1: true },
+  };
+  const client360Only = resolveWorkspaceExperienceV2({
+    workspace: {
+      slug: 'andritz',
+      mode: 'builder',
+      settings,
+      appEntitlements: ['unknown-app', 'client360-pdr', 'client360-pdr'],
+    },
+    scenario: { role: 'member', requestedRoute: '/chat' },
+  });
+  assert.deepEqual(client360Only.primarySurfaceIds, ['client360-pdr']);
+  assert.equal(client360Only.homeRoute, '/client360');
+  assert.equal(client360Only.routeResolution.resolvedRoute, '/client360');
+  assert.equal(client360Only.routeResolution.redirectReason, 'business_profile_disallowed');
+
+  const missingGrants = resolveWorkspaceExperienceV2({
+    workspace: { slug: 'andritz', mode: 'builder', settings },
+    scenario: { role: 'member', requestedRoute: '/knowledge' },
+  });
+  assert.deepEqual(missingGrants.primarySurfaceIds, []);
+  assert.equal(missingGrants.homeRoute, '/account/profile');
+  assert.equal(missingGrants.routeResolution.resolvedRoute, '/account/profile');
+  assert.equal(missingGrants.routeResolution.redirectReason, 'business_profile_disallowed');
+  assert.deepEqual(missingGrants.routeResolution.semanticQueryKeys, []);
+});
+
+test('app entitlement payload is ignored until its feature flag is enabled', () => {
+  const experience = resolveWorkspaceExperienceV2({
+    workspace: {
+      slug: 'andritz',
+      mode: 'builder',
+      settings: BUSINESS_SETTINGS,
+      appEntitlements: [],
+    },
+    scenario: { role: 'member', requestedRoute: '/systems' },
+  });
+
+  assert.deepEqual(experience.primarySurfaceIds, BUSINESS_PRIMARY_SURFACE_IDS);
+  assert.equal(experience.homeRoute, '/chat');
+  assert.equal(experience.routeResolution.resolvedRoute, '/chat');
 });
 
 test('Andritz admin remains standard while admin preview restores business', () => {
@@ -338,6 +385,23 @@ test('system capture compares semantic query presence without retaining its valu
   }
 });
 
+test('observed system capture compares a decoded query to an encoded route segment', () => {
+  const value = input('business', 'builder', BUSINESS_SETTINGS, {
+    role: 'member',
+    requestedRoute: '/systems/system%2042/capture',
+  });
+
+  const comparison = compareWorkspaceExperiences(value, {
+    observedLegacyRouteDecision: {
+      requestedRoute: '/systems/system%2042/capture',
+      resolvedRoute: '/knowledge/capture?systemId=system%2042',
+      reason: 'business_system_capture_compatibility',
+    },
+  });
+
+  assert.equal(comparison.status, 'match');
+});
+
 test('workspace entrypoint comparison preserves tenant equality without retaining the target slug', () => {
   const privateOtherSlug = 'private-other-tenant';
   const value = input('andritz', 'builder', {}, {
@@ -410,7 +474,7 @@ test('Sentinel API observation maps app label separately from assistant and igno
   assert.equal(experience.homeRoute, '/hypervisor/mission-room/cockpit');
   assert.equal(experience.missionRoom?.label, 'SENTINEL-CI');
   assert.equal(experience.missionRoom?.assistantLabel, 'AYA');
-  assert.equal(experience.missionRoom?.profile, 'government_mission_room');
+  assert.equal(experience.missionRoom?.profile, 'sentinel_government_v1');
   assert.equal(experience.missionRoom?.brandStyle, 'sentinel');
   assert.deepEqual(experience.missionRoom?.navigationKeys, MISSION_ROOM_NAVIGATION_KEYS);
   assert.equal(JSON.stringify(experience).includes('backend-owned-'), false);
@@ -943,7 +1007,7 @@ test('legacy projection is independent from the exported adapter registry', () =
   ]);
   assert.equal(legacy.shellKind, 'business');
   assert.equal(legacy.routeResolution.redirectOwner, 'legacy_navigation_resolver');
-  assert.equal(WORKSPACE_EXPERIENCE_RESOLVER_VERSION, 'workspace-experience-v2.shadow.1');
+  assert.equal(WORKSPACE_EXPERIENCE_RESOLVER_VERSION, 'workspace-experience-v2.flagged.1');
 });
 
 test('legacy oracle has no structural dependency on candidate registry or policy functions', () => {

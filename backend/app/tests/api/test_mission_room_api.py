@@ -27,8 +27,18 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     return TestClient(app)
 
 
+def _mission_room_workspace() -> Workspace:
+    return Workspace(
+        id="workspace-sentinel",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={"mission_room": {"enabled": True}},
+    )
+
+
 def test_mission_room_overview_is_workspace_scoped(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -44,7 +54,7 @@ def test_mission_room_overview_is_workspace_scoped(db_session):
 
 
 def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -187,7 +197,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
 
 
 def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant_leak(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     source = FeedSource(
@@ -286,7 +296,7 @@ def test_mission_room_cockpit_agenda_uses_demo_date_window(db_session):
     ``_agenda_items_from_calendar`` ignored the demo-day window.
     """
 
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -373,7 +383,7 @@ def test_press_preview_does_not_trust_weak_ci_classifier_without_ci_markers():
 
 
 def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -414,7 +424,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
 
 
 def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -481,7 +491,7 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
 
 
 def test_mission_room_security_monitor_payload(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -521,7 +531,7 @@ def test_mission_room_security_monitor_payload(db_session):
 
 
 def test_mission_room_satellite_scenes_and_proxy(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -554,7 +564,7 @@ def test_mission_room_satellite_scenes_and_proxy(db_session):
 
 
 def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -593,7 +603,7 @@ def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
 
 
 def test_mission_room_core_routes_are_non_empty_and_demo_clean(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -632,7 +642,7 @@ def test_mission_room_core_routes_are_non_empty_and_demo_clean(db_session):
 
 
 def test_draft_action_is_advisory_and_audited(db_session):
-    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    workspace = _mission_room_workspace()
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
