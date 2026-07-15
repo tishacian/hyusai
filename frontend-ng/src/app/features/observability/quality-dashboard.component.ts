@@ -13,6 +13,11 @@ import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import {
+  readWorkspaceEvalContext,
+  type LastEvalContext,
+} from '@app/core/evaluation-context.storage';
+import { WorkspaceService } from '@app/core/workspace.service';
+import {
   CanonicalApiService,
   type EvaluationComponentHealthResponse,
   type EvaluationTrendResponse,
@@ -46,12 +51,6 @@ interface HistoryResponse {
 
 interface LatestResponse {
   evaluation: EvaluationRow | null;
-}
-
-interface LastEvalContext {
-  agent_id: string;
-  query: string;
-  response: string;
 }
 
 const PALETTE = {
@@ -468,6 +467,7 @@ const PALETTE = {
 export class QualityDashboardComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
 
@@ -839,15 +839,11 @@ export class QualityDashboardComponent implements OnInit {
   }
 
   private readLastContext(): LastEvalContext | null {
-    try {
-      const raw = localStorage.getItem('agentium:last_eval_context');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed?.query || !parsed?.response) return null;
-      return parsed as LastEvalContext;
-    } catch {
-      return null;
-    }
+    return readWorkspaceEvalContext(
+      localStorage,
+      this.workspace.currentSlug(),
+      this.workspace.workspaces().map((workspace) => workspace.slug),
+    );
   }
 }
 

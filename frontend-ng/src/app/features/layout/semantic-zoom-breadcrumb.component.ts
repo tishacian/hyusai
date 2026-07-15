@@ -1,12 +1,14 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router } from '@angular/router';
-import { filter, map, startWith } from 'rxjs';
+import { Router } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { ZoomContextService } from '@app/core/zoom-context.service';
+import {
+  ZoomContextService,
+  type ZoomHierarchyKey,
+} from '@app/core/zoom-context.service';
+import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 
 interface ZoomLevel {
-  key: 'portfolio' | 'capability' | 'system' | 'run' | 'skill';
+  key: ZoomHierarchyKey;
   label: string;
   sub?: string;
   href?: string | any[];
@@ -25,8 +27,8 @@ interface ZoomLevel {
  * "System" from a Run keeps the system in scope). ⌘Z / ⇧⌘Z traverse the
  * chain respecting this canonical order.
  *
- * The mapping is heuristic (URL-based) for now; phase 7 wires it to the
- * real System / Run context selector.
+ * The Router owns the leaf; `ZoomContextService` validates its parents from
+ * the canonical graph and exposes this component a read-only projection.
  */
 @Component({
   selector: 'app-semantic-zoom-breadcrumb',
@@ -71,75 +73,61 @@ interface ZoomLevel {
 })
 export class SemanticZoomBreadcrumbComponent {
   private readonly router = inject(Router);
-  private readonly ctx = inject(ZoomContextService);
-  private readonly url = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map((e) => e.urlAfterRedirects),
-      startWith(this.router.url),
-    ),
-    { initialValue: this.router.url },
-  );
+  private readonly navigation = inject(ZoomContextService);
 
   readonly levels = computed<ZoomLevel[]>(() => {
-    const url = (this.url() || '/').split('?')[0];
-    const segs = url.split('/').filter(Boolean);
-    const first = segs[0] ?? '';
-
-    const isHyper    = first === 'hypervisor';
-    const isSteering = first === 'steering';
-    const isCaps     = first === 'capabilities';
-    const isBuilder  = first === 'systems';
-    const isRun      = first === 'observability' || first === 'runs';
-    const isSkills   = first === 'skills';
-
-    const currentCap = this.ctx.capabilityId();
-    const currentCapLabel = this.ctx.capabilityLabel();
-    const currentSys = this.ctx.systemId();
-    const currentSysLabel = this.ctx.systemLabel();
-    const currentRun = this.ctx.runId();
-    const currentRunLabel = this.ctx.runLabel();
-    const currentSkill = this.ctx.skillId();
-    const currentSkillLabel = this.ctx.skillLabel();
-
-    return [
-      {
-        key: 'portfolio',
-        label: 'Portfolio',
-        sub: 'Hypervisor',
-        href: '/hypervisor',
-        active: isHyper,
-      },
-      {
-        key: 'capability',
-        label: currentCapLabel || 'Capability',
-        sub: currentCap ? `Capability: ${currentCapLabel || currentCap}` : 'Catalog',
-        href: currentCap ? ['/capabilities', currentCap] : '/capabilities',
-        active: isCaps,
-      },
-      {
-        key: 'system',
-        label: currentSysLabel || 'System',
-        sub: currentSys ? `System: ${currentSysLabel || currentSys}` : 'Builder',
-        href: currentSys ? ['/systems', currentSys] : '/systems',
-        active: isBuilder || isSteering,
-      },
-      {
-        key: 'run',
-        label: currentRunLabel || 'Run',
-        sub: currentRun ? `Run: ${currentRunLabel || currentRun}` : 'Telemetry',
-        href: currentRun ? ['/runs', currentRun] : '/runs',
-        active: isRun,
-      },
-      {
-        key: 'skill',
-        label: currentSkillLabel || 'Skill',
-        sub: currentSkill ? `Skill: ${currentSkillLabel || currentSkill}` : 'Registry',
-        href: currentSkill ? ['/skills', currentSkill] : '/skills',
-        active: isSkills,
-      },
-    ];
+    if (!this.navigation.axesV3Enabled()) return this.legacyLevels();
+    const nodes = this.navigation.nodes();
+    const selected = this.navigation.route().selectedType;
+    const activeKey: ZoomHierarchyKey = selected && nodes.some((node) => node.key === selected)
+      ? selected
+      : (this.navigation.deepestResolvedType() ?? 'portfolio');
+    return nodes.map((node) => ({
+      key: node.key,
+      label: node.label,
+      sub: node.sub,
+      href: node.href,
+      active: node.key === activeKey,
+    }));
   });
+
+  private legacyLevels(): ZoomLevel[] {
+    const path = this.navigation.route().path;
+    const first = path.split('/').filter(Boolean)[0] ?? '';
+    const byKey = new Map(this.navigation.nodes().map((node) => [node.key, node]));
+    const level = (
+      key: ZoomHierarchyKey,
+      fallbackLabel: string,
+      fallbackHref: string,
+      active: boolean,
+    ): ZoomLevel => {
+      const node = byKey.get(key);
+      return {
+        key,
+        label: node?.label || fallbackLabel,
+        sub: node?.sub || fallbackLabel,
+        href: node?.href || fallbackHref,
+        active,
+      };
+    };
+    return [
+      level('portfolio', 'Portfolio', agentiumSurfaceRoute('hypervisor'), first === 'hypervisor'),
+      level('capability', 'Capability', agentiumSurfaceRoute('capabilities'), first === 'capabilities'),
+      level(
+        'system',
+        'System',
+        agentiumSurfaceRoute('systems'),
+        first === 'systems' || first === 'steering',
+      ),
+      level(
+        'run',
+        'Run',
+        agentiumSurfaceRoute('runs'),
+        first === 'runs' || first === 'observability',
+      ),
+      level('skill', 'Skill', agentiumSurfaceRoute('skills'), first === 'skills'),
+    ];
+  }
 
   goto(lv: ZoomLevel): void {
     if (!lv.href) return;

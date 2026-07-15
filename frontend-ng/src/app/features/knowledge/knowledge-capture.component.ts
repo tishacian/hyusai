@@ -6,7 +6,11 @@ import { firstValueFrom, Subscription } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, CaptureDocumentViewRequest, CaptureTurnResponse, CaptureViewReference, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
+import {
+  LiveKitConversationConnection,
+  LiveKitConversationService,
+  WorkspaceChangedDuringTransportError,
+} from '@app/core/livekit-conversation.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { PermissionsService } from '@app/core/permissions.service';
 import {
@@ -19,8 +23,7 @@ import {
 import { detectVoiceCommand as detectSharedVoiceCommand } from '@app/core/voice-command-detector';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
-import { WorkspaceService } from '@app/core/workspace.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { DocumentPreviewComponent, DocumentPreviewViewChange } from '@app/shared/document-preview/document-preview.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
@@ -4341,7 +4344,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly zoom = inject(ZoomContextService);
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly livekitConversation = inject(LiveKitConversationService);
   private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
@@ -4739,6 +4741,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   });
 
   private recorder: MediaRecorder | null = null;
+  /** Invalidates microphone acquisition and recorder callbacks across workspace resets. */
+  private voiceCaptureGeneration = 0;
+  /** Invalidates whole async voice workflows without changing between mic turns. */
+  private voiceWorkspaceGeneration = 0;
   // Realtime lane: when the LiveKit sidecar streams the published mic track to
   // gpt-realtime-whisper, the browser must NOT also push WebM frames over the
   // data channel (the sidecar ignores them and they would waste bandwidth). The
@@ -4802,13 +4808,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private lastSuggestedContextName = '';
 
   ngOnInit(): void {
+    const unregisterVoiceWorkspaceReset = this.workspace.registerContextReset(() => {
+      this.resetVoiceCaptureForWorkspaceChange();
+    });
     this.destroyRef.onDestroy(() => {
+      unregisterVoiceWorkspaceReset();
       if (this.transcriptAutoscrollFrame !== null) {
         window.cancelAnimationFrame(this.transcriptAutoscrollFrame);
         this.transcriptAutoscrollFrame = null;
       }
-      this.stopCaptureEndpointMonitor();
-      this.closeVoiceConnection();
+      this.resetVoiceCaptureForWorkspaceChange();
       this.ttsPlayback.destroy();
       if (this.sessionClockTimer != null) {
         clearInterval(this.sessionClockTimer);
@@ -4843,7 +4852,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         }
         const selected = contexts.find((ctx) => ctx.id === this.contextId);
         if (selected) {
-          this.zoom.setCurrentContext(selected.id, selected.name);
           this.syncKnowledgeComposerFromContext(selected);
         }
       });
@@ -5022,9 +5030,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         next: (session) => {
           const typed = session as CaptureSession;
           this.session.set(typed);
-          this.zoom.setCurrentCapability(typed.capability_id || null, this.i18n.t('capture.title'));
-          this.zoom.setCurrentSystem(typed.system_id || null, this.systemLabel(typed.system_id));
-          this.zoom.setCurrentContext(typed.context_id || null, this.contextLabel(typed.context_id));
           this.selectedQuestionId.set(this.planQuestions(typed)[0]?.id || null);
           this.loadCaptureDocuments(typed.id);
           this.planNotice.set({
@@ -5360,14 +5365,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.activeSurface.set('session');
           this.loading.set(false);
           if (conversationOnly && armed) {
-            void this.ensureVoiceConnection(typed).then(() => {
-              const firstPrompt = this.spokenSectionPrompt();
-              if (firstPrompt && !this.isFreeConversationSession(typed) && !this.isTopicOnlyPlan(typed)) {
-                this.speak(firstPrompt);
-              } else {
-                void this.startRecordingTurn();
-              }
-            });
+            void this.ensureVoiceConnection(typed)
+              .then(() => {
+                const firstPrompt = this.spokenSectionPrompt();
+                if (firstPrompt && !this.isFreeConversationSession(typed) && !this.isTopicOnlyPlan(typed)) {
+                  this.speak(firstPrompt);
+                } else {
+                  void this.startRecordingTurn();
+                }
+              })
+              .catch((error: unknown) => {
+                if (!(error instanceof WorkspaceChangedDuringTransportError)) {
+                  this.setVoiceNotice('Connexion vocale impossible.', 'error');
+                }
+              });
           }
         },
         error: () => {
@@ -6092,7 +6103,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   onContextChange(contextId: string): void {
     const ctx = this.contexts().find((item) => item.id === contextId);
-    this.zoom.setCurrentContext(ctx?.id || null, ctx?.name || null);
     const collection = ctx?.environment_state?.collection || ctx?.data_refs?.[0] || '';
     if (collection) {
       this.selectedKnowledgeCollection = collection;
@@ -6133,7 +6143,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.contexts.set([ctx, ...this.contexts().filter((item) => item.id !== ctx.id)]);
           this.contextId = ctx.id;
           this.newContextId.set(ctx.id);
-          this.zoom.setCurrentContext(ctx.id, ctx.name);
           this.contextCreationNotice.set({
             tone: 'success',
             text: `Le contexte "${ctx.name}" est maintenant rattaché à ${collection}.`,
@@ -6327,10 +6336,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (system.context_id && (!this.contextId || this.systemScoped())) {
       this.contextId = system.context_id;
-    }
-    this.zoom.setCurrentSystem(system.id, system.name);
-    if (system.context_id) {
-      this.zoom.setCurrentContext(system.context_id, this.contextLabel(system.context_id));
     }
   }
 
@@ -9724,7 +9729,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private async ensureVoiceConnection(session: CaptureSession): Promise<CaptureVoiceConnection | null> {
     if (this.conversationMode() !== 'conversation_only') return null;
     if (this.voiceConnection) return this.voiceConnection;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.voiceWorkspaceGeneration;
     if (this.shouldPreferLiveKitTransport(session)) {
+      let openedConnection: LiveKitConversationConnection | null = null;
       try {
         const connection = await this.livekitConversation.open(session.id, {
           runtime: session.voice_runtime || 'cascade_openai',
@@ -9747,27 +9755,59 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             mode: 'conversation_only',
           },
         });
+        openedConnection = connection;
+        if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) {
+          throw new WorkspaceChangedDuringTransportError();
+        }
         this.voiceConnection = connection;
         this.voiceConnection.events$
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe((event) => this.handleVoiceSessionEvent(event));
         this.setVoiceNotice('Session LiveKit prête. Connexion du pont vocal Agentium en cours.', 'info');
         return this.voiceConnection;
-      } catch {
+      } catch (error) {
+        if (openedConnection) {
+          this.closeDetachedVoiceConnection(openedConnection);
+          if (this.voiceConnection === openedConnection) this.voiceConnection = null;
+        }
+        if (
+          error instanceof WorkspaceChangedDuringTransportError ||
+          !this.isVoiceConnectionAttemptCurrent(scope, generation)
+        ) {
+          this.voiceConnection = null;
+          throw error instanceof WorkspaceChangedDuringTransportError
+            ? error
+            : new WorkspaceChangedDuringTransportError();
+        }
         this.voiceConnection = null;
         this.setVoiceNotice('LiveKit indisponible ; bascule sur la session vocale WebSocket.', 'warning');
       }
     }
-    return this.ensureBackendVoiceConnection(session);
+    if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) {
+      throw new WorkspaceChangedDuringTransportError();
+    }
+    return this.ensureBackendVoiceConnection(session, scope, generation);
   }
 
-  private ensureBackendVoiceConnection(session: CaptureSession): VoiceSessionConnection | null {
+  private ensureBackendVoiceConnection(
+    session: CaptureSession,
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): VoiceSessionConnection | null {
+    let connection: VoiceSessionConnection | null = null;
     try {
-      this.voiceConnection = this.voiceSession.open(session.id);
-      this.voiceConnection.events$
+      if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) {
+        throw new WorkspaceChangedDuringTransportError();
+      }
+      connection = this.voiceSession.open(session.id);
+      if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) {
+        throw new WorkspaceChangedDuringTransportError();
+      }
+      this.voiceConnection = connection;
+      connection.events$
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((event) => this.handleVoiceSessionEvent(event));
-      this.voiceConnection.start({
+      connection.start({
         runtime: session.voice_runtime || 'cascade_openai',
         provider: session.voice_runtime || 'cascade_openai',
         transport: 'backend_ws',
@@ -9781,11 +9821,38 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         tandem_oracle: true,
         oracle: this.voiceOracleSessionOptions(),
       });
-      return this.voiceConnection;
-    } catch {
+      return connection;
+    } catch (error) {
+      if (connection) this.closeDetachedVoiceConnection(connection);
       this.voiceConnection = null;
+      if (
+        error instanceof WorkspaceChangedDuringTransportError ||
+        !this.isVoiceConnectionAttemptCurrent(scope, generation)
+      ) {
+        throw error instanceof WorkspaceChangedDuringTransportError
+          ? error
+          : new WorkspaceChangedDuringTransportError();
+      }
       this.setVoiceNotice('WebSocket vocal indisponible ; bascule sur les tours vocaux HTTP.', 'warning');
       return null;
+    }
+  }
+
+  private isVoiceConnectionAttemptCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): boolean {
+    return (
+      generation === this.voiceWorkspaceGeneration &&
+      this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private closeDetachedVoiceConnection(connection: CaptureVoiceConnection): void {
+    try {
+      void connection.close();
+    } catch {
+      /* best-effort teardown for a connection that never became current */
     }
   }
 
@@ -10343,8 +10410,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       await this.startRecordingTurn();
       return;
     }
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.voiceWorkspaceGeneration;
     const session = this.session();
-    const connection = session ? await this.ensureVoiceConnection(session) : null;
+    let connection: CaptureVoiceConnection | null;
+    try {
+      connection = session ? await this.ensureVoiceConnection(session) : null;
+    } catch (error) {
+      if (
+        error instanceof WorkspaceChangedDuringTransportError ||
+        !this.isVoiceConnectionAttemptCurrent(scope, generation)
+      ) return;
+      throw error;
+    }
+    if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
     const captureConfig = this.resolvedVoiceCaptureConfig();
     this.conversationSessionActive.set(true);
     // Realtime: re-enable/publish the LiveKit mic before ensureAudioStream() grabs
@@ -10352,6 +10431,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     // muted/silent track) — same device order as the initial connect.
     if (this.realtimeSttActive && connection && 'enableMicrophone' in connection) {
       await connection.enableMicrophone(true);
+      if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
     }
     connection?.loopStart({
       surface: 'knowledge_capture',
@@ -10368,6 +10448,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     });
     this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
     const armed = await this.ensureAudioStream();
+    if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
     if (!armed) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
@@ -11108,6 +11189,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private transcribeRecording(): void {
+    const generation = this.voiceCaptureGeneration;
     if (!this.conversationSessionActive()) {
       this.releaseAudioStream();
     }
@@ -11129,6 +11211,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          if (generation !== this.voiceCaptureGeneration) return;
           this.clearTranscriptionWatchdog();
           const text = res.text || '';
           // Dictation finalises through this same path, but must NOT clobber the
@@ -11166,6 +11249,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
         },
         error: () => {
+          if (generation !== this.voiceCaptureGeneration) return;
           this.clearTranscriptionWatchdog();
           this.transcribing.set(false);
           this.voiceState.set('idle');
@@ -11332,6 +11416,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private async finishStreamingVoiceTurn(reason: CaptureEndpointReason = this.captureEndpointReason): Promise<void> {
+    const generation = this.voiceCaptureGeneration;
     // Snapshot the connection BEFORE awaiting pending frame sends: a concurrent
     // stop/teardown can null `this.voiceConnection` during the await, which
     // silently dropped the endpoint and left the turn unfinalised.
@@ -11349,6 +11434,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (pending.length) {
       await Promise.allSettled(pending);
     }
+    if (generation !== this.voiceCaptureGeneration) return;
     connection?.endpoint(this.voiceFrameMeta(reason));
     if (reason === 'no_speech') {
       this.transcribing.set(false);
@@ -12896,10 +12982,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return false;
     }
     try {
-      this.recorder = new MediaRecorder(this.stream!);
+      const generation = this.voiceCaptureGeneration;
+      const recorder = new MediaRecorder(this.stream!);
+      this.recorder = recorder;
       this.captureEndpointReason = 'manual';
       this.lastVoiceChunkAt = 0;
-      this.recorder.ondataavailable = (event) => {
+      recorder.ondataavailable = (event) => {
+        if (generation !== this.voiceCaptureGeneration) return;
         if (event.data.size <= 0) return;
         const chunkAt = performance.now();
         if (this.lastVoiceChunkAt > 0) {
@@ -12929,6 +13018,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           const send = this.voiceConnection
             .sendAudioFrame(event.data, this.voiceFrameMeta())
             .then(() => {
+              if (generation !== this.voiceCaptureGeneration) return;
               const elapsed = Math.round(performance.now() - sendStartedAt);
               this.emitCaptureClientMetric({
                 metric: 'send_audio_frame_ms',
@@ -12937,7 +13027,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
                 chunk_size: event.data.size,
               });
             })
-            .catch(() => this.setVoiceNotice('Une trame vocale n’a pas pu être envoyée ; le fallback HTTP peut être nécessaire.', 'warning'));
+            .catch(() => {
+              if (generation !== this.voiceCaptureGeneration) return;
+              this.setVoiceNotice('Une trame vocale n’a pas pu être envoyée ; le fallback HTTP peut être nécessaire.', 'warning');
+            });
           this.pendingVoiceFrameSends.push(send);
           void send.finally(() => {
             this.pendingVoiceFrameSends = this.pendingVoiceFrameSends.filter((item) => item !== send);
@@ -12946,11 +13039,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.transcribePartialRecording();
         }
       };
-      this.recorder.onstop = () => {
+      recorder.onstop = () => {
+        if (generation !== this.voiceCaptureGeneration) return;
         this.stopCaptureEndpointMonitor();
         this.transcribeRecording();
       };
-      this.recorder.start(1200);
+      recorder.start(1200);
       if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
         this.startCaptureEndpointMonitor();
       }
@@ -12972,6 +13066,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (this.recording() || this.transcribing()) {
       return;
     }
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.voiceWorkspaceGeneration;
     this.clearAutoResumeTimer();
     const session = this.session();
     // Realtime STT's audio source is the published LiveKit mic track, NOT the
@@ -12982,12 +13078,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     // the republished track silent on resume ("redémarrer, mais plus rien").
     // Mirrors the initial-connect order (LiveKit mic first), which works.
     if (this.realtimeSttActive && session) {
-      const liveConn = await this.ensureVoiceConnection(session);
+      let liveConn: CaptureVoiceConnection | null;
+      try {
+        liveConn = await this.ensureVoiceConnection(session);
+      } catch (error) {
+        if (
+          error instanceof WorkspaceChangedDuringTransportError ||
+          !this.isVoiceConnectionAttemptCurrent(scope, generation)
+        ) return;
+        throw error;
+      }
+      if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
       if (liveConn && 'enableMicrophone' in liveConn) {
         await liveConn.enableMicrophone(true);
+        if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
       }
     }
     const armed = await this.ensureAudioStream();
+    if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
     if (!armed) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
@@ -12999,7 +13107,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
     if (session) {
-      const connection = await this.ensureVoiceConnection(session);
+      let connection: CaptureVoiceConnection | null;
+      try {
+        connection = await this.ensureVoiceConnection(session);
+      } catch (error) {
+        if (
+          error instanceof WorkspaceChangedDuringTransportError ||
+          !this.isVoiceConnectionAttemptCurrent(scope, generation)
+        ) return;
+        throw error;
+      }
+      if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
       const captureConfig = this.resolvedVoiceCaptureConfig();
       connection?.loopArmed({
         surface: 'knowledge_capture',
@@ -13054,10 +13172,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.setVoiceNotice('La capture micro est indisponible dans ce contexte navigateur.', 'error');
       return false;
     }
+    const generation = ++this.voiceCaptureGeneration;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (generation !== this.voiceCaptureGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      this.stream = stream;
       return true;
     } catch (error) {
+      if (generation !== this.voiceCaptureGeneration) return false;
       const name = error instanceof DOMException ? error.name : '';
       this.stream = null;
       this.setVoiceNotice(
@@ -13078,6 +13203,58 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.stopCaptureEndpointMonitor();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
+  }
+
+  /**
+   * Synchronous A→B barrier for every v0 voice-capture lane. Recorder handlers
+   * are detached before stop so the browser's final dataavailable/onstop pair
+   * cannot transcribe or send workspace-A audio after B becomes current.
+   */
+  private resetVoiceCaptureForWorkspaceChange(): void {
+    this.voiceWorkspaceGeneration += 1;
+    this.voiceCaptureGeneration += 1;
+    this.clearAutoResumeTimer();
+    this.clearTranscriptionWatchdog();
+    this.clearConversationProcessingWatchdog();
+    this.stopCaptureEndpointMonitor();
+    this.stopDictationAudioMonitor();
+    this.cancelPartialTranscription('stop');
+
+    const recorder = this.recorder;
+    this.recorder = null;
+    if (recorder) {
+      try {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.onerror = null;
+      } catch {
+        /* browser cleanup only */
+      }
+      try {
+        if (recorder.state !== 'inactive') recorder.stop();
+      } catch {
+        /* best-effort hard stop */
+      }
+    }
+
+    this.pendingVoiceFrameSends = [];
+    this.resetHttpBatchRecordingBuffers();
+    this.recordingStopCallback = null;
+    this.recordingPartialCallback = null;
+    this.currentClientTurnId = null;
+    this.commandHandledForTurn = null;
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.deferredCaptureFinishAfterStreamingTurn = false;
+    this.closeVoiceAfterStreamingTurn = false;
+    this.recording.set(false);
+    this.transcribing.set(false);
+    this.conversationSessionActive.set(false);
+    this.clearDictationSurface();
+    this.stopSpeech(false);
+    this.releaseAudioStream();
+    this.closeVoiceConnection();
+    this.voiceState.set('idle');
+    this.setVoiceNotice(null);
   }
 
   private scheduleConversationResume(delayMs = 450, forceAfterSpeech = false): void {

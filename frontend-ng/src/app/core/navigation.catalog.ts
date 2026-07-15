@@ -23,6 +23,7 @@ export interface AgentiumSurfaceRoute {
   id: string;
   label: string;
   route: string;
+  routeAliases?: string[];
   lens: CockpitLens;
   object: AgentiumObjectType;
   scope: SurfaceScope;
@@ -56,6 +57,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     id: 'mission-room',
     label: 'Mission Room',
     route: '/hypervisor/mission-room/cockpit',
+    routeAliases: ['/hypervisor/mission-room/:view'],
     lens: 'hypervisor',
     object: 'Workbench',
     scope: 'workspace',
@@ -462,9 +464,12 @@ export interface CockpitSection {
   key: CockpitSectionKey;
   label: string;
   glyph: CkGlyphName;
+  surfaceId: string;
   route: string;
   matches?: string[];
   scopeType: CockpitScopeType;
+  /** The target canvas consumes the routed hierarchy instead of going global. */
+  ancestryAware: boolean;
 }
 
 export interface CockpitVerb {
@@ -472,10 +477,168 @@ export interface CockpitVerb {
   label: string;
   hint: string;
   glyph: CkGlyphName;
+  primarySurfaceId: string;
   primaryRoute: string;
   matches: string[];
   sections?: CockpitSection[];
+  /** Pre-Lot-3 section set, retained while the routed axes feature is gated. */
+  legacySections?: CockpitSection[];
   hiddenInModes?: WorkspaceMode[];
+}
+
+export type HierarchyObjectType = 'capability' | 'system' | 'run' | 'skill';
+
+export interface NavigationAncestry {
+  capabilityId: string | null;
+  systemId: string | null;
+  runId: string | null;
+  skillRef: string | null;
+}
+
+export interface CockpitRouteContext extends NavigationAncestry {
+  url: string;
+  path: string;
+  query: Readonly<Record<string, string>>;
+  lens: CockpitLens;
+  scope: CockpitSectionKey | null;
+  selectedType: HierarchyObjectType | null;
+  selectedRef: string | null;
+}
+
+export interface NavigationObjectUrlOptions extends Partial<NavigationAncestry> {
+  lens?: CockpitLens | null;
+  tab?: string | null;
+  scope?: CockpitSectionKey | null;
+}
+
+export const BUSINESS_NAVIGATION_SURFACE_IDS = [
+  'chat',
+  'client360-pdr',
+  'knowledge-capture',
+] as const;
+
+const COCKPIT_LENSES = new Set<CockpitLens>([
+  'hypervisor',
+  'build',
+  'operate',
+  'steer',
+  'govern',
+]);
+
+const HIERARCHY_SURFACE_IDS: Record<HierarchyObjectType, string> = {
+  capability: 'capabilities',
+  system: 'systems',
+  run: 'runs',
+  skill: 'skills',
+};
+
+const NAVIGATION_QUERY_KEYS = new Set([
+  'lens',
+  'scope',
+  'tab',
+  'facet',
+  'focus',
+  'capabilityId',
+  'systemId',
+  'runId',
+  'skillRef',
+]);
+
+function pathOnly(value: string): string {
+  const path = (value || '/').split('?')[0].split('#')[0] || '/';
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
+function decodedSegment(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function routeSegments(value: string): string[] {
+  return pathOnly(value).split('/').filter(Boolean);
+}
+
+export function agentiumSurfaceById(surfaceId: string): AgentiumSurfaceRoute | null {
+  return AGENTIUM_SURFACE_ROUTES.find((surface) => surface.id === surfaceId) ?? null;
+}
+
+export function agentiumSurfaceRoute(surfaceId: string): string {
+  const surface = agentiumSurfaceById(surfaceId);
+  if (!surface) throw new Error(`Unknown Agentium surface: ${surfaceId}`);
+  return surface.route;
+}
+
+export function routeMatchesSurfacePattern(path: string, pattern: string): boolean {
+  const actual = routeSegments(path);
+  const expected = routeSegments(pattern);
+  if (actual.length < expected.length) return false;
+  return expected.every((segment, index) => segment.startsWith(':') || segment === actual[index]);
+}
+
+export function matchAgentiumSurface(value: string): AgentiumSurfaceRoute | null {
+  const candidates = AGENTIUM_SURFACE_ROUTES.flatMap((surface) =>
+    [surface.route, ...(surface.routeAliases ?? [])].map((pattern) => ({ surface, pattern })),
+  ).sort((left, right) => {
+    const leftSegments = routeSegments(left.pattern);
+    const rightSegments = routeSegments(right.pattern);
+    return (
+      rightSegments.length - leftSegments.length ||
+      rightSegments.filter((segment) => !segment.startsWith(':')).length -
+        leftSegments.filter((segment) => !segment.startsWith(':')).length
+    );
+  });
+  return candidates.find((candidate) => routeMatchesSurfacePattern(value, candidate.pattern))?.surface ?? null;
+}
+
+export function pathAllowedBySurfaceIds(value: string, surfaceIds: readonly string[]): boolean {
+  return surfaceIds.some((surfaceId) => {
+    const surface = agentiumSurfaceById(surfaceId);
+    return Boolean(surface && [surface.route, ...(surface.routeAliases ?? [])].some((pattern) =>
+      routeMatchesSurfacePattern(value, pattern),
+    ));
+  });
+}
+
+function surfaceRootsForLens(lens: CockpitLens): string[] {
+  const roots = AGENTIUM_SURFACE_ROUTES
+    .filter((surface) => surface.lens === lens && surface.audience !== 'external')
+    .map((surface) => `/${routeSegments(surface.route)[0] ?? ''}`)
+    .filter((route) => route !== '/');
+  return [...new Set(roots)];
+}
+
+function section(
+  key: CockpitSectionKey,
+  label: string,
+  glyph: CkGlyphName,
+  surfaceId: string,
+  scopeType: CockpitScopeType,
+  matches?: string[],
+  ancestryAware = false,
+): CockpitSection {
+  return {
+    key,
+    label,
+    glyph,
+    surfaceId,
+    route: agentiumSurfaceRoute(surfaceId),
+    scopeType,
+    ancestryAware,
+    ...(matches ? { matches } : {}),
+  };
+}
+
+function hierarchySections(): CockpitSection[] {
+  return [
+    section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability', undefined, true),
+    section('systems', 'Systems', 'cube', 'systems', 'system', undefined, true),
+    section('runs', 'Runs', 'ledger', 'runs', 'run', undefined, true),
+    section('skills', 'Skills', 'bolt', 'skills', 'skill', undefined, true),
+  ];
 }
 
 export const COCKPIT_VERBS: CockpitVerb[] = [
@@ -484,8 +647,11 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     label: 'Hypervisor',
     hint: 'Decide · balance sheet, outcomes, what-if',
     glyph: 'ledger',
-    primaryRoute: '/hypervisor',
-    matches: ['/hypervisor'],
+    primarySurfaceId: 'hypervisor',
+    primaryRoute: agentiumSurfaceRoute('hypervisor'),
+    matches: surfaceRootsForLens('hypervisor'),
+    sections: hierarchySections(),
+    legacySections: [],
     hiddenInModes: ['builder'],
   },
   {
@@ -493,14 +659,20 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     label: 'Build',
     hint: 'Create Systems, Capabilities, Skills, Knowledge & Flows',
     glyph: 'cube',
-    primaryRoute: '/systems',
-    matches: ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
+    primarySurfaceId: 'systems',
+    primaryRoute: agentiumSurfaceRoute('systems'),
+    matches: surfaceRootsForLens('build'),
     sections: [
-      { key: 'systems', label: 'Systems', glyph: 'cube', route: '/systems', scopeType: 'system' },
-      { key: 'capabilities', label: 'Capabilities', glyph: 'focus', route: '/capabilities', scopeType: 'capability' },
-      { key: 'skills', label: 'Skills', glyph: 'bolt', route: '/skills', scopeType: 'skill' },
-      { key: 'knowledge', label: 'Knowledge', glyph: 'layers', route: '/knowledge', scopeType: 'knowledge' },
-      { key: 'flows', label: 'Flow builder', glyph: 'flow', route: '/orchestration', scopeType: 'flow' },
+      ...hierarchySections(),
+      section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
+      section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
+    ],
+    legacySections: [
+      section('systems', 'Systems', 'cube', 'systems', 'system'),
+      section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'),
+      section('skills', 'Skills', 'bolt', 'skills', 'skill'),
+      section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
+      section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
     ],
   },
   {
@@ -508,13 +680,20 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     label: 'Operate',
     hint: 'Run Systems · runtime, runs, missions',
     glyph: 'telemetry',
-    primaryRoute: '/runs',
-    matches: ['/runs', '/observability', '/intelligence', '/tasks', '/chat'],
+    primarySurfaceId: 'runs',
+    primaryRoute: agentiumSurfaceRoute('runs'),
+    matches: surfaceRootsForLens('operate'),
     sections: [
-      { key: 'runs', label: 'Runs', glyph: 'ledger', route: '/runs', scopeType: 'run' },
-      { key: 'observability', label: 'Observability', glyph: 'telemetry', route: '/observability', scopeType: 'system' },
-      { key: 'intelligence', label: 'Intelligence', glyph: 'pulse', route: '/intelligence', scopeType: 'system' },
-      { key: 'missions', label: 'Missions', glyph: 'play', route: '/tasks', scopeType: 'run' },
+      ...hierarchySections(),
+      section('observability', 'Observability', 'telemetry', 'observability', 'system'),
+      section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'system'),
+      section('missions', 'Missions', 'play', 'tasks', 'run'),
+    ],
+    legacySections: [
+      section('runs', 'Runs', 'ledger', 'runs', 'run'),
+      section('observability', 'Observability', 'telemetry', 'observability', 'system'),
+      section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'system'),
+      section('missions', 'Missions', 'play', 'tasks', 'run'),
     ],
   },
   {
@@ -522,12 +701,19 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     label: 'Steer',
     hint: 'Optimize Outcomes · levers, policies, simulations',
     glyph: 'sliders',
-    primaryRoute: '/steering',
-    matches: ['/steering'],
+    primarySurfaceId: 'steering',
+    primaryRoute: agentiumSurfaceRoute('steering'),
+    matches: surfaceRootsForLens('steer'),
     sections: [
-      { key: 'levers', label: 'Control plane', glyph: 'sliders', route: '/steering', scopeType: 'system' },
-      { key: 'contexts', label: 'Contexts', glyph: 'crosshair', route: '/steering/contexts', scopeType: 'context' },
-      { key: 'review', label: 'Review queue', glyph: 'warn', route: '/steering/review-queue', scopeType: 'system' },
+      ...hierarchySections(),
+      section('levers', 'Control plane', 'sliders', 'steering', 'system'),
+      section('contexts', 'Contexts', 'crosshair', 'contexts', 'context'),
+      section('review', 'Review queue', 'warn', 'review-queue', 'system'),
+    ],
+    legacySections: [
+      section('levers', 'Control plane', 'sliders', 'steering', 'system'),
+      section('contexts', 'Contexts', 'crosshair', 'contexts', 'context'),
+      section('review', 'Review queue', 'warn', 'review-queue', 'system'),
     ],
     hiddenInModes: ['builder'],
   },
@@ -536,15 +722,26 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     label: 'Govern',
     hint: 'Control · audit, apps, resources, presets',
     glyph: 'shield',
-    primaryRoute: '/governance',
-    matches: ['/governance', '/apps', '/resources', '/connectors', '/presets', '/settings', '/workspace', '/account'],
+    primarySurfaceId: 'governance',
+    primaryRoute: agentiumSurfaceRoute('governance'),
+    matches: surfaceRootsForLens('govern'),
     sections: [
-      { key: 'audit', label: 'Governance', glyph: 'shield', route: '/governance', scopeType: 'system' },
-      { key: 'workspace', label: 'Workspace settings', glyph: 'sliders', route: '/workspace', scopeType: 'system' },
-      { key: 'apps', label: 'Apps', glyph: 'bolt', route: '/apps', scopeType: 'app' },
-      { key: 'resources', label: 'Resources', glyph: 'orbit', route: '/resources', scopeType: 'system' },
-      { key: 'connectors', label: 'Connectors', glyph: 'layers', route: '/connectors', matches: ['/connectors'], scopeType: 'connector' },
-      { key: 'presets', label: 'Presets', glyph: 'sliders', route: '/presets', scopeType: 'preset' },
+      ...hierarchySections(),
+      section('audit', 'Governance', 'shield', 'governance', 'system'),
+      // `/workspace` is the registry-owned entry alias resolved to the active slug.
+      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'system'), route: '/workspace' },
+      section('apps', 'Apps', 'bolt', 'apps', 'app'),
+      section('resources', 'Resources', 'orbit', 'resources', 'system'),
+      section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
+      section('presets', 'Presets', 'sliders', 'presets', 'preset'),
+    ],
+    legacySections: [
+      section('audit', 'Governance', 'shield', 'governance', 'system'),
+      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'system'), route: '/workspace' },
+      section('apps', 'Apps', 'bolt', 'apps', 'app'),
+      section('resources', 'Resources', 'orbit', 'resources', 'system'),
+      section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
+      section('presets', 'Presets', 'sliders', 'presets', 'preset'),
     ],
   },
 ];
@@ -555,5 +752,167 @@ export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
 );
 
 export function matchCockpitVerb(path: string): CockpitVerb | null {
-  return COCKPIT_VERBS.find((v) => v.matches.some((m) => path === m || path.startsWith(m + '/'))) ?? null;
+  const surface = matchAgentiumSurface(path);
+  if (surface) return COCKPIT_VERBS.find((verb) => verb.key === surface.lens) ?? null;
+  return COCKPIT_VERBS.find((verb) => verb.matches.some((match) => {
+    const normalized = pathOnly(path);
+    return normalized === match || normalized.startsWith(match + '/');
+  })) ?? null;
+}
+
+export function lensForNavigationUrl(value: string): CockpitLens {
+  const context = navigationRouteContext(value);
+  return context.lens;
+}
+
+export function navigationRouteContext(value: string, parseLens = true): CockpitRouteContext {
+  const url = value || '/';
+  const path = pathOnly(url);
+  const rawQuery = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : '';
+  const params = new URLSearchParams(rawQuery);
+  const query: Record<string, string> = {};
+  for (const [key, item] of params.entries()) {
+    if (NAVIGATION_QUERY_KEYS.has(key) && item) query[key] = item;
+  }
+
+  const segments = routeSegments(path);
+  let selectedType: HierarchyObjectType | null = null;
+  let selectedRef: string | null = null;
+  if (segments[0] === 'capabilities' && segments[1]) {
+    selectedType = 'capability';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'systems' && segments[1] && segments[1] !== 'new') {
+    selectedType = 'system';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'runs' && segments[1]) {
+    selectedType = 'run';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'skills' && segments[1]) {
+    selectedType = 'skill';
+    selectedRef = decodedSegment(segments[1]);
+  }
+
+  const capabilityId = selectedType === 'capability'
+    ? selectedRef
+    : query['capabilityId'] || (path === '/capabilities' ? query['focus'] : null) || null;
+  const systemId = selectedType === 'system' ? selectedRef : query['systemId'] || null;
+  const runId = selectedType === 'run' ? selectedRef : query['runId'] || null;
+  const skillRef = selectedType === 'skill' ? selectedRef : query['skillRef'] || null;
+  const explicitLens = query['lens'];
+  const matchedLens = matchAgentiumSurface(path)?.lens ?? 'build';
+  const lens = parseLens && COCKPIT_LENSES.has(explicitLens as CockpitLens)
+    ? explicitLens as CockpitLens
+    : matchedLens;
+  const rawScope = query['scope'];
+  const scope = rawScope && COCKPIT_VERBS.some((verb) =>
+    verb.sections?.some((item) => item.key === rawScope),
+  ) ? rawScope as CockpitSectionKey : null;
+
+  return {
+    url,
+    path,
+    query,
+    lens,
+    scope,
+    selectedType,
+    selectedRef,
+    capabilityId,
+    systemId,
+    runId,
+    skillRef,
+  };
+}
+
+function appendNavigationQuery(
+  path: string,
+  values: Readonly<Record<string, string | null | undefined>>,
+): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (NAVIGATION_QUERY_KEYS.has(key) && value) params.set(key, value);
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+function lensQueryForPath(path: string, lens: CockpitLens | null | undefined): CockpitLens | null {
+  if (!lens) return null;
+  return matchAgentiumSurface(path)?.lens === lens ? null : lens;
+}
+
+export function navigationObjectUrl(
+  type: HierarchyObjectType,
+  ref: string,
+  options: NavigationObjectUrlOptions = {},
+): string {
+  const path = `${agentiumSurfaceRoute(HIERARCHY_SURFACE_IDS[type])}/${encodeURIComponent(ref)}`;
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, options.lens),
+    tab: options.tab,
+    scope: options.scope,
+    capabilityId: type === 'capability' ? null : options.capabilityId,
+    systemId: type === 'run' || type === 'skill' ? options.systemId : null,
+    runId: type === 'skill' ? options.runId : null,
+    // A selected hierarchy object is the leaf authority. Descendant refs
+    // must never leak from the previous canvas into a global object jump.
+    skillRef: null,
+  });
+}
+
+export function navigationPortfolioUrl(lens?: CockpitLens | null): string {
+  const path = agentiumSurfaceRoute('hypervisor');
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, lens),
+  });
+}
+
+export function navigationLensUrl(
+  currentUrl: string,
+  targetLens: CockpitLens,
+  fallbackRoute: string,
+  verifiedAncestry?: NavigationAncestry,
+): string {
+  const context = navigationRouteContext(currentUrl);
+  const ownsHierarchyContext = Boolean(
+    context.selectedType ||
+    context.capabilityId ||
+    context.systemId ||
+    context.runId ||
+    context.skillRef,
+  );
+  if (!ownsHierarchyContext) return fallbackRoute;
+  const ancestry = verifiedAncestry ?? context;
+  return appendNavigationQuery(context.path, {
+    tab: context.query['tab'],
+    facet: context.query['facet'],
+    focus: context.query['focus'],
+    scope: context.scope,
+    lens: lensQueryForPath(context.path, targetLens),
+    capabilityId: context.selectedType === 'capability' ? null : ancestry.capabilityId,
+    systemId: context.selectedType === null || context.selectedType === 'run' || context.selectedType === 'skill'
+      ? ancestry.systemId
+      : null,
+    runId: context.selectedType === null || context.selectedType === 'skill'
+      ? ancestry.runId
+      : null,
+    skillRef: context.selectedType === null ? ancestry.skillRef : null,
+  });
+}
+
+export function navigationScopeUrl(
+  section: CockpitSection,
+  ancestry: NavigationAncestry,
+  lens: CockpitLens,
+): string {
+  const path = section.key === 'flows' && ancestry.systemId
+    ? `/systems/${encodeURIComponent(ancestry.systemId)}/flow`
+    : section.route;
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, lens),
+    scope: section.key,
+    capabilityId: ancestry.capabilityId,
+    systemId: path.startsWith('/systems/') ? null : ancestry.systemId,
+    runId: ancestry.runId,
+    skillRef: ancestry.skillRef,
+  });
 }

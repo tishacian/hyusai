@@ -1,8 +1,5 @@
-import { Injectable, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router } from '@angular/router';
-import { filter, map, startWith } from 'rxjs';
-import { LENS_MATCHES, type CockpitLens } from './navigation.catalog';
+import { Injectable, inject } from '@angular/core';
+import { ZoomContextService } from './zoom-context.service';
 
 /**
  * `LensService` — exposes the currently active cockpit lens as a signal so
@@ -20,25 +17,8 @@ import { LENS_MATCHES, type CockpitLens } from './navigation.catalog';
  */
 @Injectable({ providedIn: 'root' })
 export class LensService {
-  private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
 
-  private readonly url = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map((e) => e.urlAfterRedirects),
-      startWith(this.router.url),
-    ),
-    { initialValue: this.router.url },
-  );
-
-  /** Currently active lens, defaulting to `build` when no match (e.g. on /). */
-  readonly lens = computed<CockpitLens>(() => {
-    const path = (this.url() || '/').split('?')[0];
-    for (const [lens, prefixes] of Object.entries(LENS_MATCHES) as [CockpitLens, string[]][]) {
-      if (prefixes.some((m) => path === m || path.startsWith(m + '/'))) {
-        return lens;
-      }
-    }
-    return 'build';
-  });
+  /** Same gated Router projection used by rails, breadcrumb and guards. */
+  readonly lens = this.navigation.lens;
 }

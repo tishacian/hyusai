@@ -7,13 +7,17 @@
  * gives the operator a single page to drill into any failing / expensive
  * / slow execution across every System.
  */
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
 
@@ -154,9 +158,21 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     </ck-page-frame>
   `,
 })
-export class RunsListComponent implements OnInit {
+export class RunsListComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly navigation = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
+  private scopeParams: { system_id?: string; capability_id?: string } | undefined;
+  private routeSubscription: Subscription | null = null;
+  private contextRefreshSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentScope(),
+  );
 
   readonly runs = signal<Run[]>([]);
   readonly loading = signal(false);
@@ -169,25 +185,68 @@ export class RunsListComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.refresh();
+    this.routeSubscription = this.route.queryParamMap.pipe(
+      map((params) => this.effectiveScope(
+        params.get('systemId'),
+        params.get('capabilityId'),
+      )),
+      distinctUntilChanged((a, b) => (
+        a?.system_id === b?.system_id
+        && a?.capability_id === b?.capability_id
+      )),
+    ).subscribe((scopeParams) => {
+      this.scopeParams = scopeParams;
+      this.resetResults();
+      this.refresh();
+    });
+    this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
+      const params = this.route.snapshot.queryParamMap;
+      const next = this.effectiveScope(
+        params.get('systemId'),
+        params.get('capabilityId'),
+      );
+      if (
+        next?.system_id === this.scopeParams?.system_id
+        && next?.capability_id === this.scopeParams?.capability_id
+      ) {
+        return;
+      }
+      this.scopeParams = next;
+      this.resetResults();
+      this.refresh();
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.contextRefreshSubscription?.unsubscribe();
+    this.contextRefreshSubscription = null;
+    this.workspaceView.destroy();
   }
 
   refresh(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    const request = this.workspaceView.beginRequest();
     this.loading.set(true);
-    this.canonical.listRuns().subscribe({
+    const subscription = this.canonical.listRuns(this.scopeParams).subscribe({
       next: (list) => {
+        if (!this.workspaceView.isCurrent(request)) return;
         this.runs.set(list ?? []);
         this.loading.set(false);
       },
       error: () => {
+        if (!this.workspaceView.isCurrent(request)) return;
         this.runs.set([]);
         this.loading.set(false);
       },
     });
+    this.requestSubscription = subscription.closed ? null : subscription;
   }
 
   open(r: Run): void {
-    this.router.navigate(['/runs', r.id]);
+    this.router.navigateByUrl(this.navigation.objectUrl('run', r.id));
   }
 
   formatTime(ts: string | undefined): string {
@@ -202,5 +261,41 @@ export class RunsListComponent implements OnInit {
     } catch {
       return ts;
     }
+  }
+
+  private effectiveScope(
+    systemId: string | null,
+    capabilityId: string | null,
+  ): { system_id?: string; capability_id?: string } | undefined {
+    if (!this.navigation.axesV3Enabled()) return undefined;
+    if (!systemId && !capabilityId) return undefined;
+    return {
+      ...(systemId ? { system_id: systemId } : {}),
+      ...(capabilityId ? { capability_id: capabilityId } : {}),
+    };
+  }
+
+  private reloadCurrentScope(): void {
+    const params = this.route.snapshot.queryParamMap;
+    this.scopeParams = this.effectiveScope(
+      params.get('systemId'),
+      params.get('capabilityId'),
+    );
+    this.refresh();
+  }
+
+  private resetResults(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.runs.set([]);
+    this.loading.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.runs.set([]);
+    this.loading.set(false);
   }
 }

@@ -101,14 +101,21 @@ export class VoiceSessionConnection {
   private readonly eventsSubject = new Subject<VoiceSessionEvent>();
   private readonly pending: string[] = [];
   readonly events$: Observable<VoiceSessionEvent> = this.eventsSubject.asObservable();
+  private invalidated = false;
+  private closedNotified = false;
 
-  constructor(private readonly socket: WebSocket) {
+  constructor(
+    private readonly socket: WebSocket,
+    private readonly onClosed: () => void = () => undefined,
+  ) {
     this.socket.onopen = () => {
+      if (this.invalidated) return;
       while (this.pending.length && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(this.pending.shift()!);
       }
     };
     this.socket.onmessage = (message) => {
+      if (this.invalidated) return;
       try {
         this.eventsSubject.next(JSON.parse(String(message.data)) as VoiceSessionEvent);
       } catch {
@@ -123,6 +130,7 @@ export class VoiceSessionConnection {
       }
     };
     this.socket.onerror = () => {
+      if (this.invalidated) return;
       this.eventsSubject.next({
         id: crypto.randomUUID?.() || String(Date.now()),
         session_id: '',
@@ -132,7 +140,9 @@ export class VoiceSessionConnection {
         payload: { code: 'transport_error', message: 'Voice WebSocket transport error.' },
       });
     };
-    this.socket.onclose = () => this.eventsSubject.complete();
+    this.socket.onclose = () => {
+      this.terminate(false);
+    };
   }
 
   start(options: VoiceSessionStartOptions): void {
@@ -156,7 +166,7 @@ export class VoiceSessionConnection {
 
   async sendAudioFrame(blob: Blob, meta: VoiceFrameMeta): Promise<void> {
     const bytes_b64 = await this.blobToBase64(blob);
-    this.send('audio.frame', {
+    const accepted = this.send('audio.frame', {
       bytes_b64,
       turn_id: meta.turn_id,
       question_id: meta.question_id,
@@ -168,6 +178,7 @@ export class VoiceSessionConnection {
       encoding: blob.type || 'audio/webm',
       duration_ms: 0,
     });
+    if (!accepted) throw new Error('Voice WebSocket connection is closed.');
   }
 
   endpoint(meta: VoiceFrameMeta): void {
@@ -275,13 +286,25 @@ export class VoiceSessionConnection {
   }
 
   close(): void {
+    if (this.invalidated) return;
     if (this.socket.readyState === WebSocket.OPEN) {
       this.send('session.close', {});
     }
-    this.socket.close();
+    this.terminate(true);
   }
 
-  private send(type: VoiceSessionEventType, payload: Record<string, any>): void {
+  /**
+   * Invalidate synchronously during a workspace transaction.  Handlers are
+   * detached before the browser begins its asynchronous close handshake, so a
+   * queued message/error from the old socket cannot escape into the new
+   * workspace.
+   */
+  invalidate(): void {
+    this.terminate(true);
+  }
+
+  private send(type: VoiceSessionEventType, payload: Record<string, any>): boolean {
+    if (this.invalidated) return false;
     const frame = JSON.stringify({
       id: crypto.randomUUID?.() || String(Date.now()),
       type,
@@ -290,8 +313,29 @@ export class VoiceSessionConnection {
     });
     if (this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(frame);
+      return true;
     } else if (this.socket.readyState === WebSocket.CONNECTING) {
       this.pending.push(frame);
+      return true;
+    }
+    return false;
+  }
+
+  private terminate(closeSocket: boolean): void {
+    if (this.invalidated) return;
+    this.invalidated = true;
+    this.pending.length = 0;
+    this.socket.onopen = null;
+    this.socket.onmessage = null;
+    this.socket.onerror = null;
+    this.socket.onclose = null;
+    this.eventsSubject.complete();
+    if (!this.closedNotified) {
+      this.closedNotified = true;
+      this.onClosed();
+    }
+    if (closeSocket && this.socket.readyState < WebSocket.CLOSING) {
+      this.socket.close();
     }
   }
 
@@ -312,14 +356,28 @@ export class VoiceSessionConnection {
 export class VoiceSessionService {
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly activeConnections = new Set<VoiceSessionConnection>();
+
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      const connections = [...this.activeConnections];
+      this.activeConnections.clear();
+      for (const connection of connections) connection.invalidate();
+    });
+  }
 
   open(sessionId: string): VoiceSessionConnection {
+    const scope = this.workspace.captureRequestScope();
     const token = this.tokenStorage.getToken();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = new URL(`${protocol}//${window.location.host}/api/v1/voice/sessions/${encodeURIComponent(sessionId)}`);
     if (token) url.searchParams.set('token', token);
-    const workspaceSlug = this.workspace.currentSlug();
-    if (workspaceSlug) url.searchParams.set('workspace_slug', workspaceSlug);
-    return new VoiceSessionConnection(new WebSocket(url.toString()));
+    if (scope.workspaceSlug) url.searchParams.set('workspace_slug', scope.workspaceSlug);
+    let connection: VoiceSessionConnection;
+    connection = new VoiceSessionConnection(new WebSocket(url.toString()), () => {
+      this.activeConnections.delete(connection);
+    });
+    this.activeConnections.add(connection);
+    return connection;
   }
 }

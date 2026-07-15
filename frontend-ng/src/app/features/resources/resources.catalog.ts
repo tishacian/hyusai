@@ -296,10 +296,39 @@ export const APPS: AppDef[] = [
 
 const CONNECTORS_LS_KEY = 'agentium:connectors:v1';
 const APPS_LS_KEY = 'agentium:apps:v1';
+function scopedLocalStorageKey(baseKey: string, workspaceSlug: string | null): string | null {
+  const slug = workspaceSlug?.trim();
+  return slug ? `${baseKey}:${encodeURIComponent(slug)}` : null;
+}
 
-export function readConnectorConfig(id: string): Record<string, string> {
+/** Consume the pre-Lot-1 tenant-ambiguous value once. Sensitive callers
+ * discard it; non-sensitive preference callers may migrate it. */
+function readWorkspaceValue(
+  baseKey: string,
+  workspaceSlug: string | null,
+  migrateLegacy: boolean,
+): string | null {
+  const key = scopedLocalStorageKey(baseKey, workspaceSlug);
+  if (!key) return null;
+  const scoped = localStorage.getItem(key);
+  if (scoped !== null) return scoped;
+  const legacy = localStorage.getItem(baseKey);
+  if (legacy === null) return null;
+  localStorage.removeItem(baseKey);
+  if (!migrateLegacy) return null;
+  localStorage.setItem(key, legacy);
+  return legacy;
+}
+
+export function readConnectorConfig(
+  workspaceSlug: string | null,
+  id: string,
+): Record<string, string> {
   try {
-    const raw = localStorage.getItem(CONNECTORS_LS_KEY);
+    // Connector values can contain credentials.  The legacy key has no
+    // provenance, so assigning it to whichever workspace happens to be active
+    // at upgrade time would be a cross-tenant secret disclosure. Discard it.
+    const raw = readWorkspaceValue(CONNECTORS_LS_KEY, workspaceSlug, false);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed?.[id] ?? {};
@@ -308,36 +337,49 @@ export function readConnectorConfig(id: string): Record<string, string> {
   }
 }
 
-export function writeConnectorConfig(id: string, values: Record<string, string>): void {
+export function writeConnectorConfig(
+  workspaceSlug: string | null,
+  id: string,
+  values: Record<string, string>,
+): void {
   try {
-    const raw = localStorage.getItem(CONNECTORS_LS_KEY);
+    const key = scopedLocalStorageKey(CONNECTORS_LS_KEY, workspaceSlug);
+    if (!key) return;
+    const raw = readWorkspaceValue(CONNECTORS_LS_KEY, workspaceSlug, false);
     const all = raw ? JSON.parse(raw) : {};
     all[id] = values;
-    localStorage.setItem(CONNECTORS_LS_KEY, JSON.stringify(all));
+    localStorage.setItem(key, JSON.stringify(all));
   } catch {
     /* quota — ignore */
   }
 }
 
-export function hasConnectorConfig(id: string): boolean {
-  const cfg = readConnectorConfig(id);
+export function hasConnectorConfig(workspaceSlug: string | null, id: string): boolean {
+  const cfg = readConnectorConfig(workspaceSlug, id);
   return Object.values(cfg).some((v) => typeof v === 'string' && v.trim().length > 0);
 }
 
-export function readAppToggles(): Record<string, boolean> {
+export function readAppToggles(workspaceSlug: string | null): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(APPS_LS_KEY);
+    // App toggles are non-sensitive user preferences; preserve them once.
+    const raw = readWorkspaceValue(APPS_LS_KEY, workspaceSlug, true);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
   }
 }
 
-export function writeAppToggle(id: string, enabled: boolean): void {
+export function writeAppToggle(
+  workspaceSlug: string | null,
+  id: string,
+  enabled: boolean,
+): void {
   try {
-    const all = readAppToggles();
+    const key = scopedLocalStorageKey(APPS_LS_KEY, workspaceSlug);
+    if (!key) return;
+    const all = readAppToggles(workspaceSlug);
     all[id] = enabled;
-    localStorage.setItem(APPS_LS_KEY, JSON.stringify(all));
+    localStorage.setItem(key, JSON.stringify(all));
   } catch {
     /* ignore */
   }

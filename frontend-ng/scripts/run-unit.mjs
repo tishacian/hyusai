@@ -29,17 +29,52 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-manifest-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-variable.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow-draft.storage.spec.ts',
   'src/app/core/flow-serializer.service.spec.ts',
+  'src/app/core/workspace-local-storage.spec.ts',
+  'src/app/core/workspace-view-context.spec.ts',
+  'src/app/core/navigation.catalog.spec.ts',
+  'src/app/core/workspace-experience.spec.ts',
+  'src/app/features/resources/resources.catalog.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
   'src/app/core/auth.interceptor.spec.ts',
+  'src/app/core/navigation-profile.guard.spec.ts',
+  'src/app/core/zoom-context.service.spec.ts',
+  'src/app/core/workspace-experience-shadow.service.spec.ts',
   'src/app/core/navigation-profile.service.spec.ts',
+  'src/app/core/navigation-resolver.service.spec.ts',
   'src/app/core/navigation-telemetry.service.spec.ts',
+  'src/app/core/workspace-fetch.service.spec.ts',
+  'src/app/core/workspace-route-reuse.strategy.spec.ts',
+  'src/app/core/workspace.service.spec.ts',
+  'src/app/core/workspace-streams.spec.ts',
+  'src/app/core/workspace-scoped-services.spec.ts',
+  'src/app/core/voice-session.service.spec.ts',
+  'src/app/core/voice-loop-controller.service.spec.ts',
+  'src/app/core/voice-tts-playback.service.spec.ts',
+  'src/app/core/livekit-conversation.service.spec.ts',
+  'src/app/features/chat/assistant-draft-drawer.component.spec.ts',
+  'src/app/features/chat/chat-panel.component.spec.ts',
+  'src/app/features/chat/chat-workspace.component.spec.ts',
+  'src/app/features/client360/client360-page.component.spec.ts',
+  'src/app/features/capabilities/capabilities.component.spec.ts',
+  'src/app/features/skills/skill-view.component.spec.ts',
+  'src/app/features/layout/command-palette.component.spec.ts',
+  'src/app/features/layout/side-rail.component.spec.ts',
+  'src/app/features/layout/mini-rail.component.spec.ts',
+  'src/app/features/layout/semantic-zoom-breadcrumb.component.spec.ts',
+  'src/app/features/layout/title-bar.component.spec.ts',
+  'src/app/features/mission-room/mission-room.component.spec.ts',
+  'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
+  'src/app/features/knowledge/knowledge-capture.component.spec.ts',
+  'src/app/features/knowledge/capture-fil/capture-engine.spec.ts',
   'src/app/features/orchestration/flow/flow.store.spec.ts',
   'src/app/features/orchestration/flow/flow-run.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-persistence.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.spec.ts',
 ];
 
@@ -49,6 +84,7 @@ const common = {
   platform: 'node',
   format: 'esm',
   target: 'es2022',
+  outExtension: { '.js': '.mjs' },
   sourcemap: 'inline',
   absWorkingDir: root,
   nodePaths: [join(root, 'node_modules')],
@@ -56,6 +92,7 @@ const common = {
   logLevel: 'warning',
 };
 
+let exitCode = 1;
 try {
   await build({
     ...common,
@@ -72,12 +109,13 @@ try {
   });
 
   const bundles = [...pureSpecs, ...storeSpecs].map((s) =>
-    join(outDir, s.replace(/\.ts$/, '.js')),
+    join(outDir, s.replace(/\.ts$/, '.mjs')),
   );
   const result = spawnSync(process.execPath, ['--test', ...bundles], {
     stdio: 'inherit',
   });
-  process.exit(result.status ?? 1);
+  exitCode = result.status ?? 1;
 } finally {
   rmSync(outDir, { recursive: true, force: true });
 }
+process.exitCode = exitCode;

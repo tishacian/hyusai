@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, forkJoin, map } from 'rxjs';
 import { CanonicalApiService, type Capability, type Run, type Skill } from '@app/core/canonical-api.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   GlyphComponent,
   ImpactPreviewComponent,
@@ -94,7 +96,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                 style="padding: 18px 20px; display:flex; flex-direction:column; gap:14px; cursor:pointer;"
                 [style.boxShadow]="selected()?.id === c.id ? 'var(--ck-glow-cool)' : 'none'"
                 [style.borderColor]="selected()?.id === c.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-                (click)="selected.set(selected()?.id === c.id ? null : c)"
+                (click)="selectCapability(selected()?.id === c.id ? null : c)"
               >
                 <header class="flex items-start justify-between gap-3">
                   <div class="flex flex-col gap-1 min-w-0">
@@ -134,7 +136,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                         </span>
                       }
                       <a
-                        [routerLink]="['/capabilities', c.id]"
+                        [routerLink]="navigation.objectUrlTree('capability', c.id)"
                         (click)="$event.stopPropagation()"
                         class="ck-mono"
                         style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-3); border:1px solid var(--ck-stroke-soft); padding:3px 8px; border-radius:3px; text-decoration:none;"
@@ -161,7 +163,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
               </div>
               <button
                 type="button"
-                (click)="selected.set(null)"
+                (click)="selectCapability(null)"
                 class="ck-mono"
                 style="padding:6px 10px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-3); border:1px solid var(--ck-stroke-soft);"
               >
@@ -277,11 +279,22 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     </ck-page-frame>
   `,
 })
-export class CapabilitiesComponent implements OnInit {
+export class CapabilitiesComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
-  private readonly zoom = inject(ZoomContextService);
+  private readonly router = inject(Router);
   private readonly workspace = inject(WorkspaceService);
+  protected readonly navigation = inject(ZoomContextService);
+  private focusSubscription: Subscription | null = null;
+  private catalogSubscription: Subscription | null = null;
+  private latestRunSubscription: Subscription | null = null;
+  private latestRunGeneration = 0;
+  private currentFocus: string | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCatalog(),
+  );
 
   readonly hideRoi = computed(() => this.workspace.isBuilderMode());
 
@@ -316,34 +329,73 @@ export class CapabilitiesComponent implements OnInit {
     });
   });
 
-  constructor() {
-    // When a capability is selected, load its latest run so the Outcome card
-    // reflects real data for that specific capability's drill-down.
-    effect(() => {
-      const cap = this.selected();
-      this.zoom.setCurrentCapability(cap?.id ?? null);
-      if (!cap) {
-        this.latestRun.set(null);
-        return;
-      }
-      this.canonical.listRuns({ capability_id: cap.id }).subscribe((runs) => {
-        this.latestRun.set(runs?.[0] ?? null);
-      });
+  ngOnInit(): void {
+    this.focusSubscription = this.route.queryParamMap.pipe(
+      map((params) => params.get('focus')),
+      distinctUntilChanged(),
+    ).subscribe((focus) => {
+      this.currentFocus = focus;
+      this.applyFocusedCapability();
+    });
+    this.reloadCatalog();
+  }
+
+  ngOnDestroy(): void {
+    this.focusSubscription?.unsubscribe();
+    this.focusSubscription = null;
+    this.workspaceView.destroy();
+  }
+
+  selectCapability(capability: Capability | null): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        focus: capability?.id ?? null,
+        // `focus` becomes the routed Capability leaf. Descendants from a
+        // previously scoped list must not survive and outrank it in graph
+        // resolution.
+        scope: null,
+        capabilityId: null,
+        systemId: null,
+        runId: null,
+        skillRef: null,
+      },
+      queryParamsHandling: 'merge',
     });
   }
 
-  ngOnInit(): void {
-    this.canonical.listCapabilities().subscribe((caps) => {
-      this.capabilities.set(caps);
-      this.loading.set(false);
-      // Honour ?focus=<capability_id> for drill-down from the Hypervisor.
-      const focus = this.route.snapshot.queryParamMap.get('focus');
-      if (focus) {
-        const match = caps.find((c) => c.id === focus);
-        if (match) this.selected.set(match);
-      }
+  private applySelectedCapability(capability: Capability | null): void {
+    this.cancelLatestRunRequest();
+    this.selected.set(capability);
+    this.latestRun.set(null);
+    if (!capability) return;
+
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.latestRunGeneration;
+    const capabilityId = capability.id;
+    const subscription = this.canonical.listRuns({ capability_id: capabilityId }).subscribe({
+      next: (runs) => {
+        if (
+          generation !== this.latestRunGeneration
+          || !this.workspace.isRequestScopeCurrent(scope)
+          || this.selected()?.id !== capabilityId
+        ) {
+          return;
+        }
+        this.latestRun.set(runs?.[0] ?? null);
+      },
+      error: () => {
+        if (
+          generation !== this.latestRunGeneration
+          || !this.workspace.isRequestScopeCurrent(scope)
+          || this.selected()?.id !== capabilityId
+        ) {
+          return;
+        }
+        this.latestRun.set(null);
+      },
     });
-    this.canonical.listSkills().subscribe((s) => this.skills.set(s));
+    this.latestRunSubscription = subscription.closed ? null : subscription;
   }
 
   bundledSkills(cap: Capability): Skill[] {
@@ -388,5 +440,56 @@ export class CapabilitiesComponent implements OnInit {
 
   asInput(ev: Event): HTMLInputElement {
     return ev.target as HTMLInputElement;
+  }
+
+  private reloadCatalog(): void {
+    this.catalogSubscription?.unsubscribe();
+    this.catalogSubscription = null;
+    const request = this.workspaceView.beginRequest();
+    this.loading.set(true);
+    const subscription = forkJoin({
+      capabilities: this.canonical.listCapabilities(),
+      skills: this.canonical.listSkills(),
+    }).subscribe({
+      next: ({ capabilities, skills }) => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        this.capabilities.set(capabilities ?? []);
+        this.skills.set(skills ?? []);
+        this.loading.set(false);
+        this.applyFocusedCapability();
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        this.capabilities.set([]);
+        this.skills.set([]);
+        this.loading.set(false);
+        this.applySelectedCapability(null);
+      },
+    });
+    this.catalogSubscription = subscription.closed ? null : subscription;
+  }
+
+  private applyFocusedCapability(): void {
+    const capability = this.currentFocus
+      ? this.capabilities().find((item) => item.id === this.currentFocus) ?? null
+      : null;
+    this.applySelectedCapability(capability);
+  }
+
+  private cancelLatestRunRequest(): void {
+    this.latestRunGeneration += 1;
+    this.latestRunSubscription?.unsubscribe();
+    this.latestRunSubscription = null;
+  }
+
+  private resetWorkspaceState(): void {
+    this.catalogSubscription?.unsubscribe();
+    this.catalogSubscription = null;
+    this.cancelLatestRunRequest();
+    this.capabilities.set([]);
+    this.skills.set([]);
+    this.selected.set(null);
+    this.latestRun.set(null);
+    this.loading.set(true);
   }
 }

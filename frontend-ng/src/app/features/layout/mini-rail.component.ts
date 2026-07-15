@@ -1,7 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
-import { filter, map, startWith } from 'rxjs';
+import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -62,7 +60,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
           <nav class="ck-mini-nav">
             @for (s of visibleSections(); track s.key) {
               <a
-                [routerLink]="routeFor(s)"
+                [routerLink]="routeTreeFor(s)"
                 class="ck-mini-item"
                 [class.ck-mini-item-active]="isSectionActive(s)"
                 [attr.aria-current]="isSectionActive(s) ? 'page' : null"
@@ -185,27 +183,14 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   ],
 })
 export class MiniRailComponent {
-  private readonly router = inject(Router);
-  private readonly ctx = inject(ZoomContextService);
+  private readonly navigation = inject(ZoomContextService);
   protected readonly i18n = inject(I18nService);
 
-  private readonly url = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map((e) => e.urlAfterRedirects),
-      startWith(this.router.url),
-    ),
-    { initialValue: this.router.url },
-  );
-
-  readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
+  readonly currentPath = computed(() => this.navigation.route().path);
 
   readonly activeVerb = computed<CockpitVerb | null>(() => {
-    const path = this.currentPath();
-    return (
-      COCKPIT_VERBS.find((v) => v.matches.some((m) => path === m || path.startsWith(m + '/'))) ??
-      null
-    );
+    const lens = this.navigation.lens();
+    return COCKPIT_VERBS.find((verb) => verb.key === lens) ?? null;
   });
 
   /**
@@ -213,21 +198,29 @@ export class MiniRailComponent {
    * mini-rail items that refer to a parent or equal scope.
    */
   private readonly deepestResolvedScope = computed<CockpitScopeType | null>(() => {
-    if (this.ctx.skillId()) return 'skill';
-    if (this.ctx.runId()) return 'run';
-    if (this.ctx.systemId()) return 'system';
-    if (this.ctx.capabilityId()) return 'capability';
+    if (this.navigation.skillRef()) return 'skill';
+    if (this.navigation.runId()) return 'run';
+    if (this.navigation.systemId()) return 'system';
+    if (this.navigation.capabilityId()) return 'capability';
     return null;
   });
 
   readonly visibleSections = computed<CockpitSection[]>(() => {
     const verb = this.activeVerb();
-    if (!verb?.sections) return [];
+    if (!verb) return [];
+    const sections = this.navigation.axesV3Enabled()
+      ? verb.sections
+      : verb.legacySections;
+    if (!sections) return [];
     const deepest = this.deepestResolvedScope();
-    if (!deepest) return verb.sections;
+    if (!this.navigation.axesV3Enabled() || !deepest) return sections;
     const cutoff = SCOPE_ORDER.indexOf(deepest);
-    if (cutoff === -1) return verb.sections;
-    return verb.sections.filter((s) => {
+    if (cutoff === -1) return sections;
+    return sections.filter((s) => {
+      // A scoped mini-rail must never advertise a global canvas as if it
+      // consumed the current ancestry. Unsupported surfaces remain available
+      // when no hierarchy is active and through their normal lens entrypoint.
+      if (!s.ancestryAware) return false;
       const idx = SCOPE_ORDER.indexOf(s.scopeType);
       return idx === -1 || idx > cutoff;
     });
@@ -241,17 +234,17 @@ export class MiniRailComponent {
   readonly scopeSuffix = computed<string>(() => {
     const deepest = this.deepestResolvedScope();
     if (!deepest) return '';
-    if (deepest === 'system') return `· ${this.ctx.systemLabel() || 'System'}`;
-    if (deepest === 'capability') return `· ${this.ctx.capabilityLabel() || 'Capability'}`;
-    if (deepest === 'run') return `· ${this.ctx.runLabel() || 'Run'}`;
-    if (deepest === 'skill') return `· ${this.ctx.skillLabel() || 'Skill'}`;
+    if (deepest === 'system') return `· ${this.navigation.systemLabel() || 'System'}`;
+    if (deepest === 'capability') return `· ${this.navigation.capabilityLabel() || 'Capability'}`;
+    if (deepest === 'run') return `· ${this.navigation.runLabel() || 'Run'}`;
+    if (deepest === 'skill') return `· ${this.navigation.skillLabel() || 'Skill'}`;
     return `· ${deepest}`;
   });
 
   readonly scopeSuffixFull = computed<string>(() => {
-    const cap = this.ctx.capabilityId();
-    const sys = this.ctx.systemId();
-    const run = this.ctx.runId();
+    const cap = this.navigation.capabilityId();
+    const sys = this.navigation.systemId();
+    const run = this.navigation.runId();
     const parts: string[] = [];
     if (cap) parts.push('Capability in scope');
     if (sys) parts.push('System in scope');
@@ -260,16 +253,25 @@ export class MiniRailComponent {
   });
 
   isSectionActive(s: CockpitSection): boolean {
+    // While a detail graph is hydrating every scope URL is intentionally a
+    // no-op to protect ancestry; do not consequently paint every section as
+    // active just because they all resolve to the current URL.
+    if (this.navigation.axesV3Enabled() && this.navigation.loading()) {
+      return this.navigation.scope() === s.key;
+    }
+    if (this.navigation.scope()) return this.navigation.scope() === s.key;
     const path = this.currentPath();
     const route = this.routeFor(s);
-    const patterns = s.matches ?? [route];
+    const patterns = s.matches ?? [route.split('?')[0]];
     return patterns.some((m) => path === m || path.startsWith(m + '/'));
   }
 
   routeFor(s: CockpitSection): string {
-    const systemId = this.ctx.systemId();
-    if (s.key === 'flows' && systemId) return `/systems/${systemId}/flow`;
-    return s.route;
+    return this.navigation.urlForScope(s);
+  }
+
+  routeTreeFor(s: CockpitSection): UrlTree {
+    return this.navigation.urlTreeForScope(s);
   }
 
   /**

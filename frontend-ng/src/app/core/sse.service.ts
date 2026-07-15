@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
-import { TokenStorageService } from './token-storage.service';
+import { Observable } from 'rxjs';
 import { WorkspaceService } from './workspace.service';
+import { WorkspaceFetchService } from './workspace-fetch.service';
 
 /**
  * Raw chunk type — matches the `chunk_type` field produced by the FastAPI
@@ -28,8 +28,8 @@ export interface SseChunk {
 
 @Injectable({ providedIn: 'root' })
 export class SseService {
-  private readonly tokenStorage = inject(TokenStorageService);
   private readonly workspaceService = inject(WorkspaceService);
+  private readonly workspaceFetch = inject(WorkspaceFetchService);
 
   /**
    * POSTs `body` to `url` and streams back SSE frames (`data: <json>\n\n`).
@@ -38,45 +38,64 @@ export class SseService {
    * terminates or the [DONE] sentinel is received.
    */
   stream(url: string, body: unknown): Observable<SseChunk> {
-    const subject = new Subject<SseChunk>();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const controller = new AbortController();
-    const streamTimeoutMs = 190_000;
+    return new Observable<SseChunk>((subscriber) => {
+      const scope = this.workspaceService.captureRequestScope();
+      const controller = new AbortController();
+      const streamTimeoutMs = 190_000;
+      let invalidated = false;
+      let doneEmitted = false;
+      let settled = false;
 
-    const token = this.tokenStorage.getToken();
-    if (token) headers['Authorization'] = token;
-
-    const wsSlug = this.workspaceService.currentSlug();
-    if (wsSlug) headers['X-Workspace-Slug'] = wsSlug;
-
-    // `done` must be emitted exactly once per stream, whether triggered by
-    // the upstream `[DONE]` sentinel, a natural close, or a transport error.
-    let doneEmitted = false;
-    const emitDone = () => {
-      if (doneEmitted) return;
-      doneEmitted = true;
-      subject.next({ type: 'done' });
-    };
-    const timeoutHandle = window.setTimeout(() => {
-      subject.next({
-        chunk_type: 'error',
-        content: 'La réponse prend trop de temps. La session a été arrêtée proprement.',
-        is_final: true,
+      const unregisterReset = this.workspaceService.registerContextReset(() => {
+        invalidated = true;
+        controller.abort();
       });
-      emitDone();
-      subject.complete();
-      controller.abort();
-    }, streamTimeoutMs);
-    const clearStreamTimeout = () => window.clearTimeout(timeoutHandle);
+      const emitDone = () => {
+        if (doneEmitted || subscriber.closed) return;
+        doneEmitted = true;
+        subscriber.next({ type: 'done' });
+      };
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeoutHandle);
+        unregisterReset();
+      };
+      const finish = () => {
+        // A workspace transition is a cancellation, not a successful end of
+        // turn.  Emitting the synthetic `done` marker here would let consumers
+        // commit the partial buffer from the previous workspace after the
+        // context reset has already started.
+        if (!invalidated) emitDone();
+        if (!subscriber.closed) subscriber.complete();
+        cleanup();
+      };
+      const timeoutHandle = globalThis.setTimeout(() => {
+        if (!subscriber.closed && !invalidated) {
+          subscriber.next({
+            chunk_type: 'error',
+            content: 'La réponse prend trop de temps. La session a été arrêtée proprement.',
+            is_final: true,
+          });
+        }
+        controller.abort();
+        finish();
+      }, streamTimeoutMs);
 
-    fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
-      .then(async (response) => {
-        if (doneEmitted) return;
+      void this.workspaceFetch.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        workspaceSlug: scope.workspaceSlug,
+      }).then(async (response) => {
+        if (invalidated || subscriber.closed) {
+          finish();
+          return;
+        }
         if (!response.ok || !response.body) {
-          subject.next({ chunk_type: 'error', content: `HTTP ${response.status}`, is_final: true });
-          emitDone();
-          subject.complete();
-          clearStreamTimeout();
+          subscriber.next({ chunk_type: 'error', content: `HTTP ${response.status}`, is_final: true });
+          finish();
           return;
         }
 
@@ -84,63 +103,60 @@ export class SseService {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const emitFrame = (raw: string) => {
-          // Strip the `data: ` prefix (SSE spec). Comments (`: ...`) are ignored.
+        const emitFrame = (raw: string): boolean => {
+          if (invalidated || subscriber.closed) return true;
           let payload = raw;
-          if (payload.startsWith(':')) return;
+          if (payload.startsWith(':')) return false;
           if (payload.startsWith('data:')) payload = payload.slice(5).trimStart();
-          if (!payload) return;
+          if (!payload) return false;
           if (payload === '[DONE]') {
             emitDone();
-            return;
+            return true;
           }
           try {
-            subject.next(JSON.parse(payload) as SseChunk);
+            subscriber.next(JSON.parse(payload) as SseChunk);
           } catch {
-            subject.next({ chunk_type: 'text', content: payload });
+            subscriber.next({ chunk_type: 'text', content: payload });
           }
+          return false;
         };
 
-        while (true) {
+        let endOfStream = false;
+        while (!endOfStream) {
           const { done, value } = await reader.read();
-          if (done) break;
-
+          if (done || invalidated) break;
           buffer += decoder.decode(value, { stream: true });
-
-          // SSE frames are separated by a blank line (\n\n). Handle CRLF too.
-          let sepIndex: number;
-          // Normalize CRLF -> LF once per chunk to simplify.
           buffer = buffer.replace(/\r\n/g, '\n');
+
+          let sepIndex: number;
           while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
             const frame = buffer.slice(0, sepIndex);
             buffer = buffer.slice(sepIndex + 2);
-            // A frame may contain multiple `data:` lines — concatenate them.
             const dataLines = frame
               .split('\n')
-              .filter((l) => l.startsWith('data:'))
-              .map((l) => l.slice(5).trimStart());
-            if (dataLines.length === 0) {
-              // Unknown frame (e.g. just `event: ...`); forward raw text.
-              emitFrame(frame.trim());
-            } else {
-              emitFrame(`data: ${dataLines.join('\n')}`);
-            }
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart());
+            endOfStream = dataLines.length === 0
+              ? emitFrame(frame.trim())
+              : emitFrame(`data: ${dataLines.join('\n')}`);
+            if (endOfStream) break;
           }
         }
 
-        if (buffer.trim()) emitFrame(buffer.trim());
-        emitDone();
-        subject.complete();
-        clearStreamTimeout();
-      })
-      .catch((err) => {
-        if (doneEmitted) return;
-        subject.next({ chunk_type: 'error', content: String(err), is_final: true });
-        emitDone();
-        subject.complete();
-        clearStreamTimeout();
+        if (!endOfStream && buffer.trim()) emitFrame(buffer.trim());
+        if (endOfStream) await reader.cancel().catch(() => undefined);
+        finish();
+      }).catch((error: unknown) => {
+        if (!invalidated && !subscriber.closed && (error as { name?: string })?.name !== 'AbortError') {
+          subscriber.next({ chunk_type: 'error', content: String(error), is_final: true });
+        }
+        finish();
       });
 
-    return subject.asObservable();
+      return () => {
+        controller.abort();
+        cleanup();
+      };
+    });
   }
 }

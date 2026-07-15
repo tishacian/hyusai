@@ -1,6 +1,6 @@
-import { Injectable, inject, signal, computed, effect } from '@angular/core';
+import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError, of, tap } from 'rxjs';
+import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo';
 
@@ -98,15 +98,67 @@ export interface IamMatrix {
 
 const WS_KEY = 'agentium_workspace_slug';
 
+function readStoredWorkspaceSlug(): string | null {
+  try {
+    return localStorage.getItem(WS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export interface WorkspaceRequestScope {
+  readonly workspaceSlug: string | null;
+  readonly epoch: number;
+}
+
+export interface WorkspaceRequestOptions {
+  readonly workspaceSlug?: string | null;
+}
+
+export class WorkspaceRequestInvalidatedError extends Error {
+  override readonly name = 'WorkspaceRequestInvalidatedError';
+
+  constructor() {
+    super('Workspace changed before the request completed.');
+  }
+}
+
+export interface WorkspaceContextTransition {
+  readonly previousSlug: string | null;
+  readonly nextSlug: string | null;
+  readonly previousEpoch: number;
+  readonly nextEpoch: number;
+}
+
+type WorkspaceContextResetter = (transition: WorkspaceContextTransition) => void;
+
+interface WorkspaceState {
+  readonly list: WorkspaceInfo[];
+  readonly activeSlug: string | null;
+  readonly epoch: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkspaceService {
   private readonly http = inject(HttpClient);
+  private readonly state = signal<WorkspaceState>({
+    list: [],
+    activeSlug: readStoredWorkspaceSlug(),
+    epoch: 0,
+  });
+  private readonly contextResetters = new Set<WorkspaceContextResetter>();
+  private readonly contextRefreshSubject = new Subject<void>();
+  private loadRequest$: Observable<WorkspaceInfo[]> | null = null;
+  private loadGeneration = 0;
 
-  readonly workspaces = signal<WorkspaceInfo[]>([]);
-  readonly currentSlug = signal<string | null>(localStorage.getItem(WS_KEY));
+  readonly workspaces = computed(() => this.state().list);
+  readonly currentSlug = computed(() => this.state().activeSlug);
+  readonly contextEpoch = computed(() => this.state().epoch);
   readonly current = computed(
     () => this.workspaces().find((w) => w.slug === this.currentSlug()) ?? null
   );
+  /** Same-workspace metadata/settings hydration; identity and epoch stay stable. */
+  readonly contextRefresh$ = this.contextRefreshSubject.asObservable();
   readonly isAdmin = computed(() => {
     const role = this.current()?.role;
     const roleTemplate = this.current()?.role_template;
@@ -125,50 +177,82 @@ export class WorkspaceService {
     this.isDemoMode() || this.demoSafeFromSettings(this.current()?.settings),
   );
 
-  constructor() {
-    effect(() => {
-      const slug = this.currentSlug();
-      if (slug) {
-        localStorage.setItem(WS_KEY, slug);
-      } else {
-        localStorage.removeItem(WS_KEY);
-      }
+  captureRequestScope(): WorkspaceRequestScope {
+    const state = this.state();
+    return Object.freeze({ workspaceSlug: state.activeSlug, epoch: state.epoch });
+  }
+
+  isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {
+    const state = this.state();
+    return state.activeSlug === scope.workspaceSlug && state.epoch === scope.epoch;
+  }
+
+  registerContextReset(resetter: WorkspaceContextResetter): () => void {
+    this.contextResetters.add(resetter);
+    return () => this.contextResetters.delete(resetter);
+  }
+
+  loadWorkspaces(force = false): Observable<WorkspaceInfo[]> {
+    if (!force && this.loadRequest$) return this.loadRequest$;
+
+    const generation = ++this.loadGeneration;
+    let request$: Observable<WorkspaceInfo[]>;
+    request$ = this.http.get<WorkspaceInfo[]>('/api/v1/auth/workspaces').pipe(
+      tap((list) => {
+        if (generation !== this.loadGeneration) return;
+        const current = this.currentSlug();
+        const nextSlug = current && list.some((workspace) => workspace.slug === current)
+          ? current
+          : list[0]?.slug ?? null;
+        if (nextSlug === current) {
+          this.state.update((state) => ({ ...state, list }));
+          this.contextRefreshSubject.next();
+        } else {
+          this.commitWorkspaceContext(list, nextSlug);
+        }
+      }),
+      finalize(() => {
+        if (this.loadRequest$ === request$) this.loadRequest$ = null;
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    );
+    this.loadRequest$ = request$;
+    return request$;
+  }
+
+  switchWorkspace(slug: string): boolean {
+    if (!this.workspaces().find((w) => w.slug === slug)) return false;
+    if (slug === this.currentSlug()) return false;
+    this.commitWorkspaceContext(this.workspaces(), slug);
+    return true;
+  }
+
+  getWorkspace(slug: string, options?: WorkspaceRequestOptions): Observable<WorkspaceDetail> {
+    return this.http.get<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, {
+      headers: this.workspaceHeaders(options?.workspaceSlug),
     });
   }
 
-  loadWorkspaces(): Observable<WorkspaceInfo[]> {
-    return this.http.get<WorkspaceInfo[]>('/api/v1/auth/workspaces').pipe(
-      tap((list) => {
-        this.workspaces.set(list);
-        const current = this.currentSlug();
-        if (!current || !list.find((w) => w.slug === current)) {
-          this.currentSlug.set(list[0]?.slug ?? null);
-        }
-      })
-    );
-  }
-
-  switchWorkspace(slug: string): void {
-    if (!this.workspaces().find((w) => w.slug === slug)) return;
-    this.currentSlug.set(slug);
-  }
-
-  getWorkspace(slug: string): Observable<WorkspaceDetail> {
-    return this.http.get<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`);
-  }
-
   refreshCurrentWorkspace(): Observable<WorkspaceDetail | null> {
-    const slug = this.currentSlug();
+    const scope = this.captureRequestScope();
+    const slug = scope.workspaceSlug;
     if (!slug) return of(null);
-    return this.getWorkspace(slug).pipe(
+    return this.getWorkspace(slug, { workspaceSlug: slug }).pipe(
+      // A response that completes after A -> B is not useful to any caller:
+      // suppress the public emission as well as the internal state mutation.
+      filter(() => this.isRequestScopeCurrent(scope)),
       tap((detail) => {
-        this.workspaces.update((list) => {
+        this.state.update((state) => {
+          const list = state.list;
           const next = { ...detail };
-          if (!list.find((w) => w.slug === detail.slug)) return [...list, next];
-          return list.map((w) => (w.slug === detail.slug ? { ...w, ...next } : w));
+          const updated = !list.find((w) => w.slug === detail.slug)
+            ? [...list, next]
+            : list.map((w) => (w.slug === detail.slug ? { ...w, ...next } : w));
+          return { ...state, list: updated };
         });
+        this.contextRefreshSubject.next();
       }),
-      catchError(() => of(null)),
+      catchError(() => this.isRequestScopeCurrent(scope) ? of(null) : EMPTY),
     );
   }
 
@@ -176,25 +260,33 @@ export class WorkspaceService {
     const body: { name: string; slug?: string } = { name };
     if (slug) body.slug = slug;
     return this.http.post<WorkspaceDetail>('/api/v1/auth/workspaces', body).pipe(
-      tap(() => this.loadWorkspaces().subscribe())
+      tap((workspace) => this.upsertWorkspace(workspace)),
     );
   }
 
   renameWorkspace(slug: string, name: string): Observable<WorkspaceDetail> {
     return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, { name }).pipe(
-      tap(() => this.loadWorkspaces().subscribe())
+      tap((workspace) => this.upsertWorkspace(workspace)),
     );
   }
 
-  updateWorkspaceSettings(slug: string, settings: Record<string, unknown>): Observable<WorkspaceDetail> {
-    return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, { settings }).pipe(
-      tap(() => this.loadWorkspaces().subscribe())
+  updateWorkspaceSettings(
+    slug: string,
+    settings: Record<string, unknown>,
+    options?: WorkspaceRequestOptions,
+  ): Observable<WorkspaceDetail> {
+    return this.http.patch<WorkspaceDetail>(
+      `/api/v1/auth/workspaces/${slug}`,
+      { settings },
+      { headers: this.workspaceHeaders(options?.workspaceSlug) },
+    ).pipe(
+      tap((workspace) => this.upsertWorkspace(workspace)),
     );
   }
 
   setMode(slug: string, mode: WorkspaceMode): Observable<WorkspaceDetail> {
     return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}/mode`, { mode }).pipe(
-      tap(() => this.loadWorkspaces().subscribe()),
+      tap((workspace) => this.upsertWorkspace(workspace)),
     );
   }
 
@@ -204,7 +296,7 @@ export class WorkspaceService {
       `/api/v1/auth/workspaces/${slug}`,
       { body: { confirm_name: confirmName } }
     ).pipe(
-      tap(() => this.loadWorkspaces().subscribe())
+      switchMap((response) => this.loadWorkspaces(true).pipe(map(() => response))),
     );
   }
 
@@ -217,7 +309,7 @@ export class WorkspaceService {
 
   leaveWorkspace(slug: string): Observable<{ status: string }> {
     return this.http.post<{ status: string }>(`/api/v1/auth/workspaces/${slug}/leave`, {}).pipe(
-      tap(() => this.loadWorkspaces().subscribe())
+      switchMap((response) => this.loadWorkspaces(true).pipe(map(() => response))),
     );
   }
 
@@ -288,5 +380,56 @@ export class WorkspaceService {
     return value && typeof value === 'object' && !Array.isArray(value)
       ? value as Record<string, unknown>
       : {};
+  }
+
+  private workspaceHeaders(slug?: string | null): Record<string, string> | undefined {
+    return slug ? { 'X-Workspace-Slug': slug } : undefined;
+  }
+
+  private commitWorkspaceContext(list: WorkspaceInfo[], nextSlug: string | null): void {
+    const previous = this.state();
+    if (previous.activeSlug === nextSlug) {
+      this.state.set({ ...previous, list });
+      return;
+    }
+
+    const transition = Object.freeze({
+      previousSlug: previous.activeSlug,
+      nextSlug,
+      previousEpoch: previous.epoch,
+      nextEpoch: previous.epoch + 1,
+    });
+
+    // Reset callbacks run synchronously while the old scope is still current.
+    // The new slug and generation are then published together in one signal
+    // write, so no render can observe a new tenant with stale shared context.
+    for (const resetter of [...this.contextResetters]) {
+      try {
+        resetter(transition);
+      } catch (error) {
+        console.error('Workspace context reset failed', error);
+      }
+    }
+
+    try {
+      if (nextSlug) localStorage.setItem(WS_KEY, nextSlug);
+      else localStorage.removeItem(WS_KEY);
+    } catch {
+      // Browser storage is only a reload hint. A quota/privacy failure must not
+      // split the transaction after old-context resetters have already run.
+    }
+    this.state.set({ list, activeSlug: nextSlug, epoch: transition.nextEpoch });
+  }
+
+  private upsertWorkspace(workspace: WorkspaceInfo): void {
+    const refreshesCurrent = workspace.slug === this.currentSlug();
+    this.state.update((state) => {
+      const exists = state.list.some((item) => item.slug === workspace.slug);
+      const list = exists
+        ? state.list.map((item) => item.slug === workspace.slug ? { ...item, ...workspace } : item)
+        : [...state.list, workspace];
+      return { ...state, list };
+    });
+    if (refreshesCurrent) this.contextRefreshSubject.next();
   }
 }

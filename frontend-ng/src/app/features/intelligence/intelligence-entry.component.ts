@@ -8,7 +8,6 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * `/intelligence` is not a bespoke page anymore — it is a *pre-selected*
@@ -49,7 +48,6 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 export class IntelligenceEntryComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
-  private readonly zoom = inject(ZoomContextService);
 
   readonly error = signal(false);
   readonly retryIn = signal(3);
@@ -60,8 +58,7 @@ export class IntelligenceEntryComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     // Intelligence is a canonical System — surface the redirect to the
     // breadcrumb by clearing any stale focus first; `SystemViewComponent`
-    // will then call `setCurrentSystem(id)` once the redirect lands.
-    this.zoom.setCurrentSystem(null);
+    // The destination route is the sole owner of the selected System.
     this.resolve();
   }
 

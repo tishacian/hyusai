@@ -8,6 +8,7 @@ import {
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
   CkObjectHeaderComponent,
@@ -149,6 +150,7 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
 })
 export class AppsPageComponent {
   private readonly toast = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly APPS = APPS;
   readonly filter = signal<Filter>('all');
@@ -163,7 +165,7 @@ export class AppsPageComponent {
 
   readonly filtered = computed<AppDef[]>(() => {
     this.version();
-    const toggles = readAppToggles();
+    const toggles = readAppToggles(this.workspace.currentSlug());
     switch (this.filter()) {
       case 'enabled':
         return APPS.filter((a) => !!toggles[a.id]);
@@ -178,7 +180,7 @@ export class AppsPageComponent {
 
   readonly enabledCount = computed(() => {
     this.version();
-    const t = readAppToggles();
+    const t = readAppToggles(this.workspace.currentSlug());
     return Object.values(t).filter(Boolean).length;
   });
   readonly readyCount = computed(() => APPS.filter((a) => a.status === 'ready').length);
@@ -202,12 +204,13 @@ export class AppsPageComponent {
 
   isEnabled(id: string): boolean {
     this.version();
-    return !!readAppToggles()[id];
+    return !!readAppToggles(this.workspace.currentSlug())[id];
   }
 
   toggle(id: string): void {
-    const current = !!readAppToggles()[id];
-    writeAppToggle(id, !current);
+    const slug = this.workspace.currentSlug();
+    const current = !!readAppToggles(slug)[id];
+    writeAppToggle(slug, id, !current);
     this.version.update((v) => v + 1);
     const app = APPS.find((a) => a.id === id);
     if (app) {

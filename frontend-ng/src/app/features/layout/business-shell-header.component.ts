@@ -386,6 +386,14 @@ export class BusinessShellHeaderComponent {
     const route = this.navigation.businessShellActive()
       ? this.navigation.effective().defaultRoute
       : '/hypervisor';
+    const currentPath = (this.router.url || '/').split('?')[0].split('#')[0];
+    if (currentPath === route.split('?')[0].split('#')[0]) {
+      // Angular reuses the current component on a same-URL navigation. A hard
+      // reload is required here so no tenant-owned page state survives while
+      // keeping the user on the same semantic surface.
+      window.location.reload();
+      return;
+    }
     this.router.navigateByUrl(route);
   }
 

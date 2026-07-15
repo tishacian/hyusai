@@ -53,7 +53,7 @@ def test_navigation_resolved_is_strict_workspace_authoritative_and_pii_free(db_s
                 "resolved_route": "/chat#private-note",
                 "effective_workspace": "spoofed-workspace",
                 "effective_surface": "chat",
-                "redirect_owner": "navigation_profile",
+                "redirect_owner": "navigation_resolver",
                 "redirect_reason": "business_profile_disallowed",
                 "redirected": True,
             },
@@ -73,7 +73,7 @@ def test_navigation_resolved_is_strict_workspace_authoritative_and_pii_free(db_s
         "resolved_route": "/chat",
         "effective_workspace": "andritz",
         "effective_surface": "chat",
-        "redirect_owner": "navigation_profile",
+        "redirect_owner": "navigation_resolver",
         "redirect_reason": "business_profile_disallowed",
         "redirected": True,
     }
@@ -150,7 +150,7 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
                     "resolved_route": "/chat",
                     "effective_workspace": "spoofed",
                     "effective_surface": "chat",
-                    "redirect_owner": "navigation_profile",
+                    "redirect_owner": "navigation_resolver",
                     "redirect_reason": "business_profile_disallowed",
                     "redirected": True,
                 },
@@ -173,11 +173,11 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
     ("redirect_owner", "redirect_reason"),
     (
         ("angular_router", "angular_route_redirect"),
-        ("navigation_profile", "business_knowledge_compatibility"),
-        ("navigation_profile", "business_profile_disallowed"),
-        ("navigation_profile", "business_system_capture_compatibility"),
-        ("workspace_shell", "workspace_default_route"),
-        ("workspace_entrypoint", "workspace_settings_entrypoint"),
+        ("navigation_resolver", "business_knowledge_compatibility"),
+        ("navigation_resolver", "business_profile_disallowed"),
+        ("navigation_resolver", "business_system_capture_compatibility"),
+        ("navigation_resolver", "workspace_default_route"),
+        ("navigation_resolver", "workspace_settings_entrypoint"),
     ),
 )
 def test_navigation_resolved_accepts_each_redirect_owner_reason_pair(
@@ -204,6 +204,41 @@ def test_navigation_resolved_accepts_each_redirect_owner_reason_pair(
     )
 
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("legacy_owner", "reason"),
+    (
+        ("navigation_profile", "business_profile_disallowed"),
+        ("workspace_shell", "workspace_default_route"),
+        ("workspace_entrypoint", "workspace_settings_entrypoint"),
+    ),
+)
+def test_navigation_resolved_canonicalizes_legacy_owners_during_rollout(
+    db_session,
+    legacy_owner: str,
+    reason: str,
+):
+    workspace, user = _seed(db_session)
+    response = _client(db_session, workspace, user).post(
+        "/api/v1/audit",
+        json={
+            "event_type": "navigation.resolved",
+            "details": {
+                "schema_version": 1,
+                "requested_route": "/systems",
+                "resolved_route": "/chat",
+                "effective_workspace": "andritz",
+                "effective_surface": "chat",
+                "redirect_owner": legacy_owner,
+                "redirect_reason": reason,
+                "redirected": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["details"]["redirect_owner"] == "navigation_resolver"
 
 
 def test_navigation_resolved_accepts_direct_navigation_with_equal_routes(
@@ -243,11 +278,11 @@ def test_navigation_resolved_accepts_direct_navigation_with_equal_routes(
 @pytest.mark.parametrize(
     ("redirect_owner", "redirect_reason", "redirected"),
     (
-        ("navigation_profile", "direct", False),
-        ("workspace_shell", "angular_route_redirect", True),
+        ("navigation_resolver", "direct", False),
+        ("navigation_resolver", "angular_route_redirect", True),
         ("angular_router", "business_profile_disallowed", True),
-        ("navigation_profile", "workspace_default_route", True),
-        ("workspace_shell", "workspace_settings_entrypoint", True),
+        ("angular_router", "workspace_default_route", True),
+        ("angular_router", "workspace_settings_entrypoint", True),
     ),
 )
 def test_navigation_resolved_rejects_impossible_owner_reason_pairs_without_echoing_pii(

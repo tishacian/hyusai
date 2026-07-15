@@ -21,7 +21,6 @@ import {
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -855,7 +854,6 @@ export class SystemBuilderComponent implements OnInit {
   private readonly health = inject(RuntimeHealthService);
   private readonly toast = inject(ToastrService);
   private readonly store = inject(SystemsStore);
-  private readonly zoom = inject(ZoomContextService);
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
@@ -1002,9 +1000,7 @@ export class SystemBuilderComponent implements OnInit {
       // and any stale Run focus. A pre-filled capability_id (coming from
       // a "create system for this capability" jump) will be applied
       // through `selectCapability` below.
-      this.zoom.setCurrentSystem(null);
     }
-    this.zoom.setCurrentRun(null);
 
     this.settings.refresh();
     this.health.load().subscribe();
@@ -1058,7 +1054,6 @@ export class SystemBuilderComponent implements OnInit {
     if (cap.pricing?.unit_price != null) {
       this.draft.max_cost = Math.max(this.draft.max_cost, cap.pricing.unit_price * 2);
     }
-    this.zoom.setCurrentCapability(cap.id);
   }
 
   isCollectionChecked(name: string): boolean {
@@ -1329,8 +1324,6 @@ export class SystemBuilderComponent implements OnInit {
       this.lockedSections.set(new Set());
     }
 
-    this.zoom.setCurrentSystem(sys.id);
-    if (sys.capability_id) this.zoom.setCurrentCapability(sys.capability_id);
   }
 
   toggleSection(key: CanvasSectionKey): void {

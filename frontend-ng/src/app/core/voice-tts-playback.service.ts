@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { ApiService } from './api.service';
+import { WorkspaceService } from './workspace.service';
 
 export type VoiceTtsLatencyProfile = 'fast' | 'balanced' | 'quality' | string;
 export type VoiceTtsState = 'idle' | 'preparing' | 'queued' | 'speaking' | 'paused' | 'interrupted' | 'error';
@@ -56,9 +57,22 @@ const DEFAULT_VOICE_OUTPUT: ResolvedVoiceOutputConfig = {
 @Injectable({ providedIn: 'root' })
 export class VoiceTtsPlaybackService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly controllers = new Set<VoiceTtsPlaybackController>();
+
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      for (const controller of this.controllers) controller.reset(true);
+    });
+  }
 
   createController(owner: string): VoiceTtsPlaybackController {
-    return new VoiceTtsPlaybackController(owner, this.api);
+    let controller: VoiceTtsPlaybackController;
+    controller = new VoiceTtsPlaybackController(owner, this.api, () => {
+      this.controllers.delete(controller);
+    });
+    this.controllers.add(controller);
+    return controller;
   }
 }
 
@@ -84,6 +98,8 @@ export class VoiceTtsPlaybackController {
   private playing = false;
   private paused = false;
   private aborted = false;
+  /** Invalidates queued timers, synthesis callbacks and audio promises on reset. */
+  private playbackGeneration = 0;
   private streamStartedAt = 0;
   private firstAudioAt = 0;
   private totalChars = 0;
@@ -91,6 +107,7 @@ export class VoiceTtsPlaybackController {
   constructor(
     readonly owner: string,
     private readonly api: ApiService,
+    private readonly onDestroy: () => void = () => undefined,
   ) {}
 
   begin(options: VoiceTtsPlaybackOptions): void {
@@ -124,6 +141,7 @@ export class VoiceTtsPlaybackController {
   }
 
   stop(reason = 'interrupted', emit = true): void {
+    this.playbackGeneration += 1;
     this.aborted = true;
     this.clearFlushTimer();
     this.subscriptions.forEach((sub) => sub.unsubscribe());
@@ -183,7 +201,9 @@ export class VoiceTtsPlaybackController {
     if (!this.paused) return;
     this.paused = false;
     if (this.activeAudio) {
+      const generation = this.playbackGeneration;
       this.activeAudio.play().catch(() => {
+        if (generation !== this.playbackGeneration) return;
         this.setState('error');
       });
     }
@@ -202,6 +222,7 @@ export class VoiceTtsPlaybackController {
 
   destroy(): void {
     this.reset(true);
+    this.onDestroy();
   }
 
   private normalizeConfig(config?: VoiceOutputConfig | null): ResolvedVoiceOutputConfig {
@@ -223,7 +244,9 @@ export class VoiceTtsPlaybackController {
 
   private scheduleFlushTimer(): void {
     if (this.flushTimer || this.flushedIdx >= this.buffer.length) return;
+    const generation = this.playbackGeneration;
     this.flushTimer = setTimeout(() => {
+      if (generation !== this.playbackGeneration) return;
       this.flushTimer = null;
       this.considerFlush(true);
     }, this.config.flush_timeout_ms);
@@ -323,6 +346,7 @@ export class VoiceTtsPlaybackController {
 
   private queueChunk(text: string): void {
     if (this.aborted || !text) return;
+    const generation = this.playbackGeneration;
     const startedAt = performance.now();
     this.pendingRequests += 1;
     this.totalChars += text.length;
@@ -336,13 +360,14 @@ export class VoiceTtsPlaybackController {
       })
       .subscribe({
         next: (blob) => {
+          if (generation !== this.playbackGeneration) return;
           this.pendingRequests = Math.max(0, this.pendingRequests - 1);
           if (this.aborted) return;
           const url = URL.createObjectURL(blob);
           this.audioUrls.push(url);
           const audio = new Audio(url);
-          audio.onended = () => this.onAudioEnded(audio);
-          audio.onerror = () => this.onAudioEnded(audio);
+          audio.onended = () => this.onAudioEnded(audio, generation);
+          audio.onerror = () => this.onAudioEnded(audio, generation);
           this.audioQueue.push(audio);
           this.options.onMetric?.({
             surface: this.options.surface,
@@ -354,6 +379,7 @@ export class VoiceTtsPlaybackController {
           else this.setState('queued');
         },
         error: () => {
+          if (generation !== this.playbackGeneration) return;
           this.pendingRequests = Math.max(0, this.pendingRequests - 1);
           if (!this.aborted) {
             this.options.onNotice?.('Voice synthesis skipped a chunk.', 'warning');
@@ -366,6 +392,7 @@ export class VoiceTtsPlaybackController {
 
   private playNext(): void {
     if (this.aborted || this.paused) return;
+    const generation = this.playbackGeneration;
     const next = this.audioQueue.shift();
     if (!next) {
       this.playing = false;
@@ -385,11 +412,12 @@ export class VoiceTtsPlaybackController {
       });
     }
     next.play().catch(() => {
-      this.onAudioEnded(next);
+      this.onAudioEnded(next, generation);
     });
   }
 
-  private onAudioEnded(audio: HTMLAudioElement): void {
+  private onAudioEnded(audio: HTMLAudioElement, generation: number): void {
+    if (generation !== this.playbackGeneration) return;
     if (this.activeAudio === audio) this.activeAudio = null;
     this.playing = false;
     this.playNext();

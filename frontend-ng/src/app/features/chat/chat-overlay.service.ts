@@ -32,6 +32,10 @@ export class ChatOverlayService {
   readonly initialPrompt = signal<string | null>(null);
   readonly autoStartVoiceLoop = signal(false);
 
+  constructor() {
+    this.workspace.registerContextReset(() => this.reset());
+  }
+
   /**
    * Drop-and-ask upload gating. Reads the per-workspace
    * `settings.features.chat_document_upload` flag (enabled by default;
@@ -69,6 +73,16 @@ export class ChatOverlayService {
 
   close(): void {
     this.isOpen.set(false);
+  }
+
+  reset(): void {
+    this.isOpen.set(false);
+    this.startMode.set('quick');
+    this.preselectedSystemId.set(null);
+    this.preselectedContextId.set(null);
+    this.assistantProfile.set(null);
+    this.initialPrompt.set(null);
+    this.autoStartVoiceLoop.set(false);
   }
 
   toggle(): void {

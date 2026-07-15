@@ -34,7 +34,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { switchMap, of } from 'rxjs';
+import { EMPTY, Subscription, switchMap, of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
@@ -46,26 +46,21 @@ import {
   type CanonicalFlowEdge,
   type CanonicalFlowNode,
 } from '@app/core/flow-serializer.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import { FlowManifestService } from './flow-manifest.service';
+import { defaultScratchFlow } from './flow.types';
+import {
+  clearWorkspaceFlowDraft,
+  persistWorkspaceFlowDraft,
+  readWorkspaceFlowDraft,
+} from './flow-draft.storage';
 
 /** Explicit, user-visible persistence state surfaced in the toolbar pill. */
 export type SaveState = 'saved' | 'unsaved' | 'saving' | 'error';
 
 /** What kicked off a persist — only manual/promote surface success toasts. */
 type SaveTrigger = 'autosave' | 'manual';
-
-/** Versioned localStorage envelope so the shape can evolve safely. */
-interface DraftEnvelope {
-  v: 1;
-  saved_at: number;
-  flow: CanonicalFlow;
-}
-
-/** Single scratchpad draft slot. Keyed sanely under an app namespace; a
- *  per-system variant could be added later by appending the id. */
-const SCRATCH_DRAFT_KEY = 'agentium.flow.draft.scratch';
-const DRAFT_ENVELOPE_VERSION = 1 as const;
 
 /** Idle window before an edit is flushed. Coalesces rapid edits/drags into a
  *  single persist (and, for bound Systems, a single backend version). */
@@ -101,6 +96,7 @@ export class FlowPersistenceService {
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly workspace = inject(WorkspaceService);
 
   /** The System this builder is bound to, or `null` for the scratchpad. */
   readonly systemId = signal<string | null>(null);
@@ -128,6 +124,8 @@ export class FlowPersistenceService {
   });
 
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private promotionRequest: Subscription | null = null;
+  private backendSaveRequest: Subscription | null = null;
   /** Suppresses autosave retry-storms after a failed save until the user edits
    *  again. Plain field (non-reactive) on purpose. */
   private autosaveBlocked = false;
@@ -135,6 +133,29 @@ export class FlowPersistenceService {
   private lastEdgesRef: CanonicalFlowEdge[] | null = null;
 
   constructor() {
+    const unregisterWorkspaceReset = this.workspace.registerContextReset((transition) => {
+      this.cancelWorkspaceWrites();
+      if (this.autosaveTimer) {
+        clearTimeout(this.autosaveTimer);
+        this.autosaveTimer = null;
+      }
+      this.autosaveBlocked = false;
+      this.errored.set(false);
+      this.serverIssues.set([]);
+
+      // A scratchpad is tenant-owned live state, not just a tenant-owned key.
+      // Replace A's in-memory graph synchronously before B becomes current so
+      // a pending/manual save can never copy A's graph into B's slot.
+      if (!this.systemId()) {
+        const nextDraft = this.readDraftRecord(transition.nextSlug);
+        this.store.load(nextDraft?.flow ?? defaultScratchFlow());
+        this.lastSavedAt.set(nextDraft?.savedAt ?? null);
+        this.draftAvailable.set(nextDraft !== null);
+        this.lastNodesRef = this.store.nodes();
+        this.lastEdgesRef = this.store.edges();
+      }
+    });
+
     this.systemId.set(this.readSystemId());
     this.draftAvailable.set(this.hasDraft());
 
@@ -165,6 +186,8 @@ export class FlowPersistenceService {
     const onKeydown = (event: KeyboardEvent) => this.handleKeydown(event);
     document.addEventListener('keydown', onKeydown);
     this.destroyRef.onDestroy(() => {
+      unregisterWorkspaceReset();
+      this.cancelWorkspaceWrites();
       document.removeEventListener('keydown', onKeydown);
       if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
     });
@@ -239,44 +262,65 @@ export class FlowPersistenceService {
     if (!resolved) return;
 
     this.promoting.set(true);
+    const scope = this.workspace.captureRequestScope();
     const flow = this.serializer.annotateSidecars(this.store.snapshot());
-    this.canonical
+    this.promotionRequest?.unsubscribe();
+    const request = this.canonical
       .createSystem({ name: resolved, objective: 'Promoted from scratchpad flow' })
       .pipe(
         switchMap((system) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return EMPTY;
           if (!system) return of({ system: null, save: null });
           return this.canonical
             .saveSystemFlow(system.id, flow as unknown as Record<string, unknown>)
-            .pipe(switchMap((save) => of({ system, save })));
+            .pipe(
+              switchMap((save) =>
+                this.workspace.isRequestScopeCurrent(scope)
+                  ? of({ system, save })
+                  : EMPTY,
+              ),
+            );
         }),
       )
-      .subscribe(({ system, save }) => {
-        this.promoting.set(false);
-        if (!system) {
+      .subscribe({
+        next: ({ system, save }) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.promoting.set(false);
+          if (!system) {
+            this.toastr.error('Could not create the System.', 'Promotion failed');
+            return;
+          }
+          if (save && !save.ok) {
+            this.toastr.warning(
+              `System created, but the flow needs fixes: ${save.message}`,
+              'Promotion',
+            );
+          } else {
+            this.toastr.success(`Promoted to System "${system.name}".`, 'Flow builder');
+          }
+          this.store.markSaved();
+          this.clearDraftForWorkspace(scope.workspaceSlug);
+          this.router.navigate(['/systems', system.id, 'flow']);
+        },
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.promoting.set(false);
           this.toastr.error('Could not create the System.', 'Promotion failed');
-          return;
-        }
-        if (save && !save.ok) {
-          this.toastr.warning(
-            `System created, but the flow needs fixes: ${save.message}`,
-            'Promotion',
-          );
-        } else {
-          this.toastr.success(`Promoted to System "${system.name}".`, 'Flow builder');
-        }
-        this.store.markSaved();
-        this.clearDraft();
-        this.router.navigate(['/systems', system.id, 'flow']);
+        },
+        complete: () => {
+          if (this.workspace.isRequestScopeCurrent(scope)) this.promoting.set(false);
+        },
       });
+    this.promotionRequest = request.closed ? null : request;
   }
 
   /** Discard the persisted scratchpad draft. */
   clearDraft(): void {
-    try {
-      localStorage.removeItem(SCRATCH_DRAFT_KEY);
-    } catch {
-      /* storage unavailable — nothing to clear */
-    }
+    this.clearDraftForWorkspace(this.workspace.currentSlug());
+  }
+
+  private clearDraftForWorkspace(slug: string | null): void {
+    clearWorkspaceFlowDraft(localStorage, slug);
     this.draftAvailable.set(false);
   }
 
@@ -304,57 +348,79 @@ export class FlowPersistenceService {
   }
 
   private saveDraft(trigger: SaveTrigger): void {
-    try {
-      const envelope: DraftEnvelope = {
-        v: DRAFT_ENVELOPE_VERSION,
-        saved_at: Date.now(),
-        flow: this.store.snapshot(),
-      };
-      localStorage.setItem(SCRATCH_DRAFT_KEY, JSON.stringify(envelope));
-      this.store.markSaved();
-      this.lastSavedAt.set(envelope.saved_at);
-      this.draftAvailable.set(true);
-      this.errored.set(false);
-      if (trigger === 'manual') {
-        this.toastr.success('Draft saved locally.', 'Scratchpad');
-      }
-    } catch {
+    const saved = persistWorkspaceFlowDraft(
+      localStorage,
+      this.workspace.currentSlug(),
+      this.store.snapshot(),
+    );
+    if (!saved) {
       this.autosaveBlocked = true;
       this.errored.set(true);
       this.toastr.error('Could not save draft to local storage.', 'Scratchpad');
+      return;
+    }
+
+    this.store.markSaved();
+    this.lastSavedAt.set(saved.savedAt);
+    this.draftAvailable.set(true);
+    this.errored.set(false);
+    if (trigger === 'manual') {
+      this.toastr.success('Draft saved locally.', 'Scratchpad');
     }
   }
 
   private saveToBackend(trigger: SaveTrigger): void {
     const sid = this.systemId();
     if (!sid) return;
+    const scope = this.workspace.captureRequestScope();
     this.saving.set(true);
     this.errored.set(false);
     const flow = this.serializer.annotateSidecars(this.store.snapshot());
-    this.canonical
+    this.backendSaveRequest?.unsubscribe();
+    const request = this.canonical
       .saveSystemFlow(sid, flow as unknown as Record<string, unknown>)
-      .subscribe((res) => {
-        this.saving.set(false);
-        if (res.ok) {
-          this.store.markSaved();
-          this.lastSavedAt.set(Date.now());
-          // Surface accepted-save warnings (e.g. soft variable/port hints) in
-          // the validation strip; clears when the backend reports none.
-          this.serverIssues.set(res.warnings);
-          // Bindings may have changed — refresh node badges + inspector status.
-          this.manifest.reload();
-          if (trigger === 'manual') {
-            this.toastr.success('Flow saved to System.', 'Flow builder');
+      .subscribe({
+        next: (res) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.saving.set(false);
+          if (res.ok) {
+            this.store.markSaved();
+            this.lastSavedAt.set(Date.now());
+            // Surface accepted-save warnings (e.g. soft variable/port hints) in
+            // the validation strip; clears when the backend reports none.
+            this.serverIssues.set(res.warnings);
+            // Bindings may have changed — refresh node badges + inspector status.
+            this.manifest.reload();
+            if (trigger === 'manual') {
+              this.toastr.success('Flow saved to System.', 'Flow builder');
+            }
+          } else {
+            this.autosaveBlocked = true;
+            this.errored.set(true);
+            // Structural rejection (reason==='invalid') carries the DAG errors;
+            // pipe them into the strip. A transport failure leaves the strip as-is.
+            if (res.reason === 'invalid') this.serverIssues.set(res.issues);
+            this.toastr.error(res.message, 'Save failed');
           }
-        } else {
+        },
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.saving.set(false);
           this.autosaveBlocked = true;
           this.errored.set(true);
-          // Structural rejection (reason==='invalid') carries the DAG errors;
-          // pipe them into the strip. A transport failure leaves the strip as-is.
-          if (res.reason === 'invalid') this.serverIssues.set(res.issues);
-          this.toastr.error(res.message, 'Save failed');
-        }
+          this.toastr.error('Unknown backend error.', 'Save failed');
+        },
       });
+    this.backendSaveRequest = request.closed ? null : request;
+  }
+
+  private cancelWorkspaceWrites(): void {
+    this.promotionRequest?.unsubscribe();
+    this.promotionRequest = null;
+    this.backendSaveRequest?.unsubscribe();
+    this.backendSaveRequest = null;
+    this.promoting.set(false);
+    this.saving.set(false);
   }
 
   // ---- restore helpers -----------------------------------------------------
@@ -371,21 +437,22 @@ export class FlowPersistenceService {
   }
 
   private readDraft(): CanonicalFlow | null {
-    try {
-      const raw = localStorage.getItem(SCRATCH_DRAFT_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<DraftEnvelope> | CanonicalFlow;
-      const flow = (parsed as DraftEnvelope).flow ?? (parsed as CanonicalFlow);
-      return isFlowLike(flow) ? flow : null;
-    } catch {
-      return null;
-    }
+    return this.readDraftRecord(this.workspace.currentSlug())?.flow ?? null;
+  }
+
+  private readDraftRecord(slug: string | null) {
+    return readWorkspaceFlowDraft(
+      localStorage,
+      slug,
+      this.workspace.workspaces().map((workspace) => workspace.slug),
+    );
   }
 
   private tryRestoreDraft(): boolean {
     const flow = this.readDraft();
     if (!flow) return false;
     this.store.load(flow);
+    this.lastSavedAt.set(this.readDraftRecord(this.workspace.currentSlug())?.savedAt ?? null);
     this.draftAvailable.set(true);
     this.toastr.info('Restored your local draft.', 'Scratchpad');
     return true;

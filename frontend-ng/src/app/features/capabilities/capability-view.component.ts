@@ -8,14 +8,17 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
-import { ZoomContextService } from '@app/core/zoom-context.service';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { LensService } from '@app/core/lens';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 /**
  * `CapabilityViewComponent` — detail page for a single Capability.
@@ -137,8 +140,16 @@ import { LensService } from '@app/core/lens';
 })
 export class CapabilityViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
-  private readonly zoom = inject(ZoomContextService);
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
   readonly lensService = inject(LensService);
+  private routeSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentCapability(),
+  );
 
   capabilityId = '';
   readonly title = signal('Capability');
@@ -155,17 +166,63 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   ]);
 
   ngOnInit(): void {
-    this.capabilityId = this.route.snapshot.paramMap.get('capabilityId') ?? '';
-    this.zoom.setCurrentCapability(this.capabilityId || null, this.capabilityId || null);
-    this.title.set(this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability');
+    this.routeSubscription = this.route.paramMap.pipe(
+      map((params) => params.get('capabilityId') ?? ''),
+      distinctUntilChanged(),
+    ).subscribe((capabilityId) => {
+      this.capabilityId = capabilityId;
+      this.resetCapabilityResult();
+      this.reloadCurrentCapability();
+    });
   }
 
   ngOnDestroy(): void {
-    this.zoom.setCurrentCapability(null);
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.workspaceView.destroy();
   }
 
   onTabChange(id: string): void {
     this.activeTab.set(id as CapabilityTabId);
+  }
+
+  private reloadCurrentCapability(): void {
+    const capabilityId = this.capabilityId || this.route.snapshot.paramMap.get('capabilityId') || '';
+    if (!capabilityId) {
+      this.title.set('Capability');
+      return;
+    }
+    this.capabilityId = capabilityId;
+    const request = this.workspaceView.beginRequest();
+    const subscription = this.canonical.getCapability(capabilityId).subscribe({
+      next: (capability) => {
+        if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
+        if (capability) this.title.set(capability.name);
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
+        this.title.set(`Capability · ${capabilityId.slice(0, 8)}`);
+      },
+    });
+    this.requestSubscription = subscription.closed ? null : subscription;
+  }
+
+  private resetCapabilityResult(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.title.set(
+      this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability',
+    );
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.title.set(
+      this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability',
+    );
+    this.policiesPanelOpen.set(false);
   }
 }
 

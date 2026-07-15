@@ -1,5 +1,5 @@
 import { APP_INITIALIZER, ApplicationConfig, provideZonelessChangeDetection } from '@angular/core';
-import { provideRouter, withPreloading } from '@angular/router';
+import { provideRouter, RouteReuseStrategy, withPreloading } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { Chart, registerables } from 'chart.js';
@@ -12,6 +12,7 @@ import { AuthBootstrapService } from './core/auth-bootstrap.service';
 import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 import { HelpService } from './core/help.service';
 import { NavigationTelemetryService } from './core/navigation-telemetry.service';
+import { WorkspaceRouteReuseStrategy } from './core/workspace-route-reuse.strategy';
 
 Chart.register(...registerables);
 
@@ -19,6 +20,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZonelessChangeDetection(),
     provideRouter(routes, withPreloading(IdlePreloadStrategy)),
+    { provide: RouteReuseStrategy, useClass: WorkspaceRouteReuseStrategy },
     provideHttpClient(withInterceptors([authInterceptor])),
     provideAnimationsAsync(),
     {

@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  OnDestroy,
   OnInit,
   computed,
   effect,
@@ -9,9 +10,11 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import {
   CanonicalApiService,
   type Capability,
+  type Run,
   type Skill,
   type System,
 } from '@app/core/canonical-api.service';
@@ -19,6 +22,8 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit';
+import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 type Tone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
 
@@ -27,7 +32,7 @@ interface CommandItem {
   label: string;
   hint: string;
   tone: Tone;
-  kind: 'view' | 'system' | 'capability' | 'skill' | 'action' | 'chat';
+  kind: 'view' | 'system' | 'capability' | 'run' | 'skill' | 'action' | 'chat';
   route: string;
   fragment?: string;
   keywords: string;
@@ -37,11 +42,13 @@ interface CommandItem {
    * pushing a route.
    */
   action?: () => void;
+  /** Workspace generation that produced a tenant-owned catalog item. */
+  workspaceEpoch?: number;
 }
 
 /**
  * Global ⌘K command palette — lets the user fuzzy-jump into any
- * view, system, capability or skill. Mirrors the "Semantic Zoom"
+ * view, system, capability, run or skill. Mirrors the "Semantic Zoom"
  * entry point from the mockup and is the single interaction the
  * cockpit exposes for navigation across hierarchies.
  */
@@ -187,11 +194,12 @@ interface CommandItem {
     }
   `,
 })
-export class CommandPaletteComponent implements OnInit {
+export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly chatOverlay = inject(ChatOverlayService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly navigation = inject(ZoomContextService);
   protected readonly i18n = inject(I18nService);
 
   readonly open = signal(false);
@@ -200,32 +208,38 @@ export class CommandPaletteComponent implements OnInit {
   readonly selectedIndex = signal(0);
 
   private readonly capabilities = signal<Capability[]>([]);
+  private readonly runs = signal<Run[]>([]);
   private readonly skills = signal<Skill[]>([]);
   private readonly systems = signal<System[]>([]);
+  private indexSubscriptions = new Subscription();
+  private refreshSubscription: Subscription | null = null;
+  private indexGeneration = 0;
+  private destroyed = false;
+  private unregisterContextReset: () => void = () => undefined;
 
   private get viewCommands(): CommandItem[] {
     return [
-    { id: 'view.hypervisor', label: this.i18n.t('palette.view.hypervisor'), hint: this.i18n.t('palette.view.hypervisor.hint'), tone: 'cool', kind: 'view', route: '/hypervisor', keywords: 'dashboard balance overview portfolio' },
-    { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: '/steering', keywords: 'levers policy control governance' },
-    { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: '/steering/review-queue', keywords: 'review eval evaluation queue triage hallucination threshold' },
-    { id: 'view.eval-thresholds', label: this.i18n.t('palette.view.eval_thresholds'), hint: this.i18n.t('palette.view.eval_thresholds.hint'), tone: 'violet', kind: 'view', route: '/presets/evaluation', keywords: 'evaluation thresholds preset composite hallucination' },
-    { id: 'view.capabilities', label: this.i18n.t('palette.view.capabilities'), hint: this.i18n.t('palette.view.capabilities.hint'), tone: 'pos', kind: 'view', route: '/capabilities', keywords: 'catalog capability marketplace' },
-    { id: 'view.skills', label: this.i18n.t('palette.view.skills'), hint: this.i18n.t('palette.view.skills.hint'), tone: 'cool', kind: 'view', route: '/skills', keywords: 'skills registry atomic' },
-    { id: 'view.systems', label: this.i18n.t('palette.view.systems'), hint: this.i18n.t('palette.view.systems.hint'), tone: 'cool', kind: 'view', route: '/systems', keywords: 'system composition deployments' },
-    { id: 'view.knowledge', label: this.i18n.t('palette.view.knowledge'), hint: this.i18n.t('palette.view.knowledge.hint'), tone: 'violet', kind: 'view', route: '/knowledge', keywords: 'knowledge rag documents collections' },
+    { id: 'view.hypervisor', label: this.i18n.t('palette.view.hypervisor'), hint: this.i18n.t('palette.view.hypervisor.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('hypervisor'), keywords: 'dashboard balance overview portfolio' },
+    { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('steering'), keywords: 'levers policy control governance' },
+    { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('review-queue'), keywords: 'review eval evaluation queue triage hallucination threshold' },
+    { id: 'view.eval-thresholds', label: this.i18n.t('palette.view.eval_thresholds'), hint: this.i18n.t('palette.view.eval_thresholds.hint'), tone: 'violet', kind: 'view', route: `${agentiumSurfaceRoute('presets')}/evaluation`, keywords: 'evaluation thresholds preset composite hallucination' },
+    { id: 'view.capabilities', label: this.i18n.t('palette.view.capabilities'), hint: this.i18n.t('palette.view.capabilities.hint'), tone: 'pos', kind: 'view', route: agentiumSurfaceRoute('capabilities'), keywords: 'catalog capability marketplace' },
+    { id: 'view.skills', label: this.i18n.t('palette.view.skills'), hint: this.i18n.t('palette.view.skills.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('skills'), keywords: 'skills registry atomic' },
+    { id: 'view.systems', label: this.i18n.t('palette.view.systems'), hint: this.i18n.t('palette.view.systems.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('systems'), keywords: 'system composition deployments' },
+    { id: 'view.knowledge', label: this.i18n.t('palette.view.knowledge'), hint: this.i18n.t('palette.view.knowledge.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('knowledge'), keywords: 'knowledge rag documents collections' },
     {
       id: 'view.expert-capture',
       label: this.i18n.t('palette.view.expert_capture'),
       hint: this.i18n.t('palette.view.expert_capture.hint'),
       tone: 'pos',
       kind: 'view',
-      route: '/knowledge/capture',
+      route: agentiumSurfaceRoute('knowledge-capture'),
       keywords: 'expert capture knowledge interview voice context capability',
     },
-    { id: 'view.chat', label: this.i18n.t('palette.view.chat'), hint: this.i18n.t('palette.view.chat.hint'), tone: 'pos', kind: 'view', route: '/chat', keywords: 'chat ask question playground session test' },
-    { id: 'view.observability', label: this.i18n.t('palette.view.observability'), hint: this.i18n.t('palette.view.observability.hint'), tone: 'warn', kind: 'view', route: '/observability', keywords: 'observability quality performance metrics' },
-    { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: '/runs', keywords: 'runs traces executions logs history' },
-    { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: '/systems/new', keywords: 'create new build wizard' },
+    { id: 'view.chat', label: this.i18n.t('palette.view.chat'), hint: this.i18n.t('palette.view.chat.hint'), tone: 'pos', kind: 'view', route: agentiumSurfaceRoute('chat'), keywords: 'chat ask question playground session test' },
+    { id: 'view.observability', label: this.i18n.t('palette.view.observability'), hint: this.i18n.t('palette.view.observability.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('observability'), keywords: 'observability quality performance metrics' },
+    { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('runs'), keywords: 'runs traces executions logs history' },
+    { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: `${agentiumSurfaceRoute('systems')}/new`, keywords: 'create new build wizard' },
   ];
   }
 
@@ -282,13 +296,15 @@ export class CommandPaletteComponent implements OnInit {
 
   readonly results = computed(() => {
     const q = this.query().trim().toLowerCase();
+    const workspaceEpoch = this.workspace.contextEpoch();
     const caps: CommandItem[] = this.capabilities().map((c) => ({
       id: `cap.${c.id}`,
       label: c.name,
       hint: `${(c.tier || 'UNIVERSAL').toUpperCase()} · ${c.skill_ids?.length || 0} skills`,
       tone: (c.tier === 'client' ? 'cool' : c.tier === 'industry' ? 'violet' : 'pos') as Tone,
       kind: 'capability',
-      route: '/capabilities',
+      route: this.navigation.objectUrl('capability', c.id),
+      workspaceEpoch,
       keywords: `${c.slug} ${c.industry || ''} ${c.description || ''}`.toLowerCase(),
     }));
     const sks: CommandItem[] = this.skills().map((s) => ({
@@ -297,7 +313,8 @@ export class CommandPaletteComponent implements OnInit {
       hint: `${(s.certification_level || 'basic').toUpperCase()} · ${s.type || 'generic'}`,
       tone: 'cool' as Tone,
       kind: 'skill',
-      route: '/skills',
+      route: this.navigation.objectUrl('skill', s.slug),
+      workspaceEpoch,
       keywords: `${s.slug} ${s.type || ''} ${s.description || ''}`.toLowerCase(),
     }));
     const sys: CommandItem[] = this.systems().map((s) => ({
@@ -306,11 +323,26 @@ export class CommandPaletteComponent implements OnInit {
       hint: `${this.i18n.t('palette.kind.system')} · ${s.status || 'draft'}`,
       tone: (s.status === 'active' ? 'pos' : 'warn') as Tone,
       kind: 'system',
-      route: `/systems/${s.id}`,
+      route: this.navigation.objectUrl('system', s.id),
+      workspaceEpoch,
       keywords: `${s.objective || ''} ${s.status || ''}`.toLowerCase(),
     }));
+    const runs: CommandItem[] = this.runs().map((run) => ({
+      id: `run.${run.id}`,
+      label: `Run ${run.id.slice(0, 12)}${run.id.length > 12 ? '…' : ''}`,
+      hint: `${run.status.toUpperCase()} · ${this.i18n.t('palette.kind.system')} ${run.system_id}`,
+      tone: (run.status === 'completed'
+        ? 'pos'
+        : run.status === 'failed' || run.status === 'cancelled'
+          ? 'neg'
+          : 'warn') as Tone,
+      kind: 'run',
+      route: this.navigation.objectUrl('run', run.id),
+      workspaceEpoch,
+      keywords: `${run.id} ${run.system_id} ${run.capability_id || ''} ${run.status}`.toLowerCase(),
+    }));
 
-    const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...sks];
+    const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...runs, ...sks];
     if (!q) return all.slice(0, 40);
     return all
       .filter(
@@ -327,12 +359,30 @@ export class CommandPaletteComponent implements OnInit {
       const _ = this.results();
       this.selectedIndex.set(0);
     });
+    this.unregisterContextReset = this.workspace.registerContextReset((transition) => {
+      this.resetWorkspaceIndex();
+      queueMicrotask(() => {
+        if (
+          !this.destroyed
+          && this.workspace.currentSlug() === transition.nextSlug
+          && this.workspace.contextEpoch() === transition.nextEpoch
+        ) {
+          this.loadIndex();
+        }
+      });
+    });
   }
 
   private openChat(options: Parameters<ChatOverlayService['open']>[0]): void {
-    this.workspace.refreshCurrentWorkspace().subscribe({
-      next: () => this.chatOverlay.open(options),
-      error: () => this.chatOverlay.open(options),
+    const scope = this.workspace.captureRequestScope();
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = this.workspace.refreshCurrentWorkspace().subscribe({
+      next: () => {
+        if (this.workspace.isRequestScopeCurrent(scope)) this.chatOverlay.open(options);
+      },
+      error: () => {
+        if (this.workspace.isRequestScopeCurrent(scope)) this.chatOverlay.open(options);
+      },
     });
   }
 
@@ -341,13 +391,62 @@ export class CommandPaletteComponent implements OnInit {
   }
 
   private loadIndex(): void {
+    const generation = ++this.indexGeneration;
+    const scope = this.workspace.captureRequestScope();
+    this.indexSubscriptions.unsubscribe();
+    this.indexSubscriptions = new Subscription();
     this.loading.set(true);
-    this.canonical.listCapabilities().subscribe((c) => this.capabilities.set(c));
-    this.canonical.listSkills().subscribe((s) => this.skills.set(s));
-    this.canonical.listSystems().subscribe((s) => {
-      this.systems.set(s);
-      this.loading.set(false);
-    });
+    const isCurrent = () => (
+      generation === this.indexGeneration
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+    this.indexSubscriptions.add(
+      this.canonical.listCapabilities().subscribe((capabilities) => {
+        if (isCurrent()) this.capabilities.set(capabilities);
+      }),
+    );
+    this.indexSubscriptions.add(
+      this.canonical.listSkills().subscribe((skills) => {
+        if (isCurrent()) this.skills.set(skills);
+      }),
+    );
+    this.indexSubscriptions.add(
+      this.canonical.listRuns().subscribe((runs) => {
+        if (isCurrent()) this.runs.set(runs);
+      }),
+    );
+    this.indexSubscriptions.add(
+      this.canonical.listSystems().subscribe({
+        next: (systems) => {
+          if (!isCurrent()) return;
+          this.systems.set(systems);
+          this.loading.set(false);
+        },
+        error: () => {
+          if (isCurrent()) this.loading.set(false);
+        },
+      }),
+    );
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+    this.unregisterContextReset();
+    this.resetWorkspaceIndex();
+  }
+
+  private resetWorkspaceIndex(): void {
+    this.indexGeneration += 1;
+    this.indexSubscriptions.unsubscribe();
+    this.indexSubscriptions = new Subscription();
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
+    this.capabilities.set([]);
+    this.runs.set([]);
+    this.skills.set([]);
+    this.systems.set([]);
+    this.loading.set(false);
+    this.close();
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -408,6 +507,12 @@ export class CommandPaletteComponent implements OnInit {
 
   go(r: CommandItem): void {
     this.close();
+    if (
+      r.workspaceEpoch !== undefined
+      && r.workspaceEpoch !== this.workspace.contextEpoch()
+    ) {
+      return;
+    }
     if (r.action) {
       r.action();
       return;
@@ -419,6 +524,7 @@ export class CommandPaletteComponent implements OnInit {
     switch (kind) {
       case 'system':     return 'flow';
       case 'capability': return 'cube';
+      case 'run':        return 'pulse';
       case 'skill':      return 'sliders';
       case 'action':     return 'bolt';
       case 'chat':       return 'pulse';
@@ -428,6 +534,7 @@ export class CommandPaletteComponent implements OnInit {
   }
 
   kindLabel(kind: CommandItem['kind']): string {
+    if (kind === 'run') return this.i18n.t('palette.view.runs').toUpperCase();
     return this.i18n.t(`palette.kind.${kind}`).toUpperCase();
   }
 }

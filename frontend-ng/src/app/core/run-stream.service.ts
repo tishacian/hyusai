@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
-import { TokenStorageService } from './token-storage.service';
+import { Observable } from 'rxjs';
 import { WorkspaceService } from './workspace.service';
+import { WorkspaceFetchService } from './workspace-fetch.service';
 
 /**
  * One parsed frame from the ``GET /runs/:id/stream`` SSE endpoint.
@@ -28,8 +28,8 @@ export interface RunStreamEvent {
  */
 @Injectable({ providedIn: 'root' })
 export class RunStreamService {
-  private readonly tokenStorage = inject(TokenStorageService);
   private readonly workspaceService = inject(WorkspaceService);
+  private readonly workspaceFetch = inject(WorkspaceFetchService);
 
   /**
    * Subscribe to the SSE stream for a single Run. The returned
@@ -38,21 +38,36 @@ export class RunStreamService {
    * aborts the underlying ``fetch``).
    */
   streamRun(runId: string): Observable<RunStreamEvent> {
-    const subject = new Subject<RunStreamEvent>();
-    const abort = new AbortController();
-    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    return new Observable<RunStreamEvent>((observer) => {
+      const scope = this.workspaceService.captureRequestScope();
+      const abort = new AbortController();
+      const url = `/api/v1/runs/${encodeURIComponent(runId)}/stream`;
+      let invalidated = false;
+      let settled = false;
+      const unregisterReset = this.workspaceService.registerContextReset(() => {
+        invalidated = true;
+        abort.abort();
+      });
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        unregisterReset();
+      };
 
-    const token = this.tokenStorage.getToken();
-    if (token) headers['Authorization'] = token;
-    const wsSlug = this.workspaceService.currentSlug();
-    if (wsSlug) headers['X-Workspace-Slug'] = wsSlug;
-
-    const url = `/api/v1/runs/${encodeURIComponent(runId)}/stream`;
-
-    fetch(url, { method: 'GET', headers, signal: abort.signal })
-      .then(async (response) => {
+      void this.workspaceFetch.fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+        signal: abort.signal,
+        workspaceSlug: scope.workspaceSlug,
+      }).then(async (response) => {
+        if (invalidated || observer.closed) {
+          if (!observer.closed) observer.complete();
+          cleanup();
+          return;
+        }
         if (!response.ok || !response.body) {
-          subject.error(new Error(`HTTP ${response.status}`));
+          observer.error(new Error(`HTTP ${response.status}`));
+          cleanup();
           return;
         }
 
@@ -60,7 +75,7 @@ export class RunStreamService {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        while (true) {
+        while (!invalidated) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -72,30 +87,29 @@ export class RunStreamService {
             const frame = buffer.slice(0, sep);
             buffer = buffer.slice(sep + 2);
             const parsed = this.parseFrame(frame);
-            if (parsed) subject.next(parsed);
+            if (parsed && !invalidated && !observer.closed) observer.next(parsed);
           }
         }
 
-        if (buffer.trim()) {
+        if (!invalidated && buffer.trim()) {
           const parsed = this.parseFrame(buffer.trim());
-          if (parsed) subject.next(parsed);
+          if (parsed && !observer.closed) observer.next(parsed);
         }
 
-        subject.complete();
-      })
-      .catch((err: unknown) => {
-        if ((err as { name?: string })?.name === 'AbortError') {
-          subject.complete();
-        } else {
-          subject.error(err);
+        if (!observer.closed) observer.complete();
+        cleanup();
+      }).catch((error: unknown) => {
+        if (invalidated || (error as { name?: string })?.name === 'AbortError') {
+          if (!observer.closed) observer.complete();
+        } else if (!observer.closed) {
+          observer.error(error);
         }
+        cleanup();
       });
 
-    return new Observable<RunStreamEvent>((observer) => {
-      const sub = subject.subscribe(observer);
       return () => {
-        sub.unsubscribe();
         abort.abort();
+        cleanup();
       };
     });
   }

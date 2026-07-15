@@ -1,6 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { WorkspaceService } from './workspace.service';
-import type { NavigationRedirectDecision } from './navigation-telemetry.service';
+import {
+  BUSINESS_NAVIGATION_SURFACE_IDS,
+  agentiumSurfaceRoute,
+  pathAllowedBySurfaceIds,
+} from './navigation.catalog';
 
 export type NavigationProfileKey = 'standard' | 'business_end_user';
 export type NavigationAdvancedAccess = 'admin_only' | 'link' | 'hidden';
@@ -23,8 +27,8 @@ export interface EffectiveNavigationProfile {
   advancedAccess: NavigationAdvancedAccess;
 }
 
-const DEFAULT_BUSINESS_ROUTE = '/chat';
-const DEFAULT_BUSINESS_SURFACES = ['chat', 'client360-pdr', 'knowledge-capture'];
+const DEFAULT_BUSINESS_ROUTE = agentiumSurfaceRoute('chat');
+const DEFAULT_BUSINESS_SURFACES = [...BUSINESS_NAVIGATION_SURFACE_IDS];
 const PREVIEW_STORAGE_KEY = 'agentium_business_navigation_preview_slugs';
 
 @Injectable({ providedIn: 'root' })
@@ -86,50 +90,10 @@ export class NavigationProfileService {
   }
 
   isBusinessAllowedPath(path: string): boolean {
-    const normalized = this.pathOnly(path);
-    return (
-      normalized === '/chat' ||
-      normalized === '/client360' ||
-      normalized.startsWith('/client360/') ||
-      normalized === '/knowledge/capture' ||
-      normalized === '/account' ||
-      normalized.startsWith('/account/')
+    return pathAllowedBySurfaceIds(
+      this.pathOnly(path),
+      [...this.effective().primarySurfaces, 'account'],
     );
-  }
-
-  businessRedirectFor(path: string): string | null {
-    return this.businessResolutionFor(path)?.resolvedRoute ?? null;
-  }
-
-  businessResolutionFor(path: string): NavigationRedirectDecision | null {
-    if (!this.businessShellActive()) return null;
-    const normalized = this.pathOnly(path);
-    if (this.isBusinessAllowedPath(normalized)) return null;
-    if (normalized === '/knowledge') {
-      return {
-        requestedRoute: path,
-        resolvedRoute: '/knowledge/capture',
-        owner: 'navigation_profile',
-        reason: 'business_knowledge_compatibility',
-      };
-    }
-
-    const systemCapture = normalized.match(/^\/systems\/([^/]+)\/capture$/);
-    if (systemCapture?.[1]) {
-      return {
-        requestedRoute: path,
-        resolvedRoute: `/knowledge/capture?systemId=${encodeURIComponent(systemCapture[1])}`,
-        owner: 'navigation_profile',
-        reason: 'business_system_capture_compatibility',
-      };
-    }
-
-    return {
-      requestedRoute: path,
-      resolvedRoute: this.effective().defaultRoute,
-      owner: 'navigation_profile',
-      reason: 'business_profile_disallowed',
-    };
   }
 
   businessProfileConfig(enabled: boolean): NavigationProfileConfig | null {

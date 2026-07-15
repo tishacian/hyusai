@@ -21,10 +21,11 @@ import {
 } from '@app/core/voice-session.service';
 import {
   LiveKitConversationService,
+  WorkspaceChangedDuringTransportError,
   type LiveKitConversationConnection,
   type LiveKitOpenOptions,
 } from '@app/core/livekit-conversation.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 
 /**
@@ -152,6 +153,19 @@ export interface CaptureConnectOptions {
   publishMicrophone?: boolean;
 }
 
+interface CaptureConnectionAttempt {
+  readonly generation: number;
+  readonly scope: WorkspaceRequestScope;
+  readonly sessionId: string;
+}
+
+interface CaptureDisconnectOptions {
+  /** Recover an operator-requested finalize before closing. Disabled for scope teardown. */
+  readonly recoverFinalize?: boolean;
+}
+
+type CaptureRealtimeConnection = VoiceSessionConnection | LiveKitConversationConnection;
+
 /** Lightweight session identity shared across the autonomous capture surfaces. */
 export interface CaptureSessionInfo {
   id: string;
@@ -202,6 +216,8 @@ export class CaptureEngine {
   private readonly destroyRef = inject(DestroyRef);
 
   private connection: VoiceSessionConnection | LiveKitConversationConnection | null = null;
+  /** Invalidates the whole hydrate → transport → subscription activation chain. */
+  private connectionGeneration = 0;
   private eventsSub: Subscription | null = null;
   /** Light polling of the hint-queue while connected (P0 #1, ~15s). */
   private hintPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -211,6 +227,8 @@ export class CaptureEngine {
   private transport: 'backend_ws' | 'livekit' = 'backend_ws';
   private micStream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
+  /** Invalidates delayed getUserMedia/MediaRecorder callbacks across teardown. */
+  private micGeneration = 0;
   /** Realtime-STT lane: the published track is transcribed by the sidecar, so
    * WebM frames are dropped and the client VAD never auto-endpoints. Set from
    * the `session.ready` payload (mirrors the v0 monolith). */
@@ -500,7 +518,13 @@ export class CaptureEngine {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.disconnect());
+    const unregisterWorkspaceReset = this.workspace.registerContextReset(() => {
+      this.resetForWorkspaceChange();
+    });
+    this.destroyRef.onDestroy(() => {
+      unregisterWorkspaceReset();
+      this.disconnect({ recoverFinalize: false });
+    });
   }
 
   // ---- lifecycle ---------------------------------------------------------
@@ -510,14 +534,22 @@ export class CaptureEngine {
    * its events into the signals. Reuses the existing voice transports.
    */
   async connect(sessionId: string, options: CaptureConnectOptions = {}): Promise<void> {
-    if (this.connection) this.disconnect();
+    if (this.connection || this._state() === 'connecting') {
+      this.disconnect({ recoverFinalize: false });
+    }
+    const attempt: CaptureConnectionAttempt = Object.freeze({
+      generation: ++this.connectionGeneration,
+      scope: this.workspace.captureRequestScope(),
+      sessionId,
+    });
     this._sessionId.set(sessionId);
     this._state.set('connecting');
     this._lastError.set(null);
     // Hydrate the existing Fil from the backend projection (D1 step C) BEFORE
     // going live, so re-entering a session shows the prior timeline and live WS
     // events upsert on top of it (WS stays the live source of truth).
-    await this.hydrateFeed();
+    await this.hydrateFeedForAttempt(attempt);
+    if (!this.isConnectionAttemptCurrent(attempt)) return;
     // Transport selection mirrors the v0 monolith: when the workspace is wired
     // for the LiveKit voice gateway (the gpt-realtime-whisper sidecar transcribes
     // a PUBLISHED mic track), we MUST open LiveKit and publish the mic — a plain
@@ -526,39 +558,111 @@ export class CaptureEngine {
     const transport: 'backend_ws' | 'livekit' =
       options.transport ?? (this.preferLiveKit() ? 'livekit' : 'backend_ws');
     this.transport = transport;
+    let openedConnection: CaptureRealtimeConnection | null = null;
     try {
       if (transport === 'livekit') {
         const connection = await this.openLiveKit(sessionId, options);
+        openedConnection = connection;
+        if (!this.isConnectionAttemptCurrent(attempt)) {
+          this.closeRealtimeConnection(connection);
+          return;
+        }
         this.connection = connection;
-        this.subscribe(connection.events$);
+        this.subscribe(connection.events$, attempt);
+        if (!this.isConnectionAttemptCurrent(attempt)) {
+          this.detachRealtimeConnection(connection);
+          return;
+        }
         this._state.set('connected');
-        this.onConnected();
+        if (!this.isConnectionAttemptCurrent(attempt)) {
+          this.detachRealtimeConnection(connection);
+          return;
+        }
+        this.onConnected(attempt);
         // LiveKit publishes the mic track itself (publishMicrophone); no WebM pump.
         return;
       }
+      if (!this.isConnectionAttemptCurrent(attempt)) return;
       const connection = this.voiceSession.open(sessionId);
+      openedConnection = connection;
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        this.closeRealtimeConnection(connection);
+        return;
+      }
       this.connection = connection;
-      this.subscribe(connection.events$);
+      this.subscribe(connection.events$, attempt);
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        this.detachRealtimeConnection(connection);
+        return;
+      }
       connection.start({ mode: 'conversation_only' });
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        this.detachRealtimeConnection(connection);
+        return;
+      }
       this._state.set('connected');
-      this.onConnected();
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        this.detachRealtimeConnection(connection);
+        return;
+      }
+      this.onConnected(attempt);
       // Voice is captured continuously over the backend WS (D3 cascade lane).
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        this.detachRealtimeConnection(connection);
+        return;
+      }
       void this.startMic();
     } catch (error) {
+      if (openedConnection) this.detachRealtimeConnection(openedConnection);
+      if (!this.isConnectionAttemptCurrent(attempt)) return;
+      if (error instanceof WorkspaceChangedDuringTransportError) {
+        this.connection = null;
+        this._state.set('closed');
+        this._lastError.set(null);
+        return;
+      }
       // LiveKit unavailable → degrade to the backend WS so the session still opens.
       if (transport === 'livekit') {
         try {
+          if (!this.isConnectionAttemptCurrent(attempt)) return;
           this.transport = 'backend_ws';
           const connection = this.voiceSession.open(sessionId);
+          openedConnection = connection;
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.closeRealtimeConnection(connection);
+            return;
+          }
           this.connection = connection;
-          this.subscribe(connection.events$);
+          this.subscribe(connection.events$, attempt);
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.detachRealtimeConnection(connection);
+            return;
+          }
           connection.start({ mode: 'conversation_only' });
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.detachRealtimeConnection(connection);
+            return;
+          }
           this._state.set('connected');
-          this.onConnected();
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.detachRealtimeConnection(connection);
+            return;
+          }
+          this.onConnected(attempt);
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.detachRealtimeConnection(connection);
+            return;
+          }
           this._lastError.set('Passerelle LiveKit indisponible — bascule WebSocket.');
+          if (!this.isConnectionAttemptCurrent(attempt)) {
+            this.detachRealtimeConnection(connection);
+            return;
+          }
           void this.startMic();
           return;
         } catch (fallbackError) {
+          if (openedConnection) this.detachRealtimeConnection(openedConnection);
+          if (!this.isConnectionAttemptCurrent(attempt)) return;
           this._state.set('error');
           this._lastError.set(this.errorMessage(fallbackError));
           return;
@@ -567,6 +671,40 @@ export class CaptureEngine {
       this._state.set('error');
       this._lastError.set(this.errorMessage(error));
     }
+  }
+
+  private isConnectionAttemptCurrent(attempt: CaptureConnectionAttempt): boolean {
+    return (
+      attempt.generation === this.connectionGeneration &&
+      attempt.sessionId === this._sessionId() &&
+      this.workspace.isRequestScopeCurrent(attempt.scope)
+    );
+  }
+
+  private captureCurrentAttempt(sessionId = this._sessionId()): CaptureConnectionAttempt | null {
+    if (!sessionId) return null;
+    return Object.freeze({
+      generation: this.connectionGeneration,
+      scope: this.workspace.captureRequestScope(),
+      sessionId,
+    });
+  }
+
+  private closeRealtimeConnection(connection: CaptureRealtimeConnection): void {
+    try {
+      void (connection.close() as unknown);
+    } catch {
+      /* best-effort close */
+    }
+  }
+
+  private detachRealtimeConnection(connection: CaptureRealtimeConnection): void {
+    if (this.connection === connection) {
+      this.eventsSub?.unsubscribe();
+      this.eventsSub = null;
+      this.connection = null;
+    }
+    this.closeRealtimeConnection(connection);
   }
 
   /**
@@ -632,7 +770,8 @@ export class CaptureEngine {
    * Post-connect hook: pull the initial relances and start the light hint-queue
    * poll (the backend doesn't push relances live — "silent oracle" by design).
    */
-  private onConnected(): void {
+  private onConnected(attempt: CaptureConnectionAttempt): void {
+    if (!this.isConnectionAttemptCurrent(attempt)) return;
     this.startTicker();
     void this.refreshHintQueue();
     this.startHintPoll();
@@ -687,7 +826,8 @@ export class CaptureEngine {
   }
 
   /** Tear down the realtime connection. Safe to call repeatedly. */
-  disconnect(): void {
+  disconnect(options: CaptureDisconnectOptions = {}): void {
+    ++this.connectionGeneration;
     this.stopHintPoll();
     this.stopTicker();
     this.stopMic();
@@ -698,19 +838,17 @@ export class CaptureEngine {
     if (this.finalizeResolver) {
       const resolver = this.finalizeResolver;
       this.clearFinalizeWait();
-      void this.recoverFinalize().then((id) => resolver(id));
+      if (options.recoverFinalize === false) {
+        resolver(null);
+      } else {
+        this.runFinalizeRecovery(resolver, this.captureCurrentAttempt());
+      }
     }
     this.eventsSub?.unsubscribe();
     this.eventsSub = null;
     const connection = this.connection;
     this.connection = null;
-    if (connection) {
-      try {
-        void (connection.close() as unknown);
-      } catch {
-        /* best-effort close */
-      }
-    }
+    if (connection) this.closeRealtimeConnection(connection);
     if (this._state() !== 'idle') this._state.set('closed');
   }
 
@@ -730,20 +868,32 @@ export class CaptureEngine {
     if (this.recorder || typeof MediaRecorder === 'undefined') return;
     const media = navigator.mediaDevices;
     if (!media?.getUserMedia) return;
+    const generation = ++this.micGeneration;
+    let stream: MediaStream;
     try {
-      this.micStream = await media.getUserMedia({ audio: true });
+      stream = await media.getUserMedia({ audio: true });
     } catch (error) {
+      if (generation !== this.micGeneration) return;
       this._lastError.set(this.errorMessage(error));
       return;
     }
+    if (generation !== this.micGeneration) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    this.micStream = stream;
     try {
-      const recorder = new MediaRecorder(this.micStream);
+      const recorder = new MediaRecorder(stream);
       this.recorder = recorder;
-      recorder.ondataavailable = (event) => this.onAudioChunk(event.data);
+      recorder.ondataavailable = (event) => {
+        if (generation !== this.micGeneration || this.recorder !== recorder) return;
+        this.onAudioChunk(event.data, generation);
+      };
       recorder.start(1200);
       this._micActive.set(true);
       this.startVadMonitor();
     } catch (error) {
+      if (generation !== this.micGeneration) return;
       this._lastError.set(this.errorMessage(error));
       this.stopMic();
     }
@@ -751,19 +901,28 @@ export class CaptureEngine {
 
   /** Stop the mic pump and release the device. Safe to call repeatedly. */
   stopMic(): void {
+    ++this.micGeneration;
     this.stopVadMonitor();
     const recorder = this.recorder;
     this.recorder = null;
-    if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch {
-        /* best-effort stop */
+    if (recorder) {
+      // MediaRecorder may synchronously flush a final dataavailable event from
+      // stop(); neutralise every callback before crossing that boundary.
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      if (recorder.state !== 'inactive') {
+        try {
+          recorder.stop();
+        } catch {
+          /* best-effort stop */
+        }
       }
     }
     const stream = this.micStream;
     this.micStream = null;
     stream?.getTracks().forEach((track) => track.stop());
+    this.pendingFrameSends.clear();
     this._micActive.set(false);
   }
 
@@ -785,7 +944,8 @@ export class CaptureEngine {
     this.connection?.endpoint(this.voiceFrameMeta(reason));
   }
 
-  private onAudioChunk(blob: Blob): void {
+  private onAudioChunk(blob: Blob, generation: number): void {
+    if (generation !== this.micGeneration) return;
     if (!blob || blob.size <= 0) return;
     if (this.realtimeSttActive) return;
     if (this._micMuted()) return;
@@ -793,7 +953,11 @@ export class CaptureEngine {
     if (!connection) return;
     const send = connection
       .sendAudioFrame(blob, this.voiceFrameMeta())
-      .catch((error: unknown) => this._lastError.set(this.errorMessage(error)));
+      .catch((error: unknown) => {
+        if (generation === this.micGeneration) {
+          this._lastError.set(this.errorMessage(error));
+        }
+      });
     this.pendingFrameSends.add(send);
     void send.finally(() => this.pendingFrameSends.delete(send));
   }
@@ -1155,8 +1319,18 @@ export class CaptureEngine {
   async hydrateFeed(): Promise<void> {
     const sessionId = this._sessionId();
     if (!sessionId) return;
+    const attempt: CaptureConnectionAttempt = Object.freeze({
+      generation: this.connectionGeneration,
+      scope: this.workspace.captureRequestScope(),
+      sessionId,
+    });
+    await this.hydrateFeedForAttempt(attempt);
+  }
+
+  private async hydrateFeedForAttempt(attempt: CaptureConnectionAttempt): Promise<void> {
     try {
-      const payload = await firstValueFrom(this.api.getCaptureFeed(sessionId));
+      const payload = await firstValueFrom(this.api.getCaptureFeed(attempt.sessionId));
+      if (!this.isConnectionAttemptCurrent(attempt)) return;
       const entries = payload?.feed ?? [];
       const items = entries.map<CaptureFeedItem>((entry) => ({
         id: entry.id,
@@ -1175,6 +1349,7 @@ export class CaptureEngine {
         if (entry.kind === 'anchor' && entry.view) this.ingestViewReference(entry.view);
       }
     } catch (error) {
+      if (!this.isConnectionAttemptCurrent(attempt)) return;
       this._lastError.set(this.errorMessage(error));
     }
   }
@@ -1391,16 +1566,25 @@ export class CaptureEngine {
   async loadProposal(): Promise<CaptureProposal | null> {
     const sessionId = this._sessionId();
     if (!sessionId) return null;
+    const attempt = this.captureCurrentAttempt(sessionId);
+    return attempt ? this.loadProposalForAttempt(attempt) : null;
+  }
+
+  private async loadProposalForAttempt(
+    attempt: CaptureConnectionAttempt,
+  ): Promise<CaptureProposal | null> {
     try {
       const payload = await firstValueFrom(
-        this.api.listCaptureProposals(undefined, this._systemId(), sessionId),
+        this.api.listCaptureProposals(undefined, this._systemId(), attempt.sessionId),
       );
+      if (!this.isConnectionAttemptCurrent(attempt)) return null;
       const proposals = (payload as { proposals?: CaptureProposal[] } | null)?.proposals ?? [];
       const match =
-        proposals.find((p) => p?.session_id === sessionId) ?? proposals[0] ?? null;
+        proposals.find((p) => p?.session_id === attempt.sessionId) ?? proposals[0] ?? null;
       if (match) this.setProposal(match);
       return match;
     } catch (error) {
+      if (!this.isConnectionAttemptCurrent(attempt)) return null;
       this._lastError.set(this.errorMessage(error));
       return null;
     }
@@ -1641,6 +1825,8 @@ export class CaptureEngine {
   async finalize(): Promise<string | null> {
     const sessionId = this._sessionId();
     if (!sessionId) return null;
+    const attempt = this.captureCurrentAttempt(sessionId);
+    if (!attempt) return null;
     this._finalize.set({ ...FINALIZE_IDLE, stage: 'running', message: 'Génération de la synthèse…' });
     // Prefer the live WS path on BOTH realtime transports: the gateway streams
     // honest `capture.finalize.progress` stage events to the report banner and
@@ -1655,14 +1841,19 @@ export class CaptureEngine {
       this._state() === 'connected' &&
       (this.transport === 'backend_ws' || this.transport === 'livekit')
     ) {
-      return this.finalizeOverWs(connection);
+      return this.finalizeOverWs(connection, attempt);
     }
-    return this.finalizeOverHttp(sessionId);
+    return this.finalizeOverHttp(sessionId, attempt);
   }
 
-  private async finalizeOverHttp(sessionId: string): Promise<string | null> {
+  private async finalizeOverHttp(
+    sessionId: string,
+    attempt: CaptureConnectionAttempt,
+  ): Promise<string | null> {
+    if (!this.isConnectionAttemptCurrent(attempt)) return null;
     try {
       const payload = await firstValueFrom(this.api.createCaptureProposal(sessionId));
+      if (!this.isConnectionAttemptCurrent(attempt)) return null;
       const proposalId =
         (payload as { id?: string; proposal_id?: string } | null)?.id ??
         (payload as { proposal_id?: string } | null)?.proposal_id ??
@@ -1678,6 +1869,7 @@ export class CaptureEngine {
       );
       return proposalId;
     } catch (error) {
+      if (!this.isConnectionAttemptCurrent(attempt)) return null;
       this._lastError.set(this.errorMessage(error));
       this._finalize.set({ ...FINALIZE_IDLE, stage: 'failed', message: this.errorMessage(error) });
       return null;
@@ -1686,15 +1878,20 @@ export class CaptureEngine {
 
   private finalizeOverWs(
     connection: VoiceSessionConnection | LiveKitConversationConnection,
+    attempt: CaptureConnectionAttempt,
   ): Promise<string | null> {
     return new Promise<string | null>((resolve) => {
+      if (!this.isConnectionAttemptCurrent(attempt)) {
+        resolve(null);
+        return;
+      }
       this.clearFinalizeWait();
       this.finalizeResolver = (proposalId) => resolve(proposalId);
       // Safety net: never hang the publish surface if the WS drops mid-finalize.
       this.finalizeTimeout = setTimeout(() => {
         const resolver = this.finalizeResolver;
         this.clearFinalizeWait();
-        void this.recoverFinalize().then((id) => resolver?.(id));
+        if (resolver) this.runFinalizeRecovery(resolver, attempt);
       }, 90000);
       connection.captureFinish();
     });
@@ -1706,8 +1903,12 @@ export class CaptureEngine {
    * builds it before emitting the step), so fetch it first and only re-trigger
    * the heavy HTTP finalize when nothing was persisted.
    */
-  private async recoverFinalize(): Promise<string | null> {
-    const existing = await this.loadProposal();
+  private async recoverFinalize(
+    attempt: CaptureConnectionAttempt,
+  ): Promise<string | null> {
+    if (!this.isConnectionAttemptCurrent(attempt)) return null;
+    const existing = await this.loadProposalForAttempt(attempt);
+    if (!this.isConnectionAttemptCurrent(attempt)) return null;
     if (existing?.id) {
       this._finalize.update((s) =>
         s.stage === 'failed'
@@ -1716,8 +1917,20 @@ export class CaptureEngine {
       );
       return existing.id;
     }
-    const sessionId = this._sessionId();
-    return sessionId ? this.finalizeOverHttp(sessionId) : null;
+    return this.finalizeOverHttp(attempt.sessionId, attempt);
+  }
+
+  private runFinalizeRecovery(
+    resolver: (proposalId: string | null) => void,
+    attempt: CaptureConnectionAttempt | null,
+  ): void {
+    if (!attempt || !this.isConnectionAttemptCurrent(attempt)) {
+      resolver(null);
+      return;
+    }
+    void this.recoverFinalize(attempt).then((proposalId) => {
+      resolver(this.isConnectionAttemptCurrent(attempt) ? proposalId : null);
+    });
   }
 
   /**
@@ -1728,11 +1941,12 @@ export class CaptureEngine {
    */
   private expediteFinalizeRecovery(graceMs: number): void {
     if (!this.finalizeResolver) return;
+    const attempt = this.captureCurrentAttempt();
     if (this.finalizeTimeout !== null) clearTimeout(this.finalizeTimeout);
     this.finalizeTimeout = setTimeout(() => {
       const resolver = this.finalizeResolver;
       this.clearFinalizeWait();
-      void this.recoverFinalize().then((id) => resolver?.(id));
+      if (resolver) this.runFinalizeRecovery(resolver, attempt);
     }, graceMs);
   }
 
@@ -1801,10 +2015,11 @@ export class CaptureEngine {
 
   /** Reset all session-scoped state (e.g. when leaving the capture). */
   reset(): void {
-    this.disconnect();
+    this.disconnect({ recoverFinalize: false });
     this._sessionId.set(null);
     this._session.set(null);
     this._documents.set([]);
+    this._documentsCollection.set(null);
     this._proposalId.set(null);
     this._proposal.set(null);
     this._feed.set([]);
@@ -1817,6 +2032,7 @@ export class CaptureEngine {
     this._sectionSuggestion.set(null);
     this._hintQueue.set([]);
     this._publication.set(null);
+    this.revisitTarget.set(null);
     this._finalize.set(FINALIZE_IDLE);
     this._paused.set(false);
     this._extraMinutes.set(0);
@@ -1832,16 +2048,39 @@ export class CaptureEngine {
     this._state.set('idle');
   }
 
+  /**
+   * WorkspaceService calls this while the previous tenant is still current.
+   * Purge every tenant-bearing signal synchronously; route-scoped system/layout
+   * state is intentionally retained by a normal session reset, but must not
+   * survive an A→B boundary.
+   */
+  private resetForWorkspaceChange(): void {
+    this.reset();
+    this._systemId.set(null);
+    this._collections.set([]);
+    this._micMuted.set(false);
+    this._filLayout.set('documents');
+    this.filLayoutTouched = false;
+    this.transport = 'backend_ws';
+  }
+
   // ---- WS event dispatch -------------------------------------------------
 
-  private subscribe(events$: Observable<VoiceSessionEvent>): void {
+  private subscribe(
+    events$: Observable<VoiceSessionEvent>,
+    attempt: CaptureConnectionAttempt,
+  ): void {
     this.eventsSub = events$.subscribe({
-      next: (event: VoiceSessionEvent) => this.dispatch(event),
+      next: (event: VoiceSessionEvent) => {
+        if (this.isConnectionAttemptCurrent(attempt)) this.dispatch(event);
+      },
       error: (error: unknown) => {
+        if (!this.isConnectionAttemptCurrent(attempt)) return;
         this._state.set('error');
         this._lastError.set(this.errorMessage(error));
       },
       complete: () => {
+        if (!this.isConnectionAttemptCurrent(attempt)) return;
         if (this._state() === 'connected') this._state.set('closed');
       },
     });

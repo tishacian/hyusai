@@ -9,3 +9,4 @@ ds-bundle/
 
 # Playwright e2e run artifacts (videos, screenshots, error context)
 e2e/results/
+e2e/report/

@@ -68,6 +68,8 @@ export class VoiceLoopController {
   private endpointCandidateTimer: ReturnType<typeof setTimeout> | null = null;
   private endpointCandidateReason: VoiceLoopEndpointReason | null = null;
   private endpointCandidateStartedAt = 0;
+  /** Invalidates an arming turn and every recorder callback from an older turn. */
+  private turnGeneration = 0;
 
   constructor(id: string) {
     void id;
@@ -81,6 +83,7 @@ export class VoiceLoopController {
       return false;
     }
 
+    const generation = ++this.turnGeneration;
     this.setState('arming', config);
     this.endpointReason = 'manual';
     this.emitEndpointOnStop = true;
@@ -88,11 +91,17 @@ export class VoiceLoopController {
     this.lastChunkAt = 0;
 
     try {
-      this.stream = config.stream || await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = config.stream || await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (generation !== this.turnGeneration) {
+        if (!config.stream) stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      this.stream = stream;
       this.releaseStreamOnStop = config.releaseStreamOnStop ?? !config.stream;
       const recorder = this.createRecorder(this.stream, config.mimeType || 'audio/webm');
       this.recorder = recorder;
       recorder.ondataavailable = (event) => {
+        if (generation !== this.turnGeneration || this.recorder !== recorder) return;
         if (event.data.size <= 0) return;
         const chunkAt = performance.now();
         if (this.lastChunkAt > 0) {
@@ -115,6 +124,8 @@ export class VoiceLoopController {
         config.onChunk?.(event.data);
       };
       recorder.onstop = () => {
+        if (generation !== this.turnGeneration || this.recorder !== recorder) return;
+        this.recorder = null;
         this.stopEndpointMonitor();
         if (this.releaseStreamOnStop) this.releaseStream();
         const blob = new Blob(this.chunks, { type: config.mimeType || 'audio/webm' });
@@ -136,6 +147,7 @@ export class VoiceLoopController {
       if (config.autoEndpoint) this.startEndpointMonitor(config);
       return true;
     } catch {
+      if (generation !== this.turnGeneration) return false;
       this.cleanupAfterFailure();
       config.onError?.('Microphone capture failed. Check the input device, then retry.');
       this.setState('error', config);
@@ -146,8 +158,35 @@ export class VoiceLoopController {
   stopTurn(reason: VoiceLoopEndpointReason = 'manual', emitEndpoint = true): void {
     this.endpointReason = reason;
     this.emitEndpointOnStop = emitEndpoint;
-    if (this.recorder?.state === 'recording') {
-      this.recorder.stop();
+    const recorder = this.recorder;
+    if (!emitEndpoint) {
+      // Invalidate callbacks before MediaRecorder.stop(): browsers emit a final
+      // dataavailable followed by stop, and neither may escape into the next
+      // workspace/turn when this is a discard-style stop.
+      this.turnGeneration += 1;
+      this.recorder = null;
+      if (recorder) {
+        try {
+          recorder.ondataavailable = null;
+          recorder.onstop = null;
+          recorder.onerror = null;
+        } catch {
+          /* browser cleanup only */
+        }
+      }
+    }
+    if (recorder?.state === 'recording') {
+      try {
+        recorder.stop();
+      } catch {
+        /* best-effort teardown continues below */
+      }
+      if (!emitEndpoint) {
+        this.stopEndpointMonitor();
+        this.releaseStream();
+        this.chunks = [];
+        this.recording.set(false);
+      }
       return;
     }
     this.stopEndpointMonitor();
@@ -185,9 +224,10 @@ export class VoiceLoopController {
   }
 
   dispose(): void {
+    this.stopTurn('stop', false);
     this.stopEndpointMonitor();
-    if (this.recorder?.state === 'recording') this.recorder.stop();
     this.releaseStream();
+    this.chunks = [];
     this.recording.set(false);
     this.state.set('idle');
   }

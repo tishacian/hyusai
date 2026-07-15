@@ -118,27 +118,9 @@ export class ShellComponent {
   });
 
   constructor() {
-    this.workspaceService.loadWorkspaces().subscribe(() => {
-      this.navigationTelemetry.flushDeferred();
-      const path = (this.router.url || '/').split('?')[0];
-      const businessResolution = this.navigationProfile.businessResolutionFor(this.router.url || '/');
-      if (businessResolution) {
-        this.navigationTelemetry.registerRedirect(businessResolution);
-        this.router.navigateByUrl(businessResolution.resolvedRoute);
-        return;
-      }
-      if (this.workspaceService.isDemoMode() && (path === '/' || path === '/hypervisor')) {
-        const defaultRoute =
-          (this.workspaceService.current()?.settings?.['default_route'] as string | undefined) ||
-          '/hypervisor/mission-room/cockpit';
-        this.navigationTelemetry.registerRedirect({
-          requestedRoute: this.router.url || '/',
-          resolvedRoute: defaultRoute,
-          owner: 'workspace_shell',
-          reason: 'workspace_default_route',
-        });
-        this.router.navigateByUrl(defaultRoute);
-      }
-    });
+    // The guard establishes the workspace before the shell is activated. This
+    // call only releases an initial deferred audit event; it never resolves or
+    // initiates navigation.
+    this.navigationTelemetry.flushDeferred();
   }
 }

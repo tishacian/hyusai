@@ -140,26 +140,11 @@ test('admin keeps the full Agentium shell unless business preview is enabled', (
   assert.equal(profile.businessShellActive(), false);
 });
 
-test('business redirects expose a stable telemetry owner and reason', () => {
+test('business allowed paths remain stable inputs for the navigation resolver', () => {
   const { profile } = makeHarness('member');
 
-  assert.deepEqual(profile.businessResolutionFor('/systems'), {
-    requestedRoute: '/systems',
-    resolvedRoute: '/chat',
-    owner: 'navigation_profile',
-    reason: 'business_profile_disallowed',
-  });
-  assert.deepEqual(profile.businessResolutionFor('/knowledge'), {
-    requestedRoute: '/knowledge',
-    resolvedRoute: '/knowledge/capture',
-    owner: 'navigation_profile',
-    reason: 'business_knowledge_compatibility',
-  });
-  assert.deepEqual(profile.businessResolutionFor('/systems/system-42/capture'), {
-    requestedRoute: '/systems/system-42/capture',
-    resolvedRoute: '/knowledge/capture?systemId=system-42',
-    owner: 'navigation_profile',
-    reason: 'business_system_capture_compatibility',
-  });
-  assert.equal(profile.businessResolutionFor('/client360/opportunities'), null);
+  assert.equal(profile.isBusinessAllowedPath('/chat'), true);
+  assert.equal(profile.isBusinessAllowedPath('/client360/opportunities'), true);
+  assert.equal(profile.isBusinessAllowedPath('/knowledge/capture?systemId=system-42'), true);
+  assert.equal(profile.isBusinessAllowedPath('/systems'), false);
 });

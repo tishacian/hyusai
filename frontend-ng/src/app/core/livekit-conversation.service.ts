@@ -3,6 +3,7 @@ import type { Room as LiveKitRoom } from 'livekit-client';
 import { Observable, Subject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { VoiceSessionEvent, VoiceSessionEventType, VoiceSessionStartOptions, VoiceFrameMeta } from './voice-session.service';
+import { WorkspaceService, type WorkspaceRequestScope } from './workspace.service';
 
 export interface LiveKitConfig {
   enabled: boolean;
@@ -49,11 +50,23 @@ export interface LiveKitAgentDispatchResponse {
   events: VoiceSessionEvent[];
 }
 
+/** Terminal transport error: a caller must not fall back in the new workspace
+ * with the session id captured in the previous one. */
+export class WorkspaceChangedDuringTransportError extends Error {
+  override readonly name = 'WorkspaceChangedDuringTransportError';
+
+  constructor() {
+    super('Workspace changed while opening the LiveKit conversation.');
+  }
+}
+
 export class LiveKitConversationConnection {
   private readonly eventsSubject = new Subject<VoiceSessionEvent>();
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
   readonly events$: Observable<VoiceSessionEvent> = this.eventsSubject.asObservable();
+  private closed = false;
+  private invalidated = false;
 
   constructor(
     private readonly room: LiveKitRoom,
@@ -61,14 +74,17 @@ export class LiveKitConversationConnection {
     private readonly topics: LiveKitConfig['topics'],
     private readonly roomEvents: { DataReceived: string; Disconnected: string },
     private readonly reliableDataKind: number,
+    private readonly onClosed: () => void = () => undefined,
   ) {
     this.room
       .on(this.roomEvents.DataReceived as any, (payload: Uint8Array, _participant: unknown, kind?: number, topic?: string) => {
+        if (this.invalidated) return;
         this.handleData(payload, kind, topic);
       })
       .on(this.roomEvents.Disconnected as any, (reason?: unknown) => {
+        if (this.invalidated) return;
         this.emit('session.close', { reason: reason ?? null, transport: 'livekit' });
-        this.eventsSubject.complete();
+        this.markInvalidated();
       });
   }
 
@@ -119,7 +135,14 @@ export class LiveKitConversationConnection {
   }
 
   async enableMicrophone(enabled = true): Promise<void> {
+    if (this.invalidated) return;
     await this.room.localParticipant.setMicrophoneEnabled(enabled);
+    if (this.invalidated) {
+      if (enabled) {
+        await this.room.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+      }
+      return;
+    }
     this.emit('runtime.metric', {
       metric: enabled ? 'livekit_microphone_enabled' : 'livekit_microphone_disabled',
       transport: 'livekit',
@@ -214,6 +237,7 @@ export class LiveKitConversationConnection {
   }
 
   sendControl(type: VoiceSessionEventType | string, payload: Record<string, unknown> = {}): Promise<void> {
+    if (this.invalidated) return Promise.resolve();
     return this.publish(this.topics.control, {
       id: crypto.randomUUID?.() || String(Date.now()),
       session_id: this.token.metadata['agentium_session_id'] || '',
@@ -225,12 +249,31 @@ export class LiveKitConversationConnection {
   }
 
   async close(): Promise<void> {
-    await this.sendControl('session.close', {}).catch(() => undefined);
-    await this.room.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
-    await this.room.disconnect(true);
+    if (this.invalidated) return;
+    // Start the graceful close frame while publishing is still allowed, then
+    // suppress every inbound callback before awaiting network teardown.
+    const closeFrame = this.sendControl('session.close', {}).catch(() => undefined);
+    this.markInvalidated();
+    try {
+      await closeFrame;
+      await this.room.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+      await this.room.disconnect(true);
+    } catch {
+      // The connection is already terminal locally; teardown is best effort.
+    }
+  }
+
+  /** Synchronous workspace-boundary teardown. */
+  invalidate(): void {
+    if (!this.markInvalidated()) return;
+    void Promise.allSettled([
+      this.room.localParticipant.setMicrophoneEnabled(false),
+      this.room.disconnect(true),
+    ]);
   }
 
   private publish(topic: string, event: Record<string, unknown>): Promise<void> {
+    if (this.invalidated) return Promise.resolve();
     const bytes = this.encoder.encode(JSON.stringify(event));
     return this.room.localParticipant.publishData(bytes, {
       reliable: true,
@@ -251,6 +294,7 @@ export class LiveKitConversationConnection {
   }
 
   private handleData(payload: Uint8Array, kind?: number, topic?: string): void {
+    if (this.invalidated) return;
     if (topic && ![this.topics.events, this.topics.metrics, this.topics.chat].includes(topic)) {
       return;
     }
@@ -268,6 +312,7 @@ export class LiveKitConversationConnection {
   }
 
   private emit(type: VoiceSessionEventType, payload: Record<string, unknown>): void {
+    if (this.invalidated) return;
     this.eventsSubject.next({
       id: crypto.randomUUID?.() || String(Date.now()),
       session_id: String(this.token.metadata['agentium_session_id'] || ''),
@@ -277,47 +322,87 @@ export class LiveKitConversationConnection {
       payload,
     });
   }
+
+  private notifyClosed(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.onClosed();
+  }
+
+  private markInvalidated(): boolean {
+    if (this.invalidated) return false;
+    this.invalidated = true;
+    this.eventsSubject.complete();
+    this.notifyClosed();
+    return true;
+  }
 }
 
 @Injectable({ providedIn: 'root' })
 export class LiveKitConversationService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly activeConnections = new Set<LiveKitConversationConnection>();
 
-  async config(): Promise<LiveKitConfig> {
-    return firstValueFrom(this.api.get<LiveKitConfig>('/livekit/config'));
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      const connections = [...this.activeConnections];
+      this.activeConnections.clear();
+      for (const connection of connections) connection.invalidate();
+    });
+  }
+
+  async config(workspaceSlug = this.workspace.currentSlug()): Promise<LiveKitConfig> {
+    return firstValueFrom(this.api.get<LiveKitConfig>(
+      '/livekit/config',
+      undefined,
+      { workspaceSlug },
+    ));
   }
 
   async open(sessionId: string, options: LiveKitOpenOptions = {}): Promise<LiveKitConversationConnection> {
-    const config = await this.config();
-    if (!config.enabled || !config.configured || !config.url) {
-      throw new Error('LiveKit transport is not enabled for this workspace.');
-    }
-    const token = await firstValueFrom(
-      this.api.post<LiveKitTokenResponse>('/livekit/token', {
-        session_id: sessionId,
-        surface: options.surface || 'knowledge_capture',
-        mode: options.mode || 'conversation_only',
-        participant_name: options.participantName || null,
-        ensure_room: true,
-        metadata: options.metadata || {},
-      }),
-    );
-    const livekit = await import('livekit-client');
-    const room = new livekit.Room({ adaptiveStream: false, dynacast: false });
+    const scope = this.workspace.captureRequestScope();
+    let room: LiveKitRoom | null = null;
     let connection: LiveKitConversationConnection | null = null;
     try {
-      await room.connect(token.url || config.url, token.token, { autoSubscribe: true });
+      const config = await this.config(scope.workspaceSlug);
+      this.assertCurrentScope(scope);
+      if (!config.enabled || !config.configured || !config.url) {
+        throw new Error('LiveKit transport is not enabled for this workspace.');
+      }
+      const token = await firstValueFrom(
+        this.api.post<LiveKitTokenResponse>('/livekit/token', {
+          session_id: sessionId,
+          surface: options.surface || 'knowledge_capture',
+          mode: options.mode || 'conversation_only',
+          participant_name: options.participantName || null,
+          ensure_room: true,
+          metadata: options.metadata || {},
+        }, { workspaceSlug: scope.workspaceSlug }),
+      );
+      this.assertCurrentScope(scope);
+
+      const livekit = await import('livekit-client');
+      this.assertCurrentScope(scope);
+      const connectedRoom = new livekit.Room({ adaptiveStream: false, dynacast: false });
+      room = connectedRoom;
+      await connectedRoom.connect(token.url || config.url, token.token, { autoSubscribe: true });
+      this.assertCurrentScope(scope);
       connection = new LiveKitConversationConnection(
-        room,
+        connectedRoom,
         token,
         config.topics,
         { DataReceived: livekit.RoomEvent.DataReceived, Disconnected: livekit.RoomEvent.Disconnected },
         livekit.DataPacket_Kind.RELIABLE,
+        () => {
+          if (connection) this.activeConnections.delete(connection);
+        },
       );
-      if (options.publishMicrophone ?? true) {
-        await connection.enableMicrophone(true);
-      }
-      connection.start({ ...options, transport: 'livekit' });
+      this.activeConnections.add(connection);
+      // The participant and data handlers must exist before dispatch: the
+      // gateway can publish session.ready/runtime.metric immediately.  Mic and
+      // session.start remain after dispatch so fallback is still safe if the
+      // gateway refuses the bridge.
       if (options.dispatchAgent ?? true) {
         const voiceSessionStart = {
           runtime: options.runtime || options.provider || 'cascade_openai',
@@ -343,20 +428,44 @@ export class LiveKitConversationService {
             mock_partial_text: options.mockPartialText || null,
             metadata: options.metadata || {},
             voice_session_start: voiceSessionStart,
-          }),
+          }, { workspaceSlug: scope.workspaceSlug }),
         );
+        this.assertCurrentScope(scope);
         if ((options.requireVoiceGateway ?? true) && dispatch.mode !== 'voice_gateway_bridge') {
           throw new Error(`LiveKit voice gateway bridge is unavailable (${dispatch.mode}).`);
         }
       }
+      if (options.publishMicrophone ?? true) {
+        await connection.enableMicrophone(true);
+      }
+      this.assertCurrentScope(scope);
+      connection.start({ ...options, transport: 'livekit' });
       return connection;
     } catch (error) {
       if (connection) {
         await connection.close().catch(() => undefined);
-      } else {
+      } else if (room) {
         await room.disconnect(true).catch(() => undefined);
       }
+      // A rejected await skips the success-path assertions above. Normalize
+      // every such rejection after teardown as a workspace cancellation so a
+      // caller can never interpret an A transport failure as permission to
+      // open its backend-WS fallback with the same session id under B.
+      if (
+        error instanceof WorkspaceChangedDuringTransportError ||
+        !this.workspace.isRequestScopeCurrent(scope)
+      ) {
+        throw error instanceof WorkspaceChangedDuringTransportError
+          ? error
+          : new WorkspaceChangedDuringTransportError();
+      }
       throw error;
+    }
+  }
+
+  private assertCurrentScope(scope: WorkspaceRequestScope): void {
+    if (!this.workspace.isRequestScopeCurrent(scope)) {
+      throw new WorkspaceChangedDuringTransportError();
     }
   }
 }

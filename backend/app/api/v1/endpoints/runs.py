@@ -11,13 +11,16 @@ from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
 from app.db.base import SessionLocal, get_db
 from app.models.decision import Decision
+from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
+from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.decisions import (
     InvalidTransition,
@@ -102,6 +105,7 @@ def _invocation(i: SkillInvocation) -> Dict[str, Any]:
 @router.get("")
 async def list_runs(
     system_id: Optional[str] = None,
+    capability_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
@@ -109,7 +113,39 @@ async def list_runs(
 ):
     q = db.query(Run).filter(Run.workspace_id == workspace.id)
     if system_id:
-        q = q.filter(Run.system_id == system_id)
+        # Do not accept an orphaned or cross-tenant parent edge even when a
+        # corrupted Run row itself belongs to the current workspace.
+        current_parent_system = exists().where(
+            and_(
+                System.id == Run.system_id,
+                System.workspace_id == workspace.id,
+            )
+        )
+        q = q.filter(Run.system_id == system_id, current_parent_system)
+    if capability_id:
+        visible_capability = exists().where(
+            and_(
+                Capability.id == capability_id,
+                or_(
+                    Capability.workspace_id == workspace.id,
+                    Capability.workspace_id.is_(None),
+                ),
+            )
+        )
+        parent_system_matches = exists().where(
+            and_(
+                System.id == Run.system_id,
+                System.workspace_id == workspace.id,
+                System.capability_id == capability_id,
+            )
+        )
+        q = q.filter(
+            visible_capability,
+            or_(
+                parent_system_matches,
+                and_(Run.system_id.is_(None), Run.capability_id == capability_id),
+            )
+        )
     if status:
         q = q.filter(Run.status == status)
     rows = q.order_by(Run.started_at.desc()).limit(limit).all()

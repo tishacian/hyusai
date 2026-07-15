@@ -25,8 +25,10 @@ import {
   type Capability,
   type System,
 } from '@app/core/canonical-api.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceRequestInvalidatedError,
+  WorkspaceService,
+} from '@app/core/workspace.service';
 import type { AppSettings } from '@app/core/settings.service';
 
 type DraftState = {
@@ -437,7 +439,6 @@ export class PresetsListComponent implements OnInit {
   private readonly service = inject(RagPresetService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly toastr = inject(ToastrService);
-  private readonly zoom = inject(ZoomContextService);
   private readonly workspace = inject(WorkspaceService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
@@ -517,7 +518,6 @@ export class PresetsListComponent implements OnInit {
     // Presets is workspace-scoped administration — drop any prior
     // Capability/System/Run focus so the breadcrumb reads
     // "Portfolio › Presets" rather than lying about an active object.
-    this.zoom.clear();
     this.refresh();
     this.canonical.listCapabilities().subscribe((list) => this.capabilities.set(list));
     this.canonical.listSystems().subscribe((list) => this.systems.set(list));
@@ -528,7 +528,7 @@ export class PresetsListComponent implements OnInit {
     this.service
       .list()
       .then((list) => this.presets.set(list))
-      .catch(() => this.toastr.error('Unable to load presets'))
+      .catch((error: unknown) => this.reportRequestError(error, 'Unable to load presets'))
       .finally(() => this.loading.set(false));
   }
 
@@ -586,7 +586,7 @@ export class PresetsListComponent implements OnInit {
         this.toastr.success('Preset elected as default');
         this.refresh();
       })
-      .catch(() => this.toastr.error('Failed to update default preset'));
+      .catch((error: unknown) => this.reportRequestError(error, 'Failed to update default preset'));
   }
 
   // -- New / Clone panel ----------------------------------------------------
@@ -657,7 +657,7 @@ export class PresetsListComponent implements OnInit {
         this.newPanelOpen.set(false);
         this.refresh();
       })
-      .catch(() => this.toastr.error('Failed to create preset'))
+      .catch((error: unknown) => this.reportRequestError(error, 'Failed to create preset'))
       .finally(() => this.creating.set(false));
   }
 
@@ -685,7 +685,7 @@ export class PresetsListComponent implements OnInit {
         this.toastr.success('Preset deleted');
         this.refresh();
       })
-      .catch(() => this.toastr.error('Failed to delete preset'));
+      .catch((error: unknown) => this.reportRequestError(error, 'Failed to delete preset'));
   }
 
   // -- Resolve panel --------------------------------------------------------
@@ -700,7 +700,11 @@ export class PresetsListComponent implements OnInit {
     this.service
       .resolve({ capability_id: this.resolveCap, system_id: this.resolveSys })
       .then((res) => this.resolveResult.set(res))
-      .catch(() => this.toastr.error('Failed to resolve preset'))
+      .catch((error: unknown) => this.reportRequestError(error, 'Failed to resolve preset'))
       .finally(() => this.resolving.set(false));
+  }
+
+  private reportRequestError(error: unknown, message: string): void {
+    if (!(error instanceof WorkspaceRequestInvalidatedError)) this.toastr.error(message);
   }
 }

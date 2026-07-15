@@ -416,13 +416,13 @@ export class ResourcesPageComponent implements OnInit {
 
   readonly connectorsActive = computed(() => {
     this.connectorsVersion();
-    return CONNECTORS.filter((c) => c.status === 'active' || hasConnectorConfig(c.id)).length;
+    return CONNECTORS.filter((c) => c.status === 'active' || hasConnectorConfig(this.workspace.currentSlug(), c.id)).length;
   });
   readonly connectorsAvailable = computed(() => CONNECTORS.filter((c) => c.status !== 'coming-soon').length);
   readonly connectorsComingSoon = computed(() => CONNECTORS.filter((c) => c.status === 'coming-soon').length);
   readonly appsEnabled = computed(() => {
     this.appsVersion();
-    const t = readAppToggles();
+    const t = readAppToggles(this.workspace.currentSlug());
     return Object.values(t).filter(Boolean).length;
   });
 
@@ -488,7 +488,7 @@ export class ResourcesPageComponent implements OnInit {
 
   isConfigured(id: string): boolean {
     this.connectorsVersion();
-    return hasConnectorConfig(id);
+    return hasConnectorConfig(this.workspace.currentSlug(), id);
   }
 
   openConnector(c: ConnectorDef): void {
@@ -499,7 +499,7 @@ export class ResourcesPageComponent implements OnInit {
       return;
     }
     this.active.set(c);
-    this.draftValues = { ...readConnectorConfig(c.id) };
+    this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), c.id) };
     this.drawerOpen.set(true);
   }
 
@@ -515,7 +515,7 @@ export class ResourcesPageComponent implements OnInit {
   saveConnector(): void {
     const c = this.active();
     if (!c) return;
-    writeConnectorConfig(c.id, this.draftValues);
+    writeConnectorConfig(this.workspace.currentSlug(), c.id, this.draftValues);
     this.connectorsVersion.update((v) => v + 1);
     this.toast.success(`${c.name} configuration saved`, 'Connector');
     this.drawerOpen.set(false);
@@ -542,7 +542,7 @@ export class ResourcesPageComponent implements OnInit {
     const c = this.active();
     if (!c) return;
     this.draftValues = {};
-    writeConnectorConfig(c.id, {});
+    writeConnectorConfig(this.workspace.currentSlug(), c.id, {});
     this.connectorsVersion.update((v) => v + 1);
     this.toast.info(`${c.name} configuration cleared`, 'Connector');
   }

@@ -285,7 +285,7 @@ export class ConnectorsPageComponent {
 
   isConfigured(id: string): boolean {
     this.connectorVersion();
-    return hasConnectorConfig(id) || this.workspaceConnectorEnabled(id);
+    return hasConnectorConfig(this.workspace.currentSlug(), id) || this.workspaceConnectorEnabled(id);
   }
 
   setupLabel(connector: ConnectorDef): string {
@@ -300,7 +300,7 @@ export class ConnectorsPageComponent {
       return;
     }
     this.activeConnector.set(connector);
-    this.draftValues = { ...readConnectorConfig(connector.id) };
+    this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), connector.id) };
     this.drawerOpen.set(true);
   }
 
@@ -317,7 +317,7 @@ export class ConnectorsPageComponent {
     ev?.preventDefault();
     const connector = this.activeConnector();
     if (!connector) return;
-    writeConnectorConfig(connector.id, this.draftValues);
+    writeConnectorConfig(this.workspace.currentSlug(), connector.id, this.draftValues);
     this.connectorVersion.update((value) => value + 1);
     this.toast.success(`${connector.name} setup saved`, 'Connector');
     this.drawerOpen.set(false);
@@ -337,14 +337,14 @@ export class ConnectorsPageComponent {
     const connector = this.activeConnector();
     if (!connector) return;
     this.draftValues = {};
-    writeConnectorConfig(connector.id, {});
+    writeConnectorConfig(this.workspace.currentSlug(), connector.id, {});
     this.connectorVersion.update((value) => value + 1);
     this.toast.info(`${connector.name} setup cleared`, 'Connector');
   }
 
   private isConnectedOrConfigured(connector: ConnectorDef): boolean {
     this.connectorVersion();
-    return hasConnectorConfig(connector.id) || this.workspaceConnectorEnabled(connector.id);
+    return hasConnectorConfig(this.workspace.currentSlug(), connector.id) || this.workspaceConnectorEnabled(connector.id);
   }
 
   private workspaceConnectorEnabled(id: string): boolean {

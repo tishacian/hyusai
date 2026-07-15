@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -30,6 +31,7 @@ from app.core.config import settings
 from app.db.base import get_db
 from app.models.run import Run
 from app.models.system import System
+from app.models.capability import Capability
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
@@ -191,6 +193,7 @@ def _event_trigger_state(s: System) -> Dict[str, Any]:
 # ---------------- CRUD ----------------
 @router.get("")
 async def list_systems(
+    capability_id: Optional[str] = None,
     status: Optional[str] = None,
     include_retired: bool = False,
     limit: int = 100,
@@ -198,6 +201,23 @@ async def list_systems(
     db: DBSession = Depends(get_db),
 ):
     q = db.query(System).filter(System.workspace_id == workspace.id)
+    if capability_id:
+        # A malformed FK must not turn a capability id from another tenant
+        # into a valid scope. Universal capabilities remain intentionally
+        # visible through their NULL workspace ownership.
+        visible_capability = exists().where(
+            and_(
+                Capability.id == capability_id,
+                or_(
+                    Capability.workspace_id == workspace.id,
+                    Capability.workspace_id.is_(None),
+                ),
+            )
+        )
+        q = q.filter(
+            System.capability_id == capability_id,
+            visible_capability,
+        )
     if status:
         q = q.filter(System.status == status)
     elif not include_retired:

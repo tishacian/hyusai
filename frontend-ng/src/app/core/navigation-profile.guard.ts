@@ -1,21 +1,53 @@
 import { inject } from '@angular/core';
 import { CanActivateChildFn, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
-import { NavigationProfileService } from './navigation-profile.service';
+import { NavigationResolverService } from './navigation-resolver.service';
 import { NavigationTelemetryService } from './navigation-telemetry.service';
 import { WorkspaceService } from './workspace.service';
+import { WorkspaceExperienceShadowService } from './workspace-experience-shadow.service';
 
 export const navigationProfileGuard: CanActivateChildFn = (_route, state) => {
   const router = inject(Router);
   const workspace = inject(WorkspaceService);
-  const navigationProfile = inject(NavigationProfileService);
+  const navigationResolver = inject(NavigationResolverService);
   const navigationTelemetry = inject(NavigationTelemetryService);
+  const workspaceExperienceShadow = inject(WorkspaceExperienceShadowService);
 
-  const evaluate = () => {
-    const resolution = navigationProfile.businessResolutionFor(state.url);
+  const execute = (resolution: ReturnType<NavigationResolverService['resolve']>) => {
     if (!resolution) return true;
     navigationTelemetry.registerRedirect(resolution);
     return router.parseUrl(resolution.resolvedRoute);
+  };
+
+  const observeThenExecute = (
+    resolution: ReturnType<NavigationResolverService['resolve']>,
+  ) => {
+    try {
+      // Lot 2 is deliberately passive: the shadow resolver receives the
+      // already-owned legacy decision, but only ``execute`` below can affect
+      // Angular navigation. Its return value is intentionally ignored.
+      workspaceExperienceShadow.observeNavigation(state.url, resolution);
+    } catch {
+      // A shadow failure must never interrupt the legacy navigation path. The
+      // service normally records failures itself; this boundary also protects
+      // the guard against an unexpected instrumentation error while retaining
+      // fail-closed rollout evidence when the recorder is still available.
+      try {
+        workspaceExperienceShadow.recordUnexpectedFailure(state.url);
+      } catch {
+        // Even the failure recorder is passive instrumentation.
+      }
+    }
+    return execute(resolution);
+  };
+
+  const evaluate = () => {
+    const activationResolution = navigationResolver.activateWorkspaceFromRoute(state.url);
+    // Activating the deep-link tenant can change the effective navigation
+    // profile. Re-evaluate policy afterwards and let it keep precedence over
+    // the invalid-workspace fallback.
+    const resolution = navigationResolver.resolve(state.url) || activationResolution;
+    return observeThenExecute(resolution);
   };
 
   if (workspace.workspaces().length > 0) {
@@ -24,6 +56,11 @@ export const navigationProfileGuard: CanActivateChildFn = (_route, state) => {
 
   return workspace.loadWorkspaces().pipe(
     map(evaluate),
-    catchError(() => of(true)),
+    catchError(() => workspace.loadWorkspaces(true).pipe(
+      map(evaluate),
+      catchError(() => of(observeThenExecute(
+        navigationResolver.resolveWorkspaceLoadFailure(state.url),
+      ))),
+    )),
   );
 };

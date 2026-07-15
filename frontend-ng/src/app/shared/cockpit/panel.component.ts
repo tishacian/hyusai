@@ -13,6 +13,7 @@ import {
   signal,
 } from '@angular/core';
 import { GlyphComponent } from './glyph.component';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 export type CkPanelPosition = 'side' | 'bottom' | 'floating';
 
@@ -29,12 +30,17 @@ export interface CkPanelRef {
  */
 @Injectable({ providedIn: 'root' })
 export class PanelHostService {
+  private readonly workspace = inject(WorkspaceService);
   private readonly stack = signal<CkPanelRef[]>([]);
   readonly open = computed(() => this.stack().length > 0);
   readonly top = computed(() => {
     const s = this.stack();
     return s.length > 0 ? s[s.length - 1] : null;
   });
+
+  constructor() {
+    this.workspace.registerContextReset(() => this.closeAll());
+  }
 
   push(ref: CkPanelRef): void {
     this.stack.update((s) => [...s, ref]);
@@ -48,6 +54,11 @@ export class PanelHostService {
   closeTop(): void {
     const ref = this.top();
     if (ref) ref.close();
+  }
+
+  closeAll(): void {
+    for (const ref of [...this.stack()].reverse()) ref.close();
+    this.stack.set([]);
   }
 }
 

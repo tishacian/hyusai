@@ -776,6 +776,10 @@ export class CanonicalApiService {
       );
   }
 
+  getCapability(id: string): Observable<Capability | null> {
+    return this.api.get<Capability>(`/capabilities/${id}`).pipe(catchError(() => of(null)));
+  }
+
   // ---- Skills --------------------------------------------------------------
   listSkills(): Observable<Skill[]> {
     return this.api
@@ -786,14 +790,17 @@ export class CanonicalApiService {
       );
   }
 
-  getSkill(id: string): Observable<Skill | null> {
-    return this.api.get<Skill>(`/skills/${id}`).pipe(catchError(() => of(null)));
+  getSkill(slug: string): Observable<Skill | null> {
+    return this.api.get<Skill>(`/skills/${encodeURIComponent(slug)}`).pipe(catchError(() => of(null)));
   }
 
   // ---- Systems -------------------------------------------------------------
-  listSystems(): Observable<System[]> {
+  listSystems(options?: { workspaceSlug?: string | null; capability_id?: string }): Observable<System[]> {
+    const params = options?.capability_id ? { capability_id: options.capability_id } : undefined;
     return this.api
-      .get<System[] | { systems: System[] }>('/systems')
+      .get<System[] | { systems: System[] }>('/systems', params, {
+        workspaceSlug: options?.workspaceSlug,
+      })
       .pipe(
         map((r) => this.unwrap<System>(r, 'systems')),
         catchError(() => of([] as System[])),
@@ -1006,12 +1013,19 @@ export class CanonicalApiService {
     return this.api.get<Context>(`/contexts/${id}`).pipe(catchError(() => of(null)));
   }
 
-  createContext(body: Partial<Context>): Observable<Context | null> {
-    return this.api.post<Context>('/contexts', body).pipe(catchError(() => of(null)));
+  createContext(
+    body: Partial<Context>,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<Context | null> {
+    return this.api.post<Context>('/contexts', body, options).pipe(catchError(() => of(null)));
   }
 
-  updateContext(id: string, body: Partial<Context>): Observable<Context | null> {
-    return this.api.patch<Context>(`/contexts/${id}`, body).pipe(catchError(() => of(null)));
+  updateContext(
+    id: string,
+    body: Partial<Context>,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<Context | null> {
+    return this.api.patch<Context>(`/contexts/${id}`, body, options).pipe(catchError(() => of(null)));
   }
 
   deleteContext(id: string): Observable<boolean> {
@@ -1025,9 +1039,12 @@ export class CanonicalApiService {
    * Promote an ephemeral drop-and-ask Context to permanent. Idempotent on
    * already-permanent contexts. See Vague D / D0 plan.
    */
-  persistContext(id: string): Observable<Context | null> {
+  persistContext(
+    id: string,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<Context | null> {
     return this.api
-      .post<Context>(`/contexts/${id}/persist`, {})
+      .post<Context>(`/contexts/${id}/persist`, {}, options)
       .pipe(catchError(() => of(null)));
   }
 
@@ -1404,9 +1421,16 @@ export class CanonicalApiService {
    * of the judge finishing. Returns ``null`` on network error so the
    * caller just stops polling rather than crashing the panel.
    */
-  getEvaluationByRun(runId: string): Observable<EvaluationByRunResponse | null> {
+  getEvaluationByRun(
+    runId: string,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<EvaluationByRunResponse | null> {
     return this.api
-      .get<EvaluationByRunResponse>(`/evaluation/by-run/${encodeURIComponent(runId)}`)
+      .get<EvaluationByRunResponse>(
+        `/evaluation/by-run/${encodeURIComponent(runId)}`,
+        undefined,
+        options,
+      )
       .pipe(catchError(() => of(null)));
   }
 

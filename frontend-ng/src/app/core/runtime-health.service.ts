@@ -1,7 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, of, shareReplay, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, filter, of, shareReplay, tap } from 'rxjs';
 
 import { ApiService } from './api.service';
+import { WorkspaceService } from './workspace.service';
 
 type Status = 'bound' | 'stub' | 'unbound' | 'catalog_only';
 
@@ -32,17 +33,32 @@ export const RETRIEVAL_PRESET_SKILLS: Record<string, string[]> = {
 @Injectable({ providedIn: 'root' })
 export class RuntimeHealthService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private readonly data = signal<RuntimeHealthResponse | null>(null);
   private cache$: Observable<RuntimeHealthResponse> | null = null;
 
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      this.data.set(null);
+      this.cache$ = null;
+    });
+  }
+
   load(force = false): Observable<RuntimeHealthResponse> {
     if (!force && this.cache$) return this.cache$;
+    const scope = this.workspace.captureRequestScope();
     this.cache$ = this.api
-      .get<RuntimeHealthResponse>('/skills/runtime-health')
+      .get<RuntimeHealthResponse>('/skills/runtime-health', undefined, {
+        workspaceSlug: scope.workspaceSlug,
+      })
       .pipe(
-        tap((r) => this.data.set(r)),
+        filter(() => this.workspace.isRequestScopeCurrent(scope)),
+        tap((r) => {
+          this.data.set(r);
+        }),
         catchError(() => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return EMPTY;
           const empty = { skills: {}, summary: { bound: 0, stub: 0, unbound: 0, catalog_only: 0 } as Record<Status, number> };
           this.data.set(empty);
           return of(empty);

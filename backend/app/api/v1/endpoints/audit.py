@@ -80,11 +80,14 @@ _NAVIGATION_SURFACES = frozenset(
 _REDIRECT_OWNERS = frozenset(
     {
         "angular_router",
-        "navigation_profile",
-        "workspace_entrypoint",
-        "workspace_shell",
+        "navigation_resolver",
     }
 )
+_LEGACY_REDIRECT_OWNER_ALIASES = {
+    "navigation_profile": "navigation_resolver",
+    "workspace_entrypoint": "navigation_resolver",
+    "workspace_shell": "navigation_resolver",
+}
 _REDIRECT_REASONS = frozenset(
     {
         "angular_route_redirect",
@@ -100,11 +103,11 @@ _REDIRECT_REASONS = frozenset(
 _REDIRECT_OWNER_BY_REASON = {
     "direct": "angular_router",
     "angular_route_redirect": "angular_router",
-    "business_knowledge_compatibility": "navigation_profile",
-    "business_profile_disallowed": "navigation_profile",
-    "business_system_capture_compatibility": "navigation_profile",
-    "workspace_default_route": "workspace_shell",
-    "workspace_settings_entrypoint": "workspace_entrypoint",
+    "business_knowledge_compatibility": "navigation_resolver",
+    "business_profile_disallowed": "navigation_resolver",
+    "business_system_capture_compatibility": "navigation_resolver",
+    "workspace_default_route": "navigation_resolver",
+    "workspace_settings_entrypoint": "navigation_resolver",
 }
 
 # Runtime values are canonicalized against the existing backend surface
@@ -294,6 +297,7 @@ class NavigationResolvedDetails(BaseModel):
     @field_validator("redirect_owner")
     @classmethod
     def _known_redirect_owner(cls, value: str) -> str:
+        value = _LEGACY_REDIRECT_OWNER_ALIASES.get(value, value)
         if value not in _REDIRECT_OWNERS:
             raise ValueError("unknown navigation redirect owner")
         return value

@@ -637,7 +637,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
             ),
             redirectOwner: allowExpected(
               rawDetails?.['redirect_owner'],
-              'workspace_entrypoint',
+              'navigation_resolver',
             ),
             redirectReason: allowExpected(
               rawDetails?.['redirect_reason'],
@@ -668,7 +668,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         resolvedRoute: '/workspace/:slug/settings',
         effectiveWorkspace: workspaceSlug,
         effectiveSurface: 'workspace-admin',
-        redirectOwner: 'workspace_entrypoint',
+        redirectOwner: 'navigation_resolver',
         redirectReason: 'workspace_settings_entrypoint',
         redirected: true,
       },

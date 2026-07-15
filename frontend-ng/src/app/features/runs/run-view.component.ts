@@ -6,13 +6,16 @@
  * now a full-page drill-down, reachable from Systems, Runs list, or any
  * Decision trail that references it.
  */
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent, RunOutcomeCardComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 @Component({
   selector: 'app-run-view',
@@ -43,7 +46,9 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         </a>
         @if (run()?.system_id) {
           <a
-            [routerLink]="['/systems', run()!.system_id]"
+            [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
+              capabilityId: run()!.capability_id || navigation.capabilityId()
+            })"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
           >
             <app-icon name="box" [size]="12" />
@@ -247,9 +252,20 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-baseline justify-between gap-3">
-                      <div class="font-mono text-sm text-white truncate">
-                        {{ inv.skill_slug || inv.skill_id || 'skill' }}
-                      </div>
+                      @if (inv.skill_slug) {
+                        <a
+                          [routerLink]="navigation.objectUrlTree('skill', inv.skill_slug, {
+                            capabilityId: navigation.capabilityId(),
+                            systemId: run()!.system_id,
+                            runId: runId()
+                          })"
+                          class="font-mono text-sm text-white truncate hover:text-cyan-300"
+                        >{{ inv.skill_slug }}</a>
+                      } @else {
+                        <div class="font-mono text-sm text-white truncate">
+                          {{ inv.skill_id || 'skill' }}
+                        </div>
+                      }
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <span
                           class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded"
@@ -339,11 +355,21 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
     </ck-page-frame>
   `,
 })
-export class RunViewComponent implements OnInit {
+export class RunViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
-  private readonly zoom = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
+  protected readonly navigation = inject(ZoomContextService);
+  private routeSubscription: Subscription | null = null;
+  private loadSubscription: Subscription | null = null;
+  private overrideSubscription: Subscription | null = null;
+  private overrideGeneration = 0;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentRun(),
+  );
 
   readonly runId = signal<string>('');
   readonly run = signal<Run | null>(null);
@@ -401,33 +427,46 @@ export class RunViewComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.route.paramMap.subscribe((params) => {
-      const id = params.get('runId') ?? '';
+    this.routeSubscription = this.route.paramMap.pipe(
+      map((params) => params.get('runId') ?? ''),
+      distinctUntilChanged(),
+    ).subscribe((id) => {
       if (!id) {
         this.router.navigate(['/runs']);
         return;
       }
       this.runId.set(id);
-      this.zoom.setCurrentRun(id);
+      this.resetRunResult();
       this.refresh();
     });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.workspaceView.destroy();
   }
 
   refresh(): void {
     const id = this.runId();
     if (!id) return;
+    this.loadSubscription?.unsubscribe();
+    this.loadSubscription = null;
+    const request = this.workspaceView.beginRequest();
     this.loading.set(true);
-    this.canonical.getRun(id).subscribe({
+    const subscription = this.canonical.getRun(id).subscribe({
       next: (r) => {
+        if (!this.workspaceView.isCurrent(request) || id !== this.runId()) return;
         this.run.set(r);
-        if (r?.system_id) this.zoom.setCurrentSystem(r.system_id);
         this.loading.set(false);
       },
       error: () => {
+        if (!this.workspaceView.isCurrent(request) || id !== this.runId()) return;
         this.run.set(null);
         this.loading.set(false);
       },
     });
+    this.loadSubscription = subscription.closed ? null : subscription;
   }
 
   formatTime(ts: string | undefined): string {
@@ -524,21 +563,74 @@ export class RunViewComponent implements OnInit {
   submitOverride(): void {
     const id = this.runId();
     if (!id || this.submittingOverride()) return;
+    this.overrideSubscription?.unsubscribe();
+    this.overrideSubscription = null;
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.overrideGeneration;
     this.submittingOverride.set(true);
-    this.canonical
+    const subscription = this.canonical
       .overrideRunOutcome(id, {
         value: this.overrideValue(),
         note: this.overrideNote() || undefined,
       })
       .subscribe({
         next: (updated) => {
+          if (!this.overrideIsCurrent(scope, generation, id)) return;
           if (updated) this.run.set(updated as unknown as Run);
           this.submittingOverride.set(false);
           this.overrideMode.set(false);
         },
         error: () => {
+          if (!this.overrideIsCurrent(scope, generation, id)) return;
           this.submittingOverride.set(false);
         },
       });
+    this.overrideSubscription = subscription.closed ? null : subscription;
+  }
+
+  private reloadCurrentRun(): void {
+    const id = this.runId() || this.route.snapshot.paramMap.get('runId') || '';
+    if (!id) return;
+    this.runId.set(id);
+    this.refresh();
+  }
+
+  private resetRunResult(): void {
+    this.loadSubscription?.unsubscribe();
+    this.loadSubscription = null;
+    this.overrideSubscription?.unsubscribe();
+    this.overrideSubscription = null;
+    this.overrideGeneration += 1;
+    this.workspaceView.invalidate();
+    this.run.set(null);
+    this.loading.set(false);
+    this.overrideMode.set(false);
+    this.submittingOverride.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.loadSubscription?.unsubscribe();
+    this.loadSubscription = null;
+    this.overrideSubscription?.unsubscribe();
+    this.overrideSubscription = null;
+    this.overrideGeneration += 1;
+    this.run.set(null);
+    this.loading.set(false);
+    this.overrideMode.set(false);
+    this.overrideValue.set(0);
+    this.overrideNote.set('');
+    this.submittingOverride.set(false);
+  }
+
+  private overrideIsCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+    runId: string,
+  ): boolean {
+    return (
+      generation === this.overrideGeneration
+      && runId === this.runId()
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
   }
 }

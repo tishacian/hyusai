@@ -1,11 +1,15 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { forkJoin, map } from 'rxjs';
+import { Subscription, forkJoin, map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService, KnowledgeGuide, KnowledgeGuideStatus } from '@app/core/api.service';
-import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceDetail,
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -2016,6 +2020,15 @@ export class ChatKnowledgeSettingsComponent {
   protected readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly toastr = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
+  private loadRequest: Subscription | null = null;
+  private saveRequest: Subscription | null = null;
+  private guideRequest: Subscription | null = null;
+  private loadGeneration = 0;
+  private saveGeneration = 0;
+  private guideGeneration = 0;
+  private unregisterContextReset: () => void = () => undefined;
+  private destroyed = false;
 
   private readonly routeSlug = toSignal(
     this.route.parent!.paramMap.pipe(map((p) => p.get('slug') ?? null)),
@@ -2162,6 +2175,16 @@ export class ChatKnowledgeSettingsComponent {
   });
 
   constructor() {
+    this.unregisterContextReset = this.workspace.registerContextReset(() => {
+      this.resetWorkspaceContext();
+    });
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.unregisterContextReset();
+      this.cancelLoad();
+      this.cancelSave();
+      this.cancelGuide();
+    });
     effect(() => {
       const slug = this.routeSlug();
       if (slug) this.load();
@@ -2170,15 +2193,31 @@ export class ChatKnowledgeSettingsComponent {
 
   load(): void {
     const slug = this.routeSlug();
-    if (!slug) return;
+    const scope = this.workspace.captureRequestScope();
+    if (!slug || !scope.workspaceSlug || slug !== scope.workspaceSlug) return;
+
+    this.cancelLoad();
+    const generation = ++this.loadGeneration;
     this.error.set(null);
-    forkJoin({
-      workspace: this.workspace.getWorkspace(slug),
-      scopes: this.api.get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes'),
-      collections: this.api.get<{ collections: string[] }>('/documents/collections'),
-      guides: this.api.listKnowledgeGuides({ current_only: false }),
+    const request = forkJoin({
+      workspace: this.workspace.getWorkspace(slug, { workspaceSlug: scope.workspaceSlug }),
+      scopes: this.api.get<{ scopes: KnowledgeScopeApi[] }>(
+        '/knowledge/scopes',
+        undefined,
+        { workspaceSlug: scope.workspaceSlug },
+      ),
+      collections: this.api.get<{ collections: string[] }>(
+        '/documents/collections',
+        undefined,
+        { workspaceSlug: scope.workspaceSlug },
+      ),
+      guides: this.api.listKnowledgeGuides(
+        { current_only: false },
+        { workspaceSlug: scope.workspaceSlug },
+      ),
     }).subscribe({
       next: ({ workspace, scopes, collections, guides }) => {
+        if (!this.isLoadCurrent(scope, generation)) return;
         this.detail.set(workspace);
         this.hydrateSettings(workspace);
         this.scopes.set((scopes.scopes || []).map((scope) => this.scopeToDraft(scope)));
@@ -2186,8 +2225,16 @@ export class ChatKnowledgeSettingsComponent {
         this.collections.set([...(collections.collections || [])].sort((a, b) => a.localeCompare(b)));
         this.knowledgeGuides.set(guides.items || []);
       },
-      error: () => this.error.set('Unable to load workspace chat and Knowledge settings.'),
+      error: () => {
+        if (!this.isLoadCurrent(scope, generation)) return;
+        this.loadRequest = null;
+        this.error.set('Unable to load workspace chat and Knowledge settings.');
+      },
+      complete: () => {
+        if (generation === this.loadGeneration) this.loadRequest = null;
+      },
     });
+    this.loadRequest = request.closed ? null : request;
   }
 
   addScope(): void {
@@ -2342,6 +2389,8 @@ export class ChatKnowledgeSettingsComponent {
   saveGuide(status?: KnowledgeGuideStatus): void {
     const editor = this.guideEditor();
     if (!editor || !this.canEdit()) return;
+    const scope = this.captureCurrentRouteScope();
+    if (!scope) return;
     const title = editor.title.trim();
     const markdown = editor.markdown.trim();
     if (!title || !markdown) {
@@ -2355,23 +2404,36 @@ export class ChatKnowledgeSettingsComponent {
       markdown,
       status: status || editor.status,
     };
+    this.cancelGuide();
+    const generation = ++this.guideGeneration;
+    const operation = new Subscription();
+    this.guideRequest = operation;
     this.guideSaving.set(true);
     this.error.set(null);
     const request = editor.guide_key
-      ? this.api.updateKnowledgeGuide(editor.guide_key, payload)
-      : this.api.createKnowledgeGuide(payload);
-    request.subscribe({
-      next: () => {
-        this.guideSaving.set(false);
-        this.guideEditor.set(null);
-        this.toastr.success(payload.status === 'published' ? 'Guide published' : 'Guide saved', 'Knowledge guide');
-        this.loadKnowledgeGuides();
-      },
-      error: (err) => {
-        this.guideSaving.set(false);
-        this.error.set(err?.error?.detail || 'Unable to save Knowledge guide.');
-      },
-    });
+      ? this.api.updateKnowledgeGuide(
+          editor.guide_key,
+          payload,
+          { workspaceSlug: scope.workspaceSlug },
+        )
+      : this.api.createKnowledgeGuide(payload, { workspaceSlug: scope.workspaceSlug });
+    operation.add(
+      request.subscribe({
+        next: () => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.guideSaving.set(false);
+          this.guideEditor.set(null);
+          this.toastr.success(payload.status === 'published' ? 'Guide published' : 'Guide saved', 'Knowledge guide');
+          this.loadKnowledgeGuides(scope, generation, operation);
+        },
+        error: (err) => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.guideSaving.set(false);
+          this.error.set(err?.error?.detail || 'Unable to save Knowledge guide.');
+          this.finishGuide(operation, generation);
+        },
+      }),
+    );
   }
 
   publishGuide(guide: KnowledgeGuide): void {
@@ -2507,6 +2569,11 @@ export class ChatKnowledgeSettingsComponent {
   saveAll(): void {
     const detail = this.detail();
     if (!detail) return;
+    const scope = this.workspace.captureRequestScope();
+    if (!scope.workspaceSlug || detail.slug !== scope.workspaceSlug) {
+      this.error.set('Workspace changed before save. Reload these settings and try again.');
+      return;
+    }
     const scopePayload = this.toScopePayload();
     if (!scopePayload) return;
 
@@ -2534,58 +2601,204 @@ export class ChatKnowledgeSettingsComponent {
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
+    this.cancelSave();
+    const generation = ++this.saveGeneration;
+    const request = new Subscription();
+    this.saveRequest = request;
     this.saving.set(true);
     this.error.set(null);
-    this.api.patch('/knowledge/scopes', { scopes: scopePayload }).subscribe({
-      next: () => {
-        this.workspace.updateWorkspaceSettings(detail.slug, settings).subscribe({
-          next: (workspace) => {
-            this.saving.set(false);
-            this.detail.set(workspace);
-            this.workspace.refreshCurrentWorkspace().subscribe();
-            this.toastr.success('Chat and source defaults saved', 'Workspace');
-            this.load();
-          },
-          error: (err) => {
-            this.saving.set(false);
-            this.error.set(err?.error?.detail || 'Source scopes saved, but chat defaults could not be saved.');
-          },
-        });
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.error.set(err?.error?.detail || 'Unable to save source scopes.');
-      },
-    });
+    request.add(
+      this.api.patch(
+        '/knowledge/scopes',
+        { scopes: scopePayload },
+        { workspaceSlug: scope.workspaceSlug },
+      ).subscribe({
+        next: () => {
+          if (!this.isSaveCurrent(scope, generation, request)) return;
+          request.add(
+            this.workspace.updateWorkspaceSettings(
+              detail.slug,
+              settings,
+              { workspaceSlug: scope.workspaceSlug },
+            ).subscribe({
+              next: (workspace) => {
+                if (!this.isSaveCurrent(scope, generation, request)) return;
+                this.saving.set(false);
+                this.detail.set(workspace);
+                this.toastr.success('Chat and source defaults saved', 'Workspace');
+                this.finishSave(request, generation);
+                // Reload the authoritative scopes/settings just as before. The
+                // load owns its own A scope and is cancelled by the same reset.
+                this.load();
+              },
+              error: (err) => {
+                if (!this.isSaveCurrent(scope, generation, request)) return;
+                this.saving.set(false);
+                this.error.set(err?.error?.detail || 'Source scopes saved, but chat defaults could not be saved.');
+                this.finishSave(request, generation);
+              },
+            }),
+          );
+        },
+        error: (err) => {
+          if (!this.isSaveCurrent(scope, generation, request)) return;
+          this.saving.set(false);
+          this.error.set(err?.error?.detail || 'Unable to save source scopes.');
+          this.finishSave(request, generation);
+        },
+      }),
+    );
   }
 
-  private loadKnowledgeGuides(): void {
-    this.api.listKnowledgeGuides({ current_only: false }).subscribe({
-      next: (guides) => this.knowledgeGuides.set(guides.items || []),
-      error: () => this.toastr.warning('Knowledge guides could not be refreshed.', 'Workspace'),
-    });
+  private isLoadCurrent(scope: WorkspaceRequestScope, generation: number): boolean {
+    return (
+      !this.destroyed
+      && generation === this.loadGeneration
+      && this.routeSlug() === scope.workspaceSlug
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private isSaveCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+    request: Subscription,
+  ): boolean {
+    return (
+      !this.destroyed
+      && !request.closed
+      && this.saveRequest === request
+      && generation === this.saveGeneration
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private finishSave(request: Subscription, generation: number): void {
+    if (this.saveRequest === request && generation === this.saveGeneration) {
+      this.saveRequest = null;
+    }
+    request.unsubscribe();
+  }
+
+  private cancelLoad(): void {
+    this.loadGeneration += 1;
+    this.loadRequest?.unsubscribe();
+    this.loadRequest = null;
+  }
+
+  private cancelSave(): void {
+    this.saveGeneration += 1;
+    this.saveRequest?.unsubscribe();
+    this.saveRequest = null;
+    this.saving.set(false);
+  }
+
+  private cancelGuide(): void {
+    this.guideGeneration += 1;
+    this.guideRequest?.unsubscribe();
+    this.guideRequest = null;
+    this.guideSaving.set(false);
+  }
+
+  private resetWorkspaceContext(): void {
+    this.cancelLoad();
+    this.cancelSave();
+    this.cancelGuide();
+    this.detail.set(null);
+    this.collections.set([]);
+    this.scopes.set([]);
+    this.knowledgeGuides.set([]);
+    this.guideEditor.set(null);
+    this.guideHistoryScope.set(null);
+    this.error.set(null);
+  }
+
+  private loadKnowledgeGuides(
+    scope: WorkspaceRequestScope,
+    generation: number,
+    operation: Subscription,
+  ): void {
+    operation.add(
+      this.api.listKnowledgeGuides(
+        { current_only: false },
+        { workspaceSlug: scope.workspaceSlug },
+      ).subscribe({
+        next: (guides) => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.knowledgeGuides.set(guides.items || []);
+        },
+        error: () => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.toastr.warning('Knowledge guides could not be refreshed.', 'Workspace');
+          this.finishGuide(operation, generation);
+        },
+        complete: () => this.finishGuide(operation, generation),
+      }),
+    );
   }
 
   private patchGuideStatus(guide: KnowledgeGuide, status: KnowledgeGuideStatus): void {
+    const scope = this.captureCurrentRouteScope();
+    if (!scope) return;
+    this.cancelGuide();
+    const generation = ++this.guideGeneration;
+    const operation = new Subscription();
+    this.guideRequest = operation;
     this.guideSaving.set(true);
     this.error.set(null);
-    this.api.updateKnowledgeGuide(guide.guide_key, {
-      target_type: guide.target_type,
-      target_ref: guide.target_ref,
-      title: guide.title,
-      markdown: guide.markdown || '',
-      status,
-    }).subscribe({
-      next: () => {
-        this.guideSaving.set(false);
-        this.toastr.success(status === 'published' ? 'Guide published' : 'Guide archived', 'Knowledge guide');
-        this.loadKnowledgeGuides();
-      },
-      error: (err) => {
-        this.guideSaving.set(false);
-        this.error.set(err?.error?.detail || 'Unable to update Knowledge guide.');
-      },
-    });
+    operation.add(
+      this.api.updateKnowledgeGuide(guide.guide_key, {
+        target_type: guide.target_type,
+        target_ref: guide.target_ref,
+        title: guide.title,
+        markdown: guide.markdown || '',
+        status,
+      }, { workspaceSlug: scope.workspaceSlug }).subscribe({
+        next: () => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.guideSaving.set(false);
+          this.toastr.success(status === 'published' ? 'Guide published' : 'Guide archived', 'Knowledge guide');
+          this.loadKnowledgeGuides(scope, generation, operation);
+        },
+        error: (err) => {
+          if (!this.isGuideCurrent(scope, generation, operation)) return;
+          this.guideSaving.set(false);
+          this.error.set(err?.error?.detail || 'Unable to update Knowledge guide.');
+          this.finishGuide(operation, generation);
+        },
+      }),
+    );
+  }
+
+  private captureCurrentRouteScope(): WorkspaceRequestScope | null {
+    const scope = this.workspace.captureRequestScope();
+    if (!scope.workspaceSlug || this.routeSlug() !== scope.workspaceSlug) {
+      this.error.set('Workspace changed. Reload these settings and try again.');
+      return null;
+    }
+    return scope;
+  }
+
+  private isGuideCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+    operation: Subscription,
+  ): boolean {
+    return (
+      !this.destroyed
+      && !operation.closed
+      && this.guideRequest === operation
+      && generation === this.guideGeneration
+      && this.routeSlug() === scope.workspaceSlug
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private finishGuide(operation: Subscription, generation: number): void {
+    if (this.guideRequest === operation && generation === this.guideGeneration) {
+      this.guideRequest = null;
+    }
+    operation.unsubscribe();
   }
 
   private defaultGuideMarkdown(label: string): string {

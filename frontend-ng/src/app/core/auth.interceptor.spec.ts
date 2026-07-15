@@ -20,8 +20,10 @@ import { Injector, runInInjectionContext } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, of, Subject, throwError, type Observable } from 'rxjs';
 import { AuthApiService } from './auth-api.service';
+import { AuthRefreshCoordinator } from './auth-refresh-coordinator.service';
 import { authInterceptor } from './auth.interceptor';
 import { TokenStorageService } from './token-storage.service';
+import { WorkspaceFetchService } from './workspace-fetch.service';
 import { WorkspaceService } from './workspace.service';
 
 class TokenStorageStub {
@@ -73,6 +75,7 @@ test('401 refresh retry preserves the active X-Workspace-Slug', async () => {
   const workspace = { currentSlug: () => 'andritz' };
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       { provide: Router, useValue: router },
@@ -105,6 +108,101 @@ test('401 refresh retry preserves the active X-Workspace-Slug', async () => {
   );
 });
 
+test('an explicit workspace header wins over the current workspace and survives retry', async () => {
+  const tokenStorage = new TokenStorageStub();
+  const seen: HttpRequest<unknown>[] = [];
+  const injector = Injector.create({
+    providers: [
+      AuthRefreshCoordinator,
+      { provide: TokenStorageService, useValue: tokenStorage },
+      {
+        provide: AuthApiService,
+        useValue: {
+          refresh: () => of({
+            token: 'fresh-token',
+            refresh_token: 'fresh-refresh-token',
+            expires_in: 300,
+            token_type: 'bearer',
+          }),
+        },
+      },
+      {
+        provide: Router,
+        useValue: { url: '/systems/system-1', navigate: () => Promise.resolve(true) },
+      },
+      { provide: WorkspaceService, useValue: { currentSlug: () => 'sentinel-ci' } },
+    ],
+  });
+  const original = new HttpRequest('GET', '/api/v1/systems', {
+    headers: new HttpHeaders({ 'X-Workspace-Slug': 'andritz' }),
+  });
+  const next = (request: HttpRequest<unknown>): Observable<HttpEvent<unknown>> => {
+    seen.push(request);
+    return seen.length === 1
+      ? throwError(() => new HttpErrorResponse({ status: 401 }))
+      : of(new HttpResponse({ status: 200, body: { ok: true } }));
+  };
+
+  await firstValueFrom(
+    runInInjectionContext(injector, () => authInterceptor(original, next)),
+  );
+
+  assert.equal(seen.length, 2);
+  assert.equal(seen[0].headers.get('X-Workspace-Slug'), 'andritz');
+  assert.equal(seen[1].headers.get('X-Workspace-Slug'), 'andritz');
+});
+
+test('a wrapped 500 auth error preserves the historical refresh retry', async () => {
+  const tokenStorage = new TokenStorageStub();
+  let refreshCalls = 0;
+  let attempts = 0;
+  const injector = Injector.create({
+    providers: [
+      AuthRefreshCoordinator,
+      { provide: TokenStorageService, useValue: tokenStorage },
+      {
+        provide: AuthApiService,
+        useValue: {
+          refresh: () => {
+            refreshCalls += 1;
+            return of({
+              token: 'fresh-token',
+              refresh_token: 'fresh-refresh-token',
+              expires_in: 300,
+              token_type: 'bearer',
+            });
+          },
+        },
+      },
+      {
+        provide: Router,
+        useValue: { url: '/systems/system-1', navigate: () => Promise.resolve(true) },
+      },
+      { provide: WorkspaceService, useValue: { currentSlug: () => 'andritz' } },
+    ],
+  });
+  const wrappedAuthError = new HttpErrorResponse({
+    status: 500,
+    error: { detail: 'Unauthorized downstream job returned 401' },
+  });
+  const next = (request: HttpRequest<unknown>): Observable<HttpEvent<unknown>> => {
+    attempts += 1;
+    return attempts === 1
+      ? throwError(() => wrappedAuthError)
+      : of(new HttpResponse({ status: 200, body: { authorization: request.headers.get('Authorization') } }));
+  };
+
+  const response = await firstValueFrom(
+    runInInjectionContext(injector, () =>
+      authInterceptor(new HttpRequest('POST', '/api/v1/systems/system-1/runs', {}), next),
+    ),
+  );
+
+  assert.equal(attempts, 2);
+  assert.equal(refreshCalls, 1);
+  assert.equal((response as HttpResponse<{ authorization: string }>).body?.authorization, 'Bearer fresh-token');
+});
+
 test('concurrent 401 retries preserve the workspace on every queued request', async () => {
   const tokenStorage = new TokenStorageStub();
   const refreshResult = new Subject<{
@@ -127,6 +225,7 @@ test('concurrent 401 retries preserve the workspace on every queued request', as
   const workspace = { currentSlug: () => 'andritz' };
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       { provide: Router, useValue: router },
@@ -175,6 +274,99 @@ test('concurrent 401 retries preserve the workspace on every queued request', as
   }
 });
 
+test('HttpClient and direct fetch share one refresh while retaining distinct workspaces', async () => {
+  const originalFetch = globalThis.fetch;
+  const tokenStorage = new TokenStorageStub();
+  const refreshResult = new Subject<{
+    token: string;
+    refresh_token: string;
+    expires_in: number;
+    token_type: string;
+  }>();
+  let refreshCalls = 0;
+  const workspace = {
+    currentSlug: () => 'andritz',
+    captureRequestScope: () => ({ workspaceSlug: 'andritz', epoch: 1 }),
+  };
+  const injector = Injector.create({
+    providers: [
+      AuthRefreshCoordinator,
+      WorkspaceFetchService,
+      { provide: TokenStorageService, useValue: tokenStorage },
+      {
+        provide: AuthApiService,
+        useValue: {
+          refresh: () => {
+            refreshCalls += 1;
+            return refreshResult;
+          },
+        },
+      },
+      {
+        provide: Router,
+        useValue: { url: '/client360', navigate: () => Promise.resolve(true) },
+      },
+      { provide: WorkspaceService, useValue: workspace },
+    ],
+  });
+  const httpAttempts: HttpRequest<unknown>[] = [];
+  const next = (request: HttpRequest<unknown>): Observable<HttpEvent<unknown>> => {
+    httpAttempts.push(request);
+    return request.headers.get('Authorization') === 'Bearer expired-token'
+      ? throwError(() => new HttpErrorResponse({ status: 401 }))
+      : of(new HttpResponse({ status: 200 }));
+  };
+  const fetchAttempts: Array<{ authorization: string | null; workspace: string | null }> = [];
+  globalThis.fetch = (async (_input, init) => {
+    const headers = new Headers(init?.headers);
+    fetchAttempts.push({
+      authorization: headers.get('Authorization'),
+      workspace: headers.get('X-Workspace-Slug'),
+    });
+    return new Response(null, {
+      status: headers.get('Authorization') === 'Bearer expired-token' ? 401 : 200,
+    });
+  }) as typeof fetch;
+
+  try {
+    const http = firstValueFrom(runInInjectionContext(injector, () => authInterceptor(
+      new HttpRequest('GET', '/api/v1/client360/summary', null, {
+        headers: new HttpHeaders({ 'X-Workspace-Slug': 'andritz' }),
+      }),
+      next,
+    )));
+    const direct = injector.get(WorkspaceFetchService).fetch('/api/v1/chat/stream', {
+      workspaceSlug: 'sentinel-ci',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(refreshCalls, 1);
+    refreshResult.next({
+      token: 'fresh-token',
+      refresh_token: 'fresh-refresh-token',
+      expires_in: 300,
+      token_type: 'bearer',
+    });
+    refreshResult.complete();
+    await Promise.all([http, direct]);
+
+    assert.deepEqual(httpAttempts.map((request) => ({
+      authorization: request.headers.get('Authorization'),
+      workspace: request.headers.get('X-Workspace-Slug'),
+    })), [
+      { authorization: 'Bearer expired-token', workspace: 'andritz' },
+      { authorization: 'Bearer fresh-token', workspace: 'andritz' },
+    ]);
+    assert.deepEqual(fetchAttempts, [
+      { authorization: 'Bearer expired-token', workspace: 'sentinel-ci' },
+      { authorization: 'Bearer fresh-token', workspace: 'sentinel-ci' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a late 401 reuses the token refreshed by an earlier request', async () => {
   const tokenStorage = new TokenStorageStub();
   const refreshResult = new Subject<{
@@ -200,6 +392,7 @@ test('a late 401 reuses the token refreshed by an earlier request', async () => 
   };
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       {
@@ -264,6 +457,7 @@ test('a failed shared refresh rejects every concurrent request and expires once'
   let navigations = 0;
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -324,6 +518,7 @@ test('cancelling the refresh leader does not strand a concurrent follower', () =
   let refreshCalls = 0;
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -382,23 +577,25 @@ test('cancelling the refresh leader does not strand a concurrent follower', () =
   follower.unsubscribe();
 });
 
-test('cancelling the only refresh subscriber allows the next 401 to start again', () => {
+test('a started refresh survives cancellation and a later 401 joins it', () => {
   const tokenStorage = new TokenStorageStub();
-  const refreshResults = [
-    new Subject<{ token: string; refresh_token: string; expires_in: number; token_type: string }>(),
-    new Subject<{ token: string; refresh_token: string; expires_in: number; token_type: string }>(),
-  ];
+  const refreshResult = new Subject<{
+    token: string;
+    refresh_token: string;
+    expires_in: number;
+    token_type: string;
+  }>();
   let refreshCalls = 0;
   const injector = Injector.create({
     providers: [
+      AuthRefreshCoordinator,
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
         useValue: {
           refresh: () => {
-            const result = refreshResults[refreshCalls];
             refreshCalls += 1;
-            return result;
+            return refreshResult;
           },
         },
       },
@@ -431,26 +628,27 @@ test('cancelling the only refresh subscriber allows the next 401 to start again'
       successorSucceeded = true;
     },
   });
-  assert.equal(refreshCalls, 2, 'cancellation must release the shared refresh slot');
-  refreshResults[1].next({
+  assert.equal(refreshCalls, 1, 'the successor must join the indivisible refresh exchange');
+  refreshResult.next({
     token: 'successor-token',
     refresh_token: 'successor-refresh-token',
     expires_in: 300,
     token_type: 'bearer',
   });
-  refreshResults[1].complete();
+  refreshResult.complete();
 
   assert.equal(successorSucceeded, true);
   assert.equal(tokenStorage.token, 'Bearer successor-token');
   successor.unsubscribe();
 });
 
-for (const retryStatus of [403, 500]) {
+for (const retryStatus of [401, 403, 500]) {
   test(`a ${retryStatus} from the retried business request does not clear the refreshed session`, async () => {
     const tokenStorage = new TokenStorageStub();
     let navigations = 0;
     const injector = Injector.create({
       providers: [
+        AuthRefreshCoordinator,
         { provide: TokenStorageService, useValue: tokenStorage },
         {
           provide: AuthApiService,

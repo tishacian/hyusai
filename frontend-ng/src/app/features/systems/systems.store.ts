@@ -1,11 +1,27 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
-import { Observable, map, of, tap } from 'rxjs';
+import {
+  EMPTY,
+  Observable,
+  catchError,
+  filter,
+  map,
+  of,
+  tap,
+  throwError,
+} from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  readWorkspaceLocalJson,
+  writeWorkspaceLocalJson,
+} from '@app/core/workspace-local-storage';
 
 export interface SystemAgent {
   id: string;
   name: string;
   description: string;
+  objective?: string;
+  capability_id?: string | null;
   status: string;
   rag_mode?: string;
   model?: string;
@@ -26,50 +42,96 @@ const LS_KEY = 'agentium_system_drafts';
 @Injectable({ providedIn: 'root' })
 export class SystemsStore {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private readonly remote = signal<SystemAgent[]>([]);
+  private readonly draftsWorkspaceSlug = signal<string | null>(this.workspace.currentSlug());
   private readonly drafts = signal<SystemAgent[]>(this.readDrafts());
+  private readonly capabilityFilter = signal<string | null>(null);
+  private loadGeneration = 0;
   readonly loading = signal<boolean>(true);
 
   readonly systems = computed<SystemAgent[]>(() => {
     const ids = new Set(this.remote().map((a) => a.id));
     const onlyLocal = this.drafts().filter((d) => !ids.has(d.id));
-    return [...this.remote(), ...onlyLocal];
+    const combined = [...this.remote(), ...onlyLocal];
+    const capabilityId = this.capabilityFilter();
+    return capabilityId
+      ? combined.filter((system) => system.capability_id === capabilityId)
+      : combined;
   });
 
   constructor() {
+    this.workspace.registerContextReset((transition) => {
+      this.loadGeneration += 1;
+      this.remote.set([]);
+      this.capabilityFilter.set(null);
+      this.draftsWorkspaceSlug.set(transition.nextSlug);
+      this.drafts.set(this.readDrafts(transition.nextSlug));
+      this.loading.set(true);
+    });
     effect(() => {
-      localStorage.setItem(LS_KEY, JSON.stringify(this.drafts()));
+      writeWorkspaceLocalJson(
+        localStorage,
+        LS_KEY,
+        this.draftsWorkspaceSlug(),
+        this.drafts(),
+      );
     });
   }
 
-  private readDrafts(): SystemAgent[] {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+  private readDrafts(slug = this.workspace.currentSlug()): SystemAgent[] {
+    return readWorkspaceLocalJson<SystemAgent[]>({
+      storage: localStorage,
+      baseKey: LS_KEY,
+      workspaceSlug: slug,
+      knownWorkspaceSlugs: this.workspace.workspaces().map((workspace) => workspace.slug),
+      isValue: (value): value is SystemAgent[] => Array.isArray(value),
+    }) ?? [];
   }
 
-  load(): Observable<SystemAgent[]> {
+  load(options?: { capabilityId?: string | null }): Observable<SystemAgent[]> {
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.loadGeneration;
+    const capabilityId = options?.capabilityId || null;
+    this.capabilityFilter.set(capabilityId);
+    this.remote.set([]);
     this.loading.set(true);
     // Canonical `/systems` — the legacy `/agents` path has been retired.
     return this.api
-      .get<{ systems: SystemAgent[] } | SystemAgent[]>('/systems')
+      .get<{ systems: SystemAgent[] } | SystemAgent[]>(
+        '/systems',
+        capabilityId ? { capability_id: capabilityId } : undefined,
+        {
+        workspaceSlug: scope.workspaceSlug,
+        },
+      )
       .pipe(
         map((res) => (Array.isArray(res) ? res : res?.systems ?? [])),
         map((list) =>
           list.map((a) => ({
             ...a,
-            description: a.description ?? '',
+            description: a.description ?? a.objective ?? '',
           })),
         ),
+        filter(() => (
+          generation === this.loadGeneration
+          && this.workspace.isRequestScopeCurrent(scope)
+        )),
         tap((list) => {
           this.remote.set(list);
           this.loading.set(false);
+        }),
+        catchError((error: unknown) => {
+          if (
+            generation !== this.loadGeneration
+            || !this.workspace.isRequestScopeCurrent(scope)
+          ) {
+            return EMPTY;
+          }
+          this.remote.set([]);
+          this.loading.set(false);
+          return throwError(() => error);
         }),
       );
   }
@@ -79,13 +141,23 @@ export class SystemsStore {
   }
 
   getById(id: string): Observable<SystemAgent | null> {
+    const scope = this.workspace.captureRequestScope();
     const local = this.findById(id);
-    if (local) return of(local);
+    if (local) {
+      return of(local).pipe(
+        filter(() => this.workspace.isRequestScopeCurrent(scope)),
+      );
+    }
     return this.api
-      .get<SystemAgent>(`/systems/${id}`)
+      .get<SystemAgent>(`/systems/${id}`, undefined, {
+        workspaceSlug: scope.workspaceSlug,
+      })
       .pipe(
         map((a) => ({ ...a, description: a.description ?? '' })),
-        tap(() => {}),
+        filter(() => this.workspace.isRequestScopeCurrent(scope)),
+        catchError((error: unknown) => (
+          this.workspace.isRequestScopeCurrent(scope) ? throwError(() => error) : EMPTY
+        )),
       );
   }
 

@@ -20,7 +20,10 @@ import {
   RagPresetService,
   type RagPreset,
 } from '@app/core/rag-preset.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceRequestInvalidatedError,
+  WorkspaceService,
+} from '@app/core/workspace.service';
 import type { AppSettings } from '@app/core/settings.service';
 
 type PresetTab = 'generation' | 'retrieval' | 'chunking' | 'experience';
@@ -545,6 +548,9 @@ export class PresetViewComponent implements OnInit {
         }
         return undefined;
       })
+      .catch((error: unknown) => {
+        if (!(error instanceof WorkspaceRequestInvalidatedError)) this.preset.set(null);
+      })
       .finally(() => this.loading.set(false));
   }
 
@@ -567,7 +573,11 @@ export class PresetViewComponent implements OnInit {
         this.draft.set({ ...(updated.config ?? {}) });
         this.toastr.success('Preset saved');
       })
-      .catch(() => this.toastr.error('Failed to save preset'))
+      .catch((error: unknown) => {
+        if (!(error instanceof WorkspaceRequestInvalidatedError)) {
+          this.toastr.error('Failed to save preset');
+        }
+      })
       .finally(() => this.saving.set(false));
   }
 
@@ -580,6 +590,10 @@ export class PresetViewComponent implements OnInit {
         this.preset.set(updated);
         this.toastr.success('Preset is now default');
       })
-      .catch(() => this.toastr.error('Failed to elect default'));
+      .catch((error: unknown) => {
+        if (!(error instanceof WorkspaceRequestInvalidatedError)) {
+          this.toastr.error('Failed to elect default');
+        }
+      });
   }
 }

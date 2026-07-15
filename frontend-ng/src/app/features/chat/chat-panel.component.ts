@@ -15,6 +15,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { ToastrService, ActiveToast } from 'ngx-toastr';
 import { ApiService, VoiceRuntimeCatalog, VoiceRuntimeProviderOption } from '@app/core/api.service';
@@ -42,7 +43,12 @@ import {
 import { detectVoiceCommand as detectSharedVoiceCommand } from '@app/core/voice-command-detector';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceService,
+  type WorkspaceContextTransition,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
+import { persistWorkspaceEvalContext } from '@app/core/evaluation-context.storage';
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
@@ -3357,8 +3363,12 @@ export class ChatPanelComponent implements AfterViewInit {
   userInput = '';
   private chatSessionId: string | null = null;
   private chatSessionSignature: string | null = null;
-  private readonly selectedSessionStorageKey = 'agentium:selected-chat-session-id';
+  private readonly selectedSessionStorageBaseKey = 'agentium:selected-chat-session-id';
   private readonly activeDeepRetrievalPolls = new Set<string>();
+  private chatWorkspaceGeneration = 0;
+  private chatWorkspaceSubscriptions = new Subscription();
+  private readonly chatPollingTimers = new Set<ReturnType<typeof setTimeout>>();
+  private chatDestroyed = false;
   creatingChatSession = false;
   readonly chatSessions = signal<ChatSessionSummary[]>([]);
   readonly chatSessionsLoading = signal(false);
@@ -3873,6 +3883,8 @@ export class ChatPanelComponent implements AfterViewInit {
   private voicePartialInFlight = false;
   private lastVoicePartialAt = 0;
   private pendingVoiceFrameSends: Promise<void>[] = [];
+  /** Invalidates every async voice continuation captured before a workspace reset. */
+  private voiceWorkspaceGeneration = 0;
   /**
    * Signals reflecting TTS transport state so the template can show a
    * pause/resume button only while audio is actually being prepared,
@@ -3885,6 +3897,12 @@ export class ChatPanelComponent implements AfterViewInit {
   private autoVoiceLoopStarted = false;
 
   constructor() {
+    const unregisterVoiceWorkspaceReset = this.workspace.registerContextReset(() => {
+      this.resetVoiceForWorkspaceChange();
+    });
+    const unregisterChatWorkspaceReset = this.workspace.registerContextReset((transition) => {
+      this.resetChatForWorkspaceChange(transition);
+    });
     effect(() => {
       const prompt = this.initialPrompt();
       if (prompt && !this.initialPromptApplied) {
@@ -3941,14 +3959,17 @@ export class ChatPanelComponent implements AfterViewInit {
       this.loadChatSessions();
     });
     this.destroyRef.onDestroy(() => {
+      this.chatDestroyed = true;
+      unregisterVoiceWorkspaceReset();
+      unregisterChatWorkspaceReset();
+      this.cancelChatWorkspaceRequests();
       if (this.chatAutoscrollFrame !== null) {
         window.cancelAnimationFrame(this.chatAutoscrollFrame);
         this.chatAutoscrollFrame = null;
       }
-      this.clearVoiceLoopRearmTimer();
+      this.resetVoiceForWorkspaceChange();
       this.voiceLoop.dispose();
       this.ttsPlayback.destroy();
-      this.voiceConnection?.close();
       this.releaseCorrectionRecorder();
     });
   }
@@ -3975,13 +3996,20 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   loadChatSessions(selectId?: string | null): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
     this.chatSessionsLoading.set(true);
-    this.api.get<{ sessions?: ChatSessionSummary[] }>('/sessions?status=active&limit=80').subscribe({
+    const subscription = this.api.get<{ sessions?: ChatSessionSummary[] }>(
+      '/sessions?status=active&limit=80',
+      undefined,
+      { workspaceSlug: scope.workspaceSlug },
+    ).subscribe({
       next: (payload) => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
         this.chatSessions.set(sessions);
         this.chatSessionsLoading.set(false);
-        const stored = this.loadSelectedSessionId();
+        const stored = this.loadSelectedSessionId(scope.workspaceSlug);
         const target = selectId || stored;
         const exists = target && sessions.some((session) => session.id === target);
         if (exists && target) {
@@ -3991,21 +4019,30 @@ export class ChatPanelComponent implements AfterViewInit {
         }
       },
       error: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.chatSessionsLoading.set(false);
       },
     });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   createNewChat(): void {
     if (this.creatingChatSession) return;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
     this.creatingChatSession = true;
-    this.api.post<ChatSessionSummary>('/sessions', { context: this.currentChatSessionContext() }).subscribe({
+    const subscription = this.api.post<ChatSessionSummary>(
+      '/sessions',
+      { context: this.currentChatSessionContext() },
+      { workspaceSlug: scope.workspaceSlug },
+    ).subscribe({
       next: (session) => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.creatingChatSession = false;
         this.chatSessionId = session.id;
         this.chatSessionSignature = this.currentChatSessionSignature();
         this.activeChatSessionId.set(session.id);
-        this.storeSelectedSessionId(session.id);
+        this.storeSelectedSessionId(session.id, scope.workspaceSlug);
         this.messages.set([]);
         this.streamBuffer.set('');
         this.liveSteps.set([]);
@@ -4014,20 +4051,29 @@ export class ChatPanelComponent implements AfterViewInit {
         this.focusComposer();
       },
       error: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.creatingChatSession = false;
         this.toast.error('Could not create a chat session', 'Chat');
       },
     });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   openChatSession(sessionId: string): void {
     if (!sessionId || this.activeChatSessionId() === sessionId) return;
-    this.api.get<ChatSessionDetail>(`/sessions/${encodeURIComponent(sessionId)}?include_messages=true&include_jobs=true`).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
+    const subscription = this.api.get<ChatSessionDetail>(
+      `/sessions/${encodeURIComponent(sessionId)}?include_messages=true&include_jobs=true`,
+      undefined,
+      { workspaceSlug: scope.workspaceSlug },
+    ).subscribe({
       next: (detail) => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.chatSessionId = detail.id;
         this.chatSessionSignature = this.currentChatSessionSignature();
         this.activeChatSessionId.set(detail.id);
-        this.storeSelectedSessionId(detail.id);
+        this.storeSelectedSessionId(detail.id, scope.workspaceSlug);
         const messages = (detail.messages || []).map((message) => this.chatMessageFromStored(message));
         const messageIds = new Set(messages.map((message) => message.id));
         const jobMessages = (detail.jobs || [])
@@ -4045,26 +4091,45 @@ export class ChatPanelComponent implements AfterViewInit {
         this.focusComposer();
       },
       error: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.toast.error('Could not load chat session', 'Chat');
       },
     });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   archiveChatSession(session: ChatSessionSummary, event?: Event): void {
     event?.stopPropagation();
-    this.api.patch<ChatSessionSummary>(`/sessions/${encodeURIComponent(session.id)}`, { status: 'archived' }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
+    const subscription = this.api.patch<ChatSessionSummary>(
+      `/sessions/${encodeURIComponent(session.id)}`,
+      { status: 'archived' },
+      { workspaceSlug: scope.workspaceSlug },
+    ).subscribe({
       next: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.chatSessions.update((sessions) => sessions.filter((item) => item.id !== session.id));
         if (this.activeChatSessionId() === session.id) this.createNewChat();
       },
-      error: () => this.toast.error('Could not archive this conversation', 'Chat'),
+      error: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
+        this.toast.error('Could not archive this conversation', 'Chat');
+      },
     });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   deleteChatSession(session: ChatSessionSummary, event?: Event): void {
     event?.stopPropagation();
-    this.api.delete(`/sessions/${encodeURIComponent(session.id)}`).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
+    const subscription = this.api.delete(
+      `/sessions/${encodeURIComponent(session.id)}`,
+      { workspaceSlug: scope.workspaceSlug },
+    ).subscribe({
       next: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.chatSessions.update((sessions) => sessions.filter((item) => item.id !== session.id));
         if (this.activeChatSessionId() === session.id) {
           this.activeChatSessionId.set(null);
@@ -4072,8 +4137,12 @@ export class ChatPanelComponent implements AfterViewInit {
           this.messages.set([]);
         }
       },
-      error: () => this.toast.error('Could not delete this conversation', 'Chat'),
+      error: () => {
+        if (!this.isChatContinuationCurrent(scope, generation)) return;
+        this.toast.error('Could not delete this conversation', 'Chat');
+      },
     });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   sessionTitle(session: ChatSessionSummary): string {
@@ -4091,20 +4160,106 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.activeChatSessionId() === session.id;
   }
 
-  private storeSelectedSessionId(sessionId: string): void {
+  private storeSelectedSessionId(
+    sessionId: string,
+    workspaceSlug = this.workspace.currentSlug(),
+  ): void {
     try {
-      window.localStorage.setItem(this.selectedSessionStorageKey, sessionId);
+      const key = this.selectedSessionStorageKey(workspaceSlug);
+      if (key) window.localStorage.setItem(key, sessionId);
     } catch {
       // Selection restore is nice-to-have only.
     }
   }
 
-  private loadSelectedSessionId(): string | null {
+  private loadSelectedSessionId(workspaceSlug = this.workspace.currentSlug()): string | null {
     try {
-      return window.localStorage.getItem(this.selectedSessionStorageKey);
+      const key = this.selectedSessionStorageKey(workspaceSlug);
+      if (!key) return null;
+      const scoped = window.localStorage.getItem(key);
+      if (scoped !== null) return scoped;
+
+      // The legacy selection has no workspace provenance. Never attribute it
+      // to the merely-current tenant; the scoped session can be selected again.
+      const legacy = window.localStorage.getItem(this.selectedSessionStorageBaseKey);
+      if (legacy === null) return null;
+      window.localStorage.removeItem(this.selectedSessionStorageBaseKey);
+      return null;
     } catch {
       return null;
     }
+  }
+
+  private selectedSessionStorageKey(slug = this.workspace.currentSlug()): string | null {
+    return slug
+      ? `${this.selectedSessionStorageBaseKey}:${encodeURIComponent(slug)}`
+      : null;
+  }
+
+  /**
+   * WorkspaceService invokes resetters synchronously under the old scope.
+   * Cancel A before B is published, then clear every session-owned signal so
+   * neither an old callback nor a transient render can expose A in B.
+   */
+  private resetChatForWorkspaceChange(transition: WorkspaceContextTransition): void {
+    this.chatWorkspaceGeneration += 1;
+    this.cancelChatWorkspaceRequests();
+    this.activeDeepRetrievalPolls.clear();
+    this.chatSessionId = null;
+    this.chatSessionSignature = null;
+    this.creatingChatSession = false;
+    this.chatSessions.set([]);
+    this.chatSessionsLoading.set(false);
+    this.activeChatSessionId.set(null);
+    this.chatSessionSearch.set('');
+    this.messages.set([]);
+    this.streaming.set(false);
+    this.streamBuffer.set('');
+    this.liveSteps.set([]);
+    this.liveRetrievalInfo.set(null);
+    this.evaluatingId.set(null);
+    this.deepSearchLaunchingId.set(null);
+    this.userInput = '';
+
+    // The atomic transition has not published B yet while the resetter runs.
+    // Rehydrate only once B is visible and only if this panel survived it.
+    queueMicrotask(() => {
+      if (this.chatDestroyed) return;
+      if (this.workspace.currentSlug() !== transition.nextSlug) return;
+      if (this.workspace.contextEpoch() !== transition.nextEpoch) return;
+      this.loadChatSessions();
+    });
+  }
+
+  private cancelChatWorkspaceRequests(): void {
+    this.chatWorkspaceSubscriptions.unsubscribe();
+    this.chatWorkspaceSubscriptions = new Subscription();
+    for (const timer of this.chatPollingTimers) clearTimeout(timer);
+    this.chatPollingTimers.clear();
+  }
+
+  private isChatContinuationCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): boolean {
+    return !this.chatDestroyed
+      && generation === this.chatWorkspaceGeneration
+      && this.workspace.isRequestScopeCurrent(scope);
+  }
+
+  private scheduleChatPoll(
+    callback: () => void,
+    delayMs: number,
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): void {
+    if (!this.isChatContinuationCurrent(scope, generation)) return;
+    const timer = setTimeout(() => {
+      this.chatPollingTimers.delete(timer);
+      if (!this.isChatContinuationCurrent(scope, generation)) return;
+      callback();
+    }, delayMs);
+    this.chatPollingTimers.add(timer);
   }
 
   private chatMessageFromStored(message: NonNullable<ChatSessionDetail['messages']>[number]): ChatMessage {
@@ -6118,23 +6273,32 @@ export class ChatPanelComponent implements AfterViewInit {
       this.chatSessionSignature = nextSignature;
     }
     if (!this.chatSessionId) {
+      const scope = this.workspace.captureRequestScope();
+      const generation = this.chatWorkspaceGeneration;
       this.creatingChatSession = true;
-      this.api
-        .post<ChatSessionSummary>('/sessions', { context: this.currentChatSessionContext() })
+      const subscription = this.api
+        .post<ChatSessionSummary>(
+          '/sessions',
+          { context: this.currentChatSessionContext() },
+          { workspaceSlug: scope.workspaceSlug },
+        )
         .subscribe({
           next: (session) => {
+            if (!this.isChatContinuationCurrent(scope, generation)) return;
             this.chatSessionId = session.id;
             this.activeChatSessionId.set(session.id);
-            this.storeSelectedSessionId(session.id);
+            this.storeSelectedSessionId(session.id, scope.workspaceSlug);
             this.chatSessions.update((sessions) => [session, ...sessions.filter((item) => item.id !== session.id)]);
             this.creatingChatSession = false;
             this.send();
           },
           error: () => {
+            if (!this.isChatContinuationCurrent(scope, generation)) return;
             this.creatingChatSession = false;
             this.toast.error('Could not create a chat session', 'Chat');
           },
         });
+      this.chatWorkspaceSubscriptions.add(subscription);
       return;
     }
 
@@ -6182,7 +6346,9 @@ export class ChatPanelComponent implements AfterViewInit {
     // mode, latency profile). Null fields let the backend folds apply, so
     // the values shown in workspace settings are the ones actually used.
     const deferToWorkspace = this.isDemoMode();
-    this.sse
+    const streamScope = this.workspace.captureRequestScope();
+    const streamGeneration = this.chatWorkspaceGeneration;
+    const streamSubscription = this.sse
       .stream('/api/v1/chat/stream', {
         query: text,
         ui_locale: this.i18n.locale(),
@@ -6225,6 +6391,7 @@ export class ChatPanelComponent implements AfterViewInit {
       })
       .subscribe({
         next: (chunk: SseChunk) => {
+          if (!this.isChatContinuationCurrent(streamScope, streamGeneration)) return;
           // Sources can ride along any chunk type (backend attaches them on
           // the first text chunk of the stream). Extract them eagerly so
           // the final assistant message always ends up with the source list
@@ -6240,7 +6407,7 @@ export class ChatPanelComponent implements AfterViewInit {
             const sessionId = (chunk as Record<string, unknown>)['session_id'] as string;
             this.chatSessionId = sessionId;
             this.activeChatSessionId.set(sessionId);
-            this.storeSelectedSessionId(sessionId);
+            this.storeSelectedSessionId(sessionId, streamScope.workspaceSlug);
           } else if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
@@ -6419,6 +6586,7 @@ export class ChatPanelComponent implements AfterViewInit {
           }
         },
         error: () => {
+          if (!this.isChatContinuationCurrent(streamScope, streamGeneration)) return;
           this.toast.error('Connection lost while streaming', 'Chat');
           this.streaming.set(false);
           this.streamBuffer.set('');
@@ -6429,6 +6597,7 @@ export class ChatPanelComponent implements AfterViewInit {
           this.focusComposer();
         },
       });
+    this.chatWorkspaceSubscriptions.add(streamSubscription);
   }
 
   clearConversation(): void {
@@ -6513,8 +6682,10 @@ export class ChatPanelComponent implements AfterViewInit {
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
     const responseLanguage = this.responseLanguageFor(query);
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
     this.deepSearchLaunchingId.set(msg.id);
-    this.api
+    const subscription = this.api
       .post<{
         id?: string;
         poll_url?: string;
@@ -6553,9 +6724,10 @@ export class ChatPanelComponent implements AfterViewInit {
             provider: s.defaultProvider,
           },
         },
-      })
+      }, { workspaceSlug: scope.workspaceSlug })
       .subscribe({
         next: (job) => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           const jobId = typeof job?.id === 'string' ? job.id : '';
           if (!jobId) {
             this.toast.error('Deep Search job was not created.', 'Deep Search');
@@ -6580,10 +6752,12 @@ export class ChatPanelComponent implements AfterViewInit {
           this.deepSearchLaunchingId.set(null);
         },
         error: () => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           this.deepSearchLaunchingId.set(null);
           this.toast.error('Could not launch Deep Search.', 'Deep Search');
         },
       });
+    this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   private previousUserQueryFor(messageId: string): string | null {
@@ -6633,16 +6807,23 @@ export class ChatPanelComponent implements AfterViewInit {
    * workspaces just haven't turned auto-eval on yet.
    */
   private startEvalPolling(runId: string): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
     let attempts = 0;
     const maxAttempts = 20;
     const tick = (): void => {
+      if (!this.isChatContinuationCurrent(scope, generation)) return;
       if (attempts >= maxAttempts) return;
       attempts += 1;
-      this.canonicalApi.getEvaluationByRun(runId).subscribe({
+      const subscription = this.canonicalApi.getEvaluationByRun(
+        runId,
+        { workspaceSlug: scope.workspaceSlug },
+      ).subscribe({
         next: (res) => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           if (!res) return; // network hiccup — stop quietly
           if (res.status === 'pending') {
-            window.setTimeout(tick, 1500);
+            this.scheduleChatPoll(tick, 1500, scope, generation);
             return;
           }
           if (res.status === 'skipped') return;
@@ -6651,15 +6832,19 @@ export class ChatPanelComponent implements AfterViewInit {
           }
         },
         error: () => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           // Stop polling on hard error — transient 5xx will be
           // retried by the next chat turn's polling loop.
         },
       });
+      this.chatWorkspaceSubscriptions.add(subscription);
     };
-    window.setTimeout(tick, 1500);
+    this.scheduleChatPoll(tick, 1500, scope, generation);
   }
 
   private startDeepRetrievalPolling(messageId: string, jobId: string, pollUrl?: string | null): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
     if (this.activeDeepRetrievalPolls.has(jobId)) return;
     this.activeDeepRetrievalPolls.add(jobId);
     let attempts = 0;
@@ -6673,6 +6858,7 @@ export class ChatPanelComponent implements AfterViewInit {
       answer?: { text?: string | null; status?: string | null; model?: string | null },
       decisionTrace?: RetrievalDecisionTrace | null,
     ): void => {
+      if (!this.isChatContinuationCurrent(scope, generation)) return;
       const promotedAnswer = answer?.text?.trim();
       const shouldPromoteAnswer =
         !!promotedAnswer && (status === 'completed' || status === 'failed' || status === 'cancelled');
@@ -6774,31 +6960,43 @@ export class ChatPanelComponent implements AfterViewInit {
       ? pollUrl
       : `/workspace-jobs/${encodeURIComponent(jobId)}`;
     const tick = (): void => {
+      if (!this.isChatContinuationCurrent(scope, generation)) {
+        this.activeDeepRetrievalPolls.delete(jobId);
+        return;
+      }
       if (attempts >= maxAttempts) {
         this.activeDeepRetrievalPolls.delete(jobId);
         updateStatus('running', undefined, null, 'poll_window_elapsed');
         return;
       }
       attempts += 1;
-      this.api.get<{ status?: string; progress?: number; stage?: string | null; result?: unknown }>(jobPath).subscribe({
+      const subscription = this.api.get<{
+        status?: string;
+        progress?: number;
+        stage?: string | null;
+        result?: unknown;
+      }>(jobPath, undefined, { workspaceSlug: scope.workspaceSlug }).subscribe({
         next: (job) => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           const status = String(job?.status || 'queued');
           const progress = typeof job?.progress === 'number' ? job.progress : null;
           const stage = typeof job?.stage === 'string' ? job.stage : null;
           updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job), parseAnswer(job), parseDecisionTrace(job));
           if (status === 'queued' || status === 'running') {
-            window.setTimeout(tick, 2000);
+            this.scheduleChatPoll(tick, 2000, scope, generation);
           } else {
             this.activeDeepRetrievalPolls.delete(jobId);
           }
         },
         error: () => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
           updateStatus('failed', undefined, null, 'poll_failed');
           this.activeDeepRetrievalPolls.delete(jobId);
         },
       });
+      this.chatWorkspaceSubscriptions.add(subscription);
     };
-    window.setTimeout(tick, 2000);
+    this.scheduleChatPoll(tick, 2000, scope, generation);
   }
 
   private showBreachToast(res: {
@@ -7785,6 +7983,37 @@ export class ChatPanelComponent implements AfterViewInit {
     }
   }
 
+  /**
+   * WorkspaceService invokes this synchronously while A is still current.
+   * Disarm callbacks and invalidate async continuations before B is published,
+   * so recorder A can neither endpoint nor fall back to HTTP transcription in B.
+   */
+  private resetVoiceForWorkspaceChange(): void {
+    this.voiceWorkspaceGeneration += 1;
+    this.voiceConversationActive.set(false);
+    this.voiceConversationPaused.set(false);
+    this.clearVoiceLoopRearmTimer();
+    this.voiceLoop.hardStop({
+      disableRearm: () => this.clearVoiceLoopRearmTimer(),
+      cancelTts: () => this.resetTtsPipeline(),
+    });
+    this.recording.set(false);
+    this.transcribing.set(false);
+    this.voicePartial.set('');
+    this.voiceNotice.set(null);
+    this.voiceOracleStage.set('idle');
+    this.voiceOracleMessage.set('Voice session reset for workspace change.');
+    this.voiceLastEndpointReason = null;
+    this.voiceTurnId = null;
+    this.voiceTurnChunks = [];
+    this.voiceTurnStreaming = false;
+    this.voiceFramesStreamed = false;
+    this.voicePartialInFlight = false;
+    this.lastVoicePartialAt = 0;
+    this.pendingVoiceFrameSends = [];
+    this.closeVoiceSession();
+  }
+
   private syncVoiceLoopState(state: VoiceLoopState): void {
     if (state === 'arming') {
       this.voiceNotice.set('Arming microphone');
@@ -7949,10 +8178,12 @@ export class ChatPanelComponent implements AfterViewInit {
       return;
     }
     this.transcribing.set(true);
+    const generation = this.voiceWorkspaceGeneration;
     const provider = this.voiceInputProvider();
     this.voiceNotice.set(this.voiceRuntimeNotice('Transcribing', provider));
     this.api.transcribeAudio(blob, 'recording.webm', provider).subscribe({
       next: (res) => {
+        if (generation !== this.voiceWorkspaceGeneration) return;
         // The response-side mutation of a plain property (``userInput``)
         // doesn't propagate through OnPush change detection on its own
         // — NgModel only re-reads on an input/event tick. We force a
@@ -7971,6 +8202,7 @@ export class ChatPanelComponent implements AfterViewInit {
         this.cdr.markForCheck();
       },
       error: (err) => {
+        if (generation !== this.voiceWorkspaceGeneration) return;
         this.transcribing.set(false);
         this.voiceNotice.set(null);
         this.cdr.markForCheck();
@@ -7981,6 +8213,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
 	  private async transcribeViaVoiceSession(blob: Blob): Promise<void> {
+	    const generation = this.voiceWorkspaceGeneration;
 	    this.transcribing.set(true);
 	    this.voicePartial.set('');
 	    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
@@ -7995,6 +8228,7 @@ export class ChatPanelComponent implements AfterViewInit {
     try {
       const turnId = crypto.randomUUID?.() || String(Date.now());
       await connection.sendAudioFrame(blob, { turn_id: turnId, content_type: blob.type || 'audio/webm' });
+      if (generation !== this.voiceWorkspaceGeneration) return;
       connection.endpoint({
         turn_id: turnId,
         auto: this.voiceLastEndpointReason === 'silence' || this.voiceLastEndpointReason === 'max_turn',
@@ -8002,6 +8236,7 @@ export class ChatPanelComponent implements AfterViewInit {
       });
       this.voiceLastEndpointReason = null;
     } catch (err) {
+      if (generation !== this.voiceWorkspaceGeneration) return;
       this.transcribing.set(false);
       this.voiceNotice.set(null);
       this.toast.error(this.voiceErrorMessage(err, 'Voice session failed'), 'Voice');
@@ -8018,6 +8253,7 @@ export class ChatPanelComponent implements AfterViewInit {
    * which removes the previous double transcription. */
   private onConversationVoiceChunk(chunk: Blob): void {
     if (!this.voiceTurnStreaming || chunk.size <= 0) return;
+    const generation = this.voiceWorkspaceGeneration;
     this.voiceTurnChunks.push(chunk);
     const connection = this.voiceConnection;
     if (connection) {
@@ -8025,6 +8261,7 @@ export class ChatPanelComponent implements AfterViewInit {
       const send = connection
         .sendAudioFrame(chunk, { turn_id: this.voiceTurnId, content_type: chunk.type || 'audio/webm' })
         .then(() => {
+          if (generation !== this.voiceWorkspaceGeneration) return;
           this.voiceFramesStreamed = true;
           this.emitVoiceClientMetric({
             metric: 'send_audio_frame_ms',
@@ -8034,6 +8271,7 @@ export class ChatPanelComponent implements AfterViewInit {
           });
         })
         .catch(() => {
+          if (generation !== this.voiceWorkspaceGeneration) return;
           // Frame transport failed; finalise this turn with a single blob.
           this.voiceTurnStreaming = false;
         });
@@ -8084,6 +8322,7 @@ export class ChatPanelComponent implements AfterViewInit {
    * signal the endpoint. The gateway transcribes from the buffered frames, so
    * we never resend the whole blob (which would duplicate the audio). */
   private async finishStreamingVoiceTurn(reason: VoiceLoopEndpointReason): Promise<void> {
+    const generation = this.voiceWorkspaceGeneration;
     this.transcribing.set(true);
     this.voiceOracleStage.set('thinking');
     this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
@@ -8097,6 +8336,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const pending = [...this.pendingVoiceFrameSends];
     this.pendingVoiceFrameSends = [];
     if (pending.length) await Promise.allSettled(pending);
+    if (generation !== this.voiceWorkspaceGeneration) return;
     const captureConfig = this.resolvedVoiceCaptureConfig();
     connection.endpoint({
       turn_id: this.voiceTurnId,
@@ -8352,14 +8592,11 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private persistLastEvalContext(query: string, response: string): void {
-    try {
-      localStorage.setItem(
-        'agentium:last_eval_context',
-        JSON.stringify({ agent_id: this.systemId(), query, response }),
-      );
-    } catch {
-      /* non-blocking */
-    }
+    persistWorkspaceEvalContext(localStorage, this.workspace.currentSlug(), {
+      agent_id: this.systemId(),
+      query,
+      response,
+    });
   }
 }
 

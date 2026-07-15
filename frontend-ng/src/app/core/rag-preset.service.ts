@@ -2,6 +2,11 @@ import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import type { AppSettings } from './settings.service';
+import {
+  WorkspaceRequestInvalidatedError,
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from './workspace.service';
 
 /**
  * Canonical scope enum — mirrors the backend `rag_presets.scope`
@@ -46,24 +51,37 @@ interface ResolvedEnvelope {
 @Injectable({ providedIn: 'root' })
 export class RagPresetService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly _presets = signal<RagPreset[]>([]);
   readonly presets = this._presets.asReadonly();
 
+  constructor() {
+    this.workspace.registerContextReset(() => this._presets.set([]));
+  }
+
   list(scope?: RagPresetScope): Promise<RagPreset[]> {
+    const requestScope = this.workspace.captureRequestScope();
     const params = scope ? { scope } : undefined;
     return firstValueFrom(
-      this.api.get<PresetListEnvelope>('/presets', params),
+      this.api.get<PresetListEnvelope>('/presets', params, {
+        workspaceSlug: requestScope.workspaceSlug,
+      }),
     ).then((res) => {
       const list = res?.presets ?? [];
+      this.assertCurrent(requestScope);
       this._presets.set(list);
       return list;
     });
   }
 
   get(id: string): Promise<RagPreset> {
+    const scope = this.workspace.captureRequestScope();
     return firstValueFrom(
-      this.api.get<PresetEnvelope>(`/presets/${id}`),
-    ).then((res) => res.preset);
+      this.api.get<PresetEnvelope>(`/presets/${id}`, undefined, { workspaceSlug: scope.workspaceSlug }),
+    ).then((res) => {
+      this.assertCurrent(scope);
+      return res.preset;
+    });
   }
 
   create(body: {
@@ -73,9 +91,13 @@ export class RagPresetService {
     config: AppSettings;
     is_default?: boolean;
   }): Promise<RagPreset> {
+    const scope = this.workspace.captureRequestScope();
     return firstValueFrom(
-      this.api.post<PresetEnvelope>('/presets', body),
-    ).then((res) => res.preset);
+      this.api.post<PresetEnvelope>('/presets', body, { workspaceSlug: scope.workspaceSlug }),
+    ).then((res) => {
+      this.assertCurrent(scope);
+      return res.preset;
+    });
   }
 
   update(
@@ -87,32 +109,53 @@ export class RagPresetService {
       scope_id?: string | null;
     },
   ): Promise<RagPreset> {
+    const scope = this.workspace.captureRequestScope();
     return firstValueFrom(
-      this.api.patch<PresetEnvelope>(`/presets/${id}`, patch),
-    ).then((res) => res.preset);
+      this.api.patch<PresetEnvelope>(`/presets/${id}`, patch, { workspaceSlug: scope.workspaceSlug }),
+    ).then((res) => {
+      this.assertCurrent(scope);
+      return res.preset;
+    });
   }
 
   remove(id: string): Promise<void> {
-    return firstValueFrom(this.api.delete<void>(`/presets/${id}`)).then(
-      () => {},
-    );
+    const scope = this.workspace.captureRequestScope();
+    return firstValueFrom(this.api.delete<void>(`/presets/${id}`, {
+      workspaceSlug: scope.workspaceSlug,
+    })).then(() => {
+      this.assertCurrent(scope);
+    });
   }
 
   setDefault(id: string): Promise<RagPreset> {
+    const scope = this.workspace.captureRequestScope();
     return firstValueFrom(
-      this.api.post<PresetEnvelope>(`/presets/${id}/set-default`, {}),
-    ).then((res) => res.preset);
+      this.api.post<PresetEnvelope>(`/presets/${id}/set-default`, {}, { workspaceSlug: scope.workspaceSlug }),
+    ).then((res) => {
+      this.assertCurrent(scope);
+      return res.preset;
+    });
   }
 
   resolve(args: {
     capability_id?: string | null;
     system_id?: string | null;
   } = {}): Promise<ResolvedEnvelope['preset']> {
+    const scope = this.workspace.captureRequestScope();
     const params: Record<string, string> = {};
     if (args.capability_id) params['capability_id'] = args.capability_id;
     if (args.system_id) params['system_id'] = args.system_id;
     return firstValueFrom(
-      this.api.get<ResolvedEnvelope>('/presets/resolve', params),
-    ).then((res) => res.preset);
+      this.api.get<ResolvedEnvelope>('/presets/resolve', params, { workspaceSlug: scope.workspaceSlug }),
+    ).then((res) => {
+      this.assertCurrent(scope);
+      return res.preset;
+    });
+  }
+
+  private assertCurrent(scope: WorkspaceRequestScope): void {
+    if (!this.workspace.isRequestScopeCurrent(scope)) {
+      throw new WorkspaceRequestInvalidatedError();
+    }
   }
 }

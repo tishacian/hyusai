@@ -47,6 +47,18 @@ class ApiStub {
 
 class WorkspaceStub {
   readonly currentSlug = signal<string | null>('andritz');
+  private resetter: (() => void) | null = null;
+
+  registerContextReset(resetter: () => void): () => void {
+    this.resetter = resetter;
+    return () => {
+      this.resetter = null;
+    };
+  }
+
+  resetContext(): void {
+    this.resetter?.();
+  }
 }
 
 const services: NavigationTelemetryService[] = [];
@@ -103,7 +115,7 @@ test('explicit redirect keeps the original request, owner and typed reason', () 
   telemetry.registerRedirect({
     requestedRoute: '/systems?view=private',
     resolvedRoute: '/chat?ignored=private',
-    owner: 'navigation_profile',
+    owner: 'navigation_resolver',
     reason: 'business_profile_disallowed',
   });
   // Angular starts a replacement navigation after a guard returns a UrlTree.
@@ -123,7 +135,7 @@ test('explicit redirect keeps the original request, owner and typed reason', () 
     resolved_route: '/chat',
     effective_workspace: 'andritz',
     effective_surface: 'chat',
-    redirect_owner: 'navigation_profile',
+    redirect_owner: 'navigation_resolver',
     redirect_reason: 'business_profile_disallowed',
     redirected: true,
   });
@@ -135,7 +147,7 @@ test('explicit redirect records the final destination after a chained Angular re
   telemetry.registerRedirect({
     requestedRoute: '/hypervisor',
     resolvedRoute: '/settings',
-    owner: 'workspace_shell',
+    owner: 'navigation_resolver',
     reason: 'workspace_default_route',
   });
   router.events.next(new NavigationCancel(
@@ -154,7 +166,7 @@ test('explicit redirect records the final destination after a chained Angular re
     resolved_route: '/presets',
     effective_workspace: 'andritz',
     effective_surface: 'presets',
-    redirect_owner: 'workspace_shell',
+    redirect_owner: 'navigation_resolver',
     redirect_reason: 'workspace_default_route',
     redirected: true,
   });
@@ -166,7 +178,7 @@ test('explicit redirect survives a superseded navigation when its replacement wi
   telemetry.registerRedirect({
     requestedRoute: '/workspace',
     resolvedRoute: '/workspace/andritz/settings',
-    owner: 'workspace_entrypoint',
+    owner: 'navigation_resolver',
     reason: 'workspace_settings_entrypoint',
   });
   router.events.next(new NavigationCancel(
@@ -189,7 +201,7 @@ test('explicit redirect survives a superseded navigation when its replacement wi
     resolved_route: '/workspace/:slug/settings',
     effective_workspace: 'andritz',
     effective_surface: 'workspace-admin',
-    redirect_owner: 'workspace_entrypoint',
+    redirect_owner: 'navigation_resolver',
     redirect_reason: 'workspace_settings_entrypoint',
     redirected: true,
   });
@@ -201,7 +213,7 @@ test('a superseded redirect cannot leak into a different replacement destination
   telemetry.registerRedirect({
     requestedRoute: '/workspace',
     resolvedRoute: '/workspace/andritz/settings',
-    owner: 'workspace_entrypoint',
+    owner: 'navigation_resolver',
     reason: 'workspace_settings_entrypoint',
   });
   router.events.next(new NavigationCancel(
@@ -227,7 +239,7 @@ test('cancelled or failed redirects cannot leak into a later navigation', () => 
   telemetry.registerRedirect({
     requestedRoute: '/systems',
     resolvedRoute: '/chat',
-    owner: 'navigation_profile',
+    owner: 'navigation_resolver',
     reason: 'business_profile_disallowed',
   });
   router.events.next(new NavigationCancel(
@@ -248,7 +260,7 @@ test('cancelled or failed redirects cannot leak into a later navigation', () => 
   telemetry.registerRedirect({
     requestedRoute: '/systems',
     resolvedRoute: '/chat',
-    owner: 'navigation_profile',
+    owner: 'navigation_resolver',
     reason: 'business_profile_disallowed',
   });
   router.events.next(new NavigationError(3, '/systems', new Error('lazy chunk failed')));

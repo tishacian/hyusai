@@ -1,8 +1,8 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { Subscription, forkJoin, of } from 'rxjs';
+import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
@@ -16,10 +16,13 @@ import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceViewContext,
+  type WorkspaceViewRequest,
+} from '@app/core/workspace-view-context';
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
 
@@ -789,17 +792,25 @@ interface ContextConfigRow {
     </ck-panel>
   `,
 })
-export class SystemViewComponent implements OnInit {
+export class SystemViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly store = inject(SystemsStore);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
-  private readonly zoom = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
   readonly lensService = inject(LensService);
+  private systemRouteSubscription: Subscription | null = null;
+  private facetRouteSubscription: Subscription | null = null;
+  private viewSubscriptions = new Subscription();
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentSystem(),
+  );
 
   readonly runs = signal<Run[]>([]);
   readonly runsLoading = signal(false);
@@ -1171,43 +1182,28 @@ export class SystemViewComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
-    this.zoom.setCurrentSystem(this.systemId || null);
-    this.settings.refresh();
-    this.loadVariantAndApplyFacet();
-    const local = this.store.findById(this.systemId);
-    if (local) {
-      this.agentName.set(local.name);
-      this.zoom.setCurrentSystem(this.systemId || null, local.name);
-      this.agentDescription.set(local.description || '');
-      this.isDraft.set(!!local.draft);
-      this.systemDefaults.set({
-        default_prompt_type: local.default_prompt_type ?? null,
-        default_model: local.default_model ?? null,
-        retrieval_mode_default: local.retrieval_mode_default ?? null,
-        execution_mode: (local as unknown as { execution_mode?: string | null }).execution_mode ?? null,
-      });
-    } else {
-      this.store.getById(this.systemId).subscribe({
-        next: (agent) => {
-          if (!agent) return;
-          this.agentName.set(agent.name);
-          this.zoom.setCurrentSystem(this.systemId || null, agent.name);
-          this.agentDescription.set(agent.description || '');
-          this.isDraft.set(!!agent.draft);
-          this.systemDefaults.set({
-            default_prompt_type: agent.default_prompt_type ?? null,
-            default_model: agent.default_model ?? null,
-            retrieval_mode_default: agent.retrieval_mode_default ?? null,
-            execution_mode: (agent as unknown as { execution_mode?: string | null }).execution_mode ?? null,
-          });
-        },
-        error: () => {},
-      });
-    }
-    this.loadKpis();
-    this.loadRuns();
-    this.loadContext();
+    this.systemRouteSubscription = this.route.paramMap.pipe(
+      map((params) => params.get('systemId') ?? ''),
+      distinctUntilChanged(),
+    ).subscribe((systemId) => {
+      this.workspaceView.invalidate();
+      this.cancelViewRequests();
+      this.systemId = systemId;
+      this.clearSystemData();
+      this.reloadCurrentSystem();
+    });
+    this.facetRouteSubscription = this.route.queryParamMap.pipe(
+      map((params) => params.get('facet')),
+      distinctUntilChanged(),
+    ).subscribe(() => this.applyRequestedFacet());
+  }
+
+  ngOnDestroy(): void {
+    this.systemRouteSubscription?.unsubscribe();
+    this.systemRouteSubscription = null;
+    this.facetRouteSubscription?.unsubscribe();
+    this.facetRouteSubscription = null;
+    this.workspaceView.destroy();
   }
 
   /**
@@ -1216,10 +1212,11 @@ export class SystemViewComponent implements OnInit {
    * matching tab is auto-activated — this is how `/intelligence` opens
    * directly on the News Lab facet without a second click.
    */
-  private loadVariantAndApplyFacet(): void {
-    if (!this.systemId) return;
-    this.canonical.getSystem(this.systemId).subscribe({
+  private loadVariantAndApplyFacet(request: WorkspaceViewRequest, systemId: string): void {
+    if (!systemId) return;
+    const subscription = this.canonical.getSystem(systemId).subscribe({
       next: (sys: System | null) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
         this.systemSnapshot.set(sys);
         const flow = (sys?.flow_definition ?? {}) as Record<string, unknown>;
         const variant = String(flow['variant'] ?? '').toLowerCase();
@@ -1235,10 +1232,12 @@ export class SystemViewComponent implements OnInit {
         this.applyRequestedFacet();
       },
       error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
         this.systemSnapshot.set(null);
         this.applyRequestedFacet();
       },
     });
+    this.viewSubscriptions.add(subscription);
   }
 
   private applyRequestedFacet(): void {
@@ -1255,32 +1254,49 @@ export class SystemViewComponent implements OnInit {
     }
   }
 
-  private loadContext(): void {
-    if (!this.systemId) return;
+  private loadContext(request: WorkspaceViewRequest, systemId: string): void {
+    if (!systemId) return;
     this.contextLoading.set(true);
-    this.canonical.listContexts({ system_id: this.systemId }).subscribe({
+    const subscription = this.canonical.listContexts({ system_id: systemId }).subscribe({
       next: (ctxList) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
         this.currentContext.set((ctxList ?? [])[0] ?? null);
         this.contextLoading.set(false);
       },
       error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
         this.currentContext.set(null);
         this.contextLoading.set(false);
       },
     });
+    this.viewSubscriptions.add(subscription);
   }
 
-  loadRuns(): void {
-    if (!this.systemId) return;
+  loadRuns(
+    request = this.workspaceView.captureRequest(),
+    systemId = this.systemId,
+  ): void {
+    if (!systemId) return;
     this.runsLoading.set(true);
-    this.canonical.listRuns({ system_id: this.systemId }).subscribe((list) => {
-      this.runs.set(list);
-      this.runsLoading.set(false);
+    const subscription = this.canonical.listRuns({ system_id: systemId }).subscribe({
+      next: (list) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.runs.set(list ?? []);
+        this.runsLoading.set(false);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.runs.set([]);
+        this.runsLoading.set(false);
+      },
     });
+    this.viewSubscriptions.add(subscription);
   }
 
   triggerRun(): void {
     if (this.triggering() || !this.systemId || this.isDraft()) return;
+    const systemId = this.systemId;
+    const request = this.workspaceView.captureRequest();
     this.triggering.set(true);
     const inputRef = this.isTranslationSuite()
       ? {
@@ -1300,51 +1316,146 @@ export class SystemViewComponent implements OnInit {
           cdt_gate_required: true,
         }
       : {};
-    this.canonical.triggerRun(this.systemId, { trigger: 'manual', input_ref: inputRef }).subscribe((run) => {
-      this.triggering.set(false);
-      if (!run) {
+    const subscription = this.canonical.triggerRun(systemId, { trigger: 'manual', input_ref: inputRef }).subscribe({
+      next: (run) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.triggering.set(false);
+        if (!run) {
+          this.toast.warning('Could not reach the run engine', 'Run not triggered');
+          return;
+        }
+        this.toast.success(`Run ${run.id.slice(0, 8)} scheduled`, 'Run triggered');
+        this.loadRuns(request, systemId);
+        // Refresh once the engine has had time to execute the sequence.
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTimer = null;
+          if (this.requestIsCurrent(request, systemId)) this.loadRuns(request, systemId);
+        }, 3500);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.triggering.set(false);
         this.toast.warning('Could not reach the run engine', 'Run not triggered');
-        return;
-      }
-      this.toast.success(`Run ${run.id.slice(0, 8)} scheduled`, 'Run triggered');
-      this.loadRuns();
-      // Refresh once the engine has had time to execute the sequence.
-      setTimeout(() => this.loadRuns(), 3500);
+      },
     });
+    this.viewSubscriptions.add(subscription);
   }
 
-  private loadKpis(): void {
+  private loadKpis(request: WorkspaceViewRequest, systemId: string): void {
     this.kpisLoading.set(true);
-    forkJoin({
+    const workspaceSlug = request.scope.workspaceSlug;
+    const subscription = forkJoin({
       metrics: this.api
-        .get<MetricsSummary>('/metrics/summary')
+        .get<MetricsSummary>('/metrics/summary', undefined, { workspaceSlug })
         .pipe(catchError(() => of({} as MetricsSummary))),
       evaluation: this.api
         .get<{ evaluation: LatestEvaluation | null }>('/evaluation/latest', {
-          agent_id: this.systemId,
-        })
+          agent_id: systemId,
+        }, { workspaceSlug })
         .pipe(catchError(() => of({ evaluation: null }))),
       // Canonical `/runs` — legacy `/traces/traces` is deprecated.
       traces: this.api
-        .get<{ runs: TraceRow[] } | TraceRow[]>('/runs', this.systemId ? { system_id: this.systemId } : {})
+        .get<{ runs: TraceRow[] } | TraceRow[]>('/runs', { system_id: systemId }, { workspaceSlug })
         .pipe(
           map((r) => (Array.isArray(r) ? r : r?.runs ?? [])),
           catchError(() => of([] as TraceRow[])),
         ),
       collections: this.api
-        .get<{ collections: string[] }>('/documents/collections')
+        .get<{ collections: string[] }>('/documents/collections', undefined, { workspaceSlug })
         .pipe(catchError(() => of({ collections: [] as string[] }))),
     }).subscribe(({ metrics, evaluation, traces, collections }) => {
+      if (!this.requestIsCurrent(request, systemId)) return;
       this.metrics.set(metrics ?? null);
       this.latestEval.set(evaluation?.evaluation ?? null);
       this.traces.set(
         (traces ?? []).filter((t) =>
-          !this.systemId || t.system_id === this.systemId || t.agent_id === this.systemId,
+          t.system_id === systemId || t.agent_id === systemId,
         ),
       );
       this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
       this.kpisLoading.set(false);
     });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private reloadCurrentSystem(): void {
+    const systemId = this.systemId || this.route.snapshot.paramMap.get('systemId') || '';
+    if (!systemId) return;
+    this.systemId = systemId;
+    this.cancelViewRequests();
+    const request = this.workspaceView.beginRequest();
+    this.settings.refresh();
+
+    const local = this.store.findById(systemId);
+    if (local) {
+      this.applyAgent(local);
+    } else {
+      const subscription = this.store.getById(systemId).subscribe({
+        next: (agent) => {
+          if (!agent || !this.requestIsCurrent(request, systemId)) return;
+          this.applyAgent(agent);
+        },
+        error: () => undefined,
+      });
+      this.viewSubscriptions.add(subscription);
+    }
+
+    this.loadVariantAndApplyFacet(request, systemId);
+    this.loadKpis(request, systemId);
+    this.loadRuns(request, systemId);
+    this.loadContext(request, systemId);
+  }
+
+  private applyAgent(agent: import('./systems.store').SystemAgent): void {
+    this.agentName.set(agent.name);
+    this.agentDescription.set(agent.description || '');
+    this.isDraft.set(!!agent.draft);
+    this.systemDefaults.set({
+      default_prompt_type: agent.default_prompt_type ?? null,
+      default_model: agent.default_model ?? null,
+      retrieval_mode_default: agent.retrieval_mode_default ?? null,
+      execution_mode: (agent as unknown as { execution_mode?: string | null }).execution_mode ?? null,
+    });
+  }
+
+  private requestIsCurrent(request: WorkspaceViewRequest, systemId: string): boolean {
+    return this.workspaceView.isCurrent(request) && systemId === this.systemId;
+  }
+
+  private cancelViewRequests(): void {
+    this.viewSubscriptions.unsubscribe();
+    this.viewSubscriptions = new Subscription();
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  private clearSystemData(): void {
+    this.agentName.set('System');
+    this.agentDescription.set('');
+    this.isDraft.set(false);
+    this.variant.set('standard');
+    this.activeTab.set('overview');
+    this.systemDefaults.set(null);
+    this.systemSnapshot.set(null);
+    this.currentContext.set(null);
+    this.contextLoading.set(false);
+    this.runs.set([]);
+    this.runsLoading.set(false);
+    this.triggering.set(false);
+    this.metrics.set(null);
+    this.latestEval.set(null);
+    this.traces.set([]);
+    this.hasCollections.set(false);
+    this.kpisLoading.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.cancelViewRequests();
+    this.clearSystemData();
+    this.settingsPanelOpen.set(false);
+    this.chatPanelOpen.set(false);
   }
 }
 

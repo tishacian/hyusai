@@ -1,11 +1,20 @@
 import { NgClass } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { Subscription } from 'rxjs';
+import {
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 type ViewKey = 'opportunities' | 'customer' | 'data' | 'mapping' | 'mail' | 'campaigns' | 'chat';
+
+interface WorkspaceActionContext {
+  scope: WorkspaceRequestScope;
+  generation: number;
+}
 
 interface Client360ChatSource {
   title?: string;
@@ -1349,9 +1358,16 @@ interface Client360CampaignDraftsResult {
     .chat-input input { flex: 1; min-height: 38px; border-radius: var(--ck-radius-md); border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-inset); color: var(--ck-fg-1); padding: 0 12px; }
   `],
 })
-export class Client360PageComponent implements OnInit {
+export class Client360PageComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly workspace = inject(WorkspaceService);
+  private workspaceActionGeneration = 0;
+  private mappingValidationRequest: Subscription | null = null;
+  private mappingReloadRequest: Subscription | null = null;
+  private engineRunRequest: Subscription | null = null;
+  private actionRefreshRequests = new Subscription();
+  private readonly unregisterWorkspaceReset: () => void;
+  private destroyed = false;
   readonly view = signal<ViewKey>('opportunities');
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -1443,27 +1459,52 @@ export class Client360PageComponent implements OnInit {
   readonly campaignSegments = computed(() => this.summary()?.positioning?.mvp_contract?.campaign_segments ?? []);
   readonly isDemoSafe = computed(() => this.workspace.isDemoSafeMode());
 
+  constructor() {
+    this.unregisterWorkspaceReset = this.workspace.registerContextReset(() => {
+      this.resetWorkspaceActions();
+    });
+  }
+
   ngOnInit(): void {
     this.refresh();
   }
 
-  refresh(): void {
+  ngOnDestroy(): void {
+    this.destroyed = true;
+    this.unregisterWorkspaceReset();
+    this.resetWorkspaceActions();
+  }
+
+  refresh(actionContext?: WorkspaceActionContext): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     this.loading.set(true);
     this.error.set(null);
     this.mailStatus.set(null);
     this.mailAiResolved.set(false);
-    this.loadSummary(false);
-    this.loadMailSettings(false);
-    this.loadMappings(false);
-    this.loadOpportunities(false);
-    this.loadAlerts();
+    this.loadSummary(false, actionContext);
+    this.loadMailSettings(false, actionContext);
+    this.loadMappings(false, actionContext);
+    this.loadOpportunities(false, actionContext);
+    this.loadAlerts(actionContext);
   }
 
-  loadAlerts(): void {
-    this.http.get<Client360AlertsResponse>('/api/v1/client360/alerts').subscribe({
-      next: (payload) => this.alertsResponse.set(payload),
-      error: () => this.alertsResponse.set(null),
+  loadAlerts(actionContext?: WorkspaceActionContext): void {
+    const request = this.http.get<Client360AlertsResponse>(
+      '/api/v1/client360/alerts',
+      actionContext ? this.workspaceHttpOptions(actionContext.scope) : {},
+    ).subscribe({
+      next: (payload) => {
+        if (this.workspaceActionContextIsCurrent(actionContext)) {
+          this.alertsResponse.set(payload);
+        }
+      },
+      error: () => {
+        if (this.workspaceActionContextIsCurrent(actionContext)) {
+          this.alertsResponse.set(null);
+        }
+      },
     });
+    this.trackActionRefreshRequest(request, actionContext);
   }
 
   openAlert(alert: Client360Alert): void {
@@ -1514,12 +1555,16 @@ export class Client360PageComponent implements OnInit {
     });
   }
 
-  loadSummary(includeMailAi = false): void {
+  loadSummary(includeMailAi = false, actionContext?: WorkspaceActionContext): void {
     const params = new HttpParams()
       .set('include_mail_ai', includeMailAi ? 'true' : 'false')
       .set('include_workspace_candidates', 'false');
-    this.http.get<Client360Summary>('/api/v1/client360/summary', { params }).subscribe({
+    const request = this.http.get<Client360Summary>('/api/v1/client360/summary', {
+      params,
+      ...(actionContext ? this.workspaceHttpOptions(actionContext.scope) : {}),
+    }).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         const current = this.summary();
         if (!includeMailAi && this.mailAiResolved() && current?.positioning?.mail_ai) {
           payload = {
@@ -1534,6 +1579,7 @@ export class Client360PageComponent implements OnInit {
         this.summary.set(payload);
       },
       error: () => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         if (includeMailAi) {
           this.error.set('Routage IA Client360 PDR indisponible');
         } else if (!this.opportunitiesResponse()) {
@@ -1541,33 +1587,47 @@ export class Client360PageComponent implements OnInit {
         }
       },
     });
+    this.trackActionRefreshRequest(request, actionContext);
   }
 
-  loadMappings(showLoading = true): void {
+  loadMappings(showLoading = true, actionContext?: WorkspaceActionContext): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     if (showLoading) this.loading.set(true);
-    this.http.get<Client360MappingsResponse>('/api/v1/client360/mappings').subscribe({
+    const request = this.http.get<Client360MappingsResponse>(
+      '/api/v1/client360/mappings',
+      actionContext ? this.workspaceHttpOptions(actionContext.scope) : {},
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.mappingsResponse.set(payload);
         if (showLoading) this.loading.set(false);
       },
       error: () => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         if (showLoading) this.loading.set(false);
         this.error.set('Impossible de charger les mappings Client360 PDR');
       },
     });
+    this.trackActionRefreshRequest(request, actionContext);
   }
 
-  loadMailSettings(showStatus = false): void {
-    this.http.get<MailSettingsResponse>('/api/v1/client360/mail-settings').subscribe({
+  loadMailSettings(showStatus = false, actionContext?: WorkspaceActionContext): void {
+    const request = this.http.get<MailSettingsResponse>(
+      '/api/v1/client360/mail-settings',
+      actionContext ? this.workspaceHttpOptions(actionContext.scope) : {},
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.mailSettings.set(payload.mail_settings);
         this.applyMailSettings(payload.mail_settings);
         if (showStatus) this.mailStatus.set('Parametres SMTP charges');
       },
       error: () => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         if (showStatus) this.mailStatus.set('Parametres SMTP indisponibles');
       },
     });
+    this.trackActionRefreshRequest(request, actionContext);
   }
 
   applyMailSettings(settings: Client360MailSettings): void {
@@ -1611,32 +1671,155 @@ export class Client360PageComponent implements OnInit {
   }
 
   runEngine(dryRun: boolean): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.workspaceActionGeneration;
+    this.cancelActionRefreshRequests();
+    this.mappingValidationRequest?.unsubscribe();
+    this.mappingValidationRequest = null;
+    this.mappingReloadRequest?.unsubscribe();
+    this.mappingReloadRequest = null;
+    this.engineRunRequest?.unsubscribe();
+    this.engineRunRequest = null;
+    this.runEngineForScope(dryRun, scope, generation);
+  }
+
+  private runEngineForScope(
+    dryRun: boolean,
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): void {
+    if (!this.workspaceActionIsCurrent(scope, generation)) return;
     this.loading.set(true);
     this.error.set(null);
-    this.http.post<Client360EngineResult>('/api/v1/client360/engines/opportunities/run', { dry_run: dryRun }).subscribe({
+    const request = this.http.post<Client360EngineResult>(
+      '/api/v1/client360/engines/opportunities/run',
+      { dry_run: dryRun },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.engineResult.set(payload);
         this.loading.set(false);
-        this.refresh();
+        this.refresh({ scope, generation });
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.loading.set(false);
         this.error.set('Impossible de lancer le moteur Client360 PDR');
       },
     });
+    this.engineRunRequest = request.closed ? null : request;
   }
 
   validateMapping(mapping: Client360MappingRule): void {
-    this.http.patch<{ mapping: Client360MappingRule }>(`/api/v1/client360/mappings/${encodeURIComponent(mapping.id)}`, {
-      status: 'validated',
-      confidence: Math.max(mapping.confidence || 0, 0.75),
-    }).subscribe({
-      next: () => {
-        this.loadMappings(false);
-        this.runEngine(false);
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.workspaceActionGeneration;
+    this.cancelActionRefreshRequests();
+    this.mappingValidationRequest?.unsubscribe();
+    this.mappingReloadRequest?.unsubscribe();
+    this.engineRunRequest?.unsubscribe();
+    this.mappingReloadRequest = null;
+    this.engineRunRequest = null;
+    const request = this.http.patch<{ mapping: Client360MappingRule }>(
+      `/api/v1/client360/mappings/${encodeURIComponent(mapping.id)}`,
+      {
+        status: 'validated',
+        confidence: Math.max(mapping.confidence || 0, 0.75),
       },
-      error: () => this.error.set('Impossible de valider le mapping'),
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
+      next: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.reloadMappingsForScope(scope, generation);
+        this.runEngineForScope(false, scope, generation);
+      },
+      error: () => {
+        if (this.workspaceActionIsCurrent(scope, generation)) {
+          this.error.set('Impossible de valider le mapping');
+        }
+      },
     });
+    this.mappingValidationRequest = request.closed ? null : request;
+  }
+
+  private reloadMappingsForScope(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): void {
+    if (!this.workspaceActionIsCurrent(scope, generation)) return;
+    this.mappingReloadRequest?.unsubscribe();
+    const request = this.http.get<Client360MappingsResponse>(
+      '/api/v1/client360/mappings',
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
+      next: (payload) => {
+        if (this.workspaceActionIsCurrent(scope, generation)) {
+          this.mappingsResponse.set(payload);
+        }
+      },
+      error: () => {
+        if (this.workspaceActionIsCurrent(scope, generation)) {
+          this.error.set('Impossible de charger les mappings Client360 PDR');
+        }
+      },
+    });
+    this.mappingReloadRequest = request.closed ? null : request;
+  }
+
+  private workspaceActionIsCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): boolean {
+    return (
+      !this.destroyed
+      && generation === this.workspaceActionGeneration
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private workspaceActionContextIsCurrent(
+    actionContext?: WorkspaceActionContext,
+  ): boolean {
+    return !actionContext || this.workspaceActionIsCurrent(
+      actionContext.scope,
+      actionContext.generation,
+    );
+  }
+
+  private trackActionRefreshRequest(
+    request: Subscription,
+    actionContext?: WorkspaceActionContext,
+  ): void {
+    if (actionContext) {
+      this.actionRefreshRequests.add(request);
+    }
+  }
+
+  private cancelActionRefreshRequests(): void {
+    this.actionRefreshRequests.unsubscribe();
+    this.actionRefreshRequests = new Subscription();
+  }
+
+  private workspaceHttpOptions(scope: WorkspaceRequestScope): {
+    headers?: Record<string, string>;
+  } {
+    return scope.workspaceSlug
+      ? { headers: { 'X-Workspace-Slug': scope.workspaceSlug } }
+      : {};
+  }
+
+  private resetWorkspaceActions(): void {
+    this.workspaceActionGeneration += 1;
+    this.cancelActionRefreshRequests();
+    this.mappingValidationRequest?.unsubscribe();
+    this.mappingValidationRequest = null;
+    this.mappingReloadRequest?.unsubscribe();
+    this.mappingReloadRequest = null;
+    this.engineRunRequest?.unsubscribe();
+    this.engineRunRequest = null;
+    this.loading.set(false);
+    this.error.set(null);
+    this.engineResult.set(null);
   }
 
   updateOpportunityStatus(opp: Client360Opportunity, status: 'validated' | 'dismissed'): void {
@@ -1653,14 +1836,19 @@ export class Client360PageComponent implements OnInit {
     });
   }
 
-  loadOpportunities(showLoading = true): void {
+  loadOpportunities(showLoading = true, actionContext?: WorkspaceActionContext): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     if (showLoading) this.loading.set(true);
     let params = new HttpParams().set('limit', '200');
     for (const [key, value] of Object.entries(this.filters)) {
       if (value) params = params.set(key, value);
     }
-    this.http.get<Client360OpportunitiesResponse>('/api/v1/client360/opportunities', { params }).subscribe({
+    const request = this.http.get<Client360OpportunitiesResponse>('/api/v1/client360/opportunities', {
+      params,
+      ...(actionContext ? this.workspaceHttpOptions(actionContext.scope) : {}),
+    }).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.opportunitiesResponse.set(payload);
         if (!this.selectedOpportunity() && payload.items.length) {
           this.selectedOpportunity.set(payload.items[0]);
@@ -1668,10 +1856,12 @@ export class Client360PageComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.loading.set(false);
         this.error.set('Impossible de charger les opportunites Client360 PDR');
       },
     });
+    this.trackActionRefreshRequest(request, actionContext);
   }
 
   selectOpportunity(opp: Client360Opportunity): void {

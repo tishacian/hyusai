@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed,
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
-import { timer } from 'rxjs';
+import { Subscription, timer } from 'rxjs';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { ApiService } from '@app/core/api.service';
@@ -11,7 +11,6 @@ import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
@@ -406,6 +405,10 @@ export class TitleBarComponent {
   private readonly toastr = inject(ToastrService);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private telemetryRequest: Subscription | null = null;
+  private telemetryPolling: Subscription | null = null;
+  private unregisterWorkspaceReset: (() => void) | null = null;
+  private destroyed = false;
 
   openChat(): void {
     if (this.chatOverlay.isOpen()) {
@@ -453,29 +456,66 @@ export class TitleBarComponent {
   });
 
   constructor() {
-    timer(0, 30_000)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.refreshTelemetry());
+    this.unregisterWorkspaceReset = this.workspaceService.registerContextReset((transition) => {
+      this.resetTelemetry();
+      queueMicrotask(() => {
+        if (
+          this.destroyed ||
+          this.workspaceService.contextEpoch() !== transition.nextEpoch
+        ) {
+          return;
+        }
+        this.refreshTelemetry();
+      });
+    });
+    this.telemetryPolling = timer(0, 30_000).subscribe(() => this.refreshTelemetry());
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.unregisterWorkspaceReset?.();
+      this.unregisterWorkspaceReset = null;
+      this.telemetryPolling?.unsubscribe();
+      this.telemetryPolling = null;
+      this.resetTelemetry();
+    });
   }
 
   private refreshTelemetry(): void {
-    this.api
+    if (this.destroyed) return;
+    this.telemetryRequest?.unsubscribe();
+    this.telemetryRequest = null;
+    const scope = this.workspaceService.captureRequestScope();
+    if (!scope.workspaceSlug) {
+      this.telemetry.set(null);
+      return;
+    }
+    const request = this.api
       .get<{
         throughput_rpm: number | null;
         latency_ms: number | null;
         yield_pct: number | null;
         runs_count?: number;
-      }>('/telemetry/live')
+      }>('/telemetry/live', undefined, { workspaceSlug: scope.workspaceSlug })
       .subscribe({
-        next: (t) => this.telemetry.set(t),
-        error: () =>
+        next: (t) => {
+          if (this.workspaceService.isRequestScopeCurrent(scope)) this.telemetry.set(t);
+        },
+        error: () => {
+          if (!this.workspaceService.isRequestScopeCurrent(scope)) return;
           this.telemetry.set({
             throughput_rpm: null,
             latency_ms: null,
             yield_pct: null,
             runs_count: 0,
-          }),
+          });
+        },
       });
+    this.telemetryRequest = request.closed ? null : request;
+  }
+
+  private resetTelemetry(): void {
+    this.telemetryRequest?.unsubscribe();
+    this.telemetryRequest = null;
+    this.telemetry.set(null);
   }
 
   readonly themeGlyph = computed(() => {
@@ -546,9 +586,11 @@ export class TitleBarComponent {
   }
 
   selectWorkspace(slug: string): void {
-    this.workspaceService.switchWorkspace(slug);
+    const changed = this.workspaceService.switchWorkspace(slug);
     this.workspaceMenuOpen.set(false);
-    window.location.reload();
+    // Reset the tenant-owned route before rendering the next workspace.
+    // The root NavigationResolver remains the sole owner of the destination.
+    if (changed) void this.router.navigateByUrl('/');
   }
 
   openCreateForm(): void {

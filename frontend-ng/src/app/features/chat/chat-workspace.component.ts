@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
@@ -11,9 +12,14 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
+import { Subscription } from 'rxjs';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceService,
+  type WorkspaceContextTransition,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from './chat-panel.component';
@@ -811,6 +817,10 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private workspaceGeneration = 0;
+  private workspaceSubscriptions = new Subscription();
+  private destroyed = false;
 
   /** When `true`, render the compact (overlay) layout. Full-screen otherwise. */
   readonly inline = input<boolean>(false);
@@ -933,6 +943,17 @@ export class ChatWorkspaceComponent implements OnInit {
     return 'Contexte du workspace';
   });
 
+  constructor() {
+    const unregisterWorkspaceReset = this.workspace.registerContextReset((transition) => {
+      this.resetForWorkspaceChange(transition);
+    });
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      unregisterWorkspaceReset();
+      this.cancelWorkspaceRequests();
+    });
+  }
+
   ngOnInit(): void {
     this.selectedSystemId.set(this.businessSurface() ? null : this.initialSystemId() ?? null);
     this.ephemeralContextId.set(this.initialContextId() ?? null);
@@ -946,8 +967,11 @@ export class ChatWorkspaceComponent implements OnInit {
   }
 
   private loadSystems(): void {
-    this.canonical.listSystems().subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceGeneration;
+    const subscription = this.canonical.listSystems({ workspaceSlug: scope.workspaceSlug }).subscribe({
       next: (list) => {
+        if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         const systems = list || [];
         this.systems.set(systems);
         if (this.selectedSystemId() && !systems.some((system) => system.id === this.selectedSystemId())) {
@@ -955,10 +979,12 @@ export class ChatWorkspaceComponent implements OnInit {
         }
       },
       error: () => {
+        if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.systems.set([]);
         this.selectedSystemId.set(null);
       },
     });
+    this.workspaceSubscriptions.add(subscription);
   }
 
   onSystemChange(id: string | null): void {
@@ -1016,6 +1042,8 @@ export class ChatWorkspaceComponent implements OnInit {
    */
   private uploadFiles(files: FileList): void {
     if (!this.chatUploadEnabled()) return;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceGeneration;
     this.uploading.set(true);
     this.uploadingCount.set(files.length);
     const formData = new FormData();
@@ -1037,10 +1065,13 @@ export class ChatWorkspaceComponent implements OnInit {
       }>;
     }
 
-    this.http
-      .post<UploadResponse>('/api/v1/documents/upload-batch', formData)
+    const subscription = this.http
+      .post<UploadResponse>('/api/v1/documents/upload-batch', formData, {
+        headers: this.workspaceHeaders(scope),
+      })
       .subscribe({
         next: (res) => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
           const addedDocs: SessionDoc[] = (res.documents ?? [])
             .filter((d) => d.status === 'success')
@@ -1066,7 +1097,7 @@ export class ChatWorkspaceComponent implements OnInit {
             // silently leave `meta: null` so the row renders without facts.
             addedDocs.forEach((doc) => {
               if (!doc.id) return;
-              this.fetchDocMetadata(doc.id);
+              this.fetchDocMetadata(doc.id, scope, generation);
             });
           }
           const added = (res.documents ?? [])
@@ -1074,6 +1105,8 @@ export class ChatWorkspaceComponent implements OnInit {
             .map((d) => d.filename ?? '');
           this.ensureEphemeralContext(
             added.filter((n): n is string => !!n),
+            scope,
+            generation,
           );
           if (res.failed > 0) {
             this.toast.warning(
@@ -1088,6 +1121,7 @@ export class ChatWorkspaceComponent implements OnInit {
           }
         },
         error: (err) => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
           this.toast.error(
             err?.error?.detail || 'Failed to upload',
@@ -1095,6 +1129,7 @@ export class ChatWorkspaceComponent implements OnInit {
           );
         },
       });
+    this.workspaceSubscriptions.add(subscription);
   }
 
   /**
@@ -1102,13 +1137,20 @@ export class ChatWorkspaceComponent implements OnInit {
    * ``SessionDoc`` entry in place. Runs out-of-band from the upload flow
    * so a slow metadata endpoint never blocks the "file indexed" toast.
    */
-  private fetchDocMetadata(documentId: string): void {
-    this.http
+  private fetchDocMetadata(
+    documentId: string,
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): void {
+    if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
+    const subscription = this.http
       .get<{ document_id: string; metadata: DocFacts }>(
         `/api/v1/documents/${documentId}/metadata`,
+        { headers: this.workspaceHeaders(scope) },
       )
       .subscribe({
         next: (res) => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.sessionDocs.update((prev) =>
             prev.map((d) =>
               d.id === documentId
@@ -1118,6 +1160,7 @@ export class ChatWorkspaceComponent implements OnInit {
           );
         },
         error: () => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.sessionDocs.update((prev) =>
             prev.map((d) =>
               d.id === documentId
@@ -1127,6 +1170,7 @@ export class ChatWorkspaceComponent implements OnInit {
           );
         },
       });
+    this.workspaceSubscriptions.add(subscription);
   }
 
   /** Compact display title for a session doc (docmeta title > filename). */
@@ -1166,21 +1210,27 @@ export class ChatWorkspaceComponent implements OnInit {
     return `${count}`;
   }
 
-  private ensureEphemeralContext(newDocs: string[]): void {
+  private ensureEphemeralContext(
+    newDocs: string[],
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): void {
+    if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
     const existing = this.ephemeralContextId();
     // Flatten SessionDoc[] → string[] (filenames) for the Context's
     // ``data_refs`` audit trail. Filenames are good enough for traceability;
     // the backend already links chunks back to document_ids via metadata.
     const allFilenames = this.sessionDocs().map((d) => d.filename);
     if (existing) {
-      this.canonical
+      const subscription = this.canonical
         .updateContext(existing, {
           data_refs: allFilenames,
           environment_state: { collection: 'documents' },
           business_constraints: { source: 'drop_and_ask' },
-        })
+        }, { workspaceSlug: scope.workspaceSlug })
         .subscribe({
           next: (ctx) => {
+            if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
             if (ctx) return;
             this.removeSessionDocsByFilename(newDocs);
             this.toast.error(
@@ -1189,9 +1239,10 @@ export class ChatWorkspaceComponent implements OnInit {
             );
           },
         });
+      this.workspaceSubscriptions.add(subscription);
       return;
     }
-    this.canonical
+    const subscription = this.canonical
       .createContext({
         name: `Drop-and-ask · ${new Date().toLocaleString()}`,
         data_refs: newDocs,
@@ -1199,9 +1250,10 @@ export class ChatWorkspaceComponent implements OnInit {
         business_constraints: { source: 'drop_and_ask' },
         ephemeral: true,
         ttl_hours: 24,
-      })
+      }, { workspaceSlug: scope.workspaceSlug })
       .subscribe({
         next: (ctx) => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           if (ctx) {
             this.ephemeralContextId.set(ctx.id);
             return;
@@ -1213,6 +1265,7 @@ export class ChatWorkspaceComponent implements OnInit {
           );
         },
       });
+    this.workspaceSubscriptions.add(subscription);
   }
 
   private removeSessionDocsByFilename(filenames: string[]): void {
@@ -1234,15 +1287,18 @@ export class ChatWorkspaceComponent implements OnInit {
       return;
     }
 
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceGeneration;
     this.detachingDocKey.set(key);
-    this.canonical
+    const subscription = this.canonical
       .updateContext(contextId, {
         data_refs: nextDocs.map((d) => d.filename),
         environment_state: { collection: 'documents' },
         business_constraints: { source: 'drop_and_ask' },
-      })
+      }, { workspaceSlug: scope.workspaceSlug })
       .subscribe({
         next: (ctx) => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           if (!ctx) {
             this.detachingDocKey.set(null);
             this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
@@ -1253,18 +1309,23 @@ export class ChatWorkspaceComponent implements OnInit {
           this.detachingDocKey.set(null);
         },
         error: () => {
+          if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.detachingDocKey.set(null);
           this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
         },
       });
+    this.workspaceSubscriptions.add(subscription);
   }
 
   persistContext(): void {
     const id = this.ephemeralContextId();
     if (!id || this.persisting()) return;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceGeneration;
     this.persisting.set(true);
-    this.canonical.persistContext(id).subscribe({
+    const subscription = this.canonical.persistContext(id, { workspaceSlug: scope.workspaceSlug }).subscribe({
       next: (ctx) => {
+        if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.persisting.set(false);
         if (ctx) {
           this.toast.success(
@@ -1276,9 +1337,57 @@ export class ChatWorkspaceComponent implements OnInit {
         }
       },
       error: () => {
+        if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.persisting.set(false);
         this.toast.error('Failed to persist session', 'Drop-and-ask');
       },
     });
+    this.workspaceSubscriptions.add(subscription);
+  }
+
+  /**
+   * Runs synchronously while the old tenant is still the active scope. Abort
+   * every continuation before WorkspaceService publishes the next tenant, then
+   * clear all drop-and-ask state so no A document can be attributed to B.
+   */
+  private resetForWorkspaceChange(transition: WorkspaceContextTransition): void {
+    this.workspaceGeneration += 1;
+    this.cancelWorkspaceRequests();
+    this.systems.set([]);
+    this.selectedSystemId.set(null);
+    this.ephemeralContextId.set(null);
+    this.sessionDocs.set([]);
+    this.dragging.set(false);
+    this.uploading.set(false);
+    this.uploadingCount.set(0);
+    this.persisting.set(false);
+    this.detachingDocKey.set(null);
+
+    // The reset callback precedes publication of B. Reload only after the
+    // atomic transition is visible, and only if this component survived it.
+    queueMicrotask(() => {
+      if (this.destroyed) return;
+      if (this.workspace.currentSlug() !== transition.nextSlug) return;
+      if (this.workspace.contextEpoch() !== transition.nextEpoch) return;
+      this.loadSystems();
+    });
+  }
+
+  private cancelWorkspaceRequests(): void {
+    this.workspaceSubscriptions.unsubscribe();
+    this.workspaceSubscriptions = new Subscription();
+  }
+
+  private isWorkspaceContinuationCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): boolean {
+    return !this.destroyed
+      && generation === this.workspaceGeneration
+      && this.workspace.isRequestScopeCurrent(scope);
+  }
+
+  private workspaceHeaders(scope: WorkspaceRequestScope): Record<string, string> | undefined {
+    return scope.workspaceSlug ? { 'X-Workspace-Slug': scope.workspaceSlug } : undefined;
   }
 }

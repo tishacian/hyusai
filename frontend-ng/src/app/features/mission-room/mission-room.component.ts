@@ -15,13 +15,17 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { forkJoin, of, type Subscription } from 'rxjs';
+import { forkJoin, of, Subscription } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { AssistantEffectsService, type AssistantNavigateEffect, type AssistantProposeEffect } from '@app/core/assistant-effects.service';
 import { MaritimeTrackingService, type VesselPosition } from '@app/core/maritime-tracking.service';
+import { WorkspaceExperienceShadowService } from '@app/core/workspace-experience-shadow.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
@@ -60,6 +64,11 @@ type MissionView =
   | 'strategie'
   | 'recherche'
   | 'assistant';
+
+interface WorkspaceContinuationContext {
+  scope: WorkspaceRequestScope;
+  generation: number;
+}
 
 interface WorkspaceMeta {
   id: string;
@@ -5215,6 +5224,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly chat = inject(ChatOverlayService);
   private readonly assistantEffects = inject(AssistantEffectsService);
   private readonly maritimeTracking = inject(MaritimeTrackingService);
+  private readonly workspaceExperienceShadow = inject(WorkspaceExperienceShadowService);
   private readonly abidjanTimeZone = 'Africa/Abidjan';
   protected readonly workspace = inject(WorkspaceService);
   /**
@@ -5315,6 +5325,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newAgendaLocation = 'Cabinet Vice Premier Ministre';
   private readonly visualObjectUrls: string[] = [];
   private abidjanClockTimer: ReturnType<typeof setInterval> | null = null;
+  private workspaceContinuationGeneration = 0;
+  private workspaceActionRequests = new Subscription();
+  private unregisterWorkspaceReset: () => void = () => undefined;
+  private destroyed = false;
   private readonly calendarUpdateListener = () => this.loadAll(false);
   private readonly workspaceActionUpdateListener = () => this.loadAll(false);
   private focusQuerySub: Subscription | null = null;
@@ -5483,6 +5497,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly securiteTab = signal<'vue' | 'documents'>('vue');
 
   constructor() {
+    this.unregisterWorkspaceReset = this.workspace.registerContextReset(() => {
+      this.resetWorkspaceActionContinuations();
+    });
     effect(() => {
       const view = this.routeView();
       if (view === 'briefing') {
@@ -5528,6 +5545,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
+    this.unregisterWorkspaceReset();
+    this.unregisterWorkspaceReset = () => undefined;
+    this.resetWorkspaceActionContinuations();
     window.removeEventListener('agentium:calendar-updated', this.calendarUpdateListener);
     window.removeEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
     window.removeEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
@@ -5626,21 +5647,49 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     });
   }
 
-  private loadAll(showSpinner = true): void {
+  private loadAll(
+    showSpinner = true,
+    continuation?: WorkspaceContinuationContext,
+  ): void {
+    // Even initial/page-level loads need a pinned scope. Action-triggered
+    // callers already provide one; ordinary refreshes capture it here so a
+    // late Mission Room payload from A cannot be rendered or shadow-reported
+    // after A -> B.
+    const activeContinuation = continuation ?? this.captureWorkspaceContinuation();
+    if (!this.workspaceContinuationContextIsCurrent(activeContinuation)) return;
     if (showSpinner) this.loading.set(true);
-    forkJoin({
-      navigation: this.api.get<MissionNavigation>('/mission-room/navigation'),
-      cockpit: this.api.get<MissionCockpit>('/mission-room/cockpit'),
+    const workspaceOptions = this.workspaceApiOptions(activeContinuation);
+    const request = forkJoin({
+      navigation: this.api.get<MissionNavigation>('/mission-room/navigation', undefined, workspaceOptions),
+      cockpit: this.api.get<MissionCockpit>('/mission-room/cockpit', undefined, workspaceOptions),
     }).subscribe({
       next: ({ navigation, cockpit }) => {
+        if (!this.workspaceContinuationContextIsCurrent(activeContinuation)) return;
         this.navigation.set(navigation);
+        // The backend response remains byte-for-byte authoritative for the
+        // rendered rail. Shadow observation happens only after the current
+        // payload is installed and cannot replace or mutate it.
+        try {
+          this.workspaceExperienceShadow.observeMissionNavigation(
+            navigation,
+            activeContinuation.scope,
+          );
+        } catch {
+          // Shadow instrumentation must never interrupt installation of the
+          // authoritative cockpit payload or the remaining legacy loads.
+        }
         this.cockpit.set(cockpit);
         this.ensureS3Defaults();
         this.loading.set(false);
-        this.loadMissionRoomDetails();
+        this.loadMissionRoomDetails(activeContinuation);
       },
-      error: () => this.loading.set(false),
+      error: () => {
+        if (this.workspaceContinuationContextIsCurrent(activeContinuation)) {
+          this.loading.set(false);
+        }
+      },
     });
+    this.trackWorkspaceActionRequest(request, activeContinuation);
   }
 
   private ensureS3Defaults(): void {
@@ -5654,18 +5703,21 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }
   }
 
-  private loadMissionRoomDetails(): void {
-    forkJoin({
-      briefing: this.api.get<MissionBriefing>('/mission-room/briefing').pipe(catchError(() => of(null))),
-      projects: this.api.get<MissionProjects>('/mission-room/projects').pipe(catchError(() => of(null))),
-      missionMap: this.api.get<MissionMap>('/mission-room/map').pipe(catchError(() => of(null))),
-      monitor: this.api.get<MissionMonitor>('/mission-room/monitor').pipe(catchError(() => of(null))),
-      news: this.api.get<MissionNews>('/mission-room/news').pipe(catchError(() => of(null))),
-      timeline: this.api.get<MissionTimeline>('/mission-room/timeline').pipe(catchError(() => of(null))),
-      decisions: this.api.get<MissionDecisions>('/mission-room/decisions').pipe(catchError(() => of(null))),
-      library: this.api.get<MissionLibrary>('/mission-room/library').pipe(catchError(() => of(null))),
-      search: this.api.get<MissionSearch>('/mission-room/search', { q: '' }).pipe(catchError(() => of(null))),
+  private loadMissionRoomDetails(continuation?: WorkspaceContinuationContext): void {
+    if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+    const workspaceOptions = this.workspaceApiOptions(continuation);
+    const request = forkJoin({
+      briefing: this.api.get<MissionBriefing>('/mission-room/briefing', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      projects: this.api.get<MissionProjects>('/mission-room/projects', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      missionMap: this.api.get<MissionMap>('/mission-room/map', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      monitor: this.api.get<MissionMonitor>('/mission-room/monitor', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      news: this.api.get<MissionNews>('/mission-room/news', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      timeline: this.api.get<MissionTimeline>('/mission-room/timeline', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      decisions: this.api.get<MissionDecisions>('/mission-room/decisions', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      library: this.api.get<MissionLibrary>('/mission-room/library', undefined, workspaceOptions).pipe(catchError(() => of(null))),
+      search: this.api.get<MissionSearch>('/mission-room/search', { q: '' }, workspaceOptions).pipe(catchError(() => of(null))),
     }).subscribe(({ briefing, projects, missionMap, monitor, news, timeline, decisions, library, search }) => {
+      if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
       if (briefing) this.briefing.set(briefing);
       if (projects) {
         this.projects.set(projects);
@@ -5696,15 +5748,22 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       if (library) this.library.set(library);
       if (search) this.search.set(search);
     });
-    this.loadMeetingDecisionsLog();
+    this.trackWorkspaceActionRequest(request, continuation);
+    this.loadMeetingDecisionsLog(continuation);
   }
 
-  private loadMeetingDecisionsLog(): void {
-    const workspaceSlug = this.workspace.currentSlug() || 'sentinel-ci';
-    this.api
-      .get<MeetingDecisionsLogResponse>('/meetings/decisions-log', { workspace: workspaceSlug })
+  private loadMeetingDecisionsLog(continuation?: WorkspaceContinuationContext): void {
+    if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+    const workspaceSlug = continuation?.scope.workspaceSlug || this.workspace.currentSlug() || 'sentinel-ci';
+    const request = this.api
+      .get<MeetingDecisionsLogResponse>(
+        '/meetings/decisions-log',
+        { workspace: workspaceSlug },
+        this.workspaceApiOptions(continuation),
+      )
       .pipe(catchError(() => of<MeetingDecisionsLogResponse | null>(null)))
       .subscribe((payload) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         const items = payload?.decisions || [];
         if (!items.length) {
           this.meetingDecisionsLog.set([]);
@@ -5738,6 +5797,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
           .slice(0, 12);
         this.meetingDecisionsLog.set(entries);
       });
+    this.trackWorkspaceActionRequest(request, continuation);
   }
 
   kpi(key: string): number | string {
@@ -7008,15 +7068,35 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   dismissMorningHighlight(): void {
     this.morningHighlightDismissed.set(true);
-    sessionStorage.setItem('sentinel-ci-aya-morning-dismissed', '1');
+    const key = this.morningDismissedStorageKey();
+    if (key) sessionStorage.setItem(key, '1');
   }
 
-  private readMorningDismissed(): boolean {
+  private readMorningDismissed(slug = this.workspace.currentSlug()): boolean {
     try {
-      return sessionStorage.getItem('sentinel-ci-aya-morning-dismissed') === '1';
+      const key = this.morningDismissedStorageKey(slug);
+      if (!key) return false;
+      const scoped = sessionStorage.getItem(key);
+      if (scoped !== null) return scoped === '1';
+
+      // This legacy key was explicitly Sentinel-only.  Migrate it only to
+      // Sentinel; never let it alter the generalized Octocity Mission Room.
+      const legacyKey = 'sentinel-ci-aya-morning-dismissed';
+      if (slug !== 'sentinel-ci') return false;
+      const legacy = sessionStorage.getItem(legacyKey);
+      if (legacy === null) return false;
+      sessionStorage.setItem(key, legacy);
+      sessionStorage.removeItem(legacyKey);
+      return legacy === '1';
     } catch {
       return false;
     }
+  }
+
+  private morningDismissedStorageKey(slug = this.workspace.currentSlug()): string | null {
+    return slug
+      ? `agentium:mission-room:morning-dismissed:${encodeURIComponent(slug)}`
+      : null;
   }
 
   private buildArbitrationCard(item: AttentionRequiredItem, rank: number): VpArbitrationCard {
@@ -7434,24 +7514,49 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   private createAction(payload: Partial<ActionItem> & { title: string }): void {
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .post<ActionItem>('/action-plans/', {
         ...payload,
         due_at: payload.due_at || null,
         confidence: payload.confidence || 'medium',
-      })
+      }, this.workspaceApiOptions(continuation))
       .subscribe((item) => {
-        this.loadAll();
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+        this.loadAll(true, continuation);
         this.openAssistant(`Action cabinet ajoutee : ${item.title}. Resume les prochaines etapes et les sources utiles.`);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   completeAction(item: ActionItem): void {
-    this.api.post<ActionItem>(`/action-plans/${item.id}/complete`, {}).subscribe(() => this.loadAll());
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<ActionItem>(
+        `/action-plans/${item.id}/complete`,
+        {},
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe(() => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+        this.loadAll(true, continuation);
+      });
+    this.workspaceActionRequests.add(request);
   }
 
   cancelAction(item: ActionItem): void {
-    this.api.post<ActionItem>(`/action-plans/${item.id}/cancel`, { reason: 'Arbitrage depuis Mission Room' }).subscribe(() => this.loadAll());
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<ActionItem>(
+        `/action-plans/${item.id}/cancel`,
+        { reason: 'Arbitrage depuis Mission Room' },
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe(() => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+        this.loadAll(true, continuation);
+      });
+    this.workspaceActionRequests.add(request);
   }
 
   selectAgendaEvent(event: AgendaItem): void {
@@ -7461,28 +7566,36 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   private refreshAgendaPendingPatch(eventId: string): void {
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .get<{ pending_agenda_patch?: AgendaPendingPatch | null }>(
         `/meetings/${eventId}/agenda-patch`,
+        undefined,
+        this.workspaceApiOptions(continuation),
       )
       .pipe(catchError(() => of<{ pending_agenda_patch?: AgendaPendingPatch | null } | null>(null)))
       .subscribe((response) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.agendaPendingPatch.set(response?.pending_agenda_patch || null);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   confirmAgendaPendingPatch(): void {
     const event = this.selectedAgendaEvent();
     const pending = this.agendaPendingPatch();
     if (!event?.id || !pending || this.agendaPatchSubmitting()) return;
+    const continuation = this.captureWorkspaceContinuation();
     this.agendaPatchSubmitting.set(true);
-    this.api
+    const request = this.api
       .post<{ agenda_items?: AgendaSubItem[] }>(
         `/meetings/${event.id}/agenda-patch/confirm`,
         {},
+        this.workspaceApiOptions(continuation),
       )
       .pipe(catchError(() => of<{ agenda_items?: AgendaSubItem[] } | null>(null)))
       .subscribe((response) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.agendaPatchSubmitting.set(false);
         this.agendaPendingPatch.set(null);
         if (response?.agenda_items) {
@@ -7492,8 +7605,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
           };
           this.selectedAgendaEvent.set(updated);
         }
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   rejectAgendaPendingPatch(): void {
@@ -7700,25 +7814,90 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   startMeeting(event: AgendaItem): void {
     if (!event.id) return;
     const eventId = event.id;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceContinuationGeneration;
     // Mirror ``aya.start_meeting`` server-side so a follow-up voice
     // ``aya.log_decision`` finds an active meeting. The navigation runs
     // regardless so the meeting view always opens.
-    this.api
-      .post(`/meetings/${eventId}/start`, {})
+    const request = this.api
+      .post(`/meetings/${eventId}/start`, {}, { workspaceSlug: scope.workspaceSlug })
       .pipe(catchError(() => of(null)))
       .subscribe(() => {
+        if (!this.workspaceContinuationIsCurrent(scope, generation)) return;
         void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', eventId]);
       });
+    this.workspaceActionRequests.add(request);
+  }
+
+  private workspaceContinuationIsCurrent(
+    scope: WorkspaceRequestScope,
+    generation: number,
+  ): boolean {
+    return (
+      !this.destroyed
+      && generation === this.workspaceContinuationGeneration
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
+  }
+
+  private captureWorkspaceContinuation(): WorkspaceContinuationContext {
+    return {
+      scope: this.workspace.captureRequestScope(),
+      generation: this.workspaceContinuationGeneration,
+    };
+  }
+
+  private workspaceContinuationContextIsCurrent(
+    continuation?: WorkspaceContinuationContext,
+  ): boolean {
+    return !continuation || this.workspaceContinuationIsCurrent(
+      continuation.scope,
+      continuation.generation,
+    );
+  }
+
+  private workspaceApiOptions(
+    continuation?: WorkspaceContinuationContext,
+  ): { workspaceSlug?: string | null } | undefined {
+    return continuation
+      ? { workspaceSlug: continuation.scope.workspaceSlug }
+      : undefined;
+  }
+
+  private trackWorkspaceActionRequest(
+    request: Subscription,
+    continuation?: WorkspaceContinuationContext,
+  ): void {
+    if (continuation) {
+      this.workspaceActionRequests.add(request);
+    }
+  }
+
+  private resetWorkspaceActionContinuations(): void {
+    this.workspaceContinuationGeneration += 1;
+    this.workspaceActionRequests.unsubscribe();
+    this.workspaceActionRequests = new Subscription();
+    this.loading.set(false);
+    this.draft.set(null);
+    this.selectedAgendaEvent.set(null);
+    this.agendaPendingPatch.set(null);
+    this.agendaPatchSubmitting.set(false);
   }
 
   createDraft(targetId: string, targetType: string): void {
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .post<DraftInstruction>('/mission-room/actions/draft', {
         target_id: targetId,
         target_type: targetType,
         instruction_type: 'dircab_instruction',
-      })
-      .subscribe((draft) => this.draft.set(draft));
+      }, this.workspaceApiOptions(continuation))
+      .subscribe((draft) => {
+        if (this.workspaceContinuationContextIsCurrent(continuation)) {
+          this.draft.set(draft);
+        }
+      });
+    this.workspaceActionRequests.add(request);
   }
 
   runSearch(): void {

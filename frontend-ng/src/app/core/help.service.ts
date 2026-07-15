@@ -1,7 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, of, shareReplay, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, filter, of, shareReplay, tap } from 'rxjs';
 
 import { ApiService } from './api.service';
+import { WorkspaceService } from './workspace.service';
 
 export type Persona = 'builder' | 'operator' | 'executive';
 export type HelpCategory = 'action' | 'metric' | 'control' | 'navigation' | 'status' | 'concept';
@@ -57,6 +58,7 @@ const FALLBACK_ORDER: Language[] = ['en', 'fr'];
 @Injectable({ providedIn: 'root' })
 export class HelpService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private _index$: Observable<HelpContentIndex | null> | null = null;
 
@@ -66,12 +68,26 @@ export class HelpService {
   readonly language = signal<Language>(this.readStoredLanguage());
   readonly languageLabel = computed(() => this.languageLabelOf(this.language()));
 
+  constructor() {
+    // Persona and language are user preferences; only the API index is
+    // workspace-bound and must not be replayed into the next tenant.
+    this.workspace.registerContextReset(() => {
+      this._index$ = null;
+    });
+  }
+
   load(): Observable<HelpContentIndex | null> {
     if (!this._index$) {
+      const scope = this.workspace.captureRequestScope();
       this._index$ = this.api
-        .get<HelpContentIndex>('/help-content')
+        .get<HelpContentIndex>('/help-content', undefined, {
+          workspaceSlug: scope.workspaceSlug,
+        })
         .pipe(
-          catchError(() => of(null)),
+          filter(() => this.workspace.isRequestScopeCurrent(scope)),
+          catchError(() => (
+            this.workspace.isRequestScopeCurrent(scope) ? of(null) : EMPTY
+          )),
           shareReplay(1),
         );
     }

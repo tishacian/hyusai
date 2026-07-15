@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError, of, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, filter, of, tap } from 'rxjs';
+import { WorkspaceService } from './workspace.service';
 
 export interface IamPermissionRule {
   resource_kind: string;
@@ -31,18 +32,33 @@ export interface PermissionResource {
 @Injectable({ providedIn: 'root' })
 export class PermissionsService {
   private readonly http = inject(HttpClient);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly matrix = signal<IamMatrix | null>(null);
   readonly loading = signal(false);
 
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      this.matrix.set(null);
+      this.loading.set(false);
+    });
+  }
+
   refresh(): Observable<IamMatrix | null> {
+    const scope = this.workspace.captureRequestScope();
     this.loading.set(true);
-    return this.http.get<IamMatrix>('/api/v1/iam/matrix').pipe(
+    return this.http.get<IamMatrix>('/api/v1/iam/matrix', {
+      headers: scope.workspaceSlug
+        ? { 'X-Workspace-Slug': scope.workspaceSlug }
+        : undefined,
+    }).pipe(
+      filter(() => this.workspace.isRequestScopeCurrent(scope)),
       tap((matrix) => {
         this.matrix.set(matrix);
         this.loading.set(false);
       }),
       catchError(() => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return EMPTY;
         this.loading.set(false);
         this.matrix.set(null);
         return of(null);

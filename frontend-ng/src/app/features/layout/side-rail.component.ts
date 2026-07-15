@@ -6,13 +6,12 @@ import {
   signal,
   HostListener,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
-import { filter, map, startWith } from 'rxjs';
+import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
 import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * Primary rail — 5 cockpit verbs in a compact 56px column, hybrid expand.
@@ -43,7 +42,7 @@ import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
       <nav class="ck-rail-nav" aria-label="Cockpit workspaces">
         @for (v of visibleVerbs(); track v.key) {
           <a
-            [routerLink]="routeFor(v)"
+            [routerLink]="routeTreeFor(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
             [title]="i18n.t('nav.' + v.key) + ' — ' + i18n.t('nav.hint.' + v.key)"
@@ -83,12 +82,20 @@ import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
   `,
   styles: [
     `
-      :host { display: contents; }
+      :host {
+        position: relative;
+        display: block;
+        width: 56px;
+        min-width: 56px;
+        flex: 0 0 56px;
+        height: 100%;
+        z-index: 30;
+      }
 
       .ck-rail {
-        position: relative;
+        position: absolute;
+        inset: 0 auto 0 0;
         width: 56px;
-        flex: 0 0 56px;
         height: 100%;
         background: var(--ck-bg-base);
         border-right: 1px solid var(--ck-stroke-2);
@@ -96,15 +103,11 @@ import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
         flex-direction: column;
         align-items: stretch;
         padding: 10px 0;
-        z-index: 30;
-        transition:
-          width var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
-          flex-basis var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+        transition: width var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
         overflow: hidden;
       }
       .ck-rail-expanded {
         width: 200px;
-        flex: 0 0 200px;
       }
 
       .ck-rail-nav {
@@ -210,24 +213,13 @@ import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
   ],
 })
 export class SideRailComponent {
-  private readonly router = inject(Router);
   private readonly workspace = inject(WorkspaceService);
+  private readonly navigation = inject(ZoomContextService);
   protected readonly i18n = inject(I18nService);
 
   readonly expanded = signal(false);
   private expandTimer: ReturnType<typeof setTimeout> | null = null;
   private collapseTimer: ReturnType<typeof setTimeout> | null = null;
-
-  private readonly url = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map((e) => e.urlAfterRedirects),
-      startWith(this.router.url),
-    ),
-    { initialValue: this.router.url },
-  );
-
-  readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
   readonly visibleVerbs = computed(() => {
     const mode = this.workspace.mode();
@@ -235,15 +227,21 @@ export class SideRailComponent {
   });
 
   isActive(v: CockpitVerb): boolean {
-    const path = this.currentPath();
-    return v.matches.some((m) => path === m || path.startsWith(m + '/'));
+    return this.navigation.lens() === v.key;
   }
 
   routeFor(v: CockpitVerb): string {
-    if (v.key === 'hypervisor' && this.workspace.isDemoMode()) {
-      return '/hypervisor/mission-room/cockpit';
-    }
-    return v.primaryRoute;
+    const fallback = v.key === 'hypervisor' && this.workspace.isDemoMode()
+      ? '/hypervisor/mission-room/cockpit'
+      : v.primaryRoute;
+    return this.navigation.urlForLens(v.key, fallback);
+  }
+
+  routeTreeFor(v: CockpitVerb): UrlTree {
+    const fallback = v.key === 'hypervisor' && this.workspace.isDemoMode()
+      ? '/hypervisor/mission-room/cockpit'
+      : v.primaryRoute;
+    return this.navigation.urlTreeForLens(v.key, fallback);
   }
 
   onEnter(): void {

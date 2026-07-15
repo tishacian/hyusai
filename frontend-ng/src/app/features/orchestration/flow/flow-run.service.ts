@@ -34,6 +34,10 @@ import {
   type RunStreamEvent,
 } from '@app/core/run-stream.service';
 import { FlowSerializerService } from '@app/core/flow-serializer.service';
+import {
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
@@ -48,6 +52,7 @@ export class FlowRunService {
   private readonly canonical = inject(CanonicalApiService);
   private readonly runStream = inject(RunStreamService);
   private readonly serializer = inject(FlowSerializerService);
+  private readonly workspace = inject(WorkspaceService, { optional: true });
 
   // ---- shared UI state (signals) ------------------------------------------
   /** The System this builder is bound to, or `null` on the scratchpad. */
@@ -91,6 +96,28 @@ export class FlowRunService {
   private logSeq = 0;
   private readonly seenCheckpoints = new Set<string>();
   private readonly seenInvocationIds = new Set<string>();
+  private readonly unregisterContextReset = this.workspace?.registerContextReset(() => {
+    this.stopStream();
+    this.systemId.set(null);
+    this.status.set('idle');
+    this.log.set([]);
+    this.currentRun.set(null);
+    this.executing.set(false);
+    this.hitlResolving.set(false);
+    this.debugStepping.set(false);
+    this.terminalOpen.set(false);
+    this.activeNodeId.set(null);
+    this.seenCheckpoints.clear();
+    this.seenInvocationIds.clear();
+  });
+
+  private captureWorkspaceScope(): WorkspaceRequestScope | null {
+    return this.workspace?.captureRequestScope() ?? null;
+  }
+
+  private isWorkspaceScopeCurrent(scope: WorkspaceRequestScope | null): boolean {
+    return scope === null || !this.workspace || this.workspace.isRequestScopeCurrent(scope);
+  }
 
   /** Bind (or rebind) the owning System. Called once by the shell. */
   bindSystem(systemId: string | null): void {
@@ -212,6 +239,7 @@ export class FlowRunService {
       mode === 'off'
         ? this.canonical.triggerRun(sid, {})
         : this.canonical.triggerRunDebug(sid, { mode, breakpoints: this._breakpoints() });
+    const scope = this.captureWorkspaceScope();
     if (mode !== 'off') {
       this.push({
         tone: 'warn',
@@ -222,6 +250,7 @@ export class FlowRunService {
 
     trigger$.subscribe({
       next: (run) => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         if (!run) {
           this.fail('Backend rejected the trigger request.');
           return;
@@ -232,9 +261,11 @@ export class FlowRunService {
           tag: 'RUN',
           text: `Run ${run.id.slice(0, 8)}… scheduled (status=${run.status}).`,
         });
-        this.startStreaming(run.id);
+        this.startStreaming(run.id, scope);
       },
-      error: () => this.fail('Network error while triggering run.'),
+      error: () => {
+        if (this.isWorkspaceScopeCurrent(scope)) this.fail('Network error while triggering run.');
+      },
     });
   }
 
@@ -249,8 +280,10 @@ export class FlowRunService {
       tag: 'HITL',
       text: `Operator ${action === 'accept' ? 'approved' : 'rejected'} the pending step.`,
     });
+    const scope = this.captureWorkspaceScope();
     this.canonical.resolveRunHitl(run.id, { action }).subscribe({
       next: (updated) => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);
         if (!updated) {
           this.push({ tone: 'neg', tag: 'ERR', text: 'HITL resolve rejected by backend.' });
@@ -260,9 +293,10 @@ export class FlowRunService {
         this.executing.set(true);
         this.status.set('running');
         this.seenCheckpoints.clear();
-        this.startStreaming(run.id);
+        this.startStreaming(run.id, scope);
       },
       error: () => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);
         this.push({ tone: 'neg', tag: 'ERR', text: 'Network error during HITL resolve.' });
       },
@@ -280,8 +314,10 @@ export class FlowRunService {
       tag: 'DEBUG',
       text: `Operator → ${action}`,
     });
+    const scope = this.captureWorkspaceScope();
     this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }).subscribe({
       next: (updated) => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.debugStepping.set(false);
         if (!updated) {
           this.push({ tone: 'neg', tag: 'ERR', text: 'Debugger rejected by backend.' });
@@ -293,6 +329,7 @@ export class FlowRunService {
           this.activeNodeId.set(null);
           this.currentRun.set(updated);
           this.canonical.getRun(run.id).subscribe((r) => {
+            if (!this.isWorkspaceScopeCurrent(scope)) return;
             if (r) this.currentRun.set(r);
           });
           return;
@@ -301,9 +338,10 @@ export class FlowRunService {
         this.executing.set(true);
         this.status.set('running');
         this.seenCheckpoints.clear();
-        this.startStreaming(run.id);
+        this.startStreaming(run.id, scope);
       },
       error: () => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.debugStepping.set(false);
         this.push({ tone: 'neg', tag: 'ERR', text: 'Network error during debug action.' });
       },
@@ -328,7 +366,11 @@ export class FlowRunService {
       text: `Replaying ${checkpoints.length} checkpoints from run ${run.id.slice(0, 8)}…`,
     });
     for (const cp of checkpoints) {
-      this.emitStreamEvent(run.id, { event: String(cp['kind'] ?? 'event'), data: cp });
+      this.emitStreamEvent(
+        run.id,
+        { event: String(cp['kind'] ?? 'event'), data: cp },
+        this.captureWorkspaceScope(),
+      );
     }
     this.push({ tone: 'pos', tag: 'REPLAY', text: 'Replay done.' });
   }
@@ -336,6 +378,7 @@ export class FlowRunService {
   /** Stop all live connections. Called by the shell on destroy. */
   dispose(): void {
     this.stopStream();
+    this.unregisterContextReset?.();
   }
 
   // ---- validation ---------------------------------------------------------
@@ -366,21 +409,29 @@ export class FlowRunService {
   }
 
   // ---- SSE streaming + polling fallback -----------------------------------
-  private startStreaming(runId: string): void {
+  private startStreaming(
+    runId: string,
+    scope: WorkspaceRequestScope | null = this.captureWorkspaceScope(),
+  ): void {
     this.stopStream();
     this.streamSub = this.runStream.streamRun(runId).subscribe({
-      next: (event) => this.emitStreamEvent(runId, event),
+      next: (event) => {
+        if (this.isWorkspaceScopeCurrent(scope)) this.emitStreamEvent(runId, event, scope);
+      },
       error: () => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         if (!this.streamFellBackToPoll) {
           this.streamFellBackToPoll = true;
           this.push({ tone: 'warn', tag: 'STREAM', text: 'Live stream interrupted — falling back to polling.' });
-          this.startPolling(runId);
+          this.startPolling(runId, scope);
         } else {
           this.fail('Lost connection to the backend (stream + poll).');
         }
       },
       complete: () => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.canonical.getRun(runId).subscribe((r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
           if (r) {
             this.currentRun.set(r);
             this.applyTerminalStatus(r);
@@ -397,7 +448,7 @@ export class FlowRunService {
     this.stopPolling();
   }
 
-  private startPolling(runId: string): void {
+  private startPolling(runId: string, scope: WorkspaceRequestScope | null): void {
     this.stopPolling();
     this.pollSub = timer(0, POLL_INTERVAL_MS)
       .pipe(
@@ -406,6 +457,7 @@ export class FlowRunService {
       )
       .subscribe({
         next: (r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
           if (!r) return;
           this.currentRun.set(r);
           this.applyTerminalStatus(r);
@@ -415,6 +467,7 @@ export class FlowRunService {
           }
         },
         error: () => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
           this.executing.set(false);
           this.stopPolling();
           this.push({ tone: 'neg', tag: 'ERR', text: 'Lost connection while polling run.' });
@@ -460,7 +513,12 @@ export class FlowRunService {
   }
 
   /** Translate one SSE frame into a terminal line + minimal state update. */
-  private emitStreamEvent(runId: string, event: RunStreamEvent): void {
+  private emitStreamEvent(
+    runId: string,
+    event: RunStreamEvent,
+    scope: WorkspaceRequestScope | null = this.captureWorkspaceScope(),
+  ): void {
+    if (!this.isWorkspaceScopeCurrent(scope)) return;
     const data = event.data as {
       t?: string;
       node_id?: string;
@@ -522,6 +580,7 @@ export class FlowRunService {
         if (data.node_id) this.activeNodeId.set(data.node_id);
         this.status.set('paused');
         this.canonical.getRun(runId).subscribe((r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
           if (r) this.currentRun.set(r);
           this.executing.set(false);
         });
@@ -538,6 +597,7 @@ export class FlowRunService {
         if (data.node_id) this.activeNodeId.set(data.node_id);
         this.status.set('paused');
         this.canonical.getRun(runId).subscribe((r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
           if (r) this.currentRun.set(r);
           this.executing.set(false);
         });

@@ -31,6 +31,11 @@ import {
   type RunStreamEvent,
 } from '@app/core/run-stream.service';
 import { FlowSerializerService, type CanonicalFlow } from '@app/core/flow-serializer.service';
+import {
+  WorkspaceService,
+  type WorkspaceContextTransition,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import { FlowRunService } from './flow-run.service';
 
@@ -75,10 +80,14 @@ class MockApi {
   getRunResult: Run | null = mkRun('completed');
   resolveResult: Run | null = mkRun('running');
   stepResult: Run | null = mkRun('running');
+  triggerSubject: Subject<Run | null> | null = null;
+  resolveSubject: Subject<Run | null> | null = null;
+  stepSubject: Subject<Run | null> | null = null;
+  getRunSubject: Subject<Run | null> | null = null;
 
   triggerRun(_id: string, _payload?: Record<string, unknown>) {
     this.triggerRunCalls++;
-    return of(this.triggerResult);
+    return this.triggerSubject?.asObservable() ?? of(this.triggerResult);
   }
   triggerRunDebug(_id: string, options: { mode: string; breakpoints?: string[] }) {
     this.triggerRunDebugCalls.push(options);
@@ -86,15 +95,46 @@ class MockApi {
   }
   getRun(_id: string) {
     this.getRunCalls++;
-    return of(this.getRunResult);
+    return this.getRunSubject?.asObservable() ?? of(this.getRunResult);
   }
   resolveRunHitl(_id: string, body: { action: 'accept' | 'reject' }) {
     this.resolveHitlCalls.push(body);
-    return of(this.resolveResult);
+    return this.resolveSubject?.asObservable() ?? of(this.resolveResult);
   }
   stepRun(_id: string, body: { action: 'step' | 'continue' | 'stop'; breakpoints?: string[] }) {
     this.stepRunCalls.push(body);
-    return of(this.stepResult);
+    return this.stepSubject?.asObservable() ?? of(this.stepResult);
+  }
+}
+
+class WorkspaceStub {
+  private slug = 'andritz';
+  private epoch = 1;
+  private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
+
+  captureRequestScope(): WorkspaceRequestScope {
+    return Object.freeze({ workspaceSlug: this.slug, epoch: this.epoch });
+  }
+
+  isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {
+    return scope.workspaceSlug === this.slug && scope.epoch === this.epoch;
+  }
+
+  registerContextReset(resetter: (transition: WorkspaceContextTransition) => void): () => void {
+    this.resetters.add(resetter);
+    return () => this.resetters.delete(resetter);
+  }
+
+  switchWorkspace(): void {
+    const transition: WorkspaceContextTransition = {
+      previousSlug: this.slug,
+      nextSlug: 'sentinel-ci',
+      previousEpoch: this.epoch,
+      nextEpoch: this.epoch + 1,
+    };
+    for (const resetter of [...this.resetters]) resetter(transition);
+    this.slug = transition.nextSlug;
+    this.epoch = transition.nextEpoch;
   }
 }
 
@@ -116,7 +156,7 @@ interface Harness {
   stream: MockStream;
 }
 
-function makeHarness(): Harness {
+function makeHarness(workspace?: WorkspaceStub): Harness {
   const api = new MockApi();
   const stream = new MockStream();
   const injector = Injector.create({
@@ -126,6 +166,7 @@ function makeHarness(): Harness {
       FlowRunService as never,
       { provide: CanonicalApiService, useValue: api },
       { provide: RunStreamService, useValue: stream },
+      ...(workspace ? [{ provide: WorkspaceService, useValue: workspace }] : []),
     ],
   });
   return {
@@ -135,6 +176,69 @@ function makeHarness(): Harness {
     stream,
   };
 }
+
+test('workspace reset rejects late trigger, HITL, step and nested getRun responses', () => {
+  {
+    const workspace = new WorkspaceStub();
+    const { svc, store, api, stream } = makeHarness(workspace);
+    api.triggerSubject = new Subject<Run | null>();
+    store.load(validFlow());
+    svc.bindSystem('sys-1');
+    svc.executeOnBackend();
+
+    workspace.switchWorkspace();
+    api.triggerSubject.next(mkRun('running'));
+
+    assert.equal(svc.currentRun(), null);
+    assert.equal(svc.status(), 'idle');
+    assert.equal(stream.last, null, 'a late trigger cannot open a stream in the new workspace');
+  }
+
+  {
+    const workspace = new WorkspaceStub();
+    const { svc, api, stream } = makeHarness(workspace);
+    api.resolveSubject = new Subject<Run | null>();
+    svc.currentRun.set(mkRun('hitl_pending', { hitl: { node_id: 'gate' } }));
+    svc.resolveHitl('accept');
+
+    workspace.switchWorkspace();
+    api.resolveSubject.next(mkRun('running'));
+
+    assert.equal(svc.currentRun(), null);
+    assert.equal(svc.status(), 'idle');
+    assert.equal(stream.last, null, 'a late HITL response cannot resume the old run');
+  }
+
+  {
+    const workspace = new WorkspaceStub();
+    const { svc, api, stream } = makeHarness(workspace);
+    api.stepSubject = new Subject<Run | null>();
+    svc.currentRun.set(mkRun('debug_pending', { debug: { node_id: 'n1' } }));
+    svc.debugAction('step');
+
+    workspace.switchWorkspace();
+    api.stepSubject.next(mkRun('running'));
+
+    assert.equal(svc.currentRun(), null);
+    assert.equal(svc.status(), 'idle');
+    assert.equal(stream.last, null, 'a late step response cannot resume the old run');
+  }
+
+  {
+    const workspace = new WorkspaceStub();
+    const { svc, api } = makeHarness(workspace);
+    api.getRunSubject = new Subject<Run | null>();
+    api.stepResult = mkRun('cancelled');
+    svc.currentRun.set(mkRun('debug_pending', { debug: { node_id: 'n1' } }));
+    svc.debugAction('stop');
+
+    workspace.switchWorkspace();
+    api.getRunSubject.next(mkRun('completed'));
+
+    assert.equal(svc.currentRun(), null, 'a nested late getRun cannot restore the old run');
+    assert.equal(svc.status(), 'idle');
+  }
+});
 
 test('status: idle → running → done across a clean backend run', () => {
   const { svc, store, api, stream } = makeHarness();

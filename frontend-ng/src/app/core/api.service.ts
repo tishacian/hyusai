@@ -567,28 +567,49 @@ export class ApiService {
   private readonly http = inject(HttpClient);
   readonly base = '/api/v1';
 
-  get<T>(path: string, params?: Record<string, string>): Observable<T> {
+  get<T>(
+    path: string,
+    params?: Record<string, string>,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<T> {
     let httpParams = new HttpParams();
     if (params) {
       Object.entries(params).forEach(([k, v]) => (httpParams = httpParams.set(k, v)));
     }
-    return this.http.get<T>(`${this.base}${path}`, { params: httpParams });
+    return this.http.get<T>(`${this.base}${path}`, {
+      params: httpParams,
+      headers: this.workspaceHeaders(options?.workspaceSlug),
+    });
   }
 
-  post<T>(path: string, body: unknown = {}): Observable<T> {
-    return this.http.post<T>(`${this.base}${path}`, body);
+  post<T>(
+    path: string,
+    body: unknown = {},
+    options?: { workspaceSlug?: string | null },
+  ): Observable<T> {
+    return this.http.post<T>(`${this.base}${path}`, body, {
+      headers: this.workspaceHeaders(options?.workspaceSlug),
+    });
   }
 
-  patch<T>(path: string, body: unknown = {}): Observable<T> {
-    return this.http.patch<T>(`${this.base}${path}`, body);
+  patch<T>(
+    path: string,
+    body: unknown = {},
+    options?: { workspaceSlug?: string | null },
+  ): Observable<T> {
+    return this.http.patch<T>(`${this.base}${path}`, body, {
+      headers: this.workspaceHeaders(options?.workspaceSlug),
+    });
   }
 
   put<T>(path: string, body: unknown = {}): Observable<T> {
     return this.http.put<T>(`${this.base}${path}`, body);
   }
 
-  delete<T>(path: string): Observable<T> {
-    return this.http.delete<T>(`${this.base}${path}`);
+  delete<T>(path: string, options?: { workspaceSlug?: string | null }): Observable<T> {
+    return this.http.delete<T>(`${this.base}${path}`, {
+      headers: this.workspaceHeaders(options?.workspaceSlug),
+    });
   }
 
   getBlob(path: string): Observable<Blob> {
@@ -634,6 +655,10 @@ export class ApiService {
     );
   }
 
+  private workspaceHeaders(slug?: string | null): Record<string, string> | undefined {
+    return slug ? { 'X-Workspace-Slug': slug } : undefined;
+  }
+
   listVoiceRuntimes(): Observable<VoiceRuntimeCatalog> {
     return this.get<VoiceRuntimeCatalog>('/voice/runtimes');
   }
@@ -643,13 +668,13 @@ export class ApiService {
     target_ref?: string;
     status?: KnowledgeGuideStatus;
     current_only?: boolean;
-  }): Observable<KnowledgeGuideList> {
+  }, options?: { workspaceSlug?: string | null }): Observable<KnowledgeGuideList> {
     const query: Record<string, string> = {};
     if (params?.target_type) query['target_type'] = params.target_type;
     if (params?.target_ref) query['target_ref'] = params.target_ref;
     if (params?.status) query['status'] = params.status;
     if (params?.current_only !== undefined) query['current_only'] = String(params.current_only);
-    return this.get<KnowledgeGuideList>('/knowledge/guides', query);
+    return this.get<KnowledgeGuideList>('/knowledge/guides', query, options);
   }
 
   createKnowledgeGuide(body: {
@@ -658,8 +683,8 @@ export class ApiService {
     title: string;
     markdown: string;
     status?: KnowledgeGuideStatus;
-  }): Observable<KnowledgeGuide> {
-    return this.post<KnowledgeGuide>('/knowledge/guides', body);
+  }, options?: { workspaceSlug?: string | null }): Observable<KnowledgeGuide> {
+    return this.post<KnowledgeGuide>('/knowledge/guides', body, options);
   }
 
   updateKnowledgeGuide(
@@ -671,8 +696,9 @@ export class ApiService {
       markdown: string;
       status: KnowledgeGuideStatus;
     }>,
+    options?: { workspaceSlug?: string | null },
   ): Observable<KnowledgeGuide> {
-    return this.patch<KnowledgeGuide>(`/knowledge/guides/${guideKey}`, body);
+    return this.patch<KnowledgeGuide>(`/knowledge/guides/${guideKey}`, body, options);
   }
 
   listTableFacts(params: {

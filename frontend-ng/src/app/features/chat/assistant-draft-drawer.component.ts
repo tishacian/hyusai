@@ -10,11 +10,16 @@ import {
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
+import { Subscription } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import {
   AssistantEffectsService,
   type AssistantDraftOpenEffect,
 } from '@app/core/assistant-effects.service';
+import {
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import {
   VpSocialPulseDrawerComponent,
@@ -501,12 +506,17 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private readonly toast = inject(ToastrService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly assistantEffects = inject(AssistantEffectsService);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly open = signal(false);
   readonly submitting = signal(false);
   readonly previewLoading = signal(false);
   readonly previewError = signal<string | null>(null);
   private readonly previewBlobUrl = signal<string | null>(null);
+  private previewGeneration = 0;
+  private previewSubscription: Subscription | null = null;
+  private validationSubscription: Subscription | null = null;
+  private readonly unregisterContextReset = this.workspace.registerContextReset(() => this.cancel());
 
   /** PDF stubs below this size are treated as degraded placeholders. */
   private static readonly STUB_PDF_MAX_BYTES = 2048;
@@ -667,6 +677,10 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   }
 
   private loadDocumentPreview(): void {
+    const generation = ++this.previewGeneration;
+    const scope = this.workspace.captureRequestScope();
+    this.previewSubscription?.unsubscribe();
+    this.previewSubscription = null;
     this.revokePreviewBlobUrl();
     this.previewError.set(null);
     if (!this.isDocumentPreview()) {
@@ -688,8 +702,9 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     const { path } = this.splitDocumentHref(href);
     const hasCitations = this.citedPassages().length > 0;
     this.previewLoading.set(!hasCitations);
-    this.api.getBlob(path).subscribe({
+    this.previewSubscription = this.api.getBlob(path).subscribe({
       next: (blob) => {
+        if (!this.previewRequestIsCurrent(generation, scope)) return;
         this.revokePreviewBlobUrl();
         if (this.shouldUseCitationPreview(blob)) {
           if (!hasCitations) {
@@ -706,6 +721,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
         this.previewLoading.set(false);
       },
       error: () => {
+        if (!this.previewRequestIsCurrent(generation, scope)) return;
         this.previewLoading.set(false);
         if (!hasCitations) {
           this.previewError.set(
@@ -714,6 +730,17 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
         }
       },
     });
+  }
+
+  private previewRequestIsCurrent(
+    generation: number,
+    scope: WorkspaceRequestScope,
+  ): boolean {
+    return (
+      generation === this.previewGeneration
+      && this.open()
+      && this.workspace.isRequestScopeCurrent(scope)
+    );
   }
 
   private shouldUseCitationPreview(blob: Blob): boolean {
@@ -755,6 +782,8 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener('agentium:assistant-draft-open', this.openListener);
+    this.unregisterContextReset();
+    this.cancel();
   }
 
   draftKind(): string {
@@ -791,8 +820,10 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   validate(): void {
     const payload = this.payload();
     if (!payload) return;
+    const scope = this.workspace.captureRequestScope();
     this.submitting.set(true);
-    this.api
+    this.validationSubscription?.unsubscribe();
+    this.validationSubscription = this.api
       .post<DraftValidationResponse>('/mission-room/actions/draft', {
         target_id: payload.target_id,
         target_type: payload.target_type,
@@ -805,11 +836,13 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
       })
       .subscribe({
         next: (response) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.submitting.set(false);
           this.toast.success(response.title || 'Instruction advisory enregistree', 'Validation');
           this.cancel();
         },
         error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.submitting.set(false);
           this.toast.error('Validation advisory indisponible pour le moment.', 'Brouillon');
         },
@@ -831,6 +864,11 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   }
 
   cancel(): void {
+    this.previewGeneration += 1;
+    this.previewSubscription?.unsubscribe();
+    this.previewSubscription = null;
+    this.validationSubscription?.unsubscribe();
+    this.validationSubscription = null;
     this.revokePreviewBlobUrl();
     this.previewLoading.set(false);
     this.previewError.set(null);

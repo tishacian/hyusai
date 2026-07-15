@@ -537,7 +537,11 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
             slug=slug,
             name=name,
             mode="portfolio",
-            settings={"showcase_seed": True, "persona_nav": "full"},
+            settings={
+                "showcase_seed": True,
+                "persona_nav": "full",
+                "features": {"cockpit_router_axes_v3": True},
+            },
         )
         db.add(ws)
         db.commit()
@@ -545,7 +549,18 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
     else:
         ws.name = name
         ws.mode = "portfolio"
-        ws.settings = {**(ws.settings or {}), "showcase_seed": True, "persona_nav": "full"}
+        current_settings = dict(ws.settings or {})
+        raw_features = current_settings.get("features")
+        current_features = dict(raw_features) if isinstance(raw_features, dict) else {}
+        ws.settings = {
+            **current_settings,
+            "showcase_seed": True,
+            "persona_nav": "full",
+            "features": {
+                **current_features,
+                "cockpit_router_axes_v3": True,
+            },
+        }
         db.commit()
     return ws
 

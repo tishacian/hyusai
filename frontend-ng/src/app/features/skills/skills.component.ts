@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, forkJoin, map, of } from 'rxjs';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
@@ -9,8 +10,17 @@ import {
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
+
+interface SkillsScope {
+  readonly capabilityId: string | null;
+  readonly systemId: string | null;
+  readonly runId: string | null;
+}
 
 @Component({
   selector: 'app-skills',
@@ -115,7 +125,11 @@ type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
                   <div class="flex items-center gap-2">
                     <span class="text-sm text-white font-medium truncate">{{ sk.name }}</span>
                     <a
-                      [routerLink]="['/skills', sk.id]"
+                      [routerLink]="navigation.objectUrlTree('skill', sk.slug, {
+                        capabilityId: navigation.capabilityId(),
+                        systemId: navigation.systemId(),
+                        runId: navigation.runId()
+                      })"
                       (click)="$event.stopPropagation()"
                       class="ck-mono"
                       style="font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4); border:1px solid var(--ck-stroke-soft); padding:2px 6px; border-radius:3px; text-decoration:none;"
@@ -246,8 +260,20 @@ type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
     </ck-page-frame>
   `,
 })
-export class SkillsComponent implements OnInit {
+export class SkillsComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly workspace = inject(WorkspaceService);
+  protected readonly navigation = inject(ZoomContextService);
+  private routeSubscription: Subscription | null = null;
+  private contextRefreshSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private currentScope: SkillsScope = { capabilityId: null, systemId: null, runId: null };
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentScope(),
+  );
 
   readonly certs: { id: CertFilter; label: string }[] = [
     { id: 'all', label: 'ALL' },
@@ -305,10 +331,129 @@ export class SkillsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.canonical.listSkills().subscribe((list) => {
-      this.skills.set(list);
-      this.loading.set(false);
+    this.routeSubscription = this.route.queryParamMap.pipe(
+      map((params) => this.effectiveScope(
+        params.get('capabilityId'),
+        params.get('systemId'),
+        params.get('runId'),
+      )),
+      distinctUntilChanged((a, b) => (
+        a.capabilityId === b.capabilityId
+        && a.systemId === b.systemId
+        && a.runId === b.runId
+      )),
+    ).subscribe((scope) => {
+      this.currentScope = scope;
+      this.resetResults();
+      this.loadScope(scope);
     });
+    this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
+      const params = this.route.snapshot.queryParamMap;
+      const next = this.effectiveScope(
+        params.get('capabilityId'),
+        params.get('systemId'),
+        params.get('runId'),
+      );
+      if (this.sameScope(next, this.currentScope)) return;
+      this.currentScope = next;
+      this.resetResults();
+      this.loadScope(next);
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.contextRefreshSubscription?.unsubscribe();
+    this.contextRefreshSubscription = null;
+    this.workspaceView.destroy();
+  }
+
+  private loadScope(scope: SkillsScope): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    const request = this.workspaceView.beginRequest();
+    this.loading.set(true);
+    const subscription = forkJoin({
+      skills: this.canonical.listSkills(),
+      capability: scope.capabilityId ? this.canonical.getCapability(scope.capabilityId) : of(null),
+      system: scope.systemId ? this.canonical.getSystem(scope.systemId) : of(null),
+      run: scope.runId ? this.canonical.getRun(scope.runId) : of(null),
+    }).subscribe({
+      next: ({ skills, capability, system, run }) => {
+      if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
+      let scoped = skills;
+      if (scope.runId) {
+        const slugs = new Set((run?.skill_invocations ?? []).map((item) => item.skill_slug).filter(Boolean));
+        const ids = new Set((run?.skill_invocations ?? []).map((item) => item.skill_id).filter(Boolean));
+        scoped = run
+          ? skills.filter((skill) => slugs.has(skill.slug) || ids.has(skill.id))
+          : [];
+      } else if (scope.systemId) {
+        const ids = new Set(system?.skill_ids ?? []);
+        scoped = system ? skills.filter((skill) => ids.has(skill.id)) : [];
+      } else if (scope.capabilityId) {
+        const ids = new Set(capability?.skill_ids ?? []);
+        scoped = capability ? skills.filter((skill) => ids.has(skill.id)) : [];
+      }
+      this.skills.set(scoped);
+      this.selected.set(null);
+      this.loading.set(false);
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
+        this.skills.set([]);
+        this.selected.set(null);
+        this.loading.set(false);
+      },
+    });
+    this.requestSubscription = subscription.closed ? null : subscription;
+  }
+
+  private effectiveScope(
+    capabilityId: string | null,
+    systemId: string | null,
+    runId: string | null,
+  ): SkillsScope {
+    if (!this.navigation.axesV3Enabled()) {
+      return { capabilityId: null, systemId: null, runId: null };
+    }
+    return { capabilityId, systemId, runId };
+  }
+
+  private reloadCurrentScope(): void {
+    const params = this.route.snapshot.queryParamMap;
+    this.currentScope = this.effectiveScope(
+      params.get('capabilityId'),
+      params.get('systemId'),
+      params.get('runId'),
+    );
+    this.loadScope(this.currentScope);
+  }
+
+  private resetResults(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.skills.set([]);
+    this.selected.set(null);
+    this.loading.set(false);
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.skills.set([]);
+    this.selected.set(null);
+    this.loading.set(false);
+  }
+
+  private sameScope(a: SkillsScope, b: SkillsScope): boolean {
+    return (
+      a.capabilityId === b.capabilityId
+      && a.systemId === b.systemId
+      && a.runId === b.runId
+    );
   }
 
   execRows(sk: Skill): Array<{ k: string; v: string }> {

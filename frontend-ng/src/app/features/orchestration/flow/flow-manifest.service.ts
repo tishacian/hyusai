@@ -19,11 +19,13 @@
  * loaded flow is never spuriously marked dirty).
  */
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import {
   CanonicalApiService,
   type FlowManifestUnit,
   type FlowRuntimeManifest,
 } from '@app/core/canonical-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 export interface NodeRuntimeStatus {
   /** bound | stub | unbound | manifest_only | catalog_only (backend verbatim). */
@@ -35,14 +37,26 @@ export interface NodeRuntimeStatus {
 @Injectable({ providedIn: 'root' })
 export class FlowManifestService {
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private readonly _manifest = signal<FlowRuntimeManifest | null>(null);
   private readonly _systemId = signal<string | null>(null);
   /** systemId already fetched / in-flight — dedups the N node callers. */
   private requestedSystemId: string | null = null;
+  private request: Subscription | null = null;
 
   readonly manifest = this._manifest.asReadonly();
   readonly systemId = this._systemId.asReadonly();
+
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      this.request?.unsubscribe();
+      this.request = null;
+      this.requestedSystemId = null;
+      this._systemId.set(null);
+      this._manifest.set(null);
+    });
+  }
 
   private readonly unitsById = computed<Map<string, FlowManifestUnit>>(() => {
     const map = new Map<string, FlowManifestUnit>();
@@ -79,9 +93,16 @@ export class FlowManifestService {
   }
 
   private fetch(systemId: string): void {
-    this.canonical.getSystemFlowManifest(systemId).subscribe((manifest) => {
+    const scope = this.workspace.captureRequestScope();
+    this.request?.unsubscribe();
+    this.request = this.canonical.getSystemFlowManifest(systemId).subscribe((manifest) => {
       // Guard against a system switch landing before this response.
-      if (this.requestedSystemId === systemId) this._manifest.set(manifest);
+      if (
+        this.requestedSystemId === systemId &&
+        this.workspace.isRequestScopeCurrent(scope)
+      ) {
+        this._manifest.set(manifest);
+      }
     });
   }
 

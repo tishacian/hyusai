@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, forkJoin, map } from 'rxjs';
 import { CanonicalApiService, Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import {
@@ -12,6 +13,9 @@ import {
   TagComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 interface AgentStats {
   runs: number;
@@ -227,7 +231,9 @@ interface Template {
         <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(340px, 1fr))'" [style.gap.px]="12">
           @for (agent of agents(); track agent.id) {
             <a
-              [routerLink]="[agent.id]"
+              [routerLink]="navigation.objectUrlTree('system', agent.id, {
+                capabilityId: navigation.capabilityId()
+              })"
               [style.position]="'relative'"
               [style.display]="'flex'"
               [style.flexDirection]="'column'"
@@ -307,11 +313,23 @@ interface Template {
     </ck-page-frame>
   `,
 })
-export class SystemsGridComponent implements OnInit {
+export class SystemsGridComponent implements OnInit, OnDestroy {
   protected readonly store = inject(SystemsStore);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
+  protected readonly navigation = inject(ZoomContextService);
   protected readonly i18n = inject(I18nService);
+  private currentCapabilityId: string | null = null;
+  private routeSubscription: Subscription | null = null;
+  private contextRefreshSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentScope(),
+  );
 
   prompt = '';
   private readonly runs = signal<Run[]>([]);
@@ -367,12 +385,31 @@ export class SystemsGridComponent implements OnInit {
   ];
 
   ngOnInit(): void {
-    this.store.load().subscribe();
-    // Canonical `/runs` — the legacy `/traces/traces` alias is deprecated.
-    this.canonical.listRuns().subscribe({
-      next: (rows) => this.runs.set(rows ?? []),
-      error: () => this.runs.set([]),
+    this.routeSubscription = this.route.queryParamMap.pipe(
+      map((params) => this.effectiveCapabilityId(params.get('capabilityId'))),
+      distinctUntilChanged(),
+    ).subscribe((capabilityId) => {
+      this.currentCapabilityId = capabilityId;
+      this.resetResults();
+      this.loadScope(capabilityId);
     });
+    this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
+      const next = this.effectiveCapabilityId(
+        this.route.snapshot.queryParamMap.get('capabilityId'),
+      );
+      if (next === this.currentCapabilityId) return;
+      this.currentCapabilityId = next;
+      this.resetResults();
+      this.loadScope(next);
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.contextRefreshSubscription?.unsubscribe();
+    this.contextRefreshSubscription = null;
+    this.workspaceView.destroy();
   }
 
   applyTemplate(tpl: Template): void {
@@ -402,5 +439,60 @@ export class SystemsGridComponent implements OnInit {
     // Legacy helper, retained for back-compat with any remaining callers; the
     // grid now renders a single canonical glyph.
     return 'cube';
+  }
+
+  private loadScope(capabilityId: string | null): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    const request = this.workspaceView.beginRequest();
+    const subscription = forkJoin({
+      systems: this.store.load({ capabilityId }),
+      // Canonical `/runs` — the legacy `/traces/traces` alias is deprecated.
+      runs: this.canonical.listRuns(capabilityId ? { capability_id: capabilityId } : undefined),
+    }).subscribe({
+      next: ({ runs }) => {
+        if (
+          !this.workspaceView.isCurrent(request)
+          || capabilityId !== this.currentCapabilityId
+        ) {
+          return;
+        }
+        this.runs.set(runs ?? []);
+      },
+      error: () => {
+        if (
+          !this.workspaceView.isCurrent(request)
+          || capabilityId !== this.currentCapabilityId
+        ) {
+          return;
+        }
+        this.runs.set([]);
+      },
+    });
+    this.requestSubscription = subscription.closed ? null : subscription;
+  }
+
+  private effectiveCapabilityId(capabilityId: string | null): string | null {
+    return this.navigation.axesV3Enabled() ? capabilityId : null;
+  }
+
+  private reloadCurrentScope(): void {
+    this.currentCapabilityId = this.effectiveCapabilityId(
+      this.route.snapshot.queryParamMap.get('capabilityId'),
+    );
+    this.loadScope(this.currentCapabilityId);
+  }
+
+  private resetResults(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.runs.set([]);
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.runs.set([]);
   }
 }

@@ -11,27 +11,47 @@
  * the result. The single in-flight request is shared + replayed so every
  * palette instance reuses one fetch.
  */
-import { Injectable, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { map, shareReplay } from 'rxjs';
+import { Injectable, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { skillToPaletteItem, type PaletteItem } from './flow.types';
 
 @Injectable({ providedIn: 'root' })
 export class FlowCatalogService {
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private request: Subscription | null = null;
+  private readonly _skillItems = signal<PaletteItem[]>([]);
 
-  private readonly skills$ = this.canonical.listSkills().pipe(
-    map((skills) =>
-      skills
-        .map((skill) => skillToPaletteItem(skill))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    ),
-    shareReplay({ bufferSize: 1, refCount: false }),
-  );
+  readonly skillItems = this._skillItems.asReadonly();
 
-  /** Skill palette entries, async-loaded ([] until the first response). */
-  readonly skillItems = toSignal(this.skills$, {
-    initialValue: [] as PaletteItem[],
-  });
+  constructor() {
+    this.load();
+    this.workspace.registerContextReset((transition) => {
+      this.request?.unsubscribe();
+      this.request = null;
+      this._skillItems.set([]);
+      queueMicrotask(() => {
+        if (this.workspace.contextEpoch() === transition.nextEpoch) this.load();
+      });
+    });
+  }
+
+  private load(): void {
+    const scope = this.workspace.captureRequestScope();
+    this.request = this.canonical.listSkills().subscribe({
+      next: (skills) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this._skillItems.set(
+          skills
+            .map((skill) => skillToPaletteItem(skill))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        );
+      },
+      error: () => {
+        if (this.workspace.isRequestScopeCurrent(scope)) this._skillItems.set([]);
+      },
+    });
+  }
 }

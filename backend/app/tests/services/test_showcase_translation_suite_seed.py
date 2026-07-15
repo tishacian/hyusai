@@ -7,7 +7,67 @@ from app.models.audit import AuditLog
 from app.models.context import Context
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
+from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+
+
+def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session):
+    slug = "agentium-showcase-portfolio-contract-test"
+
+    created = seed.ensure_workspace(db_session, slug, "Agentium Showcase Portfolio Contract")
+
+    assert created.mode == "portfolio"
+    assert created.settings == {
+        "showcase_seed": True,
+        "persona_nav": "full",
+        "features": {"cockpit_router_axes_v3": True},
+    }
+
+    workspace_id = created.id
+    created.mode = "builder"
+    created.settings = {
+        "showcase_seed": False,
+        "persona_nav": "operator-override",
+        "features": {"chat_document_upload": False},
+        "operator_preferences": {"density": "compact"},
+        "custom_flag": "preserve-me",
+    }
+    db_session.commit()
+
+    reconciled = seed.ensure_workspace(db_session, slug, "Agentium Showcase Reconciled")
+
+    assert reconciled.id == workspace_id
+    assert reconciled.name == "Agentium Showcase Reconciled"
+    assert reconciled.mode == "portfolio"
+    assert reconciled.settings == {
+        "showcase_seed": True,
+        "persona_nav": "full",
+        "features": {
+            "chat_document_upload": False,
+            "cockpit_router_axes_v3": True,
+        },
+        "operator_preferences": {"density": "compact"},
+        "custom_flag": "preserve-me",
+    }
+
+    expected_settings = dict(reconciled.settings)
+    db_session.expire_all()
+    reconciled_again = seed.ensure_workspace(db_session, slug, "Agentium Showcase Reconciled")
+
+    assert reconciled_again.id == workspace_id
+    assert reconciled_again.mode == "portfolio"
+    assert reconciled_again.settings == expected_settings
+    assert db_session.query(Workspace).filter(Workspace.slug == slug).count() == 1
+
+    reconciled_again.settings = {"features": "malformed", "custom_flag": "keep"}
+    db_session.commit()
+    malformed = seed.ensure_workspace(db_session, slug, "Agentium Showcase Reconciled")
+    assert malformed.settings == {
+        "showcase_seed": True,
+        "persona_nav": "full",
+        "features": {"cockpit_router_axes_v3": True},
+        "custom_flag": "keep",
+    }
 
 
 def test_showcase_seed_builds_pmi_translation_suite_story(db_session):

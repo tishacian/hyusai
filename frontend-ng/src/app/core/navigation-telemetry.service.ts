@@ -9,16 +9,14 @@ import {
 } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ApiService } from './api.service';
-import { AGENTIUM_SURFACE_ROUTES } from './navigation.catalog';
+import { AGENTIUM_SURFACE_ROUTES, matchAgentiumSurface } from './navigation.catalog';
 import { WorkspaceService } from './workspace.service';
 
 export const NAVIGATION_RESOLVED_EVENT = 'navigation.resolved';
 
 export type NavigationResolutionOwner =
   | 'angular_router'
-  | 'navigation_profile'
-  | 'workspace_shell'
-  | 'workspace_entrypoint';
+  | 'navigation_resolver';
 
 export type NavigationRedirectReason =
   | 'direct'
@@ -32,7 +30,7 @@ export type NavigationRedirectReason =
 export interface NavigationRedirectDecision {
   requestedRoute: string;
   resolvedRoute: string;
-  owner: Exclude<NavigationResolutionOwner, 'angular_router'>;
+  owner: 'navigation_resolver';
   reason: Exclude<NavigationRedirectReason, 'direct' | 'angular_route_redirect'>;
 }
 
@@ -155,27 +153,7 @@ export function privacySafeNavigationRoute(value: string): string {
 /** Resolve a stable surface id from the existing Agentium surface catalog. */
 export function navigationSurfaceForRoute(value: string): string {
   const path = privacySafeNavigationRoute(value);
-
-  // These workbenches own a route family whose catalog entry is a concrete
-  // canonical entry point rather than the common prefix.
-  if (path === '/hypervisor/mission-room' || path.startsWith('/hypervisor/mission-room/')) {
-    return 'mission-room';
-  }
-  if (/^\/systems\/[^/]+\/capture(?:\/|$)/.test(path)) return 'system-capture';
-
-  const pathSegments = path.split('/').filter(Boolean);
-  const catalog = [...AGENTIUM_SURFACE_ROUTES].sort(
-    (left, right) => right.route.split('/').length - left.route.split('/').length,
-  );
-  for (const surface of catalog) {
-    const routeSegments = surface.route.split('/').filter(Boolean);
-    if (pathSegments.length < routeSegments.length) continue;
-    const matches = routeSegments.every((segment, index) =>
-      segment.startsWith(':') || segment === pathSegments[index],
-    );
-    if (matches) return surface.id;
-  }
-  return 'unknown';
+  return matchAgentiumSurface(path)?.id ?? 'unknown';
 }
 
 /**
@@ -194,6 +172,15 @@ export class NavigationTelemetryService implements OnDestroy {
   private requestedRoute = '/';
   private pendingRedirect: NavigationRedirectDecision | null = null;
   private deferredDetails: DeferredNavigationDetails | null = null;
+  private readonly unregisterContextReset: () => void;
+
+  constructor() {
+    this.unregisterContextReset = this.workspace.registerContextReset(() => {
+      this.pendingRedirect = null;
+      this.deferredDetails = null;
+      this.requestedRoute = privacySafeNavigationRoute(this.router.url || '/');
+    });
+  }
 
   start(): void {
     if (this.subscription) return;
@@ -248,6 +235,7 @@ export class NavigationTelemetryService implements OnDestroy {
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
     this.subscription = null;
+    this.unregisterContextReset();
   }
 
   private emitResolved(event: NavigationEnd): void {

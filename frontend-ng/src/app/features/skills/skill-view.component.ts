@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -15,8 +16,9 @@ import {
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 import { LensService } from '@app/core/lens';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
 /**
  * `SkillViewComponent` — detail page for a single Skill.
@@ -114,8 +116,15 @@ import { LensService } from '@app/core/lens';
 export class SkillViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly canonical = inject(CanonicalApiService);
-  private readonly zoom = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
   readonly lensService = inject(LensService);
+  private routeSubscription: Subscription | null = null;
+  private requestSubscription: Subscription | null = null;
+  private readonly workspaceView = new WorkspaceViewContext(
+    this.workspace,
+    () => this.resetWorkspaceState(),
+    () => this.reloadCurrentSkill(),
+  );
 
   skillId = '';
   readonly skill = signal<Skill | null>(null);
@@ -152,19 +161,60 @@ export class SkillViewComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    this.skillId = this.route.snapshot.paramMap.get('skillId') ?? '';
-    this.zoom.setCurrentSkill(this.skillId || null);
-    if (this.skillId) {
-      this.canonical.getSkill(this.skillId).subscribe((s) => this.skill.set(s));
-    }
+    this.routeSubscription = this.route.paramMap.pipe(
+      map((params) => params.get('skillId') ?? ''),
+      distinctUntilChanged(),
+    ).subscribe((skillId) => {
+      this.skillId = skillId;
+      this.resetSkillResult();
+      this.reloadCurrentSkill();
+    });
   }
 
   ngOnDestroy(): void {
-    this.zoom.setCurrentSkill(null);
+    this.routeSubscription?.unsubscribe();
+    this.routeSubscription = null;
+    this.workspaceView.destroy();
   }
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SkillTabId);
+  }
+
+  private reloadCurrentSkill(): void {
+    const skillId = this.skillId || this.route.snapshot.paramMap.get('skillId') || '';
+    if (!skillId) {
+      this.skill.set(null);
+      return;
+    }
+    this.skillId = skillId;
+    const request = this.workspaceView.beginRequest();
+    const subscription = this.canonical.getSkill(skillId).subscribe({
+      next: (skill) => {
+        if (!this.workspaceView.isCurrent(request) || skillId !== this.skillId) return;
+        this.skill.set(skill);
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request) || skillId !== this.skillId) return;
+        this.skill.set(null);
+      },
+    });
+    this.requestSubscription = subscription.closed ? null : subscription;
+  }
+
+  private resetSkillResult(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.workspaceView.invalidate();
+    this.skill.set(null);
+  }
+
+  private resetWorkspaceState(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
+    this.skill.set(null);
+    this.activeTab.set('overview');
+    this.specPanelOpen.set(false);
   }
 
   private runtimeTone(status: string | undefined): 'pos' | 'warn' | 'neg' | 'neutral' {

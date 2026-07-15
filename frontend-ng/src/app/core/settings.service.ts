@@ -1,5 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ApiService } from './api.service';
+import { WorkspaceService } from './workspace.service';
+import {
+  readWorkspaceLocalJson,
+  writeWorkspaceLocalJson,
+} from './workspace-local-storage';
 
 /**
  * Canonical shape of the settings payload exposed by `GET /api/v1/settings`.
@@ -59,6 +64,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private readonly _settings = signal<AppSettings>(this.readLocal());
   readonly settings = this._settings.asReadonly();
@@ -72,11 +78,18 @@ export class SettingsService {
   readonly maxTokens = computed(() => this._settings().maxTokens ?? 2000);
   readonly showReasoningTraces = computed(() => this._settings().showReasoningTraces ?? true);
 
+  constructor() {
+    this.workspace.registerContextReset((transition) => {
+      this._settings.set(this.readLocal(transition.nextSlug));
+    });
+  }
+
   /** Fire-and-forget fetch; backend is authoritative when reachable. */
   refresh(): void {
+    const scope = this.workspace.captureRequestScope();
     this.api.get<{ settings: AppSettings }>('/settings').subscribe({
       next: (res) => {
-        if (res?.settings) {
+        if (res?.settings && this.workspace.isRequestScopeCurrent(scope)) {
           const merged = { ...DEFAULT_SETTINGS, ...res.settings };
           this._settings.set(merged);
           this.writeLocal(merged);
@@ -96,21 +109,25 @@ export class SettingsService {
     this.api.post('/settings', { settings: patch }).subscribe({ error: () => {} });
   }
 
-  private readLocal(): AppSettings {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return { ...DEFAULT_SETTINGS };
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-    } catch {
-      return { ...DEFAULT_SETTINGS };
-    }
+  private readLocal(slug = this.workspace.currentSlug()): AppSettings {
+    const cached = readWorkspaceLocalJson<AppSettings>({
+      storage: localStorage,
+      baseKey: LS_KEY,
+      workspaceSlug: slug,
+      knownWorkspaceSlugs: this.workspace.workspaces().map((workspace) => workspace.slug),
+      isValue: isSettingsValue,
+      // UI preferences are non-sensitive and can be retained when a sole
+      // known workspace makes their origin unambiguous enough for UX.
+      allowUntaggedLegacyForSoleWorkspace: true,
+    });
+    return cached ? { ...DEFAULT_SETTINGS, ...cached } : { ...DEFAULT_SETTINGS };
   }
 
   private writeLocal(s: AppSettings): void {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(s));
-    } catch {
-      /* quota exceeded — ignore */
-    }
+    writeWorkspaceLocalJson(localStorage, LS_KEY, this.workspace.currentSlug(), s);
   }
+}
+
+function isSettingsValue(value: unknown): value is AppSettings {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

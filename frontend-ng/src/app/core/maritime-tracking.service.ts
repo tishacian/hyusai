@@ -1,7 +1,8 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, ReplaySubject, of } from 'rxjs';
-import { catchError, shareReplay, tap } from 'rxjs/operators';
+import { catchError, filter, shareReplay, tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
+import { WorkspaceService } from './workspace.service';
 
 export interface VesselPosition {
   mmsi: string;
@@ -52,6 +53,7 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
 @Injectable({ providedIn: 'root' })
 export class MaritimeTrackingService {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly cache = new Map<string, Observable<MaritimeVesselsSnapshot>>();
   private readonly latestSubject = new ReplaySubject<MaritimeVesselsSnapshot>(1);
   private readonly selectedVesselSignal = signal<VesselPosition | null>(null);
@@ -59,12 +61,21 @@ export class MaritimeTrackingService {
   /** Last vessel picked on any map (cockpit preview, Mission Control, strategie). */
   readonly selectedVessel = this.selectedVesselSignal.asReadonly();
 
+  constructor() {
+    this.workspace.registerContextReset(() => {
+      this.cache.clear();
+      this.selectedVesselSignal.set(null);
+      this.latestSubject.next(this.emptySnapshot());
+    });
+  }
+
   /**
    * Returns the cached snapshot for the given bbox + limit. Subsequent
    * subscribers receive the replayed value without re-fetching.
    */
   getSnapshot(bbox: string = DEFAULT_BBOX, limit = 50): Observable<MaritimeVesselsSnapshot> {
-    const key = `${bbox}|${limit}`;
+    const scope = this.workspace.captureRequestScope();
+    const key = `${scope.workspaceSlug ?? 'unscoped'}|${scope.epoch}|${bbox}|${limit}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
     const stream$ = this.api
@@ -81,7 +92,12 @@ export class MaritimeTrackingService {
             attribution: null,
           }),
         ),
-        tap((snapshot) => this.latestSubject.next(snapshot)),
+        // The cached observable itself is public; guarding only latestSubject
+        // still leaked a late A snapshot directly to subscribers after A→B.
+        filter(() => this.workspace.isRequestScopeCurrent(scope)),
+        tap((snapshot) => {
+          this.latestSubject.next(snapshot);
+        }),
         shareReplay({ bufferSize: 1, refCount: false }),
       );
     this.cache.set(key, stream$);
@@ -97,5 +113,14 @@ export class MaritimeTrackingService {
 
   clearSelection(): void {
     this.selectedVesselSignal.set(null);
+  }
+
+  private emptySnapshot(): MaritimeVesselsSnapshot {
+    return {
+      vessels: [],
+      source: 'workspace-switch',
+      provider: 'workspace-switch',
+      attribution: null,
+    };
   }
 }
