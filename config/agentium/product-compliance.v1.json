@@ -1,0 +1,1032 @@
+{
+  "schema_version": 1,
+  "title": "Agentium product compliance contract",
+  "generated": {
+    "matrix_path": "docs/agentium-compliance-matrix.md",
+    "mental_model_path": "docs/mental-model.md",
+    "mental_model_begin": "<!-- BEGIN GENERATED: AGENTIUM PRODUCT COMPLIANCE -->",
+    "mental_model_end": "<!-- END GENERATED: AGENTIUM PRODUCT COMPLIANCE -->"
+  },
+  "governed_docs": [
+    "docs/mental-model.md"
+  ],
+  "workspace_slug_branch_inventory": {
+    "schema_version": 1,
+    "identity_literals": [
+      "andritz",
+      "sentinel-ci",
+      "octocity-mission-room",
+      "agentium-showcase",
+      "showcase"
+    ],
+    "scan_roots": [
+      "backend/app",
+      "frontend-ng/src/app"
+    ],
+    "exclude_paths": [
+      "backend/app/tests",
+      "backend/app/cli"
+    ],
+    "exclude_suffixes": [
+      ".spec.ts"
+    ],
+    "entries": [
+      {
+        "path": "backend/app/services/mission_room.py",
+        "expression": "Workspace.slug == OCTOCITY_WORKSPACE_SLUG",
+        "occurrences": 1,
+        "category": "provisioning_identity",
+        "reason": "The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead."
+      },
+      {
+        "path": "backend/app/services/mission_room.py",
+        "expression": "Workspace.slug == SENTINEL_WORKSPACE_SLUG",
+        "occurrences": 1,
+        "category": "provisioning_identity",
+        "reason": "The explicit, idempotent Sentinel provisioning command locates the workspace identity it owns; runtime behavior is family/profile/action-pack driven."
+      }
+    ]
+  },
+  "claims": [
+    {
+      "id": "LOT0-BASELINE-CONTRACT",
+      "lot": 0,
+      "title": "Workspace experience baseline is explicit and regression-tested",
+      "kind": "governance",
+      "description": "The pre-migration Andritz, Showcase, Sentinel and Octocity contracts are recorded without embedding credentials, and have live/backend contract tests.",
+      "mental_model_sections": [
+        "0",
+        "34"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Lot 0 navigation baseline",
+            "path": "docs/agentium-navigation-lot-0-baseline.md",
+            "contains": [
+              "# Agentium navigation — Lot 0 contract baseline",
+              "X-Workspace-Slug: andritz",
+              "## Contrat Showcase, Sentinel et Octocity"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Andritz surface access contract",
+            "path": "backend/app/tests/api/test_andritz_surface_access_contract.py",
+            "contains": [
+              "Lot 0 contract tests for the three active Andritz business surfaces",
+              "X-Workspace-Slug"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Live workspace experience contract",
+            "path": "frontend-ng/e2e/tests/09-live-workspace-contract.spec.ts",
+            "contains": [
+              "Lot 0 — live workspace experience contract",
+              "X-Workspace-Slug"
+            ],
+            "runner": "playwright"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT1-STABILITY-CONTRACT",
+      "lot": 1,
+      "title": "Workspace navigation remains stable across retries, rails and switches",
+      "kind": "frontend",
+      "description": "The workspace header survives retry, one resolver owns redirects, the expanded rail overlays a fixed slot, Client360 stays in Operate, and workspace context changes are atomic.",
+      "mental_model_sections": [
+        "5bis",
+        "34",
+        "38"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Workspace-scoped authentication retry",
+            "path": "frontend-ng/src/app/core/auth.interceptor.ts",
+            "contains": [
+              "return handle401(authReq, next, refreshCoordinator)",
+              "req.clone({ setHeaders: { Authorization: authorization } })"
+            ]
+          },
+          {
+            "label": "Single navigation redirect owner",
+            "path": "frontend-ng/src/app/core/navigation-resolver.service.ts",
+            "contains": [
+              "Single owner for policy-driven navigation redirects",
+              "owner: 'navigation_resolver'"
+            ]
+          },
+          {
+            "label": "Constant rail layout slot with overlay expansion",
+            "path": "frontend-ng/src/app/features/layout/side-rail.component.ts",
+            "contains": [
+              "flex: 0 0 56px",
+              "position: absolute",
+              ".ck-rail-expanded",
+              "width: 200px"
+            ]
+          },
+          {
+            "label": "Client360 Operate classification",
+            "path": "frontend-ng/src/app/core/navigation.catalog.ts",
+            "contains": [
+              "id: 'client360-pdr'",
+              "lens: 'operate'"
+            ]
+          },
+          {
+            "label": "Atomic workspace context epoch",
+            "path": "frontend-ng/src/app/core/workspace.service.ts",
+            "contains": [
+              "readonly contextEpoch",
+              "registerContextReset",
+              "this.commitWorkspaceContext(this.workspaces(), slug)"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Workspace request-scope public contract",
+            "path": "frontend-ng/src/app/core/workspace.service.ts",
+            "contains": [
+              "captureRequestScope()",
+              "isRequestScopeCurrent(scope: WorkspaceRequestScope)"
+            ]
+          },
+          {
+            "label": "Five-verb rail implementation",
+            "path": "frontend-ng/src/app/features/layout/side-rail.component.ts",
+            "contains": [
+              "Primary rail — 5 cockpit verbs",
+              "[class.ck-rail-expanded]"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Retry header tests",
+            "path": "frontend-ng/src/app/core/auth.interceptor.spec.ts",
+            "contains": [
+              "401 refresh retry preserves the active X-Workspace-Slug",
+              "explicit workspace header wins over the current workspace and survives retry"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Resolver ownership tests",
+            "path": "frontend-ng/src/app/core/navigation-resolver.service.spec.ts",
+            "contains": [
+              "business policy matrix is owned once and every destination is terminal",
+              "V2 business redirects are executed only by the navigation resolver"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Client360 lens test",
+            "path": "frontend-ng/src/app/core/navigation.catalog.spec.ts",
+            "contains": [
+              "Client360 stays classified under Operate in the standard admin cockpit"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Atomic workspace switch tests",
+            "path": "frontend-ng/src/app/core/workspace.service.spec.ts",
+            "contains": [
+              "workspace switch clears registered context before publishing one new slug/epoch",
+              "a storage write failure cannot split the workspace transaction"
+            ],
+            "runner": "node"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT2-WORKSPACE-EXPERIENCE-RESOLVER",
+      "lot": 2,
+      "title": "Workspace experience resolver is flagged, shadowed and fail-closed",
+      "kind": "frontend",
+      "description": "A pure V2 resolver is gated behind one flag, compared with an independent legacy oracle, and observed through privacy-safe rollout evidence.",
+      "mental_model_sections": [
+        "5bis",
+        "34",
+        "38"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Pure workspace experience model",
+            "path": "frontend-ng/src/app/core/workspace-experience.ts",
+            "contains": [
+              "WORKSPACE_EXPERIENCE_SCHEMA_VERSION = 2",
+              "Independent legacy UI anchors",
+              "MISSION_ROOM_CRITICAL_SCENARIOS"
+            ]
+          },
+          {
+            "label": "Passive shadow runtime",
+            "path": "frontend-ng/src/app/core/workspace-experience-shadow.service.ts",
+            "contains": [
+              "Passive runtime harness for the Lot 2 workspace-experience resolver",
+              "WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Feature-flag integration boundary",
+            "path": "frontend-ng/src/app/core/navigation-profile.service.ts",
+            "contains": [
+              "this.featureEnabled('workspace_experience_v2')",
+              "if (!workspace || !this.workspaceExperienceV2Enabled()) return null",
+              "resolveWorkspaceExperienceV2"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Resolver parity and evidence gates",
+            "path": "frontend-ng/src/app/core/workspace-experience.spec.ts",
+            "contains": [
+              "exported critical matrices are complete and produce parity",
+              "rollout gate opens only with one current valid observed proof per critical scenario",
+              "candidate constant drift cannot move the independent legacy UI oracle"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Shadow fail-closed tests",
+            "path": "frontend-ng/src/app/core/workspace-experience-shadow.service.spec.ts",
+            "contains": [
+              "shadow runtime reports but never applies a divergent legacy decision",
+              "Mission Room observation error is preserved as fail-closed evidence"
+            ],
+            "runner": "node"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT3-COCKPIT-AXES",
+      "lot": 3,
+      "title": "Cockpit lenses preserve object identity and hierarchy",
+      "kind": "frontend",
+      "description": "Hypervisor, Build, Operate, Steer and Govern are projections over stable Capability, System, Run and Skill identities rather than separate object trees.",
+      "mental_model_sections": [
+        "5bis",
+        "35",
+        "39"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Canonical cockpit verb and hierarchy catalog",
+            "path": "frontend-ng/src/app/core/navigation.catalog.ts",
+            "contains": [
+              "COCKPIT_LENSES",
+              "HIERARCHY_SURFACE_IDS",
+              "export const COCKPIT_VERBS"
+            ]
+          },
+          {
+            "label": "Stable object canvas",
+            "path": "frontend-ng/src/app/features/capabilities/capability-view.component.ts",
+            "contains": [
+              "constant across lenses",
+              "LensService.lens()"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Object-aware URL projection",
+            "path": "frontend-ng/src/app/core/navigation.catalog.ts",
+            "contains": [
+              "navigationObjectUrl",
+              "navigationRouteContext",
+              "NavigationAncestry"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Cockpit identity contract",
+            "path": "frontend-ng/src/app/core/navigation.catalog.spec.ts",
+            "contains": [
+              "lens changes preserve Capability, System and Run identity for every cockpit lens",
+              "object builders use canonical locators and business guards match registered surfaces"
+            ],
+            "runner": "node"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT4-SHOWCASE-CANARY-DISCOVERY",
+      "lot": 4,
+      "title": "Showcase canary discovers the live graph instead of a fixed slug",
+      "kind": "governance",
+      "description": "The Playwright canary selects an actual System linked to a Capability and Run, avoiding the retired showcase_contract_risk identifier.",
+      "mental_model_sections": [
+        "5bis",
+        "38"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Auto-discovering Showcase graph canary",
+            "path": "frontend-ng/e2e/tests/10-cockpit-axes-canary.spec.ts",
+            "contains": [
+              "async function discoverShowcaseGraph",
+              "Showcase needs a System linked to a Capability",
+              "/systems?capability_id=",
+              "/runs?system_id="
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Showcase identity/history scenario",
+            "path": "frontend-ng/e2e/tests/10-cockpit-axes-canary.spec.ts",
+            "contains": [
+              "Showcase preserves identity across lenses, scopes, graph breadcrumb and history",
+              "discoverShowcaseGraph(page)"
+            ],
+            "runner": "playwright"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT4-BUSINESS-SHELL-MISSION-EXTENSION",
+      "lot": 4,
+      "title": "Andritz shell and Mission Room are resolver-owned extensions",
+      "kind": "full_stack",
+      "description": "The flagged Andritz business shell keeps its three canonical surfaces while Mission Room is described and gated as an extension without moving its business components.",
+      "mental_model_sections": [
+        "0.4",
+        "5bis",
+        "34"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Three-surface business resolver contract",
+            "path": "frontend-ng/src/app/core/workspace-experience.ts",
+            "contains": [
+              "BUSINESS_PRIMARY_SURFACE_IDS",
+              "'chat'",
+              "'client360-pdr'",
+              "'knowledge-capture'"
+            ]
+          },
+          {
+            "label": "Dependency-free Mission Room extension descriptor",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.ts",
+            "contains": [
+              "MISSION_ROOM_EXTENSION",
+              "apiPrefix: '/api/v1/mission-room'",
+              "feature-local route table"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Mission Room API extension gate",
+            "path": "backend/app/api/v1/endpoints/mission_room.py",
+            "contains": [
+              "MISSION_ROOM_EXTENSION_ID",
+              "Depends(require_workspace_extension(MISSION_ROOM_EXTENSION_ID))"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Business and immersive shell composition",
+            "path": "frontend-ng/src/app/features/layout/shell.component.ts",
+            "contains": [
+              "<app-business-shell-header>",
+              "this.navigationProfile.businessShellActive()",
+              "missionRoomUsesImmersiveShell"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Business resolver URL contract",
+            "path": "frontend-ng/src/app/core/workspace-experience.spec.ts",
+            "contains": [
+              "Andritz member keeps the rendered business experience and hard-coded surface order",
+              "Andritz admin remains standard while admin preview restores business"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Mission Room extension contract",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.spec.ts",
+            "contains": [
+              "MISSION_ROOM_EXTENSION",
+              "missionRoomExtensionState"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Backend extension discovery gate",
+            "path": "backend/app/tests/api/test_mission_room_extension_gate.py",
+            "contains": [
+              "test_generic_workspace_cannot_discover_mission_room",
+              "test_configured_mission_room_profiles_are_allowed_and_presented"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT4-SENTINEL-OCTOCITY-ISOLATION",
+      "lot": 4,
+      "title": "Sentinel and Octocity keep isolated branding and action packs",
+      "kind": "full_stack",
+      "description": "Each Mission Room profile resolves its own assistant, brand and action packs, with explicit cross-vocabulary rejection on backend and frontend.",
+      "mental_model_sections": [
+        "0.4",
+        "30",
+        "38"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Workspace-derived Mission Room presentation",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.ts",
+            "contains": [
+              "assistantLabel",
+              "actionPacks",
+              "configuredProfile"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Workspace-scoped Mission Room endpoints",
+            "path": "backend/app/api/v1/endpoints/mission_room.py",
+            "contains": [
+              "require_workspace_extension",
+              "router = APIRouter"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Mission Room presentation isolation",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.presentation.ts",
+            "contains": [
+              "OCTOCITY_MISSION_ROOM_PROFILE",
+              "SENTINEL_MISSION_ROOM_PROFILE",
+              "findOctocityForbiddenPresentationTerms"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Frontend profile and action-pack isolation",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.spec.ts",
+            "contains": [
+              "Sentinel resolves its own brand, assistant and action packs",
+              "Octocity resolves its own brand, assistant and action packs without Sentinel terms"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Backend profile vocabulary isolation",
+            "path": "backend/app/tests/api/test_mission_room_extension_gate.py",
+            "contains": [
+              "expected_terms",
+              "forbidden_terms",
+              "octocity-mission-room",
+              "sentinel-ci"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT4-ANDRITZ-APP-ENTITLEMENTS",
+      "lot": 4,
+      "title": "Andritz app entitlements are explicit and fully backfilled",
+      "kind": "full_stack",
+      "description": "The three business apps are granted per member, exposed by auth/IAM, enforced by the resolver, and enabled only after an explicit validated Andritz migration backfill.",
+      "mental_model_sections": [
+        "0.2",
+        "33",
+        "34"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Canonical app-entitlement service",
+            "path": "backend/app/services/iam/app_entitlements.py",
+            "contains": [
+              "BUSINESS_APP_KEYS",
+              "normalize_app_entitlements",
+              "lock_workspace_for_app_entitlement_mutation",
+              "replace_member_app_entitlements"
+            ]
+          },
+          {
+            "label": "Validated Andritz entitlement backfill",
+            "path": "backend/alembic/versions/057_workspace_app_entitlements.py",
+            "contains": [
+              "def _backfill_andritz",
+              "Andritz application entitlement backfill incomplete",
+              "_backfill_andritz(op.get_bind())"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Auth membership entitlement API",
+            "path": "backend/app/api/v1/endpoints/auth.py",
+            "contains": [
+              "app_entitlements",
+              "list_member_app_entitlements",
+              "replace_member_app_entitlements"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Frontend membership and resolver entitlement projection",
+            "path": "frontend-ng/src/app/core/workspace.service.ts",
+            "contains": [
+              "WorkspaceAppEntitlement",
+              "app_entitlements_v1",
+              "app_entitlements?: WorkspaceAppEntitlement[]"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Entitlement API contract",
+            "path": "backend/app/tests/api/test_app_entitlements_api.py",
+            "contains": [
+              "test_auth_workspace_payloads_expose_canonical_app_entitlements",
+              "test_iam_update_replaces_entitlements_and_omission_preserves_them",
+              "test_generic_workspace_patch_cannot_enable_app_entitlements",
+              "test_generic_workspace_patch_rechecks_admin_authority_after_lock",
+              "test_iam_member_update_refreshes_caller_authority_after_workspace_lock"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Backfill and fail-closed migration tests",
+            "path": "backend/app/tests/services/test_migration_057_workspace_app_entitlements.py",
+            "contains": [
+              "test_upgrade_backfills_andritz_then_downgrade_restores_flags_exactly",
+              "test_feature_flags_are_not_enabled_when_backfill_validation_fails"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Client360 settings keep endpoint-level admin authorization",
+            "path": "backend/app/tests/api/test_client360_mail_settings_api.py",
+            "contains": [
+              "test_client360_mail_settings_require_admin_even_with_application_access",
+              "test_client360_mail_settings_admin_patch_is_persisted_under_workspace_lock"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT5-WORKSPACE-BLUEPRINT-V2",
+      "lot": 5,
+      "title": "Workspace Blueprint v2 migrates portable experience safely",
+      "kind": "full_stack",
+      "description": "Blueprint v2 exports portable experience and app-access intent, validates actions and isolation, produces a dry-run plan token, and keeps v1 imports compatible.",
+      "mental_model_sections": [
+        "0.2",
+        "30",
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Blueprint v2 service and compatibility boundary",
+            "path": "backend/app/services/workspace_blueprints.py",
+            "contains": [
+              "SCHEMA_VERSION = 2",
+              "SUPPORTED_SCHEMA_VERSIONS",
+              "def _validate_v2_experience",
+              "plan_token",
+              "expected_plan_token",
+              "locked_workspace_guard",
+              "def _mapping_declares_credential",
+              "grant_all_existing_members"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Blueprint validate/apply API",
+            "path": "backend/app/api/v1/endpoints/blueprints.py",
+            "contains": [
+              "@router.post(\"/workspace/validate\")",
+              "@router.post(\"/workspace/apply\")",
+              "plan_token"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Immutable frontend dry-run binding",
+            "path": "frontend-ng/src/app/features/governance/workspace-blueprint-plan.ts",
+            "contains": [
+              "WorkspaceBlueprintPlanBinding",
+              "workspaceBlueprintPlanIsCurrent",
+              "grant_all_existing_members"
+            ]
+          },
+          {
+            "label": "Blueprint governance workbench",
+            "path": "frontend-ng/src/app/features/governance/workspace-blueprints.component.ts",
+            "contains": [
+              "plan_token",
+              "workspaceBlueprintPlanIsCurrent",
+              "'/blueprints/workspace/validate'",
+              "'/blueprints/workspace/apply'"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Backend Blueprint v2 safety contract",
+            "path": "backend/app/tests/services/test_workspace_blueprints.py",
+            "contains": [
+              "test_export_uses_positive_allowlists_and_removes_credential_shaped_config",
+              "test_andritz_round_trip_backfills_all_members_before_entitlement_activation",
+              "test_merge_conflict_replace_idempotence_and_stale_plan_detection",
+              "test_mutating_apply_reauthorizes_immediately_after_workspace_lock",
+              "test_replace_portable_blocks_before_erasing_private_state_in_object_lists"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Frontend stale-plan protection",
+            "path": "frontend-ng/src/app/features/governance/workspace-blueprint-plan.spec.ts",
+            "contains": [
+              "a blueprint dry-run remains applicable only for its exact target and choices",
+              "JSON edits and policy changes invalidate a blueprint plan"
+            ],
+            "runner": "node"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT5-SURFACE-CATALOG-COVERAGE",
+      "lot": 5,
+      "title": "API catalog coverage uses the production router as oracle",
+      "kind": "api",
+      "description": "Every real API prefix, including operational and admin surfaces, must resolve to catalog metadata; a curated mini-router cannot hide gaps.",
+      "mental_model_sections": [
+        "0.2",
+        "15",
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Surface metadata for previously uncovered prefixes",
+            "path": "backend/app/services/surface_catalog.py",
+            "contains": [
+              "\"/api/v1/livekit\"",
+              "\"/api/v1/observability\"",
+              "\"/api/v1/meetings\"",
+              "\"/api/v1/reports\"",
+              "\"/api/v1/admin\""
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Real API router",
+            "path": "backend/app/api/v1/router.py",
+            "contains": [
+              "api_router = APIRouter()",
+              "prefix=\"/livekit\"",
+              "prefix=\"/observability\"",
+              "prefix=\"/meetings\"",
+              "prefix=\"/reports\"",
+              "prefix=\"/admin\""
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Production router coverage test",
+            "path": "backend/app/tests/api/test_surface_catalog.py",
+            "contains": [
+              "test_endpoint_catalog_covers_the_real_api_router",
+              "app.include_router(api_router, prefix=\"/api/v1\")",
+              "assert body[\"uncataloged\"] == []"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT5-CANONICAL-CONTRACTS",
+      "lot": 5,
+      "title": "Canonical workspace contracts replace implicit tenant branching progressively",
+      "kind": "full_stack",
+      "description": "Workspace, System, application and action-pack vocabularies are canonical at database and API boundaries; runtime family and pack resolution is configuration-driven, while remaining slug-specific compatibility debt is explicitly inventoried and drift-gated.",
+      "mental_model_sections": [
+        "0.2",
+        "20",
+        "30",
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Shared canonical backend vocabularies",
+            "path": "backend/app/schemas/canonical.py",
+            "contains": [
+              "class WorkspaceMode(str, Enum)",
+              "class WorkspaceFamily(str, Enum)",
+              "class SystemStatus(str, Enum)",
+              "class ExecutionMode(str, Enum)",
+              "class WorkspaceApp(str, Enum)"
+            ]
+          },
+          {
+            "label": "Canonical action-pack contract and derived registry",
+            "path": "backend/app/services/actions/registry.py",
+            "contains": [
+              "ActionPack.octave_mission_room_v1.value",
+              "if tuple(PACKS) != ACTION_PACK_IDS",
+              "def _workspace_default_packs",
+              "def _capability_template_packs"
+            ]
+          },
+          {
+            "label": "Fail-safe stamped workspace family resolver",
+            "path": "backend/app/services/workspace_features.py",
+            "contains": [
+              "KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)",
+              "code must never infer a business specialization from a mutable slug or name",
+              "return WorkspaceFamily.generic.value"
+            ]
+          },
+          {
+            "label": "Reversible one-shot canonical backfill",
+            "path": "backend/alembic/versions/058_canonical_workspace_system_contracts.py",
+            "contains": [
+              "def _legacy_workspace_family",
+              "def _stamp_workspace_contracts",
+              "def _restore_workspace_contracts",
+              "_audit_action_pack_configs(bind)"
+            ]
+          },
+          {
+            "label": "Versioned residual slug-debt gate",
+            "path": "scripts/agentium_compliance.py",
+            "contains": [
+              "discover_workspace_slug_branches",
+              "validate_workspace_slug_branch_inventory",
+              "Workspace slug branch inventory drift",
+              "Residual workspace-slug branch debt"
+            ]
+          },
+          {
+            "label": "Lot 5 canonical cleanup and rollout contract",
+            "path": "docs/agentium-navigation-lot-5-cleanup-governance.md",
+            "contains": [
+              "# Agentium — Lot 5 : nettoyage et gouvernance",
+              "Les branches de slug résiduelles ne sont pas déclarées « disparues ».",
+              "restent volontairement scannés comme du code runtime.",
+              "la promotion formelle reste désactivée jusqu'à ce qu'un collecteur CI"
+            ]
+          },
+          {
+            "label": "Database-aware immutable image rollback",
+            "path": "scripts/deploy-vm.sh",
+            "contains": [
+              "printf 'format\\t2\\n'",
+              "printf 'database_revision\\t%s\\n'",
+              "actual_database_revision=\"$(current_database_revision)\"",
+              "Rollback images refusé"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Workspace mutation schema canonicalization",
+            "path": "backend/app/api/v1/endpoints/auth.py",
+            "contains": [
+              "from app.schemas.canonical import WorkspaceFamily, WorkspaceMode",
+              "return normalize_workspace_action_pack_settings(normalized)",
+              "class WorkspaceModeUpdate(BaseModel)"
+            ]
+          },
+          {
+            "label": "System mutation schema canonicalization",
+            "path": "backend/app/api/v1/endpoints/systems.py",
+            "contains": [
+              "from app.schemas.canonical import ExecutionMode, SystemStatus",
+              "normalized, _ = normalize_system_action_pack_settings(",
+              "_, normalized = normalize_system_action_pack_settings("
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Canonical frontend System contract projection",
+            "path": "frontend-ng/src/app/core/canonical-api.service.ts",
+            "contains": [
+              "export type SystemStatus = 'draft' | 'active' | 'paused' | 'retired'",
+              "export type ExecutionMode =",
+              "execution_mode?: ExecutionMode"
+            ]
+          },
+          {
+            "label": "Canonical frontend workspace and application projection",
+            "path": "frontend-ng/src/app/core/workspace.service.ts",
+            "contains": [
+              "export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio'",
+              "export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture'",
+              "app_entitlements?: WorkspaceAppEntitlement[]"
+            ]
+          },
+          {
+            "label": "Configuration-driven Mission Room extension",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.ts",
+            "contains": [
+              "const configuredProfile = nonEmptyString(missionRoom['profile'])",
+              "missionRoom['enabled'] === true",
+              "stringList(actions['enabled_packs'])"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Canonical enum and database constraint contract",
+            "path": "backend/app/tests/services/test_canonical_contract_enums.py",
+            "contains": [
+              "test_canonical_enum_values_are_stable",
+              "test_request_schemas_reject_noncanonical_enum_values",
+              "test_orm_metadata_declares_the_same_database_checks_as_migration_058",
+              "test_new_workspace_persists_a_canonical_generic_family_by_default"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Canonical action-pack API boundaries",
+            "path": "backend/app/tests/services/test_action_pack_contracts.py",
+            "contains": [
+              "test_action_pack_enum_and_order_are_stable",
+              "test_mutable_api_schemas_reject_unknown_action_packs",
+              "test_mutable_api_schemas_accept_canonical_action_packs"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "No implicit tenant action packs",
+            "path": "backend/app/tests/services/test_actions_registry.py",
+            "contains": [
+              "test_registry_exactly_matches_the_canonical_action_pack_contract",
+              "test_workspace_slug_and_name_do_not_implicitly_enable_tenant_packs"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Workspace family fail-safe contract",
+            "path": "backend/app/tests/services/test_workspace_features.py",
+            "contains": [
+              "test_invalid_stamp_fails_safe_without_slug_or_name_inference",
+              "test_missing_stamp_fails_safe_without_slug_or_name_inference"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Canonical migration round-trip and audit contract",
+            "path": "backend/app/tests/services/test_migration_058_canonical_workspace_system_contracts.py",
+            "contains": [
+              "test_andritz_pack_backfill_is_idempotent_and_downgrades_exactly",
+              "test_family_stamp_snapshots_legacy_resolution_and_restores_every_workspace",
+              "test_full_upgrade_installs_checks_and_downgrades",
+              "test_upgrade_audits_unknown_persisted_enum_values_before_checks"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Mission Room profile isolation remains configuration-driven",
+            "path": "frontend-ng/src/app/features/mission-room/mission-room.extension.spec.ts",
+            "contains": [
+              "Sentinel resolves its own brand, assistant and action packs",
+              "Octocity resolves its own brand, assistant and action packs without Sentinel terms"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Slug debt inventory drift tests",
+            "path": "backend/app/tests/infra/test_agentium_compliance_contract.py",
+            "contains": [
+              "test_new_workspace_slug_branch_requires_versioned_debt_entry",
+              "test_stale_workspace_slug_branch_inventory_entry_fails"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Database revision rollback guard test",
+            "path": "backend/app/tests/infra/test_agentium_compliance_contract.py",
+            "contains": [
+              "test_vm_image_rollback_is_bound_to_the_recorded_database_revision"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT5-COMPLIANCE-GOVERNANCE",
+      "lot": 5,
+      "title": "Product claims are computed and external evidence cannot self-promote",
+      "kind": "governance",
+      "description": "One machine-readable manifest derives repository states, rejects manual formal badges, binds external evidence to a clean exact SHA, and intentionally disables formal promotion until an authenticated CI collector exists.",
+      "mental_model_sections": [
+        "0",
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Compliance generator and checker",
+            "path": "scripts/agentium_compliance.py",
+            "contains": [
+              "validate_manifest",
+              "evaluate_claims",
+              "lint_manual_shipped_claims",
+              "validate_sha_bound_repository_content",
+              "--runner-attestation",
+              "--deployment-attestation",
+              "disabled_without_authenticated_ci_collector",
+              "CI_COMMIT_SHA must match the current checkout HEAD",
+              "completely clean checkout",
+              "--check"
+            ]
+          },
+          {
+            "label": "State-free product compliance manifest",
+            "path": "config/agentium/product-compliance.v1.json",
+            "contains": [
+              "LOT5-COMPLIANCE-GOVERNANCE",
+              "mental_model_begin",
+              "governed_docs"
+            ]
+          },
+          {
+            "label": "Repository CI compliance gate",
+            "path": ".gitlab-ci.yml",
+            "contains": [
+              "agentium-compliance:",
+              "python3 scripts/agentium_compliance.py --check"
+            ]
+          },
+          {
+            "label": "Pinned-checkout deployment static gate",
+            "path": "scripts/deploy-vm.sh",
+            "contains": [
+              "DEPLOY_SHA=\"$(git rev-parse HEAD)\"",
+              "python3 \"$REPO_DIR/scripts/agentium_compliance.py\" --check",
+              "before loading"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Static compliance governance tests",
+            "path": "backend/app/tests/infra/test_agentium_compliance_contract.py",
+            "contains": [
+              "test_agentium_compliance_contract_is_current",
+              "test_manifest_cannot_author_a_delivery_status",
+              "test_sha_attestations_cannot_upgrade_a_partial_repository_claim",
+              "test_complete_local_attestations_cannot_self_promote_formal_delivery",
+              "test_sha_bound_report_rejects_dirty_or_untracked_proof_content",
+              "test_sha_bound_report_rejects_ignored_or_untracked_proof_inputs"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    }
+  ]
+}

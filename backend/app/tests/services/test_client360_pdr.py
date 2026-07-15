@@ -48,7 +48,13 @@ from app.services.systems.bootstrap import (
 def _seed_workspace(
     db_session, *, slug: str = "andritz", settings: dict | None = None
 ) -> Workspace:
-    workspace = Workspace(id=str(uuid4()), name=slug.title(), slug=slug, settings=settings or {})
+    workspace_settings = {"family": "andritz", **(settings or {})}
+    workspace = Workspace(
+        id=str(uuid4()),
+        name=slug.title(),
+        slug=slug,
+        settings=workspace_settings,
+    )
     db_session.add(workspace)
     db_session.flush()
     return workspace
@@ -243,8 +249,24 @@ def test_client360_system_seed_is_andritz_scoped_and_idempotent(db_session) -> N
     capability = db_session.query(Capability).filter(Capability.id == system.capability_id).one()
     assert capability.slug == CLIENT360_PDR_CAPABILITY_SLUG
 
-    other = _seed_workspace(db_session, slug="other-workspace")
+    other = _seed_workspace(
+        db_session,
+        slug="other-workspace",
+        settings={"family": "generic"},
+    )
     assert ensure_client360_pdr_system_default(db_session, other.id) is None
+
+
+def test_client360_system_seed_uses_family_not_slug(db_session) -> None:
+    legacy_slug = _seed_workspace(
+        db_session,
+        slug="andritz",
+        settings={"family": "generic"},
+    )
+    configured = _seed_workspace(db_session, slug="client360-industrial")
+
+    assert ensure_client360_pdr_system_default(db_session, legacy_slug.id) is None
+    assert ensure_client360_pdr_system_default(db_session, configured.id) is not None
 
 
 def test_mail_draft_creates_human_action_without_auto_send(db_session) -> None:
@@ -277,6 +299,7 @@ def test_client360_smtp_settings_are_workspace_scoped_and_mask_secret(db_session
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
 
     payload = patch_client360_mail_settings(
+        db_session,
         workspace,
         {
             "enabled": True,

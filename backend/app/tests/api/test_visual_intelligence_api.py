@@ -25,6 +25,100 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     return TestClient(app)
 
 
+def test_visual_seed_gate_is_explicit_and_slug_independent(db_session):
+    user = User(id="user-visual-contract", username="viewer", is_active=True)
+    legacy_slug = Workspace(
+        id="workspace-legacy-visual-slug",
+        slug="sentinel-ci",
+        name="Legacy name only",
+        mode="demo",
+        settings={},
+    )
+    configured = Workspace(
+        id="workspace-configured-visual",
+        slug="configured-visual",
+        name="Configured visual workspace",
+        mode="demo",
+        settings={"visual_intelligence": {"enabled": True}},
+    )
+    malformed = Workspace(
+        id="workspace-malformed-visual",
+        slug="sentinel-ci-copy",
+        name="Malformed visual workspace",
+        mode="demo",
+        settings={"visual_intelligence": {"enabled": "true"}},
+    )
+    db_session.add_all([user, legacy_slug, configured, malformed])
+    db_session.commit()
+
+    assert _client(db_session, legacy_slug, user).get(
+        "/api/v1/visual-intelligence/sources"
+    ).json() == {"sources": []}
+    assert _client(db_session, malformed, user).get(
+        "/api/v1/visual-intelligence/sources"
+    ).json() == {"sources": []}
+    configured_sources = _client(db_session, configured, user).get(
+        "/api/v1/visual-intelligence/sources"
+    )
+    assert configured_sources.status_code == 200
+    assert configured_sources.json()["sources"]
+
+
+def test_visual_chat_gate_uses_declared_profile_and_action_pack() -> None:
+    legacy_profile_name = Workspace(
+        id="workspace-legacy-visual-profile",
+        slug="sentinel-ci",
+        name="Legacy visual profile",
+        settings={"visual_intelligence": {"enabled": True}},
+    )
+    configured = Workspace(
+        id="workspace-configured-visual-profile",
+        slug="institutional-operations",
+        name="Configured visual profile",
+        settings={
+            "visual_intelligence": {"enabled": True},
+            "assistant_profiles": [
+                {
+                    "key": "operations_executive",
+                    "actions": {"enabled_packs": ["sentinel_ci_aya_v1"]},
+                }
+            ],
+        },
+    )
+    crossed = Workspace(
+        id="workspace-crossed-visual-profile",
+        slug="crossed-visual-profile",
+        name="Crossed visual profile",
+        settings={
+            "visual_intelligence": {"enabled": True},
+            "assistant_profiles": [
+                {
+                    "key": "crossed_executive",
+                    "actions": {
+                        "enabled_packs": [
+                            "sentinel_ci_aya_v1",
+                            "octave_mission_room_v1",
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+
+    assert not visual_service._visual_chat_profile_enabled(
+        legacy_profile_name,
+        "vigie_executive",
+    )
+    assert visual_service._visual_chat_profile_enabled(
+        configured,
+        "operations_executive",
+    )
+    assert not visual_service._visual_chat_profile_enabled(
+        crossed,
+        "crossed_executive",
+    )
+
+
 def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(
     db_session, monkeypatch
 ):
@@ -35,7 +129,11 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(
     )
     monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
     workspace = Workspace(
-        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+        id="workspace-sentinel",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={"visual_intelligence": {"enabled": True}},
     )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
@@ -107,9 +205,13 @@ def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
     )
     monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
     sentinel = Workspace(
-        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+        id="workspace-sentinel",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={"visual_intelligence": {"enabled": True}},
     )
-    other = Workspace(id="workspace-other", slug="andritz", name="Andritz", mode="standard")
+    other = Workspace(id="workspace-other", slug="andritz", name="Andritz", mode="builder")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([sentinel, other, user])
     db_session.commit()
@@ -155,7 +257,11 @@ def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
         },
     )
     workspace = Workspace(
-        id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
+        id="workspace-sentinel",
+        slug="sentinel-ci",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={"visual_intelligence": {"enabled": True}},
     )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])

@@ -955,7 +955,11 @@ def test_chat_stream_vigie_cockpit_60s_routes_to_priority_summary(db_session, mo
     Napié cause-racine wording propagates automatically.
     """
     workspace = Workspace(
-        id="ws-sentinel-cockpit", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+        id="ws-sentinel-cockpit",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"family": "sentinel_ci"},
     )
     db_session.add(workspace)
     db_session.commit()
@@ -988,7 +992,11 @@ def test_chat_stream_vigie_north_situation_drills_to_napie(db_session, monkeypat
     old hardcoded Konaté/Burkina/CEDEAO Mission Room reply is gone.
     """
     workspace = Workspace(
-        id="ws-sentinel-north", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+        id="ws-sentinel-north",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"family": "sentinel_ci"},
     )
     db_session.add(workspace)
     db_session.commit()
@@ -1020,7 +1028,11 @@ def test_chat_stream_vigie_brief_operationnel_projet_nord_focuses_napie(db_sessi
     the map on the Napié project via ``aya.focus_zone_with_project`` — no
     Konaté/Burkina fallback narrative."""
     workspace = Workspace(
-        id="ws-sentinel-brief", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+        id="ws-sentinel-brief",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"family": "sentinel_ci"},
     )
     db_session.add(workspace)
     db_session.commit()

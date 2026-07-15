@@ -215,6 +215,10 @@ load_compose_env() {
 	AGENTIUM_POSTGRES_PASSWORD="$(read_env_value AGENTIUM_POSTGRES_PASSWORD)"
 	[[ -n "$AGENTIUM_POSTGRES_PASSWORD" ]] || die "AGENTIUM_POSTGRES_PASSWORD absent de $env_path"
 	export AGENTIUM_POSTGRES_PASSWORD
+	AGENTIUM_POSTGRES_DB="${AGENTIUM_POSTGRES_DB:-$(read_env_value AGENTIUM_POSTGRES_DB)}"
+	AGENTIUM_POSTGRES_USER="${AGENTIUM_POSTGRES_USER:-$(read_env_value AGENTIUM_POSTGRES_USER)}"
+	AGENTIUM_POSTGRES_DB="${AGENTIUM_POSTGRES_DB:-agentium}"
+	AGENTIUM_POSTGRES_USER="${AGENTIUM_POSTGRES_USER:-agentium}"
 	BACKEND_PORT="${AGENTIUM_BACKEND_HOST_PORT:-$(read_env_value AGENTIUM_BACKEND_HOST_PORT)}"
 	FRONTEND_PORT="${AGENTIUM_FRONTEND_HOST_PORT:-$(read_env_value AGENTIUM_FRONTEND_HOST_PORT)}"
 	BACKEND_PORT="${BACKEND_PORT:-8001}"
@@ -223,6 +227,21 @@ load_compose_env() {
 	IMAGE_TAG="${IMAGE_TAG:-local}"
 	[[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "Port backend invalide: $BACKEND_PORT"
 	[[ "$FRONTEND_PORT" =~ ^[0-9]+$ ]] || die "Port frontend invalide: $FRONTEND_PORT"
+}
+
+current_database_revision() {
+	local revision
+	revision="$(
+		docker exec agentium-pg psql \
+			-v ON_ERROR_STOP=1 \
+			-U "$AGENTIUM_POSTGRES_USER" \
+			-d "$AGENTIUM_POSTGRES_DB" \
+			-Atqc 'SELECT version_num FROM alembic_version ORDER BY version_num' \
+			2>/dev/null
+	)" || die "Impossible de lire indépendamment alembic_version dans agentium-pg"
+	[[ "$revision" =~ ^[A-Za-z0-9_]+$ ]] ||
+		die "Révision DB absente, multiple ou invalide: '${revision:-absente}'"
+	printf '%s\n' "$revision"
 }
 
 candidate_image_ref() {
@@ -297,14 +316,19 @@ wait_for_selected_services() {
 validate_rollback_state() {
 	local state_file="$1" expected_target="$2" expected_previous="$3"
 	local require_selected="${4:-0}"
-	local format target previous kind svc image_id image_ref rollback_ref tagged_id
+	local format target previous database_revision
+	local kind svc image_id image_ref rollback_ref tagged_id
 	[[ -f "$state_file" ]] || die "État de rollback introuvable: $state_file"
 	format="$(awk -F '\t' '$1 == "format" { print $2 }' "$state_file")"
 	target="$(awk -F '\t' '$1 == "target_sha" { print $2 }' "$state_file")"
 	previous="$(awk -F '\t' '$1 == "previous_sha" { print $2 }' "$state_file")"
-	[[ "$format" == "1" ]] || die "Format d'état de rollback invalide"
+	database_revision="$(awk -F '\t' '$1 == "database_revision" { print $2 }' "$state_file")"
+	[[ "$format" == "2" ]] ||
+		die "Format d'état de rollback invalide ou antérieur au garde-fou DB"
 	validate_full_sha "$target" "target_sha"
 	validate_full_sha "$previous" "previous_sha"
+	[[ "$database_revision" =~ ^[A-Za-z0-9_]+$ ]] ||
+		die "Révision DB précédente absente ou invalide dans l'état de rollback"
 	[[ -z "$expected_target" || "$target" == "$expected_target" ]] ||
 		die "État de rollback associé à un autre SHA candidat"
 	[[ -z "$expected_previous" || "$previous" == "$expected_previous" ]] ||
@@ -339,21 +363,28 @@ record_rollback_state() {
 	local target_sha="$1" previous_sha="$2"
 	local state_file="$STATE_DIR/${target_sha}.tsv" tmp_file
 	local svc image_id image_ref image_revision rollback_ref tagged_id
+	local database_revision
 	mkdir -p "$STATE_DIR"
 	chmod 0700 "$STATE_DIR"
 	if [[ -e "$state_file" ]]; then
 		validate_rollback_state "$state_file" "$target_sha" "" 1
+		database_revision="$(awk -F '\t' '$1 == "database_revision" { print $2 }' "$state_file")"
+		[[ "$(current_database_revision)" == "$database_revision" ]] ||
+			die "État de rollback existant associé à une autre révision DB"
 		warn "État et tags de rollback existants validés sans écrasement: $state_file"
 		ROLLBACK_STATE_PATH="$state_file"
 		return 0
 	fi
 
+	database_revision="$(current_database_revision)"
+
 	tmp_file="$(mktemp "$STATE_DIR/.${target_sha}.XXXXXX")"
 	chmod 0600 "$tmp_file"
 	{
-		printf 'format\t1\n'
+		printf 'format\t2\n'
 		printf 'target_sha\t%s\n' "$target_sha"
 		printf 'previous_sha\t%s\n' "$previous_sha"
+		printf 'database_revision\t%s\n' "$database_revision"
 		for svc in "${SELECTED_SERVICES[@]}"; do
 			docker inspect "$svc" >/dev/null 2>&1 || die "Impossible de capturer l'image précédente de $svc"
 			image_id="$(docker inspect --format '{{.Image}}' "$svc")"
@@ -395,12 +426,13 @@ record_rollback_state() {
 }
 
 rollback_from_state() {
-	local state_file="$1" previous_sha target_sha
+	local state_file="$1" previous_sha target_sha expected_database_revision
 	local kind svc image_id image_ref rollback_ref actual_id dirty
-	local current_head runtime_image_id runtime_revision
+	local current_head runtime_image_id runtime_revision actual_database_revision
 	validate_rollback_state "$state_file" "" "" 0
 	target_sha="$(awk -F '\t' '$1 == "target_sha" { print $2 }' "$state_file")"
 	previous_sha="$(awk -F '\t' '$1 == "previous_sha" { print $2 }' "$state_file")"
+	expected_database_revision="$(awk -F '\t' '$1 == "database_revision" { print $2 }' "$state_file")"
 	git cat-file -e "${previous_sha}^{commit}" || die "Commit précédent absent du dépôt: $previous_sha"
 
 	# Refuse a stale rollback file before any tag, data or checkout mutation.
@@ -424,6 +456,14 @@ rollback_from_state() {
 		fi
 	done <"$state_file"
 
+	# An image rollback cannot safely cross a schema revision. The operator must
+	# first downgrade with the candidate image (or restore the verified dump)
+	# while every application writer remains stopped.
+	load_compose_env
+	actual_database_revision="$(current_database_revision)"
+	[[ "$actual_database_revision" == "$expected_database_revision" ]] ||
+		die "Rollback images refusé: DB=$actual_database_revision, attendue=$expected_database_revision. Downgrade/restaure la DB avec les writers arrêtés avant --rollback-state."
+
 	SELECTED_SERVICES=()
 	declare -A expected_image_ids=()
 	while IFS=$'\t' read -r kind svc image_id image_ref rollback_ref; do
@@ -442,7 +482,6 @@ rollback_from_state() {
 
 	dirty="$(git status --porcelain | grep -vE 'uvicorn\.log|\.pyc$' || true)"
 	[[ -z "$dirty" || "$FORCE" -eq 1 ]] || die "Arbre VM modifié; rollback refusé sans --force"
-	load_compose_env
 	cd "$REPO_DIR/docker"
 	docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d \
 		--no-build --force-recreate "${SELECTED_SERVICES[@]}"
@@ -520,6 +559,14 @@ DEPLOY_SHA="$(git rev-parse HEAD)"
 export AGENTIUM_IMAGE_REVISION="$DEPLOY_SHA"
 ok "checkout épinglé à ${DEPLOY_SHA:0:12}"
 
+# A candidate whose generated product contract drifted is not deployable. This
+# is deliberately checked after the immutable checkout and before loading
+# runtime secrets or building images.
+say "Vérification du contrat de conformité Agentium…"
+python3 "$REPO_DIR/scripts/agentium_compliance.py" --check ||
+	die "Contrat de conformité Agentium invalide pour $DEPLOY_SHA"
+ok "contrat de conformité Agentium cohérent"
+
 # 3) Capturer les images actives avant tout build, puis construire ou vérifier
 # le candidat. Le mode en deux temps permet une migration sous quiescence API
 # sans exposer le nouveau backend avant que son schéma existe.
@@ -541,9 +588,9 @@ else
 	fi
 fi
 
-# A normal one-shot deploy also fails closed when a migration is pending. Lot 4
-# intentionally reaches this gate only on --activate-only, after 057 was run
-# while the previous backend was quiesced.
+# A normal one-shot deploy also fails closed when a migration is pending. Any
+# schema-changing rollout reaches this gate only on --activate-only, after the
+# candidate migration was run while the previous writers were quiesced.
 verify_database_at_image_head
 
 cd "$REPO_DIR/docker"
@@ -559,5 +606,5 @@ say "Audit de dérive post-déploiement…"
 if drift_audit "$DEPLOY_SHA"; then
 	ok "Déploiement $DEPLOY_SHA terminé; rollback: $ROLLBACK_STATE_PATH"
 else
-	die "Déploiement activé mais audit en échec; utiliser --rollback-state $ROLLBACK_STATE_PATH"
+	die "Déploiement activé mais audit en échec; remettre d'abord la DB à la révision enregistrée avec les writers arrêtés, puis utiliser --rollback-state $ROLLBACK_STATE_PATH"
 fi

@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.schemas.canonical import WorkspaceFamily
 from app.services.action_plans import handle_action_plan_chat_action
+from app.services.actions.contracts import ACTION_PACK_IDS, ActionPack
 from app.services.audit_logger import emit_audit_event
 
 Surface = str
@@ -42,7 +44,7 @@ class ActionManifest:
     confirmation_policy: str = "confirm"
     handler: ActionHandler = field(default_factory=lambda: ActionHandler("flow_node", "noop"))
     audit_event: str = "action.executed"
-    pack: str = "global_default_v1"
+    pack: str = ActionPack.global_voice_v1.value
     capability_template: Optional[str] = None
     direct_safe: bool = False
 
@@ -1482,18 +1484,30 @@ def _octave_aliases(
     return tuple(aliases)
 
 
-OCTAVE_MISSION_ROOM_ACTIONS = _octave_aliases(SENTINEL_AYA_ACTIONS, pack="octave_mission_room_v1")
-OCTAVE_SECURITY_ACTIONS = _octave_aliases(SENTINEL_AYA_SECURITY_ACTIONS, pack="octave_security_v1")
+OCTAVE_MISSION_ROOM_ACTIONS = _octave_aliases(
+    SENTINEL_AYA_ACTIONS,
+    pack=ActionPack.octave_mission_room_v1.value,
+)
+OCTAVE_SECURITY_ACTIONS = _octave_aliases(
+    SENTINEL_AYA_SECURITY_ACTIONS,
+    pack=ActionPack.octave_security_v1.value,
+)
 
 
 PACKS: dict[str, tuple[ActionManifest, ...]] = {
-    "global_voice_v1": GLOBAL_VOICE_ACTIONS,
-    "andritz_industrial_v1": ANDRITZ_ACTIONS,
-    "sentinel_ci_aya_v1": SENTINEL_AYA_ACTIONS,
-    "sentinel_ci_aya_security_v1": SENTINEL_AYA_SECURITY_ACTIONS,
-    "octave_mission_room_v1": OCTAVE_MISSION_ROOM_ACTIONS,
-    "octave_security_v1": OCTAVE_SECURITY_ACTIONS,
+    ActionPack.global_voice_v1.value: GLOBAL_VOICE_ACTIONS,
+    ActionPack.andritz_industrial_v1.value: ANDRITZ_ACTIONS,
+    ActionPack.sentinel_ci_aya_v1.value: SENTINEL_AYA_ACTIONS,
+    ActionPack.sentinel_ci_aya_security_v1.value: SENTINEL_AYA_SECURITY_ACTIONS,
+    ActionPack.octave_mission_room_v1.value: OCTAVE_MISSION_ROOM_ACTIONS,
+    ActionPack.octave_security_v1.value: OCTAVE_SECURITY_ACTIONS,
 }
+
+if tuple(PACKS) != ACTION_PACK_IDS:
+    raise RuntimeError("Action-pack registry order or membership drifted from ActionPack")
+for _pack_id, _manifests in PACKS.items():
+    if any(manifest.pack != _pack_id for manifest in _manifests):
+        raise RuntimeError(f"Action manifest registered under the wrong pack: {_pack_id}")
 
 
 def all_action_manifests() -> list[ActionManifest]:
@@ -1533,7 +1547,7 @@ def effective_action_manifests(
 ) -> list[ActionManifest]:
     settings = workspace.settings or {}
     action_settings = _as_dict(settings.get("actions"))
-    packs = ["global_voice_v1"]
+    packs = [ActionPack.global_voice_v1.value]
     packs.extend(_capability_template_packs(settings))
     packs.extend(_workspace_default_packs(workspace))
     packs.extend(_list(action_settings.get("enabled_packs")))
@@ -1906,33 +1920,24 @@ def handle_transverse_chat_action(
 
 
 def _is_octocity_workspace(workspace: Workspace) -> bool:
-    slug = (workspace.slug or "").lower()
-    name = (workspace.name or "").lower()
     settings = workspace.settings or {}
     mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
     enabled_caps = set(_list(catalog.get("enabled_capabilities")))
     return bool(
-        slug == "octocity-mission-room"
-        or "octocity" in slug
-        or "octocity" in name
-        or mission_room.get("profile") == "octocity_institutional_v1"
+        mission_room.get("profile") == "octocity_institutional_v1"
         or settings.get("assistant_profile_default") == "octave_executive"
         or "octave_voice_command" in enabled_caps
     )
 
 
 def _is_sentinel_workspace(workspace: Workspace) -> bool:
-    slug = (workspace.slug or "").lower()
-    name = (workspace.name or "").lower()
     settings = workspace.settings or {}
     mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
     enabled_caps = set(_list(catalog.get("enabled_capabilities")))
     return bool(
-        "sentinel" in slug
-        or "sentinel" in name
-        or mission_room.get("profile") == "sentinel_government_v1"
+        mission_room.get("profile") == "sentinel_government_v1"
         or settings.get("demo_profile") == "government_mission_room"
         or settings.get("assistant_profile_default") == "vigie_executive"
         or "aya_voice_command" in enabled_caps
@@ -1940,24 +1945,20 @@ def _is_sentinel_workspace(workspace: Workspace) -> bool:
 
 
 def _workspace_default_packs(workspace: Workspace) -> list[str]:
-    slug = (workspace.slug or "").lower()
-    name = (workspace.name or "").lower()
     settings = workspace.settings or {}
-    catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
-    enabled_caps = set(_list(catalog.get("enabled_capabilities")))
+    family = str(settings.get("family") or "").strip().lower()
     packs: list[str] = []
-    if "andritz" in slug or "andritz" in name:
-        packs.append("andritz_industrial_v1")
+    if family == WorkspaceFamily.andritz.value:
+        packs.append(ActionPack.andritz_industrial_v1.value)
+    if family == WorkspaceFamily.sentinel_ci.value:
+        packs.append(ActionPack.sentinel_ci_aya_v1.value)
+        packs.append(ActionPack.sentinel_ci_aya_security_v1.value)
     if _is_octocity_workspace(workspace):
-        packs.append("octave_mission_room_v1")
-        packs.append("octave_security_v1")
-    if "sentinel" in slug or "sentinel" in name or "aya_voice_command" in enabled_caps:
-        packs.append("sentinel_ci_aya_v1")
-        # S3 security pack: opt-in by default for SENTINEL-CI workspaces so the
-        # 6 new actions (posture, social pulse, rumor trace, troops Sahel,
-        # reputation drill, security communique) are visible without any
-        # additional workspace settings change.
-        packs.append("sentinel_ci_aya_security_v1")
+        packs.append(ActionPack.octave_mission_room_v1.value)
+        packs.append(ActionPack.octave_security_v1.value)
+    if _is_sentinel_workspace(workspace):
+        packs.append(ActionPack.sentinel_ci_aya_v1.value)
+        packs.append(ActionPack.sentinel_ci_aya_security_v1.value)
     return packs
 
 
@@ -1966,15 +1967,15 @@ def _capability_template_packs(settings: dict[str, Any]) -> list[str]:
     enabled_caps = set(_list(catalog.get("enabled_capabilities")))
     packs: list[str] = []
     if "voice2voice_interaction" in enabled_caps:
-        packs.append("global_voice_v1")
+        packs.append(ActionPack.global_voice_v1.value)
     if "aya_voice_command" in enabled_caps:
-        packs.append("sentinel_ci_aya_v1")
-        packs.append("sentinel_ci_aya_security_v1")
+        packs.append(ActionPack.sentinel_ci_aya_v1.value)
+        packs.append(ActionPack.sentinel_ci_aya_security_v1.value)
     if "octave_voice_command" in enabled_caps:
-        packs.append("octave_mission_room_v1")
-        packs.append("octave_security_v1")
+        packs.append(ActionPack.octave_mission_room_v1.value)
+        packs.append(ActionPack.octave_security_v1.value)
     if "expert_knowledge_capture" in enabled_caps or "secure_deposit" in enabled_caps:
-        packs.append("andritz_industrial_v1")
+        packs.append(ActionPack.andritz_industrial_v1.value)
     return packs
 
 

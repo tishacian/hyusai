@@ -10,14 +10,87 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.actions.registry import ActionManifest, ActionResolution, resolve_action
+from app.services.actions.contracts import ActionPack
+from app.services.actions.registry import (
+    ActionManifest,
+    ActionResolution,
+    effective_action_manifests,
+    resolve_action,
+)
 from app.services.audit_logger import emit_audit_event
 from app.services.demo_time_context import resolve_demo_date
-from app.services.mission_room import (
-    is_octocity_mission_room,
-    present_payload_for_workspace,
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
 )
+from app.services.mission_room import present_payload_for_workspace
 from app.services.skills_registry import wrappers as skill_wrappers
+
+_SENTINEL_ACTION_PACKS = frozenset(
+    {
+        ActionPack.sentinel_ci_aya_v1.value,
+        ActionPack.sentinel_ci_aya_security_v1.value,
+    }
+)
+_OCTAVE_ACTION_PACKS = frozenset(
+    {
+        ActionPack.octave_mission_room_v1.value,
+        ActionPack.octave_security_v1.value,
+    }
+)
+
+
+def _effective_action_pack_ids(
+    workspace: Workspace,
+    *,
+    surface: str = "chat",
+    assistant_profile: Optional[str] = None,
+) -> frozenset[str]:
+    return frozenset(
+        manifest.pack
+        for manifest in effective_action_manifests(
+            workspace,
+            surface=surface,
+            assistant_profile=assistant_profile,
+        )
+    )
+
+
+def _uses_octave_action_contract(
+    workspace: Workspace,
+    *,
+    surface: str = "chat",
+    assistant_profile: Optional[str] = None,
+) -> bool:
+    packs = _effective_action_pack_ids(
+        workspace,
+        surface=surface,
+        assistant_profile=assistant_profile,
+    )
+    has_sentinel = bool(packs.intersection(_SENTINEL_ACTION_PACKS))
+    has_octave = bool(packs.intersection(_OCTAVE_ACTION_PACKS))
+    return has_octave and not has_sentinel
+
+
+def _has_mission_room_action_contract(
+    workspace: Workspace,
+    *,
+    surface: str = "chat",
+    assistant_profile: Optional[str] = None,
+) -> bool:
+    packs = _effective_action_pack_ids(
+        workspace,
+        surface=surface,
+        assistant_profile=assistant_profile,
+    )
+    has_sentinel = bool(packs.intersection(_SENTINEL_ACTION_PACKS))
+    has_octave = bool(packs.intersection(_OCTAVE_ACTION_PACKS))
+    # A mixed Sentinel/Octave workspace is a configuration error. Do not let
+    # either business executor choose a brand opportunistically.
+    return has_sentinel != has_octave
+
+
+def _is_octave_manifest(manifest: ActionManifest) -> bool:
+    return manifest.pack in _OCTAVE_ACTION_PACKS
 
 
 def _skill_ctx(db: DBSession, workspace: Workspace, user: Optional[User]) -> dict[str, Any]:
@@ -37,6 +110,7 @@ def _last_focus(workspace: Workspace) -> Optional[str]:
 
 
 def set_last_focus(db: DBSession, workspace: Workspace, node_id: Optional[str]) -> None:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     settings = dict(workspace.settings or {})
     actions = dict(settings.get("actions") or {})
     if node_id:
@@ -57,6 +131,7 @@ def _current_meeting(workspace: Workspace) -> Optional[str]:
 
 
 def set_current_meeting(db: DBSession, workspace: Workspace, event_id: Optional[str]) -> None:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     settings = dict(workspace.settings or {})
     actions = dict(settings.get("actions") or {})
     if event_id:
@@ -79,6 +154,7 @@ def _pending_agenda_patch(workspace: Workspace) -> Optional[dict[str, Any]]:
 def set_pending_agenda_patch(
     db: DBSession, workspace: Workspace, payload: Optional[dict[str, Any]]
 ) -> None:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     settings = dict(workspace.settings or {})
     actions = dict(settings.get("actions") or {})
     if payload:
@@ -129,6 +205,7 @@ def set_awaiting_state(
     *,
     session_id: Optional[str] = None,
 ) -> None:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     settings = dict(workspace.settings or {})
     actions = dict(settings.get("actions") or {})
     bucket = dict(actions.get("awaiting") or {})
@@ -162,7 +239,11 @@ def resolve_action_with_awaiting(
             and awaiting.get("action_on_yes")
         ):
             action_on_yes = str(awaiting["action_on_yes"])
-            if is_octocity_mission_room(workspace) and action_on_yes in {
+            if _uses_octave_action_contract(
+                workspace,
+                surface=surface,
+                assistant_profile=assistant_profile,
+            ) and action_on_yes in {
                 "aya.recommend_cacao",
                 "octave.recommend_cacao",
                 "octave.recommend_bio-composites",
@@ -194,8 +275,8 @@ def _action_effect(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"chunk_type": "action_effect", "effect": kind, **payload}
 
 
-def _assistant_label(workspace: Workspace) -> str:
-    return "OCTAVE" if is_octocity_mission_room(workspace) else "AYA"
+def _assistant_label(manifest: ActionManifest) -> str:
+    return "OCTAVE" if _is_octave_manifest(manifest) else "AYA"
 
 
 def _atlantic_trader_webcam_payload() -> Optional[dict[str, Any]]:
@@ -338,9 +419,10 @@ async def execute_flow_action(
     effects: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     content = ""
+    octave_contract = _is_octave_manifest(manifest)
     extra: dict[str, Any] = {
         "action_id": manifest.action_id,
-        "handler": "managed" if is_octocity_mission_room(workspace) else handler,
+        "handler": "managed" if octave_contract else handler,
     }
     awaiting_to_set: Optional[dict[str, Any]] = None
     awaiting_to_clear = False
@@ -354,14 +436,14 @@ async def execute_flow_action(
     elif handler == "acknowledge_presence":
         content = "Je suis là, Monsieur le Vice Premier Ministre, à votre écoute."
         effects.append(
-            _action_effect("assistant-acknowledge", {"assistant": _assistant_label(workspace)})
+            _action_effect("assistant-acknowledge", {"assistant": _assistant_label(manifest)})
         )
     elif handler == "briefing_priorities_v1":
         result = await _invoke_skill(
             "briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx
         )
         priorities = result.get("priorities") or []
-        if is_octocity_mission_room(workspace):
+        if octave_contract:
             lines = [
                 "Coordination Director, here is the 60-second cockpit briefing:",
                 "1. Map posture: Northern Arc is in watch status, while Central Hub carries the next review-ready decision package.",
@@ -614,10 +696,6 @@ async def execute_flow_action(
         }
         extra["map_command"] = command
     elif handler == "show_customs_record":
-        from app.services.mission_room import (
-            SENTINEL_WORKSPACE_SLUG,  # noqa: F401 — used for slug check
-        )
-
         document_id = "proces-verbal-douanes-non-conformite-2026-05-18"
         signed_url = f"/api/v1/mission-room/customs-records/{document_id}.pdf"
         effects.append(
@@ -1727,7 +1805,7 @@ async def execute_flow_action(
                         "drill": "open",
                     },
                     "highlight": "reputation-drill",
-                    "workspace": workspace.slug or "sentinel-ci",
+                    "workspace": workspace.slug or workspace.id,
                 },
             )
         )
@@ -1904,10 +1982,10 @@ async def handle_registry_chat_action(
     knowledge_scope: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Resolve and execute registry flow-node actions (non-legacy)."""
-    if (
-        assistant_profile not in {"vigie_executive", "octave_executive"}
-        and "sentinel" not in (workspace.slug or "").lower()
-        and not is_octocity_mission_room(workspace)
+    if not _has_mission_room_action_contract(
+        workspace,
+        surface="chat",
+        assistant_profile=assistant_profile,
     ):
         return None
 

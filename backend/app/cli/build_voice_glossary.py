@@ -203,6 +203,11 @@ def _build_terms(
 def _persist(db: Any, workspace: Any, terms: list[str]) -> None:
     from sqlalchemy.orm.attributes import flag_modified
 
+    from app.services.iam.app_entitlements import (
+        lock_workspace_for_app_entitlement_mutation,
+    )
+
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     settings = dict(workspace.settings or {})
     voice_cfg = dict(settings.get("voice") or {})
     voice_cfg["transcript_glossary"] = terms

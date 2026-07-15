@@ -20,20 +20,51 @@ from app.models.workspace import (
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
 )
+from app.schemas.canonical import WorkspaceApp
 
 APP_ENTITLEMENTS_FEATURE = "app_entitlements_v1"
 WORKSPACE_EXPERIENCE_FEATURE = "workspace_experience_v2"
 
-CHAT_APP = "chat"
-CLIENT360_APP = "client360-pdr"
-KNOWLEDGE_CAPTURE_APP = "knowledge-capture"
+CHAT_APP = WorkspaceApp.chat.value
+CLIENT360_APP = WorkspaceApp.client360_pdr.value
+KNOWLEDGE_CAPTURE_APP = WorkspaceApp.knowledge_capture.value
 
-BUSINESS_APP_KEYS: tuple[str, ...] = (
-    CHAT_APP,
-    CLIENT360_APP,
-    KNOWLEDGE_CAPTURE_APP,
-)
+BUSINESS_APP_KEYS: tuple[str, ...] = tuple(app.value for app in WorkspaceApp)
 _BUSINESS_APP_KEY_SET = frozenset(BUSINESS_APP_KEYS)
+
+
+class WorkspaceEntitlementMutationConflictError(RuntimeError):
+    """Raised when the workspace serialization row disappeared mid-request."""
+
+
+def lock_workspace_for_app_entitlement_mutation(
+    db: DBSession,
+    workspace_id: str,
+) -> Workspace:
+    """Serialize membership/grant mutations with Blueprint application.
+
+    The Workspace row is the shared transaction mutex. ``populate_existing``
+    and the explicit settings refresh are intentional: callers commonly hold
+    a Workspace instance loaded before waiting for the lock, while a Blueprint
+    may have enabled entitlement enforcement in the meantime.
+
+    The caller owns the transaction and must commit or roll it back only after
+    every related membership and entitlement mutation is complete.
+    """
+
+    locked = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
+    if locked is None:
+        raise WorkspaceEntitlementMutationConflictError(
+            "Workspace disappeared before the membership mutation could be serialized"
+        )
+    db.refresh(locked, attribute_names=["settings"])
+    return locked
 
 
 def app_entitlements_enabled(workspace: Workspace | Any) -> bool:

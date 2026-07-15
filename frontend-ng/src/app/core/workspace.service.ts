@@ -2,7 +2,8 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 
-export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo';
+export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
+export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
 export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture';
 export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
   key: WorkspaceAppEntitlement;

@@ -31,7 +31,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -44,11 +44,18 @@ from app.db.base import get_db
 from app.models.calendar import WorkspaceCalendarEvent
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.schemas.canonical import WorkspaceFamily
+from app.services.actions.contracts import normalize_action_pack_ids
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.app_entitlements import (
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.workspace_calendar import (
     SENTINEL_CALENDAR_SEED,
     ensure_calendar_seed,
 )
+from app.services.workspace_features import workspace_family
 
 router = APIRouter()
 
@@ -64,6 +71,7 @@ def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) ->
             WorkspaceMember.user_id == user.id,
             WorkspaceMember.workspace_id == workspace.id,
         )
+        .populate_existing()
         .first()
     )
     if not membership:
@@ -77,12 +85,39 @@ def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) ->
     return membership
 
 
+def _require_sentinel_workspace_contract(workspace: Workspace) -> None:
+    """Fail closed unless the workspace carries the canonical Sentinel family."""
+
+    if workspace_family(workspace) != WorkspaceFamily.sentinel_ci.value:
+        raise HTTPException(
+            status_code=400,
+            detail="This maintenance operation requires the sentinel_ci workspace family.",
+        )
+
+
+def _lock_workspace_for_admin_mutation(
+    db: DBSession,
+    workspace: Workspace,
+) -> Workspace:
+    try:
+        return lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ResetActionsRequest(BaseModel):
     clear_last_focus: bool = True
     clear_awaiting: bool = True
     clear_current_meeting: bool = True
     clear_pending_agenda_patch: bool = True
     enabled_packs: Optional[list[str]] = None
+
+    @field_validator("enabled_packs")
+    @classmethod
+    def _validate_enabled_packs(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return None
+        return normalize_action_pack_ids(value, path="enabled_packs")
 
 
 @router.post("/calendar/reseed")
@@ -97,17 +132,14 @@ def calendar_reseed(
     This is destructive: every ``WorkspaceCalendarEvent`` row attached to the
     current workspace is deleted. Pass ``?confirm=true`` to acknowledge.
     """
+    workspace = _lock_workspace_for_admin_mutation(db, workspace)
     _require_workspace_admin(db, user, workspace)
     if not confirm:
         raise HTTPException(
             status_code=400,
             detail="Pass ?confirm=true to acknowledge the destructive reseed.",
         )
-    if "sentinel" not in (workspace.slug or "").lower():
-        raise HTTPException(
-            status_code=400,
-            detail="calendar reseed is only valid for SENTINEL-CI demo workspaces.",
-        )
+    _require_sentinel_workspace_contract(workspace)
 
     deleted = (
         db.query(WorkspaceCalendarEvent)
@@ -148,12 +180,9 @@ def reports_rebuild(
     Equivalent to ``python -m app.cli.build_sentinel_reports --force`` but
     invokable over HTTP, scoped to the active workspace only.
     """
+    workspace = _lock_workspace_for_admin_mutation(db, workspace)
     _require_workspace_admin(db, user, workspace)
-    if "sentinel" not in (workspace.slug or "").lower():
-        raise HTTPException(
-            status_code=400,
-            detail="reports rebuild is only valid for SENTINEL-CI demo workspaces.",
-        )
+    _require_sentinel_workspace_contract(workspace)
 
     from app.services.sentinel_ci_reports import (
         build_prefet_report_pdf,
@@ -220,6 +249,7 @@ def workspace_reset_actions(
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Reset polluted ``workspace.settings.actions`` keys to clean state."""
+    workspace = _lock_workspace_for_admin_mutation(db, workspace)
     _require_workspace_admin(db, user, workspace)
 
     settings = dict(workspace.settings or {})

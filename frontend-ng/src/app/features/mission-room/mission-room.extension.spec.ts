@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MISSION_ROOM_EXTENSION,
+  OCTOCITY_MISSION_ROOM_PROFILE,
   SENTINEL_MISSION_ROOM_PROFILE,
   missionRoomExtensionState,
   missionRoomUsesImmersiveShell,
@@ -39,7 +40,7 @@ const OCTOCITY = {
     },
     mission_room: {
       enabled: true,
-      profile: 'octocity_institutional_v1',
+      profile: OCTOCITY_MISSION_ROOM_PROFILE,
       assistant_label: 'OCTAVE',
       brand: { label: 'Octocity Mission Room' },
     },
@@ -67,6 +68,7 @@ test('Sentinel resolves its own brand, assistant and action packs', () => {
     'sentinel_ci_aya_v1',
     'sentinel_ci_aya_security_v1',
   ]);
+  assert.equal(state.legacyMorningDismissedStorageKey, 'sentinel-ci-aya-morning-dismissed');
   assert.doesNotMatch(JSON.stringify(state), /Octocity|OCTAVE|octave_/);
 });
 
@@ -74,7 +76,7 @@ test('Octocity resolves its own brand, assistant and action packs without Sentin
   const state = missionRoomExtensionState(OCTOCITY);
 
   assert.equal(state.enabled, true);
-  assert.equal(state.profile, 'octocity_institutional_v1');
+  assert.equal(state.profile, OCTOCITY_MISSION_ROOM_PROFILE);
   assert.equal(state.label, 'Octocity Mission Room');
   assert.equal(state.assistantLabel, 'OCTAVE');
   assert.deepEqual(state.actionPacks, [
@@ -82,6 +84,7 @@ test('Octocity resolves its own brand, assistant and action packs without Sentin
     'octave_mission_room_v1',
     'octave_security_v1',
   ]);
+  assert.equal(state.legacyMorningDismissedStorageKey, null);
   assert.doesNotMatch(JSON.stringify(state), /SENTINEL-CI|AYA|sentinel_ci_aya_/);
 });
 
@@ -110,6 +113,10 @@ test('legacy Sentinel demo profile resolves to the canonical extension profile',
   };
 
   assert.equal(missionRoomExtensionState(legacy).profile, SENTINEL_MISSION_ROOM_PROFILE);
+  assert.equal(
+    missionRoomExtensionState(legacy).legacyMorningDismissedStorageKey,
+    'sentinel-ci-aya-morning-dismissed',
+  );
 });
 
 test('Octocity last-mile presentation removes every Sentinel vocabulary family', () => {

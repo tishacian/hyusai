@@ -17,6 +17,7 @@ from app.core.iam.roles import WORKSPACE_OWNER
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.schemas.canonical import WorkspaceFamily
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,10 @@ def _ensure_personal_workspace(
         id=str(uuid4()),
         name=name[:255],
         slug=slug,
-        settings={"kind": "personal"},
+        settings={
+            "kind": "personal",
+            "family": WorkspaceFamily.generic.value,
+        },
     )
     db.add(workspace)
     db.flush()

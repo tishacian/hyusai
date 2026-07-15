@@ -3,13 +3,14 @@
 import json
 import logging
 import random
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import (
@@ -31,10 +32,15 @@ from app.db.base import get_db
 from app.models.mfa import MfaChallenge
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.schemas.canonical import WorkspaceFamily, WorkspaceMode
+from app.services.actions.contracts import normalize_workspace_action_pack_settings
 from app.services.email import render_mfa_email, send_email
 from app.services.iam.app_entitlements import (
+    APP_ENTITLEMENTS_FEATURE,
+    WorkspaceEntitlementMutationConflictError,
     app_entitlements_enabled,
     list_member_app_entitlements,
+    lock_workspace_for_app_entitlement_mutation,
     normalize_app_entitlements,
     replace_member_app_entitlements,
 )
@@ -132,11 +138,29 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
     settings: Optional[dict] = None
-    mode: Optional[str] = None
+    mode: Optional[WorkspaceMode] = None
+
+    @field_validator("settings")
+    @classmethod
+    def _validate_settings_contract(cls, value: Optional[dict]) -> Optional[dict]:
+        if value is not None:
+            normalized = dict(value)
+            if "family" in normalized:
+                raw_family = normalized["family"]
+                if not isinstance(raw_family, str):
+                    raise ValueError("settings.family must be a canonical workspace family")
+                try:
+                    normalized["family"] = WorkspaceFamily(raw_family.strip().lower()).value
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Unknown workspace family: {raw_family.strip() or '<empty>'}"
+                    ) from exc
+            return normalize_workspace_action_pack_settings(normalized)
+        return None
 
 
 class WorkspaceModeUpdate(BaseModel):
-    mode: str  # builder | operator | executive | demo
+    mode: WorkspaceMode
 
 
 class MemberInvite(BaseModel):
@@ -817,6 +841,50 @@ def _resolve_workspace_and_role(
     return workspace, membership
 
 
+def _lock_workspace_and_role_for_membership_mutation(
+    db: DBSession,
+    user: User,
+    workspace: Workspace,
+) -> tuple[Workspace, WorkspaceMember]:
+    """Acquire the Blueprint-shared row lock and refresh caller authority."""
+
+    try:
+        locked_workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "WORKSPACE_MEMBERSHIP_MUTATION_CONFLICT",
+                "message": str(exc),
+            },
+        ) from exc
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == locked_workspace.id,
+        )
+        .populate_existing()
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    return locked_workspace, membership
+
+
+def _invitee_identity_changed_exception() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "INVITEE_IDENTITY_CHANGED",
+            "message": (
+                "Invitee identity changed or became ambiguous while the workspace lock "
+                "was pending; retry"
+            ),
+        },
+    )
+
+
 def _require_admin(membership: WorkspaceMember) -> None:
     if normalize_role_template(getattr(membership, "role_template", None), membership.role) not in (
         WORKSPACE_OWNER,
@@ -833,6 +901,91 @@ def _require_owner(membership: WorkspaceMember) -> None:
         raise HTTPException(status_code=403, detail="Owner access required")
 
 
+def _settings_with_managed_workspace_fields_preserved(
+    current: object,
+    requested: dict,
+) -> dict:
+    """Keep resolver/IAM-owned settings out of the generic workspace PATCH.
+
+    ``settings`` remains a replacement payload for every ordinary key.  The
+    workspace family and entitlement-enforcement flag are different: the
+    resolver and Blueprint application own those transitions, respectively.
+    Omitting them from a replacement payload must therefore not erase them.
+    """
+
+    current_settings = dict(current) if isinstance(current, Mapping) else {}
+    next_settings = dict(requested)
+    managed_top_level_fields = (
+        ("family", "WORKSPACE_EXPERIENCE_SETTING_MANAGED"),
+        (
+            "_migration_058_canonical_contracts_state",
+            "WORKSPACE_MIGRATION_STATE_MANAGED",
+        ),
+    )
+    for field, code in managed_top_level_fields:
+        current_has_field = field in current_settings
+        requested_has_field = field in next_settings
+        if requested_has_field and (
+            not current_has_field or next_settings[field] != current_settings[field]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": code,
+                    "message": f"workspace.settings.{field} is managed internally",
+                },
+            )
+        if current_has_field:
+            next_settings[field] = current_settings[field]
+
+    current_features = current_settings.get("features")
+    requested_features = next_settings.get("features")
+    current_has_entitlement_flag = isinstance(current_features, Mapping) and (
+        APP_ENTITLEMENTS_FEATURE in current_features
+    )
+    requested_has_entitlement_flag = isinstance(requested_features, Mapping) and (
+        APP_ENTITLEMENTS_FEATURE in requested_features
+    )
+
+    if requested_has_entitlement_flag:
+        requested_value = requested_features[APP_ENTITLEMENTS_FEATURE]
+        current_value = (
+            current_features[APP_ENTITLEMENTS_FEATURE] if current_has_entitlement_flag else None
+        )
+        if not current_has_entitlement_flag or requested_value != current_value:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "APP_ENTITLEMENTS_SETTING_MANAGED",
+                    "message": (
+                        "features.app_entitlements_v1 is managed by workspace Blueprint application"
+                    ),
+                },
+            )
+    elif (
+        current_has_entitlement_flag
+        and "features" in next_settings
+        and not isinstance(requested_features, Mapping)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "APP_ENTITLEMENTS_SETTING_MANAGED",
+                "message": (
+                    "features.app_entitlements_v1 cannot be removed by replacing workspace features"
+                ),
+            },
+        )
+
+    if current_has_entitlement_flag:
+        preserved_features = (
+            dict(requested_features) if isinstance(requested_features, Mapping) else {}
+        )
+        preserved_features[APP_ENTITLEMENTS_FEATURE] = current_features[APP_ENTITLEMENTS_FEATURE]
+        next_settings["features"] = preserved_features
+    return next_settings
+
+
 @router.post("/workspaces", status_code=201, response_model=WorkspaceDetail)
 async def create_workspace(
     body: WorkspaceCreate,
@@ -844,7 +997,12 @@ async def create_workspace(
     if existing:
         raise HTTPException(status_code=409, detail=f"Workspace slug '{slug}' already exists")
 
-    workspace = Workspace(id=str(uuid4()), name=body.name, slug=slug)
+    workspace = Workspace(
+        id=str(uuid4()),
+        name=body.name,
+        slug=slug,
+        settings={"family": WorkspaceFamily.generic.value},
+    )
     db.add(workspace)
 
     membership = WorkspaceMember(
@@ -946,16 +1104,22 @@ async def update_workspace(
     db: DBSession = Depends(get_db),
 ):
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
     _require_admin(membership)
 
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
-        workspace.settings = body.settings
+        workspace.settings = _settings_with_managed_workspace_fields_preserved(
+            workspace.settings,
+            body.settings,
+        )
     if body.mode is not None:
-        if body.mode not in ("builder", "operator", "executive", "demo"):
-            raise HTTPException(status_code=422, detail="Invalid workspace mode")
-        workspace.mode = body.mode
+        workspace.mode = body.mode.value
 
     db.commit()
     db.refresh(workspace)
@@ -1010,13 +1174,17 @@ async def update_workspace_mode(
     - `operator`  → Runs + steering focused, Hypervisor visible but reduced.
     - `executive` → Full portfolio view (default).
     - `demo`      → Operator-safe surface, hides provider/model implementation details.
+    - `portfolio` → Portfolio-first showcase surface; provisioned by automation, not the UI.
     The underlying data never changes; only the shell surface adapts.
     """
-    if body.mode not in ("builder", "operator", "executive", "demo"):
-        raise HTTPException(status_code=422, detail="Invalid workspace mode")
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
     _require_admin(membership)
-    workspace.mode = body.mode
+    workspace.mode = body.mode.value
     db.commit()
     db.refresh(workspace)
     member_count = (
@@ -1053,6 +1221,11 @@ async def delete_workspace(
     by a scheduled task. Use /restore to undo within the grace period.
     """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
     _require_owner(membership)
 
     if body.confirm_name != workspace.name:
@@ -1082,18 +1255,13 @@ async def restore_workspace(
     workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        )
-        .first()
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
     )
     if (
-        not membership
-        or normalize_role_template(getattr(membership, "role_template", None), membership.role)
+        normalize_role_template(getattr(membership, "role_template", None), membership.role)
         != WORKSPACE_OWNER
     ):
         raise HTTPException(status_code=403, detail="Only the owner can restore")
@@ -1118,6 +1286,13 @@ async def transfer_ownership(
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_owner(membership)
 
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
+    _require_owner(membership)
+
     if body.new_owner_user_id == user.id:
         raise HTTPException(status_code=400, detail="You are already the owner")
 
@@ -1127,6 +1302,7 @@ async def transfer_ownership(
             WorkspaceMember.user_id == body.new_owner_user_id,
             WorkspaceMember.workspace_id == workspace.id,
         )
+        .populate_existing()
         .first()
     )
     if not new_owner_membership:
@@ -1148,6 +1324,11 @@ async def leave_workspace(
 ):
     """Leave a workspace. Owners must transfer ownership first."""
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
     if (
         normalize_role_template(getattr(membership, "role_template", None), membership.role)
         == WORKSPACE_OWNER
@@ -1275,12 +1456,13 @@ async def _find_or_create_kc_user(email: str, admin_token: str) -> tuple[str, bo
     return kc_sub, True
 
 
-async def _send_invitation_email(kc_sub: str, admin_token: str) -> None:
+async def _send_invitation_email(kc_sub: str, admin_token: str) -> bool:
     """Trigger the ``UPDATE_PASSWORD``/``VERIFY_EMAIL`` action email.
 
-    Fails silent (logged warning) because the membership has already been
-    created at this point — the operator can re-trigger via the password
-    reset endpoint if SMTP is unavailable.
+    Delivery is best-effort and runs only after the local membership transaction
+    commits, so no external call holds the Workspace row lock. A delivery
+    failure is logged and reported to the caller without rolling back the
+    already committed invitation.
     """
     headers = {
         "Authorization": f"Bearer {admin_token}",
@@ -1300,8 +1482,11 @@ async def _send_invitation_email(kc_sub: str, admin_token: str) -> None:
                 resp.status_code,
                 resp.text,
             )
+            return False
+        return True
     except Exception:
         logger.warning("Keycloak invitation email delivery failed", exc_info=True)
+        return False
 
 
 async def _send_signup_verification_email(kc_sub: str, admin_token: str) -> bool:
@@ -1344,10 +1529,18 @@ async def invite_member(
       2. Keycloak user exists (by email) but no local row → stub a local
          ``User`` linked to that ``keycloak_sub`` + add the membership.
       3. Neither → provision a fresh Keycloak user with
-         ``UPDATE_PASSWORD`` + ``VERIFY_EMAIL`` required actions, trigger
-         the onboarding email, then create the local stub + membership.
+         ``UPDATE_PASSWORD`` + ``VERIFY_EMAIL`` required actions, create the
+         local stub + membership, commit, then trigger the onboarding email.
 
     The caller must be ``owner`` or ``admin`` of the workspace.
+
+    Keycloak lookup/provisioning happens before the Workspace row lock. Once
+    the lock is acquired, caller authority and freshly reloaded entitlement
+    settings are checked again before any local User, membership or grant is
+    written. A policy change can therefore reject the local invite after
+    provisioning a reusable Keycloak identity, but it cannot send a misleading
+    invitation email. Email delivery happens after commit and is best-effort;
+    no external network call is held inside the database critical section.
     """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
@@ -1373,6 +1566,9 @@ async def invite_member(
 
     email = body.email.lower()
     target_user = db.query(User).filter(User.email == email).first()
+    kc_sub: str | None = None
+    admin_token: str | None = None
+    resolved_via_keycloak = False
     created_in_kc = False
 
     if not target_user:
@@ -1383,21 +1579,46 @@ async def invite_member(
                 detail="Cannot reach Keycloak admin API to provision the invitee",
             )
         kc_sub, created_in_kc = await _find_or_create_kc_user(email, admin_token)
-        if created_in_kc:
-            await _send_invitation_email(kc_sub, admin_token)
+        resolved_via_keycloak = True
 
-        target_user = db.query(User).filter(User.keycloak_sub == kc_sub).first()
-        if not target_user:
-            target_user = User(
-                id=str(uuid4()),
-                keycloak_sub=kc_sub,
-                username=email,
-                email=email,
-                role="user",
-                is_active=True,
-            )
-            db.add(target_user)
-            db.flush()
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
+    _require_admin(membership)
+    if app_entitlements_enabled(workspace) and requested_app_entitlements is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "APP_ENTITLEMENTS_REQUIRED",
+                "message": (
+                    "app_entitlements must be provided when workspace application "
+                    "entitlements are enabled"
+                ),
+            },
+        )
+
+    target_user = db.query(User).filter(User.email == email).populate_existing().first()
+    if target_user is not None and resolved_via_keycloak and target_user.keycloak_sub != kc_sub:
+        raise _invitee_identity_changed_exception()
+    if not target_user and resolved_via_keycloak and kc_sub:
+        target_user = db.query(User).filter(User.keycloak_sub == kc_sub).populate_existing().first()
+        if target_user is not None and (target_user.email or "").lower() != email:
+            raise _invitee_identity_changed_exception()
+    if not target_user and resolved_via_keycloak and kc_sub:
+        target_user = User(
+            id=str(uuid4()),
+            keycloak_sub=kc_sub,
+            username=email,
+            email=email,
+            role="user",
+            is_active=True,
+        )
+        db.add(target_user)
+        db.flush()
+    if not target_user:
+        raise _invitee_identity_changed_exception()
 
     existing = (
         db.query(WorkspaceMember)
@@ -1405,6 +1626,7 @@ async def invite_member(
             WorkspaceMember.user_id == target_user.id,
             WorkspaceMember.workspace_id == workspace.id,
         )
+        .populate_existing()
         .first()
     )
     if existing:
@@ -1427,12 +1649,17 @@ async def invite_member(
         grant_source="workspace_invitation",
     )
     db.commit()
+    invitation_email_sent = False
+    if created_in_kc and kc_sub and admin_token:
+        invitation_email_sent = await _send_invitation_email(kc_sub, admin_token)
     logger.info(
-        "Invited teammate to workspace workspace_id=%s target_user=%s role=%s provisioned_in_keycloak=%s",
+        "Invited teammate to workspace workspace_id=%s target_user=%s role=%s "
+        "provisioned_in_keycloak=%s invitation_email_sent=%s",
         workspace.id,
         target_user.id,
         body.role,
         created_in_kc,
+        invitation_email_sent,
     )
     return {
         "status": "ok",
@@ -1440,7 +1667,7 @@ async def invite_member(
         "role": legacy_role_for_template(role_template),
         "role_template": role_template,
         "app_entitlements": list_member_app_entitlements(db, new_member),
-        "invitation_email_sent": created_in_kc,
+        "invitation_email_sent": invitation_email_sent,
     }
 
 
@@ -1457,12 +1684,20 @@ async def update_member_role(
 
     requested_app_entitlements = _validated_app_entitlements(body.app_entitlements)
 
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
+    _require_admin(membership)
+
     target = (
         db.query(WorkspaceMember)
         .filter(
             WorkspaceMember.user_id == user_id,
             WorkspaceMember.workspace_id == workspace.id,
         )
+        .populate_existing()
         .first()
     )
     if not target:
@@ -1513,6 +1748,13 @@ async def remove_member(
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
 
+    workspace, membership = _lock_workspace_and_role_for_membership_mutation(
+        db,
+        user,
+        workspace,
+    )
+    _require_admin(membership)
+
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="Cannot remove yourself. Use /leave instead.")
 
@@ -1522,6 +1764,7 @@ async def remove_member(
             WorkspaceMember.user_id == user_id,
             WorkspaceMember.workspace_id == workspace.id,
         )
+        .populate_existing()
         .first()
     )
     if not target:

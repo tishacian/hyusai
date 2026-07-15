@@ -1,15 +1,43 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  type BlueprintEntitlementPolicy,
+  type BlueprintExperiencePolicy,
+  type WorkspaceBlueprintPlanBinding,
+  workspaceBlueprintPlanIsCurrent,
+} from './workspace-blueprint-plan';
 
 interface BlueprintReport {
   dry_run: boolean;
   activate_systems: boolean;
+  plan_token: string;
+  can_apply: boolean;
+  blueprint: { schema_version: number; digest: string };
+  workspace: { id: string; slug: string; name: string };
   created: Record<string, number>;
   reused: Record<string, number>;
   skipped: Array<Record<string, unknown>>;
   unresolved_skills: string[];
   actions: Array<Record<string, unknown>>;
+  experience: {
+    policy: BlueprintExperiencePolicy;
+    applied: Array<Record<string, unknown>>;
+    reused: Array<Record<string, unknown>>;
+    preserved: Array<Record<string, unknown>>;
+    conflicts: Array<Record<string, unknown>>;
+    legacy_ignored: string[];
+    app_access: {
+      policy: BlueprintEntitlementPolicy;
+      enforcement_requested: boolean;
+      required_apps: string[];
+      grants_planned: number;
+      grants_created: number;
+      feature_activated: boolean;
+      preserved: boolean;
+    };
+  };
 }
 
 type WorkspaceBlueprint = Record<string, any>;
@@ -82,12 +110,32 @@ type WorkspaceBlueprint = Record<string, any>;
         <aside class="side">
           <section class="panel">
             <p class="eyebrow">Data policy</p>
-            <h2>Excluded by design</h2>
+            <h2>Portable experience policy</h2>
+            <label class="field-label" for="experience-policy">Experience merge</label>
+            <select id="experience-policy" [(ngModel)]="experiencePolicy">
+              <option value="preserve_target">Preserve target (inspect only)</option>
+              <option value="merge_missing">Merge missing portable settings</option>
+              <option value="replace_portable">Replace portable settings</option>
+            </select>
+            <label class="check-row">
+              <input
+                type="checkbox"
+                [checked]="entitlementPolicy === 'grant_all_existing_members'"
+                (change)="setEntitlementBackfill($any($event.target).checked)"
+              />
+              <span>Explicitly grant required apps to every existing target member</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" [(ngModel)]="activateSystems" />
+              <span>Restore source System statuses instead of creating drafts</span>
+            </label>
+            <h2 class="policy-subhead">Excluded by design</h2>
             <ul>
               <li>Workspace members and Keycloak identities</li>
               <li>Secure Deposit links, passwords and staged files</li>
               <li>Raw Knowledge documents and vector payloads</li>
               <li>Run history and audit evidence</li>
+              <li>Runtime action state, migration markers and provider credentials</li>
             </ul>
           </section>
 
@@ -112,7 +160,32 @@ type WorkspaceBlueprint = Record<string, any>;
                   <span>Unresolved skills</span>
                   <strong>{{ r.unresolved_skills.length }}</strong>
                 </div>
+                <div>
+                  <span>Experience conflicts</span>
+                  <strong>{{ r.experience.conflicts.length }}</strong>
+                </div>
+                <div>
+                  <span>{{ r.dry_run ? 'App grants planned' : 'App grants created' }}</span>
+                  <strong>{{ r.dry_run ? r.experience.app_access.grants_planned : r.experience.app_access.grants_created }}</strong>
+                </div>
               </div>
+              <p class="plan-binding">
+                Plan bound to <code>{{ r.workspace.slug }}</code>
+                · schema v{{ r.blueprint.schema_version }}
+                · {{ r.can_apply ? 'applicable' : 'blocked' }}
+              </p>
+              @if (r.experience.legacy_ignored.length) {
+                <p class="warning">
+                  Legacy fields intentionally ignored: {{ r.experience.legacy_ignored.join(', ') }}.
+                </p>
+              }
+              @if (r.experience.conflicts.length) {
+                <div class="conflict-list">
+                  @for (conflict of r.experience.conflicts.slice(0, 12); track $index) {
+                    <code>{{ diffLine(conflict) }}</code>
+                  }
+                </div>
+              }
               <div class="action-list">
                 @for (action of r.actions.slice(0, 18); track $index) {
                   <code>{{ actionLine(action) }}</code>
@@ -266,6 +339,33 @@ type WorkspaceBlueprint = Record<string, any>;
         color: #a5afc2;
         line-height: 1.55;
       }
+      .field-label {
+        display: block;
+        padding: 14px 20px 7px;
+        color: #8993a7;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      select {
+        width: calc(100% - 40px);
+        margin: 0 20px 10px;
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 6px;
+        padding: 9px 10px;
+        color: #d8e5f7;
+        background: #0c111b;
+      }
+      .check-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 8px 20px;
+        color: #a5afc2;
+        line-height: 1.4;
+      }
+      .check-row input { margin-top: 3px; }
+      .policy-subhead { padding: 16px 20px 0; }
       .report-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -296,6 +396,20 @@ type WorkspaceBlueprint = Record<string, any>;
         padding: 7px 9px;
         color: #b7c3d8;
       }
+      .plan-binding, .warning {
+        margin: 0 20px 14px;
+        border-radius: 5px;
+        padding: 9px 10px;
+        color: #9fb0c8;
+        background: rgba(255,255,255,0.04);
+      }
+      .warning { color: #fde68a; background: rgba(146, 64, 14, 0.22); }
+      .conflict-list {
+        display: grid;
+        gap: 7px;
+        padding: 0 20px 16px;
+      }
+      .conflict-list code { color: #fecdd3; white-space: normal; }
       .muted {
         margin: 0;
         padding: 0 20px 18px;
@@ -310,8 +424,9 @@ type WorkspaceBlueprint = Record<string, any>;
     `,
   ],
 })
-export class WorkspaceBlueprintsComponent implements OnInit {
+export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly blueprint = signal<WorkspaceBlueprint | null>(null);
   readonly report = signal<BlueprintReport | null>(null);
@@ -319,7 +434,15 @@ export class WorkspaceBlueprintsComponent implements OnInit {
   readonly status = signal<string | null>(null);
   readonly loading = signal(false);
   importText = '';
-  private lastValidatedText = '';
+  experiencePolicy: BlueprintExperiencePolicy = 'preserve_target';
+  entitlementPolicy: BlueprintEntitlementPolicy = 'preserve_target';
+  activateSystems = false;
+  private validatedPlan: WorkspaceBlueprintPlanBinding | null = null;
+  private readonly unregisterWorkspaceReset = this.workspace.registerContextReset(() => {
+    this.validatedPlan = null;
+    this.report.set(null);
+    this.status.set(null);
+  });
 
   readonly summary = computed(() => {
     const bp = this.blueprint();
@@ -335,14 +458,33 @@ export class WorkspaceBlueprintsComponent implements OnInit {
     this.load();
   }
 
+  ngOnDestroy(): void {
+    this.unregisterWorkspaceReset();
+  }
+
   load(): void {
+    const targetSlug = this.workspace.currentSlug();
     this.loading.set(true);
+    this.validatedPlan = null;
+    this.report.set(null);
     this.error.set(null);
     this.status.set(null);
     this.api.get<WorkspaceBlueprint>('/blueprints/workspace/current').subscribe({
       next: (blueprint) => {
+        const responseSlug = String(blueprint['source']?.['workspace_slug'] || '');
+        const currentSlug = this.workspace.currentSlug();
+        const contextChanged = targetSlug
+          ? currentSlug !== targetSlug
+          : Boolean(currentSlug && responseSlug && currentSlug !== responseSlug);
+        if (contextChanged) {
+          this.error.set('The workspace changed while the export was in flight. Refresh it again.');
+          this.loading.set(false);
+          return;
+        }
         this.blueprint.set(blueprint);
         this.importText = JSON.stringify(blueprint, null, 2);
+        this.validatedPlan = null;
+        this.report.set(null);
         this.status.set('Current workspace blueprint loaded.');
         this.loading.set(false);
       },
@@ -356,15 +498,44 @@ export class WorkspaceBlueprintsComponent implements OnInit {
   validate(): void {
     const blueprint = this.parseImportText();
     if (!blueprint) return;
+    this.validatedPlan = null;
     this.loading.set(true);
-    this.api.post<BlueprintReport>('/blueprints/workspace/validate', { blueprint, dry_run: true }).subscribe({
+    const targetSlug = this.workspace.currentSlug();
+    this.api.post<BlueprintReport>('/blueprints/workspace/validate', {
+      blueprint,
+      dry_run: true,
+      experience_policy: this.experiencePolicy,
+      entitlement_policy: this.entitlementPolicy,
+      activate_systems: this.activateSystems,
+    }).subscribe({
       next: (report) => {
         this.report.set(report);
-        this.lastValidatedText = this.importText;
-        this.status.set('Dry-run completed. No workspace objects were written.');
+        this.validatedPlan = {
+          planToken: report.plan_token,
+          canApply: report.can_apply,
+          workspaceSlug: report.workspace.slug,
+          blueprintText: this.importText,
+          experiencePolicy: this.experiencePolicy,
+          entitlementPolicy: this.entitlementPolicy,
+          activateSystems: this.activateSystems,
+        };
+        if (
+          !targetSlug
+          || report.workspace.slug !== targetSlug
+          || this.workspace.currentSlug() !== targetSlug
+        ) {
+          this.validatedPlan = null;
+          this.report.set(null);
+          this.error.set('The workspace changed while the dry-run was in flight. Run it again.');
+          this.status.set(null);
+        }
+        if (this.validatedPlan) {
+          this.status.set('Dry-run completed. No workspace objects were written.');
+        }
         this.loading.set(false);
       },
       error: (err) => {
+        this.validatedPlan = null;
         this.error.set(this.messageFromError(err));
         this.loading.set(false);
       },
@@ -374,15 +545,43 @@ export class WorkspaceBlueprintsComponent implements OnInit {
   apply(): void {
     const blueprint = this.parseImportText();
     if (!blueprint) return;
+    const plan = this.validatedPlan;
+    if (!plan || !this.canApply()) return;
+    const targetSlug = plan.workspaceSlug;
     this.loading.set(true);
-    this.api.post<BlueprintReport>('/blueprints/workspace/apply', { blueprint, dry_run: false }).subscribe({
+    this.api.post<BlueprintReport>('/blueprints/workspace/apply', {
+      blueprint,
+      dry_run: false,
+      activate_systems: this.activateSystems,
+      experience_policy: this.experiencePolicy,
+      entitlement_policy: this.entitlementPolicy,
+      plan_token: plan.planToken,
+    }).subscribe({
       next: (report) => {
+        if (
+          report.workspace.slug !== targetSlug
+          || this.workspace.currentSlug() !== targetSlug
+        ) {
+          this.validatedPlan = null;
+          this.report.set(null);
+          this.error.set(
+            `Blueprint applied to ${report.workspace.slug}, but the active workspace changed before the response arrived.`,
+          );
+          this.status.set(null);
+          this.loading.set(false);
+          return;
+        }
         this.report.set(report);
-        this.lastValidatedText = '';
-        this.status.set('Blueprint applied. Imported systems are created as drafts by default.');
+        this.validatedPlan = null;
+        this.status.set(
+          report.activate_systems
+            ? 'Blueprint applied. Source System statuses were restored.'
+            : 'Blueprint applied. Imported systems were created as drafts.',
+        );
         this.loading.set(false);
       },
       error: (err) => {
+        this.validatedPlan = null;
         this.error.set(this.messageFromError(err));
         this.loading.set(false);
       },
@@ -413,8 +612,26 @@ export class WorkspaceBlueprintsComponent implements OnInit {
     return name ? `${kind}: ${actionName} ${name}` : `${kind}: ${actionName}`;
   }
 
+  diffLine(diff: Record<string, unknown>): string {
+    const path = String(diff['path'] || 'workspace.experience');
+    const reason = String(diff['reason'] || diff['action'] || 'conflict');
+    return `${path}: ${reason}`;
+  }
+
+  setEntitlementBackfill(enabled: boolean): void {
+    this.entitlementPolicy = enabled
+      ? 'grant_all_existing_members'
+      : 'preserve_target';
+  }
+
   canApply(): boolean {
-    return this.report()?.dry_run === true && this.lastValidatedText === this.importText;
+    return workspaceBlueprintPlanIsCurrent(this.validatedPlan, {
+      workspaceSlug: this.workspace.currentSlug(),
+      blueprintText: this.importText,
+      experiencePolicy: this.experiencePolicy,
+      entitlementPolicy: this.entitlementPolicy,
+      activateSystems: this.activateSystems,
+    });
   }
 
   private parseImportText(): WorkspaceBlueprint | null {

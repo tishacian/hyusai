@@ -7,7 +7,7 @@ and :func:`list_campaigns` from :mod:`app.services.client360_pdr`).
 
 Guardrails (deterministic, explainable, workspace-scoped):
 
-- The action is restricted to the ``andritz`` workspace (same guard as
+- The action is restricted to the canonical ``andritz`` workspace family (same guard as
   :func:`ensure_client360_pdr_system_default`).
 - The question -> filters translation is LLM-assisted but STRICTLY bounded to
   the existing filter vocabulary (``status``, ``customer``, ``country``,
@@ -36,6 +36,7 @@ from app.core.config import settings
 from app.models.client360 import CLIENT360_OPPORTUNITY_STATUSES
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.schemas.canonical import WorkspaceFamily
 from app.services.audit_logger import emit_audit_event
 from app.services.client360_pdr import (
     CAMPAIGN_SELECTION_KEYS,
@@ -46,12 +47,9 @@ from app.services.client360_pdr import (
     list_campaigns,
     list_opportunities,
 )
+from app.services.workspace_features import workspace_family
 
 _logger = logging.getLogger(__name__)
-
-# Same guard as ``ensure_client360_pdr_system_default`` — the NL action is only
-# wired for the Andritz Client360 PDR workspace.
-ANDRITZ_WORKSPACE_SLUG = "andritz"
 
 # Registry manifest binding (see ``ANDRITZ_ACTIONS`` in actions/registry.py).
 CLIENT360_NL_ACTION_ID = "andritz.client360_nl_query"
@@ -576,13 +574,14 @@ async def handle_client360_chat_query(
     ``POST /api/v1/client360/chat``); it is intentionally NOT wired into the
     general Andritz research chat so the two are fully decoupled.
 
-    Returns ``None`` when the workspace is not ``andritz``. When
+    Returns ``None`` when the workspace is not in the canonical ``andritz``
+    family. When
     ``require_trigger`` is ``True`` it also returns ``None`` for questions that
     do not clearly belong to the Client360 domain (legacy keyword guard). The
     dedicated assistant passes ``require_trigger=False`` since every question on
     that surface is implicitly about Client360.
     """
-    if (workspace.slug or "").lower() != ANDRITZ_WORKSPACE_SLUG:
+    if workspace_family(workspace) != WorkspaceFamily.andritz.value:
         return None
     if not query or not query.strip():
         return None

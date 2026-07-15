@@ -28,6 +28,10 @@ import { MaritimeTrackingService, type VesselPosition } from '@app/core/maritime
 import { WorkspaceExperienceShadowService } from '@app/core/workspace-experience-shadow.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
+import {
+  OCTOCITY_MISSION_ROOM_PROFILE,
+  missionRoomExtensionState,
+} from './mission-room.extension';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import { VpCockpitComponent } from './vp-cockpit.component';
 import { VpPressArticleDrawerComponent, type PressArticleDetail } from './vp-press-article-drawer.component';
@@ -5390,19 +5394,31 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return this.validViews.has(view) ? view : 'cockpit';
   });
 
-  readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
-  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || (this.workspace.currentSlug() === 'octocity-mission-room' ? 'OCTAVE' : 'AYA'));
+  readonly missionExtension = computed(() => missionRoomExtensionState(this.workspace.current()));
+  readonly octocityProfile = computed(() =>
+    this.missionExtension().profile === OCTOCITY_MISSION_ROOM_PROFILE,
+  );
+  readonly adminRoute = computed(() => {
+    const slug = this.workspace.currentSlug();
+    return slug ? `/workspace/${encodeURIComponent(slug)}` : '/workspace';
+  });
+  readonly assistantName = computed(() =>
+    this.navigation()?.app?.assistant_label
+    || this.missionExtension().assistantLabel
+    || (this.octocityProfile() ? 'OCTAVE' : 'AYA'),
+  );
   readonly assistantProfileKey = computed(() => {
     const defaultProfile = this.workspace.current()?.settings?.['assistant_profile_default'];
     if (typeof defaultProfile === 'string' && defaultProfile.trim()) return defaultProfile;
-    return this.navigation()?.app?.profile === 'octocity_institutional_v1' ? 'octave_executive' : 'vigie_executive';
+    const profile = this.navigation()?.app?.profile || this.missionExtension().profile;
+    return profile === OCTOCITY_MISSION_ROOM_PROFILE ? 'octave_executive' : 'vigie_executive';
   });
   readonly missionBrand = computed<MissionBrand>(() => {
     const navBrand = this.navigation()?.app?.brand;
     if (navBrand && Object.keys(navBrand).length) return navBrand;
     const settingsBrand = this.workspace.current()?.settings?.['workspace_app_brand'];
     if (settingsBrand && typeof settingsBrand === 'object') return settingsBrand as MissionBrand;
-    if (this.workspace.currentSlug() === 'octocity-mission-room') {
+    if (this.octocityProfile()) {
       return {
         label: 'Octocity Mission Room',
         lines: ['AGENTIUM', 'MISSION ROOM'],
@@ -5423,7 +5439,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly missionTimezoneLabel = computed(() => {
     const calendar = this.workspace.current()?.settings?.['calendar'];
     const timezone = calendar && typeof calendar === 'object' ? String((calendar as Record<string, unknown>)['timezone'] || '') : '';
-    if (timezone === 'UTC' || this.workspace.currentSlug() === 'octocity-mission-room') return 'UTC';
+    if (timezone === 'UTC' || this.octocityProfile()) return 'UTC';
     return 'Abidjan UTC+0';
   });
   readonly securityCollectionLabel = computed(() =>
@@ -5754,7 +5770,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   private loadMeetingDecisionsLog(continuation?: WorkspaceContinuationContext): void {
     if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
-    const workspaceSlug = continuation?.scope.workspaceSlug || this.workspace.currentSlug() || 'sentinel-ci';
+    const workspaceSlug = continuation?.scope.workspaceSlug || this.workspace.currentSlug();
+    if (!workspaceSlug) {
+      this.meetingDecisionsLog.set([]);
+      return;
+    }
     const request = this.api
       .get<MeetingDecisionsLogResponse>(
         '/meetings/decisions-log',
@@ -7079,10 +7099,12 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       const scoped = sessionStorage.getItem(key);
       if (scoped !== null) return scoped === '1';
 
-      // This legacy key was explicitly Sentinel-only.  Migrate it only to
-      // Sentinel; never let it alter the generalized Octocity Mission Room.
-      const legacyKey = 'sentinel-ci-aya-morning-dismissed';
-      if (slug !== 'sentinel-ci') return false;
+      // The extension profile, not a mutable workspace slug, owns this
+      // one-time compatibility key. Profiles without a declared migration
+      // key (including Octocity) cannot inherit Sentinel session state.
+      const legacyKey = missionRoomExtensionState(this.workspace.current())
+        .legacyMorningDismissedStorageKey;
+      if (!legacyKey) return false;
       const legacy = sessionStorage.getItem(legacyKey);
       if (legacy === null) return false;
       sessionStorage.setItem(key, legacy);

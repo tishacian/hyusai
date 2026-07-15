@@ -131,6 +131,7 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
         name="Andritz",
         slug="andritz",
         settings={
+            "family": "andritz",
             "assistant_profile_default": "andritz_spl_advisor",
             "knowledge_scopes": [
                 {
@@ -227,6 +228,7 @@ def test_sentinel_workspace_chat_reuses_aya_profile(db_session):
         name="SENTINEL-CI",
         slug="sentinel-ci",
         settings={
+            "family": "sentinel_ci",
             "assistant_profile_default": "vigie_executive",
             "knowledge_scopes": [
                 {

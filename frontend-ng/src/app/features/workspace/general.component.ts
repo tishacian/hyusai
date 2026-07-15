@@ -6,7 +6,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
-import { WorkspaceDetail, WorkspaceMode, WorkspaceService } from '@app/core/workspace.service';
+import {
+  WorkspaceDetail,
+  WorkspaceMode,
+  WorkspaceService,
+  type SelectableWorkspaceMode,
+} from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
@@ -409,7 +414,7 @@ export class WorkspaceGeneralComponent {
   readonly savingExpertReview = signal(false);
   readonly copied = signal(false);
 
-  readonly modes: { key: Exclude<WorkspaceMode, 'demo'>; label: string; icon: string; description: string }[] = [
+  readonly modes: { key: SelectableWorkspaceMode; label: string; icon: string; description: string }[] = [
     {
       key: 'builder',
       label: 'Builder',
@@ -526,7 +531,7 @@ export class WorkspaceGeneralComponent {
     });
   }
 
-  setMode(mode: WorkspaceMode): void {
+  setMode(mode: SelectableWorkspaceMode): void {
     const d = this.detail();
     if (!d || !this.canEdit() || mode === this.currentMode()) return;
     this.savingMode.set(true);

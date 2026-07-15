@@ -26,7 +26,7 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
 
 def _seed_workspace_users(db_session):
     workspace = Workspace(
-        id="workspace-chat", slug="workspace-chat", name="Workspace Chat", mode="standard"
+        id="workspace-chat", slug="workspace-chat", name="Workspace Chat", mode="executive"
     )
     owner = User(id="user-owner", username="owner", email="owner@example.test", is_active=True)
     other = User(id="user-other", username="other", email="other@example.test", is_active=True)

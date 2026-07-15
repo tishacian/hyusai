@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -23,6 +24,10 @@ from app.models.workspace_visual import (
     WorkspaceVisualSource,
 )
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.app_entitlements import (
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.object_store import get_object_store
 from app.services.workspace_jobs import create_workspace_job, serialize_job, transition_job
 
@@ -580,6 +585,66 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
 DEFAULT_SOURCE_NAME = ABIDJAN_NET_VISUAL_SOURCES[0]["name"]
 DEFAULT_SOURCE_URL = ABIDJAN_NET_VISUAL_SOURCES[0]["source_url"]
 DEFAULT_SOURCE_PAGE = ABIDJAN_NET_VISUAL_SOURCES[0]["source_page"]
+
+
+def visual_intelligence_enabled(workspace: Workspace) -> bool:
+    """Resolve the explicit workspace feature without tenant-name inference."""
+
+    raw_settings = getattr(workspace, "settings", None)
+    if not isinstance(raw_settings, Mapping):
+        return False
+    visual_settings = raw_settings.get("visual_intelligence")
+    return bool(isinstance(visual_settings, Mapping) and visual_settings.get("enabled") is True)
+
+
+def _visual_chat_profile_enabled(
+    workspace: Workspace,
+    assistant_profile: Optional[str],
+) -> bool:
+    """Require a declared profile backed by a canonical Mission Room pack."""
+
+    # Imported lazily because ``mission_room`` imports this service while the
+    # actions package exports the executor, which itself presents Mission Room
+    # payloads. Keeping the contract lookup at call time avoids that cycle.
+    from app.services.actions.contracts import ActionPack
+    from app.services.actions.registry import effective_action_manifests
+
+    if not assistant_profile:
+        return False
+    raw_settings = getattr(workspace, "settings", None)
+    if not isinstance(raw_settings, Mapping):
+        return False
+    profiles = raw_settings.get("assistant_profiles")
+    if not isinstance(profiles, list) or not any(
+        isinstance(profile, Mapping) and profile.get("key") == assistant_profile
+        for profile in profiles
+    ):
+        return False
+    packs = {
+        manifest.pack
+        for manifest in effective_action_manifests(
+            workspace,
+            surface="chat",
+            assistant_profile=assistant_profile,
+        )
+    }
+    has_sentinel = bool(
+        packs.intersection(
+            {
+                ActionPack.sentinel_ci_aya_v1.value,
+                ActionPack.sentinel_ci_aya_security_v1.value,
+            }
+        )
+    )
+    has_octave = bool(
+        packs.intersection(
+            {
+                ActionPack.octave_mission_room_v1.value,
+                ActionPack.octave_security_v1.value,
+            }
+        )
+    )
+    return has_sentinel != has_octave
 
 
 def ensure_visual_intelligence_seed(
@@ -1198,8 +1263,6 @@ def handle_visual_chat_query(
     query: str,
     assistant_profile: Optional[str],
 ) -> Optional[dict[str, Any]]:
-    if assistant_profile not in {"vigie_executive", "octave_executive"}:
-        return None
     lowered = (query or "").lower()
     triggers = (
         "visuel",
@@ -1214,9 +1277,21 @@ def handle_visual_chat_query(
     )
     if not any(token in lowered for token in triggers):
         return None
-    workspace_settings = dict((workspace.settings or {}).get("visual_intelligence") or {})
-    if workspace.slug == "sentinel-ci" or workspace_settings.get("enabled"):
-        ensure_visual_intelligence_seed(db, workspace)
+    if not visual_intelligence_enabled(workspace) or not _visual_chat_profile_enabled(
+        workspace,
+        assistant_profile,
+    ):
+        return None
+    try:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError:
+        return None
+    if not visual_intelligence_enabled(workspace) or not _visual_chat_profile_enabled(
+        workspace,
+        assistant_profile,
+    ):
+        return None
+    ensure_visual_intelligence_seed(db, workspace)
     dashboard = dashboard_payload(db, workspace)
     observations = dashboard.get("observations") or []
     if not observations:

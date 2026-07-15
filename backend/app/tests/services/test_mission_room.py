@@ -14,7 +14,11 @@ from app.models.knowledge_guide import KnowledgeGuide
 from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import (
+    Workspace,
+    WorkspaceMember,
+    WorkspaceMemberAppEntitlement,
+)
 from app.models.workspace_map import (
     WorkspaceMap,
     WorkspaceMapLayer,
@@ -25,6 +29,11 @@ from app.models.workspace_map import (
 from app.models.workspace_visual import WorkspaceVisualSource
 from app.services.demo_time_context import resolve_demo_date
 from app.services.document_intelligence import resolve_document_profile
+from app.services.iam.app_entitlements import (
+    APP_ENTITLEMENTS_FEATURE,
+    BUSINESS_APP_KEYS,
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.intelligence.batch import ensure_intelligence_defaults
 from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import (
@@ -35,6 +44,7 @@ from app.services.mission_room import (
     cockpit_payload,
     ensure_octocity_mission_room_workspace,
     ensure_sentinel_ci_workspace,
+    is_octocity_mission_room,
     map_payload,
     navigation_payload,
     octocity_forbidden_terms_present,
@@ -238,6 +248,158 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert preset.config["ragCollectionName"] == "sentinel-ci-open-intelligence"
     assert preset.config["ragTopK"] == 6
     assert preset.config["asyncRetrieval"] is True
+
+
+def test_sentinel_existing_workspace_locks_before_seed_mutations(db_session, monkeypatch):
+    workspace = Workspace(
+        id="workspace-sentinel-existing-lock",
+        slug=SENTINEL_WORKSPACE_SLUG,
+        name="Legacy Sentinel name",
+        mode="demo",
+        settings={"runtime_setting": {"preserve": True}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    lock_observations: list[dict[str, object]] = []
+    original_lock = lock_workspace_for_app_entitlement_mutation
+
+    def _tracking_lock(db, workspace_id):
+        locked = original_lock(db, workspace_id)
+        lock_observations.append(
+            {
+                "workspace_id": locked.id,
+                "name_before_seed": locked.name,
+                "mission_room_before_seed": (locked.settings or {}).get("mission_room"),
+            }
+        )
+        return locked
+
+    monkeypatch.setattr(
+        "app.services.mission_room.lock_workspace_for_app_entitlement_mutation",
+        _tracking_lock,
+    )
+
+    first = ensure_sentinel_ci_workspace(db_session)
+    second = ensure_sentinel_ci_workspace(db_session)
+    db_session.refresh(workspace)
+
+    assert first["workspace_created"] == 0
+    assert second["workspace_created"] == 0
+    assert len(lock_observations) == 2
+    assert lock_observations[0] == {
+        "workspace_id": workspace.id,
+        "name_before_seed": "Legacy Sentinel name",
+        "mission_room_before_seed": None,
+    }
+    assert workspace.settings["runtime_setting"] == {"preserve": True}
+
+
+def test_octocity_runtime_selection_uses_profile_not_workspace_slug(db_session):
+    slug_only = Workspace(
+        id="workspace-octocity-slug-only",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Slug-only workspace",
+        mode="demo",
+        settings={},
+    )
+    profiled = Workspace(
+        id="workspace-octocity-profiled",
+        slug="portable-mission-room",
+        name="Profiled workspace",
+        mode="demo",
+        settings={"mission_room": {"profile": OCTOCITY_MISSION_ROOM_PROFILE}},
+    )
+    db_session.add_all([slug_only, profiled])
+    db_session.flush()
+
+    slug_only_map = ensure_workspace_map_seed(db_session, slug_only)
+    profiled_map = ensure_workspace_map_seed(db_session, profiled)
+
+    assert is_octocity_mission_room(slug_only) is False
+    assert is_octocity_mission_room(profiled) is True
+    assert present_payload_for_workspace(slug_only, {"assistant": "AYA"}) == {"assistant": "AYA"}
+    assert present_payload_for_workspace(profiled, {"assistant": "AYA"}) == {"assistant": "OCTAVE"}
+    assert slug_only_map.slug == SENTINEL_MAP_SLUG
+    assert profiled_map.slug == OCTOCITY_MAP_SLUG
+
+
+def test_octocity_existing_entitlement_workspace_locks_and_grants_seed_owner(
+    db_session,
+    monkeypatch,
+):
+    owner_email = "octocity-entitled-owner@example.test"
+    owner = User(
+        id="user-octocity-entitled-owner",
+        username="octocity-entitled-owner",
+        email=owner_email,
+        role="admin",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id="workspace-octocity-entitled-existing",
+        slug=OCTOCITY_WORKSPACE_SLUG,
+        name="Legacy Octocity name",
+        mode="demo",
+        settings={
+            "features": {APP_ENTITLEMENTS_FEATURE: True},
+            "runtime_setting": {"preserve": True},
+        },
+    )
+    db_session.add_all([owner, workspace])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    lock_observations: list[dict[str, object]] = []
+    original_lock = lock_workspace_for_app_entitlement_mutation
+
+    def _tracking_lock(db, workspace_id):
+        locked = original_lock(db, workspace_id)
+        lock_observations.append(
+            {
+                "workspace_id": locked.id,
+                "name_before_seed": locked.name,
+                "mission_room_before_seed": (locked.settings or {}).get("mission_room"),
+            }
+        )
+        return locked
+
+    monkeypatch.setattr(
+        "app.services.mission_room.lock_workspace_for_app_entitlement_mutation",
+        _tracking_lock,
+    )
+    monkeypatch.setenv("OCTOCITY_OWNER_EMAILS", owner_email)
+
+    first = ensure_octocity_mission_room_workspace(db_session)
+    second = ensure_octocity_mission_room_workspace(db_session)
+
+    membership = (
+        db_session.query(WorkspaceMember)
+        .filter_by(workspace_id=workspace.id, user_id=owner.id)
+        .one()
+    )
+    grants = (
+        db_session.query(WorkspaceMemberAppEntitlement)
+        .filter_by(workspace_member_id=membership.id)
+        .order_by(WorkspaceMemberAppEntitlement.app_key.asc())
+        .all()
+    )
+    db_session.refresh(workspace)
+
+    assert first["workspace_created"] == 0
+    assert first["members_added"] == 1
+    assert second["members_added"] == 0
+    assert len(lock_observations) == 2
+    assert lock_observations[0] == {
+        "workspace_id": workspace.id,
+        "name_before_seed": "Legacy Octocity name",
+        "mission_room_before_seed": None,
+    }
+    assert workspace.settings["runtime_setting"] == {"preserve": True}
+    assert workspace.settings["features"][APP_ENTITLEMENTS_FEATURE] is True
+    assert [row.app_key for row in grants] == sorted(BUSINESS_APP_KEYS)
+    assert {row.grant_source for row in grants} == {"octocity_seed_owner"}
 
 
 def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session, monkeypatch, caplog):

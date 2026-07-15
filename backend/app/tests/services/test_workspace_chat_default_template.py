@@ -6,9 +6,8 @@ orchestration was promoted into the default ``chat_transverse_v1`` template:
 * A generic-family workspace inherits the domain-neutral ``default_answer_policy``
   and a source policy with NO "project" concept (no ``reject_cross_project_sources``,
   no ``project`` in ``preserve_reference_types``) and a neutral name/objective.
-* ``andritz`` and ``industrial`` families still resolve to the SAME
-  ``industrial_answer_policy`` + industrial source policy (incl.
-  ``reject_cross_project_sources``) — the Andritz preservation guarantee.
+* ``andritz`` and ``industrial`` families retain ``industrial_answer_policy``
+  + the industrial source policy (incl. ``reject_cross_project_sources``).
 """
 
 from app.models.system import System
@@ -114,7 +113,7 @@ def test_generic_workspace_chat_uses_neutral_default_template(db_session):
 
 
 # ---------------------------------------------------------------------------
-# (b) Andritz + industrial families: identical industrial layer
+# (b) Canonical Andritz + industrial families: industrial layer
 # ---------------------------------------------------------------------------
 
 
@@ -156,6 +155,5 @@ def test_industrial_family_workspace_chat_opts_into_industrial_layer(db_session)
     )
     system = _chat_system(db_session, workspace)
 
-    # The industrial family reuses the universal name but the industrial policy.
     assert system.name == WORKSPACE_CHAT_SYSTEM_NAME
     _assert_industrial_layer(system, expected_family="industrial")

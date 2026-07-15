@@ -8,6 +8,7 @@ import pytest
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.actions.executor import (
+    _has_mission_room_action_contract,
     execute_flow_action,
     get_awaiting_state,
     handle_registry_chat_action,
@@ -34,6 +35,35 @@ def _workspace(**kwargs) -> Workspace:
     }
     defaults.update(kwargs)
     return Workspace(**defaults)
+
+
+def test_mission_room_executor_gate_uses_action_contract_not_slug() -> None:
+    legacy_slug = _workspace(settings={})
+    configured = _workspace(
+        slug="institutional-operations",
+        settings={"family": "sentinel_ci"},
+    )
+    crossed = _workspace(
+        slug="crossed-action-packs",
+        settings={
+            "actions": {
+                "enabled_packs": [
+                    "sentinel_ci_aya_v1",
+                    "octave_mission_room_v1",
+                ]
+            }
+        },
+    )
+
+    assert not _has_mission_room_action_contract(
+        legacy_slug,
+        assistant_profile="vigie_executive",
+    )
+    assert _has_mission_room_action_contract(
+        configured,
+        assistant_profile="renamed_executive_profile",
+    )
+    assert not _has_mission_room_action_contract(crossed)
 
 
 @pytest.mark.parametrize(

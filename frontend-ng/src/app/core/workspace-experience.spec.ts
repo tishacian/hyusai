@@ -496,6 +496,32 @@ test('Octocity API observation is selected by settings, never by slug', () => {
   assert.equal(experience.missionRoom?.brandStyle, 'agentium');
 });
 
+test('Octocity compatibility defaults are profile-driven after a workspace rename', () => {
+  const {
+    workspace_app_brand: _legacyBrand,
+    mission_room: configuredMission,
+    ...settingsWithoutBrand
+  } = OCTOCITY_SETTINGS;
+  const value = input('renamed-again', 'demo', {
+    ...settingsWithoutBrand,
+    mission_room: {
+      ...configuredMission,
+      brand: undefined,
+    },
+  }, {
+    role: 'admin',
+    requestedRoute: '/hypervisor',
+  });
+  const observation: MissionNavigationObservation = {
+    ...OCTOCITY_OBSERVATION,
+    app: { ...OCTOCITY_OBSERVATION.app!, brand: {} },
+  };
+
+  const experience = assertParity(value, observation);
+  assert.equal(experience.missionRoom?.label, 'Octocity Mission Room');
+  assert.equal(experience.missionRoom?.brandStyle, 'agentium');
+});
+
 test('Mission Room compares the effective rendered brand label and style', () => {
   const value = input('octocity-mission-room', 'demo', OCTOCITY_SETTINGS, {
     role: 'admin',

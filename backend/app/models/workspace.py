@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -16,6 +17,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.schemas.canonical import WorkspaceApp, WorkspaceFamily, WorkspaceMode
+
+
+def _enum_check(column: str, values: list[str]) -> str:
+    return f"{column} IN ({', '.join(repr(value) for value in values)})"
+
+
+def _default_workspace_settings() -> dict[str, str]:
+    return {"family": WorkspaceFamily.generic.value}
 
 
 class Workspace(Base):
@@ -27,7 +37,7 @@ class Workspace(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
     deleted_at = Column(DateTime, nullable=True, index=True)
-    settings = Column(JSON, default=dict)
+    settings = Column(JSON, default=_default_workspace_settings)
     mode = Column(String(32), nullable=False, default="executive")
 
     members = relationship(
@@ -38,6 +48,13 @@ class Workspace(Base):
         back_populates="workspace",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_check("mode", [item.value for item in WorkspaceMode]),
+            name="ck_workspaces_mode",
+        ),
     )
 
 
@@ -97,6 +114,10 @@ class WorkspaceMemberAppEntitlement(Base):
             "workspace_member_id",
             "app_key",
             name="uq_workspace_member_app_entitlement",
+        ),
+        CheckConstraint(
+            _enum_check("app_key", [item.value for item in WorkspaceApp]),
+            name="ck_workspace_member_app_entitlements_app_key",
         ),
     )
 

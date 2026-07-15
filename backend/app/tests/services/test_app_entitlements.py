@@ -14,12 +14,55 @@ from app.services.iam.app_entitlements import (
     CHAT_APP,
     CLIENT360_APP,
     KNOWLEDGE_CAPTURE_APP,
+    WorkspaceEntitlementMutationConflictError,
     app_entitlements_enabled,
     list_member_app_entitlements,
+    lock_workspace_for_app_entitlement_mutation,
     member_has_app_entitlement,
     normalize_app_entitlements,
     replace_member_app_entitlements,
 )
+
+
+class _LockQuery:
+    def __init__(self, events: list[str], workspace: Workspace | None):
+        self.events = events
+        self.workspace = workspace
+
+    def filter(self, *_criteria):
+        self.events.append("filter")
+        return self
+
+    def with_for_update(self):
+        self.events.append("for_update")
+        return self
+
+    def populate_existing(self):
+        self.events.append("populate_existing")
+        return self
+
+    def one_or_none(self):
+        self.events.append("one_or_none")
+        return self.workspace
+
+
+class _LockDB:
+    def __init__(self, workspace: Workspace | None):
+        self.workspace = workspace
+        self.events: list[str] = []
+
+    def query(self, model):
+        assert model is Workspace
+        self.events.append("query")
+        return _LockQuery(self.events, self.workspace)
+
+    def refresh(self, workspace, *, attribute_names):
+        assert workspace is self.workspace
+        assert attribute_names == ["settings"]
+        self.events.append("refresh_settings")
+        workspace.settings = {
+            "features": {APP_ENTITLEMENTS_FEATURE: True},
+        }
 
 
 def _seed_membership(db_session) -> tuple[Workspace, User, WorkspaceMember]:
@@ -118,3 +161,41 @@ def test_replace_member_app_entitlements_replaces_rows_in_canonical_order(db_ses
     assert list_member_app_entitlements(db_session, membership) == [CLIENT360_APP]
     assert member_has_app_entitlement(db_session, membership, CLIENT360_APP) is True
     assert member_has_app_entitlement(db_session, membership, CHAT_APP) is False
+
+
+def test_workspace_mutation_lock_refreshes_settings_after_for_update() -> None:
+    stale = Workspace(
+        id="workspace-lock-order",
+        name="Lock order",
+        slug="lock-order",
+        settings={"features": {APP_ENTITLEMENTS_FEATURE: False}},
+    )
+    db = _LockDB(stale)
+
+    locked = lock_workspace_for_app_entitlement_mutation(db, stale.id)  # type: ignore[arg-type]
+
+    assert locked is stale
+    assert db.events == [
+        "query",
+        "filter",
+        "for_update",
+        "populate_existing",
+        "one_or_none",
+        "refresh_settings",
+    ]
+    assert app_entitlements_enabled(locked) is True
+
+
+def test_workspace_mutation_lock_fails_closed_when_workspace_disappears() -> None:
+    db = _LockDB(None)
+
+    with pytest.raises(WorkspaceEntitlementMutationConflictError, match="Workspace disappeared"):
+        lock_workspace_for_app_entitlement_mutation(db, "missing")  # type: ignore[arg-type]
+
+    assert db.events == [
+        "query",
+        "filter",
+        "for_update",
+        "populate_existing",
+        "one_or_none",
+    ]

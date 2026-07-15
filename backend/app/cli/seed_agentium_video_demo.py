@@ -23,6 +23,9 @@ from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.mission_room import ensure_octocity_mission_room_workspace
 from app.services.skills_registry import seed_skills_and_capabilities
 
@@ -410,6 +413,7 @@ def main() -> None:
     with SessionLocal() as db:
         seed_skills_and_capabilities(db)
         showcase = _workspace(db, SHOWCASE_SLUG)
+        showcase = lock_workspace_for_app_entitlement_mutation(db, showcase.id)
         deleted = _cleanup_video_rows(db, showcase)
         _enhance_connectors(showcase)
         runs, decisions = _seed_portfolio_runs(db, showcase)

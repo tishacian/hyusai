@@ -24,7 +24,9 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.app_entitlements import (
+    WorkspaceEntitlementMutationConflictError,
     list_member_app_entitlements,
+    lock_workspace_for_app_entitlement_mutation,
     normalize_app_entitlements,
     replace_member_app_entitlements,
 )
@@ -85,6 +87,7 @@ def _admin_gate(
     workspace: Workspace,
     resource_kind: str = "policy",
     action: str = "manage_policies",
+    membership: WorkspaceMember | None = None,
 ) -> None:
     decision = evaluate_permission(
         db,
@@ -93,6 +96,7 @@ def _admin_gate(
         resource_kind=resource_kind,
         action=action,
         resource_attrs={"capability": CAPTURE_MANIFEST.capability_id},
+        membership=membership,
     )
     if not decision.allowed:
         raise permission_denied_exception(decision)
@@ -230,9 +234,39 @@ async def update_member_iam(
     if body.role_template == WORKSPACE_OWNER:
         raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
 
+    try:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "WORKSPACE_MEMBERSHIP_MUTATION_CONFLICT",
+                "message": str(exc),
+            },
+        ) from exc
+    # Authority may have changed while this request waited behind a Blueprint.
+    caller_membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .first()
+    )
+    _admin_gate(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="workspace",
+        action="manage_members",
+        membership=caller_membership,
+    )
+
     target = (
         db.query(WorkspaceMember)
         .filter(WorkspaceMember.user_id == user_id, WorkspaceMember.workspace_id == workspace.id)
+        .populate_existing()
         .first()
     )
     if not target:
@@ -240,7 +274,6 @@ async def update_member_iam(
 
     target_role = normalize_role_template(getattr(target, "role_template", None), target.role)
     if target_role == WORKSPACE_OWNER:
-        caller_membership = current_membership(db, user, workspace)
         caller_role = normalize_role_template(
             getattr(caller_membership, "role_template", None) if caller_membership else None,
             caller_membership.role if caller_membership else None,
@@ -256,6 +289,7 @@ async def update_member_iam(
             1
             for member in db.query(WorkspaceMember)
             .filter(WorkspaceMember.workspace_id == workspace.id)
+            .populate_existing()
             .all()
             if normalize_role_template(getattr(member, "role_template", None), member.role)
             == WORKSPACE_OWNER

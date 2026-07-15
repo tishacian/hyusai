@@ -120,33 +120,28 @@ sur place et taguées en local (`agentium-backend:local`, `agentium-frontend:loc
 > Sans le bon env file, le backend démarre avec `agentium.env.example` et échoue
 > sur l'auth Postgres.
 
-### Procédure standard (rebuild backend + frontend)
+### Procédure standard (chemin unique)
 
 ```bash
 ssh omnirag-demo
-
-# 1. Aligner le checkout sur le commit poussé (source de vérité)
 cd /home/ubuntu/omnirag
-git fetch origin demo/agentic
-git reset --hard origin/demo/agentic      # cible de déploiement: reset OK vers un commit poussé
-git rev-parse --short HEAD                  # note le SHA déployé
-
-# 2. Build + recreate avec l'env VM (depuis docker/)
-cd docker
-export AGENTIUM_ENV_FILE=./env/agentium.vm.env
-export AGENTIUM_POSTGRES_PASSWORD=$(grep -E '^AGENTIUM_POSTGRES_PASSWORD=' env/agentium.vm.env | cut -d= -f2-)
-docker compose -f compose.agentium.yml build agentium-backend agentium-frontend
-docker compose -f compose.agentium.yml up -d agentium-backend agentium-frontend
+PREVIOUS_SHA="$(git rev-parse HEAD)"
+SHA="<sha-poussé-complet>"
+bash scripts/deploy-vm.sh \
+  --branch demo/agentic \
+  --sha "$SHA" \
+  --previous-sha "$PREVIOUS_SHA"
 ```
 
-> `git reset --hard origin/demo/agentic` sur la VM est **sûr** : l'arbre de la VM
-> ne doit contenir aucune modif unique (tout passe par `origin`). Les fichiers
-> gitignored (`docker/env/*.vm.env`, volumes de données) ne sont **pas** touchés
-> par le reset.
->
-> `AGENTIUM_POSTGRES_PASSWORD` est exporté dans le shell car Compose l'interpole
-> (`${AGENTIUM_POSTGRES_PASSWORD}`) ; `--env-file` ne sert qu'aux variables
-> **internes aux conteneurs**, pas à l'interpolation Compose.
+Le script est propriétaire du fetch/reset VM, de la provenance OCI, de la
+capture immuable des anciennes images, du build, des health checks et de
+l'audit de dérive. Un opérateur ne remplace pas ces gates par un
+`docker compose build/up` manuel.
+
+Une révision Alembic impose le mode en deux temps `--build-only`, migration sous
+quiescence, puis `--activate-only`. La procédure exacte, y compris le downgrade
+obligatoire avant rollback des images, est documentée dans
+[`agentium-navigation-lot-5-cleanup-governance.md`](./agentium-navigation-lot-5-cleanup-governance.md#commandes-opératoires).
 
 ### Ne touche pas à l'infra par accident
 - N'utilise **pas** le profil `infra` (`--profile infra`) en déploiement courant :

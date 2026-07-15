@@ -57,6 +57,9 @@ from app.services.client360_contract import (
     CLIENT360_SYSTEM_VARIANT,
 )
 from app.services.email import SmtpDeliveryConfig, send_email_with_config
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -2530,7 +2533,12 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
-def patch_client360_mail_settings(workspace: Workspace, patch: dict[str, Any]) -> dict[str, Any]:
+def patch_client360_mail_settings(
+    db: DBSession,
+    workspace: Workspace,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     workspace_settings = dict(getattr(workspace, "settings", None) or {})
     mail_settings = dict(_as_dict(workspace_settings.get("client360_pdr_mail")))
     smtp = dict(_as_dict(mail_settings.get("smtp")))

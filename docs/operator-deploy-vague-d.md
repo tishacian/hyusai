@@ -1,5 +1,12 @@
 # Operator runbook — Deploy Vague D on the VM
 
+> **Archive historique — ne pas utiliser pour Agentium actuel.** Cette procédure
+> antérieure copie un bundle par `rsync` et redémarre uvicorn ; elle ne garantit
+> ni SHA Git/OCI, ni synchronisation du schéma. Le seul chemin opératoire actuel
+> est [`scripts/deploy-vm.sh`](../scripts/deploy-vm.sh), selon
+> [`dev-deploy-policy.md`](./dev-deploy-policy.md). Le contenu ci-dessous est
+> conservé uniquement pour l'historique Vague D.
+
 Mirror of the C11 deploy procedure, extended with the new surfaces
 introduced by Vague D (chat workspace, streaming tokens, i18n, light
 theme, multi-tenant hardening, integration tests). Target host:

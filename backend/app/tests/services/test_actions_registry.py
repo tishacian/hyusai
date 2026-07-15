@@ -16,6 +16,8 @@ from app.services.actions import (
     handle_transverse_chat_action,
     resolve_action,
 )
+from app.services.actions.contracts import ACTION_PACK_IDS
+from app.services.actions.registry import PACKS
 
 
 def _workspace(slug: str, *, settings: dict | None = None) -> Workspace:
@@ -49,7 +51,7 @@ def _actions_api_client(db_session, workspace: Workspace, *, user_id: str) -> Te
 
 
 def test_andritz_inherits_industrial_actions_but_not_aya():
-    workspace = _workspace("andritz")
+    workspace = _workspace("andritz", settings={"family": "andritz"})
 
     ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
 
@@ -59,7 +61,10 @@ def test_andritz_inherits_industrial_actions_but_not_aya():
 
 
 def test_sentinel_inherits_aya_actions_without_andritz_pack():
-    workspace = _workspace("sentinel-ci")
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={"family": "sentinel_ci"},
+    )
 
     ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
 
@@ -275,9 +280,32 @@ def test_global_voice_actions_are_trans_workspace():
     )
 
 
+def test_registry_exactly_matches_the_canonical_action_pack_contract():
+    assert tuple(PACKS) == ACTION_PACK_IDS
+    assert all(
+        manifest.pack == pack_id for pack_id, manifests in PACKS.items() for manifest in manifests
+    )
+
+
+def test_workspace_slug_and_name_do_not_implicitly_enable_tenant_packs():
+    workspaces = (
+        _workspace("andritz"),
+        _workspace("sentinel-ci"),
+        _workspace("octocity-mission-room"),
+    )
+
+    for workspace in workspaces:
+        ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
+        assert not any(action_id.startswith(("andritz.", "aya.", "octave.")) for action_id in ids)
+
+
 def test_catalog_override_can_enable_aya_in_andritz():
     workspace = _workspace(
-        "andritz", settings={"catalog": {"enabled_capabilities": ["aya_voice_command"]}}
+        "andritz",
+        settings={
+            "family": "andritz",
+            "catalog": {"enabled_capabilities": ["aya_voice_command"]},
+        },
     )
 
     ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
@@ -287,7 +315,7 @@ def test_catalog_override_can_enable_aya_in_andritz():
 
 
 def test_resolver_matches_andritz_parameter_action():
-    workspace = _workspace("andritz")
+    workspace = _workspace("andritz", settings={"family": "andritz"})
 
     result = resolve_action(
         workspace,
@@ -303,7 +331,10 @@ def test_resolver_matches_andritz_parameter_action():
 def test_aya_side_effect_action_requires_confirmation_before_legacy_execution(db_session):
     workspace = _workspace(
         "sentinel-ci",
-        settings={"action_planner": {"write_policy": "direct"}},
+        settings={
+            "mission_room": {"profile": "sentinel_government_v1"},
+            "action_planner": {"write_policy": "direct"},
+        },
     )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
@@ -326,7 +357,10 @@ def test_aya_side_effect_action_requires_confirmation_before_legacy_execution(db
 def test_aya_confirmed_legacy_action_executes(db_session):
     workspace = _workspace(
         "sentinel-ci",
-        settings={"action_planner": {"write_policy": "direct"}},
+        settings={
+            "mission_room": {"profile": "sentinel_government_v1"},
+            "action_planner": {"write_policy": "direct"},
+        },
     )
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
@@ -349,7 +383,10 @@ def test_aya_confirmed_legacy_action_executes(db_session):
 
 
 def test_aya_voice_side_effect_resolves_as_confirmable():
-    workspace = _workspace("sentinel-ci")
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={"mission_room": {"profile": "sentinel_government_v1"}},
+    )
 
     result = resolve_action(
         workspace,
@@ -388,7 +425,7 @@ def test_octave_wake_word_resolves_mission_room_action():
 
 
 def test_actions_api_exposes_effective_actions(db_session):
-    workspace = _workspace("andritz")
+    workspace = _workspace("andritz", settings={"family": "andritz"})
     user = User(id="user-1", username="thib", email="thib@example.test", is_active=True)
     membership = WorkspaceMember(
         user_id=user.id,

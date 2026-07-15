@@ -1084,10 +1084,14 @@ async def _time_context_set_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     from app.services.demo_time_context import demo_time_context_defaults
+    from app.services.iam.app_entitlements import (
+        lock_workspace_for_app_entitlement_mutation,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
         settings = dict(workspace.settings or {})
         defaults = demo_time_context_defaults(workspace)
         mode = str(payload.get("mode") or defaults["mode"])

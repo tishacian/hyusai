@@ -64,12 +64,10 @@ Pour un business user, les routes contractuelles sont :
 - `/knowledge/capture` — Capture de connaissances ;
 - `/account/**` — compte utilisateur.
 
-La synthèse historique `agentium-andritz-intro-agent-tiers.md` mentionne encore
-un mini-shell à deux surfaces (`/chat` et `/knowledge/capture`). La capture
-runtime, la configuration `business_end_user` et les contrats Lot 0 établissent
-désormais trois applications avec Client360. Cette ligne historique ne doit
-donc pas être utilisée comme contrat de régression tant que son auteur ne l'a
-pas réconciliée.
+La synthèse `agentium-andritz-intro-agent-tiers.md` a été réconciliée au Lot 5 :
+elle distingue désormais les deux lignées métier historiques, les cinq Systems
+actifs et les trois applications visibles. Le présent tableau reste le contrat
+de régression capturé au Lot 0.
 
 Pour un owner/admin, le cockpit Agentium complet reste le comportement par
 défaut. Le business shell est une preview explicite et réversible.

@@ -35,6 +35,8 @@ const pureSpecs = [
   'src/app/core/workspace-view-context.spec.ts',
   'src/app/core/navigation.catalog.spec.ts',
   'src/app/core/workspace-experience.spec.ts',
+  'src/app/features/governance/workspace-blueprint-plan.spec.ts',
+  'src/app/features/auth/signin-experience.spec.ts',
   'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
 ];

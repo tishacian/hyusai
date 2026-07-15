@@ -15,6 +15,10 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.document_intelligence import DocumentQueryEngine
+from app.services.iam.app_entitlements import (
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.knowledge_guides import (
     create_guide,
     effective_guides,
@@ -88,6 +92,7 @@ def _require_workspace_admin(db: Session, user: User, workspace: Workspace) -> N
     membership = (
         db.query(WorkspaceMember)
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .populate_existing()
         .first()
     )
     if not membership or not is_admin_template(
@@ -247,6 +252,10 @@ def patch_knowledge_scopes(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    try:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _require_workspace_admin(db, user, workspace)
     scopes = []
     for raw in payload.scopes:

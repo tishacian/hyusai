@@ -21,6 +21,8 @@ This document is the human-readable companion to the runtime catalog exposed at
 
 | Andritz need | Agentium object | UI route | API prefix | Status |
 |---|---|---|---|---|
+| Sourced business research | `Workbench` | `/chat` | `/api/v1/chat` | `canonical` |
+| Customer and PDR operations | `Workbench` | `/client360` | `/api/v1/client360` | `canonical` |
 | Expert interview planning and capture | `Workbench` | `/systems/:id/capture`, `/knowledge/capture` | `/api/v1/knowledge-capture` | `canonical` |
 | Secure external file intake | `Connector` | `/connectors/sftp`, `/deposit/:accessId` | `/api/v1/sftp`, `/api/v1/deposit-links` | `canonical` / `public-external` |
 | Workspace access and reviewer roles | `Governance` | `/governance/access`, `/workspace/:slug/access` | `/api/v1/iam` | `canonical` |

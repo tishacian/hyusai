@@ -13,6 +13,10 @@ from app.core.config import settings
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.iam.app_entitlements import (
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.object_store import get_object_store
 from app.services.visual_intelligence import (
     create_source,
@@ -27,10 +31,24 @@ from app.services.visual_intelligence import (
     serialize_capture,
     serialize_source,
     update_source,
+    visual_intelligence_enabled,
 )
 from app.services.workspace_jobs import serialize_job
 
 router = APIRouter()
+
+
+def _locked_visual_seed_workspace(
+    db: DBSession,
+    workspace: Workspace,
+) -> Workspace | None:
+    if not visual_intelligence_enabled(workspace):
+        return None
+    try:
+        locked = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    except WorkspaceEntitlementMutationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return locked if visual_intelligence_enabled(locked) else None
 
 
 class VisualSourceCreate(BaseModel):
@@ -66,9 +84,9 @@ async def visual_sources(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    settings = dict((workspace.settings or {}).get("visual_intelligence") or {})
-    if settings.get("enabled") or workspace.slug == "sentinel-ci":
-        ensure_visual_intelligence_seed(db, workspace)
+    seed_workspace = _locked_visual_seed_workspace(db, workspace)
+    if seed_workspace is not None:
+        ensure_visual_intelligence_seed(db, seed_workspace)
         db.commit()
     rows = list_sources(db, workspace)
     return {"sources": [serialize_source(row) for row in rows]}
@@ -200,8 +218,8 @@ async def visual_dashboard(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    settings = dict((workspace.settings or {}).get("visual_intelligence") or {})
-    if settings.get("enabled") or workspace.slug == "sentinel-ci":
-        ensure_visual_intelligence_seed(db, workspace)
+    seed_workspace = _locked_visual_seed_workspace(db, workspace)
+    if seed_workspace is not None:
+        ensure_visual_intelligence_seed(db, seed_workspace)
         db.commit()
     return dashboard_payload(db, workspace)

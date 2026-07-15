@@ -10,6 +10,7 @@ import {
   throwError,
 } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import type { SystemStatus } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import {
   readWorkspaceLocalJson,
@@ -22,7 +23,7 @@ export interface SystemAgent {
   description: string;
   objective?: string;
   capability_id?: string | null;
-  status: string;
+  status: SystemStatus;
   rag_mode?: string;
   model?: string;
   template?: string;

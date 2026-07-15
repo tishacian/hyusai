@@ -37,7 +37,6 @@ SENTINEL_MAP_SLUG = "sentinel-ci-strategic-map"
 TERRITORIAL_INTELLIGENCE_COLLECTION = "sentinel-ci-territorial-intelligence"
 GEO_DATA_DIR = Path(__file__).resolve().parents[1] / "resources" / "geo" / "civ"
 
-OCTOCITY_WORKSPACE_SLUG = "octocity-mission-room"
 OCTOCITY_MISSION_ROOM_PROFILE = "octocity_institutional_v1"
 OCTOCITY_MAP_SLUG = "octocity-operating-map"
 OCTOCITY_MAP_FIXTURE_PROFILE = "octocity_france_v1"
@@ -747,10 +746,7 @@ def _is_octocity_workspace(workspace: Workspace) -> bool:
     mission_room = (
         settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}
     )
-    return (
-        workspace.slug == OCTOCITY_WORKSPACE_SLUG
-        or mission_room.get("profile") == OCTOCITY_MISSION_ROOM_PROFILE
-    )
+    return mission_room.get("profile") == OCTOCITY_MISSION_ROOM_PROFILE
 
 
 def _is_octocity_map(map_row: WorkspaceMap) -> bool:

@@ -10,8 +10,9 @@ from __future__ import annotations
 import copy
 import logging
 import os
+from collections.abc import Iterable
 from datetime import datetime, time, timedelta
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import func
@@ -37,6 +38,12 @@ from app.services.action_plans import (
 )
 from app.services.audit_logger import emit_audit_event
 from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
+from app.services.iam.app_entitlements import (
+    BUSINESS_APP_KEYS,
+    app_entitlements_enabled,
+    lock_workspace_for_app_entitlement_mutation,
+    replace_member_app_entitlements,
+)
 from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
 from app.services.scenario_engine import generate_scenarios
 from app.services.visual_intelligence import (
@@ -191,9 +198,7 @@ def mission_room_profile(workspace: Workspace | None) -> str:
 
 
 def is_octocity_mission_room(workspace: Workspace | None) -> bool:
-    return mission_room_profile(workspace) == OCTOCITY_MISSION_ROOM_PROFILE or (
-        workspace is not None and (workspace.slug or "") == OCTOCITY_WORKSPACE_SLUG
-    )
+    return mission_room_profile(workspace) == OCTOCITY_MISSION_ROOM_PROFILE
 
 
 def present_text_for_workspace(workspace: Workspace | None, value: str) -> str:
@@ -236,6 +241,7 @@ def _ensure_workspace_members(
     role: str,
     role_template: str,
     custom_label: str,
+    grant_source: str,
 ) -> int:
     added = 0
     for email in emails:
@@ -253,18 +259,26 @@ def _ensure_workspace_members(
             )
             .first()
         )
-        if existing:
-            continue
-        db.add(
-            WorkspaceMember(
+        membership = existing
+        if membership is None:
+            membership = WorkspaceMember(
                 workspace_id=workspace.id,
                 user_id=user.id,
                 role=role,
                 role_template=role_template,
                 custom_labels=[custom_label],
             )
-        )
-        added += 1
+            db.add(membership)
+            db.flush()
+            added += 1
+        if app_entitlements_enabled(workspace):
+            replace_member_app_entitlements(
+                db,
+                membership,
+                BUSINESS_APP_KEYS,
+                granted_by_user_id=None,
+                grant_source=grant_source,
+            )
     return added
 
 
@@ -7551,6 +7565,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         db.add(workspace)
         db.flush()
         created = 1
+    else:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
     workspace.name = SENTINEL_WORKSPACE_NAME
     workspace.mode = "demo"
     settings = dict(workspace.settings or {})
@@ -8715,6 +8731,8 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
         db.add(workspace)
         db.flush()
         created = 1
+    else:
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
 
     workspace.name = OCTOCITY_WORKSPACE_NAME
     workspace.mode = "demo"
@@ -8730,6 +8748,7 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
             role="owner",
             role_template="workspace_owner",
             custom_label="octocity:video-owner",
+            grant_source="octocity_seed_owner",
         )
     else:
         members_added = 0

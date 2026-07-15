@@ -221,7 +221,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
 
 def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant_leak(db_session):
     workspace = _mission_room_workspace()
-    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
+    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="executive")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     source = FeedSource(
         id="feed-sentinel",

@@ -275,6 +275,15 @@ export interface Context {
   created_at?: string;
 }
 
+export type SystemStatus = 'draft' | 'active' | 'paused' | 'retired';
+
+export type ExecutionMode =
+  | 'real_time_decision'
+  | 'batch_processing'
+  | 'event_driven_automation'
+  | 'continuous_monitoring'
+  | 'human_augmented';
+
 export interface System {
   id: string;
   name: string;
@@ -287,14 +296,9 @@ export interface System {
   adaptive_policy_id?: string | null;
   flow?: Record<string, unknown>;
   flow_definition?: Record<string, unknown>;
-  status?: 'draft' | 'active' | 'paused' | 'archived';
+  status?: SystemStatus;
   /** Canonical execution taxonomy — see schemas/canonical.ExecutionMode. */
-  execution_mode?:
-    | 'real_time_decision'
-    | 'batch_processing'
-    | 'event_driven_automation'
-    | 'continuous_monitoring'
-    | 'human_augmented';
+  execution_mode?: ExecutionMode;
   execution_profile?: Record<string, unknown>;
   // Canonical per-system defaults consumed by the run engine / RAG wrappers.
   default_prompt_type?: string | null;

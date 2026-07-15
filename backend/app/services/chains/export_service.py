@@ -49,6 +49,8 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.skill import Skill
 from app.models.system import System
+from app.schemas.canonical import ExecutionMode
+from app.services.actions.contracts import normalize_system_action_pack_settings
 
 SCHEMA_VERSION = 1
 ENVELOPE_KIND = "agentium.system.export"
@@ -125,6 +127,10 @@ def prepare_import(
     _validate_envelope(envelope)
 
     sys_payload = envelope.get("system") or {}
+    _, normalized_execution_profile = normalize_system_action_pack_settings(
+        settings=None,
+        execution_profile=sys_payload.get("execution_profile"),
+    )
     raw_flow = sys_payload.get("flow_definition") or {}
     if not isinstance(raw_flow, Mapping):
         raise ChainExportError("``system.flow_definition`` must be an object.")
@@ -158,8 +164,10 @@ def prepare_import(
         "objective": sys_payload.get("objective") or "",
         "flow_definition": flow,
         "skill_ids": skill_ids,
-        "execution_mode": sys_payload.get("execution_mode") or "real_time_decision",
-        "execution_profile": sys_payload.get("execution_profile") or {},
+        "execution_mode": str(
+            sys_payload.get("execution_mode") or ExecutionMode.real_time_decision.value
+        ).strip(),
+        "execution_profile": normalized_execution_profile or {},
         "coordination_pattern": sys_payload.get("coordination_pattern") or "single_agent",
         "default_prompt_type": sys_payload.get("default_prompt_type"),
         "default_model": sys_payload.get("default_model"),
@@ -191,6 +199,21 @@ def _validate_envelope(envelope: Mapping[str, Any]) -> None:
         )
     if not isinstance(envelope.get("system"), Mapping):
         raise ChainExportError("Missing ``system`` section in envelope.")
+    system = envelope["system"]
+    raw_mode = system.get("execution_mode") or ExecutionMode.real_time_decision.value
+    mode = raw_mode.strip() if isinstance(raw_mode, str) else ""
+    if mode not in {item.value for item in ExecutionMode}:
+        raise ChainExportError(f"Non-canonical system.execution_mode: {raw_mode!r}.")
+    profile = system.get("execution_profile")
+    if profile is not None and not isinstance(profile, Mapping):
+        raise ChainExportError("``system.execution_profile`` must be an object.")
+    try:
+        normalize_system_action_pack_settings(
+            settings=None,
+            execution_profile=profile,
+        )
+    except ValueError as exc:
+        raise ChainExportError(str(exc)) from exc
 
 
 def _strip_flow_for_export(flow: Mapping[str, Any]) -> dict[str, Any]:

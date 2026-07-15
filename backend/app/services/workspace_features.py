@@ -1,15 +1,15 @@
 """Workspace family resolution and per-workspace feature toggles.
 
 Families and feature flags historically lived in global config CSVs plus
-substring matches on the workspace slug/name ("andritz" in slug). The
-workspace settings are now the source of truth:
+substring matches on the workspace slug/name ("andritz" in slug). Migration
+058 stamps the legacy result once; runtime settings are now the source of
+truth:
 
-- ``settings["family"]`` — stamped family ("andritz" | "sentinel_ci" | "generic")
+- ``settings["family"]`` — canonical stamped family (``WorkspaceFamily``)
 - ``settings["features"][<feature>]`` — boolean toggle per feature
 
-The legacy substring heuristic and the global CSV fallbacks stay in place
-until every deployment has been stamped (scripts/stamp_workspace_families.py),
-then they can be retired.
+An absent or malformed family is deliberately fail-safe ``generic``. Runtime
+code must never infer a business specialization from a mutable slug or name.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-KNOWN_FAMILIES = {"andritz", "sentinel_ci", "generic"}
+from app.schemas.canonical import WorkspaceFamily
+
+KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)
 
 
 def _workspace_settings(workspace: Any) -> Mapping[str, Any]:
@@ -25,23 +27,12 @@ def _workspace_settings(workspace: Any) -> Mapping[str, Any]:
     return raw if isinstance(raw, Mapping) else {}
 
 
-def family_heuristic(workspace: Any) -> str:
-    """Legacy substring heuristic — fallback only, do not extend."""
-    slug = str(getattr(workspace, "slug", "") or "").lower()
-    name = str(getattr(workspace, "name", "") or "").lower()
-    if "andritz" in slug or "andritz" in name:
-        return "andritz"
-    if slug == "sentinel-ci" or "sentinel" in slug:
-        return "sentinel_ci"
-    return "generic"
-
-
 def workspace_family(workspace: Any) -> str:
-    """Resolve the workspace family: stamped settings first, heuristic fallback."""
+    """Resolve only a canonical stamped family, otherwise fail safe."""
     stamped = str(_workspace_settings(workspace).get("family") or "").strip().lower()
     if stamped in KNOWN_FAMILIES:
         return stamped
-    return family_heuristic(workspace)
+    return WorkspaceFamily.generic.value
 
 
 def feature_enabled(workspace: Any, feature: str, *, csv_fallback: str = "") -> bool:

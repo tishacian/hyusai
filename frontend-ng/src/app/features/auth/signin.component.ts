@@ -20,6 +20,10 @@ import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  resolveSigninExperience,
+  type SigninExperiencePresentation,
+} from './signin-experience';
 
 function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   return (r as MfaChallengeResponse).mfa_required === true;
@@ -31,24 +35,18 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
     @if (!mfaChallenge()) {
-      @if (sentinelCiLogin()) {
+      @if (signinExperience().securityBand; as securityBand) {
         <div class="ck-auth-security-band" role="note">
-          Validation conformite Athea — chiffrement bout en bout, hebergement souverain Cote d'Ivoire
+          {{ securityBand }}
         </div>
       }
       <header class="ck-auth-head">
-        <span class="ck-auth-eyebrow">{{ sentinelCiLogin() ? 'ACCES SOUVERAIN' : 'COCKPIT ACCESS' }}</span>
-        <h2 class="ck-auth-title">{{ sentinelCiLogin() ? 'Hyperviseur souverain SENTINEL-CI' : 'Sign in' }}</h2>
-        <p class="ck-auth-sub">
-          @if (sentinelCiLogin()) {
-            Authentification executive · session workspace sentinel-ci.
-          } @else {
-            Operator authentication · single workspace session.
-          }
-        </p>
-        @if (sentinelCiLogin()) {
+        <span class="ck-auth-eyebrow">{{ signinExperience().eyebrow }}</span>
+        <h2 class="ck-auth-title">{{ signinExperience().title }}</h2>
+        <p class="ck-auth-sub">{{ signinExperience().subtitle }}</p>
+        @if (signinExperience().sovereignTag; as sovereignTag) {
           <p class="ck-auth-sovereign-tag" aria-label="Mention souveraine">
-            Cockpit souverain · République de Côte d'Ivoire
+            {{ sovereignTag }}
           </p>
         }
       </header>
@@ -115,7 +113,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
             <span>SIGNING IN…</span>
           } @else {
-            <span>{{ sentinelCiLogin() ? 'CONNEXION VPM' : 'SIGN IN' }}</span>
+            <span>{{ signinExperience().submitLabel }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
           }
         </button>
@@ -571,15 +569,14 @@ export class SigninComponent implements OnDestroy {
 
   otpInputs = viewChildren<ElementRef<HTMLInputElement>>('otpInput');
 
-  readonly sentinelCiLogin = signal(false);
+  readonly signinExperience = signal<SigninExperiencePresentation>(
+    resolveSigninExperience({ get: () => null }),
+  );
 
   constructor() {
-    const workspace = this.route.snapshot.queryParamMap.get('workspace');
-    const demo = this.route.snapshot.queryParamMap.get('demo');
-    this.sentinelCiLogin.set(workspace === 'sentinel-ci');
-    if (demo === 'true') {
-      this.email = 'vp.demo@sentinel-ci.local';
-    }
+    const experience = resolveSigninExperience(this.route.snapshot.queryParamMap);
+    this.signinExperience.set(experience);
+    if (experience.prefillEmail) this.email = experience.prefillEmail;
     effect(() => {
       const digits = this.otpDigits();
       if (digits.join('').length === 6 && this.mfaChallenge() && !this.loading() && this.secondsLeft() > 0) {

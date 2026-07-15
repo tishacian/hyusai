@@ -23,7 +23,7 @@ def test_action_plans_are_workspace_scoped_and_audited(db_session):
     workspace = Workspace(
         id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
     )
-    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
+    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="executive")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, other, user])
     db_session.commit()

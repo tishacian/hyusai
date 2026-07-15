@@ -18,11 +18,15 @@ from app.models.capability import Capability
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.schemas.canonical import WorkspaceFamily
 from app.services.client360_contract import (
     CLIENT360_AGENT_ROUTING_CONTRACT,
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
+)
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
 )
 
 logger = get_logger(__name__)
@@ -94,24 +98,16 @@ def _as_list(value: Any) -> list[Any]:
 def _workspace_family(workspace: Workspace) -> str:
     from app.services.workspace_features import workspace_family
 
-    family = workspace_family(workspace)
-    # The opt-in industrial layer is selected by an explicit ``industrial`` family
-    # stamp. ``workspace_family`` does not (yet) list it in ``KNOWN_FAMILIES`` and
-    # would fall back to the "generic" heuristic, so honour the raw stamp here
-    # without widening the global family vocabulary.
-    if family == "generic":
-        stamped = (
-            str(_as_dict(getattr(workspace, "settings", None)).get("family") or "").strip().lower()
-        )
-        if stamped == "industrial":
-            return "industrial"
-    return family
+    return workspace_family(workspace)
 
 
-# Families that opt into the industrial layer (project/equipment guardrails +
-# ``industrial_answer_policy``). Andritz maps onto it via ``family == "andritz"``;
-# the universal default never carries the "project" concept.
-INDUSTRIAL_FAMILIES = {"andritz", "industrial"}
+# Canonical families that opt into the industrial layer (project/equipment
+# guardrails + ``industrial_answer_policy``). The universal default never
+# carries the "project" concept.
+INDUSTRIAL_FAMILIES = {
+    WorkspaceFamily.andritz.value,
+    WorkspaceFamily.industrial.value,
+}
 
 
 def _profile_by_key(settings: dict[str, Any], key: Optional[str]) -> dict[str, Any]:
@@ -1342,9 +1338,12 @@ def _ensure_client360_navigation_profile(workspace: Workspace) -> None:
 
 def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not workspace or workspace.slug != "andritz":
+    if not workspace or _workspace_family(workspace) != WorkspaceFamily.andritz.value:
         return None
 
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    if _workspace_family(workspace) != WorkspaceFamily.andritz.value:
+        return None
     _ensure_client360_navigation_profile(workspace)
     capability = _ensure_client360_capability(db)
     flow_definition = _client360_flow_definition()
@@ -1352,7 +1351,7 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
         "system_type": "client360_pdr",
         "surface": "client360",
         "surface_routes": ["/client360"],
-        "family": "andritz",
+        "family": WorkspaceFamily.andritz.value,
         "product_contract": CLIENT360_MVP_CONTRACT,
         "agent_routing": CLIENT360_AGENT_ROUTING_CONTRACT,
         "client360_pdr_mail": {
@@ -1430,9 +1429,6 @@ def ensure_client360_pdr_system_for_all_workspaces(db: DBSession) -> dict[str, i
         .all()
     )
     for ws in workspaces:
-        if ws.slug != "andritz":
-            report["skipped"] += 1
-            continue
         before = 1 if _find_client360_system(db, ws.id) else 0
         system = ensure_client360_pdr_system_default(db, ws.id)
         if system is None:

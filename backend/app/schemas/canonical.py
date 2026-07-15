@@ -46,12 +46,48 @@ class PolicyScope(str, Enum):
     system = "system"
 
 
+class WorkspaceMode(str, Enum):
+    """Canonical shell/persona mode persisted on a Workspace."""
+
+    builder = "builder"
+    operator = "operator"
+    executive = "executive"
+    demo = "demo"
+    portfolio = "portfolio"
+
+
+class WorkspaceFamily(str, Enum):
+    """Business specialization stamped into ``Workspace.settings.family``."""
+
+    andritz = "andritz"
+    industrial = "industrial"
+    sentinel_ci = "sentinel_ci"
+    generic = "generic"
+
+
+class SystemStatus(str, Enum):
+    """Lifecycle states accepted for a deployable System."""
+
+    draft = "draft"
+    active = "active"
+    paused = "paused"
+    retired = "retired"
+
+
 class ExecutionMode(str, Enum):
     real_time_decision = "real_time_decision"
     batch_processing = "batch_processing"
     event_driven_automation = "event_driven_automation"
     continuous_monitoring = "continuous_monitoring"
     human_augmented = "human_augmented"
+
+
+class WorkspaceApp(str, Enum):
+    """Applications that can be granted to a workspace membership."""
+
+    chat = "chat"
+    client360_pdr = "client360-pdr"
+    knowledge_capture = "knowledge-capture"
 
 
 class RuntimeStatus(str, Enum):

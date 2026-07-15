@@ -164,6 +164,39 @@ def test_import_rejects_wrong_schema_version(db_session) -> None:
         export_service.prepare_import(db=db_session, envelope=envelope, workspace_id="ws-b")
 
 
+@pytest.mark.parametrize(
+    ("system_patch", "message"),
+    [
+        ({"execution_mode": "real_time"}, "Non-canonical system.execution_mode"),
+        (
+            {"execution_profile": {"action_packs": ["unknown_pack"]}},
+            "Unknown action pack",
+        ),
+    ],
+)
+def test_import_rejects_noncanonical_system_contracts(
+    db_session,
+    system_patch,
+    message,
+) -> None:
+    envelope = {
+        "kind": export_service.ENVELOPE_KIND,
+        "schema_version": export_service.SCHEMA_VERSION,
+        "system": {
+            "name": "Imported",
+            "flow_definition": {"nodes": [], "edges": []},
+            **system_patch,
+        },
+    }
+
+    with pytest.raises(export_service.ChainExportError, match=message):
+        export_service.prepare_import(
+            db=db_session,
+            envelope=envelope,
+            workspace_id="ws-target",
+        )
+
+
 def test_import_allows_target_name_override(db_session) -> None:
     envelope = {
         "kind": export_service.ENVELOPE_KIND,
@@ -184,3 +217,30 @@ def test_import_allows_target_name_override(db_session) -> None:
         target_name="Cloned (copy)",
     )
     assert kwargs["name"] == "Cloned (copy)"
+
+
+def test_import_normalizes_canonical_action_pack_lists(db_session) -> None:
+    envelope = {
+        "kind": export_service.ENVELOPE_KIND,
+        "schema_version": export_service.SCHEMA_VERSION,
+        "system": {
+            "name": "Imported",
+            "flow_definition": {"nodes": [], "edges": []},
+            "execution_mode": " human_augmented ",
+            "execution_profile": {
+                "action_packs": [
+                    " global_voice_v1 ",
+                    "global_voice_v1",
+                ]
+            },
+        },
+    }
+
+    kwargs, _ = export_service.prepare_import(
+        db=db_session,
+        envelope=envelope,
+        workspace_id="ws-target",
+    )
+
+    assert kwargs["execution_mode"] == "human_augmented"
+    assert kwargs["execution_profile"]["action_packs"] == ["global_voice_v1"]

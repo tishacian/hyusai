@@ -43,7 +43,7 @@ def _skill(slug: str, *, id_: str | None = None, workspace_id: str | None = None
 
 
 def test_andritz_hides_government_industry_capabilities_by_default():
-    workspace = _workspace("andritz")
+    workspace = _workspace("andritz", settings={"family": "andritz"})
     universal = _cap("expert_knowledge_capture")
     government = _cap("aya_voice_command", tier="industry", industry="government")
     legal = _cap("compliance_assistant", tier="industry", industry="legal")
@@ -56,7 +56,7 @@ def test_andritz_hides_government_industry_capabilities_by_default():
 
 
 def test_sentinel_sees_government_industry_capabilities_by_default():
-    workspace = _workspace("sentinel-ci")
+    workspace = _workspace("sentinel-ci", settings={"family": "sentinel_ci"})
     government = _cap("aya_voice_command", tier="industry", industry="government")
     finance = _cap("finance_brief", tier="industry", industry="finance")
 
@@ -70,10 +70,11 @@ def test_catalog_overrides_can_enable_and_hide_capabilities():
     workspace = _workspace(
         "andritz",
         settings={
+            "family": "andritz",
             "catalog": {
                 "enabled_capabilities": ["aya_voice_command"],
                 "hidden_capabilities": ["expert_knowledge_capture"],
-            }
+            },
         },
     )
     expert_capture = _cap("expert_knowledge_capture")
@@ -86,7 +87,7 @@ def test_catalog_overrides_can_enable_and_hide_capabilities():
 
 
 def test_skills_are_visible_only_when_bound_to_visible_capabilities():
-    workspace = _workspace("andritz")
+    workspace = _workspace("andritz", settings={"family": "andritz"})
     universal_skill = _skill("expert_answer_evaluator_v1", id_="skill-visible")
     government_skill = _skill("mission_command_v1", id_="skill-hidden")
     universal_cap = _cap("expert_knowledge_capture", skill_ids=[universal_skill.id])

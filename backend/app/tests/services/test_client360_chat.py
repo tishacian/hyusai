@@ -10,8 +10,14 @@ from app.services import client360_chat, client360_pdr
 from app.services.actions.registry import ANDRITZ_ACTIONS
 
 
-def _seed_workspace(db_session, *, slug: str = "andritz") -> Workspace:
-    workspace = Workspace(id=str(uuid4()), name=slug.title(), slug=slug, settings={})
+def _seed_workspace(
+    db_session,
+    *,
+    slug: str = "andritz",
+    family: str | None = "andritz",
+) -> Workspace:
+    settings = {"family": family} if family is not None else {}
+    workspace = Workspace(id=str(uuid4()), name=slug.title(), slug=slug, settings=settings)
     db_session.add(workspace)
     db_session.flush()
     return workspace
@@ -84,7 +90,7 @@ def test_dedicated_surface_answers_without_trigger(db_session) -> None:
 # Workspace guard
 # ---------------------------------------------------------------------------
 def test_guard_blocks_non_andritz_workspace(db_session) -> None:
-    workspace = _seed_workspace(db_session, slug="octocity")
+    workspace = _seed_workspace(db_session, slug="octocity", family="generic")
     _seed_opportunity(db_session, workspace)
     result = _run(
         client360_chat.handle_client360_chat_query(
@@ -92,6 +98,33 @@ def test_guard_blocks_non_andritz_workspace(db_session) -> None:
         )
     )
     assert result is None
+
+
+def test_guard_uses_canonical_family_not_slug(db_session) -> None:
+    legacy_slug = _seed_workspace(db_session, slug="andritz", family=None)
+    configured = _seed_workspace(db_session, slug="industrial-client360", family="andritz")
+    _seed_opportunity(db_session, legacy_slug)
+    _seed_opportunity(db_session, configured)
+
+    blocked = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            legacy_slug,
+            None,
+            query="montre les opportunités PDR",
+        )
+    )
+    allowed = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            configured,
+            None,
+            query="montre les opportunités PDR",
+        )
+    )
+
+    assert blocked is None
+    assert allowed is not None
 
 
 def test_non_client360_query_returns_none(db_session) -> None:

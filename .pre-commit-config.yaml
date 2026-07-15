@@ -37,6 +37,14 @@ repos:
         exclude: ^benchmarking/
       - id: ruff-format
         exclude: ^benchmarking/
+  - repo: local
+    hooks:
+      - id: agentium-compliance
+        name: Agentium product compliance contract
+        entry: python3 scripts/agentium_compliance.py --check
+        language: system
+        pass_filenames: false
+        always_run: true
   - repo: meta
     hooks:
       - id: check-hooks-apply

@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.dependencies import require_app_entitlement
+from app.core.iam.roles import ADMIN_ROLE_TEMPLATES, normalize_role_template
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.action_plans import serialize_action_item
 from app.services.client360_alerts import alerts_payload
 from app.services.client360_chat import handle_client360_chat_query
@@ -46,7 +47,11 @@ from app.services.client360_pdr import (
     summary_payload,
     upsert_mapping_rule,
 )
-from app.services.iam.app_entitlements import CLIENT360_APP
+from app.services.iam.app_entitlements import (
+    CLIENT360_APP,
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
 
 router = APIRouter(dependencies=[Depends(require_app_entitlement(CLIENT360_APP))])
 
@@ -530,14 +535,46 @@ def client360_mail_settings_get(
 def client360_mail_settings_patch(
     body: Client360MailSettingsPatch,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     try:
-        payload = patch_client360_mail_settings(workspace, body.model_dump(exclude_unset=True))
+        workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.user_id == user.id,
+            )
+            .populate_existing()
+            .first()
+        )
+        role = (
+            normalize_role_template(membership.role_template, membership.role)
+            if membership
+            else None
+        )
+        if role not in ADMIN_ROLE_TEMPLATES:
+            db.rollback()
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "WORKSPACE_PERMISSION_DENIED",
+                    "message": "Workspace admin access required",
+                },
+            )
+        payload = patch_client360_mail_settings(
+            db,
+            workspace,
+            body.model_dump(exclude_unset=True),
+        )
         db.add(workspace)
         db.commit()
         db.refresh(workspace)
         return {"mail_settings": payload}
+    except WorkspaceEntitlementMutationConflictError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc

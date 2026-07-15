@@ -33,7 +33,7 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     workspace = Workspace(
         id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo"
     )
-    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
+    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="executive")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, other, user])
     db_session.commit()
@@ -201,7 +201,7 @@ def test_map_command_builds_payload_from_the_requested_map_in_a_multi_map_worksp
         id="workspace-multi-map-command",
         slug="multi-map-command",
         name="Multi-map command",
-        mode="standard",
+        mode="executive",
     )
     user = User(
         id="user-multi-map-command",

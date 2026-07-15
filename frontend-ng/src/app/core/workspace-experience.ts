@@ -52,12 +52,6 @@ const LEGACY_MISSION_ROOM_FALLBACK_KEYS = [
   'decisions',
 ] as const;
 
-export const CRITICAL_WORKSPACE_SLUGS = [
-  'andritz',
-  'sentinel-ci',
-  'octocity-mission-room',
-] as const;
-
 export type WorkspaceExperienceShellKind =
   | 'agentium_standard'
   | 'business'
@@ -841,7 +835,7 @@ export function resolveLegacyWorkspaceExperience(
       ? apiBrand
       : isPlainObject(rawSettingsBrand)
         ? rawSettingsBrand
-        : input.workspace.slug === 'octocity-mission-room'
+        : octocity
           ? { label: 'Octocity Mission Room', style: 'agentium' }
           : {};
     // mission_room.navigation() currently falls back to SENTINEL-CI for the
@@ -990,7 +984,7 @@ function applyMissionObservation(
     ? brand
     : isPlainObject(rawSettingsBrand)
       ? rawSettingsBrand
-      : input.workspace.slug === 'octocity-mission-room'
+      : fallback.profile === 'octocity_institutional_v1'
         ? { label: 'Octocity Mission Room', style: 'agentium' }
         : {};
   const observedKeys = Array.isArray(observation.items)
@@ -1533,6 +1527,9 @@ export function evaluateWorkspaceExperienceRolloutGate(
     `${scenario.input.workspace.slug}::${workspaceExperienceScenarioKey(scenario.input.scenario)}`,
     scenario,
   ]));
+  const requiredWorkspaceSlugs = new Set(
+    required.map((scenario) => scenario.input.workspace.slug),
+  );
 
   for (const [key, scenario] of requiredKeys) {
     const matches = evidence.filter((item) => `${item.workspaceSlug}::${item.scenarioKey}` === key);
@@ -1546,7 +1543,7 @@ export function evaluateWorkspaceExperienceRolloutGate(
 
   // Extra evidence for a critical workspace must also fail closed.
   for (const item of evidence) {
-    if (!(CRITICAL_WORKSPACE_SLUGS as readonly string[]).includes(item.workspaceSlug)) continue;
+    if (!requiredWorkspaceSlugs.has(item.workspaceSlug)) continue;
     const key = `${item.workspaceSlug}::${item.scenarioKey}`;
     if (!requiredKeys.has(key)) inspectEvidence(item, false, blockers);
   }

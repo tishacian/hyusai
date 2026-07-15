@@ -9,7 +9,11 @@ from app.schemas.canonical import (
     Outcome,
     PolicyScope,
     RuntimeStatus,
+    SystemStatus,
     ValueSource,
+    WorkspaceApp,
+    WorkspaceFamily,
+    WorkspaceMode,
 )
 
 __all__ = [
@@ -21,5 +25,9 @@ __all__ = [
     "Outcome",
     "PolicyScope",
     "RuntimeStatus",
+    "SystemStatus",
     "ValueSource",
+    "WorkspaceApp",
+    "WorkspaceFamily",
+    "WorkspaceMode",
 ]

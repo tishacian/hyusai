@@ -8,10 +8,15 @@ optional AdaptivePolicy. Every Run executes against a single System.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, CheckConstraint, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.schemas.canonical import ExecutionMode, SystemStatus
+
+
+def _enum_check(column: str, values: list[str]) -> str:
+    return f"{column} IN ({', '.join(repr(value) for value in values)})"
 
 
 class System(Base):
@@ -33,7 +38,7 @@ class System(Base):
     # event_driven_automation | continuous_monitoring | human_augmented.
     # execution_profile carries SLA (latency target, max runtime), durability
     # flags and pricing profile associated with the mode.
-    execution_mode = Column(String(40), default="real_time_decision")
+    execution_mode = Column(String(40), nullable=False, default="real_time_decision")
     execution_profile = Column(JSON, nullable=True)
     coordination_pattern = Column(String(40), default="single_agent")
 
@@ -41,7 +46,9 @@ class System(Base):
     adaptive_policy_id = Column(String(36), ForeignKey("adaptive_policies.id"), nullable=True)
     context_id = Column(String(36), ForeignKey("contexts.id"), nullable=True)
 
-    status = Column(String(20), default="draft", index=True)  # draft | active | paused | retired
+    status = Column(
+        String(20), nullable=False, default="draft", index=True
+    )  # draft | active | paused | retired
     created_by = Column(String(255), default="demo-user")
 
     # Per-system defaults exposed by the Builder (Wave B + C).
@@ -57,3 +64,14 @@ class System(Base):
 
     capability = relationship("Capability", lazy="joined", foreign_keys=[capability_id])
     runs = relationship("Run", back_populates="system", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(
+            _enum_check("status", [item.value for item in SystemStatus]),
+            name="ck_systems_status",
+        ),
+        CheckConstraint(
+            _enum_check("execution_mode", [item.value for item in ExecutionMode]),
+            name="ck_systems_execution_mode",
+        ),
+    )

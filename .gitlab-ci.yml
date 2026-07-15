@@ -7,3 +7,11 @@ include:
       python-req-enabled: false
       python-tests-enabled: false
       sonar-python-version: "3.12"
+agentium-compliance:
+  stage: test
+  image: python:3.12-bookworm
+  needs: []
+  script:
+    - python3 scripts/agentium_compliance.py --check
+  rules:
+    - when: always

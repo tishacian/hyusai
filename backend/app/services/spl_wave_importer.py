@@ -20,6 +20,9 @@ from app.models.secure_deposit import DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.services.knowledge_collections import (
     create_or_get_collection,
     create_worker_job,
@@ -174,16 +177,18 @@ def record_wave_ledger(
     job_id: str | None,
     new_document_count: int,
 ) -> None:
+    workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
+    recorded_filenames = tuple(str(name) for name in filenames if name)
     settings = dict(workspace.settings or {})
     ledger = dict(settings.get("spl_wave_ledger") or {})
     bucket = dict(ledger.get(collection_slug) or {})
     promoted = set(bucket.get("promoted_filenames") or [])
-    promoted.update(str(name) for name in filenames if name)
+    promoted.update(recorded_filenames)
     waves = list(bucket.get("waves") or [])
     waves.append(
         {
             "wave_id": wave_id,
-            "filenames": list(filenames),
+            "filenames": list(recorded_filenames),
             "job_id": job_id,
             "new_document_count": new_document_count,
             "completed_at": datetime.utcnow().isoformat(),

@@ -35,7 +35,7 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-05-12"
+CATALOG_VERSION = "2026-07-15"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
@@ -128,6 +128,35 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "Agentium Core",
         ("/hypervisor/mission-room/monitor", "/connectors"),
         notes="Workspace-scoped visual snapshot connector, observations, Knowledge sync and situation-monitor posture.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/meetings",
+        "Operate",
+        "Review Queue",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/agenda", "/hypervisor/mission-room/decisions"),
+        notes="Workspace meeting decisions and reviewable agenda patches.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/reports",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room",),
+        notes="On-demand governed report artifacts initiated from workspace actions.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/admin",
+        "Governance",
+        "Governance",
+        "internal",
+        "admin",
+        "Platform",
+        notes="Workspace-admin maintenance operations; not a primary product surface.",
     ),
     SurfaceMetadata(
         "/api/v1/auth",
@@ -233,6 +262,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         ("/chat", "/knowledge/capture", "/systems/:id/capture"),
     ),
     SurfaceMetadata(
+        "/api/v1/livekit",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/knowledge/capture"),
+        notes="Realtime voice room, participant token and agent dispatch control plane.",
+    ),
+    SurfaceMetadata(
         "/api/v1/tasks",
         "Operate",
         "Run",
@@ -266,6 +305,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "workspace-user",
         "Runtime",
         ("/observability",),
+    ),
+    SurfaceMetadata(
+        "/api/v1/observability",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/observability",),
+        notes="Workspace runtime overview, retrieval evidence and operational alerts.",
     ),
     SurfaceMetadata(
         "/api/v1/health",

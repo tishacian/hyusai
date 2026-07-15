@@ -23,7 +23,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
@@ -35,6 +35,8 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.schemas.canonical import ExecutionMode, SystemStatus
+from app.services.actions.contracts import normalize_system_action_pack_settings
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
 from app.services.run_engine import schedule_run, triggers
@@ -51,16 +53,37 @@ class SystemCreate(BaseModel):
     skill_ids: list[str] = []
     flow_definition: dict[str, Any] = {}
     settings: dict[str, Any] = {}
-    execution_mode: str = "real_time_decision"
+    execution_mode: ExecutionMode = ExecutionMode.real_time_decision
     execution_profile: Optional[dict[str, Any]] = None
     coordination_pattern: str = "single_agent"
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
     context_id: Optional[str] = None
-    status: str = "draft"
+    status: SystemStatus = SystemStatus.draft
     default_prompt_type: Optional[str] = None
     default_model: Optional[str] = None
     retrieval_mode_default: Optional[str] = None
+
+    @field_validator("settings")
+    @classmethod
+    def _validate_settings_action_packs(cls, value: dict[str, Any]) -> dict[str, Any]:
+        normalized, _ = normalize_system_action_pack_settings(
+            settings=value,
+            execution_profile=None,
+        )
+        return normalized or {}
+
+    @field_validator("execution_profile")
+    @classmethod
+    def _validate_profile_action_packs(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        _, normalized = normalize_system_action_pack_settings(
+            settings=None,
+            execution_profile=value,
+        )
+        return normalized
 
 
 class SystemUpdate(BaseModel):
@@ -70,16 +93,40 @@ class SystemUpdate(BaseModel):
     skill_ids: Optional[list[str]] = None
     flow_definition: Optional[dict[str, Any]] = None
     settings: Optional[dict[str, Any]] = None
-    execution_mode: Optional[str] = None
+    execution_mode: Optional[ExecutionMode] = None
     execution_profile: Optional[dict[str, Any]] = None
     coordination_pattern: Optional[str] = None
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
     context_id: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[SystemStatus] = None
     default_prompt_type: Optional[str] = None
     default_model: Optional[str] = None
     retrieval_mode_default: Optional[str] = None
+
+    @field_validator("settings")
+    @classmethod
+    def _validate_settings_action_packs(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        normalized, _ = normalize_system_action_pack_settings(
+            settings=value,
+            execution_profile=None,
+        )
+        return normalized
+
+    @field_validator("execution_profile")
+    @classmethod
+    def _validate_profile_action_packs(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        _, normalized = normalize_system_action_pack_settings(
+            settings=None,
+            execution_profile=value,
+        )
+        return normalized
 
 
 class RunCreate(BaseModel):
@@ -195,7 +242,7 @@ def _event_trigger_state(s: System) -> dict[str, Any]:
 @router.get("")
 async def list_systems(
     capability_id: Optional[str] = None,
-    status: Optional[str] = None,
+    status: Optional[SystemStatus] = None,
     include_retired: bool = False,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
@@ -220,7 +267,7 @@ async def list_systems(
             visible_capability,
         )
     if status:
-        q = q.filter(System.status == status)
+        q = q.filter(System.status == status.value)
     elif not include_retired:
         # ``retired`` is the archive state: hide it from the grid unless asked,
         # so de-duplicating seeded systems stays reversible (status flip, no
@@ -261,13 +308,13 @@ async def create_system(
         skill_ids=body.skill_ids,
         flow_definition=body.flow_definition,
         settings=body.settings or {},
-        execution_mode=body.execution_mode,
+        execution_mode=body.execution_mode.value,
         execution_profile=body.execution_profile or None,
         coordination_pattern=body.coordination_pattern,
         control_policy_id=body.control_policy_id,
         adaptive_policy_id=body.adaptive_policy_id,
         context_id=body.context_id,
-        status=body.status,
+        status=body.status.value,
         created_by=actor,
         default_prompt_type=body.default_prompt_type,
         default_model=body.default_model,
@@ -409,7 +456,7 @@ async def update_system(
     if not s:
         raise HTTPException(404, "System not found")
 
-    updates = body.model_dump(exclude_unset=True)
+    updates = body.model_dump(exclude_unset=True, mode="json")
     new_flow = updates.get("flow_definition") if "flow_definition" in updates else None
 
     issues: list = []

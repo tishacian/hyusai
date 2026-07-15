@@ -6,6 +6,8 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import actions, agents, catalog, settings, traces
+from app.api.v1.router import api_router
+from app.services.surface_catalog import build_endpoint_catalog
 
 
 def _catalog_client() -> TestClient:
@@ -32,7 +34,7 @@ def _catalog_client() -> TestClient:
     return TestClient(app)
 
 
-def test_endpoint_catalog_covers_all_openapi_routes():
+def test_endpoint_catalog_covers_fixture_routes():
     response = _catalog_client().get("/api/v1/catalog/endpoints")
 
     assert response.status_code == 200
@@ -47,6 +49,29 @@ def test_endpoint_catalog_covers_all_openapi_routes():
     assert any(
         entry["path"].startswith("/api/v1/deposit-links/") and entry["status"] == "public-external"
         for entry in body["entries"]
+    )
+
+
+def test_endpoint_catalog_covers_the_real_api_router():
+    """The production router, not a curated mini-app, is the coverage oracle."""
+
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api/v1")
+
+    body = build_endpoint_catalog(app.openapi())
+
+    assert body["uncataloged"] == []
+    prefixes = {
+        "/api/v1/livekit",
+        "/api/v1/observability",
+        "/api/v1/meetings",
+        "/api/v1/reports",
+        "/api/v1/admin",
+    }
+    paths = {entry["path"] for entry in body["entries"]}
+    assert all(
+        any(path == prefix or path.startswith(prefix + "/") for path in paths)
+        for prefix in prefixes
     )
 
 

@@ -105,7 +105,7 @@ def test_cedeao_index_endpoint_serves_cached_live_when_flag_on(db_session):
         id="ws-cedeao-live",
         slug="sentinel-ci-cedeao-live",
         name="SENTINEL-CI",
-        mode="prod",
+        mode="operator",
         settings={
             "feature_flag": {"security_live_osint": True},
             "mission_room": {"enabled": True, "profile": "sentinel_government_v1"},
