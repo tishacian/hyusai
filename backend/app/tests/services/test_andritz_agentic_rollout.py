@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.audit import AuditLog
@@ -116,6 +117,17 @@ def test_runtime_flow_contract_pins_quality_hitl_and_egress_spine():
     ]
 
     assert is_expected_agentic_flow(settings, flow) is False
+
+
+def test_system_lock_targets_only_the_non_nullable_system_table(db_session):
+    sql = str(
+        rollout._locked_system_query(db_session).statement.compile(
+            dialect=postgresql.dialect(),
+        )
+    )
+
+    assert "LEFT OUTER JOIN capabilities" in sql
+    assert sql.rstrip().endswith("FOR UPDATE OF systems")
 
 
 def _marker(*, system_id: str, policy_id: str) -> dict:

@@ -122,6 +122,19 @@ class _ValidatedWorkspace:
     degraded_invariants: tuple[str, ...] = ()
 
 
+def _locked_system_query(db: DBSession):
+    """Lock only ``systems`` when PostgreSQL expands the eager capability join.
+
+    ``System.capability`` is joined eagerly.  A bare ``FOR UPDATE`` therefore
+    asks PostgreSQL to lock both sides of a LEFT JOIN, which PostgreSQL rejects
+    because the capability side is nullable.  The rollout only mutates and
+    validates the System row, so an explicit ``OF systems`` is the correct
+    lock scope.
+    """
+
+    return db.query(System).with_for_update(of=System)
+
+
 def normalize_percentage(value: Any) -> int | float:
     """Return a JSON-safe percentage, rejecting bools, NaN and infinities."""
 
@@ -399,12 +412,11 @@ def _validate_workspace(
     require_ready_collection: bool,
 ) -> _ValidatedWorkspace:
     systems = (
-        db.query(System)
+        _locked_system_query(db)
         .filter(
             System.workspace_id == workspace.id,
             System.status == "active",
         )
-        .with_for_update()
         .all()
     )
     targets = [system for system in systems if _is_exact_target(system)]
@@ -480,7 +492,7 @@ def _validate_workspace_for_rollback(
     )
     control_policy_id = str(marker_control["id"])
 
-    system = db.query(System).filter(System.id == target_system_id).with_for_update().one_or_none()
+    system = _locked_system_query(db).filter(System.id == target_system_id).one_or_none()
     if system is None:
         degraded.append(f"migration target system {target_system_id} does not exist")
     else:
