@@ -974,7 +974,7 @@
             "contains": [
               "validate_manifest",
               "evaluate_claims",
-              "lint_manual_shipped_claims",
+              "lint_manual_formal_delivery_claims",
               "validate_sha_bound_repository_content",
               "--runner-attestation",
               "--deployment-attestation",
@@ -1018,6 +1018,13 @@
             "contains": [
               "test_agentium_compliance_contract_is_current",
               "test_manifest_cannot_author_a_delivery_status",
+              "test_manifest_rendered_text_cannot_self_declare_formal_delivery",
+              "test_generated_contract_uses_canonical_artifacts_and_inert_markers",
+              "test_generated_outputs_cannot_serve_as_static_proofs",
+              "test_generated_artifact_alias_cannot_be_used_as_proof",
+              "test_missing_proof_literals_are_summarized_without_rendering_manifest_text",
+              "test_manual_formal_delivery_claims_are_forbidden_outside_generated_zone",
+              "test_cross_line_html_comment_cannot_hide_manual_delivery_language",
               "test_sha_attestations_cannot_upgrade_a_partial_repository_claim",
               "test_complete_local_attestations_cannot_self_promote_formal_delivery",
               "test_sha_bound_report_rejects_dirty_or_untracked_proof_content",

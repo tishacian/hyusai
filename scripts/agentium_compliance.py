@@ -11,18 +11,26 @@ from __future__ import annotations
 
 import argparse
 import ast
+import html
 import json
 import os
 import re
 import subprocess
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "config/agentium/product-compliance.v1.json"
+CANONICAL_MATRIX_PATH = "docs/agentium-compliance-matrix.md"
+CANONICAL_MENTAL_MODEL_PATH = "docs/mental-model.md"
+CANONICAL_MENTAL_MODEL_BEGIN = "<!-- BEGIN GENERATED: AGENTIUM PRODUCT COMPLIANCE -->"
+CANONICAL_MENTAL_MODEL_END = "<!-- END GENERATED: AGENTIUM PRODUCT COMPLIANCE -->"
 REQUIRED_FAMILIES: dict[str, tuple[str, ...]] = {
     "frontend": ("implementation", "frontend", "tests"),
     "backend": ("implementation", "tests"),
@@ -33,7 +41,24 @@ REQUIRED_FAMILIES: dict[str, tuple[str, ...]] = {
 }
 PROOF_FAMILIES = ("implementation", "api", "frontend", "tests")
 RUNNERS = frozenset({"pytest", "node", "playwright"})
-FORMAL_SHIPPED_RE = re.compile(r"\bshipped\b", re.IGNORECASE)
+# Formal delivery words are reserved for a future authenticated promotion
+# collector.  They must not be authorable in manifest text that is rendered as
+# a product claim, nor in the manual portion of governed documentation.  Keep
+# the expression deliberately narrower than generic words such as ``release``
+# or ``production`` so architectural prose remains possible without creating a
+# formal state badge.
+FORMAL_DELIVERY_RE = re.compile(
+    r"(?<![^\W_])(?:"
+    r"shipped|deployed|runner(?:[_ -]+)verified|"
+    r"livré(?:e|s|es)?|déployé(?:e|s|es)?"
+    r")(?![^\W_])",
+    re.IGNORECASE,
+)
+MARKDOWN_ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>~])")
+MARKDOWN_DECORATION_RE = re.compile(r"[`*_~]")
+MARKDOWN_TEXT_META_RE = re.compile(r"([\\`*_\[\]#|>~])")
+SAFE_REPOSITORY_PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+SAFE_SUFFIX_RE = re.compile(r"^\.[A-Za-z0-9._-]+$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 CLAIM_ID_RE = re.compile(r"^LOT[0-5]-[A-Z0-9][A-Z0-9-]*$")
 
@@ -94,9 +119,22 @@ def _forbidden_state_keys(value: Any, trail: str = "$") -> list[str]:
     return found
 
 
-def _repo_path(root: Path, raw: Any, *, field: str, must_exist: bool = True) -> Path:
+def _validate_repository_path_syntax(raw: Any, *, field: str) -> str:
     if not isinstance(raw, str) or not raw.strip():
         raise ComplianceError(f"{field} must be a non-empty repository-relative path")
+    if (
+        raw.startswith("/")
+        or not SAFE_REPOSITORY_PATH_RE.fullmatch(raw)
+        or any(part in {"", ".", ".."} for part in raw.split("/"))
+    ):
+        raise ComplianceError(
+            f"{field} must use safe repository-relative path syntax: {raw!r}"
+        )
+    return raw
+
+
+def _repo_path(root: Path, raw: Any, *, field: str, must_exist: bool = True) -> Path:
+    raw = _validate_repository_path_syntax(raw, field=field)
     candidate = (root / raw).resolve()
     try:
         candidate.relative_to(root.resolve())
@@ -107,6 +145,19 @@ def _repo_path(root: Path, raw: Any, *, field: str, must_exist: bool = True) -> 
     return candidate
 
 
+def _is_generated_artifact_path(
+    root: Path,
+    raw: str,
+    generated: dict[str, Any],
+) -> bool:
+    candidate = (root / raw).resolve()
+    generated_paths = {
+        (root / generated["matrix_path"]).resolve(),
+        (root / generated["mental_model_path"]).resolve(),
+    }
+    return candidate in generated_paths
+
+
 def _expect_string_list(value: Any, *, field: str, non_empty: bool = True) -> list[str]:
     if not isinstance(value, list) or (non_empty and not value):
         qualifier = "non-empty " if non_empty else ""
@@ -114,6 +165,309 @@ def _expect_string_list(value: Any, *, field: str, non_empty: bool = True) -> li
     if any(not isinstance(item, str) or not item for item in value):
         raise ComplianceError(f"{field} must contain only non-empty strings")
     return value
+
+
+class _VisibleHTMLTextParser(HTMLParser):
+    """Collect browser-visible data while treating markup as structure."""
+
+    _VOID_ELEMENTS = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+    _NON_RENDERED_ELEMENTS = frozenset(
+        {
+            "audio",
+            "canvas",
+            "datalist",
+            "details",
+            "dialog",
+            "head",
+            "iframe",
+            "noscript",
+            "object",
+            "script",
+            "style",
+            "template",
+            "title",
+            "video",
+        }
+    )
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.all_text: list[str] = []
+        self.outer_text: list[str] = []
+        self._depth = 0
+        self._hidden_depth = 0
+        self._element_stack: list[tuple[str, bool]] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        normalized_tag = tag.lower()
+        normalized_attrs = {
+            name.lower(): (value or "").strip().lower() for name, value in attrs
+        }
+        style = normalized_attrs.get("style", "")
+        starts_hidden = (
+            normalized_tag in self._NON_RENDERED_ELEMENTS
+            or "hidden" in normalized_attrs
+            or normalized_attrs.get("aria-hidden") == "true"
+            or bool(
+                re.search(
+                    r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)",
+                    style,
+                )
+            )
+        )
+        if normalized_tag in self._VOID_ELEMENTS:
+            return
+        if starts_hidden:
+            self._hidden_depth += 1
+        self._element_stack.append((normalized_tag, starts_hidden))
+        self._depth += 1
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        del tag, attrs
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        if normalized_tag in self._VOID_ELEMENTS or not self._element_stack:
+            return
+        _opened_tag, started_hidden = self._element_stack.pop()
+        if started_hidden and self._hidden_depth:
+            self._hidden_depth -= 1
+        if self._depth:
+            self._depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._hidden_depth:
+            return
+        self.all_text.append(data)
+        if self._depth == 0:
+            self.outer_text.append(data)
+
+
+def _html_visible_text_candidates(value: str) -> tuple[str, str]:
+    parser = _VisibleHTMLTextParser()
+    parser.feed(value)
+    parser.close()
+    return "".join(parser.all_text), "".join(parser.outer_text)
+
+
+def _balanced_markdown_end(
+    value: str,
+    start: int,
+    opening: str,
+    closing: str,
+    *,
+    honor_quotes: bool,
+) -> int | None:
+    """Find a Markdown delimiter while honoring escapes, nesting and titles."""
+
+    if start >= len(value) or value[start] != opening:
+        return None
+    depth = 0
+    quote_character: str | None = None
+    index = start
+    while index < len(value):
+        character = value[index]
+        if character == "\\" and index + 1 < len(value):
+            index += 2
+            continue
+        if honor_quotes and quote_character is not None:
+            if character == quote_character:
+                quote_character = None
+            index += 1
+            continue
+        if honor_quotes and character in {'"', "'"} and value[index - 1].isspace():
+            quote_character = character
+        elif character == opening:
+            depth += 1
+        elif character == closing:
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _collapse_markdown_links(value: str, *, depth: int = 0) -> str:
+    """Replace Markdown links/images with their visible labels.
+
+    This intentionally treats shortcut reference labels as visible text even
+    when their definition is outside the current line.  A recursion cap keeps
+    malformed, deeply nested author input bounded.
+    """
+
+    if depth > 16:
+        return value
+    output: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value):
+            output.append(value[index : index + 2])
+            index += 2
+            continue
+        image = (
+            value[index] == "!" and index + 1 < len(value) and value[index + 1] == "["
+        )
+        label_start = index + 1 if image else index
+        if value[label_start] != "[":
+            output.append(value[index])
+            index += 1
+            continue
+        label_end = _balanced_markdown_end(
+            value,
+            label_start,
+            "[",
+            "]",
+            honor_quotes=False,
+        )
+        if label_end is None:
+            output.append(value[index])
+            index += 1
+            continue
+        cursor = label_end + 1
+        if cursor < len(value) and value[cursor] == "(":
+            destination_end = _balanced_markdown_end(
+                value,
+                cursor,
+                "(",
+                ")",
+                honor_quotes=True,
+            )
+            if destination_end is None:
+                output.append(value[index])
+                index += 1
+                continue
+            cursor = destination_end + 1
+        elif cursor < len(value) and value[cursor] == "[":
+            reference_end = _balanced_markdown_end(
+                value,
+                cursor,
+                "[",
+                "]",
+                honor_quotes=False,
+            )
+            if reference_end is None:
+                output.append(value[index])
+                index += 1
+                continue
+            cursor = reference_end + 1
+        label = value[label_start + 1 : label_end]
+        output.append(_collapse_markdown_links(label, depth=depth + 1))
+        index = cursor
+    return "".join(output)
+
+
+def _strip_invisible_formatting(value: str) -> str:
+    """Remove Unicode default-ignorable formatting used to split state words."""
+
+    def visible(character: str) -> bool:
+        codepoint = ord(character)
+        return not (
+            unicodedata.category(character) == "Cf"
+            or codepoint == 0x034F
+            or 0x180B <= codepoint <= 0x180D
+            or 0xFE00 <= codepoint <= 0xFE0F
+            or 0xE0100 <= codepoint <= 0xE01EF
+        )
+
+    return "".join(character for character in value if visible(character))
+
+
+def _formal_delivery_match(value: str) -> str | None:
+    """Return formal state language after browser-visible text normalization."""
+
+    normalized = _strip_invisible_formatting(unicodedata.normalize("NFKC", value))
+    decoded = _strip_invisible_formatting(
+        unicodedata.normalize("NFKC", html.unescape(normalized))
+    )
+    candidates: list[str] = []
+    for source in (normalized, decoded):
+        candidates.append(source)
+        candidates.extend(_html_visible_text_candidates(source))
+    expanded_candidates: list[str] = []
+    for candidate in candidates:
+        candidate = _strip_invisible_formatting(candidate)
+        links_collapsed = _collapse_markdown_links(candidate)
+        markdown_unescaped = MARKDOWN_ESCAPE_RE.sub(r"\1", links_collapsed)
+        expanded_candidates.extend(
+            (
+                candidate,
+                links_collapsed,
+                markdown_unescaped,
+                MARKDOWN_DECORATION_RE.sub("", markdown_unescaped),
+            )
+        )
+    for candidate in expanded_candidates:
+        match = FORMAL_DELIVERY_RE.search(candidate)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _reject_formal_delivery_language(value: str, *, field: str) -> None:
+    """Reject author-controlled text that could masquerade as formal state."""
+
+    match = _formal_delivery_match(value)
+    if match is not None:
+        raise ComplianceError(
+            "Formal delivery language is computed, not authored; "
+            f"forbidden value in {field}: {match!r}"
+        )
+
+
+def _markdown_text(value: str) -> str:
+    """Render untrusted manifest prose as one inert Markdown text fragment."""
+
+    flattened = _strip_invisible_formatting(" ".join(value.splitlines()))
+    escaped_html = html.escape(flattened, quote=False)
+    return MARKDOWN_TEXT_META_RE.sub(r"\\\1", escaped_html)
+
+
+def _markdown_inline_code(value: str) -> str:
+    """Render arbitrary single-field content as a non-breakable code span."""
+
+    flattened = _strip_invisible_formatting(" ".join(value.splitlines())).replace(
+        "|", r"\|"
+    )
+    longest_fence = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", flattened)),
+        default=0,
+    )
+    fence = "`" * (longest_fence + 1)
+    padding = " " if flattened.startswith("`") or flattened.endswith("`") else ""
+    return f"{fence}{padding}{flattened}{padding}{fence}"
+
+
+def _markdown_repo_link(label: str, path: str, *, code_label: bool = False) -> str:
+    rendered_label = (
+        _markdown_inline_code(label) if code_label else _markdown_text(label)
+    )
+    href = quote(path, safe="/._-")
+    return f"[{rendered_label}](../{href})"
 
 
 def _normalized_expression(value: str) -> str:
@@ -366,6 +720,10 @@ def validate_workspace_slug_branch_inventory(
         non_empty=False,
     )
     for index, raw_root in enumerate(inventory["scan_roots"]):
+        _validate_repository_path_syntax(
+            raw_root,
+            field=f"workspace_slug_branch_inventory.scan_roots[{index}]",
+        )
         scan_root = (root / raw_root).resolve()
         try:
             scan_root.relative_to(root.resolve())
@@ -376,6 +734,17 @@ def validate_workspace_slug_branch_inventory(
         if not scan_root.is_dir():
             raise ComplianceError(
                 f"workspace slug scan root does not exist: {raw_root}"
+            )
+    for index, raw_path in enumerate(inventory["exclude_paths"]):
+        _validate_repository_path_syntax(
+            raw_path,
+            field=f"workspace_slug_branch_inventory.exclude_paths[{index}]",
+        )
+    for index, suffix in enumerate(inventory["exclude_suffixes"]):
+        if not SAFE_SUFFIX_RE.fullmatch(suffix):
+            raise ComplianceError(
+                "workspace_slug_branch_inventory.exclude_suffixes"
+                f"[{index}] must be a safe file suffix"
             )
 
     entries = inventory["entries"]
@@ -410,6 +779,7 @@ def validate_workspace_slug_branch_inventory(
             )
         if not isinstance(entry["reason"], str) or not entry["reason"].strip():
             raise ComplianceError(f"{prefix}.reason must be a non-empty string")
+        _reject_formal_delivery_language(entry["reason"], field=f"{prefix}.reason")
         branch = WorkspaceSlugBranch(
             path=entry["path"],
             expression=_normalized_expression(entry["expression"]),
@@ -462,6 +832,7 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
         )
     if not isinstance(manifest.get("title"), str) or not manifest["title"].strip():
         raise ComplianceError("title must be a non-empty string")
+    _reject_formal_delivery_language(manifest["title"], field="title")
 
     generated = manifest.get("generated")
     if not isinstance(generated, dict):
@@ -482,35 +853,38 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
         raise ComplianceError(
             "generated is missing keys: " + ", ".join(missing_generated_keys)
         )
+    canonical_generated = {
+        "matrix_path": CANONICAL_MATRIX_PATH,
+        "mental_model_path": CANONICAL_MENTAL_MODEL_PATH,
+        "mental_model_begin": CANONICAL_MENTAL_MODEL_BEGIN,
+        "mental_model_end": CANONICAL_MENTAL_MODEL_END,
+    }
+    for key, expected in canonical_generated.items():
+        if generated.get(key) != expected:
+            raise ComplianceError(f"generated.{key} must be exactly {expected!r}")
     _repo_path(
         root,
-        generated.get("matrix_path"),
+        generated["matrix_path"],
         field="generated.matrix_path",
         must_exist=False,
     )
     _repo_path(
         root,
-        generated.get("mental_model_path"),
+        generated["mental_model_path"],
         field="generated.mental_model_path",
     )
-    for marker_key in ("mental_model_begin", "mental_model_end"):
-        marker = generated.get(marker_key)
-        if (
-            not isinstance(marker, str)
-            or not marker.startswith("<!-- ")
-            or not marker.endswith(" -->")
-        ):
-            raise ComplianceError(
-                f"generated.{marker_key} must be an HTML comment marker"
-            )
-    if generated["mental_model_begin"] == generated["mental_model_end"]:
-        raise ComplianceError("Generated block markers must be distinct")
 
     governed_docs = _expect_string_list(
         manifest.get("governed_docs"), field="governed_docs"
     )
+    if len(set(governed_docs)) != len(governed_docs):
+        raise ComplianceError("governed_docs must not contain duplicates")
     for index, raw in enumerate(governed_docs):
         _repo_path(root, raw, field=f"governed_docs[{index}]")
+    if generated["mental_model_path"] not in governed_docs:
+        raise ComplianceError(
+            "generated.mental_model_path must be included in governed_docs"
+        )
     validate_workspace_slug_branch_inventory(
         manifest.get("workspace_slug_branch_inventory"), root
     )
@@ -546,6 +920,7 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
         claim_id = claim.get("id")
         if not isinstance(claim_id, str) or not CLAIM_ID_RE.fullmatch(claim_id):
             raise ComplianceError(f"{prefix}.id must match {CLAIM_ID_RE.pattern}")
+        _reject_formal_delivery_language(claim_id, field=f"{prefix}.id")
         if claim_id in seen_ids:
             raise ComplianceError(f"Duplicate claim id: {claim_id}")
         seen_ids.add(claim_id)
@@ -558,15 +933,24 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
         for field in ("title", "description"):
             if not isinstance(claim.get(field), str) or not claim[field].strip():
                 raise ComplianceError(f"{prefix}.{field} must be a non-empty string")
+            _reject_formal_delivery_language(
+                claim[field],
+                field=f"{prefix}.{field}",
+            )
         kind = claim.get("kind")
         if kind not in REQUIRED_FAMILIES:
             raise ComplianceError(
                 f"{prefix}.kind must be one of {', '.join(sorted(REQUIRED_FAMILIES))}"
             )
-        _expect_string_list(
+        mental_model_sections = _expect_string_list(
             claim.get("mental_model_sections"),
             field=f"{prefix}.mental_model_sections",
         )
+        for section_index, section in enumerate(mental_model_sections):
+            _reject_formal_delivery_language(
+                section,
+                field=f"{prefix}.mental_model_sections[{section_index}]",
+            )
         proofs = claim.get("proofs")
         if not isinstance(proofs, dict):
             raise ComplianceError(f"{prefix}.proofs must be an object")
@@ -604,7 +988,15 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
                     raise ComplianceError(
                         f"{proof_prefix}.label must be a non-empty string"
                     )
+                _reject_formal_delivery_language(
+                    proof["label"],
+                    field=f"{proof_prefix}.label",
+                )
                 _repo_path(root, proof.get("path"), field=f"{proof_prefix}.path")
+                if _is_generated_artifact_path(root, proof["path"], generated):
+                    raise ComplianceError(
+                        f"{proof_prefix}.path cannot reference a generated artifact"
+                    )
                 _expect_string_list(
                     proof.get("contains"), field=f"{proof_prefix}.contains"
                 )
@@ -702,7 +1094,7 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
         "",
         "<!-- GENERATED FILE: run `python3 scripts/agentium_compliance.py`; DO NOT EDIT. -->",
         "",
-        f"Source contract: [`{manifest_path}`](../{manifest_path}). The repository state below is computed from inspectable files and literals; it is never authored in the manifest.",
+        f"Source contract: {_markdown_repo_link(manifest_path, manifest_path, code_label=True)}. The repository state below is computed from inspectable files and literals; it is never authored in the manifest.",
         "",
         "`🟠 Static verified` means every repository proof family required by the claim kind passes, including a declared test contract. It does not attest that those tests ran. Local JSON evidence is recorded but cannot promote a claim to a formal delivery state.",
         "",
@@ -711,19 +1103,22 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
     ]
     for result in results:
         claim = result.claim
-        title = claim["title"].replace("|", "\\|")
+        title = _markdown_text(claim["title"])
         lines.append(
             "| "
             + " | ".join(
                 [
                     str(claim["lot"]),
-                    f"`{claim['id']}` — {title}",
-                    f"`{claim['kind']}`",
+                    f"{_markdown_inline_code(claim['id'])} — {title}",
+                    _markdown_inline_code(claim["kind"]),
                     _family_cell(result, "implementation"),
                     _family_cell(result, "api"),
                     _family_cell(result, "frontend"),
                     _family_cell(result, "tests"),
-                    ", ".join(f"`{runner}`" for runner in result.required_runners),
+                    ", ".join(
+                        _markdown_inline_code(runner)
+                        for runner in result.required_runners
+                    ),
                     _badge(result.computed_state),
                 ]
             )
@@ -740,13 +1135,13 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
     for result in results:
         claim = result.claim
         sections = ", ".join(
-            f"§{section}" for section in claim["mental_model_sections"]
+            _markdown_text(f"§{section}") for section in claim["mental_model_sections"]
         )
         lines.extend(
             [
-                f"### `{claim['id']}` — {claim['title']}",
+                f"### {_markdown_inline_code(claim['id'])} — {_markdown_text(claim['title'])}",
                 "",
-                f"{claim['description']} Mental model: {sections}.",
+                f"{_markdown_text(claim['description'])} Mental model: {sections}.",
                 "",
             ]
         )
@@ -755,23 +1150,28 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
                 outcome = "PASS" if proof.passed else "FAIL"
                 detail = ""
                 if proof.missing_literals:
-                    missing = ", ".join(
-                        f"`{value}`" for value in proof.missing_literals
-                    )
-                    detail = f"; missing literal(s): {missing}"
+                    detail = f"; {len(proof.missing_literals)} literal(s) missing"
                 lines.append(
-                    f"- **{family} / {outcome}** — [{proof.label}](../{proof.path}){detail}"
+                    f"- **{family} / {outcome}** — "
+                    f"{_markdown_repo_link(proof.label, proof.path)}{detail}"
                 )
         lines.append("")
 
     inventory = manifest["workspace_slug_branch_inventory"]
     occurrence_total = sum(entry["occurrences"] for entry in inventory["entries"])
-    scan_roots = ", ".join(f"`{path}`" for path in inventory["scan_roots"])
+    scan_roots = ", ".join(
+        _markdown_inline_code(path) for path in inventory["scan_roots"]
+    )
     excluded_paths = (
-        ", ".join(f"`{path}`" for path in inventory["exclude_paths"]) or "none"
+        ", ".join(_markdown_inline_code(path) for path in inventory["exclude_paths"])
+        or "none"
     )
     excluded_suffixes = (
-        ", ".join(f"`*{suffix}`" for suffix in inventory["exclude_suffixes"]) or "none"
+        ", ".join(
+            _markdown_inline_code(f"*{suffix}")
+            for suffix in inventory["exclude_suffixes"]
+        )
+        or "none"
     )
     lines.extend(
         [
@@ -788,11 +1188,12 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
         ]
     )
     for entry in inventory["entries"]:
-        expression = entry["expression"].replace("|", "\\|").replace("`", "\\`")
-        reason = entry["reason"].replace("|", "\\|")
+        expression = _markdown_inline_code(entry["expression"])
+        reason = _markdown_text(entry["reason"])
         lines.append(
-            f"| [`{entry['path']}`](../{entry['path']}) | `{expression}` | "
-            f"{entry['occurrences']} | `{entry['category']}` | {reason} |"
+            f"| {_markdown_repo_link(entry['path'], entry['path'], code_label=True)} | "
+            f"{expression} | {entry['occurrences']} | "
+            f"{_markdown_inline_code(entry['category'])} | {reason} |"
         )
     lines.append("")
 
@@ -830,7 +1231,8 @@ def render_mental_block(manifest: dict[str, Any], results: list[ClaimResult]) ->
     for result in results:
         claim = result.claim
         lines.append(
-            f"| {claim['lot']} | `{claim['id']}` — {claim['title'].replace('|', '\\|')} | {_badge(result.computed_state)} |"
+            f"| {claim['lot']} | {_markdown_inline_code(claim['id'])} — "
+            f"{_markdown_text(claim['title'])} | {_badge(result.computed_state)} |"
         )
     lines.extend(
         [
@@ -855,7 +1257,7 @@ def replace_generated_block(document: str, begin: str, end: str, block: str) -> 
     return before + block + after
 
 
-def lint_manual_shipped_claims(
+def lint_manual_formal_delivery_claims(
     manifest: dict[str, Any], root: Path = REPO_ROOT
 ) -> list[str]:
     generated = manifest["generated"]
@@ -871,11 +1273,21 @@ def lint_manual_shipped_claims(
                 before, remainder = text.split(begin, 1)
                 _generated, after = remainder.split(end, 1)
                 text = before + ("\n" * _generated.count("\n")) + after
-        for match in FORMAL_SHIPPED_RE.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            violations.append(
-                f"{raw_path}:{line}: manual `{match.group(0)}` declaration"
-            )
+        path_violations: list[str] = []
+        for line, content in enumerate(text.splitlines(), start=1):
+            match = _formal_delivery_match(content)
+            if match is not None:
+                path_violations.append(
+                    f"{raw_path}:{line}: manual formal delivery declaration `{match}`"
+                )
+        if not path_violations:
+            cross_line_match = _formal_delivery_match(text)
+            if cross_line_match is not None:
+                path_violations.append(
+                    f"{raw_path}: rendered manual formal delivery declaration "
+                    f"`{cross_line_match}`"
+                )
+        violations.extend(path_violations)
     return violations
 
 
@@ -1190,10 +1602,10 @@ def main(argv: list[str] | None = None) -> int:
             mental_block,
         )
 
-        violations = lint_manual_shipped_claims(manifest, REPO_ROOT)
+        violations = lint_manual_formal_delivery_claims(manifest, REPO_ROOT)
         if violations:
             raise ComplianceError(
-                "Manual Shipped declarations are forbidden outside generated zones:\n"
+                "Manual formal delivery declarations are forbidden outside generated zones:\n"
                 + "\n".join(f"  - {violation}" for violation in violations)
             )
 

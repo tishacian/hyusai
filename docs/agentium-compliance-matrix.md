@@ -68,7 +68,7 @@ Hypervisor, Build, Operate, Steer and Govern are projections over stable Capabil
 
 ### `LOT4-SHOWCASE-CANARY-DISCOVERY` — Showcase canary discovers the live graph instead of a fixed slug
 
-The Playwright canary selects an actual System linked to a Capability and Run, avoiding the retired showcase_contract_risk identifier. Mental model: §5bis, §38.
+The Playwright canary selects an actual System linked to a Capability and Run, avoiding the retired showcase\_contract\_risk identifier. Mental model: §5bis, §38.
 
 - **implementation / PASS** — [Auto-discovering Showcase graph canary](../frontend-ng/e2e/tests/10-cockpit-axes-canary.spec.ts)
 - **tests / PASS** — [Showcase identity/history scenario](../frontend-ng/e2e/tests/10-cockpit-axes-canary.spec.ts)

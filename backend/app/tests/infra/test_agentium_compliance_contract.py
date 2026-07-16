@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from copy import deepcopy
@@ -46,6 +48,180 @@ def test_manifest_cannot_author_a_delivery_status() -> None:
         compliance.validate_manifest(tampered, ROOT)
 
 
+@pytest.mark.parametrize(
+    ("mutate", "field"),
+    (
+        (
+            lambda value: value.__setitem__("title", "Agentium shipped contract"),
+            "title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is Shipped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship&#112;ed"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship<!-- -->ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship**ped**"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is shi[p](https://example.test)ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title",
+                "Decorative mechanism is shi[p](https://example.test/a_(b))ped",
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title",
+                r"Decorative mechanism is shi[p](https://example.test/a\)b)ped",
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title",
+                'Decorative mechanism is shi[p](https://example.test "title )")ped',
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", 'Decorative mechanism is shi<span title=">">p</span>ped'
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title",
+                "Decorative mechanism is shi<span>p<script>x</script></span>ped",
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title",
+                'Decorative mechanism is shi<span>p<span hidden title=">">x</span></span>ped',
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship<input hidden>ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is shi[p](https://example.test/it's)ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", 'Decorative mechanism is shi[p](https://example.test/a"b)ped'
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is shi[p]('x)ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", 'Decorative mechanism is shi[p]("x)ped'
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship\u00adped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship\u2063ped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism is ship\ufe0fped"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "title", "Decorative mechanism has a shipped_badge"
+            ),
+            "claims[0].title",
+        ),
+        (
+            lambda value: value["claims"][0].__setitem__(
+                "description", "Mécanique déployée sans preuve"
+            ),
+            "claims[0].description",
+        ),
+        (
+            lambda value: value["claims"][0]["mental_model_sections"].__setitem__(
+                0, "§ shipped declaration"
+            ),
+            "claims[0].mental_model_sections[0]",
+        ),
+        (
+            lambda value: value["claims"][0]["proofs"]["implementation"][0].__setitem__(
+                "label", "Preuve livrée"
+            ),
+            "proofs.implementation[0].label",
+        ),
+        (
+            lambda value: value["workspace_slug_branch_inventory"]["entries"][0].__setitem__(
+                "reason", "Already deployed"
+            ),
+            "entries[0].reason",
+        ),
+    ),
+)
+def test_manifest_rendered_text_cannot_self_declare_formal_delivery(
+    mutate,
+    field: str,
+) -> None:
+    compliance = _load_compliance_module()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered = deepcopy(manifest)
+    mutate(tampered)
+
+    with pytest.raises(
+        compliance.ComplianceError,
+        match=rf"Formal delivery language.*{re.escape(field)}",
+    ):
+        compliance.validate_manifest(tampered, ROOT)
+
+
 def test_manifest_schema_forbids_unknown_root_generated_and_claim_keys() -> None:
     compliance = _load_compliance_module()
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -60,6 +236,118 @@ def test_manifest_schema_forbids_unknown_root_generated_and_claim_keys() -> None
         mutate(tampered)
         with pytest.raises(compliance.ComplianceError, match="unknown keys"):
             compliance.validate_manifest(tampered, ROOT)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    (
+        (
+            lambda value: value["generated"].__setitem__("matrix_path", "docs/other-matrix.md"),
+            "generated.matrix_path must be exactly",
+        ),
+        (
+            lambda value: value["generated"].__setitem__("mental_model_path", "README.md"),
+            "generated.mental_model_path must be exactly",
+        ),
+        (
+            lambda value: value["generated"].__setitem__(
+                "mental_model_begin",
+                "<!-- BEGIN -->\nShipped\n<!-- CONTINUE -->",
+            ),
+            "generated.mental_model_begin must be exactly",
+        ),
+        (
+            lambda value: value.__setitem__("governed_docs", ["README.md"]),
+            "generated.mental_model_path must be included in governed_docs",
+        ),
+        (
+            lambda value: value.__setitem__(
+                "governed_docs", ["docs/mental-model.md", "docs/mental-model.md"]
+            ),
+            "governed_docs must not contain duplicates",
+        ),
+    ),
+)
+def test_generated_contract_uses_canonical_artifacts_and_inert_markers(
+    mutate,
+    message: str,
+) -> None:
+    compliance = _load_compliance_module()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered = deepcopy(manifest)
+    mutate(tampered)
+
+    with pytest.raises(compliance.ComplianceError, match=re.escape(message)):
+        compliance.validate_manifest(tampered, ROOT)
+
+
+def test_repository_paths_cannot_inject_generated_markdown() -> None:
+    compliance = _load_compliance_module()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered = deepcopy(manifest)
+    tampered["claims"][0]["proofs"]["implementation"][0]["path"] = "README.md)\n# Shipped"
+
+    with pytest.raises(compliance.ComplianceError, match="safe repository-relative"):
+        compliance.validate_manifest(tampered, ROOT)
+
+
+@pytest.mark.parametrize(
+    "generated_path",
+    ("docs/mental-model.md", "docs/agentium-compliance-matrix.md"),
+)
+def test_generated_outputs_cannot_serve_as_static_proofs(generated_path: str) -> None:
+    compliance = _load_compliance_module()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered = deepcopy(manifest)
+    tampered["claims"][0]["proofs"]["implementation"][0]["path"] = generated_path
+
+    with pytest.raises(compliance.ComplianceError, match="generated artifact"):
+        compliance.validate_manifest(tampered, ROOT)
+
+
+def test_generated_artifact_alias_cannot_be_used_as_proof(tmp_path: Path) -> None:
+    compliance = _load_compliance_module()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "mental-model.md").write_text("generated\n", encoding="utf-8")
+    (docs / "agentium-compliance-matrix.md").write_text("generated\n", encoding="utf-8")
+    (docs / "alias.md").symlink_to("mental-model.md")
+    generated = {
+        "matrix_path": "docs/agentium-compliance-matrix.md",
+        "mental_model_path": "docs/mental-model.md",
+    }
+
+    assert compliance._is_generated_artifact_path(tmp_path, "docs/alias.md", generated)
+
+
+def test_missing_proof_literals_are_summarized_without_rendering_manifest_text() -> None:
+    compliance = _load_compliance_module()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered = deepcopy(manifest)
+    injected_literal = "NOT_PRESENT`\n\n# Ship&#112;ed"
+    tampered["claims"][0]["proofs"]["api"] = [
+        {
+            "label": "Supporting API proof",
+            "path": "README.md",
+            "contains": [injected_literal],
+        }
+    ]
+
+    validated = compliance.validate_manifest(tampered, ROOT)
+    results = compliance.evaluate_claims(validated, ROOT)
+    baseline = next(result for result in results if result.claim["id"] == "LOT0-BASELINE-CONTRACT")
+    matrix = compliance.render_matrix(validated, results)
+
+    assert baseline.computed_state == "static_verified"
+    assert injected_literal not in matrix
+    assert "1 literal(s) missing" in matrix
+    assert "\n# Shipped" not in html.unescape(matrix)
+
+
+def test_inline_code_escapes_table_delimiters() -> None:
+    compliance = _load_compliance_module()
+
+    assert compliance._markdown_inline_code("left || right") == r"`left \|\| right`"
 
 
 def test_static_proofs_without_runner_attestations_are_not_shipped() -> None:
@@ -378,8 +666,56 @@ def test_generated_block_replacement_requires_unique_markers() -> None:
         compliance.replace_generated_block("no markers", begin, end, "replacement")
 
 
-def test_plain_shipped_claims_are_forbidden_outside_generated_zone(
+@pytest.mark.parametrize(
+    "formal_word",
+    (
+        "shipped",
+        "Deployed",
+        "runner_verified",
+        "livrée",
+        "déployées",
+        "ship&#112;ed",
+        "de&#112;loyed",
+        r"runner\_verified",
+        "ship<!-- -->ped",
+        "ship**ped**",
+        "shi[p](https://example.test)ped",
+        "shi[p](https://example.test/a_(b))ped",
+        r"shi[p](https://example.test/a\)b)ped",
+        'shi[p](https://example.test "title )")ped',
+        'shi<span title=">">p</span>ped',
+        "shi<span>p<script>x</script></span>ped",
+        "shi<span>p<style>x</style></span>ped",
+        "shi<span>p<template>x</template></span>ped",
+        "shi<span>p<dialog>x</dialog></span>ped",
+        "shi<span>p<details>x</details></span>ped",
+        "shi<span>p<noscript>x</noscript></span>ped",
+        'shi<span>p<span hidden title=">">x</span></span>ped',
+        'shi<span>p<span aria-hidden="true">x</span></span>ped',
+        'shi<span>p<span style="display:none">x</span></span>ped',
+        "ship<input hidden>ped",
+        "ship<img hidden>ped",
+        "ship<br hidden>ped",
+        "shi[p](https://example.test/it's)ped",
+        'shi[p](https://example.test/a"b)ped',
+        "shi[p]('x)ped",
+        'shi[p]("x)ped',
+        "shi[p][letter]ped",
+        "ship\u00adped",
+        "ship\u2063ped",
+        "ship\u200eped",
+        "ship\u2061ped",
+        "ship\ufe0fped",
+        "ship\u034fped",
+        "shipped_badge",
+        "status_deployed",
+        "my_runner_verified_state",
+        "Ｓｈｉｐｐｅｄ",
+    ),
+)
+def test_manual_formal_delivery_claims_are_forbidden_outside_generated_zone(
     tmp_path: Path,
+    formal_word: str,
 ) -> None:
     compliance = _load_compliance_module()
     document = tmp_path / "docs" / "mental-model.md"
@@ -388,7 +724,7 @@ def test_plain_shipped_claims_are_forbidden_outside_generated_zone(
     end = "<!-- END GENERATED -->"
     document.write_text(
         f"{begin}\nShipped from attested report only\n{end}\n"
-        "This decorative mechanism is shipped.\n",
+        f"This decorative mechanism is {formal_word}.\n",
         encoding="utf-8",
     )
     manifest = {
@@ -400,10 +736,37 @@ def test_plain_shipped_claims_are_forbidden_outside_generated_zone(
         "governed_docs": ["docs/mental-model.md"],
     }
 
-    violations = compliance.lint_manual_shipped_claims(manifest, tmp_path)
+    violations = compliance.lint_manual_formal_delivery_claims(manifest, tmp_path)
 
     assert len(violations) == 1
     assert "docs/mental-model.md:4" in violations[0]
+
+
+def test_cross_line_html_comment_cannot_hide_manual_delivery_language(
+    tmp_path: Path,
+) -> None:
+    compliance = _load_compliance_module()
+    document = tmp_path / "docs" / "mental-model.md"
+    document.parent.mkdir(parents=True)
+    begin = compliance.CANONICAL_MENTAL_MODEL_BEGIN
+    end = compliance.CANONICAL_MENTAL_MODEL_END
+    document.write_text(
+        f"{begin}\nGenerated content\n{end}\nship<!--\ncamouflage\n-->ped\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "generated": {
+            "mental_model_path": "docs/mental-model.md",
+            "mental_model_begin": begin,
+            "mental_model_end": end,
+        },
+        "governed_docs": ["docs/mental-model.md"],
+    }
+
+    violations = compliance.lint_manual_formal_delivery_claims(manifest, tmp_path)
+
+    assert len(violations) == 1
+    assert "rendered manual formal delivery" in violations[0]
 
 
 def _slug_inventory_fixture(tmp_path: Path) -> tuple[dict, Path]:
