@@ -2997,7 +2997,10 @@ def _build_grounded_answer_prompt(
         "ou dans une autre langue, et traduis-les si besoin (ex. Arbeitsbreite = "
         "largeur de travail, Produktionsgeschwindigkeit = vitesse de production). "
         "Cite chaque fait avec son repere [n]. N'invente JAMAIS une valeur absente "
-        "du contexte ; si une donnee precise est reellement introuvable, dis-le "
+        "du contexte. N'ajoute aucun equipement, type, modele ou usage par analogie "
+        "avec des installations similaires : un item non explicitement atteste par "
+        "un extrait doit etre omis, pas presente comme plausible. Si une donnee "
+        "precise est reellement introuvable, dis-le "
         "brievement mais fournis tout de meme les elements pertinents disponibles.\n"
         f"Langue de reponse: {lang_target or 'fr'}. Style attendu: {answer_profile or 'technical'}.\n\n"
         f"Contexte:\n{context_text}\n\n"
@@ -3128,6 +3131,108 @@ _MULTIHOP_PROFILE_TOKENS = (
     "multi-hop",
     "transversal",
 )
+
+# The interactive Agentic chat has a hard 40 s end-to-end budget.  A single,
+# explicit project lookup does not need an LLM to decide between the retrieval
+# lanes: the deterministic answer-profile resolver has already established that
+# it is a summary / precise fact / equipment lookup.  Keeping this gate narrow
+# avoids the planner round-trip while preserving the deep lane for an exhaustive
+# equipment inventory and leaving comparisons, analyses, procedures and
+# follow-ups to the full planner.
+_SIMPLE_PROJECT_PROFILE_REASONS = {
+    "project_summary_query",
+    "precise_fact_query",
+    "equipment_detail_query",
+}
+_COMPLEX_PROJECT_QUERY_RE = re.compile(
+    r"\b(compare|comparaison|compar[ea]|diff[ée]rences?|versus|vs\.?|"
+    r"pourquoi|why|warum|comment|how|wie|si|if|wenn|"
+    r"analy[sz]e|analyse[rz]?|expliqu[ea]|explain|erkl[äa]r|"
+    r"causes?|cons[ée]quences?|risques?|risk|hypoth[eè]se|hypothetical|sc[ée]nario|"
+    r"proc[ée]dure|procedure|diagnostic|troubleshoot|d[ée]pannage|"
+    r"pr[ée]cautions?|maintenance|entretien|s[ée]curit[ée]|safety|installation|"
+    r"mise\s+en\s+service|commissioning|r[ée]paration|repair)\b|"
+    r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
+    re.IGNORECASE,
+)
+_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
+    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire)\b"
+    r"[^?.!\n]{0,160}\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|buses?|nozzles?|"
+    r"rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
+    re.IGNORECASE,
+)
+_EXHAUSTIVE_PROJECT_QUERY_RE = re.compile(
+    r"\b(exhausti(?:f|ve)|complet(?:e|s)?|tous|toutes|all|liste[rz]?|list|inventaire)\b",
+    re.IGNORECASE,
+)
+_CROSS_PROJECT_TARGET_RE = re.compile(
+    r"\b(projets|projects|dossiers)\b|\b(quels?|which)\s+(?:projet|project|dossier)\b",
+    re.IGNORECASE,
+)
+_GERMAN_QUERY_RE = re.compile(
+    r"\b(welche[rsn]?|was|wie|warum|zusammenfass(?:en|ung)|projekt|pumpen?|"
+    r"wartung|vorsichtsma(?:ss|ß)nahmen|beschreibe|nenne)\b",
+    re.IGNORECASE,
+)
+
+
+def _deterministic_single_project_plan(
+    query: str,
+    *,
+    has_history: bool,
+    ctx: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Return a deterministic lane plan for a conservative project lookup.
+
+    The response language is taken from the server-owned chat Run input.  When
+    it is absent (for example a generic Systems API invocation), the LLM planner
+    remains authoritative.  German is also left to the multilingual planner
+    because the public chat language contract currently only normalises FR/EN.
+    """
+    if has_history:
+        return None
+
+    run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
+    response_language = str(run_input.get("response_language") or "").lower()
+    if response_language not in {"fr", "en"} or _GERMAN_QUERY_RE.search(query):
+        return None
+
+    project_codes = {
+        match.group(1).upper() for match in _PROJECT_CODE_RE.finditer(query) if match.group(1)
+    }
+    if (
+        len(project_codes) != 1
+        or _COMPLEX_PROJECT_QUERY_RE.search(query)
+        or _CROSS_PROJECT_TARGET_RE.search(query)
+    ):
+        return None
+
+    equipment_inventory = bool(_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(query))
+    if _EXHAUSTIVE_PROJECT_QUERY_RE.search(query) and not equipment_inventory:
+        return None
+
+    # Reuse the same deterministic classifier as classic chat; do not invent a
+    # second intent taxonomy in the Agentic wrapper.
+    from app.services.industrial_answer_profile import resolve_answer_profile
+
+    profile = resolve_answer_profile(query, include_agentic_profiles=True)
+    if not equipment_inventory and profile.reason not in _SIMPLE_PROJECT_PROFILE_REASONS:
+        return None
+
+    project_code = next(iter(project_codes))
+    mode = "deep" if equipment_inventory else "balanced"
+    return _coerce_plan(
+        {
+            "action": "answer",
+            "mode": mode,
+            "answer_profile": "equipment_detail" if equipment_inventory else profile.profile,
+            "scope_hint": project_code,
+            "lang_target": response_language,
+            "confidence": 1.0,
+        },
+        query,
+        has_history=False,
+    )
 
 
 def _profile_is_multihop(answer_profile: Any, query: str) -> bool:
@@ -3346,6 +3451,13 @@ async def _chat_agentic_plan_v1(
     query = str(payload.get("query") or "")
     history = payload.get("conversation_history")
     has_history = bool(isinstance(history, (list, tuple)) and history)
+    deterministic_plan = _deterministic_single_project_plan(
+        query,
+        has_history=has_history,
+        ctx=ctx,
+    )
+    if deterministic_plan is not None:
+        return deterministic_plan
     model = payload.get("model") or ctx.get("default_model")
     prompt = _build_plan_prompt(query, history)
     completion = ""

@@ -162,6 +162,127 @@ async def test_plan_survives_model_exception(monkeypatch):
     assert out["mode"] == "balanced"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "expected_profile", "expected_scope", "expected_mode"),
+    [
+        ("quelles sont les pompes du projet BCX200", "equipment_detail", "BCX200", "deep"),
+        ("liste toutes les pompes du projet BCX200", "equipment_detail", "BCX200", "deep"),
+        ("résume BAO100", "project_summary", "BAO100", "balanced"),
+        ("quelle est la pression du projet BCX200 ?", "precise_fact", "BCX200", "balanced"),
+    ],
+)
+async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
+    monkeypatch, query, expected_profile, expected_scope, expected_mode
+):
+    """A simple mono-project chat turn is routed without the planner LLM.
+
+    This is an end-to-end latency guard: the old planner spent six seconds
+    before selecting deep for the BCX200 inventory and exhausted the 40 s
+    interactive budget. The deterministic route keeps deep recall for that
+    inventory, while summaries use the balanced lane.
+    """
+
+    async def _unexpected_model_call(*args, **kwargs):
+        raise AssertionError(
+            "the deterministic single-project lane must not call the planner LLM"
+        )
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": query, "model": "gpt-4o-mini"},
+        {"input": {"response_language": "fr"}},
+    )
+
+    assert out["action"] == "answer"
+    assert out["mode"] == expected_mode
+    assert out["answer_profile"] == expected_profile
+    assert out["scope_hint"] == expected_scope
+    assert out["lang_target"] == "fr"
+    assert out["confidence"] == 1.0
+    assert out["sub_queries"] == []
+    assert out["retrieval"] == wrappers._RETRIEVAL_BY_MODE[expected_mode]
+
+
+@pytest.mark.asyncio
+async def test_plan_shortcut_uses_server_run_language_not_payload_override(monkeypatch):
+    async def _unexpected_model_call(*args, **kwargs):
+        raise AssertionError("simple project summaries must not call the planner LLM")
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": "résume BAO100", "response_language": "en"},
+        {"input": {"response_language": "fr"}},
+    )
+
+    assert out["lang_target"] == "fr"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Analyse en profondeur BCX200",
+        "Welche Pumpen hat Projekt BCX200?",
+        "Compare les pompes BCX200 avec les pompes KSB",
+        "donne les précautions de maintenance des pompes BCX200",
+    ],
+)
+async def test_plan_keeps_complex_or_german_single_project_queries_on_llm(monkeypatch, query):
+    recorded = _install_fake_router(
+        monkeypatch,
+        '{"action":"answer","mode":"deep","answer_profile":"technical","lang_target":"fr"}',
+    )
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": query, "model": "gpt-4o-mini"},
+        {"input": {"response_language": "fr"}},
+    )
+
+    assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
+    assert out["mode"] == "deep"
+
+
+@pytest.mark.asyncio
+async def test_plan_keeps_followup_with_history_on_llm(monkeypatch):
+    recorded = _install_fake_router(
+        monkeypatch,
+        '{"action":"answer","mode":"balanced","answer_profile":"procedure","lang_target":"fr"}',
+    )
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {
+            "query": "quelles sont les pompes du projet BCX200",
+            "conversation_history": [{"role": "user", "content": "résume BCX200"}],
+            "model": "gpt-4o-mini",
+        },
+        {"input": {"response_language": "fr"}},
+    )
+
+    assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
+    assert out["answer_profile"] == "procedure"
+
+
+@pytest.mark.asyncio
+async def test_plan_keeps_cross_project_inventory_on_llm(monkeypatch):
+    recorded = _install_fake_router(
+        monkeypatch,
+        '{"action":"answer","mode":"deep","answer_profile":"transversal_inventory",'
+        '"lang_target":"fr"}',
+    )
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": "quels projets utilisent la pompe AKK200 ?", "model": "gpt-4o-mini"},
+        {"input": {"response_language": "fr"}},
+    )
+
+    assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
+    assert out["answer_profile"] == "transversal_inventory"
+    assert out["mode"] == "deep"
+
+
 # ---------------------------------------------------------------------------
 # chat_self_correct_v1 — C2: escalate_deep is re-retrieve-or-abstain
 # ---------------------------------------------------------------------------
@@ -409,6 +530,18 @@ async def test_rag_answer_abstains_on_empty_join_context(monkeypatch):
     assert out["citations"] == []
     assert out["meta"]["retrieval"]["no_context"] is True
     assert "No indexed source" in out["answer"]
+
+
+def test_grounded_prompt_forbids_unsupported_equipment_analogies():
+    prompt = wrappers._build_grounded_answer_prompt(
+        "quelles sont les pompes du projet BCX200 ?",
+        [{"content": "Pompe HP PHP31", "metadata": {"document_filename": "pump.pdf"}}],
+        "fr",
+        "equipment_detail",
+    )
+
+    assert "aucun equipement, type, modele ou usage par analogie" in prompt
+    assert "non explicitement atteste" in prompt
 
 
 # ---------------------------------------------------------------------------
