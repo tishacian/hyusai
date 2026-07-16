@@ -64,6 +64,17 @@ def test_real_questions_are_not_followups():
         assert _is_meta_followup(query, _HISTORY) is False, query
 
 
+def test_new_project_reference_is_not_misclassified_as_meta_followup():
+    for query in [
+        "résume BAO100",
+        "Resume BCX200",
+        "résume le projet ACJ100",
+        "et BAX300",
+        "BHX300",
+    ]:
+        assert _is_meta_followup(query, _HISTORY) is False, query
+
+
 def test_short_pronoun_only_turn_is_followup():
     # Very short, non-question instruction in an ongoing conversation is a
     # follow-up; a short question ("?") is conservatively kept as a new query.

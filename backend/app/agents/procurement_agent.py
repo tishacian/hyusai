@@ -13,6 +13,7 @@ from typing import Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.rag.conversation_anchors import has_reference
 
 logger = get_logger(__name__)
 
@@ -167,6 +168,12 @@ def _is_meta_followup(query: str, history: list[dict[str, Any]]) -> bool:
     """
     text = str(query or "").strip()
     if not text or not _previous_assistant_answer(history):
+        return False
+    # A project/machine reference makes this a standalone retrieval turn even
+    # when it starts with a meta verb.  For example, ``résume`` alone should
+    # reuse the previous answer, while ``résume BAO100`` must query BAO100
+    # instead of silently recycling the preceding project's context.
+    if has_reference(text):
         return False
     if _META_FOLLOWUP_RE.search(text):
         return True
