@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -35,9 +36,24 @@ def _seed_chat_capability(db_session, workspace: Workspace) -> System:
         roi_model={"type": "time_saved_plus_decision_quality"},
     )
     skills = [
-        Skill(id="skill-search", slug="semantic_search_v1", name="Search", pricing={"unit": "per_call", "unit_price": 0.02, "currency": "USD"}),
-        Skill(id="skill-answer", slug="llm_rag_answer_v1", name="Answer", pricing={"unit": "per_call", "unit_price": 0.04, "currency": "USD"}),
-        Skill(id="skill-audit", slug="audit_log_v1", name="Audit", pricing={"unit": "per_call", "unit_price": 0.001, "currency": "USD"}),
+        Skill(
+            id="skill-search",
+            slug="semantic_search_v1",
+            name="Search",
+            pricing={"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        ),
+        Skill(
+            id="skill-answer",
+            slug="llm_rag_answer_v1",
+            name="Answer",
+            pricing={"unit": "per_call", "unit_price": 0.04, "currency": "USD"},
+        ),
+        Skill(
+            id="skill-audit",
+            slug="audit_log_v1",
+            name="Audit",
+            pricing={"unit": "per_call", "unit_price": 0.001, "currency": "USD"},
+        ),
     ]
     system = System(
         id="system-chat",
@@ -157,7 +173,9 @@ def test_workspace_overview_aggregates_workspace_runs_jobs_and_alerts(db_session
     )
     db_session.commit()
 
-    response = _client(db_session, workspace).get("/api/v1/observability/workspace-overview?window=24h")
+    response = _client(db_session, workspace).get(
+        "/api/v1/observability/workspace-overview?window=24h"
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -169,3 +187,83 @@ def test_workspace_overview_aggregates_workspace_runs_jobs_and_alerts(db_session
     assert body["retrieval_decisions"]["routes"][0]["route"] == "chah_backend"
     assert any(item["kind"] == "run_without_sources" for item in body["alerts"])
     assert "run-other" not in str(body)
+
+
+def test_agentic_chat_runs_share_chat_retrieval_observability_contract():
+    run = Run(
+        id="run-chat-agentic",
+        workspace_id="ws-obs",
+        status="completed",
+        trigger="chat_agentic",
+        output_ref={"response": "No grounded result", "sources": []},
+    )
+
+    assert observability._run_expects_retrieval_trace(run) is True
+    assert observability._is_unsourced_chat_run(run) is True
+
+    run.output_ref = {
+        "response": "Grounded result",
+        "sources": [{"id": "source-1"}],
+        "retrieval_decision_trace": {"selected_route": "agentic_dag"},
+    }
+    assert observability._run_retrieval_decision_trace(run) == {"selected_route": "agentic_dag"}
+    assert observability._is_unsourced_chat_run(run) is False
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        {
+            "action": "clarify",
+            "clarifying_question": "Quel équipement ?",
+            "answer": "Quel équipement ?",
+            "sources": [],
+        },
+        {
+            "action": "reject_oos",
+            "reason": "Cette demande est hors du périmètre Andritz.",
+            "answer": "Cette demande est hors du périmètre Andritz.",
+            "sources": [],
+        },
+        {"oos_reason": "Hors périmètre", "sources": []},
+        {"route": "agentic_review", "answer": "Validation requise", "sources": []},
+        {
+            "route": "agentic_review_rejected",
+            "fallback_reason": "hitl_rejected",
+            "answer": "La réponse a été rejetée lors de la validation experte.",
+            "sources": [],
+        },
+        {"route": "agentic_blocked", "answer": "Réponse bloquée", "sources": []},
+        {
+            "meta": {"route": "agentic_review"},
+            "answer": "Validation requise",
+            "sources": [],
+        },
+    ],
+)
+def test_agentic_governed_or_clarifying_terminals_are_not_unsourced_alerts(output):
+    run = Run(
+        id="run-chat-agentic-abstention",
+        workspace_id="ws-obs",
+        status="completed",
+        trigger="chat_agentic",
+        output_ref=output,
+    )
+
+    assert observability._is_unsourced_chat_run(run) is False
+
+
+def test_agentic_real_answer_with_no_sources_still_alerts_even_with_other_reason():
+    run = Run(
+        id="run-chat-agentic-uncited",
+        workspace_id="ws-obs",
+        status="completed",
+        trigger="chat_agentic",
+        output_ref={
+            "answer": "La pompe principale est P-101.",
+            "reason": "generated_answer",
+            "sources": [],
+        },
+    )
+
+    assert observability._is_unsourced_chat_run(run) is True

@@ -28,15 +28,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 
-from app.models.capability import Capability
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
-from app.services.run_engine import dag as dag_module
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag, resume_run_dag
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,15 +41,14 @@ from app.services.run_engine.dag import execute_run_dag, resume_run_dag
 SkillFn = Callable[[Dict[str, Any], Dict[str, Any]], "Any"]
 
 
-def _install_fake_registry(
-    monkeypatch: pytest.MonkeyPatch, skills: Dict[str, SkillFn]
-) -> None:
+def _install_fake_registry(monkeypatch: pytest.MonkeyPatch, skills: Dict[str, SkillFn]) -> None:
     """Patch ``resolve_skill`` so the walker calls our deterministic stubs.
 
     The walker imports ``resolve_skill`` by name at the top of
     ``engine.py``; we patch the re-bound reference there, which is the
     one actually invoked inside ``_execute_task_node``.
     """
+
     def _resolve(slug: str) -> SkillFn:
         fn = skills.get(slug)
         if fn is None:
@@ -126,6 +122,7 @@ def _checkpoint_kinds(run: Run) -> List[str]:
 async def test_sequential_tasks_thread_outputs(db_session, monkeypatch):
     """Three task nodes chained linearly: each skill receives the prior
     output, and the final Run.output_ref reflects the last task."""
+
     async def first(inp, ctx):
         return {"stage": "one", "n": 1}
 
@@ -135,9 +132,7 @@ async def test_sequential_tasks_thread_outputs(db_session, monkeypatch):
     async def third(inp, ctx):
         return {"stage": "three", "n": (inp.get("n") or 0) + 1}
 
-    _install_fake_registry(
-        monkeypatch, {"one_v1": first, "two_v1": second, "three_v1": third}
-    )
+    _install_fake_registry(monkeypatch, {"one_v1": first, "two_v1": second, "three_v1": third})
 
     for slug in ("one_v1", "two_v1", "three_v1"):
         _mk_skill(db_session, slug)
@@ -191,6 +186,7 @@ async def test_sequential_tasks_thread_outputs(db_session, monkeypatch):
 # ---------------------------------------------------------------------------
 async def test_fork_join_executes_both_branches(db_session, monkeypatch):
     """Fork fans the data out; join waits for both branches and merges."""
+
     async def left(inp, ctx):
         return {"left": "L"}
 
@@ -232,11 +228,7 @@ async def test_fork_join_executes_both_branches(db_session, monkeypatch):
     assert run.output_ref.get("left") == "L"
     assert run.output_ref.get("right") == "R"
 
-    invocations = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .all()
-    )
+    invocations = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all()
     assert {i.skill_slug for i in invocations} == {"left_v1", "right_v1"}
     assert all(i.status == "completed" for i in invocations)
 
@@ -301,11 +293,7 @@ async def test_decision_activates_matching_branch_only(db_session, monkeypatch):
     run = db_session.query(Run).filter(Run.id == run.id).first()
     assert run.output_ref.get("path") == "high"
 
-    invocations = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .all()
-    )
+    invocations = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all()
     assert {i.skill_slug for i in invocations} == {"high_v1"}
 
     # Decision's node_end records the chosen branch.
@@ -377,6 +365,7 @@ async def test_retry_persists_one_invocation_per_attempt(db_session, monkeypatch
 # ---------------------------------------------------------------------------
 async def test_loop_produces_one_invocation_per_item(db_session, monkeypatch):
     """Three items in ctx.items → three invocations of the bound skill."""
+
     async def per_item(inp, ctx):
         idx = ctx.get("_loop_index")
         item = ctx.get("_loop_item")
@@ -432,6 +421,7 @@ async def test_hitl_accept_resumes_to_completion(db_session, monkeypatch):
     """HITL node pauses the run; once we flip the Decision to
     ``accepted``, ``resume_run_dag`` walks the DAG to completion with
     ``hitl_approved`` in the ctx."""
+
     async def tail(inp, ctx):
         return {"approved": ctx.get("hitl_approved"), "done": True}
 
@@ -485,6 +475,78 @@ async def test_hitl_accept_resumes_to_completion(db_session, monkeypatch):
     assert "hitl_resume" in _checkpoint_kinds(run)
 
 
+async def test_hitl_resume_executes_immutable_flow_snapshot(db_session, monkeypatch):
+    """Publishing a new System graph while paused must not change this Run."""
+
+    async def original_tail(inp, ctx):
+        return {"implementation": "snapshotted"}
+
+    async def replacement_tail(inp, ctx):
+        return {"implementation": "mutated"}
+
+    _install_fake_registry(
+        monkeypatch,
+        {"original_tail_v1": original_tail, "replacement_tail_v1": replacement_tail},
+    )
+    _mk_skill(db_session, "original_tail_v1")
+    _mk_skill(db_session, "replacement_tail_v1")
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "h", "kind": "hitl", "config": {"prompt": "approve?"}},
+            {
+                "id": "t",
+                "kind": "task",
+                "config": {"skill_slug": "original_tail_v1"},
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "h"},
+            {"from": "h", "to": "t"},
+            {"from": "t", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system)
+
+    paused = await execute_run_dag(run.id)
+    assert paused["status"] == "hitl_pending"
+    db_session.expire_all()
+    run = db_session.query(Run).filter(Run.id == run.id).one()
+    assert run.flow_snapshot == flow
+    flow_hash = run.input_ref["execution"]["flow_sha256"]
+
+    replacement = {
+        **flow,
+        "nodes": [
+            {
+                **node,
+                "config": {"skill_slug": "replacement_tail_v1"},
+            }
+            if node["id"] == "t"
+            else node
+            for node in flow["nodes"]
+        ],
+    }
+    system = db_session.query(System).filter(System.id == system.id).one()
+    system.flow_definition = replacement
+    decision = db_session.query(Decision).filter(Decision.id == paused["awaiting_decision"]).one()
+    decision.status = "accepted"
+    db_session.commit()
+
+    resumed = await resume_run_dag(run.id, decision_id=decision.id)
+    assert resumed["status"] == "completed"
+    db_session.expire_all()
+    run = db_session.query(Run).filter(Run.id == run.id).one()
+    assert run.output_ref["implementation"] == "snapshotted"
+    assert run.flow_snapshot == flow
+    assert run.input_ref["execution"]["flow_sha256"] == flow_hash
+    invocations = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all()
+    assert [item.skill_slug for item in invocations] == ["original_tail_v1"]
+
+
 # ---------------------------------------------------------------------------
 # 6b — HITL: pause then resume with a rejected Decision
 # ---------------------------------------------------------------------------
@@ -492,6 +554,7 @@ async def test_hitl_reject_propagates_to_tail(db_session, monkeypatch):
     """A rejected HITL decision still resumes the walker (no hard stop)
     but the ``hitl_approved`` flag in ctx is False, so downstream tasks
     can branch on it."""
+
     async def tail(inp, ctx):
         return {"approved": bool(ctx.get("hitl_approved"))}
 
@@ -539,6 +602,7 @@ async def test_subflow_creates_child_run(db_session, monkeypatch):
     the target System, executes it as its own walker (the child owns the
     SkillInvocation ledger), and merges the child output back at the subflow
     node. Provenance (parent_run_id + delegation_node_id) is preserved."""
+
     async def inner_a(inp, ctx):
         return {"a": "A"}
 
@@ -550,9 +614,7 @@ async def test_subflow_creates_child_run(db_session, monkeypatch):
     _mk_skill(db_session, "inner_b_v1")
 
     # Target System — sequential skill list, no custom flow needed.
-    target = _mk_system(
-        db_session, flow={}, skill_slugs=["inner_a_v1", "inner_b_v1"]
-    )
+    target = _mk_system(db_session, flow={}, skill_slugs=["inner_a_v1", "inner_b_v1"])
 
     flow = {
         "schema_version": 2,
@@ -579,9 +641,7 @@ async def test_subflow_creates_child_run(db_session, monkeypatch):
     db_session.expire_all()
     # The parent run carries NO target skills — they live on the child.
     parent_invocations = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .all()
+        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all()
     )
     assert [i.skill_slug for i in parent_invocations] == []
 
@@ -621,6 +681,7 @@ async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, mo
     ``WalkerState`` and survives the pause, so ``_run_subflow`` reuses it on
     re-entry instead of re-delegating from scratch.
     """
+
     async def child_tail(inp, ctx):
         return {"child_done": True, "approved": ctx.get("hitl_approved")}
 
@@ -667,9 +728,7 @@ async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, mo
     assert child_decision_id
 
     db_session.expire_all()
-    children = (
-        db_session.query(Run).filter(Run.parent_run_id == run.id).all()
-    )
+    children = db_session.query(Run).filter(Run.parent_run_id == run.id).all()
     assert len(children) == 1, "exactly one child run should exist after the pause"
     child = children[0]
     child_id = child.id
@@ -687,9 +746,7 @@ async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, mo
     assert resumed["status"] == "completed"
 
     db_session.expire_all()
-    children_after = (
-        db_session.query(Run).filter(Run.parent_run_id == run.id).all()
-    )
+    children_after = db_session.query(Run).filter(Run.parent_run_id == run.id).all()
     assert len(children_after) == 1, "parent resume must NOT spawn a duplicate child"
     assert children_after[0].id == child_id
     assert children_after[0].status == "completed"
@@ -704,9 +761,7 @@ async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, mo
 
     # The child ran its tail skill exactly once (no re-delegation / replay).
     child_invocations = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == child_id)
-        .all()
+        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == child_id).all()
     )
     assert [i.skill_slug for i in child_invocations] == ["child_tail_v1"]
     assert all(i.status == "completed" for i in child_invocations)

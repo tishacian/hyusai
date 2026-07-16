@@ -14,17 +14,26 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import WORKSPACE_REVIEWER, is_admin_template, normalize_role_template
 from app.core.logging import get_logger
 from app.db.base import SessionLocal, get_db
-from app.models.decision import Decision
 from app.models.capability import Capability
+from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.chat_execution_policy import (
+    migration_059_system_id,
+)
 from app.services.decisions import (
     InvalidTransition,
+)
+from app.services.decisions import (
     accept as accept_decision,
+)
+from app.services.decisions import (
     reject as reject_decision,
 )
 from app.services.outcome.derive import apply_operator_override
@@ -33,6 +42,156 @@ from app.services.run_engine.events import bus as event_bus
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+_PRIVATE_CHAT_TRIGGER = "chat_agentic"
+
+
+def _has_private_chat_admin_access(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> bool:
+    if getattr(user, "role", None) == "admin":
+        return True
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
+
+
+def _can_view_private_chat_runs(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> bool:
+    """Reviewers and workspace/org admins may inspect every Agentic chat Run."""
+    if _has_private_chat_admin_access(db, user=user, workspace=workspace):
+        return True
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if membership is None:
+        return False
+    return bool(
+        normalize_role_template(membership.role_template, membership.role) == WORKSPACE_REVIEWER
+    )
+
+
+def _managed_agentic_run_requires_admin(
+    db: DBSession,
+    *,
+    run: Run,
+    workspace: Workspace,
+) -> bool:
+    """Keep in-flight and rejected migration-059 Runs admin-only.
+
+    This closes both sides of the HITL race: an initiator cannot attach an SSE
+    stream while the gated draft is still being produced, and a rejected draft
+    does not become readable merely because finalisation made the Run terminal.
+    """
+    managed_system_id = migration_059_system_id(workspace)
+    if managed_system_id is None:
+        return False
+    managed = run.system_id == managed_system_id
+
+    # A parent subflow can surface a Decision owned by a managed child Run.
+    # Preserve the same boundary for that parent without trusting checkpoint
+    # payload beyond the server-persisted Decision -> Run relationship.
+    if not managed:
+        decision_ids = [
+            checkpoint.get("decision_id")
+            for checkpoint in list(run.checkpoints or [])
+            if isinstance(checkpoint, dict) and checkpoint.get("kind") == "hitl_pause"
+        ]
+        decision_ids = [decision_id for decision_id in decision_ids if decision_id]
+        if decision_ids:
+            managed = (
+                db.query(Run.id)
+                .join(Decision, Decision.target_id == Run.id)
+                .filter(
+                    Decision.id.in_(decision_ids),
+                    Decision.scope == "run",
+                    or_(
+                        Decision.workspace_id == workspace.id,
+                        Decision.workspace_id.is_(None),
+                    ),
+                    Run.workspace_id == workspace.id,
+                    Run.system_id == managed_system_id,
+                )
+                .first()
+                is not None
+            )
+    if not managed:
+        return False
+
+    if run.status not in {"completed", "failed", "cancelled"}:
+        return True
+
+    output = run.output_ref if isinstance(run.output_ref, dict) else {}
+    if str(output.get("hitl_decision") or "").strip().lower() == "rejected":
+        return True
+    return any(
+        isinstance(checkpoint, dict)
+        and checkpoint.get("kind") == "hitl_resume"
+        and str(checkpoint.get("decision_status") or "").strip().lower() == "rejected"
+        for checkpoint in list(run.checkpoints or [])
+    )
+
+
+def _run_is_visible(
+    db: DBSession,
+    *,
+    run: Run,
+    user: User,
+    workspace: Workspace,
+    allow_managed_hitl_for_resolution: bool = False,
+) -> bool:
+    requires_admin = _managed_agentic_run_requires_admin(
+        db,
+        run=run,
+        workspace=workspace,
+    )
+    resolution_may_authorize = allow_managed_hitl_for_resolution and run.status == "hitl_pending"
+    if requires_admin and not resolution_may_authorize:
+        return _has_private_chat_admin_access(db, user=user, workspace=workspace)
+    if run.trigger != _PRIVATE_CHAT_TRIGGER:
+        return True
+    if run.initiated_by_user_id == user.id:
+        return True
+    return _can_view_private_chat_runs(db, user=user, workspace=workspace)
+
+
+def _visible_run_or_404(
+    db: DBSession,
+    *,
+    run_id: str,
+    user: User,
+    workspace: Workspace,
+    allow_managed_hitl_for_resolution: bool = False,
+) -> Run:
+    """Resolve one Run without disclosing private Agentic Run existence."""
+    run = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
+    if run is None or not _run_is_visible(
+        db,
+        run=run,
+        user=user,
+        workspace=workspace,
+        allow_managed_hitl_for_resolution=allow_managed_hitl_for_resolution,
+    ):
+        raise HTTPException(404, "Run not found")
+    return run
 
 
 def _row(r: Run) -> Dict[str, Any]:
@@ -109,9 +268,18 @@ async def list_runs(
     status: Optional[str] = None,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     q = db.query(Run).filter(Run.workspace_id == workspace.id)
+    if not _can_view_private_chat_runs(db, user=user, workspace=workspace):
+        q = q.filter(
+            or_(
+                Run.trigger.is_(None),
+                Run.trigger != _PRIVATE_CHAT_TRIGGER,
+                Run.initiated_by_user_id == user.id,
+            )
+        )
     if system_id:
         # Do not accept an orphaned or cross-tenant parent edge even when a
         # corrupted Run row itself belongs to the current workspace.
@@ -144,11 +312,12 @@ async def list_runs(
             or_(
                 parent_system_matches,
                 and_(Run.system_id.is_(None), Run.capability_id == capability_id),
-            )
+            ),
         )
     if status:
         q = q.filter(Run.status == status)
     rows = q.order_by(Run.started_at.desc()).limit(limit).all()
+    rows = [row for row in rows if _run_is_visible(db, run=row, user=user, workspace=workspace)]
     return {"runs": [_row(r) for r in rows]}
 
 
@@ -156,12 +325,21 @@ async def list_runs(
 async def get_run(
     run_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
-    if not r:
-        raise HTTPException(404, "Run not found")
-    invocations = db.query(SkillInvocation).filter(SkillInvocation.run_id == r.id).order_by(SkillInvocation.started_at.asc()).all()
+    r = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
+    invocations = (
+        db.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == r.id)
+        .order_by(SkillInvocation.started_at.asc())
+        .all()
+    )
     payload: Dict[str, Any] = {
         **_row(r),
         "invocations": [_invocation(i) for i in invocations],
@@ -171,7 +349,14 @@ async def get_run(
         decision_id = pending_cp.get("decision_id")
         decision: Optional[Decision] = None
         if decision_id:
-            decision = db.query(Decision).filter(Decision.id == decision_id).first()
+            candidate = db.query(Decision).filter(Decision.id == decision_id).first()
+            if candidate and _decision_target_run(
+                db,
+                decision=candidate,
+                paused_run=r,
+                workspace_id=workspace.id,
+            ):
+                decision = candidate
         payload["hitl"] = {
             "node_id": pending_cp.get("node_id"),
             "prompt": pending_cp.get("prompt"),
@@ -193,8 +378,142 @@ async def get_run(
 
 class HitlResolve(BaseModel):
     action: Literal["accept", "reject"]
-    actor: Optional[str] = Field(default=None, description="Operator id / email.")
+    actor: Optional[str] = Field(
+        default=None,
+        description="Deprecated compatibility field; the authenticated server identity is used.",
+    )
     note: Optional[str] = Field(default=None, description="Audit trail note.")
+
+
+def _actor_label(user: User) -> str:
+    """Return the authenticated identity written to the Decision audit trail."""
+    return (
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or getattr(user, "keycloak_sub", None)
+        or str(user.id)
+    )
+
+
+def _is_migration_managed_agentic_system(
+    workspace: Workspace,
+    system: System,
+) -> bool:
+    return migration_059_system_id(workspace) == system.id
+
+
+def _run_lineage(
+    db: DBSession,
+    *,
+    run: Run,
+    workspace_id: str,
+) -> Optional[List[Run]]:
+    """Return ``run`` and its ancestors, failing closed on corrupt edges."""
+    lineage: List[Run] = []
+    current: Optional[Run] = run
+    visited: set[str] = set()
+    while current is not None:
+        if current.id in visited or current.workspace_id != workspace_id:
+            return None
+        visited.add(current.id)
+        lineage.append(current)
+        if not current.parent_run_id:
+            break
+        current = (
+            db.query(Run)
+            .filter(
+                Run.id == current.parent_run_id,
+                Run.workspace_id == workspace_id,
+            )
+            .first()
+        )
+        if current is None:
+            return None
+    return lineage
+
+
+def _decision_target_run(
+    db: DBSession,
+    *,
+    decision: Decision,
+    paused_run: Run,
+    workspace_id: str,
+) -> Optional[Run]:
+    """Resolve a HITL Decision only when it belongs to the paused run tree."""
+    if decision.scope != "run" or not decision.target_id:
+        return None
+    if decision.workspace_id not in (None, workspace_id):
+        return None
+    target = (
+        db.query(Run).filter(Run.id == decision.target_id, Run.workspace_id == workspace_id).first()
+    )
+    if target is None:
+        return None
+    lineage = _run_lineage(db, run=target, workspace_id=workspace_id)
+    if lineage is None or paused_run.id not in {row.id for row in lineage}:
+        return None
+    return target
+
+
+def _require_hitl_authorization(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    paused_run: Run,
+    decision_target: Run,
+) -> None:
+    """Allow workspace admins, or the initiating user for ordinary Systems.
+
+    Migration-059's production Agentic System is deliberately stricter: only
+    organization admins and workspace admin/owner roles may resolve its HITL
+    gates, even when they initiated the Run themselves.
+    """
+    is_admin = getattr(user, "role", None) == "admin"
+    if not is_admin:
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.user_id == user.id,
+                WorkspaceMember.workspace_id == workspace.id,
+            )
+            .first()
+        )
+        if membership is None:
+            raise HTTPException(403, "Workspace membership required to resolve HITL")
+        is_admin = is_admin_template(membership.role_template, membership.role)
+
+    affected_runs: Dict[str, Run] = {}
+    for candidate in (paused_run, decision_target):
+        lineage = _run_lineage(db, run=candidate, workspace_id=workspace.id)
+        if lineage is None:
+            raise HTTPException(403, "Run lineage is outside the current workspace")
+        affected_runs.update({row.id: row for row in lineage})
+
+    for candidate in affected_runs.values():
+        if not candidate.system_id:
+            continue
+        system = (
+            db.query(System)
+            .filter(
+                System.id == candidate.system_id,
+                System.workspace_id == workspace.id,
+            )
+            .first()
+        )
+        if system is None:
+            raise HTTPException(403, "Run System is outside the current workspace")
+        if _is_migration_managed_agentic_system(workspace, system) and not is_admin:
+            raise HTTPException(
+                403,
+                "Admin/owner access required for the production Agentic System",
+            )
+
+    if is_admin:
+        return
+    if any(row.initiated_by_user_id == user.id for row in affected_runs.values()):
+        return
+    raise HTTPException(403, "Only the Run initiator or a workspace admin may resolve HITL")
 
 
 @router.post("/{run_id}/hitl")
@@ -203,15 +522,20 @@ async def resolve_run_hitl(
     body: HitlResolve,
     background_tasks: BackgroundTasks,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Operator accepts or rejects the pending HITL Decision and the DAG
     walker resumes in the background. The call is idempotent: a second
     request on a Run no longer paused returns 409.
     """
-    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
-    if not r:
-        raise HTTPException(404, "Run not found")
+    r = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+        allow_managed_hitl_for_resolution=True,
+    )
     pending_cp = _pending_hitl_checkpoint(r)
     if not pending_cp:
         raise HTTPException(409, f"Run is not awaiting HITL (status={r.status!r})")
@@ -221,12 +545,29 @@ async def resolve_run_hitl(
     decision = db.query(Decision).filter(Decision.id == decision_id).first()
     if not decision:
         raise HTTPException(404, "HITL decision not found")
+    decision_target = _decision_target_run(
+        db,
+        decision=decision,
+        paused_run=r,
+        workspace_id=workspace.id,
+    )
+    if decision_target is None:
+        raise HTTPException(404, "HITL decision not found")
+    _require_hitl_authorization(
+        db,
+        user=user,
+        workspace=workspace,
+        paused_run=r,
+        decision_target=decision_target,
+    )
+
+    actor = _actor_label(user)
 
     try:
         if body.action == "accept":
-            accept_decision(db, decision, actor=body.actor, note=body.note)
+            accept_decision(db, decision, actor=actor, note=body.note)
         else:
-            reject_decision(db, decision, actor=body.actor, note=body.note)
+            reject_decision(db, decision, actor=actor, note=body.note)
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -264,6 +605,7 @@ async def step_run(
     body: DebugStep,
     background_tasks: BackgroundTasks,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Advance a Run paused by the step debugger.
@@ -275,17 +617,16 @@ async def step_run(
 
     Returns 409 when the Run is not currently in ``debug_pending``.
     """
-    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
-    if not r:
-        raise HTTPException(404, "Run not found")
+    r = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
     if r.status != "debug_pending":
         raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
-    background_tasks.add_task(
-        _step_wrapper, r.id, body.action, body.breakpoints or None
-    )
-    logger.info(
-        "runs.debug: dispatched step", run_id=r.id, action=body.action
-    )
+    background_tasks.add_task(_step_wrapper, r.id, body.action, body.breakpoints or None)
+    logger.info("runs.debug: dispatched step", run_id=r.id, action=body.action)
     return {"id": r.id, "status": r.status, "action": body.action}
 
 
@@ -294,18 +635,12 @@ def _step_wrapper(run_id: str, action: str, breakpoints: Optional[List[str]]) ->
     import asyncio
 
     try:
-        asyncio.run(
-            resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints)
-        )
+        asyncio.run(resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints))
     except RuntimeError:
         loop = asyncio.get_event_loop()
-        loop.create_task(
-            resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints)
-        )
+        loop.create_task(resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints))
     except Exception as exc:  # noqa: BLE001
-        logger.exception(
-            "runs.debug: step failed", run_id=run_id, action=action, error=str(exc)
-        )
+        logger.exception("runs.debug: step failed", run_id=run_id, action=action, error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -369,9 +704,7 @@ async def _run_event_stream(
                 "hitl_pending",
                 "debug_pending",
             ):
-                yield _sse_format(
-                    "close", {"reason": "run_not_live", "status": run.status}
-                )
+                yield _sse_format("close", {"reason": "run_not_live", "status": run.status})
                 return
         finally:
             db.close()
@@ -408,18 +741,14 @@ async def _run_event_stream(
                 #      walker that doesn't publish events).
                 db = SessionLocal()
                 try:
-                    status = (
-                        db.query(Run.status).filter(Run.id == run_id).scalar()
-                    )
+                    status = db.query(Run.status).filter(Run.id == run_id).scalar()
                 finally:
                     db.close()
                 if status in _TERMINAL_STATUSES or status in (
                     "hitl_pending",
                     "debug_pending",
                 ):
-                    yield _sse_format(
-                        "close", {"reason": "polled_terminal", "status": status}
-                    )
+                    yield _sse_format("close", {"reason": "polled_terminal", "status": status})
                     break
                 yield ": keep-alive\n\n"
         if consumer_task is not None:
@@ -434,6 +763,8 @@ async def stream_run(
     run_id: str,
     request: Request,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Server-Sent Events stream of a Run's lifecycle.
 
@@ -448,6 +779,12 @@ async def stream_run(
     ``snapshot`` (initial state dump on connect) and ``close`` (terminal
     signal so the client can unsubscribe without inspecting ``status``).
     """
+    _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
     return StreamingResponse(
         _run_event_stream(run_id, request, workspace.id if workspace else None),
         media_type="text/event-stream",
@@ -465,11 +802,18 @@ def _resume_wrapper(run_id: str, decision_id: str) -> None:
     """
     import asyncio
 
+    async def _resume_and_finalize() -> None:
+        summary = await resume_run_dag(run_id, decision_id=decision_id)
+        if summary.get("status") in {"completed", "failed"}:
+            from app.services.chat_agentic_runtime import finalize_resumed_agentic_chat
+
+            finalize_resumed_agentic_chat(run_id)
+
     try:
-        asyncio.run(resume_run_dag(run_id, decision_id=decision_id))
+        asyncio.run(_resume_and_finalize())
     except RuntimeError:
         loop = asyncio.get_event_loop()
-        loop.create_task(resume_run_dag(run_id, decision_id=decision_id))
+        loop.create_task(_resume_and_finalize())
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "runs.hitl: resume failed", run_id=run_id, decision_id=decision_id, error=str(exc)
@@ -489,6 +833,7 @@ async def override_run_outcome(
     run_id: str,
     body: OutcomeOverride,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Operator override for the Outcome's `value`. Cost, confidence and
@@ -496,9 +841,12 @@ async def override_run_outcome(
     to `operator`. The previous value is preserved in `operator_value_note`
     so the audit is lossless.
     """
-    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
-    if not r:
-        raise HTTPException(404, "Run not found")
+    r = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
     if r.status not in ("completed", "failed"):
         raise HTTPException(
             409,
@@ -528,7 +876,7 @@ class ReplayRequest(BaseModel):
     )
     actor: Optional[str] = Field(
         default=None,
-        description="Operator handle (Keycloak sub or display name).",
+        description="Deprecated compatibility field; the authenticated server identity is used.",
     )
     source_decision_id: Optional[str] = Field(
         default=None,
@@ -553,6 +901,7 @@ async def replay_run(
     run_id: str,
     body: ReplayRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Re-run a settled chat-style Run with operator overrides applied.
@@ -570,13 +919,12 @@ async def replay_run(
         replay_run_async,
     )
 
-    parent = (
-        db.query(Run)
-        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
-        .first()
+    parent = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
     )
-    if not parent:
-        raise HTTPException(404, "Run not found")
 
     try:
         new_run, response_text = await replay_run_async(
@@ -584,7 +932,7 @@ async def replay_run(
             parent=parent,
             workspace_slug=workspace.slug,
             overrides=body.overrides or {},
-            actor=body.actor,
+            actor=_actor_label(user),
             source_decision_id=body.source_decision_id,
             source_feedback_id=body.source_feedback_id,
         )
@@ -596,15 +944,16 @@ async def replay_run(
         logger.exception("runs.replay: unhandled error", run_id=run_id)
         raise HTTPException(500, f"replay failed: {exc!r}")
 
+    new_run.initiated_by_user_id = user.id
+    db.commit()
+
     return {
         "run_id": new_run.id,
         "parent_run_id": parent.id,
         "status": new_run.status,
         "trigger": new_run.trigger,
         "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
-        "completed_at": (
-            new_run.completed_at.isoformat() if new_run.completed_at else None
-        ),
+        "completed_at": (new_run.completed_at.isoformat() if new_run.completed_at else None),
         "duration_ms": new_run.duration_ms,
         "replay_overrides": new_run.replay_overrides or {},
         "response_preview": (response_text[:500] if response_text else ""),
@@ -616,6 +965,7 @@ async def replay_run(
 async def list_run_replays(
     run_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """List runs that were replayed from this run as parent.
@@ -625,13 +975,12 @@ async def list_run_replays(
     breached run already has follow-up replays the reviewer can
     compare against.
     """
-    parent = (
-        db.query(Run)
-        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
-        .first()
+    _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
     )
-    if not parent:
-        raise HTTPException(404, "Run not found")
 
     children = (
         db.query(Run)
@@ -642,6 +991,11 @@ async def list_run_replays(
         .order_by(Run.started_at.desc())
         .all()
     )
+    children = [
+        child
+        for child in children
+        if _run_is_visible(db, run=child, user=user, workspace=workspace)
+    ]
     return {
         "parent_run_id": run_id,
         "items": [

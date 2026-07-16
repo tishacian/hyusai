@@ -8,16 +8,23 @@ from app.api.v1.endpoints import runs, systems
 from app.models.capability import Capability
 from app.models.run import Run
 from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace
 
 
 def _client(db_session, workspace: Workspace) -> TestClient:
+    user = User(
+        id="scope-test-admin",
+        username="scope-test-admin",
+        role="admin",
+    )
     app = FastAPI()
     app.include_router(systems.router, prefix="/systems")
     app.include_router(runs.router, prefix="/runs")
     app.dependency_overrides[systems.get_current_workspace] = lambda: workspace
     app.dependency_overrides[systems.get_db] = lambda: db_session
     app.dependency_overrides[runs.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[runs.get_current_user] = lambda: user
     app.dependency_overrides[runs.get_db] = lambda: db_session
     return TestClient(app)
 
@@ -156,24 +163,20 @@ def _seed_scope_graph(
 
 
 def test_list_systems_filters_by_capability_inside_current_workspace(db_session):
-    workspace, capability, _sibling_capability, other_capability = _seed_scope_graph(
-        db_session
-    )
+    workspace, capability, _sibling_capability, other_capability = _seed_scope_graph(db_session)
     client = _client(db_session, workspace)
 
     response = client.get("/systems", params={"capability_id": capability.id})
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()["systems"]] == ["system-scope"]
-    assert client.get(
-        "/systems", params={"capability_id": other_capability.id}
-    ).json() == {"systems": []}
+    assert client.get("/systems", params={"capability_id": other_capability.id}).json() == {
+        "systems": []
+    }
 
 
 def test_list_runs_filters_by_capability_inside_current_workspace(db_session):
-    workspace, capability, sibling_capability, other_capability = _seed_scope_graph(
-        db_session
-    )
+    workspace, capability, sibling_capability, other_capability = _seed_scope_graph(db_session)
     client = _client(db_session, workspace)
 
     response = client.get("/runs", params={"capability_id": capability.id})
@@ -186,12 +189,8 @@ def test_list_runs_filters_by_capability_inside_current_workspace(db_session):
         "run-scope-systemless",
     }
 
-    sibling_response = client.get(
-        "/runs", params={"capability_id": sibling_capability.id}
-    )
-    assert {row["id"] for row in sibling_response.json()["runs"]} == {
-        "run-scope-sibling"
-    }
+    sibling_response = client.get("/runs", params={"capability_id": sibling_capability.id})
+    assert {row["id"] for row in sibling_response.json()["runs"]} == {"run-scope-sibling"}
 
     combined_response = client.get(
         "/runs",
@@ -210,18 +209,14 @@ def test_list_runs_filters_by_capability_inside_current_workspace(db_session):
         },
     ).json() == {"runs": []}
 
-    assert client.get(
-        "/runs", params={"capability_id": other_capability.id}
-    ).json() == {"runs": []}
+    assert client.get("/runs", params={"capability_id": other_capability.id}).json() == {"runs": []}
 
 
 def test_list_runs_rejects_a_cross_workspace_parent_for_system_scope(db_session):
     workspace, _capability, _sibling, _other = _seed_scope_graph(db_session)
     client = _client(db_session, workspace)
 
-    assert client.get(
-        "/runs", params={"system_id": "system-scope-other"}
-    ).json() == {"runs": []}
+    assert client.get("/runs", params={"system_id": "system-scope-other"}).json() == {"runs": []}
 
 
 def test_global_capabilities_remain_valid_scope_parents(db_session):
@@ -253,13 +248,13 @@ def test_global_capabilities_remain_valid_scope_parents(db_session):
 
     assert [
         row["id"]
-        for row in client.get(
-            "/systems", params={"capability_id": global_capability.id}
-        ).json()["systems"]
+        for row in client.get("/systems", params={"capability_id": global_capability.id}).json()[
+            "systems"
+        ]
     ] == [global_system.id]
     assert {
         row["id"]
-        for row in client.get(
-            "/runs", params={"capability_id": global_capability.id}
-        ).json()["runs"]
+        for row in client.get("/runs", params={"capability_id": global_capability.id}).json()[
+            "runs"
+        ]
     } == {global_run.id}

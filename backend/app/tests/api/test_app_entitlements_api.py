@@ -183,9 +183,17 @@ def test_generic_workspace_patch_cannot_change_resolver_family_or_migration_stat
 ) -> None:
     workspace, owner, _, _, _, _ = _seed_workspace(db_session)
     marker = {"schema": 2, "applied_family": "andritz"}
+    agentic_marker = {"schema": 1, "system_id": "system-agentic"}
+    chat_execution = {
+        "version": 1,
+        "mode": "agentic_default",
+        "rollout": {"percentage": 0},
+    }
     workspace.settings = {
         "family": "andritz",
+        "chat_execution": chat_execution,
         "_migration_058_canonical_contracts_state": marker,
+        "_migration_059_andritz_agentic_default_state": agentic_marker,
         "features": {APP_ENTITLEMENTS_FEATURE: True},
     }
     db_session.commit()
@@ -213,9 +221,32 @@ def test_generic_workspace_patch_cannot_change_resolver_family_or_migration_stat
     assert migration.status_code == 409
     assert migration.json()["detail"]["code"] == "WORKSPACE_MIGRATION_STATE_MANAGED"
 
+    policy = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={"settings": {"chat_execution": {"version": 1, "mode": "classic"}}},
+    )
+    assert policy.status_code == 409
+    assert policy.json()["detail"]["code"] == "CHAT_EXECUTION_POLICY_MANAGED"
+
+    agentic_migration = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={
+            "settings": {
+                "_migration_059_andritz_agentic_default_state": {
+                    "schema": 1,
+                    "system_id": "other-system",
+                }
+            }
+        },
+    )
+    assert agentic_migration.status_code == 409
+    assert agentic_migration.json()["detail"]["code"] == "WORKSPACE_MIGRATION_STATE_MANAGED"
+
     db_session.refresh(workspace)
     assert workspace.settings["family"] == "andritz"
+    assert workspace.settings["chat_execution"] == chat_execution
     assert workspace.settings["_migration_058_canonical_contracts_state"] == marker
+    assert workspace.settings["_migration_059_andritz_agentic_default_state"] == agentic_marker
 
 
 def test_generic_workspace_patch_rechecks_admin_authority_after_lock(

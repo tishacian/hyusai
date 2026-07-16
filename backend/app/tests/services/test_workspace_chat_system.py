@@ -222,6 +222,57 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     assert builders["rag_user_prompt_builder"].endswith("_build_rag_user_prompt")
 
 
+def test_explicit_business_system_does_not_inherit_workspace_chat_branding_or_budgets(
+    db_session,
+):
+    workspace = Workspace(
+        id="ws-explicit-business-system",
+        name="Showcase",
+        slug="showcase-explicit-system",
+        settings={"family": "showcase"},
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    surface = ensure_workspace_chat_system_default(db_session, workspace.id)
+    surface.flow_definition = {
+        **surface.flow_definition,
+        "chat": {
+            "assistant_profile": "surface-only-profile",
+            "knowledge_scope": "surface-only-scope",
+            "retrieval_defaults": {"top_k": 99, "mode": "deep"},
+        },
+    }
+    business = System(
+        id="sys-explicit-business",
+        workspace_id=workspace.id,
+        name="Video Contract Risk",
+        objective="Showcase business experience",
+        status="active",
+        settings={"system_type": "showcase_contract_risk"},
+        flow_definition={"variant": "video_contract_risk", "nodes": []},
+    )
+    db_session.add(business)
+    db_session.commit()
+    request = ChatRequest(
+        query="Analyse ce contrat",
+        agent_id=business.id,
+    )
+
+    resolved_id = _apply_workspace_chat_flow_defaults(
+        db_session,
+        workspace=workspace,
+        request=request,
+    )
+
+    assert resolved_id == business.id
+    assert request.agent_id == business.id
+    assert request.assistant_profile is None
+    assert request.knowledge_scope is None
+    assert request.top_k is None
+    assert request.rag_pipeline_mode is None
+    assert request.system_prompt is None
+
+
 def test_sentinel_workspace_chat_reuses_aya_profile(db_session):
     workspace = Workspace(
         id="ws-sentinel-chat",

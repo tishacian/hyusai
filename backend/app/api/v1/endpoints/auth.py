@@ -917,8 +917,13 @@ def _settings_with_managed_workspace_fields_preserved(
     next_settings = dict(requested)
     managed_top_level_fields = (
         ("family", "WORKSPACE_EXPERIENCE_SETTING_MANAGED"),
+        ("chat_execution", "CHAT_EXECUTION_POLICY_MANAGED"),
         (
             "_migration_058_canonical_contracts_state",
+            "WORKSPACE_MIGRATION_STATE_MANAGED",
+        ),
+        (
+            "_migration_059_andritz_agentic_default_state",
             "WORKSPACE_MIGRATION_STATE_MANAGED",
         ),
     )

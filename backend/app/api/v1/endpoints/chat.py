@@ -14,49 +14,60 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Literal, Mapping, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from app.api.v1.endpoints.agents import get_orchestrator
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
-from app.core.logging import get_logger
-from app.core.monitoring import metrics_collector
-from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
 from app.core.iam.dependencies import require_app_entitlement
+from app.core.iam.roles import is_admin_template
+from app.core.logging import get_logger
+from app.core.monitoring import metrics_collector
 from app.core.settings_manager import get_resolved_settings
+from app.core.validation import QueryValidator, ResponseValidator
 from app.db.base import get_db
+from app.models.context import Context
 from app.models.run import Run
 from app.models.system import System
-from app.models.context import Context
-from app.models.user import Message, Session as ChatSession, User
-from app.models.workspace import Workspace
+from app.models.user import Message, User
+from app.models.user import Session as ChatSession
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
-from app.api.v1.endpoints.agents import get_orchestrator
+from app.services.action_plans import action_context_for_chat
+from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
+from app.services.chat_agentic_runtime import (
+    agentic_event_chunks,
+    agentic_timeout_seconds,
+    create_agentic_chat_run,
+    iter_agentic_run_events,
+    load_agentic_chat_outcome,
+    mark_agentic_fallback,
+)
+from app.services.chat_execution_policy import (
+    AGENTIC_SYSTEM_TYPE,
+    AGENTIC_VARIANT,
+    ANDRITZ_MIGRATION_MARKER,
+    ChatExecutionDecision,
+    resolve_chat_execution,
+)
+from app.services.chat_grounding import resolve_grounding_policy
+from app.services.chat_run_ledger import enrich_chat_run_ledger
+from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.evaluation.auto_eval import schedule_eval
 from app.services.evaluation.canonical_answer_service import (
     find_canonical_answer,
     record_hit,
 )
-from app.services.action_plans import action_context_for_chat
-from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
-from app.services.chat_grounding import resolve_grounding_policy
-from app.services.chat_run_ledger import enrich_chat_run_ledger
-from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
+from app.services.iam.app_entitlements import CHAT_APP
 from app.services.industrial_answer_profile import (
     answer_policy_prompt,
     apply_answer_policy_to_text,
     industrial_answer_policy,
     resolve_answer_profile,
 )
-from app.services.iam.app_entitlements import CHAT_APP
-from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
-from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
-from app.services.systems.bootstrap import workspace_chat_system_id
-from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
-from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
-from app.services.workspace_maps import handle_map_chat_query
-from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
 from app.services.mission_room import (
     briefing_payload,
     cockpit_payload,
@@ -64,6 +75,16 @@ from app.services.mission_room import (
     present_payload_for_workspace,
     source_index,
 )
+from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
+from app.services.systems.bootstrap import (
+    WORKSPACE_CHAT_VARIANT,
+    resolve_workspace_chat_source_policy,
+    workspace_chat_system_id,
+)
+from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
+from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
+from app.services.workspace_maps import handle_map_chat_query
+
 logger = get_logger(__name__)
 router = APIRouter(dependencies=[Depends(require_app_entitlement(CHAT_APP))])
 query_validator = QueryValidator()
@@ -105,6 +126,7 @@ _RETRIEVAL_OBSERVABILITY_KEYS = (
 
 class ChatRequest(BaseModel):
     """Chat completion request"""
+
     query: str
     session_id: Optional[str] = None
     # System (papAI canonical entity) the chat is scoped to — used to
@@ -331,24 +353,62 @@ def _apply_workspace_chat_flow_defaults(
     profile, scope, retrieval budget, RAG mode and optional system prompt.
     User-supplied request fields always win.
     """
-    system_id = _resolve_system_id(db, workspace.id, request.agent_id)
+    requested_agent_id = request.agent_id
+    resolved_system_id = _resolve_system_id(db, workspace.id, requested_agent_id)
+    surface_system_id = workspace_chat_system_id(db, workspace.id)
+    requested_system = None
+    if requested_agent_id:
+        requested_system = (
+            db.query(System)
+            .filter(
+                System.id == requested_agent_id,
+                System.workspace_id == workspace.id,
+            )
+            .first()
+        )
+    requested_flow = _as_dict(getattr(requested_system, "flow_definition", None))
+    requested_settings = _as_dict(getattr(requested_system, "settings", None))
+    requested_is_agentic = bool(
+        requested_system
+        and requested_settings.get("system_type") == AGENTIC_SYSTEM_TYPE
+        and requested_flow.get("variant") == AGENTIC_VARIANT
+    )
+    # Explicit business Systems keep their own profile/scope/prompt defaults.
+    # Only the public Workspace Chat surface and its canonical Agentic executor
+    # share the Workspace Chat manifest.
+    if (
+        requested_system is not None
+        and requested_system.id != surface_system_id
+        and not requested_is_agentic
+    ):
+        return requested_system.id
+    system_id = surface_system_id or resolved_system_id
     if not system_id:
         return None
-    system = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    system = (
+        db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    )
     if not system:
         return None
     flow = _as_dict(system.flow_definition)
     if flow.get("variant") != WORKSPACE_CHAT_VARIANT:
-        return system_id
+        return resolved_system_id
 
-    request.agent_id = system.id
+    # The always-on Workspace Chat System owns the public surface defaults.
+    # Preserve a valid explicitly selected executor System so the routing
+    # policy can use it as an operator canary; replace stale/cross-tenant ids.
+    explicitly_valid = bool(requested_system and resolved_system_id == requested_system.id)
+    if not explicitly_valid:
+        request.agent_id = system.id
     chat = _as_dict(flow.get("chat"))
     prompt_contract = _as_dict(flow.get("prompt_contract"))
     budget_node = _as_dict(_chat_flow_node(flow, "runtime.settings_budget").get("data"))
     grounding_node = _as_dict(_chat_flow_node(flow, "skill.grounding_policy").get("data"))
     fast_answer_node = _as_dict(_chat_flow_node(flow, "skill.fast_answer").get("data"))
     node_prompt_contract = _as_dict(fast_answer_node.get("prompt_contract"))
-    retrieval_defaults = _as_dict(budget_node.get("retrieval_defaults")) or _as_dict(chat.get("retrieval_defaults"))
+    retrieval_defaults = _as_dict(budget_node.get("retrieval_defaults")) or _as_dict(
+        chat.get("retrieval_defaults")
+    )
 
     if not request.assistant_profile and chat.get("assistant_profile"):
         request.assistant_profile = str(chat["assistant_profile"])
@@ -358,11 +418,19 @@ def _apply_workspace_chat_flow_defaults(
         source_policy = resolve_workspace_chat_source_policy(db, workspace, system=system)
         if source_policy:
             request.source_policy = source_policy
-    if request.latency_profile is None and retrieval_defaults.get("latency_profile") in {"fast", "balanced", "deep"}:
+    if request.latency_profile is None and retrieval_defaults.get("latency_profile") in {
+        "fast",
+        "balanced",
+        "deep",
+    }:
         request.latency_profile = retrieval_defaults["latency_profile"]  # type: ignore[assignment]
     if request.retrieval_profile is None and retrieval_defaults.get("retrieval_profile"):
         request.retrieval_profile = str(retrieval_defaults["retrieval_profile"])
-    if request.rag_pipeline_mode is None and request.rag_mode_override is None and retrieval_defaults.get("mode"):
+    if (
+        request.rag_pipeline_mode is None
+        and request.rag_mode_override is None
+        and retrieval_defaults.get("mode")
+    ):
         request.rag_pipeline_mode = str(retrieval_defaults["mode"])
     # Fold the whole funnel together: a lone folded top_k reads as an explicit
     # user pin downstream and collapses synthesis/candidate defaults to top_k.
@@ -379,7 +447,8 @@ def _apply_workspace_chat_flow_defaults(
         if not answer_policy and prompt_contract.get("answer_profiles"):
             answer_policy = {
                 "key": "industrial_answer_profile_v1",
-                "default_answer_profile": prompt_contract.get("default_answer_profile") or "precise_fact",
+                "default_answer_profile": prompt_contract.get("default_answer_profile")
+                or "precise_fact",
                 "profiles": prompt_contract.get("answer_profiles"),
             }
         if answer_policy:
@@ -414,7 +483,9 @@ def _apply_workspace_chat_flow_defaults(
     # It lets Flow Builder edits change the provider instruction while keeping
     # all retrieval and grounding policy guards active downstream.
     if request.system_prompt is None:
-        system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get("base_system_prompt")
+        system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get(
+            "base_system_prompt"
+        )
         if isinstance(system_prompt, str) and system_prompt.strip():
             request.system_prompt = system_prompt
     if request.system_prompt:
@@ -426,11 +497,35 @@ def _apply_workspace_chat_flow_defaults(
         if policy_text and policy_text not in request.system_prompt:
             request.system_prompt = f"{request.system_prompt.rstrip()}\n\n{policy_text}"
 
-    return system_id
+    return resolved_system_id or system.id
 
 
 def _user_id(user: Optional[User]) -> Optional[str]:
     return str(getattr(user, "id", "") or "") or None
+
+
+def _can_force_agentic_canary(
+    db: Session,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> bool:
+    """Restrict the zero-percent canary escape hatch to workspace admins."""
+
+    if getattr(user, "role", None) == "admin":
+        return True
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        return False
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
 
 
 def _chat_session_belongs_to_scope(
@@ -443,13 +538,10 @@ def _chat_session_belongs_to_scope(
     """Return whether a chat session is owned by the current user/workspace."""
     if not candidate:
         return True
-    row = (
-        db.query(ChatSession.id)
-        .filter(
-            ChatSession.id == candidate,
-            ChatSession.workspace_id == workspace_id,
-            ChatSession.status == "active",
-        )
+    row = db.query(ChatSession.id).filter(
+        ChatSession.id == candidate,
+        ChatSession.workspace_id == workspace_id,
+        ChatSession.status == "active",
     )
     if user_id:
         row = row.filter(ChatSession.user_id == user_id)
@@ -494,7 +586,11 @@ def _ensure_chat_session(
             ChatSession.status == "active",
         )
         user_id = _user_id(user)
-        query = query.filter(ChatSession.user_id == user_id) if user_id else query.filter(ChatSession.user_id.is_(None))
+        query = (
+            query.filter(ChatSession.user_id == user_id)
+            if user_id
+            else query.filter(ChatSession.user_id.is_(None))
+        )
         session = query.first()
         if not session:
             raise HTTPException(status_code=404, detail="Chat session not found")
@@ -507,7 +603,11 @@ def _ensure_chat_session(
         ChatSession.status == "active",
         ChatSession.context_signature == signature,
     )
-    latest_query = latest_query.filter(ChatSession.user_id == user_id) if user_id else latest_query.filter(ChatSession.user_id.is_(None))
+    latest_query = (
+        latest_query.filter(ChatSession.user_id == user_id)
+        if user_id
+        else latest_query.filter(ChatSession.user_id.is_(None))
+    )
     latest = latest_query.order_by(ChatSession.last_activity.desc()).first()
     if latest and (request_payload.get("reuse_latest_session") is not False):
         request_payload["session_id"] = latest.id
@@ -613,8 +713,16 @@ def _int_budget(value: Any, default: int) -> int:
 
 def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
     """Clamp retrieval fan-out before any orchestrator sees the request."""
-    agent_preferences = request_dict.get("agent_preferences") if isinstance(request_dict.get("agent_preferences"), dict) else {}
-    raw_profile = str(request_dict.get("latency_profile") or agent_preferences.get("latency_profile") or "").strip().lower()
+    agent_preferences = (
+        request_dict.get("agent_preferences")
+        if isinstance(request_dict.get("agent_preferences"), dict)
+        else {}
+    )
+    raw_profile = (
+        str(request_dict.get("latency_profile") or agent_preferences.get("latency_profile") or "")
+        .strip()
+        .lower()
+    )
     if request_dict.get("deep_retrieval") or raw_profile == "deep":
         profile = "deep"
     elif raw_profile == "balanced":
@@ -644,11 +752,19 @@ def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
         candidate_default = 20
 
     top_k = _int_budget(request_dict.get("top_k"), top_default)
-    source_display_default = top_k if explicit_top_k else min(max(top_k, source_default), 24 if profile != "fast" else 8)
+    source_display_default = (
+        top_k if explicit_top_k else min(max(top_k, source_default), 24 if profile != "fast" else 8)
+    )
     source_display_k = _int_budget(request_dict.get("source_display_k"), source_display_default)
-    synthesis_base = top_k if explicit_top_k and not explicit_budget else max(top_k, source_display_k, synthesis_default)
+    synthesis_base = (
+        top_k
+        if explicit_top_k and not explicit_budget
+        else max(top_k, source_display_k, synthesis_default)
+    )
     synthesis_k = _int_budget(request_dict.get("synthesis_k"), synthesis_base)
-    candidate_base = top_k if explicit_top_k and not explicit_budget else max(synthesis_k, candidate_default)
+    candidate_base = (
+        top_k if explicit_top_k and not explicit_budget else max(synthesis_k, candidate_default)
+    )
     candidate_pool_k = _int_budget(request_dict.get("candidate_pool_k"), candidate_base)
 
     if profile == "fast":
@@ -748,7 +864,9 @@ def _persist_trivial_bypass_turn(
     return run_id
 
 
-def _trivial_bypass_completion_payload(run_id: Optional[str], bypass: TrivialBypass) -> Dict[str, Any]:
+def _trivial_bypass_completion_payload(
+    run_id: Optional[str], bypass: TrivialBypass
+) -> Dict[str, Any]:
     bypass_metrics = _trivial_bypass_metadata(bypass)
     return {
         "run_id": run_id,
@@ -859,6 +977,16 @@ def _canonical_answer_hit(db: Session, *, workspace_id: str, query: str):
     row, score = match
     record_hit(db, canonical_answer=row, query=query, score=score)
     return row, score
+
+
+def _canonical_answer_shortcut_allowed(workspace: Workspace) -> bool:
+    """Do not bypass provenance-bound retrieval for the Andritz experience."""
+
+    workspace_settings = workspace.settings if isinstance(workspace.settings, dict) else {}
+    return not (
+        workspace_settings.get("family") == "andritz"
+        or ANDRITZ_MIGRATION_MARKER in workspace_settings
+    )
 
 
 def _sse_data(payload: Any) -> str:
@@ -1000,12 +1128,16 @@ def _dense_fast_degraded_reply(state: Dict[str, Any]) -> Optional[str]:
     if source_count or chunk_count:
         parts.insert(
             1,
-            f"Inventaire detecte: {source_count:,} sources et {chunk_count:,} chunks.".replace(",", " "),
+            f"Inventaire detecte: {source_count:,} sources et {chunk_count:,} chunks.".replace(
+                ",", " "
+            ),
         )
     if state.get("deep_job_id"):
         parts.append("Un Deep Retrieval est deja en file pour raffiner la reponse en arriere-plan.")
     else:
-        parts.append("Je lance un Deep Retrieval asynchrone pour raffiner la reponse sans bloquer le chat.")
+        parts.append(
+            "Je lance un Deep Retrieval asynchrone pour raffiner la reponse sans bloquer le chat."
+        )
     return " ".join(parts)
 
 
@@ -1136,7 +1268,10 @@ def _sanitize_workspace_collection_filters(
             collection = (
                 db.query(KnowledgeCollection)
                 .filter(
-                    ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+                    (
+                        (KnowledgeCollection.slug == collection_ref)
+                        | (KnowledgeCollection.id == collection_ref)
+                    ),
                     KnowledgeCollection.workspace_id == workspace_id,
                 )
                 .first()
@@ -1205,7 +1340,8 @@ def _should_queue_auto_deep_retrieval(request_dict: Dict[str, Any], state: Dict[
     recommended = bool(
         state.get("deep_retrieval_recommended")
         or metrics.get("deep_retrieval_recommended")
-        or fallback_reason in {
+        or fallback_reason
+        in {
             "retrieval_deadline_exceeded",
             "worker_timeout",
             "worker_error",
@@ -1326,7 +1462,11 @@ def _queue_auto_deep_retrieval_job(
 
     from app.models.knowledge_collection import KnowledgeCollection
     from app.services.rag.context import get_retrieval_profile
-    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
+    from app.services.workspace_jobs import (
+        create_workspace_job,
+        dispatch_workspace_job,
+        serialize_job,
+    )
 
     payload = dict(request_dict)
     payload["latency_profile"] = "deep"
@@ -1343,7 +1483,10 @@ def _queue_auto_deep_retrieval_job(
         collection = (
             db.query(KnowledgeCollection)
             .filter(
-                ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+                (
+                    (KnowledgeCollection.slug == collection_ref)
+                    | (KnowledgeCollection.id == collection_ref)
+                ),
                 KnowledgeCollection.workspace_id == workspace.id,
             )
             .first()
@@ -1371,7 +1514,9 @@ def _queue_auto_deep_retrieval_job(
     partial_result: Dict[str, Any] = {}
     if partial_answer and partial_answer.strip():
         answer_preview = " ".join(partial_answer.split())
-        partial_result["answer_preview"] = answer_preview[:3997] + "..." if len(answer_preview) > 4000 else answer_preview
+        partial_result["answer_preview"] = (
+            answer_preview[:3997] + "..." if len(answer_preview) > 4000 else answer_preview
+        )
     if compact_sources:
         partial_result["sources_preview"] = compact_sources
     metrics = _retrieval_metrics(state)
@@ -1474,35 +1619,51 @@ def _vigie_executive_quick_reply(
     news = news_payload(workspace, db)
     cockpit = cockpit_payload(workspace, db)
     briefing = briefing_payload(workspace)
-    alerts = (news.get("executive_alerts") or news.get("signals") or cockpit.get("latest_alerts") or [])[:3]
+    alerts = (
+        news.get("executive_alerts") or news.get("signals") or cockpit.get("latest_alerts") or []
+    )[:3]
     note = news.get("briefing_note") or {}
     source_health = news.get("source_health") or {}
     sources_catalog = news.get("sources") or cockpit.get("sources") or source_index()
     source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
 
-    lines = ["Monsieur le Vice Premier Ministre, trois signaux méritent une attention cabinet aujourd'hui :"]
+    lines = [
+        "Monsieur le Vice Premier Ministre, trois signaux méritent une attention cabinet aujourd'hui :"
+    ]
     if alerts:
         for idx, alert in enumerate(alerts, start=1):
             title = alert.get("title") or "Signal à qualifier"
-            impact = alert.get("impact_ci") or alert.get("summary") or alert.get("why_it_matters") or ""
+            impact = (
+                alert.get("impact_ci") or alert.get("summary") or alert.get("why_it_matters") or ""
+            )
             action = alert.get("recommended_action") or "Qualifier le signal avant décision."
             confidence = alert.get("confidence")
-            confidence_txt = f" Confiance {round(float(confidence) * 100)}%." if isinstance(confidence, (int, float)) else ""
+            confidence_txt = (
+                f" Confiance {round(float(confidence) * 100)}%."
+                if isinstance(confidence, (int, float))
+                else ""
+            )
             lines.append(f"{idx}. {title} — {impact} Action proposée : {action}.{confidence_txt}")
     else:
-        for idx, bullet in enumerate((note.get("bullets") or briefing.get("key_points") or [])[:3], start=1):
+        for idx, bullet in enumerate(
+            (note.get("bullets") or briefing.get("key_points") or [])[:3], start=1
+        ):
             lines.append(f"{idx}. {bullet}")
 
     decisions = note.get("decisions_expected") or briefing.get("decisions_expected") or []
     if decisions:
         lines.append("")
-        lines.append("Décisions attendues : " + " ; ".join(str(item) for item in decisions[:3]) + ".")
+        lines.append(
+            "Décisions attendues : " + " ; ".join(str(item) for item in decisions[:3]) + "."
+        )
 
     if source_health:
         coverage = source_health.get("coverage_label") or "sources qualifiées disponibles"
         run_id = source_health.get("last_run_id")
         lines.append("")
-        lines.append(f"Couverture : {coverage}" + (f" · dernier run {run_id}" if run_id else "") + ".")
+        lines.append(
+            f"Couverture : {coverage}" + (f" · dernier run {run_id}" if run_id else "") + "."
+        )
 
     source_ids = []
     for alert in alerts:
@@ -1517,7 +1678,13 @@ def _vigie_executive_quick_reply(
         for source_id in source_ids[:5]
     ]
     if not sources:
-        sources = [{"title": "Mission Room SENTINEL-CI", "source_label": "Briefing souverain", "kind": "mission_room"}]
+        sources = [
+            {
+                "title": "Mission Room SENTINEL-CI",
+                "source_label": "Briefing souverain",
+                "kind": "mission_room",
+            }
+        ]
 
     return present_payload_for_workspace(
         workspace,
@@ -1572,7 +1739,9 @@ _AGENTIC_NICHE_PROFILES = frozenset(
 
 def _should_route_agentic(profile: Optional[str]) -> bool:
     """Gate predicate: agentic only when the flag is on and the profile is niche."""
-    return bool(getattr(settings, "enable_agentic_chat", False)) and profile in _AGENTIC_NICHE_PROFILES
+    return (
+        bool(getattr(settings, "enable_agentic_chat", False)) and profile in _AGENTIC_NICHE_PROFILES
+    )
 
 
 def _lookup_agentic_chat_system(db: Session, workspace: Workspace) -> Optional[System]:
@@ -1631,7 +1800,9 @@ async def _maybe_agentic_chat_completion(
     try:
         system = _lookup_agentic_chat_system(db, workspace)
         if system is None:
-            logger.info("agentic chat: system not seeded, using classic path", workspace_id=workspace.id)
+            logger.info(
+                "agentic chat: system not seeded, using classic path", workspace_id=workspace.id
+            )
             return None
 
         from app.services.run_engine.dag import execute_run_dag
@@ -1669,7 +1840,9 @@ async def _maybe_agentic_chat_completion(
 
         content, answer_policy_violations = apply_answer_policy_to_text(
             answer,
-            answer_policy=request.answer_policy if isinstance(request.answer_policy, dict) else None,
+            answer_policy=request.answer_policy
+            if isinstance(request.answer_policy, dict)
+            else None,
             profile_decision=request.answer_profile_decision
             if isinstance(request.answer_profile_decision, dict)
             else None,
@@ -1753,6 +1926,209 @@ async def _maybe_agentic_chat_completion(
         return None
 
 
+def _load_chat_conversation_state(
+    db: Session,
+    *,
+    session_id: Optional[str],
+) -> tuple[list[dict[str, Any]], Optional[dict[str, Any]]]:
+    """Load the same token-budgeted memory used by the classic stream."""
+
+    if not session_id:
+        return [], None
+    previous_messages = (
+        db.query(Message)
+        .filter(Message.session_id == session_id)
+        .order_by(Message.timestamp.asc())
+        .all()
+    )
+    from app.core.memory_manager import memory_manager
+
+    history = memory_manager.build_chat_context(
+        [{"role": msg.role, "content": msg.content} for msg in previous_messages],
+        max_tokens=settings.chat_history_token_budget,
+    )
+    salient = None
+    for msg in reversed(previous_messages):
+        if (
+            msg.role == "assistant"
+            and isinstance(msg.meta_data, dict)
+            and isinstance(msg.meta_data.get("salient_entities"), dict)
+        ):
+            salient = dict(msg.meta_data["salient_entities"])
+            break
+    return history, salient
+
+
+def _agentic_request_context(
+    db: Session,
+    *,
+    workspace: Workspace,
+    request: ChatRequest,
+    grounding_policy: dict[str, Any],
+) -> dict[str, Any]:
+    context = request.model_dump()
+    context["surface_system_id"] = workspace_chat_system_id(db, workspace.id)
+    context["grounding_policy"] = grounding_policy
+    context["grounding_mode"] = grounding_policy.get("mode")
+    return context
+
+
+def _persist_agentic_chat_turn(
+    db: Session,
+    *,
+    request: ChatRequest,
+    query: str,
+    run_id: str,
+    content: str,
+    sources: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    previous_salient_entities: Optional[dict[str, Any]],
+    answer_policy_violations: list[Any],
+    schedule_evaluation: bool,
+) -> Optional[str]:
+    """Atomically persist the user/assistant pair and finalize the Run output."""
+
+    assistant_message_id: Optional[str] = None
+    adapter_token = str(uuid.uuid4())
+    run = db.query(Run).filter(Run.id == run_id).first()
+    run_output = dict(run.output_ref or {}) if run is not None else {}
+    message_metadata = {
+        **metadata,
+        "run_id": run_id,
+        "sources": sources,
+        "response_language": request.response_language,
+        "answer_profile": request.answer_profile,
+        "answer_profile_decision": request.answer_profile_decision,
+        "answer_policy_applied": bool(request.answer_policy),
+        "answer_policy_violations": answer_policy_violations,
+        "chat_adapter_token": adapter_token,
+    }
+    try:
+        from app.services.rag.conversation_anchors import extract_salient_entities
+
+        source_titles = [str(item.get("title") or "") for item in sources if isinstance(item, dict)]
+        turn_entities = extract_salient_entities(query, content, *source_titles)
+        if isinstance(previous_salient_entities, dict):
+            for key in ("references", "documents"):
+                for value in previous_salient_entities.get(key) or []:
+                    if value not in turn_entities[key] and len(turn_entities[key]) < 6:
+                        turn_entities[key].append(value)
+        if turn_entities.get("references") or turn_entities.get("documents"):
+            message_metadata["salient_entities"] = turn_entities
+    except Exception:  # noqa: BLE001 - anchoring must not break turn persistence.
+        pass
+
+    try:
+        if request.session_id:
+            db.add(
+                Message(
+                    id=str(uuid.uuid4()),
+                    session_id=request.session_id,
+                    role="user",
+                    content=request.query,
+                    meta_data={
+                        "chat_turn_id": metadata.get("chat_turn_id"),
+                        "route": metadata.get("route"),
+                    },
+                )
+            )
+            assistant_message = Message(
+                id=str(uuid.uuid4()),
+                session_id=request.session_id,
+                role="assistant",
+                content=content,
+                meta_data=message_metadata,
+            )
+            db.add(assistant_message)
+            db.flush()
+            assistant_message_id = assistant_message.id
+            session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
+            if session:
+                _touch_chat_session(db, session, query=query)
+        if run is not None:
+            run_input = dict(run.input_ref or {})
+            run_input["chat_adapter"] = {
+                "assistant_message_id": assistant_message_id,
+                "session_id": request.session_id,
+                "policy_terminal": bool(metadata.get("route") != "agentic"),
+                "origin": "chat_endpoint_v1",
+                "token": adapter_token,
+            }
+            run.input_ref = run_input
+            run.output_ref = {
+                **run_output,
+                **metadata,
+                "answer": content,
+                "sources": sources,
+                "assistant_message_id": assistant_message_id,
+                "answer_policy_applied": bool(request.answer_policy),
+                "answer_policy_violations": answer_policy_violations,
+            }
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    if schedule_evaluation:
+        try:
+            schedule_eval(run_id)
+        except Exception as exc:  # noqa: BLE001 - eval is asynchronous/best effort.
+            logger.warning(
+                "agentic chat auto-eval scheduling failed", run_id=run_id, error=str(exc)
+            )
+    return assistant_message_id
+
+
+def _agentic_completion_payload(
+    *,
+    run_id: str,
+    content: str,
+    sources: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    request: ChatRequest,
+    answer_policy_violations: list[Any],
+    policy_terminal: bool,
+) -> dict[str, Any]:
+    retrieval_metrics = metadata.get("retrieval_metrics") or {}
+    return {
+        "id": run_id,
+        "run_id": run_id,
+        "content": content,
+        "reasoning_trace": None,
+        "sources": sources,
+        "retrieval_scope": metadata.get("retrieval_scope"),
+        "retrieval_plan": metadata.get("retrieval_plan"),
+        "retrieval_decision_trace": metadata.get("retrieval_decision_trace"),
+        "retrieval_metrics": retrieval_metrics,
+        "collections_touched": metadata.get("collections_touched"),
+        "fallback_reason": metadata.get("fallback_reason"),
+        "answer_profile": request.answer_profile,
+        "answer_policy_applied": bool(request.answer_policy),
+        "answer_policy_violations": answer_policy_violations,
+        "status": "completed",
+        "route": metadata.get("route") or "agentic",
+        "policy_terminal": policy_terminal,
+    }
+
+
+def _apply_agentic_classic_fallback_scope(
+    request_dict: dict[str, Any],
+    decision: ChatExecutionDecision,
+) -> Optional[str]:
+    # Use the contract frozen by the resolver, never mutable live System state.
+    contract = _as_dict(decision.retrieval_contract)
+    if contract.get("asset_binding") != "authoritative":
+        return None
+    collection = str(contract.get("collection") or "").strip()
+    if not collection:
+        return None
+    request_dict["context_collection"] = collection
+    request_dict["context_mode"] = "replace"
+    request_dict["authoritative_collections"] = [collection]
+    request_dict.pop("knowledge_scope", None)
+    return collection
+
+
 @router.post("/completion")
 async def chat_completion(
     request: ChatRequest,
@@ -1762,6 +2138,7 @@ async def chat_completion(
 ):
     """Non-streaming chat completion (scoped to current workspace)."""
     try:
+        requested_system_id = request.agent_id
         _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
         chat_session = _ensure_chat_session(
             db,
@@ -1816,11 +2193,20 @@ async def chat_completion(
                 bypass=trivial_bypass,
             )
             return _trivial_bypass_completion_payload(run_id, trivial_bypass)
-        
-        canonical = None if (request.context_id or request.knowledge_scope or response_language != "fr") else _canonical_answer_hit(
-            db,
-            workspace_id=workspace.id,
-            query=validated_query,
+
+        canonical = (
+            None
+            if (
+                request.context_id
+                or request.knowledge_scope
+                or response_language != "fr"
+                or not _canonical_answer_shortcut_allowed(workspace)
+            )
+            else _canonical_answer_hit(
+                db,
+                workspace_id=workspace.id,
+                query=validated_query,
+            )
         )
         if canonical:
             canonical_answer, match_score = canonical
@@ -1937,7 +2323,13 @@ async def chat_completion(
                 system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                 query=validated_query,
                 response_text=content,
-                sources=[{"title": "Agenda institutionnel", "source_label": "Agenda institutionnel", "kind": "calendar"}],
+                sources=[
+                    {
+                        "title": "Agenda institutionnel",
+                        "source_label": "Agenda institutionnel",
+                        "kind": "calendar",
+                    }
+                ],
                 reasoning_trace=None,
                 started_at=run_completed_at,
                 completed_at=run_completed_at,
@@ -1974,7 +2366,13 @@ async def chat_completion(
                 system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                 query=validated_query,
                 response_text=content,
-                sources=[{"title": "Actions cabinet", "source_label": "Actions cabinet", "kind": "action_plan"}],
+                sources=[
+                    {
+                        "title": "Actions cabinet",
+                        "source_label": "Actions cabinet",
+                        "kind": "action_plan",
+                    }
+                ],
                 reasoning_trace=None,
                 started_at=run_completed_at,
                 completed_at=run_completed_at,
@@ -2011,7 +2409,13 @@ async def chat_completion(
                 system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                 query=validated_query,
                 response_text=content,
-                sources=[{"title": "Flux visuels institutionnels", "source_label": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                sources=[
+                    {
+                        "title": "Flux visuels institutionnels",
+                        "source_label": "Flux visuels institutionnels",
+                        "kind": "visual_stream",
+                    }
+                ],
                 reasoning_trace=None,
                 started_at=run_completed_at,
                 completed_at=run_completed_at,
@@ -2048,7 +2452,8 @@ async def chat_completion(
                 system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                 query=validated_query,
                 response_text=content,
-                sources=map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}],
+                sources=map_action.get("sources")
+                or [{"title": "Carte strategique", "kind": "workspace_map"}],
                 reasoning_trace=None,
                 started_at=run_completed_at,
                 completed_at=run_completed_at,
@@ -2065,7 +2470,8 @@ async def chat_completion(
             return {
                 "run_id": run_id,
                 "content": content,
-                "sources": map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}],
+                "sources": map_action.get("sources")
+                or [{"title": "Carte strategique", "kind": "workspace_map"}],
                 "status": "completed",
                 "map_action": map_action,
             }
@@ -2107,27 +2513,145 @@ async def chat_completion(
                 "vigie_quick_reply": vigie_reply.get("details") or {},
             }
 
-        # Hybrid agentic routing gate (Phase 3). ``request.answer_profile`` was
-        # resolved by ``_apply_workspace_chat_flow_defaults`` -> resolve_answer_profile.
-        # Only niche intents dispatch to the agentic DAG when the flag is on;
-        # everything else — and any agentic failure — stays on the classic path.
-        if _should_route_agentic(request.answer_profile):
-            agentic_payload = await _maybe_agentic_chat_completion(
+        grounding_policy = resolve_grounding_policy(
+            query=validated_query,
+            workspace=workspace,
+            assistant_profile=request.assistant_profile,
+            requested_mode=request.grounding_mode,
+            context_id=request.context_id,
+        )
+        execution_decision = resolve_chat_execution(
+            db,
+            workspace=workspace,
+            requested_system_id=requested_system_id,
+            session_id=request.session_id,
+            answer_profile=request.answer_profile,
+            context_id=request.context_id,
+            rag_mode_override=request.rag_mode_override,
+            allow_forced_agentic=_can_force_agentic_canary(
                 db,
+                user=user,
                 workspace=workspace,
-                request=request,
-                query=validated_query,
+            ),
+        )
+        agentic_fallback_metadata: Optional[dict[str, Any]] = None
+        if execution_decision.is_agentic:
+            history, previous_salient_entities = _load_chat_conversation_state(
+                db,
+                session_id=request.session_id,
             )
-            if agentic_payload is not None:
-                return agentic_payload
+            agentic_run_id: Optional[str] = None
+            try:
+                agentic_run = create_agentic_chat_run(
+                    db,
+                    decision=execution_decision,
+                    workspace_id=workspace.id,
+                    workspace_slug=workspace.slug,
+                    user_id=getattr(user, "id", None),
+                    session_id=request.session_id,
+                    query=validated_query,
+                    conversation_history=history,
+                    salient_entities=previous_salient_entities,
+                    request_context=_agentic_request_context(
+                        db,
+                        workspace=workspace,
+                        request=request,
+                        grounding_policy=grounding_policy,
+                    ),
+                )
+                agentic_run_id = agentic_run.id
+                async for _event in iter_agentic_run_events(
+                    agentic_run.id,
+                    timeout_seconds=agentic_timeout_seconds(execution_decision.executor_system),
+                ):
+                    pass
+                outcome = load_agentic_chat_outcome(
+                    db,
+                    run_id=agentic_run.id,
+                    system=execution_decision.executor_system,
+                )
+                if outcome.succeeded or outcome.policy_terminal:
+                    content, answer_policy_violations = apply_answer_policy_to_text(
+                        outcome.answer,
+                        answer_policy=request.answer_policy
+                        if isinstance(request.answer_policy, dict)
+                        else None,
+                        profile_decision=request.answer_profile_decision
+                        if isinstance(request.answer_profile_decision, dict)
+                        else None,
+                    )
+                    try:
+                        try:
+                            _persist_agentic_chat_turn(
+                                db,
+                                request=request,
+                                query=validated_query,
+                                run_id=outcome.run_id,
+                                content=content,
+                                sources=outcome.sources,
+                                metadata=outcome.metadata,
+                                previous_salient_entities=previous_salient_entities,
+                                answer_policy_violations=answer_policy_violations,
+                                schedule_evaluation=outcome.succeeded,
+                            )
+                        except Exception as persist_exc:  # noqa: BLE001
+                            logger.exception(
+                                "agentic chat stream persistence failed",
+                                run_id=outcome.run_id,
+                                error=str(persist_exc),
+                            )
+                            if outcome.succeeded:
+                                try:
+                                    schedule_eval(outcome.run_id)
+                                except Exception:  # noqa: BLE001
+                                    pass
+                    except Exception as persist_exc:  # noqa: BLE001
+                        # The canonical Run is already terminal and safe. Never
+                        # generate a second answer/Run because chat-history
+                        # persistence failed after successful execution.
+                        logger.exception(
+                            "agentic chat completion persistence failed",
+                            run_id=outcome.run_id,
+                            error=str(persist_exc),
+                        )
+                        if outcome.succeeded:
+                            try:
+                                schedule_eval(outcome.run_id)
+                            except Exception:  # noqa: BLE001
+                                pass
+                    return _agentic_completion_payload(
+                        run_id=outcome.run_id,
+                        content=content,
+                        sources=outcome.sources,
+                        metadata=outcome.metadata,
+                        request=request,
+                        answer_policy_violations=answer_policy_violations,
+                        policy_terminal=outcome.policy_terminal,
+                    )
+                agentic_fallback_metadata = mark_agentic_fallback(
+                    db,
+                    run_id=agentic_run.id,
+                    reason=outcome.fallback_reason or "agentic_technical_failure",
+                )
+            except Exception as exc:  # noqa: BLE001 - classic is the technical safety net.
+                db.rollback()
+                logger.exception("agentic chat completion attempt failed", error=str(exc))
+                if agentic_run_id:
+                    agentic_fallback_metadata = mark_agentic_fallback(
+                        db,
+                        run_id=agentic_run_id,
+                        reason="agentic_adapter_error",
+                    )
+                else:
+                    agentic_fallback_metadata = {"fallback_reason": "agentic_adapter_error"}
 
         orchestrator = get_orchestrator()
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         # Load resolved preset config for defaults (workspace-scoped).
         app_settings = get_resolved_settings(workspace_id=workspace.id)
-        
+
         request_dict = request.model_dump()
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
@@ -2135,10 +2659,18 @@ async def chat_completion(
         request_dict["ui_locale"] = request.ui_locale
         _apply_response_language_contract(request_dict, response_language)
         _apply_context_to_chat_request(request_dict, chat_context)
+        if not execution_decision.is_agentic or agentic_fallback_metadata:
+            _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
         if request.assistant_profile in {"vigie_executive", "octave_executive"}:
-            request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
-            request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
-            request_dict.setdefault("context", {})["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})[
+                "workspace_calendar"
+            ] = calendar_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(
+                db, workspace
+            )
+            request_dict.setdefault("context", {})[
+                "workspace_visual_observations"
+            ] = visual_context_for_chat(db, workspace)
         grounding_policy = resolve_grounding_policy(
             query=validated_query,
             workspace=workspace,
@@ -2159,14 +2691,20 @@ async def chat_completion(
         if not request_dict.get("agent_preferences"):
             request_dict["agent_preferences"] = {}
         if not request_dict["agent_preferences"].get("preferred_agents"):
-            request_dict["agent_preferences"]["preferred_agents"] = app_settings.get("preferredAgents", [])
+            request_dict["agent_preferences"]["preferred_agents"] = app_settings.get(
+                "preferredAgents", []
+            )
         if not request_dict["agent_preferences"].get("model_preferences"):
             request_dict["agent_preferences"]["model_preferences"] = {}
         if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-            request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel") or settings.default_model
+            request_dict["agent_preferences"]["model_preferences"]["model"] = (
+                app_settings.get("defaultModel") or settings.default_model
+            )
         if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-            request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider") or settings.default_provider
-        
+            request_dict["agent_preferences"]["model_preferences"]["provider"] = (
+                app_settings.get("defaultProvider") or settings.default_provider
+            )
+
         # Apply default temperature and max_tokens from settings
         if request.max_tokens is None:
             request_dict["max_tokens"] = app_settings.get("maxTokens", 2000)
@@ -2176,6 +2714,7 @@ async def chat_completion(
         chunks = []
         decision_steps = []  # Collect decision pipeline steps
         import time
+
         pipeline_start_time = None
         chunk_state: Dict[str, Any] = {
             "reasoning_trace": None,
@@ -2237,19 +2776,21 @@ async def chat_completion(
 
             if chunk.get("is_final"):
                 break
-        
+
         # Calculate pipeline total time
         if pipeline_start_time:
             pipeline_total_time = int((time.time() - pipeline_start_time) * 1000)
         else:
             pipeline_total_time = None
-        
+
         # Combine chunks
         raw_content = "".join(full_content)
         content = raw_content
         content, answer_policy_violations = apply_answer_policy_to_text(
             content,
-            answer_policy=request_dict.get("answer_policy") if isinstance(request_dict.get("answer_policy"), dict) else None,
+            answer_policy=request_dict.get("answer_policy")
+            if isinstance(request_dict.get("answer_policy"), dict)
+            else None,
             profile_decision=request_dict.get("answer_profile_decision")
             if isinstance(request_dict.get("answer_profile_decision"), dict)
             else None,
@@ -2258,7 +2799,7 @@ async def chat_completion(
         chunk_state["answer_profile_decision"] = request_dict.get("answer_profile_decision")
         chunk_state["answer_policy_applied"] = bool(request_dict.get("answer_policy"))
         chunk_state["answer_policy_violations"] = answer_policy_violations
-        
+
         # Validate response
         try:
             response_validator.validate(content)
@@ -2284,7 +2825,7 @@ async def chat_completion(
         except Exception as exc:  # noqa: BLE001 - deep refinement must never break chat.
             logger.warning("Auto deep retrieval queue failed", error=str(exc))
         fallback_reason = _retrieval_fallback_reason(chunk_state)
-        
+
         # Save messages to database if session_id provided
         if request.session_id:
             # Save user message
@@ -2293,17 +2834,18 @@ async def chat_completion(
                 session_id=request.session_id,
                 role="user",
                 content=request.query,
-                meta_data={}
+                meta_data={},
             )
             db.add(user_message)
-            
+
             # Build meta_data with decision steps
             meta_data = {
                 "reasoning_trace": chunk_state["reasoning_trace"],
                 "sources": chunk_state["sources"],
                 "context_id": request.context_id,
                 "context_mode": request.context_mode,
-                "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                "knowledge_scope": request_dict.get("knowledge_scope")
+                or chunk_state.get("knowledge_scope"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
                 "response_language": response_language,
@@ -2329,22 +2871,23 @@ async def chat_completion(
                 "deep_job_id": chunk_state.get("deep_job_id"),
                 "deep_poll_url": chunk_state.get("deep_poll_url"),
                 "deep_status": chunk_state.get("deep_status"),
+                **(agentic_fallback_metadata or {}),
                 **_retrieval_observability(chunk_state),
             }
-            
+
             # Add decision steps if any were collected
             if decision_steps:
                 meta_data["decision_steps"] = decision_steps
                 if pipeline_total_time is not None:
                     meta_data["decision_pipeline_total_time"] = pipeline_total_time
-            
+
             # Save assistant message
             assistant_message = Message(
                 id=str(uuid.uuid4()),
                 session_id=request.session_id,
                 role="assistant",
                 content=content,
-                meta_data=meta_data
+                meta_data=meta_data,
             )
             db.add(assistant_message)
             db.commit()
@@ -2370,7 +2913,8 @@ async def chat_completion(
                 "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                 "retrieval_fallback": chunk_state["retrieval_fallback"],
                 "fallback_reason": fallback_reason,
-                "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                "knowledge_scope": request_dict.get("knowledge_scope")
+                or chunk_state.get("knowledge_scope"),
                 "context_id": request.context_id,
                 "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
@@ -2398,6 +2942,7 @@ async def chat_completion(
                 "deep_status": chunk_state.get("deep_status"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
+                **(agentic_fallback_metadata or {}),
                 **_retrieval_observability(chunk_state),
             },
         )
@@ -2450,7 +2995,11 @@ async def create_deep_retrieval_job(
     """Queue a deep retrieval job without blocking the chat stream."""
     from app.models.knowledge_collection import KnowledgeCollection
     from app.services.rag.context import get_retrieval_profile
-    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
+    from app.services.workspace_jobs import (
+        create_workspace_job,
+        dispatch_workspace_job,
+        serialize_job,
+    )
 
     _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
     try:
@@ -2474,7 +3023,11 @@ async def create_deep_retrieval_job(
             ChatSession.status == "active",
         )
         user_id = _user_id(user)
-        session_query = session_query.filter(ChatSession.user_id == user_id) if user_id else session_query.filter(ChatSession.user_id.is_(None))
+        session_query = (
+            session_query.filter(ChatSession.user_id == user_id)
+            if user_id
+            else session_query.filter(ChatSession.user_id.is_(None))
+        )
         session = session_query.first()
         if not session:
             raise HTTPException(status_code=404, detail="Chat session not found")
@@ -2498,6 +3051,17 @@ async def create_deep_retrieval_job(
     if request.rag_mode_override:
         request_dict["rag_pipeline_mode"] = request.rag_mode_override
     _apply_context_to_chat_request(request_dict, chat_context)
+    retrieval_scope_decision = resolve_chat_execution(
+        db,
+        workspace=workspace,
+        requested_system_id=request.agent_id,
+        session_id=request.session_id,
+        answer_profile=request.answer_profile,
+        context_id=request.context_id,
+        rag_mode_override=request.rag_mode_override,
+        allow_forced_agentic=False,
+    )
+    _apply_agentic_classic_fallback_scope(request_dict, retrieval_scope_decision)
     _apply_retrieval_budget_policy(request_dict)
 
     profile = get_retrieval_profile(request_dict)
@@ -2505,7 +3069,10 @@ async def create_deep_retrieval_job(
     collection = (
         db.query(KnowledgeCollection)
         .filter(
-            ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+            (
+                (KnowledgeCollection.slug == collection_ref)
+                | (KnowledgeCollection.id == collection_ref)
+            ),
             KnowledgeCollection.workspace_id == workspace.id,
         )
         .first()
@@ -2626,6 +3193,17 @@ async def preview_retrieval_plan(
     if request.rag_mode_override:
         request_dict["rag_pipeline_mode"] = request.rag_mode_override
     _apply_context_to_chat_request(request_dict, chat_context)
+    retrieval_scope_decision = resolve_chat_execution(
+        db,
+        workspace=workspace,
+        requested_system_id=request.agent_id,
+        session_id=request.session_id,
+        answer_profile=request.answer_profile,
+        context_id=request.context_id,
+        rag_mode_override=request.rag_mode_override,
+        allow_forced_agentic=False,
+    )
+    _apply_agentic_classic_fallback_scope(request_dict, retrieval_scope_decision)
     _apply_retrieval_budget_policy(request_dict)
     profile = get_retrieval_profile(request_dict)
     planner_request = dict(request_dict)
@@ -2695,6 +3273,7 @@ async def chat_stream(
         )
         try:
             provided_session_id = request.session_id
+            requested_system_id = request.agent_id
             _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
             try:
                 chat_session = _ensure_chat_session(
@@ -2807,7 +3386,9 @@ async def chat_stream(
             _apply_response_language_contract(request_dict, response_language)
 
             trivial_bypass = maybe_trivial_bypass(validated_query)
-            if trivial_bypass and _can_apply_trivial_bypass(db, workspace=workspace, request=request):
+            if trivial_bypass and _can_apply_trivial_bypass(
+                db, workspace=workspace, request=request
+            ):
                 trivial_bypass = _trivial_bypass_for_language(trivial_bypass, response_language)
                 run_id = _persist_trivial_bypass_turn(
                     db,
@@ -2839,22 +3420,19 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
-            orchestrator = get_orchestrator()
-            if not orchestrator:
-                yield _sse_data(
-                    _error_chunk(
-                        "ORCHESTRATOR_UNAVAILABLE",
-                        "Orchestrator not initialized",
-                        recoverable=True,
-                    )
+            canonical = (
+                None
+                if (
+                    request.context_id
+                    or request.knowledge_scope
+                    or response_language != "fr"
+                    or not _canonical_answer_shortcut_allowed(workspace)
                 )
-                yield _sse_done()
-                return
-
-            canonical = None if (request.context_id or request.knowledge_scope or response_language != "fr") else _canonical_answer_hit(
-                db,
-                workspace_id=workspace.id,
-                query=validated_query,
+                else _canonical_answer_hit(
+                    db,
+                    workspace_id=workspace.id,
+                    query=validated_query,
+                )
             )
             if canonical:
                 canonical_answer, match_score = canonical
@@ -3028,7 +3606,13 @@ async def chat_stream(
                     system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                     query=validated_query,
                     response_text=content,
-                    sources=[{"title": "Agenda institutionnel", "source_label": "Agenda institutionnel", "kind": "calendar"}],
+                    sources=[
+                        {
+                            "title": "Agenda institutionnel",
+                            "source_label": "Agenda institutionnel",
+                            "kind": "calendar",
+                        }
+                    ],
                     reasoning_trace=None,
                     started_at=now,
                     completed_at=now,
@@ -3099,7 +3683,13 @@ async def chat_stream(
                     system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                     query=validated_query,
                     response_text=content,
-                    sources=[{"title": "Actions cabinet", "source_label": "Actions cabinet", "kind": "action_plan"}],
+                    sources=[
+                        {
+                            "title": "Actions cabinet",
+                            "source_label": "Actions cabinet",
+                            "kind": "action_plan",
+                        }
+                    ],
                     reasoning_trace=None,
                     started_at=now,
                     completed_at=now,
@@ -3170,7 +3760,13 @@ async def chat_stream(
                     system_id=_resolve_system_id(db, workspace.id, request.agent_id),
                     query=validated_query,
                     response_text=content,
-                    sources=[{"title": "Flux visuels institutionnels", "source_label": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                    sources=[
+                        {
+                            "title": "Flux visuels institutionnels",
+                            "source_label": "Flux visuels institutionnels",
+                            "kind": "visual_stream",
+                        }
+                    ],
                     reasoning_trace=None,
                     started_at=now,
                     completed_at=now,
@@ -3198,7 +3794,9 @@ async def chat_stream(
                     {
                         "chunk_type": "text",
                         "content": content,
-                        "sources": [{"title": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                        "sources": [
+                            {"title": "Flux visuels institutionnels", "kind": "visual_stream"}
+                        ],
                         "run_id": run_id,
                         "is_final": True,
                     }
@@ -3215,7 +3813,9 @@ async def chat_stream(
             )
             if map_action:
                 content = map_action["content"]
-                sources = map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}]
+                sources = map_action.get("sources") or [
+                    {"title": "Carte strategique", "kind": "workspace_map"}
+                ]
                 if request.session_id:
                     db.add(
                         Message(
@@ -3353,7 +3953,7 @@ async def chat_stream(
                 )
                 yield _sse_done()
                 return
-            
+
             grounding_policy = resolve_grounding_policy(
                 query=validated_query,
                 workspace=workspace,
@@ -3364,18 +3964,216 @@ async def chat_stream(
             request_dict["grounding_policy"] = grounding_policy
             request_dict["grounding_mode"] = grounding_policy["mode"]
 
+            execution_decision = resolve_chat_execution(
+                db,
+                workspace=workspace,
+                requested_system_id=requested_system_id,
+                session_id=request.session_id,
+                answer_profile=request.answer_profile,
+                context_id=request.context_id,
+                rag_mode_override=request.rag_mode_override,
+                allow_forced_agentic=_can_force_agentic_canary(
+                    db,
+                    user=user,
+                    workspace=workspace,
+                ),
+            )
+            if not execution_decision.is_agentic:
+                _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
+            agentic_fallback_metadata: Optional[dict[str, Any]] = None
+            if execution_decision.is_agentic:
+                conversation_history, previous_salient_entities = _load_chat_conversation_state(
+                    db, session_id=request.session_id
+                )
+                agentic_run_id: Optional[str] = None
+                try:
+                    agentic_run = create_agentic_chat_run(
+                        db,
+                        decision=execution_decision,
+                        workspace_id=workspace.id,
+                        workspace_slug=workspace.slug,
+                        user_id=getattr(user, "id", None),
+                        session_id=request.session_id,
+                        query=validated_query,
+                        conversation_history=conversation_history,
+                        salient_entities=previous_salient_entities,
+                        request_context=_agentic_request_context(
+                            db,
+                            workspace=workspace,
+                            request=request,
+                            grounding_policy=grounding_policy,
+                        ),
+                    )
+                    agentic_run_id = agentic_run.id
+                    async for event in iter_agentic_run_events(
+                        agentic_run.id,
+                        timeout_seconds=agentic_timeout_seconds(execution_decision.executor_system),
+                    ):
+                        for chunk in agentic_event_chunks(event, run_id=agentic_run.id):
+                            yield _sse_data(chunk)
+                    outcome = load_agentic_chat_outcome(
+                        db,
+                        run_id=agentic_run.id,
+                        system=execution_decision.executor_system,
+                    )
+                    if outcome.succeeded or outcome.policy_terminal:
+                        content, answer_policy_violations = apply_answer_policy_to_text(
+                            outcome.answer,
+                            answer_policy=request.answer_policy
+                            if isinstance(request.answer_policy, dict)
+                            else None,
+                            profile_decision=request.answer_profile_decision
+                            if isinstance(request.answer_profile_decision, dict)
+                            else None,
+                        )
+                        try:
+                            _persist_agentic_chat_turn(
+                                db,
+                                request=request,
+                                query=validated_query,
+                                run_id=outcome.run_id,
+                                content=content,
+                                sources=outcome.sources,
+                                metadata=outcome.metadata,
+                                previous_salient_entities=previous_salient_entities,
+                                answer_policy_violations=answer_policy_violations,
+                                schedule_evaluation=outcome.succeeded,
+                            )
+                        except Exception as persist_exc:  # noqa: BLE001
+                            # The Run already owns one safe terminal answer.
+                            # History persistence must never generate a second
+                            # classic Run/answer for the same user turn.
+                            logger.exception(
+                                "agentic chat stream persistence failed",
+                                run_id=outcome.run_id,
+                                error=str(persist_exc),
+                            )
+                            if outcome.succeeded:
+                                try:
+                                    schedule_eval(outcome.run_id)
+                                except Exception:  # noqa: BLE001
+                                    pass
+                        yield _sse_data(
+                            {
+                                "chunk_type": "retrieval",
+                                "phase": "completed",
+                                "content": "",
+                                "message": "Recherche agentique terminée",
+                                "details": {
+                                    **(outcome.metadata.get("retrieval_metrics") or {}),
+                                    "retrieval_scope": outcome.metadata.get("retrieval_scope"),
+                                    "retrieval_plan": outcome.metadata.get("retrieval_plan"),
+                                    "retrieval_decision_trace": outcome.metadata.get(
+                                        "retrieval_decision_trace"
+                                    ),
+                                    "route": outcome.metadata.get("route"),
+                                },
+                                "run_id": outcome.run_id,
+                                "is_final": False,
+                            }
+                        )
+                        yield _sse_data(
+                            {
+                                "chunk_type": "text",
+                                "content": content,
+                                "sources": outcome.sources,
+                                "run_id": outcome.run_id,
+                                "route": outcome.metadata.get("route") or "agentic",
+                                "policy_terminal": outcome.policy_terminal,
+                                "is_final": True,
+                            }
+                        )
+                        if outcome.succeeded:
+                            yield _sse_data(
+                                {
+                                    "chunk_type": "eval_pending",
+                                    "run_id": outcome.run_id,
+                                    "is_final": False,
+                                }
+                            )
+                        elif (
+                            outcome.policy_terminal
+                            and outcome.metadata.get("route") == "agentic_review"
+                        ):
+                            yield _sse_data(
+                                {
+                                    "chunk_type": "hitl_pending",
+                                    "run_id": outcome.run_id,
+                                    "is_final": False,
+                                }
+                            )
+                        yield _sse_done()
+                        return
+                    agentic_fallback_metadata = mark_agentic_fallback(
+                        db,
+                        run_id=agentic_run.id,
+                        reason=outcome.fallback_reason or "agentic_technical_failure",
+                    )
+                except Exception as exc:  # noqa: BLE001 - classic technical safety net.
+                    db.rollback()
+                    logger.exception("agentic chat stream attempt failed", error=str(exc))
+                    if agentic_run_id:
+                        agentic_fallback_metadata = mark_agentic_fallback(
+                            db,
+                            run_id=agentic_run_id,
+                            reason="agentic_adapter_error",
+                        )
+                    else:
+                        agentic_fallback_metadata = {"fallback_reason": "agentic_adapter_error"}
+                if agentic_fallback_metadata:
+                    fallback_collection = _apply_agentic_classic_fallback_scope(
+                        request_dict,
+                        execution_decision,
+                    )
+                    yield _sse_data(
+                        {
+                            "chunk_type": "decision_step",
+                            "decision_step": {
+                                "id": f"agentic:{agentic_run_id or 'uncreated'}:fallback",
+                                "type": "routing",
+                                "status": "warning",
+                                "title": "Repli technique contrôlé",
+                                "description": "Le moteur classique reprend le tour sans élargir le corpus.",
+                                "metrics": {
+                                    **agentic_fallback_metadata,
+                                    "collection": fallback_collection,
+                                },
+                            },
+                            "route": "classic_fallback",
+                            "is_final": False,
+                        }
+                    )
+
+            orchestrator = get_orchestrator()
+            if not orchestrator:
+                yield _sse_data(
+                    _error_chunk(
+                        "ORCHESTRATOR_UNAVAILABLE",
+                        "Orchestrator not initialized",
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
+                return
+
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):
                 request_dict["agent_preferences"] = {}
             if not request_dict["agent_preferences"].get("preferred_agents"):
-                request_dict["agent_preferences"]["preferred_agents"] = app_settings.get("preferredAgents", [])
+                request_dict["agent_preferences"]["preferred_agents"] = app_settings.get(
+                    "preferredAgents", []
+                )
             if not request_dict["agent_preferences"].get("model_preferences"):
                 request_dict["agent_preferences"]["model_preferences"] = {}
             if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-                request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel") or settings.default_model
+                request_dict["agent_preferences"]["model_preferences"]["model"] = (
+                    app_settings.get("defaultModel") or settings.default_model
+                )
             if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-                request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider") or settings.default_provider
-            
+                request_dict["agent_preferences"]["model_preferences"]["provider"] = (
+                    app_settings.get("defaultProvider") or settings.default_provider
+                )
+
             full_content = []
             all_chunks = []
             decision_steps = []  # Collect all decision pipeline steps
@@ -3408,17 +4206,21 @@ async def chat_stream(
                 "grounding_policy": grounding_policy,
             }
             import time as _time
+
             run_started_at = datetime.utcnow()
             run_started_ts = _time.time()
-            
+
             # Load conversation history for context (long-term memory)
             conversation_history = []
             previous_salient_entities = None
             if request.session_id:
                 # Get previous messages from this session for context
-                previous_messages = db.query(Message).filter(
-                    Message.session_id == request.session_id
-                ).order_by(Message.timestamp.asc()).all()
+                previous_messages = (
+                    db.query(Message)
+                    .filter(Message.session_id == request.session_id)
+                    .order_by(Message.timestamp.asc())
+                    .all()
+                )
 
                 # Token-budgeted history: keep as many recent turns as fit the
                 # budget and condense the older ones into a summary prefix —
@@ -3426,10 +4228,7 @@ async def chat_stream(
                 from app.core.memory_manager import memory_manager
 
                 conversation_history = memory_manager.build_chat_context(
-                    [
-                        {"role": msg.role, "content": msg.content}
-                        for msg in previous_messages
-                    ],
+                    [{"role": msg.role, "content": msg.content} for msg in previous_messages],
                     max_tokens=settings.chat_history_token_budget,
                 )
 
@@ -3444,25 +4243,28 @@ async def chat_stream(
                     ):
                         previous_salient_entities = msg.meta_data["salient_entities"]
                         break
-                
+
                 # Save user message
                 user_message = Message(
                     id=str(uuid.uuid4()),
                     session_id=request.session_id,
                     role="user",
                     content=request.query,
-                    meta_data={}
+                    meta_data={},
                 )
                 db.add(user_message)
-                
+
                 # Update session last_activity
                 from app.models.user import Session as SessionModel
-                session = db.query(SessionModel).filter(SessionModel.id == request.session_id).first()
+
+                session = (
+                    db.query(SessionModel).filter(SessionModel.id == request.session_id).first()
+                )
                 if session:
                     session.last_activity = datetime.utcnow()
-                
+
                 db.commit()
-            
+
             # Add conversation history to request for context
             if conversation_history:
                 if not request_dict.get("context"):
@@ -3477,16 +4279,24 @@ async def chat_stream(
             try:
                 from app.agents.procurement_agent import _is_meta_followup
 
-                is_conversation_meta_followup = _is_meta_followup(validated_query, conversation_history)
+                is_conversation_meta_followup = _is_meta_followup(
+                    validated_query, conversation_history
+                )
             except Exception:  # noqa: BLE001 - guard exemption must never break chat.
                 is_conversation_meta_followup = False
             if request.assistant_profile in {"vigie_executive", "octave_executive"}:
                 if not request_dict.get("context"):
                     request_dict["context"] = {}
-                request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(db, workspace)
-                request_dict["context"]["workspace_actions"] = action_context_for_chat(db, workspace)
-                request_dict["context"]["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
-            
+                request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(
+                    db, workspace
+                )
+                request_dict["context"]["workspace_actions"] = action_context_for_chat(
+                    db, workspace
+                )
+                request_dict["context"]["workspace_visual_observations"] = visual_context_for_chat(
+                    db, workspace
+                )
+
             # Add RAG settings if provided
             if request.top_k is not None:
                 request_dict["top_k"] = request.top_k
@@ -3499,7 +4309,7 @@ async def chat_stream(
             if request.similarity_threshold is not None:
                 request_dict["similarity_threshold"] = request.similarity_threshold
             _apply_retrieval_budget_policy(request_dict)
-            
+
             stream_error = None
             try:
                 async with asyncio.timeout(settings.chat_stream_timeout_seconds):
@@ -3624,7 +4434,7 @@ async def chat_stream(
                 chunk_state["answer_profile_decision"] = request_dict.get("answer_profile_decision")
                 chunk_state["answer_policy_applied"] = bool(request_dict.get("answer_policy"))
                 chunk_state["answer_policy_violations"] = answer_policy_violations
-            
+
             # Save assistant message after streaming completes
             if request.session_id and full_content:
                 # Build meta_data with decision steps
@@ -3633,7 +4443,8 @@ async def chat_stream(
                     "sources": chunk_state["sources"],
                     "context_id": request.context_id,
                     "context_mode": request.context_mode,
-                    "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                    "knowledge_scope": request_dict.get("knowledge_scope")
+                    or chunk_state.get("knowledge_scope"),
                     "grounding_mode": grounding_policy["mode"],
                     "grounding_policy": grounding_policy,
                     "grounding_state": chunk_state.get("grounding_state"),
@@ -3660,9 +4471,10 @@ async def chat_stream(
                     "deep_job_id": chunk_state.get("deep_job_id"),
                     "deep_poll_url": chunk_state.get("deep_poll_url"),
                     "deep_status": chunk_state.get("deep_status"),
+                    **(agentic_fallback_metadata or {}),
                     **_retrieval_observability(chunk_state),
                 }
-                
+
                 # Add decision steps if any were collected
                 if decision_steps:
                     meta_data["decision_steps"] = decision_steps
@@ -3700,7 +4512,7 @@ async def chat_stream(
                     session_id=request.session_id,
                     role="assistant",
                     content="".join(full_content),
-                    meta_data=meta_data
+                    meta_data=meta_data,
                 )
                 db.add(assistant_message)
                 db.flush()
@@ -3787,7 +4599,8 @@ async def chat_stream(
                         "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                         "retrieval_fallback": chunk_state["retrieval_fallback"],
                         "fallback_reason": fallback_reason,
-                        "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                        "knowledge_scope": request_dict.get("knowledge_scope")
+                        or chunk_state.get("knowledge_scope"),
                         "context_id": request.context_id,
                         "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
@@ -3815,11 +4628,14 @@ async def chat_stream(
                         "deep_status": chunk_state.get("deep_status"),
                         "grounding_mode": grounding_policy["mode"],
                         "grounding_policy": grounding_policy,
+                        **(agentic_fallback_metadata or {}),
                         **_retrieval_observability(chunk_state),
                     },
                 )
                 if run_id and assistant_message_id:
-                    persisted_message = db.query(Message).filter(Message.id == assistant_message_id).first()
+                    persisted_message = (
+                        db.query(Message).filter(Message.id == assistant_message_id).first()
+                    )
                     if persisted_message:
                         persisted_message.meta_data = {
                             **(persisted_message.meta_data or {}),
@@ -3846,5 +4662,5 @@ async def chat_stream(
             yield _sse_done()
         finally:
             metrics_collector.finish_stream(stream_id, status=stream_status)
-    
+
     return StreamingResponse(generate(), media_type="text/event-stream")

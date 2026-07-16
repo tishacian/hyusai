@@ -19,7 +19,10 @@ capture, same Outcome derivation, same Decision side-effects.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import time
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -34,6 +37,7 @@ from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
 from app.services.outcome.derive import derive_outcome
 from app.services.skills_registry import resolve as resolve_skill
@@ -180,9 +184,10 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         )
         run.status = "running"
         run.started_at = run.started_at or datetime.utcnow()
+        _snapshot_run_flow(db, run, system)
         db.commit()
 
-        ctx = _build_initial_ctx(run, system, capability)
+        ctx = _build_initial_ctx(db, run, system, capability)
 
         start = time.monotonic()
         invocations_out: List[SkillInvocation] = []
@@ -205,8 +210,10 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
             if invocation.status == "completed":
                 last_output = invocation.output_ref or {}
 
-            if adaptive and adaptive.enabled and _should_stop_adaptive(
-                adaptive, invocation, total_cost
+            if (
+                adaptive
+                and adaptive.enabled
+                and _should_stop_adaptive(adaptive, invocation, total_cost)
             ):
                 _log_decision(
                     db,
@@ -251,7 +258,10 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
 # Shared helpers (reused by dag.py)
 # ---------------------------------------------------------------------------
 def _build_initial_ctx(
-    run: Run, system: System, capability: Optional[Capability]
+    db: DBSession,
+    run: Run,
+    system: System,
+    capability: Optional[Capability],
 ) -> Dict[str, Any]:
     """Build the shared context bag exposed to every skill invocation.
 
@@ -259,15 +269,73 @@ def _build_initial_ctx(
     here so RAG chains and LLM skills pick them up without each trigger having
     to repeat them.
     """
+    input_ref = run.input_ref if isinstance(run.input_ref, dict) else {}
+    workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
     return {
         "system_id": system.id,
         "capability_id": capability.id if capability else None,
         "workspace_id": run.workspace_id,
-        "input": run.input_ref or {},
+        "input": input_ref,
+        # Tenant identity is server-owned. ``Run.input_ref`` is caller input
+        # on the public Systems API and must never select a physical corpus.
+        "workspace_slug": workspace_slug,
+        "session_id": input_ref.get("session_id"),
+        "user_id": run.initiated_by_user_id,
+        "knowledge_scope": input_ref.get("knowledge_scope"),
+        "source_policy": input_ref.get("source_policy"),
+        # ``_snapshot_run_flow`` replaces caller input with the System-owned
+        # contract on first execution, then preserves that immutable snapshot.
+        "retrieval_contract": input_ref.get("retrieval_contract") or {},
         "default_prompt_type": getattr(system, "default_prompt_type", None),
         "default_model": getattr(system, "default_model", None),
         "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
     }
+
+
+def _snapshot_run_flow(db: DBSession, run: Run, system: System) -> None:
+    """Freeze the exact executable graph and its identity on first start."""
+
+    flow = system.flow_definition if isinstance(system.flow_definition, dict) else {}
+    first_execution = run.flow_snapshot is None
+    if run.flow_snapshot is None:
+        run.flow_snapshot = deepcopy(flow)
+    input_ref = deepcopy(run.input_ref) if isinstance(run.input_ref, dict) else {}
+    if system.workspace_id and run.workspace_id and system.workspace_id != run.workspace_id:
+        raise RuntimeError("run_system_workspace_mismatch")
+    canonical_workspace_id = system.workspace_id or run.workspace_id
+    run.workspace_id = canonical_workspace_id
+    workspace_slug = None
+    if canonical_workspace_id:
+        workspace_slug = (
+            db.query(Workspace.slug).filter(Workspace.id == canonical_workspace_id).scalar()
+        )
+        if not workspace_slug:
+            raise RuntimeError("run_workspace_not_found")
+    # Canonical tenant and actor fields always win over caller-supplied input.
+    input_ref["workspace_id"] = canonical_workspace_id
+    if workspace_slug:
+        input_ref["workspace_slug"] = workspace_slug
+    else:
+        input_ref.pop("workspace_slug", None)
+    input_ref["user_id"] = run.initiated_by_user_id
+    if first_execution:
+        system_settings = system.settings if isinstance(system.settings, dict) else {}
+        input_ref["retrieval_contract"] = deepcopy(system_settings.get("retrieval_contract") or {})
+    execution = dict(input_ref.get("execution") or {})
+    if "flow_sha256" not in execution:
+        encoded = json.dumps(
+            run.flow_snapshot or {},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        execution["flow_sha256"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    system_settings = system.settings if isinstance(system.settings, dict) else {}
+    if system_settings.get("flow_revision") is not None:
+        execution.setdefault("flow_revision", system_settings.get("flow_revision"))
+    execution.setdefault("system_id", system.id)
+    input_ref["execution"] = execution
+    run.input_ref = input_ref
 
 
 async def _execute_task_node(
@@ -312,11 +380,26 @@ async def _execute_task_node(
             target_id=ctx.get("system_id"),
             kind="policy_block",
             rationale={
+                "run_id": run.id,
                 "skill": slug,
                 "reason": "not_in_allowed_skills",
                 "membrane": membrane_authoritative,
             },
         )
+        marker = {
+            "kind": "policy_block",
+            "t": datetime.utcnow().isoformat(),
+            "node_id": node_id,
+            "skill_slug": slug,
+            "error": f"policy_blocked_skill:{slug}",
+        }
+        run.error = run.error or marker["error"]
+        run.checkpoints = [*(run.checkpoints or []), marker]
+        db.commit()
+        try:
+            event_bus.publish(run.id, marker)
+        except Exception:  # noqa: BLE001 - persisted marker is authoritative.
+            pass
         return None
 
     skill_input = (
@@ -354,6 +437,14 @@ async def _execute_task_node(
         output = await fn(invocation.input_ref, skill_ctx)
         invocation.output_ref = output or {}
         invocation.status = "completed"
+    except asyncio.CancelledError:
+        invocation.status = "cancelled"
+        invocation.error = "execution_cancelled"
+        invocation.latency_ms = (time.monotonic() - t0) * 1000
+        invocation.completed_at = datetime.utcnow()
+        invocation.cost = _skill_unit_price(db, slug)
+        db.commit()
+        raise
     except NotImplementedError as nie:
         invocation.status = "skipped"
         invocation.error = f"unimplemented: {nie}"
@@ -361,9 +452,7 @@ async def _execute_task_node(
     except Exception as exc:  # noqa: BLE001
         invocation.status = "failed"
         invocation.error = str(exc)[:500]
-        logger.warning(
-            "run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc)
-        )
+        logger.warning("run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc))
     finally:
         # Drain whatever small residual burst is still in the sink's
         # coalescing buffer so the SSE client sees the tail of the
@@ -393,9 +482,7 @@ def _finalize_run(
     derived = derive_outcome(
         invocations=invocations,
         capability=capability,
-        control_hitl_threshold=(
-            control.mandatory_hitl_if_confidence_below if control else None
-        ),
+        control_hitl_threshold=(control.mandatory_hitl_if_confidence_below if control else None),
         duration_ms=duration_ms,
     )
     run.status = "completed" if not failed or derived.decision != "blocked" else "failed"
@@ -416,7 +503,10 @@ def _finalize_run(
     # swallows its own exceptions, runs on its own DB session so we're
     # safe whether this _finalize_run was called from the async engine,
     # the DAG walker, or a sync test harness.
-    if run.status == "completed":
+    # Chat-Agentic Runs are finalized by the surface adapter after it has
+    # enforced citations/collection policy and attached normalized sources.
+    # Scheduling here would race the evaluator against that canonical output.
+    if run.status == "completed" and run.trigger != "chat_agentic":
         try:
             from app.services.evaluation.auto_eval import schedule_eval
 
@@ -463,30 +553,50 @@ def _load_control_policy(db: DBSession, system: System) -> Optional[ControlPolic
     if system.control_policy_id:
         return (
             db.query(ControlPolicy)
-            .filter(ControlPolicy.id == system.control_policy_id)
+            .filter(
+                ControlPolicy.id == system.control_policy_id,
+                ControlPolicy.workspace_id == system.workspace_id,
+                ControlPolicy.scope == "system",
+                ControlPolicy.target_id == system.id,
+            )
             .first()
         )
     return (
         db.query(ControlPolicy)
-        .filter(ControlPolicy.scope == "system", ControlPolicy.target_id == system.id)
+        .filter(
+            ControlPolicy.workspace_id == system.workspace_id,
+            ControlPolicy.scope == "system",
+            ControlPolicy.target_id == system.id,
+        )
         .order_by(ControlPolicy.updated_at.desc())
         .first()
     )
 
 
 def _load_adaptive_policy(db: DBSession, system: System) -> Optional[AdaptivePolicy]:
-    if system.adaptive_policy_id:
-        return (
-            db.query(AdaptivePolicy)
-            .filter(AdaptivePolicy.id == system.adaptive_policy_id)
-            .first()
-        )
-    return (
+    if not system.adaptive_policy_id:
+        return None
+    policy = (
         db.query(AdaptivePolicy)
-        .filter(AdaptivePolicy.enabled.is_(True))
-        .order_by(AdaptivePolicy.updated_at.desc())
+        .filter(
+            AdaptivePolicy.id == system.adaptive_policy_id,
+            AdaptivePolicy.enabled.is_(True),
+            AdaptivePolicy.workspace_id == system.workspace_id,
+        )
         .first()
     )
+    if policy is None:
+        return None
+    scope = str(policy.scope or "").lower()
+    if scope == "system" and policy.target_id != system.id:
+        return None
+    if scope == "capability" and policy.target_id != system.capability_id:
+        return None
+    if scope == "portfolio" and policy.target_id not in {None, system.workspace_id}:
+        return None
+    if scope not in {"", "system", "capability", "portfolio"}:
+        return None
+    return policy
 
 
 def _skill_unit_price(db: DBSession, slug: str) -> float:
@@ -546,9 +656,7 @@ def _safe_membrane(control: Optional[ControlPolicy]) -> MembraneSpec:
         return MembraneSpec()
 
 
-def _membrane_skill_blocked(
-    control: Optional[ControlPolicy], slug: str
-) -> tuple[bool, bool]:
+def _membrane_skill_blocked(control: Optional[ControlPolicy], slug: str) -> tuple[bool, bool]:
     """Return ``(blocked, authoritative)`` for the membrane capability facet.
 
     Effective allow-list = ``spec.capabilities.allowed_skills`` which equals
@@ -579,9 +687,7 @@ def _apply_control_postchecks(
         valves.max_cost_per_decision
     ):
         breaches.append("max_cost_per_decision")
-    if valves.max_latency_ms is not None and (run.duration_ms or 0) > float(
-        valves.max_latency_ms
-    ):
+    if valves.max_latency_ms is not None and (run.duration_ms or 0) > float(valves.max_latency_ms):
         breaches.append("max_latency_ms")
     if not breaches:
         return
@@ -641,5 +747,17 @@ def _fail(db: DBSession, run: Run, error: str) -> Dict[str, Any]:
     run.status = "failed"
     run.error = error
     run.completed_at = datetime.utcnow()
+    checkpoint = {
+        "kind": "run_end",
+        "t": datetime.utcnow().isoformat(),
+        "status": "failed",
+        "error": error,
+    }
+    run.checkpoints = [*(run.checkpoints or []), checkpoint]
     db.commit()
+    try:
+        event_bus.publish(run.id, checkpoint)
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001 - persisted terminal state is authoritative.
+        pass
     return {"id": run.id, "status": "failed", "error": error}

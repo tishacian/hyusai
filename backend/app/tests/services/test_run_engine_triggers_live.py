@@ -210,7 +210,9 @@ def test_disabled_trigger_stays_open(db_session, dispatched):
 
 def test_dry_run_system_never_dispatches(db_session, dispatched):
     ws = _make_workspace(db_session)
-    system = _make_system(db_session, workspace_id=ws.id, flow=_deposit_analysis_flow(), mode="dry_run")
+    system = _make_system(
+        db_session, workspace_id=ws.id, flow=_deposit_analysis_flow(), mode="dry_run"
+    )
 
     results = triggers.emit_event(
         triggers.EVENT_DEPOSIT_PROMOTED, ws.id, {"file_id": "f1"}, db=db_session
@@ -243,10 +245,12 @@ def test_rate_limit_respects_control_policy_override(db_session, dispatched):
     system = _make_system(db_session, workspace_id=ws.id, flow=_deposit_analysis_flow())
     policy = ControlPolicy(
         id=str(uuid.uuid4()),
+        workspace_id=ws.id,
         scope="system",
         target_id=system.id,
         extra={"event_trigger_max_runs_per_hour": 2},
     )
+    system.control_policy_id = policy.id
     db_session.add(policy)
     db_session.commit()
     for _ in range(2):

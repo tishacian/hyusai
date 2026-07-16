@@ -11,16 +11,16 @@ import time
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
 from types import SimpleNamespace
+from typing import Any, Mapping
 
 from sqlalchemy import case, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
+from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.services.knowledge_collections import collection_source_rows
 from app.services.rag.retrieval_policy import RetrievalPolicy
 from app.services.rag.source_facets import expanded_terms_for_query, score_source_family_match
@@ -49,7 +49,9 @@ _PROCEDURE_RE = re.compile(
     r"warning|caution|safety|s[ée]curit[ée])\b",
     re.IGNORECASE,
 )
-_AUDIT_RE = re.compile(r"\b(audit|diagnostic|qualit[ée]|coverage|couverture|clusters?)\b", re.IGNORECASE)
+_AUDIT_RE = re.compile(
+    r"\b(audit|diagnostic|qualit[ée]|coverage|couverture|clusters?)\b", re.IGNORECASE
+)
 _CONTENT_SEARCH_HINT_RE = re.compile(
     r"\b(parle(?:nt)?|about|sur|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|concerne|couvre|covers?)\b",
     re.IGNORECASE,
@@ -213,7 +215,14 @@ def is_catalogue_query(query: str) -> bool:
         return False
     if _CATALOGUE_PHRASE_RE.search(text):
         return True
-    return bool(_CATALOGUE_RE.search(text) and re.search(r"\b(data|donn[ée]es?|docs?|documents?|sources?|fichiers?|collections?)\b", text, re.IGNORECASE))
+    return bool(
+        _CATALOGUE_RE.search(text)
+        and re.search(
+            r"\b(data|donn[ée]es?|docs?|documents?|sources?|fichiers?|collections?)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def classify_intent(query: str) -> str:
@@ -234,7 +243,11 @@ def classify_intent(query: str) -> str:
     if (
         re.search(r"\b(?:quel|quelle|which|what|peux[-\s]?tu|can\s+you)\b", text, re.IGNORECASE)
         and _SOURCE_LOOKUP_HINT_RE.search(text)
-        and not re.search(r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b", text, re.IGNORECASE)
+        and not re.search(
+            r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",
+            text,
+            re.IGNORECASE,
+        )
     ):
         return "source_lookup"
     if is_catalogue_query(text):
@@ -421,11 +434,17 @@ def _targeted_document_name_rows(
     ~100k-row Python scan that caused the original latency bug: plain lowercased
     substring matching against the same lookup terms, capped at ``limit``.
     """
-    names = [str(name or "").strip() for name in (collection.document_names or []) if str(name or "").strip()]
+    names = [
+        str(name or "").strip()
+        for name in (collection.document_names or [])
+        if str(name or "").strip()
+    ]
     if not names:
         return []
     code_lowered = {term.lower() for term in _source_lookup_terms(project_codes, None) if term}
-    lowered_terms = {term.lower() for term in _source_lookup_terms(project_codes, source_lookup_query) if term}
+    lowered_terms = {
+        term.lower() for term in _source_lookup_terms(project_codes, source_lookup_query) if term
+    }
     if not lowered_terms:
         return []
     # Scan project-code matches first so a common content term cannot fill the
@@ -560,8 +579,14 @@ def _source_kind_from_name(filename: str) -> str:
     return "document"
 
 
-def _missing_document_name_rows(collection: KnowledgeCollection, existing_rows: list[Any]) -> list[Any]:
-    names = [str(name or "").strip() for name in (collection.document_names or []) if str(name or "").strip()]
+def _missing_document_name_rows(
+    collection: KnowledgeCollection, existing_rows: list[Any]
+) -> list[Any]:
+    names = [
+        str(name or "").strip()
+        for name in (collection.document_names or [])
+        if str(name or "").strip()
+    ]
     if not names:
         return []
     existing = {
@@ -620,9 +645,9 @@ def _deep_ledger_is_large(db: DBSession, collections: list[str], workspace_id: s
     indexed size columns, never the source rows.
     """
     for ref in collections:
-        query = db.query(KnowledgeCollection.document_count, KnowledgeCollection.chunk_count).filter(
-            (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
-        )
+        query = db.query(
+            KnowledgeCollection.document_count, KnowledgeCollection.chunk_count
+        ).filter((KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref))
         if workspace_id:
             query = query.filter(KnowledgeCollection.workspace_id == workspace_id)
         row = query.first()
@@ -630,7 +655,10 @@ def _deep_ledger_is_large(db: DBSession, collections: list[str], workspace_id: s
             continue
         document_count = int(row[0] or 0)
         chunk_count = int(row[1] or 0)
-        if document_count > _LEDGER_TARGETING_MIN_SOURCES or chunk_count > _LEDGER_TARGETING_MIN_CHUNKS:
+        if (
+            document_count > _LEDGER_TARGETING_MIN_SOURCES
+            or chunk_count > _LEDGER_TARGETING_MIN_CHUNKS
+        ):
             return True
     return False
 
@@ -733,7 +761,11 @@ def _spreadsheet_collection_refs(rows: list[Any]) -> list[str]:
         kind = str(getattr(row, "source_kind", "") or "").lower()
         ext = str(getattr(row, "extension", "") or "").lower().lstrip(".")
         filename = str(getattr(row, "filename", "") or "").lower()
-        if kind != "spreadsheet" and ext not in {"xlsx", "xls", "xlsm", "csv"} and not filename.endswith((".xlsx", ".xls", ".xlsm", ".csv")):
+        if (
+            kind != "spreadsheet"
+            and ext not in {"xlsx", "xls", "xlsm", "csv"}
+            and not filename.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
+        ):
             continue
         ref = _row_collection_ref(row)
         if ref and ref not in refs:
@@ -748,7 +780,9 @@ def _query_project_codes(query: str) -> list[str]:
         compact = _compact_text(match).upper()
         if len(compact) >= 5 and compact not in codes:
             codes.append(compact)
-    for prefix, suffix in re.findall(r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded):
+    for prefix, suffix in re.findall(
+        r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded
+    ):
         compact = f"{prefix}{suffix}".upper()
         if len(compact) >= 5 and compact not in codes:
             codes.append(compact)
@@ -759,9 +793,14 @@ def _is_broad_format_scope_query(query: str) -> bool:
     text = _search_text(query)
     if not re.search(r"\b(fichiers?|files?|documents?|sources?|docs?)\b", text):
         return False
-    if not any(re.search(rf"\b{re.escape(token)}\b", text) for token in (*_EXTENSION_ALIASES, *_SOURCE_KIND_ALIASES)):
+    if not any(
+        re.search(rf"\b{re.escape(token)}\b", text)
+        for token in (*_EXTENSION_ALIASES, *_SOURCE_KIND_ALIASES)
+    ):
         return False
-    return not bool(_query_project_codes(query) or re.search(r"\b(retrouve(?:r)?|find|locate)\b", text))
+    return not bool(
+        _query_project_codes(query) or re.search(r"\b(retrouve(?:r)?|find|locate)\b", text)
+    )
 
 
 def _expanded_query_terms(query: str, policy: RetrievalPolicy | None = None) -> list[str]:
@@ -867,7 +906,12 @@ def _infer_ledger_document_scope(
                 score += 1.5
             is_project_term = compact_term.upper() in project_codes
             is_family_term = _search_text(term) in family_expanded_terms
-            if len(compact_term) >= 5 and compact_term in source_only_compact and not is_project_term and not is_family_term:
+            if (
+                len(compact_term) >= 5
+                and compact_term in source_only_compact
+                and not is_project_term
+                and not is_family_term
+            ):
                 score += 8.0
         family_score, family_matches = score_source_family_match(
             query=query,
@@ -901,7 +945,9 @@ def _infer_ledger_document_scope(
     if project_codes and any(item[1] for item in scored):
         scored = [item for item in scored if item[1]]
         phrase_scored = [item for item in scored if item[2]]
-        if phrase_scored and max(item[0] for item in phrase_scored) >= max(item[0] for item in scored):
+        if phrase_scored and max(item[0] for item in phrase_scored) >= max(
+            item[0] for item in scored
+        ):
             scored = phrase_scored
     elif project_codes:
         return {}, 0.0, f"No ledger source matched project/code {', '.join(project_codes[:3])}.", []
@@ -910,7 +956,9 @@ def _infer_ledger_document_scope(
         if phrase_scored:
             scored = phrase_scored
 
-    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[3], "filename", "") or "").lower()))[:20]
+    ranked = sorted(
+        scored, key=lambda item: (-item[0], str(getattr(item[3], "filename", "") or "").lower())
+    )[:20]
     filenames: list[str] = []
     collection_refs: list[str] = []
     for _, _matched_project, _strong_phrase_match, row in ranked:
@@ -1005,7 +1053,11 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
 
     query_upper = text.upper()
     candidate_codes = _candidate_project_codes(rows)
-    matched_codes = [code for code in sorted(candidate_codes, key=len, reverse=True) if code and code in query_upper]
+    matched_codes = [
+        code
+        for code in sorted(candidate_codes, key=len, reverse=True)
+        if code and code in query_upper
+    ]
     if matched_codes:
         filters["project_code"] = matched_codes[0]
         reasons.append(f"project_code={matched_codes[0]}")
@@ -1034,7 +1086,11 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
             reasons.append(f"document_id_match={len(source_hits)}")
             confidence = max(confidence, 0.75)
 
-    reason = "; ".join(reasons) if reasons else "No strong metadata scope inferred; using bounded semantic retrieval."
+    reason = (
+        "; ".join(reasons)
+        if reasons
+        else "No strong metadata scope inferred; using bounded semantic retrieval."
+    )
     return filters, confidence, reason
 
 
@@ -1173,7 +1229,9 @@ def _infer_fact_document_scope(
                 score += 1.0
             if filename and term in filename.lower():
                 score += 1.5
-        if intent_bonus and any(token in str(fact.semantic_type or "").lower() for token in intent_bonus):
+        if intent_bonus and any(
+            token in str(fact.semantic_type or "").lower() for token in intent_bonus
+        ):
             score += 1.25
         score += min(max(float(fact.confidence or 0.0), 0.0), 1.0) * 0.5
         if score < 1.5:
@@ -1192,7 +1250,9 @@ def _infer_fact_document_scope(
     if not scored:
         return {}, 0.0, ""
 
-    ranked = sorted(scored.values(), key=lambda item: (-float(item["score"]), -int(item["facts"])))[:40]
+    ranked = sorted(scored.values(), key=lambda item: (-float(item["score"]), -int(item["facts"])))[
+        :40
+    ]
     filenames = [str(item["filename"]) for item in ranked if item.get("filename")]
     document_ids = [str(item["document_id"]) for item in ranked if item.get("document_id")]
     if filenames:
@@ -1265,7 +1325,9 @@ def _infer_summary_document_scope(
     else:
         return {}, 0.0, ""
     confidence = min(0.78, 0.54 + min(len(ranked), 80) / 400.0)
-    reason = f"summary artifacts scoped deep retrieval to {len(ranked[:limit])} candidate document(s)"
+    reason = (
+        f"summary artifacts scoped deep retrieval to {len(ranked[:limit])} candidate document(s)"
+    )
     return filters, confidence, reason
 
 
@@ -1351,7 +1413,9 @@ def _fast_ledger_candidate_rows(
     return [row for _score, _filename, row in scored[: max(1, int(limit))]]
 
 
-def _layer_status(*, enabled: bool, reason: str, budget_ms: int | None = None, top_k: int | None = None) -> dict[str, Any]:
+def _layer_status(
+    *, enabled: bool, reason: str, budget_ms: int | None = None, top_k: int | None = None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "enabled": bool(enabled),
         "status": "enabled" if enabled else "skipped",
@@ -1405,7 +1469,9 @@ def _build_retrieval_plan(
         "layers": {
             "inventory": _layer_status(
                 enabled=intent == "catalogue" or dense,
-                reason="catalogue/inventory answer" if intent == "catalogue" else "dense corpus guardrail and scope discovery",
+                reason="catalogue/inventory answer"
+                if intent == "catalogue"
+                else "dense corpus guardrail and scope discovery",
                 budget_ms=min(deadline_ms, 500),
             ),
             "facts": _layer_status(
@@ -1491,7 +1557,23 @@ def plan_corpus(
         profile.get("latency_profile"),
         deep_retrieval=profile.get("deep_retrieval") or (request or {}).get("deep_retrieval"),
     )
-    collections = [str(item) for item in (profile.get("collections") or [profile.get("collection") or "documents"]) if item]
+    collections = [
+        str(item)
+        for item in (profile.get("collections") or [profile.get("collection") or "documents"])
+        if item
+    ]
+    raw_authoritative = (request or {}).get("authoritative_collections")
+    authoritative_collections = (
+        list(
+            dict.fromkeys(
+                str(item).strip() for item in raw_authoritative if str(item or "").strip()
+            )
+        )
+        if isinstance(raw_authoritative, (list, tuple, set))
+        else []
+    )
+    if authoritative_collections:
+        collections = authoritative_collections
     workspace_id = str(profile.get("workspace_id") or "") or None
     # Interactive profiles (fast + balanced) must never load and scan the full
     # source ledger in Python: on large industrial corpora (e.g. ~100k sources
@@ -1509,7 +1591,9 @@ def plan_corpus(
     # targeting as fast/balanced *on large collections only*; small-corpus deep
     # keeps its exhaustive scan unchanged.
     if latency_profile == "deep":
-        source_lookup_query = query if _deep_ledger_is_large(db, collections, workspace_id) else None
+        source_lookup_query = (
+            query if _deep_ledger_is_large(db, collections, workspace_id) else None
+        )
     else:
         source_lookup_query = query
     rows, collection_rows = _rows_for_collections(
@@ -1526,12 +1610,14 @@ def plan_corpus(
             rows,
             policy=retrieval_policy,
         )
-    if workspace_id:
+    if workspace_id and not authoritative_collections:
         should_expand_workspace = True
         if latency_profile == "fast":
             project_codes = _query_project_codes(query)
             table_lookup_requested = bool(_TABLE_VALUE_LOOKUP_RE.search(query))
-            should_expand_workspace = bool(table_lookup_requested or (project_codes and not fast_local_ledger_rows))
+            should_expand_workspace = bool(
+                table_lookup_requested or (project_codes and not fast_local_ledger_rows)
+            )
         if should_expand_workspace:
             workspace_collection_refs = [
                 str(row.slug or row.id)
@@ -1562,12 +1648,23 @@ def plan_corpus(
                 workspace_rows,
                 policy=retrieval_policy,
             )
-        ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(
+        (
+            ledger_filters,
+            ledger_confidence,
+            ledger_reason,
+            ledger_collections,
+        ) = _infer_ledger_document_scope(
             query,
             ledger_rows,
             policy=retrieval_policy,
         )
-    table_lookup_collections = _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []
+    table_lookup_collections = (
+        _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []
+    )
+    if authoritative_collections:
+        table_lookup_collections = [
+            item for item in table_lookup_collections if item in authoritative_collections
+        ]
     if table_lookup_collections:
         collections = table_lookup_collections
         rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
@@ -1578,13 +1675,31 @@ def plan_corpus(
         inferred_filters = {
             key: value
             for key, value in inferred_filters.items()
-            if key not in {"source_kind", "extension", "document_id", "document_filename", "project_code", "archive_name"}
+            if key
+            not in {
+                "source_kind",
+                "extension",
+                "document_id",
+                "document_filename",
+                "project_code",
+                "archive_name",
+            }
         }
         ledger_filters = {}
         ledger_collections = []
         confidence = max(confidence, 0.72)
         reason = f"table value lookup scoped retrieval to {len(table_lookup_collections)} spreadsheet collection(s)"
     elif ledger_collections:
+        if authoritative_collections:
+            unbounded_ledger_collections = list(ledger_collections)
+            ledger_collections = [
+                item for item in ledger_collections if item in authoritative_collections
+            ]
+            if unbounded_ledger_collections and not ledger_collections:
+                ledger_filters = {}
+                ledger_confidence = 0.0
+                ledger_reason = ""
+    if ledger_collections and not table_lookup_collections:
         if set(ledger_collections) != set(collections):
             collections = ledger_collections
             rows, collection_rows = _rows_for_collections(
@@ -1597,8 +1712,7 @@ def plan_corpus(
             collections = ledger_collections
     ledger_source_count = len(rows)
     collection_source_count = sum(
-        int(c.document_count or 0) or _collection_source_count(db, c)
-        for c in collection_rows
+        int(c.document_count or 0) or _collection_source_count(db, c) for c in collection_rows
     )
     ledger_chunk_count = sum(int(getattr(row, "chunk_count", 0) or 0) for row in rows)
     collection_chunk_count = sum(int(c.chunk_count or 0) for c in collection_rows)
@@ -1731,7 +1845,9 @@ def plan_corpus(
         deadline = float(settings.rag_fast_retrieval_deadline_seconds)
         top_k = min(max(int(profile.get("top_k") or 5), 1), 8)
         source_display_k = min(max(int(profile.get("source_display_k") or top_k), 1), 8)
-        synthesis_k = min(max(int(profile.get("synthesis_k") or source_display_k), source_display_k), 12)
+        synthesis_k = min(
+            max(int(profile.get("synthesis_k") or source_display_k), source_display_k), 12
+        )
         candidate_pool_k = min(max(int(profile.get("candidate_pool_k") or 20), synthesis_k), 20)
         max_variants = 3
         max_candidates = 20
@@ -1773,7 +1889,9 @@ def plan_corpus(
     dense_policy = "standard"
     fallback_reason: str | None = None
     deep_retrieval_recommended = False
-    requested_mode = str(profile.get("rag_mode") or profile.get("rag_pipeline_mode") or "auto").strip().lower()
+    requested_mode = (
+        str(profile.get("rag_mode") or profile.get("rag_pipeline_mode") or "auto").strip().lower()
+    )
     dense_only_requested = requested_mode in {"vector", "vector_only", "dense", "dense_only"}
 
     if intent == "catalogue":
@@ -1810,6 +1928,14 @@ def plan_corpus(
             allow_hah_chah = False
             fallback_reason = "dense_unscoped_deep_policy"
 
+    if authoritative_collections:
+        collections = authoritative_collections
+        soft_scope_collections = [
+            item for item in soft_scope_collections if item in authoritative_collections
+        ]
+        recall_floor_collections = [
+            item for item in recall_floor_collections if item in authoritative_collections
+        ]
     retrieval_scope = {
         "collections": collections,
         "filters": filters,

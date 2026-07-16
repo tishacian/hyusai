@@ -3365,6 +3365,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private chatSessionSignature: string | null = null;
   private readonly selectedSessionStorageBaseKey = 'agentium:selected-chat-session-id';
   private readonly activeDeepRetrievalPolls = new Set<string>();
+  private readonly activeHitlMessagePolls = new Set<string>();
   private chatWorkspaceGeneration = 0;
   private chatWorkspaceSubscriptions = new Subscription();
   private readonly chatPollingTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -4080,6 +4081,18 @@ export class ChatPanelComponent implements AfterViewInit {
           .map((job) => this.chatMessageFromWorkspaceJob(job))
           .filter((message): message is ChatMessage => !!message && !messageIds.has(message.id));
         this.messages.set([...messages, ...jobMessages]);
+        for (const stored of detail.messages || []) {
+          const meta = stored.meta_data || {};
+          const pendingRunId = typeof meta['run_id'] === 'string' ? meta['run_id'] : '';
+          if (
+            stored.role === 'assistant'
+            && pendingRunId
+            && meta['route'] === 'agentic_review'
+            && meta['resumed_after_hitl'] !== true
+          ) {
+            this.startHitlMessagePolling(pendingRunId);
+          }
+        }
         for (const msg of this.messages()) {
           const jobId = msg.retrievalInfo?.deepJobId;
           const pollUrl = msg.retrievalInfo?.deepPollUrl;
@@ -4205,6 +4218,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.chatWorkspaceGeneration += 1;
     this.cancelChatWorkspaceRequests();
     this.activeDeepRetrievalPolls.clear();
+    this.activeHitlMessagePolls.clear();
     this.chatSessionId = null;
     this.chatSessionSignature = null;
     this.creatingChatSession = false;
@@ -6522,6 +6536,11 @@ export class ChatPanelComponent implements AfterViewInit {
             // auto-eval loop; start polling so we can surface a
             // breach-toast within a few seconds of the judge finishing.
             this.startEvalPolling(chunk.run_id);
+          } else if (chunk.chunk_type === 'hitl_pending' && chunk.run_id) {
+            // The SSE request ends at the governance gate. Poll the user's
+            // own chat session (never the private Run draft) so an accepted
+            // or rejected decision refreshes this bubble without a reload.
+            this.startHitlMessagePolling(chunk.run_id);
           } else if (chunk.sources && Array.isArray(chunk.sources)) {
             sources = chunk.sources as Source[];
           } else if (chunk.type === 'done') {
@@ -6835,6 +6854,76 @@ export class ChatPanelComponent implements AfterViewInit {
           if (!this.isChatContinuationCurrent(scope, generation)) return;
           // Stop polling on hard error — transient 5xx will be
           // retried by the next chat turn's polling loop.
+        },
+      });
+      this.chatWorkspaceSubscriptions.add(subscription);
+    };
+    this.scheduleChatPoll(tick, 1500, scope, generation);
+  }
+
+  private startHitlMessagePolling(runId: string): void {
+    const sessionId = this.chatSessionId;
+    if (!sessionId || !runId) return;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
+    const pollKey = `${sessionId}:${runId}`;
+    const isCurrent = (): boolean =>
+      this.isChatContinuationCurrent(scope, generation)
+      && this.chatSessionId === sessionId;
+    if (!isCurrent() || this.activeHitlMessagePolls.has(pollKey)) return;
+    this.activeHitlMessagePolls.add(pollKey);
+    const finish = (): void => {
+      this.activeHitlMessagePolls.delete(pollKey);
+    };
+    let attempts = 0;
+    const maxAttempts = 200; // 10 minutes at 3s: leave time for a human review.
+    const tick = (): void => {
+      if (!isCurrent() || attempts >= maxAttempts) {
+        finish();
+        return;
+      }
+      attempts += 1;
+      const subscription = this.api.get<ChatSessionDetail>(
+        `/sessions/${encodeURIComponent(sessionId)}?include_messages=true`,
+        undefined,
+        { workspaceSlug: scope.workspaceSlug },
+      ).subscribe({
+        next: (detail) => {
+          if (!isCurrent()) {
+            finish();
+            return;
+          }
+          const stored = (detail.messages || []).find((message) => {
+            const meta = message.meta_data || {};
+            return message.role === 'assistant'
+              && meta['run_id'] === runId
+              && meta['resumed_after_hitl'] === true;
+          });
+          if (!stored) {
+            this.scheduleChatPoll(tick, 3000, scope, generation);
+            return;
+          }
+          const refreshed = this.chatMessageFromStored(stored);
+          this.messages.update((messages) => messages.map((message) =>
+            message.runId === runId
+              ? {
+                  ...message,
+                  content: refreshed.content,
+                  sources: refreshed.sources,
+                  retrievalInfo: refreshed.retrievalInfo,
+                }
+              : message
+          ));
+          finish();
+          const hitlDecision = (stored.meta_data || {})['hitl_decision'];
+          if (hitlDecision !== 'rejected') this.startEvalPolling(runId);
+        },
+        error: () => {
+          if (!isCurrent()) {
+            finish();
+            return;
+          }
+          this.scheduleChatPoll(tick, 3000, scope, generation);
         },
       });
       this.chatWorkspaceSubscriptions.add(subscription);

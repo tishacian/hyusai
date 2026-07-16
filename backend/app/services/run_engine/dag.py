@@ -42,16 +42,9 @@ from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 
-from .condition import ConditionError, evaluate as evaluate_condition
-from .variable_pool import (
-    VariablePool,
-    apply_inputs_map,
-    apply_outputs_map,
-    resolve_selector,
-    selector_segments,
-)
+from .condition import ConditionError
+from .condition import evaluate as evaluate_condition
 from .engine import (
-    _apply_control_postchecks,
     _build_initial_ctx,
     _execute_task_node,
     _fail,
@@ -59,10 +52,17 @@ from .engine import (
     _load_adaptive_policy,
     _load_control_policy,
     _log_decision,
-    _should_stop_adaptive,
+    _snapshot_run_flow,
     execute_run,
 )
 from .events import bus as event_bus
+from .variable_pool import (
+    VariablePool,
+    apply_inputs_map,
+    apply_outputs_map,
+    resolve_selector,
+    selector_segments,
+)
 
 logger = get_logger(__name__)
 
@@ -98,10 +98,7 @@ def should_use_dag(system: System) -> bool:
     nodes = flow.get("nodes") or []
     if not isinstance(nodes, list):
         return False
-    return any(
-        (isinstance(n, dict) and (n.get("kind") in _CONTROL_KINDS))
-        for n in nodes
-    )
+    return any((isinstance(n, dict) and (n.get("kind") in _CONTROL_KINDS)) for n in nodes)
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +147,10 @@ class DagGraph:
             config = n.get("config") or {}
             skill_slug: Optional[str] = None
             if isinstance(config, dict):
-                skill_slug = config.get("skill_slug") or config.get("skill", {}).get(
-                    "slug"
-                ) if isinstance(config.get("skill"), dict) else config.get(
-                    "skill_slug"
+                skill_slug = (
+                    config.get("skill_slug") or config.get("skill", {}).get("slug")
+                    if isinstance(config.get("skill"), dict)
+                    else config.get("skill_slug")
                 )
             if not skill_slug and isinstance(data, dict):
                 # Builder-authored task nodes carry the bound skill under
@@ -267,8 +264,7 @@ class WalkerState:
         state.done = set(payload.get("done") or [])
         state.pending_counts = dict(payload.get("pending_counts") or {})
         state.dead_edges = {
-            tuple(e) if isinstance(e, list) else e
-            for e in (payload.get("dead_edges") or [])
+            tuple(e) if isinstance(e, list) else e for e in (payload.get("dead_edges") or [])
         }
         state.ctx = dict(payload.get("ctx") or {})
         state.invocation_ids = list(payload.get("invocation_ids") or [])
@@ -290,6 +286,7 @@ class WalkerState:
 async def execute_run_dag(run_id: str) -> Dict[str, Any]:
     """Walk a v2 DAG flow, executing nodes as their dependencies settle."""
     db: DBSession = SessionLocal()
+    run: Optional[Run] = None
     try:
         run = db.query(Run).filter(Run.id == run_id).first()
         if not run:
@@ -300,7 +297,9 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         if not system:
             return _fail(db, run, "system_not_found")
 
-        flow = system.flow_definition or {}
+        # Prefer a pre-existing immutable snapshot (replay/retry); a new Run
+        # falls back to the current System graph and snapshots it below.
+        flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
         if not graph.nodes:
             return _fail(db, run, "empty_flow")
@@ -315,10 +314,11 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
 
         run.status = "running"
         run.started_at = run.started_at or datetime.utcnow()
+        _snapshot_run_flow(db, run, system)
         db.commit()
 
         state = WalkerState(
-            ctx=_build_initial_ctx(run, system, capability),
+            ctx=_build_initial_ctx(db, run, system, capability),
             pending_counts={nid: len(graph.in_edges[nid]) for nid in graph.nodes},
             start_monotonic=time.monotonic(),
         )
@@ -355,13 +355,40 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             control=control,
             adaptive=adaptive,
         )
+    except asyncio.CancelledError:
+        if run is not None:
+            _terminate_interrupted_run(db, run, status="cancelled", error="execution_cancelled")
+        raise
+    except Exception as exc:  # noqa: BLE001 - a Run must never remain live on engine failure.
+        logger.exception("dag_engine: unhandled execution failure", run_id=run_id, error=str(exc))
+        if run is not None:
+            try:
+                db.rollback()
+                run = db.query(Run).filter(Run.id == run_id).first() or run
+                _terminate_interrupted_run(
+                    db,
+                    run,
+                    status="failed",
+                    error=f"dag_execution_error:{str(exc)[:400]}",
+                )
+                return {"id": run.id, "status": "failed", "error": run.error}
+            except Exception as terminal_exc:  # noqa: BLE001
+                logger.exception(
+                    "dag_engine: failed to persist terminal state",
+                    run_id=run_id,
+                    error=str(terminal_exc),
+                )
+                try:
+                    event_bus.close(run_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                return {"id": run_id, "status": "failed", "error": str(exc)[:400]}
+        return {"error": "run_not_found"}
     finally:
         db.close()
 
 
-async def resume_run_dag(
-    run_id: str, *, decision_id: Optional[str] = None
-) -> Dict[str, Any]:
+async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> Dict[str, Any]:
     """Resume a run paused at a ``hitl`` node.
 
     The frontend is expected to have called
@@ -390,7 +417,8 @@ async def resume_run_dag(
         if not system:
             return _fail(db, run, "system_not_found")
 
-        flow = system.flow_definition or {}
+        # HITL resumes obey the immutable execution contract.
+        flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = time.monotonic()
@@ -437,9 +465,7 @@ async def resume_run_dag(
             state.ctx["hitl_decision"] = dec.status if dec else None
             # Decrement pending counts for downstream of the HITL node.
             for e in graph.out_edges.get(hitl_node_id, []):
-                state.pending_counts[e.target] = max(
-                    0, state.pending_counts.get(e.target, 0) - 1
-                )
+                state.pending_counts[e.target] = max(0, state.pending_counts.get(e.target, 0) - 1)
 
         run.status = "running"
         db.commit()
@@ -517,9 +543,7 @@ async def _walk(
                     return _emit_debug_pause(db, run, state, nid)
 
         for nid in serial:
-            outcome = await _execute_node(
-                db, run, graph.nodes[nid], graph, state, control=control
-            )
+            outcome = await _execute_node(db, run, graph.nodes[nid], graph, state, control=control)
             _settle_node(graph, state, nid, outcome)
             if outcome.get("pause"):
                 return _emit_hitl_pause(db, run, state, outcome)
@@ -621,13 +645,9 @@ def _settle_node(
             # forever. Downstream nodes whose only inputs come from dead
             # edges therefore become "ready" but execute as no-ops (the
             # `_execute_node` dispatcher checks edge activity).
-            state.pending_counts[edge.target] = max(
-                0, state.pending_counts.get(edge.target, 0) - 1
-            )
+            state.pending_counts[edge.target] = max(0, state.pending_counts.get(edge.target, 0) - 1)
             continue
-        state.pending_counts[edge.target] = max(
-            0, state.pending_counts.get(edge.target, 0) - 1
-        )
+        state.pending_counts[edge.target] = max(0, state.pending_counts.get(edge.target, 0) - 1)
 
 
 def _should_debug_pause(graph: DagGraph, state: WalkerState, node_id: str) -> bool:
@@ -650,9 +670,7 @@ def _should_debug_pause(graph: DagGraph, state: WalkerState, node_id: str) -> bo
     return False
 
 
-def _emit_debug_pause(
-    db: DBSession, run: Run, state: WalkerState, node_id: str
-) -> Dict[str, Any]:
+def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str) -> Dict[str, Any]:
     """Freeze the walker for debugger inspection and flip Run status.
 
     The payload schema mirrors :func:`_emit_hitl_pause` so the SSE /
@@ -731,7 +749,8 @@ async def resume_run_dag_debug(
         if not system:
             return _fail(db, run, "system_not_found")
 
-        flow = system.flow_definition or {}
+        # Debug resumes obey the immutable graph captured at first execution.
+        flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = time.monotonic()
@@ -834,9 +853,7 @@ def _selector_targets_asset(selector: Any, asset_ids: Set[str]) -> bool:
     return bool(segs) and segs[0] in asset_ids
 
 
-def _effective_inputs_map(
-    node: DagNode, graph: DagGraph
-) -> Optional[Dict[str, Any]]:
+def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[Dict[str, Any]]:
     """Return the node's ``inputs_map`` with asset-sourced refs gated by the flag.
 
     GATE SEAM (Phase 2 ``p2-binding``): a ``VariableRef`` whose SOURCE node has
@@ -915,10 +932,7 @@ async def _execute_node(
     gating_edges = [
         e
         for e in in_edges
-        if not (
-            graph.nodes.get(e.source) is not None
-            and graph.nodes[e.source].kind == "asset"
-        )
+        if not (graph.nodes.get(e.source) is not None and graph.nodes[e.source].kind == "asset")
     ]
     if gating_edges and all(
         (e.source, e.target, e.branch_label) in state.dead_edges for e in gating_edges
@@ -943,7 +957,9 @@ async def _execute_node(
     # edges from the predecessor merge so the collection never leaks into the
     # retrieve payload (nor the ctx) — implicit workspace resolution, iso Phase 1.
     merged_input = _merge_predecessor_outputs(
-        graph, state, node.id,
+        graph,
+        state,
+        node.id,
         include_assets=settings.flow_asset_binding_authoritative,
     )
     # Expose the merged upstream output to the ctx so downstream decision
@@ -981,8 +997,13 @@ async def _execute_node(
 
         if node.kind == "task":
             result = await _run_task(
-                db, run, node, state, control=control,
-                upstream=node_input, resolved=maps_present,
+                db,
+                run,
+                node,
+                state,
+                control=control,
+                upstream=node_input,
+                resolved=maps_present,
             )
             return result
 
@@ -1000,15 +1021,18 @@ async def _execute_node(
 
         if node.kind == "retry":
             result = await _run_retry(
-                db, run, node, state, control=control,
-                upstream=node_input, resolved=maps_present,
+                db,
+                run,
+                node,
+                state,
+                control=control,
+                upstream=node_input,
+                resolved=maps_present,
             )
             return result
 
         if node.kind == "loop":
-            result = await _run_loop(
-                db, run, node, state, control=control, upstream=node_input
-            )
+            result = await _run_loop(db, run, node, state, control=control, upstream=node_input)
             return result
 
         if node.kind == "hitl":
@@ -1016,9 +1040,7 @@ async def _execute_node(
             return result
 
         if node.kind == "subflow":
-            result = await _run_subflow(
-                db, run, node, state, control=control, upstream=node_input
-            )
+            result = await _run_subflow(db, run, node, state, control=control, upstream=node_input)
             return result
 
         if node.kind == "asset":
@@ -1042,9 +1064,7 @@ async def _execute_node(
         # Enrich node_end with whatever we learned during execution so
         # the SSE consumer can render informative terminal lines without
         # fetching /runs/:id for each event.
-        summary = _summarise_node_execution(
-            db, run, node, result, state, invocations_before
-        )
+        summary = _summarise_node_execution(db, run, node, result, state, invocations_before)
         _append_checkpoint(
             db,
             run,
@@ -1144,9 +1164,7 @@ def _run_decision(
     for edge in graph.out_edges.get(node.id, []):
         if edge.kind == "branch" and edge.branch_label:
             out_branch_labels.add(edge.branch_label)
-    inactive = (
-        sorted(out_branch_labels - {chosen}) if chosen else sorted(out_branch_labels)
-    )
+    inactive = sorted(out_branch_labels - {chosen}) if chosen else sorted(out_branch_labels)
     return {
         "output": {"chosen_branch": chosen, "evaluations": evaluations},
         "inactive_branches": inactive,
@@ -1202,12 +1220,8 @@ def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> Dict[str, A
     if strategy in ("any", "race"):
         primary = next((v for v in branch_outputs.values() if v), {})
         body = dict(primary) if isinstance(primary, dict) else {"value": primary}
-        return {
-            "output": {**body, "_join_strategy": strategy, "_branches": branch_outputs}
-        }
-    return {
-        "output": {**merged, "_join_strategy": strategy, "_branches": branch_outputs}
-    }
+        return {"output": {**body, "_join_strategy": strategy, "_branches": branch_outputs}}
+    return {"output": {**merged, "_join_strategy": strategy, "_branches": branch_outputs}}
 
 
 async def _run_retry(
@@ -1471,9 +1485,7 @@ async def _run_subflow(
     # pass. Continue it rather than delegating from scratch.
     recorded_child_id = state.subflow_children.get(node.id)
     if recorded_child_id:
-        outcome = await _continue_subflow_child(
-            db, node, state, recorded_child_id, target_id
-        )
+        outcome = await _continue_subflow_child(db, node, state, recorded_child_id, target_id)
         if outcome is not None:
             return outcome
         # Recorded child vanished (should not happen) — drop the stale mapping
@@ -1595,8 +1607,7 @@ def _subflow_outcome(
             "pause": True,
             "node_id": node.id,
             "decision_id": child_summary.get("awaiting_decision"),
-            "prompt": child_summary.get("prompt")
-            or f"Subflow {target_id} awaiting approval",
+            "prompt": child_summary.get("prompt") or f"Subflow {target_id} awaiting approval",
             "child_run_id": child_id,
         }
     return _settle_subflow_output(db, state, child_id, target_id)
@@ -1721,11 +1732,7 @@ def _summarise_node_execution(
             summary["chosen_branch"] = out.get("chosen_branch")
     new_invocations = state.invocation_ids[invocations_before:]
     if new_invocations:
-        inv = (
-            db.query(SkillInvocation)
-            .filter(SkillInvocation.id == new_invocations[-1])
-            .first()
-        )
+        inv = db.query(SkillInvocation).filter(SkillInvocation.id == new_invocations[-1]).first()
         if inv is not None:
             summary["skill_slug"] = inv.skill_slug
             summary["status"] = inv.status
@@ -1749,6 +1756,45 @@ def _append_checkpoint(db: DBSession, run: Run, entry: Dict[str, Any]) -> None:
     try:
         event_bus.publish(run.id, entry)
     except Exception:  # noqa: BLE001
+        pass
+
+
+def _terminate_interrupted_run(
+    db: DBSession,
+    run: Run,
+    *,
+    status: str,
+    error: str,
+) -> None:
+    """Make cancellation/engine failure terminal and close live subscribers."""
+
+    now = datetime.utcnow()
+    for invocation in (
+        db.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == run.id, SkillInvocation.status == "running")
+        .all()
+    ):
+        invocation.status = "cancelled" if status == "cancelled" else "failed"
+        invocation.error = invocation.error or error
+        invocation.completed_at = now
+    run.status = status
+    run.error = run.error or error
+    run.completed_at = now
+    if run.started_at is not None:
+        run.duration_ms = max(0.0, (now - run.started_at).total_seconds() * 1000.0)
+    checkpoint = {
+        "kind": "run_end",
+        "t": now.isoformat(),
+        "status": status,
+        "error": error,
+        "interrupted": True,
+    }
+    run.checkpoints = [*(run.checkpoints or []), checkpoint]
+    db.commit()
+    try:
+        event_bus.publish(run.id, checkpoint)
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001 - DB terminal state is authoritative.
         pass
 
 

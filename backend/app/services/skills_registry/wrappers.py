@@ -101,6 +101,9 @@ def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     knowledge_scope = payload.get("knowledge_scope") or ctx.get("knowledge_scope")
     if knowledge_scope:
         kwargs["knowledge_scope"] = knowledge_scope
+    source_policy = payload.get("source_policy") or ctx.get("source_policy")
+    if isinstance(source_policy, dict):
+        kwargs["source_policy"] = source_policy
     context_collection = (
         payload.get("collection")
         or payload.get("collection_name")
@@ -291,6 +294,32 @@ async def _semantic_search_v1(
 
     ctx = ctx or {}
     runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
+    retrieval_contract = (
+        ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
+    )
+    authoritative_collection = None
+    if retrieval_contract.get("asset_binding") == "authoritative":
+        declared = retrieval_contract.get("collection") or retrieval_contract.get(
+            "primary_collection"
+        )
+        if str(declared or "").strip():
+            authoritative_collection = str(declared).strip()
+            requested_collection = runtime_kwargs.get("context_collection")
+            if requested_collection and requested_collection != authoritative_collection:
+                logger.warning(
+                    "semantic_search_v1: overriding collection outside retrieval contract",
+                    requested=requested_collection,
+                    authoritative=authoritative_collection,
+                    workspace_id=ctx.get("workspace_id"),
+                )
+            # The System contract is stronger than the flow asset-binding flag
+            # and than any payload supplied by an upstream node.
+            runtime_kwargs["context_collection"] = authoritative_collection
+            runtime_kwargs.pop("knowledge_scope", None)
+    allow_workspace_fallback = (
+        retrieval_contract.get("empty_bound_collection") != "abstain"
+        and retrieval_contract.get("allow_workspace_fallback", True) is not False
+    )
     # Phase 2 (p2-binding): an authoritative asset->collection binding scopes
     # retrieval to a single collection (``context_collection``). If that bound
     # collection resolves to empty/unknown we MUST fall back to workspace scope
@@ -315,13 +344,28 @@ async def _semantic_search_v1(
             "workspace_slug": _resolve_workspace_slug(payload, ctx),
             "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
             "system_id": ctx.get("system_id") or payload.get("system_id"),
-            "knowledge_scope": payload.get("knowledge_scope") or ctx.get("knowledge_scope"),
+            "knowledge_scope": (
+                None
+                if authoritative_collection
+                else payload.get("knowledge_scope") or ctx.get("knowledge_scope")
+            ),
+            "context_mode": "replace" if authoritative_collection else payload.get("context_mode"),
+            "authoritative_collections": (
+                [authoritative_collection] if authoritative_collection else None
+            ),
             "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
             # top_k / latency_profile / retrieval_profile / budgets flow from the
             # plan via runtime_kwargs; default to the balanced lane (never hardcode
             # fast) so factual lookups get a real candidate pool, matching classic.
             **kwargs,
         }
+        run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
+        history = payload.get("conversation_history") or run_input.get("conversation_history")
+        salient = payload.get("salient_entities") or run_input.get("salient_entities")
+        if isinstance(history, list) and history:
+            request["context"] = {"conversation_history": history}
+            if isinstance(salient, dict) and salient:
+                request["context"]["salient_entities"] = salient
         request.setdefault("latency_profile", "balanced")
         # RECALL PARITY (fix 2026-06-26): backfill the full lane budget triple
         # (top_k/synthesis_k/candidate_pool_k/source_display_k) so a lone top_k pin
@@ -349,7 +393,7 @@ async def _semantic_search_v1(
     request = _build_request(with_collection=True)
     result = await retrieve_rag_context(request)
     chunks = list(result.get("chunks") or [])
-    if bound_collection and not chunks:
+    if bound_collection and not chunks and allow_workspace_fallback:
         logger.warning(
             "semantic_search_v1: authoritative asset collection returned no context; "
             "falling back to workspace scope (grounding safety net)",
@@ -363,14 +407,41 @@ async def _semantic_search_v1(
     scores = list(result.get("scores") or [])
     metadatas = list(result.get("metadatas") or [])
     metrics = dict(result.get("metrics") or {})
-    results = [
-        {
-            "content": content,
-            "score": scores[index] if index < len(scores) else None,
-            "metadata": metadatas[index] if index < len(metadatas) else {},
-        }
-        for index, content in enumerate(chunks)
-    ]
+    reported_collections_raw = metrics.get("collections_touched") or metrics.get("collections")
+    if isinstance(reported_collections_raw, str):
+        reported_collections = [reported_collections_raw]
+    elif isinstance(reported_collections_raw, (list, tuple, set)):
+        reported_collections = [
+            str(item).strip() for item in reported_collections_raw if str(item).strip()
+        ]
+    else:
+        reported_collections = []
+    contradictory_collection_proof = bool(
+        authoritative_collection
+        and any(item != authoritative_collection for item in reported_collections)
+    )
+    results = []
+    for index, content in enumerate(chunks):
+        metadata = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        if (
+            authoritative_collection
+            and not contradictory_collection_proof
+            and not any(
+                metadata.get(key) for key in ("collection", "collection_name", "collection_slug")
+            )
+        ):
+            metadata["collection"] = authoritative_collection
+        results.append(
+            {
+                "content": content,
+                "score": scores[index] if index < len(scores) else None,
+                "metadata": metadata,
+            }
+        )
     # Surface the exhaustive enumeration as the TOP authoritative passage so the
     # grounded synthesis lists the projects (the few retrieved chunks otherwise
     # only describe the equipment, not where it is deployed).
@@ -391,8 +462,18 @@ async def _semantic_search_v1(
         "dense_policy": metrics.get("dense_policy"),
         "fallback_reason": metrics.get("fallback_reason"),
         "latency_budget": metrics.get("latency_budget"),
+        # Preserve contradictory backend proof verbatim so the chat adapter's
+        # egress gate can block it.  Only infer the authoritative collection
+        # when the backend emitted no collection telemetry at all.
+        "collections_touched": reported_collections
+        or ([authoritative_collection] if authoritative_collection and chunks else []),
+        "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
         # Observable grounding proof — non-zero once workspace_slug is wired.
-        "raw_chunks_retrieved": metrics.get("raw_chunks_retrieved"),
+        "raw_chunks_retrieved": (
+            metrics.get("raw_chunks_retrieved")
+            if metrics.get("raw_chunks_retrieved") is not None
+            else len(chunks)
+        ),
         "document_chunks_retrieved": metrics.get("document_chunks_retrieved"),
         "stage_timings": metrics.get("stage_timings"),
     }
@@ -463,8 +544,9 @@ async def _multi_hop_retrieve_v1(
     ``comparative_retrieval``) into the SAME output shape as
     ``semantic_search_v1`` (``results[]`` + ``raw_chunks_retrieved``) so it drops
     into ``join.retrieval`` as an interchangeable lane. When ``sub_queries`` is
-    empty it degrades to a single search of the main query (never crashes the
-    DAG — a failing hop yields no hits rather than an exception).
+    empty it degrades to a single search of the main query.  A failing hop does
+    not crash the DAG, but it keeps a stable technical failure marker so an
+    all-hop backend outage cannot be misclassified as a grounded empty corpus.
     """
     import asyncio
 
@@ -510,7 +592,12 @@ async def _multi_hop_retrieve_v1(
             return await _semantic_search_v1({**base, "query": sub_query}, ctx)
         except Exception as exc:  # noqa: BLE001 — one bad hop must not sink the lane
             logger.warning("multi_hop_retrieve_v1: sub-query search failed", error=str(exc))
-            return {"results": []}
+            return {
+                "results": [],
+                "raw_chunks_retrieved": 0,
+                "collections_touched": [],
+                "fallback_reason": "retrieval_backend_error",
+            }
 
     searches = list(await asyncio.gather(*[_one(q) for q in queries]))
 
@@ -525,17 +612,35 @@ async def _multi_hop_retrieve_v1(
 
     results = _merge_multi_hop_searches(searches, limit=limit)
     raw_total = 0
+    collections_touched: list[str] = []
+    failure_reasons: list[str] = []
     for res in searches:
         try:
             raw_total += int(res.get("raw_chunks_retrieved") or 0)
         except (TypeError, ValueError):
-            continue
-    return {
+            pass
+        for collection in res.get("collections_touched") or []:
+            value = str(collection or "").strip()
+            if value and value not in collections_touched:
+                collections_touched.append(value)
+        reason = str(res.get("fallback_reason") or "").strip()
+        if reason and reason not in failure_reasons:
+            failure_reasons.append(reason)
+
+    output = {
         "results": results,
         "raw_chunks_retrieved": raw_total or len(results),
         "sub_queries": queries[1:],
         "hop_count": len(queries),
+        "collections_touched": collections_touched,
     }
+    if failure_reasons:
+        output["fallback_reason"] = (
+            "retrieval_backend_error"
+            if not results and raw_total == 0
+            else "partial_retrieval_backend_error"
+        )
+    return output
 
 
 async def _document_ingestion_v1(
@@ -2836,11 +2941,22 @@ def _citations_from_passages(passages: list[dict[str, Any]]) -> list[dict[str, A
     citations: list[dict[str, Any]] = []
     for index, passage in enumerate(passages, start=1):
         md = passage.get("metadata") or {}
+        label = _passage_source_label(md, index)
+        document_id = md.get("document_id") or md.get("doc_id")
+        filename = md.get("document_filename") or md.get("filename") or label
+        collection = md.get("collection") or md.get("collection_name") or md.get("collection_slug")
         citations.append(
             {
                 "index": index,
+                "id": md.get("chunk_id") or md.get("id") or md.get("point_id"),
                 "source_id": md.get("chunk_id") or md.get("id") or md.get("point_id"),
-                "document": _passage_source_label(md, index),
+                "document": label,
+                "title": md.get("document_title") or md.get("title") or filename,
+                "filename": filename,
+                "document_id": document_id,
+                "collection": collection,
+                "page": md.get("page") or md.get("page_number"),
+                "snippet": str(passage.get("content") or "")[:1000],
                 "score": passage.get("score"),
             }
         )

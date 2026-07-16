@@ -55,6 +55,7 @@ class RunSubscription:
             return None
         event = await self._queue.get()
         if event.get("__sentinel__"):
+            self._bus._unregister(self._run_id, self._queue)
             self._closed = True
             return None
         return event
@@ -88,9 +89,7 @@ class RunEventBus:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                logger.warning(
-                    "run_event_bus: subscriber queue full, dropping", run_id=run_id
-                )
+                logger.warning("run_event_bus: subscriber queue full, dropping", run_id=run_id)
 
     def close(self, run_id: str) -> None:
         """Signal to every subscriber that no more events will arrive.

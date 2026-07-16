@@ -29,20 +29,116 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.capability import Capability
+from app.models.policy import ControlPolicy
 from app.models.run import Run
 from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.canonical import ExecutionMode, SystemStatus
 from app.services.actions.contracts import normalize_system_action_pack_settings
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
+from app.services.chat_execution_policy import (
+    migration_059_system_id,
+)
 from app.services.run_engine import schedule_run, triggers
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
+
+
+def _is_migration_managed_agentic_system(
+    workspace: Workspace,
+    system: System,
+) -> bool:
+    return migration_059_system_id(workspace) == system.id
+
+
+def _require_managed_system_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    system: System,
+) -> None:
+    if not _is_migration_managed_agentic_system(workspace, system):
+        return
+    if getattr(user, "role", None) == "admin":
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == getattr(user, "id", None),
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not membership or not is_admin_template(
+        membership.role_template,
+        membership.role,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin/owner access required for the production Agentic System",
+        )
+
+
+def _require_reserved_agentic_identity_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> None:
+    if getattr(user, "role", None) == "admin":
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == getattr(user, "id", None),
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not membership or not is_admin_template(
+        membership.role_template,
+        membership.role,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin/owner access required for the reserved Agentic identity",
+        )
+
+
+def _is_reserved_agentic_identity(settings_blob: Any, flow: Any) -> bool:
+    settings_payload = settings_blob if isinstance(settings_blob, dict) else {}
+    flow_payload = flow if isinstance(flow, dict) else {}
+    return bool(
+        settings_payload.get("system_type") == "chat_agentic"
+        and flow_payload.get("variant") == "chat_agentic_thinking_v1"
+    )
+
+
+def _validate_control_policy_tenant(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    policy_id: Optional[str],
+) -> None:
+    if not policy_id:
+        return
+    exists_in_workspace = (
+        db.query(ControlPolicy.id)
+        .filter(
+            ControlPolicy.id == policy_id,
+            ControlPolicy.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if exists_in_workspace is None:
+        raise HTTPException(400, "ControlPolicy must belong to the current workspace")
 
 
 # ---------------- Pydantic ----------------
@@ -284,6 +380,19 @@ async def create_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
+        body.settings, body.flow_definition
+    ):
+        _require_reserved_agentic_identity_admin(
+            db,
+            user=user,
+            workspace=workspace,
+        )
+    _validate_control_policy_tenant(
+        db,
+        workspace_id=workspace.id,
+        policy_id=body.control_policy_id,
+    )
     # Validate the initial flow_definition the same way PATCH does so
     # a chain can't be born invalid. Empty flow_definition is valid
     # (draft) — the validator treats no-nodes as zero issues.
@@ -422,9 +531,16 @@ def _sync_membrane_collection_allowlist(
     policy_id = getattr(system, "control_policy_id", None)
     if not policy_id:
         return
-    from app.models.policy import ControlPolicy
-
-    policy = db.query(ControlPolicy).filter(ControlPolicy.id == policy_id).first()
+    policy = (
+        db.query(ControlPolicy)
+        .filter(
+            ControlPolicy.id == policy_id,
+            ControlPolicy.workspace_id == system.workspace_id,
+            ControlPolicy.scope == "system",
+            ControlPolicy.target_id == system.id,
+        )
+        .first()
+    )
     if policy is None:
         return
     extra = dict(policy.extra) if isinstance(policy.extra, dict) else {}
@@ -455,8 +571,30 @@ async def update_system(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=s,
+    )
 
     updates = body.model_dump(exclude_unset=True, mode="json")
+    prospective_settings = updates.get("settings", s.settings)
+    prospective_flow = updates.get("flow_definition", s.flow_definition)
+    if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
+        prospective_settings, prospective_flow
+    ):
+        _require_reserved_agentic_identity_admin(
+            db,
+            user=user,
+            workspace=workspace,
+        )
+    if "control_policy_id" in updates:
+        _validate_control_policy_tenant(
+            db,
+            workspace_id=workspace.id,
+            policy_id=updates["control_policy_id"],
+        )
     new_flow = updates.get("flow_definition") if "flow_definition" in updates else None
 
     issues: list = []
@@ -538,6 +676,12 @@ async def update_system_event_trigger(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=s,
+    )
 
     updates: dict[str, Any] = {}
     if body.mode is not None:
@@ -580,11 +724,18 @@ async def update_system_event_trigger(
 async def delete_system(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=s,
+    )
     db.delete(s)
     db.commit()
     return None
@@ -597,17 +748,30 @@ async def trigger_run(
     body: RunCreate,
     background_tasks: BackgroundTasks,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    if body.trigger == "chat_agentic":
+        raise HTTPException(
+            status_code=400,
+            detail="The chat_agentic trigger is reserved to the server-owned chat adapter",
+        )
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=s,
+    )
 
     run = Run(
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=s.id,
         capability_id=s.capability_id,
+        initiated_by_user_id=getattr(user, "id", None),
         input_ref=body.input_ref,
         status="pending",
         started_at=datetime.utcnow(),
@@ -699,6 +863,12 @@ async def rollback_system_version(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=s,
+    )
     try:
         new_version = version_service.rollback_to_version(
             db=db,

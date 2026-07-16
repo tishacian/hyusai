@@ -528,6 +528,64 @@ def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
     assert job.message_id
 
 
+def test_andritz_deep_job_and_preview_share_authoritative_notices_scope(
+    db_session,
+    monkeypatch,
+):
+    notices = "andritz-notices-techniques-spl-pilot"
+    workspace = Workspace(
+        id="ws-andritz-deep-scope",
+        name="Andritz Deep Scope",
+        slug="andritz-deep-scope",
+        settings={"family": "andritz"},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(
+        db_session,
+        workspace=workspace,
+        name="Andritz SPL notices",
+        slug=notices,
+    )
+    collection.document_count = 12
+    collection.chunk_count = 240
+    db_session.commit()
+
+    def fake_dispatch(_db, _workspace, job, **_kwargs):
+        return f"task-{job.id}"
+
+    monkeypatch.setattr("app.services.workspace_jobs.dispatch_workspace_job", fake_dispatch)
+    client = _client(db_session, workspace, HappyOrchestrator(), monkeypatch)
+
+    preview = client.post(
+        "/chat/retrieval-plan-preview",
+        json={
+            "query": "Quels sont les pompes du projet BCX200 ?",
+            "knowledge_scope": "workspace",
+            "retrieval_filters": {"collection_slug": "unrelated-manuals"},
+        },
+    )
+    deep = client.post(
+        "/chat/deep-retrieval-jobs",
+        json={
+            "query": "Quels sont les pompes du projet BCX200 ?",
+            "knowledge_scope": "workspace",
+        },
+    )
+
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["collection"] == notices
+    assert preview_body["collections"] == [notices]
+    assert preview_body["retrieval_scope"]["collections"] == [notices]
+    assert deep.status_code == 200
+    job = db_session.get(WorkspaceJob, deep.json()["id"])
+    assert job.collection_id == collection.id
+    assert job.input_ref["request"]["context_collection"] == notices
+    assert job.input_ref["request"]["authoritative_collections"] == [notices]
+    assert "knowledge_scope" not in job.input_ref["request"]
+
+
 def test_dense_unscoped_guardrail_queues_auto_deep_retrieval():
     state = {
         "dense_policy": "fast_scoped_dense_auto",

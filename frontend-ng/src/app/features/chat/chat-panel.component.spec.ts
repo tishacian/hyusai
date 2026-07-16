@@ -287,3 +287,104 @@ test('evaluation and Deep Search poll responses from A cannot mutate B', async (
     injector.destroy();
   }
 });
+
+test('HITL message polling is unique per session and Run, then refreshes the pending bubble', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { injector, component, api } = makeHarness();
+  try {
+    await Promise.resolve();
+    (component as unknown as { focusComposer(): void }).focusComposer = () => undefined;
+    component.openChatSession('session-a');
+    api.sessionDetails[0].next({
+      id: 'session-a',
+      messages: [{
+        id: 'message-a',
+        role: 'assistant',
+        content: 'Validation requise',
+        meta_data: { route: 'agentic_review', run_id: 'run-a' },
+      }],
+      jobs: [],
+    });
+    const pollable = component as unknown as {
+      startHitlMessagePolling(runId: string): void;
+      activeHitlMessagePolls: Set<string>;
+    };
+
+    pollable.startHitlMessagePolling('run-a');
+    t.mock.timers.tick(1500);
+    assert.equal(api.sessionDetails.length, 2, 'duplicate starts share one session poll');
+    assert.deepEqual([...pollable.activeHitlMessagePolls], ['session-a:run-a']);
+
+    api.sessionDetails[1].next({
+      id: 'session-a',
+      messages: [{
+        id: 'message-a',
+        role: 'assistant',
+        content: 'Réponse validée [1].',
+        meta_data: {
+          route: 'agentic',
+          run_id: 'run-a',
+          resumed_after_hitl: true,
+          sources: [{ title: 'Notice P-101' }],
+        },
+      }],
+    });
+
+    assert.equal(component.messages()[0]?.content, 'Réponse validée [1].');
+    assert.equal(component.messages()[0]?.sources?.[0]?.title, 'Notice P-101');
+    assert.equal(pollable.activeHitlMessagePolls.size, 0, 'success releases the poll key');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a HITL poll from a conversation left behind cannot mutate the active conversation', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { injector, component, api, canonical } = makeHarness();
+  try {
+    await Promise.resolve();
+    (component as unknown as { focusComposer(): void }).focusComposer = () => undefined;
+    component.openChatSession('session-a');
+    api.sessionDetails[0].next({
+      id: 'session-a',
+      messages: [{
+        id: 'message-a',
+        role: 'assistant',
+        content: 'Validation A',
+        meta_data: { route: 'agentic_review', run_id: 'run-a' },
+      }],
+      jobs: [],
+    });
+    t.mock.timers.tick(1500);
+    assert.equal(api.sessionDetails.length, 2);
+
+    component.openChatSession('session-b');
+    api.sessionDetails[2].next({
+      id: 'session-b',
+      messages: [{ id: 'message-b', role: 'assistant', content: 'Réponse B' }],
+      jobs: [],
+    });
+    api.sessionDetails[1].next({
+      id: 'session-a',
+      messages: [{
+        id: 'message-a',
+        role: 'assistant',
+        content: 'Réponse privée A validée',
+        meta_data: {
+          route: 'agentic',
+          run_id: 'run-a',
+          resumed_after_hitl: true,
+        },
+      }],
+    });
+    t.mock.timers.tick(10_000);
+
+    assert.deepEqual(component.messages().map((message) => message.content), ['Réponse B']);
+    assert.equal(canonical.evalRequests.length, 0);
+    assert.equal(api.sessionDetails.length, 3, 'the abandoned session schedules no further poll');
+    const pollable = component as unknown as { activeHitlMessagePolls: Set<string> };
+    assert.equal(pollable.activeHitlMessagePolls.size, 0);
+  } finally {
+    injector.destroy();
+  }
+});

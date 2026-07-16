@@ -32,9 +32,9 @@ import pytest
 from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag
-
 
 _FLOW_PATH = (
     pathlib.Path(__file__).resolve().parents[2]
@@ -54,6 +54,19 @@ _RETRIEVED = [
         "score": 0.91,
     }
 ]
+
+
+@pytest.fixture(autouse=True)
+def _andritz_workspace(db_session):
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz dataflow test",
+        slug="andritz",
+        settings={"family": "andritz"},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    return workspace
 
 
 def _load_flow_definition() -> Dict[str, Any]:
@@ -98,8 +111,11 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
 
     def _record(slug: str):
         async def _fn(payload: Dict[str, Any], ctx: Dict[str, Any] | None = None):
-            calls.setdefault(slug, []).append({"payload": dict(payload or {}), "ctx": dict(ctx or {})})
+            calls.setdefault(slug, []).append(
+                {"payload": dict(payload or {}), "ctx": dict(ctx or {})}
+            )
             return _OUTPUTS[slug]
+
         return _fn
 
     _OUTPUTS: Dict[str, Dict[str, Any]] = {
@@ -129,7 +145,13 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
             "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}],
             "decision_steps": [],
         },
-        "eval_radar_v1": {"axes": {}, "overall": 0.6, "hallucination_rate": 0.2, "drift_rate": 0.0, "note": ""},
+        "eval_radar_v1": {
+            "axes": {},
+            "overall": 0.6,
+            "hallucination_rate": 0.2,
+            "drift_rate": 0.0,
+            "note": "",
+        },
         "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 1, "unsupported": 0},
         # composite 45 < 50 -> decision.verdict routes to the WEAK branch so
         # self_correct fires; composite >= 40 keeps the egress gate on "ok"
@@ -159,6 +181,7 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
 
     system = System(
         id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
         name="Andritz Chat Agentic (dataflow test)",
         objective="test",
         skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
@@ -172,7 +195,7 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
         id=str(uuid.uuid4()),
         system_id=system.id,
         workspace_id="ws-andritz",
-        input_ref={"query": _QUERY},
+        input_ref={"query": _QUERY, "workspace_slug": "andritz"},
         status="pending",
     )
     db_session.add(run)
@@ -203,9 +226,9 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
     # ----- C1: task.generate CONSUMES join.retrieval.results ----------------
     gen_payload = calls["llm_rag_answer_v1"][0]["payload"]
     assert gen_payload["query"] == _QUERY
-    assert isinstance(gen_payload.get("context"), list) and gen_payload["context"], (
-        "task.generate received an EMPTY context — join.retrieval.results not wired"
-    )
+    assert (
+        isinstance(gen_payload.get("context"), list) and gen_payload["context"]
+    ), "task.generate received an EMPTY context — join.retrieval.results not wired"
     assert gen_payload["context"][0]["content"] == _RETRIEVED[0]["content"]
     assert gen_payload["answer_profile"] == "technical"
     assert gen_payload["lang_target"] == "fr"
@@ -220,18 +243,16 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
     assert sc_payload["draft_answer"] == _OUTPUTS["llm_rag_answer_v1"]["answer"]
     # Parity fix: self_correct receives the ORIGINAL retrieval context so
     # escalate_deep can MERGE (never lose carrier chunks) with the deep re-search.
-    assert isinstance(sc_payload.get("context"), list) and sc_payload["context"], (
-        "self_correct did not receive join.retrieval.results as context"
-    )
+    assert (
+        isinstance(sc_payload.get("context"), list) and sc_payload["context"]
+    ), "self_correct did not receive join.retrieval.results as context"
     assert sc_payload["context"][0]["content"] == _RETRIEVED[0]["content"]
 
-    # ----- Root cause: ctx carries workspace_id but NOT workspace_slug ------
+    # Production chat Runs snapshot the tenant slug so every retrieval hop and
+    # retry keeps the same physical collection namespace.
     any_ctx = calls["llm_rag_answer_v1"][0]["ctx"]
     assert any_ctx.get("workspace_id") == "ws-andritz"
-    assert "workspace_slug" not in any_ctx, (
-        "if the engine ever starts seeding workspace_slug, the skill-side "
-        "resolver can be simplified — but today it must resolve it itself"
-    )
+    assert any_ctx.get("workspace_slug") == "andritz"
 
 
 @pytest.mark.asyncio
@@ -245,6 +266,7 @@ async def test_agentic_dag_clarify_routes_to_ask_user(db_session, monkeypatch):
         async def _fn(payload, ctx=None):
             calls[slug] = calls.get(slug, 0) + 1
             return output
+
         return _fn
 
     plan_out = {
@@ -267,10 +289,27 @@ async def test_agentic_dag_clarify_routes_to_ask_user(db_session, monkeypatch):
     outputs = {
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},
-        "llm_rag_answer_v1": {"answer": "ne devrait pas etre appele", "citations": [], "decision_steps": []},
-        "eval_radar_v1": {"axes": {}, "overall": 0.0, "hallucination_rate": 0.0, "drift_rate": 0.0, "note": ""},
+        "llm_rag_answer_v1": {
+            "answer": "ne devrait pas etre appele",
+            "citations": [],
+            "decision_steps": [],
+        },
+        "eval_radar_v1": {
+            "axes": {},
+            "overall": 0.0,
+            "hallucination_rate": 0.0,
+            "drift_rate": 0.0,
+            "note": "",
+        },
         "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 0, "unsupported": 0},
-        "response_eval_v1": {"composite": 80.0, "hallucination_rate": 0.0, "context_count": 1, "hhem": 0.0, "factuality": 1.0, "coherence": 1.0},
+        "response_eval_v1": {
+            "composite": 80.0,
+            "hallucination_rate": 0.0,
+            "context_count": 1,
+            "hhem": 0.0,
+            "factuality": 1.0,
+            "coherence": 1.0,
+        },
         "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
     }
     slugs = list(outputs)
@@ -280,6 +319,7 @@ async def test_agentic_dag_clarify_routes_to_ask_user(db_session, monkeypatch):
 
     system = System(
         id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
         name="Andritz Chat Agentic (clarify test)",
         objective="test",
         skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
@@ -320,6 +360,7 @@ async def test_agentic_dag_reject_oos_suppressed_when_context_found(db_session, 
         async def _fn(payload, ctx=None):
             calls[slug] = calls.get(slug, 0) + 1
             return output
+
         return _fn
 
     plan_out = {
@@ -344,11 +385,28 @@ async def test_agentic_dag_reject_oos_suppressed_when_context_found(db_session, 
     outputs = {
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},
-        "llm_rag_answer_v1": {"answer": "Das QMS-12 misst Flächengewicht [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
-        "eval_radar_v1": {"axes": {}, "overall": 0.8, "hallucination_rate": 0.0, "drift_rate": 0.0, "note": ""},
+        "llm_rag_answer_v1": {
+            "answer": "Das QMS-12 misst Flächengewicht [1].",
+            "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}],
+            "decision_steps": [],
+        },
+        "eval_radar_v1": {
+            "axes": {},
+            "overall": 0.8,
+            "hallucination_rate": 0.0,
+            "drift_rate": 0.0,
+            "note": "",
+        },
         "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 1, "unsupported": 0},
         # context_count > 0 -> deliver context gate suppresses reject_oos.
-        "response_eval_v1": {"composite": 85.0, "hallucination_rate": 0.0, "context_count": 1, "hhem": 0.0, "factuality": 1.0, "coherence": 1.0},
+        "response_eval_v1": {
+            "composite": 85.0,
+            "hallucination_rate": 0.0,
+            "context_count": 1,
+            "hhem": 0.0,
+            "factuality": 1.0,
+            "coherence": 1.0,
+        },
         "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
     }
     slugs = list(outputs)
@@ -358,6 +416,7 @@ async def test_agentic_dag_reject_oos_suppressed_when_context_found(db_session, 
 
     system = System(
         id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
         name="Andritz Chat Agentic (oos backstop test)",
         objective="test",
         skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
@@ -450,15 +509,15 @@ def test_flow_valid_and_judges_removed_from_online_serving_dag():
     ]
     for node_id in egress_nodes:
         ancestors = _static_ancestors(flow, node_id)
-        assert "task.response_eval" in ancestors, (
-            f"{node_id} must depend on response_eval (embeddings barrier)"
-        )
-        assert "task.eval_radar" not in ancestors, (
-            f"{node_id} still depends on the eval_radar LLM judge (egress blocked)"
-        )
-        assert "task.claim_audit" not in ancestors, (
-            f"{node_id} still depends on the claim_audit LLM judge (egress blocked)"
-        )
+        assert (
+            "task.response_eval" in ancestors
+        ), f"{node_id} must depend on response_eval (embeddings barrier)"
+        assert (
+            "task.eval_radar" not in ancestors
+        ), f"{node_id} still depends on the eval_radar LLM judge (egress blocked)"
+        assert (
+            "task.claim_audit" not in ancestors
+        ), f"{node_id} still depends on the claim_audit LLM judge (egress blocked)"
 
     # The retained scaffold: join.eval's only ancestors are the instant fork and
     # its generate feed — never an LLM judge.
@@ -492,6 +551,7 @@ async def test_agentic_dag_answer_egresses_without_llm_judges(db_session, monkey
         async def _fn(payload, ctx=None):
             calls[slug] = calls.get(slug, 0) + 1
             return output
+
         return _fn
 
     def _slow_judge(slug: str):
@@ -499,22 +559,51 @@ async def test_agentic_dag_answer_egresses_without_llm_judges(db_session, monkey
             calls[slug] = calls.get(slug, 0) + 1
             await asyncio.sleep(30)  # would blow any latency budget if awaited
             return {}
+
         return _fn
 
     plan_out = {
-        "action": "answer", "mode": "balanced", "answer_profile": "technical",
-        "scope_hint": "AKK200", "clarifying_question": "", "oos_reason": "",
-        "lang_target": "fr", "confidence": 0.8,
-        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "action": "answer",
+        "mode": "balanced",
+        "answer_profile": "technical",
+        "scope_hint": "AKK200",
+        "clarifying_question": "",
+        "oos_reason": "",
+        "lang_target": "fr",
+        "confidence": 0.8,
+        "retrieval": {
+            "latency_profile": "balanced",
+            "retrieval_profile": "chat",
+            "top_k": 8,
+            "synthesis_k": 16,
+            "candidate_pool_k": 40,
+            "rag_pipeline_mode": "chah",
+            "deep_retrieval": False,
+        },
         "sub_queries": [],
     }
     outputs = {
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},
-        "llm_rag_answer_v1": {"answer": "Largeur 0.3 m [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
+        "llm_rag_answer_v1": {
+            "answer": "Largeur 0.3 m [1].",
+            "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}],
+            "decision_steps": [],
+        },
         # strong verdict (composite >= 50) -> self_correct skipped.
-        "response_eval_v1": {"composite": 82.0, "hallucination_rate": 0.1, "context_count": 1, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
-        "chat_self_correct_v1": {"answer": "should not run", "citations": [], "action_taken": "declare_partial"},
+        "response_eval_v1": {
+            "composite": 82.0,
+            "hallucination_rate": 0.1,
+            "context_count": 1,
+            "hhem": 0.1,
+            "factuality": 0.9,
+            "coherence": 0.9,
+        },
+        "chat_self_correct_v1": {
+            "answer": "should not run",
+            "citations": [],
+            "action_taken": "declare_partial",
+        },
     }
     slugs = list(outputs)
     registry = {s: _record(s, outputs[s]) for s in slugs}
@@ -528,13 +617,25 @@ async def test_agentic_dag_answer_egresses_without_llm_judges(db_session, monkey
         _mk_skill(db_session, slug)
 
     system = System(
-        id=str(uuid.uuid4()), name="Andritz Chat Agentic (latency test)", objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(list(registry))).all()],
-        flow_definition=flow, default_model="gpt-4o-mini",
+        id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
+        name="Andritz Chat Agentic (latency test)",
+        objective="test",
+        skill_ids=[
+            r.id for r in db_session.query(Skill).filter(Skill.slug.in_(list(registry))).all()
+        ],
+        flow_definition=flow,
+        default_model="gpt-4o-mini",
     )
     db_session.add(system)
     db_session.commit()
-    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": _QUERY}, status="pending")
+    run = Run(
+        id=str(uuid.uuid4()),
+        system_id=system.id,
+        workspace_id="ws-andritz",
+        input_ref={"query": _QUERY},
+        status="pending",
+    )
     db_session.add(run)
     db_session.commit()
 
@@ -565,6 +666,7 @@ async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, m
         async def _fn(payload, ctx=None):
             calls.setdefault(slug, []).append(dict(payload or {}))
             return output
+
         return _fn
 
     _MERGED = [
@@ -572,20 +674,55 @@ async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, m
         {"content": "KSB Etanorm pump spec.", "metadata": {"chunk_id": "k-1"}, "score": 0.88},
     ]
     plan_out = {
-        "action": "answer", "mode": "balanced", "answer_profile": "comparison",
-        "scope_hint": "pompes", "clarifying_question": "", "oos_reason": "",
-        "lang_target": "fr", "confidence": 0.8,
-        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "action": "answer",
+        "mode": "balanced",
+        "answer_profile": "comparison",
+        "scope_hint": "pompes",
+        "clarifying_question": "",
+        "oos_reason": "",
+        "lang_target": "fr",
+        "confidence": 0.8,
+        "retrieval": {
+            "latency_profile": "balanced",
+            "retrieval_profile": "chat",
+            "top_k": 8,
+            "synthesis_k": 16,
+            "candidate_pool_k": 40,
+            "rag_pipeline_mode": "chah",
+            "deep_retrieval": False,
+        },
         "sub_queries": ["Wilo NOLH pump", "KSB Etanorm pump"],
     }
     outputs = {
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},  # should NOT be called
-        "multi_hop_retrieve_v1": {"results": _MERGED, "raw_chunks_retrieved": 4, "sub_queries": ["Wilo NOLH pump", "KSB Etanorm pump"], "hop_count": 3},
-        "llm_rag_answer_v1": {"answer": "Wilo vs KSB [1][2].", "citations": [{"index": 1, "source_id": "w-1"}, {"index": 2, "source_id": "k-1"}], "decision_steps": []},
-        "eval_radar_v1": {"axes": {}, "overall": 0.8, "hallucination_rate": 0.1, "drift_rate": 0.0, "note": ""},
+        "multi_hop_retrieve_v1": {
+            "results": _MERGED,
+            "raw_chunks_retrieved": 4,
+            "sub_queries": ["Wilo NOLH pump", "KSB Etanorm pump"],
+            "hop_count": 3,
+        },
+        "llm_rag_answer_v1": {
+            "answer": "Wilo vs KSB [1][2].",
+            "citations": [{"index": 1, "source_id": "w-1"}, {"index": 2, "source_id": "k-1"}],
+            "decision_steps": [],
+        },
+        "eval_radar_v1": {
+            "axes": {},
+            "overall": 0.8,
+            "hallucination_rate": 0.1,
+            "drift_rate": 0.0,
+            "note": "",
+        },
         "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 2, "unsupported": 0},
-        "response_eval_v1": {"composite": 80.0, "hallucination_rate": 0.1, "context_count": 2, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
+        "response_eval_v1": {
+            "composite": 80.0,
+            "hallucination_rate": 0.1,
+            "context_count": 2,
+            "hhem": 0.1,
+            "factuality": 0.9,
+            "coherence": 0.9,
+        },
         "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
     }
     slugs = list(outputs)
@@ -594,13 +731,23 @@ async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, m
         _mk_skill(db_session, slug)
 
     system = System(
-        id=str(uuid.uuid4()), name="Andritz Chat Agentic (multihop test)", objective="test",
+        id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
+        name="Andritz Chat Agentic (multihop test)",
+        objective="test",
         skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
-        flow_definition=flow, default_model="gpt-4o-mini",
+        flow_definition=flow,
+        default_model="gpt-4o-mini",
     )
     db_session.add(system)
     db_session.commit()
-    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": "compare Wilo NOLH and KSB Etanorm"}, status="pending")
+    run = Run(
+        id=str(uuid.uuid4()),
+        system_id=system.id,
+        workspace_id="ws-andritz",
+        input_ref={"query": "compare Wilo NOLH and KSB Etanorm"},
+        status="pending",
+    )
     db_session.add(run)
     db_session.commit()
 
@@ -639,20 +786,45 @@ async def _run_binding_probe(db_session, monkeypatch) -> Dict[str, Any]:
         async def _fn(payload, ctx=None):
             calls.setdefault(slug, []).append(dict(payload or {}))
             return output
+
         return _fn
 
     plan_out = {
-        "action": "answer", "mode": "balanced", "answer_profile": "technical",
-        "scope_hint": "AKK200", "clarifying_question": "", "oos_reason": "",
-        "lang_target": "fr", "confidence": 0.8,
-        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "action": "answer",
+        "mode": "balanced",
+        "answer_profile": "technical",
+        "scope_hint": "AKK200",
+        "clarifying_question": "",
+        "oos_reason": "",
+        "lang_target": "fr",
+        "confidence": 0.8,
+        "retrieval": {
+            "latency_profile": "balanced",
+            "retrieval_profile": "chat",
+            "top_k": 8,
+            "synthesis_k": 16,
+            "candidate_pool_k": 40,
+            "rag_pipeline_mode": "chah",
+            "deep_retrieval": False,
+        },
         "sub_queries": [],
     }
     outputs = {
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},
-        "llm_rag_answer_v1": {"answer": "Largeur 0.3 m [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
-        "response_eval_v1": {"composite": 82.0, "hallucination_rate": 0.1, "context_count": 1, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
+        "llm_rag_answer_v1": {
+            "answer": "Largeur 0.3 m [1].",
+            "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}],
+            "decision_steps": [],
+        },
+        "response_eval_v1": {
+            "composite": 82.0,
+            "hallucination_rate": 0.1,
+            "context_count": 1,
+            "hhem": 0.1,
+            "factuality": 0.9,
+            "coherence": 0.9,
+        },
         "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
     }
     slugs = list(outputs)
@@ -661,13 +833,23 @@ async def _run_binding_probe(db_session, monkeypatch) -> Dict[str, Any]:
         _mk_skill(db_session, slug)
 
     system = System(
-        id=str(uuid.uuid4()), name="Andritz Chat Agentic (binding test)", objective="test",
+        id=str(uuid.uuid4()),
+        workspace_id="ws-andritz",
+        name="Andritz Chat Agentic (binding test)",
+        objective="test",
         skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
-        flow_definition=flow, default_model="gpt-4o-mini",
+        flow_definition=flow,
+        default_model="gpt-4o-mini",
     )
     db_session.add(system)
     db_session.commit()
-    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": _QUERY}, status="pending")
+    run = Run(
+        id=str(uuid.uuid4()),
+        system_id=system.id,
+        workspace_id="ws-andritz",
+        input_ref={"query": _QUERY},
+        status="pending",
+    )
     db_session.add(run)
     db_session.commit()
 
@@ -685,9 +867,9 @@ async def test_asset_binding_flag_off_is_iso_phase1_no_collection(db_session, mo
 
     monkeypatch.setattr(settings, "flow_asset_binding_authoritative", False)
     search_payload = await _run_binding_probe(db_session, monkeypatch)
-    assert "collection" not in search_payload, (
-        "flag OFF leaked the asset-bound collection into the retrieval payload"
-    )
+    assert (
+        "collection" not in search_payload
+    ), "flag OFF leaked the asset-bound collection into the retrieval payload"
     # The rest of the payload is unchanged (the non-asset inputs_map still wires).
     assert search_payload["query"] == _QUERY
     assert search_payload["top_k"] == 8
@@ -701,9 +883,9 @@ async def test_asset_binding_flag_on_passes_bound_collection(db_session, monkeyp
 
     monkeypatch.setattr(settings, "flow_asset_binding_authoritative", True)
     search_payload = await _run_binding_probe(db_session, monkeypatch)
-    assert search_payload.get("collection") == _ASSET_COLLECTION_SLUG, (
-        "flag ON must pass the asset-bound collection to semantic_search_v1"
-    )
+    assert (
+        search_payload.get("collection") == _ASSET_COLLECTION_SLUG
+    ), "flag ON must pass the asset-bound collection to semantic_search_v1"
     # Binding is additive: the non-asset inputs_map is still wired through.
     assert search_payload["query"] == _QUERY
     assert search_payload["top_k"] == 8

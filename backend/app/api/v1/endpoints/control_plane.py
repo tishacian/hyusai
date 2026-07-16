@@ -12,13 +12,48 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from app.api.v1.endpoints.impact import _aggregate
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.policy import AdaptivePolicy, ControlPolicy
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.chat_execution_policy import (
+    migration_059_control_policy_id,
+)
 from app.services.membrane.spec import MembraneSpec
 
 router = APIRouter()
+
+
+def _require_managed_policy_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    policy: ControlPolicy,
+) -> None:
+    """Reserve the migration-owned production membrane to administrators."""
+
+    is_managed = migration_059_control_policy_id(workspace) == policy.id
+    if not is_managed or getattr(user, "role", None) == "admin":
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == getattr(user, "id", None),
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not membership or not is_admin_template(
+        membership.role_template,
+        membership.role,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin/owner access required for the production Agentic policy",
+        )
 
 
 # ---- Control policies ----
@@ -103,13 +138,22 @@ async def update_policy(
     policy_id: str,
     body: ControlPolicyBody,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    p = db.query(ControlPolicy).filter(
-        ControlPolicy.id == policy_id, ControlPolicy.workspace_id == workspace.id
-    ).first()
+    p = (
+        db.query(ControlPolicy)
+        .filter(ControlPolicy.id == policy_id, ControlPolicy.workspace_id == workspace.id)
+        .first()
+    )
     if not p:
         raise HTTPException(404, "Policy not found")
+    _require_managed_policy_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        policy=p,
+    )
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(p, k, v)
     db.commit()
@@ -256,18 +300,20 @@ async def simulate(
     db: DBSession = Depends(get_db),
 ):
     base = _aggregate(db, workspace.id, capability_id=body.target_id, period="rolling_30d")
-    resource = float(body.levers.get("resource", 0.5))   # 0=lean, 1=deep
-    velocity = float(body.levers.get("velocity", 0.5))   # 0=thorough, 1=rapid
-    autonomy = float(body.levers.get("autonomy", 0.5))   # 0=hitl, 1=full
+    resource = float(body.levers.get("resource", 0.5))  # 0=lean, 1=deep
+    velocity = float(body.levers.get("velocity", 0.5))  # 0=thorough, 1=rapid
+    autonomy = float(body.levers.get("autonomy", 0.5))  # 0=hitl, 1=full
 
-    cost_factor = 0.6 + 0.8 * resource           # lean cuts cost ~40%, deep adds ~40%
-    value_factor = 0.85 + 0.30 * resource        # deep increases value
-    latency_factor = 1.6 - 1.0 * velocity        # rapid cuts latency
-    risk_factor = 0.4 + 0.6 * autonomy           # full autonomy increases risk
+    cost_factor = 0.6 + 0.8 * resource  # lean cuts cost ~40%, deep adds ~40%
+    value_factor = 0.85 + 0.30 * resource  # deep increases value
+    latency_factor = 1.6 - 1.0 * velocity  # rapid cuts latency
+    risk_factor = 0.4 + 0.6 * autonomy  # full autonomy increases risk
 
     projected_cost = base["total_cost"] * cost_factor
     projected_value = base["estimated_value"] * value_factor
-    projected_roi = ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+    projected_roi = (
+        ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+    )
     return {
         "scope": body.scope,
         "target_id": body.target_id,

@@ -80,7 +80,11 @@ async def workspace_overview(
             "runs_total": len(runs),
             "runs_completed": sum(1 for r in runs if r.status == "completed"),
             "runs_failed": sum(1 for r in runs if r.status == "failed"),
-            "runs_running": sum(1 for r in runs if r.status in {"pending", "running", "hitl_pending", "debug_pending"}),
+            "runs_running": sum(
+                1
+                for r in runs
+                if r.status in {"pending", "running", "hitl_pending", "debug_pending"}
+            ),
             "avg_latency_ms": _avg([r.duration_ms for r in runs if r.duration_ms is not None]),
             "p95_latency_ms": _p95([r.duration_ms for r in runs if r.duration_ms is not None]),
             "jobs_total": len(jobs),
@@ -172,8 +176,12 @@ def _evaluation_summary(rows: list[EvaluationScore]) -> dict[str, Any]:
     latest = rows[0] if rows else None
     return {
         "total": len(rows),
-        "avg_composite": _avg([row.composite_score for row in rows if row.composite_score is not None]),
-        "avg_hallucination_rate": _avg([row.hallucination_rate for row in rows if row.hallucination_rate is not None]),
+        "avg_composite": _avg(
+            [row.composite_score for row in rows if row.composite_score is not None]
+        ),
+        "avg_hallucination_rate": _avg(
+            [row.hallucination_rate for row in rows if row.hallucination_rate is not None]
+        ),
         "breaches": sum(1 for item in breaches if item),
         "latest": _evaluation_row(latest) if latest else None,
         "thresholds": {
@@ -205,15 +213,27 @@ def _retrieval_decision_summary(runs: list[Run]) -> dict[str, Any]:
         query_type = str(trace.get("query_type") or "unknown")
         routes[route] += 1
         query_types[query_type] += 1
-        quality = trace.get("quality_controls") if isinstance(trace.get("quality_controls"), dict) else {}
+        quality = (
+            trace.get("quality_controls") if isinstance(trace.get("quality_controls"), dict) else {}
+        )
         sparse_status = str(quality.get("sparse_status") or "").lower()
         cross_encoder_status = str(quality.get("cross_encoder_status") or "").lower()
         fallbacks = trace.get("fallbacks") if isinstance(trace.get("fallbacks"), list) else []
         if "timeout" in sparse_status:
             sparse_timeouts += 1
-        if any("sparse" in str(item.get("kind") or "").lower() for item in fallbacks if isinstance(item, dict)):
+        if any(
+            "sparse" in str(item.get("kind") or "").lower()
+            for item in fallbacks
+            if isinstance(item, dict)
+        ):
             sparse_fallbacks += 1
-        if cross_encoder_status and cross_encoder_status not in {"applied", "ok", "skipped", "disabled", "not_applicable"}:
+        if cross_encoder_status and cross_encoder_status not in {
+            "applied",
+            "ok",
+            "skipped",
+            "disabled",
+            "not_applicable",
+        }:
             cross_encoder_issues += 1
         deep = trace.get("deep_search") if isinstance(trace.get("deep_search"), dict) else {}
         if deep.get("recommended"):
@@ -225,7 +245,9 @@ def _retrieval_decision_summary(runs: list[Run]) -> dict[str, Any]:
         "total": traced,
         "missing": missing,
         "routes": [{"route": key, "count": value} for key, value in routes.most_common()],
-        "query_types": [{"query_type": key, "count": value} for key, value in query_types.most_common()],
+        "query_types": [
+            {"query_type": key, "count": value} for key, value in query_types.most_common()
+        ],
         "quality": {
             "sparse_timeouts": sparse_timeouts,
             "sparse_fallbacks": sparse_fallbacks,
@@ -243,7 +265,9 @@ def _run_retrieval_decision_trace(run: Run) -> dict[str, Any] | None:
         (output.get("retrieval_metrics") or {}).get("retrieval_decision_trace")
         if isinstance(output.get("retrieval_metrics"), dict)
         else None,
-        (output.get("meta") or {}).get("retrieval_decision_trace") if isinstance(output.get("meta"), dict) else None,
+        (output.get("meta") or {}).get("retrieval_decision_trace")
+        if isinstance(output.get("meta"), dict)
+        else None,
     ]
     for invocation in getattr(run, "invocations", []) or []:
         for payload in (invocation.metrics, invocation.output_ref, invocation.trace):
@@ -259,7 +283,7 @@ def _run_retrieval_decision_trace(run: Run) -> dict[str, Any] | None:
 
 
 def _run_expects_retrieval_trace(run: Run) -> bool:
-    if (run.trigger or "") == "chat":
+    if (run.trigger or "") in {"chat", "chat_agentic"}:
         return True
     output = run.output_ref if isinstance(run.output_ref, dict) else {}
     return any(key in output for key in ("retrieval_metrics", "retrieval_scope", "retrieval_plan"))
@@ -273,28 +297,94 @@ def _alerts(
     out: list[dict[str, Any]] = []
     for run in runs:
         if run.status == "failed":
-            out.append(_alert("run_failed", "neg", f"Run failed · {run.error or run.id}", f"/runs/{run.id}", run.started_at))
+            out.append(
+                _alert(
+                    "run_failed",
+                    "neg",
+                    f"Run failed · {run.error or run.id}",
+                    f"/runs/{run.id}",
+                    run.started_at,
+                )
+            )
         if _is_unsourced_chat_run(run):
-            out.append(_alert("run_without_sources", "warn", "Chat answer completed without workspace sources", f"/runs/{run.id}", run.started_at))
+            out.append(
+                _alert(
+                    "run_without_sources",
+                    "warn",
+                    "Chat answer completed without workspace sources",
+                    f"/runs/{run.id}",
+                    run.started_at,
+                )
+            )
         trace = _run_retrieval_decision_trace(run)
         if not trace and _run_expects_retrieval_trace(run):
-            out.append(_alert("retrieval_trace_missing", "warn", "Retrieval decision trace missing on chat/retrieval run", f"/runs/{run.id}", run.started_at))
+            out.append(
+                _alert(
+                    "retrieval_trace_missing",
+                    "warn",
+                    "Retrieval decision trace missing on chat/retrieval run",
+                    f"/runs/{run.id}",
+                    run.started_at,
+                )
+            )
         if trace:
-            quality = trace.get("quality_controls") if isinstance(trace.get("quality_controls"), dict) else {}
+            quality = (
+                trace.get("quality_controls")
+                if isinstance(trace.get("quality_controls"), dict)
+                else {}
+            )
             sparse_status = str(quality.get("sparse_status") or "").lower()
             cross_encoder_status = str(quality.get("cross_encoder_status") or "").lower()
             if "timeout" in sparse_status:
-                out.append(_alert("sparse_timeout", "warn", "Sparse retrieval timeout; vector fallback used", f"/runs/{run.id}", run.started_at))
-            if cross_encoder_status and cross_encoder_status not in {"applied", "ok", "skipped", "disabled", "not_applicable"}:
-                out.append(_alert("cross_encoder_issue", "warn", f"Cross-encoder status · {cross_encoder_status}", f"/runs/{run.id}", run.started_at))
+                out.append(
+                    _alert(
+                        "sparse_timeout",
+                        "warn",
+                        "Sparse retrieval timeout; vector fallback used",
+                        f"/runs/{run.id}",
+                        run.started_at,
+                    )
+                )
+            if cross_encoder_status and cross_encoder_status not in {
+                "applied",
+                "ok",
+                "skipped",
+                "disabled",
+                "not_applicable",
+            }:
+                out.append(
+                    _alert(
+                        "cross_encoder_issue",
+                        "warn",
+                        f"Cross-encoder status · {cross_encoder_status}",
+                        f"/runs/{run.id}",
+                        run.started_at,
+                    )
+                )
     for job in jobs:
         if job.status == "failed":
             route = "/connectors/sftp" if job.kind == "sftp_reconciliation" else "/observability"
-            out.append(_alert("job_failed", "neg", f"{job.kind} failed · {job.error or job.title}", route, job.updated_at))
+            out.append(
+                _alert(
+                    "job_failed",
+                    "neg",
+                    f"{job.kind} failed · {job.error or job.title}",
+                    route,
+                    job.updated_at,
+                )
+            )
     thresholds = DEFAULT_EVAL_CONFIG
     for row in evaluations:
         if _evaluation_breached(row, thresholds):
-            out.append(_alert("evaluation_breach", "warn", f"Evaluation breach · score {_score_label(row.composite_score)}", f"/runs/{row.run_id}" if row.run_id else "/observability/quality", row.created_at))
+            out.append(
+                _alert(
+                    "evaluation_breach",
+                    "warn",
+                    f"Evaluation breach · score {_score_label(row.composite_score)}",
+                    f"/runs/{row.run_id}" if row.run_id else "/observability/quality",
+                    row.created_at,
+                )
+            )
     return sorted(out, key=lambda item: item.get("timestamp") or "", reverse=True)
 
 
@@ -306,40 +396,46 @@ def _timeline(
     items: list[dict[str, Any]] = []
     for run in runs:
         trace = _run_retrieval_decision_trace(run)
-        items.append({
-            "id": f"run:{run.id}",
-            "kind": "run",
-            "tone": _status_tone(run.status),
-            "label": f"Run {run.status} · {run.trigger or 'manual'}",
-            "timestamp": _time(run.started_at),
-            "route": f"/runs/{run.id}",
-            "meta": {
-                "duration_ms": run.duration_ms,
-                "system_id": run.system_id,
-                "retrieval_route": trace.get("selected_route") if trace else None,
-                "query_type": trace.get("query_type") if trace else None,
-            },
-        })
+        items.append(
+            {
+                "id": f"run:{run.id}",
+                "kind": "run",
+                "tone": _status_tone(run.status),
+                "label": f"Run {run.status} · {run.trigger or 'manual'}",
+                "timestamp": _time(run.started_at),
+                "route": f"/runs/{run.id}",
+                "meta": {
+                    "duration_ms": run.duration_ms,
+                    "system_id": run.system_id,
+                    "retrieval_route": trace.get("selected_route") if trace else None,
+                    "query_type": trace.get("query_type") if trace else None,
+                },
+            }
+        )
     for job in jobs:
-        items.append({
-            "id": f"job:{job.id}",
-            "kind": "job",
-            "tone": _status_tone(job.status),
-            "label": f"{job.kind} · {job.status}",
-            "timestamp": _time(job.updated_at or job.created_at),
-            "route": _job_row(job)["route"],
-            "meta": {"stage": job.stage, "progress": job.progress},
-        })
+        items.append(
+            {
+                "id": f"job:{job.id}",
+                "kind": "job",
+                "tone": _status_tone(job.status),
+                "label": f"{job.kind} · {job.status}",
+                "timestamp": _time(job.updated_at or job.created_at),
+                "route": _job_row(job)["route"],
+                "meta": {"stage": job.stage, "progress": job.progress},
+            }
+        )
     for row in evaluations:
-        items.append({
-            "id": f"eval:{row.id}",
-            "kind": "evaluation",
-            "tone": "warn" if _evaluation_breached(row, DEFAULT_EVAL_CONFIG) else "pos",
-            "label": f"Evaluation · {_score_label(row.composite_score)}/100",
-            "timestamp": _time(row.created_at),
-            "route": f"/runs/{row.run_id}" if row.run_id else "/observability/quality",
-            "meta": {"hallucination_rate": row.hallucination_rate},
-        })
+        items.append(
+            {
+                "id": f"eval:{row.id}",
+                "kind": "evaluation",
+                "tone": "warn" if _evaluation_breached(row, DEFAULT_EVAL_CONFIG) else "pos",
+                "label": f"Evaluation · {_score_label(row.composite_score)}/100",
+                "timestamp": _time(row.created_at),
+                "route": f"/runs/{row.run_id}" if row.run_id else "/observability/quality",
+                "meta": {"hallucination_rate": row.hallucination_rate},
+            }
+        )
     return sorted(items, key=lambda item: item.get("timestamp") or "", reverse=True)
 
 
@@ -359,20 +455,56 @@ def _evaluation_row(row: EvaluationScore) -> dict[str, Any]:
 def _evaluation_breached(row: EvaluationScore, thresholds: dict[str, Any]) -> bool:
     composite_min = float(thresholds.get("composite_min") or 70.0)
     hallucination_max = float(thresholds.get("hallucination_max") or 0.3)
-    return bool((row.composite_score or 0.0) < composite_min or (row.hallucination_rate or 0.0) > hallucination_max)
+    return bool(
+        (row.composite_score or 0.0) < composite_min
+        or (row.hallucination_rate or 0.0) > hallucination_max
+    )
 
 
 def _is_unsourced_chat_run(run: Run) -> bool:
-    if (run.trigger or "") != "chat" or run.status != "completed":
+    if (run.trigger or "") not in {"chat", "chat_agentic"} or run.status != "completed":
         return False
-    output = run.output_ref or {}
+    output = run.output_ref if isinstance(run.output_ref, dict) else {}
     if output.get("trivial_bypass"):
+        return False
+    if (run.trigger or "") == "chat_agentic" and _is_expected_agentic_abstention(output):
         return False
     sources = output.get("sources")
     return isinstance(sources, list) and len(sources) == 0
 
 
-def _alert(kind: str, tone: str, label: str, route: str, timestamp: Optional[datetime]) -> dict[str, Any]:
+def _is_expected_agentic_abstention(output: dict[str, Any]) -> bool:
+    """Distinguish governed/clarifying terminals from uncited answers."""
+
+    meta = output.get("meta") if isinstance(output.get("meta"), dict) else {}
+    route = str(output.get("route") or meta.get("route") or "").strip().lower()
+    if route in {
+        "agentic_review",
+        "agentic_review_rejected",
+        "agentic_blocked",
+        "agentic_abstain",
+    }:
+        return True
+
+    action = str(output.get("action") or "").strip().lower()
+    if action in {"clarify", "reject_oos"}:
+        return True
+
+    answer = str(output.get("answer") or output.get("response") or "").strip()
+    clarifying_question = str(output.get("clarifying_question") or "").strip()
+    if clarifying_question and (not answer or answer == clarifying_question):
+        return True
+
+    oos_reason = str(output.get("oos_reason") or "").strip()
+    if oos_reason and (not answer or answer == oos_reason):
+        return True
+    reason = str(output.get("reason") or "").strip()
+    return bool(reason and (not answer or answer == reason))
+
+
+def _alert(
+    kind: str, tone: str, label: str, route: str, timestamp: Optional[datetime]
+) -> dict[str, Any]:
     return {
         "id": f"{kind}:{route}:{_time(timestamp)}",
         "kind": kind,

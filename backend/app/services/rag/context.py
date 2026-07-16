@@ -28,6 +28,11 @@ from app.models.workspace import Workspace
 from app.services.document_intelligence import DocumentQueryEngine, should_run_document_analysis
 from app.services.knowledge_collections import collection_inventory
 from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
+from app.services.rag.comparative_retrieval import (
+    augment_with_comparative_subqueries,
+    build_comparative_plan,
+    ensure_entity_coverage,
+)
 from app.services.rag.corpus_planner import (
     is_catalogue_query,
     normalize_latency_profile,
@@ -42,11 +47,6 @@ from app.services.rag.knowledge_scopes import (
 )
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
-from app.services.rag.comparative_retrieval import (
-    augment_with_comparative_subqueries,
-    build_comparative_plan,
-    ensure_entity_coverage,
-)
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.project_inventory import (
     build_project_inventory,
@@ -105,9 +105,7 @@ _INVENTORY_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _INVENTORY_OBJECT_RE = re.compile(
-    r"\b("
-    r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection"
-    r")\b",
+    r"\b(" r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection" r")\b",
     re.IGNORECASE,
 )
 _CONTENT_SEARCH_HINT_RE = re.compile(
@@ -176,15 +174,27 @@ def is_collection_inventory_query(query: str) -> bool:
         return False
     # "Quels documents parlent de X ?" is a content-discovery query, not an
     # inventory/cardinality question. Keep that path on vector retrieval.
-    if _DOCUMENT_DISCOVERY_RE.search(text) or _SOURCE_LOOKUP_NOT_INVENTORY_RE.search(text) or (
-        re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
-        and _CONTENT_SEARCH_HINT_RE.search(text)
+    if (
+        _DOCUMENT_DISCOVERY_RE.search(text)
+        or _SOURCE_LOOKUP_NOT_INVENTORY_RE.search(text)
+        or (
+            re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
+            and _CONTENT_SEARCH_HINT_RE.search(text)
+        )
     ):
         return False
-    if re.search(r"\b(?:source|document|fichier|file)\b", text, re.IGNORECASE) and re.search(
-        r"\b[A-Z]{2,}[A-Z0-9\s_-]*\d{2,}[A-Z0-9]*\b",
-        text,
-    ) and not re.search(r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b", text, re.IGNORECASE):
+    if (
+        re.search(r"\b(?:source|document|fichier|file)\b", text, re.IGNORECASE)
+        and re.search(
+            r"\b[A-Z]{2,}[A-Z0-9\s_-]*\d{2,}[A-Z0-9]*\b",
+            text,
+        )
+        and not re.search(
+            r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",
+            text,
+            re.IGNORECASE,
+        )
+    ):
         return False
     if _TABLE_VALUE_LOOKUP_RE.search(text) and not re.search(
         r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",
@@ -261,12 +271,17 @@ def _apply_similarity_threshold(
     """
     threshold = _similarity_threshold()
     if threshold <= 0 or not chunks:
-        return chunks, scores, metadatas, {
-            "score_threshold": threshold,
-            "score_threshold_applied": False,
-            "score_threshold_filtered": 0,
-            "score_threshold_skipped_reason": "disabled" if threshold <= 0 else "empty",
-        }
+        return (
+            chunks,
+            scores,
+            metadatas,
+            {
+                "score_threshold": threshold,
+                "score_threshold_applied": False,
+                "score_threshold_filtered": 0,
+                "score_threshold_skipped_reason": "disabled" if threshold <= 0 else "empty",
+            },
+        )
 
     if str(pipeline or "").strip().lower() != "naive":
         # Fused scores are rank weights, but the per-chunk dense cosine is
@@ -281,22 +296,35 @@ def _apply_similarity_threshold(
             metadata = dict(metadatas[index] if index < len(metadatas) else {})
             try:
                 dense_value = (
-                    float(metadata["dense_score"]) if metadata.get("dense_score") is not None else None
+                    float(metadata["dense_score"])
+                    if metadata.get("dense_score") is not None
+                    else None
                 )
             except (TypeError, ValueError):
                 dense_value = None
-            if dense_value is None or dense_value >= threshold or _is_threshold_exempt_metadata(metadata):
+            if (
+                dense_value is None
+                or dense_value >= threshold
+                or _is_threshold_exempt_metadata(metadata)
+            ):
                 fused_chunks.append(chunk)
                 fused_scores.append(score)
                 fused_metadatas.append(metadata)
             else:
                 fused_removed += 1
-        return fused_chunks, fused_scores, fused_metadatas, {
-            "score_threshold": threshold,
-            "score_threshold_applied": fused_removed > 0,
-            "score_threshold_filtered": fused_removed,
-            "score_threshold_skipped_reason": None if fused_removed else "non_vector_score_scale",
-        }
+        return (
+            fused_chunks,
+            fused_scores,
+            fused_metadatas,
+            {
+                "score_threshold": threshold,
+                "score_threshold_applied": fused_removed > 0,
+                "score_threshold_filtered": fused_removed,
+                "score_threshold_skipped_reason": None
+                if fused_removed
+                else "non_vector_score_scale",
+            },
+        )
 
     kept_chunks: list[str] = []
     kept_scores: list[float] = []
@@ -311,18 +339,25 @@ def _apply_similarity_threshold(
             kept_metadatas.append(metadata)
         else:
             removed += 1
-    return kept_chunks, kept_scores, kept_metadatas, {
-        "score_threshold": threshold,
-        "score_threshold_applied": True,
-        "score_threshold_filtered": removed,
-        "score_threshold_skipped_reason": None,
-    }
+    return (
+        kept_chunks,
+        kept_scores,
+        kept_metadatas,
+        {
+            "score_threshold": threshold,
+            "score_threshold_applied": True,
+            "score_threshold_filtered": removed,
+            "score_threshold_skipped_reason": None,
+        },
+    )
 
 
 def _conversation_history(request: dict[str, Any]) -> list[dict[str, Any]]:
     context = request.get("context") if isinstance(request.get("context"), Mapping) else {}
     history = context.get("conversation_history") if isinstance(context, Mapping) else None
-    return [item for item in history if isinstance(item, Mapping)] if isinstance(history, list) else []
+    return (
+        [item for item in history if isinstance(item, Mapping)] if isinstance(history, list) else []
+    )
 
 
 def _history_augmented_query(request: dict[str, Any]) -> str:
@@ -499,7 +534,9 @@ def _apply_membrane_inbound_collections(
     return filtered or collections
 
 
-def _deep_rewrite_variants(request: Mapping[str, Any], profile: Mapping[str, Any]) -> list[str] | None:
+def _deep_rewrite_variants(
+    request: Mapping[str, Any], profile: Mapping[str, Any]
+) -> list[str] | None:
     """LLM-rewritten query joins the retrieval fan-out on the deep path only.
 
     The rewrite is injected as an EXTRA chah variant, never substituting the
@@ -560,8 +597,14 @@ def _deadline_seconds_for_profile(latency_profile: str) -> float:
 
 def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     """Normalize observability keys across inventory, guardrail and RAG paths."""
-    scope = metrics.get("retrieval_scope") if isinstance(metrics.get("retrieval_scope"), Mapping) else {}
-    existing_timings = metrics.get("stage_timings") if isinstance(metrics.get("stage_timings"), Mapping) else {}
+    scope = (
+        metrics.get("retrieval_scope")
+        if isinstance(metrics.get("retrieval_scope"), Mapping)
+        else {}
+    )
+    existing_timings = (
+        metrics.get("stage_timings") if isinstance(metrics.get("stage_timings"), Mapping) else {}
+    )
     planner_ms = _int_or_none(_first_present(metrics.get("planner_ms"), scope.get("planner_ms")))
     total_ms = _int_or_none(metrics.get("duration_ms"))
     qdrant_ms = _int_or_none(
@@ -573,13 +616,25 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         )
     )
     sparse_ms = _int_or_none(
-        _first_present(metrics.get("sparse_ms"), metrics.get("sparse_elapsed_ms"), existing_timings.get("sparse_ms"))
+        _first_present(
+            metrics.get("sparse_ms"),
+            metrics.get("sparse_elapsed_ms"),
+            existing_timings.get("sparse_ms"),
+        )
     )
     retrieval_ms = _int_or_none(
-        _first_present(metrics.get("retrieval_ms"), metrics.get("retrieval_elapsed_ms"), existing_timings.get("retrieval_ms"))
+        _first_present(
+            metrics.get("retrieval_ms"),
+            metrics.get("retrieval_elapsed_ms"),
+            existing_timings.get("retrieval_ms"),
+        )
     )
-    inventory_ms = _int_or_none(_first_present(metrics.get("inventory_ms"), existing_timings.get("inventory_ms")))
-    rerank_ms = _int_or_none(_first_present(metrics.get("rerank_ms"), existing_timings.get("rerank_ms")))
+    inventory_ms = _int_or_none(
+        _first_present(metrics.get("inventory_ms"), existing_timings.get("inventory_ms"))
+    )
+    rerank_ms = _int_or_none(
+        _first_present(metrics.get("rerank_ms"), existing_timings.get("rerank_ms"))
+    )
     context_build_ms = _int_or_none(
         _first_present(metrics.get("context_build_ms"), existing_timings.get("context_build_ms"))
     )
@@ -590,7 +645,9 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
             existing_timings.get("table_facts_ms"),
         )
     )
-    embedding_ms = _int_or_none(_first_present(metrics.get("embedding_ms"), existing_timings.get("embedding_ms")))
+    embedding_ms = _int_or_none(
+        _first_present(metrics.get("embedding_ms"), existing_timings.get("embedding_ms"))
+    )
     llm_ms = _int_or_none(_first_present(metrics.get("llm_ms"), existing_timings.get("llm_ms")))
     stage_timings = {
         "planner_ms": planner_ms,
@@ -649,7 +706,9 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
             metrics["retrieval_decision_trace"] = {
                 "version": 1,
                 "trace_source": "runtime",
-                "selected_route": str(metrics.get("pipeline") or metrics.get("mode_label") or "retrieval"),
+                "selected_route": str(
+                    metrics.get("pipeline") or metrics.get("mode_label") or "retrieval"
+                ),
                 "summary": "Retrieval decision trace unavailable; raw metrics are still present.",
                 "fallbacks": [{"kind": "trace_build_error", "reason": "failed_to_build_trace"}],
             }
@@ -699,7 +758,9 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
             if context_collection not in collections:
                 collections.append(context_collection)
             scope["collection_slugs"] = collections
-            scope["label"] = f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
+            scope[
+                "label"
+            ] = f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
     agent_preferences = request.get("agent_preferences") or {}
     latency_profile = normalize_latency_profile(
         request.get("latency_profile") or agent_preferences.get("latency_profile"),
@@ -717,9 +778,8 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     scope_default_mode = scope.get("default_mode")
     if scope_default_mode == "auto":
         scope_default_mode = None
-    explicit_rag_mode = (
-        _explicit_mode(request.get("rag_pipeline_mode"))
-        or _explicit_mode(agent_preferences.get("rag_pipeline_mode"))
+    explicit_rag_mode = _explicit_mode(request.get("rag_pipeline_mode")) or _explicit_mode(
+        agent_preferences.get("rag_pipeline_mode")
     )
     rag_mode = (
         explicit_rag_mode
@@ -739,23 +799,33 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         for key in ("candidate_pool_k", "synthesis_k", "source_display_k")
     )
     source_display_default = top_k if explicit_top_k else min(max(top_k, 5), 8)
-    app_source_display = None if explicit_top_k and not explicit_budget else app_settings.get("ragSourceDisplayK")
+    app_source_display = (
+        None if explicit_top_k and not explicit_budget else app_settings.get("ragSourceDisplayK")
+    )
     source_display_k = _int_clamped(
         request.get("source_display_k") or app_source_display,
         source_display_default,
         minimum=1,
         maximum=24,
     )
-    synthesis_default = top_k if explicit_top_k and not explicit_budget else max(top_k, source_display_k, 12)
-    app_synthesis = None if explicit_top_k and not explicit_budget else app_settings.get("ragSynthesisK")
+    synthesis_default = (
+        top_k if explicit_top_k and not explicit_budget else max(top_k, source_display_k, 12)
+    )
+    app_synthesis = (
+        None if explicit_top_k and not explicit_budget else app_settings.get("ragSynthesisK")
+    )
     synthesis_k = _int_clamped(
         request.get("synthesis_k") or app_synthesis,
         synthesis_default,
         minimum=source_display_k,
         maximum=48,
     )
-    candidate_default = top_k if explicit_top_k and not explicit_budget else max(synthesis_k * 4, 40)
-    app_candidate_pool = None if explicit_top_k and not explicit_budget else app_settings.get("ragCandidatePoolK")
+    candidate_default = (
+        top_k if explicit_top_k and not explicit_budget else max(synthesis_k * 4, 40)
+    )
+    app_candidate_pool = (
+        None if explicit_top_k and not explicit_budget else app_settings.get("ragCandidatePoolK")
+    )
     candidate_pool_k = _int_clamped(
         request.get("candidate_pool_k") or app_candidate_pool,
         candidate_default,
@@ -782,18 +852,31 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         top_k = min(top_k, profile_contract.max_top_k)
         source_display_k = min(source_display_k, profile_contract.max_source_display_k)
         synthesis_k = min(max(synthesis_k, source_display_k), profile_contract.max_synthesis_k)
-        candidate_pool_k = min(max(candidate_pool_k, synthesis_k), profile_contract.max_candidate_pool_k)
+        candidate_pool_k = min(
+            max(candidate_pool_k, synthesis_k), profile_contract.max_candidate_pool_k
+        )
         deadline_seconds = profile_contract.deadline_seconds or deadline_seconds
     collections = list(scope.get("collection_slugs") or [fallback_collection])
-    collections = _include_expert_fiche_collection(
-        collections,
-        workspace_slug=request.get("workspace_slug"),
-        source_policy=request.get("source_policy"),
-    )
-    collections = _apply_membrane_inbound_collections(
-        collections,
-        source_policy=request.get("source_policy"),
-    )
+    authoritative_collections = [
+        str(item).strip()
+        for item in (request.get("authoritative_collections") or [])
+        if str(item or "").strip()
+    ]
+    if authoritative_collections:
+        # Runtime/System-owned hard boundary. Unlike the workspace membrane's
+        # fail-soft intersection, an empty/mismatched upstream scope cannot
+        # broaden this contract.
+        collections = list(dict.fromkeys(authoritative_collections))
+    else:
+        collections = _include_expert_fiche_collection(
+            collections,
+            workspace_slug=request.get("workspace_slug"),
+            source_policy=request.get("source_policy"),
+        )
+        collections = _apply_membrane_inbound_collections(
+            collections,
+            source_policy=request.get("source_policy"),
+        )
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": _history_augmented_query(request),
@@ -812,7 +895,9 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "workspace_id": request.get("workspace_id"),
         "workspace_slug": request.get("workspace_slug"),
         "latency_profile": latency_profile,
-        "deep_retrieval": bool(request.get("deep_retrieval") or agent_preferences.get("deep_retrieval")),
+        "deep_retrieval": bool(
+            request.get("deep_retrieval") or agent_preferences.get("deep_retrieval")
+        ),
         "deadline_seconds": deadline_seconds,
         "latency_budget": {
             "profile": latency_profile,
@@ -986,7 +1071,9 @@ async def _append_parent_context(
     return out_chunks, out_scores, out_metas, added
 
 
-def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
+def _retrieval_policy_summary(
+    policy: RetrievalPolicy, clarification: dict[str, Any] | None
+) -> dict[str, Any]:
     return {
         "enabled": policy.enabled,
         "blocks": len(policy.raw_blocks),
@@ -1001,14 +1088,18 @@ def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, 
     }
 
 
-def _retrieval_policy_payload(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
+def _retrieval_policy_payload(
+    policy: RetrievalPolicy, clarification: dict[str, Any] | None
+) -> dict[str, Any]:
     return {
         **_retrieval_policy_summary(policy, clarification),
         "prompt": policy_prompt(policy, clarification),
     }
 
 
-def _table_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
+def _table_analysis_for_profile(
+    request: dict[str, Any], profile: dict[str, Any]
+) -> dict[str, Any] | None:
     question = str(profile.get("query") or request.get("query") or "")
     workspace_id = profile.get("workspace_id")
     if not workspace_id or not should_run_table_analysis(question):
@@ -1033,7 +1124,9 @@ def _table_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]
         db.close()
 
 
-def _document_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
+def _document_analysis_for_profile(
+    request: dict[str, Any], profile: dict[str, Any]
+) -> dict[str, Any] | None:
     question = str(profile.get("query") or request.get("query") or "")
     workspace_id = profile.get("workspace_id")
     if not workspace_id or not should_run_document_analysis(question):
@@ -1060,7 +1153,9 @@ def _document_analysis_for_profile(request: dict[str, Any], profile: dict[str, A
 
 def _inventory_summary(inventories: list[dict[str, Any]]) -> str:
     total_sources = sum(int(item.get("source_count") or 0) for item in inventories)
-    filtered_sources = sum(int(item.get("sources_total") or item.get("source_count") or 0) for item in inventories)
+    filtered_sources = sum(
+        int(item.get("sources_total") or item.get("source_count") or 0) for item in inventories
+    )
     total_chunks = sum(int(item.get("chunk_count") or 0) for item in inventories)
     kind_counter: dict[str, int] = {}
     ext_counter: dict[str, int] = {}
@@ -1076,7 +1171,10 @@ def _inventory_summary(inventories: list[dict[str, Any]]) -> str:
     def _pairs(payload: dict[str, int]) -> str:
         if not payload:
             return "aucun"
-        return ", ".join(f"{key}: {value}" for key, value in sorted(payload.items(), key=lambda kv: (-kv[1], kv[0])))
+        return ", ".join(
+            f"{key}: {value}"
+            for key, value in sorted(payload.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
 
     lines = [
         "Inventaire Knowledge collection.",
@@ -1090,7 +1188,9 @@ def _inventory_summary(inventories: list[dict[str, Any]]) -> str:
         "Collections:",
     ]
     for item in inventories:
-        filters = item.get("source_filters") if isinstance(item.get("source_filters"), Mapping) else {}
+        filters = (
+            item.get("source_filters") if isinstance(item.get("source_filters"), Mapping) else {}
+        )
         active_filters = {
             key: value
             for key, value in dict(filters or {}).items()
@@ -1117,7 +1217,9 @@ def _inventory_summary(inventories: list[dict[str, Any]]) -> str:
                 bits.append(f"{int(source.get('size_bytes') or 0)} bytes")
             lines.append("  - " + " | ".join(bits))
         if item.get("sources_has_more"):
-            remaining = max(0, int(item.get("sources_total") or 0) - int(item.get("sources_returned") or 0))
+            remaining = max(
+                0, int(item.get("sources_total") or 0) - int(item.get("sources_returned") or 0)
+            )
             lines.append(f"  - ... {remaining} source(s) supplementaire(s) matching this scope")
     return "\n".join(lines)
 
@@ -1162,7 +1264,9 @@ def _retrieve_collection_inventory_context(
     inventory_started = time.perf_counter()
     db = SessionLocal()
     try:
-        query = db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == str(workspace_id))
+        query = db.query(KnowledgeCollection).filter(
+            KnowledgeCollection.workspace_id == str(workspace_id)
+        )
         if collections:
             query = query.filter(KnowledgeCollection.slug.in_(collections))
         rows = query.order_by(KnowledgeCollection.slug.asc()).all()
@@ -1184,7 +1288,9 @@ def _retrieve_collection_inventory_context(
     summary = _inventory_summary(inventories)
     duration_ms = int((time.time() - started) * 1000)
     total_sources = sum(int(item.get("source_count") or 0) for item in inventories)
-    filtered_sources = sum(int(item.get("sources_total") or item.get("source_count") or 0) for item in inventories)
+    filtered_sources = sum(
+        int(item.get("sources_total") or item.get("source_count") or 0) for item in inventories
+    )
     total_chunks = sum(int(item.get("chunk_count") or 0) for item in inventories)
     touched = [str(item.get("collection_slug")) for item in inventories]
     metrics.update(
@@ -1208,17 +1314,21 @@ def _retrieve_collection_inventory_context(
     )
     chunks = [summary] if inventories else []
     scores = [1.0] if inventories else []
-    metadatas = [
-        {
-            "source_type": "collection_inventory",
-            "semantic_type": "collection_inventory",
-            "title": "Inventaire Knowledge collection",
-            "document_filename": "knowledge-collection-inventory",
-            "collection": ", ".join(touched),
-            "collection_name": ", ".join(touched),
-            "citation_label": "Inventaire Knowledge collection",
-        }
-    ] if inventories else []
+    metadatas = (
+        [
+            {
+                "source_type": "collection_inventory",
+                "semantic_type": "collection_inventory",
+                "title": "Inventaire Knowledge collection",
+                "document_filename": "knowledge-collection-inventory",
+                "collection": ", ".join(touched),
+                "collection_name": ", ".join(touched),
+                "citation_label": "Inventaire Knowledge collection",
+            }
+        ]
+        if inventories
+        else []
+    )
     selected_sources = _selected_source_trace(chunks, scores, metadatas)
     metrics["selected_sources"] = selected_sources
     metrics["retrieval_trace"] = {
@@ -1414,7 +1524,12 @@ def _prepend_table_analysis_context(
                 "citation_label": f"{row.get('document_filename') or 'table'} · {row.get('sheet_name') or 'sheet'} · {row.get('cell_ref') or 'cell'}",
             }
         )
-    return evidence_chunks + chunks, evidence_scores + scores, evidence_metas + metadatas, len(evidence_chunks)
+    return (
+        evidence_chunks + chunks,
+        evidence_scores + scores,
+        evidence_metas + metadatas,
+        len(evidence_chunks),
+    )
 
 
 def _prepend_document_analysis_context(
@@ -1467,7 +1582,12 @@ def _prepend_document_analysis_context(
                 "citation_label": f"{row.get('document_filename') or 'document'} · {', '.join(locator) or 'source'}",
             }
         )
-    return evidence_chunks + chunks, evidence_scores + scores, evidence_metas + metadatas, len(evidence_chunks)
+    return (
+        evidence_chunks + chunks,
+        evidence_scores + scores,
+        evidence_metas + metadatas,
+        len(evidence_chunks),
+    )
 
 
 def _summary_artifact_for_profile(
@@ -1476,9 +1596,13 @@ def _summary_artifact_for_profile(
     metrics: dict[str, Any],
     query: str,
 ) -> dict[str, Any] | None:
-    plan = metrics.get("retrieval_plan") if isinstance(metrics.get("retrieval_plan"), Mapping) else {}
+    plan = (
+        metrics.get("retrieval_plan") if isinstance(metrics.get("retrieval_plan"), Mapping) else {}
+    )
     layers = plan.get("layers") if isinstance(plan.get("layers"), Mapping) else {}
-    summaries_layer = layers.get("summaries") if isinstance(layers.get("summaries"), Mapping) else {}
+    summaries_layer = (
+        layers.get("summaries") if isinstance(layers.get("summaries"), Mapping) else {}
+    )
     if summaries_layer.get("enabled") is not True:
         return None
     workspace_id = str(profile.get("workspace_id") or "")
@@ -1490,14 +1614,21 @@ def _summary_artifact_for_profile(
         collection = (
             db.query(KnowledgeCollection)
             .filter(
-                ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+                (
+                    (KnowledgeCollection.slug == collection_ref)
+                    | (KnowledgeCollection.id == collection_ref)
+                ),
                 KnowledgeCollection.workspace_id == workspace_id,
             )
             .first()
         )
         if not collection:
             return None
-        scope = metrics.get("retrieval_scope") if isinstance(metrics.get("retrieval_scope"), Mapping) else {}
+        scope = (
+            metrics.get("retrieval_scope")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else {}
+        )
         filters = scope.get("filters") if isinstance(scope.get("filters"), Mapping) else {}
         allowed_filters = {
             key: value
@@ -1568,7 +1699,12 @@ def _prepend_summary_artifact_context(
                 "citation_label": f"{record.get('document_filename') or 'document'} · summary",
             }
         )
-    return evidence_chunks + chunks, evidence_scores + scores, evidence_metas + metadatas, len(evidence_chunks)
+    return (
+        evidence_chunks + chunks,
+        evidence_scores + scores,
+        evidence_metas + metadatas,
+        len(evidence_chunks),
+    )
 
 
 def build_document_service(request: dict[str, Any]):
@@ -1822,7 +1958,14 @@ def _union_recall_floor(
 
 
 def _document_diversity_key(metadata: Mapping[str, Any], index: int) -> str:
-    for key in ("document_id", "source_id", "document_filename", "filename", "source_path", "object_key"):
+    for key in (
+        "document_id",
+        "source_id",
+        "document_filename",
+        "filename",
+        "source_path",
+        "object_key",
+    ):
         value = str(metadata.get(key) or "").strip()
         if value:
             return value
@@ -1896,13 +2039,18 @@ def _compress_final_context(
             kept_scores.append(scores[index] if index < len(scores) else 0.0)
             kept_metadatas.append(metadata)
             kept_scored += 1
-    return kept_chunks, kept_scores, kept_metadatas, {
-        "compression_status": "proportional",
-        "compression_kept": len(kept_chunks),
-        "compression_dropped": len(chunks) - len(kept_chunks),
-        "compression_ratio_effective": round(len(kept_chunks) / max(1, len(chunks)), 3),
-        "compression_score_floor": score_floor,
-    }
+    return (
+        kept_chunks,
+        kept_scores,
+        kept_metadatas,
+        {
+            "compression_status": "proportional",
+            "compression_kept": len(kept_chunks),
+            "compression_dropped": len(chunks) - len(kept_chunks),
+            "compression_ratio_effective": round(len(kept_chunks) / max(1, len(chunks)), 3),
+            "compression_score_floor": score_floor,
+        },
+    )
 
 
 async def _diversify_final_context(
@@ -1946,21 +2094,31 @@ def _diversify_aligned_by_document(
 ) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
     target = min(max(0, int(limit or 0)), len(chunks))
     if target <= 1:
-        return chunks, scores, metadatas, {
-            "document_diversity_applied": False,
-            "document_diversity_groups": len(chunks),
-            "document_diversity_limit": target,
-        }
+        return (
+            chunks,
+            scores,
+            metadatas,
+            {
+                "document_diversity_applied": False,
+                "document_diversity_groups": len(chunks),
+                "document_diversity_limit": target,
+            },
+        )
 
     buckets: OrderedDict[str, list[int]] = OrderedDict()
     for index, metadata in enumerate(metadatas):
         buckets.setdefault(_document_diversity_key(metadata or {}, index), []).append(index)
     if len(buckets) <= 1:
-        return chunks, scores, metadatas, {
-            "document_diversity_applied": False,
-            "document_diversity_groups": len(buckets),
-            "document_diversity_limit": target,
-        }
+        return (
+            chunks,
+            scores,
+            metadatas,
+            {
+                "document_diversity_applied": False,
+                "document_diversity_groups": len(buckets),
+                "document_diversity_limit": target,
+            },
+        )
 
     selected: list[int] = []
     keys = list(buckets)
@@ -1977,7 +2135,10 @@ def _diversify_aligned_by_document(
                 break
         keys = next_keys
     selected_set = set(selected)
-    reordered_indices = [*selected, *[index for index in range(len(chunks)) if index not in selected_set]]
+    reordered_indices = [
+        *selected,
+        *[index for index in range(len(chunks)) if index not in selected_set],
+    ]
     changed = reordered_indices[:target] != list(range(target))
     return (
         [chunks[index] for index in reordered_indices],
@@ -2025,7 +2186,11 @@ def _retrieval_context_cache_key(
         return None
     if profile.get("latency_profile") == "deep" or profile.get("deep_retrieval"):
         return None
-    scope = metrics.get("retrieval_scope") if isinstance(metrics.get("retrieval_scope"), Mapping) else {}
+    scope = (
+        metrics.get("retrieval_scope")
+        if isinstance(metrics.get("retrieval_scope"), Mapping)
+        else {}
+    )
     corpus_version = str(scope.get("corpus_version") or "").strip()
     if not corpus_version or corpus_version == "unknown":
         metrics["retrieval_context_cache_hit"] = False
@@ -2049,8 +2214,10 @@ def _retrieval_context_cache_key(
         "corpus_version": corpus_version,
         "guides": [
             {
-                "id": getattr(guide, "id", None) or (guide.get("id") if isinstance(guide, Mapping) else None),
-                "version": getattr(guide, "version", None) or (guide.get("version") if isinstance(guide, Mapping) else None),
+                "id": getattr(guide, "id", None)
+                or (guide.get("id") if isinstance(guide, Mapping) else None),
+                "version": getattr(guide, "version", None)
+                or (guide.get("version") if isinstance(guide, Mapping) else None),
             }
             for guide in guides
         ],
@@ -2062,7 +2229,9 @@ def _retrieval_context_cache_key(
     return sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
 
 
-def _get_cached_retrieval_context(cache_key: str | None, *, started: float) -> dict[str, Any] | None:
+def _get_cached_retrieval_context(
+    cache_key: str | None, *, started: float
+) -> dict[str, Any] | None:
     if not cache_key:
         return None
     cached = _RETRIEVAL_CONTEXT_CACHE.get(cache_key)
@@ -2109,9 +2278,8 @@ def _should_build_project_inventory(request: dict[str, Any], query: str) -> bool
     decision = request.get("answer_profile_decision")
     is_transversal = str(request.get("answer_profile") or "") == "transversal_inventory"
     if not is_transversal and isinstance(decision, Mapping):
-        is_transversal = (
-            str(decision.get("profile") or "") == "transversal_inventory"
-            or bool(decision.get("requires_exhaustive_retrieval"))
+        is_transversal = str(decision.get("profile") or "") == "transversal_inventory" or bool(
+            decision.get("requires_exhaustive_retrieval")
         )
     return bool(is_transversal and query_targets_projects(query))
 
@@ -2134,6 +2302,12 @@ async def retrieve_rag_context(
     """Run retrieval only and return a stable, serialisable context payload."""
     started = time.time()
     profile = get_retrieval_profile(request)
+    authoritative_collections = [
+        str(item).strip()
+        for item in (request.get("authoritative_collections") or [])
+        if str(item or "").strip()
+    ]
+    authoritative_collections = list(dict.fromkeys(authoritative_collections))
     query = profile["query"]
     guides = _effective_guides_for_profile(profile)
     guide_hint = guide_query_hint(guides)
@@ -2166,9 +2340,17 @@ async def retrieve_rag_context(
         finally:
             planner_db.close()
     if corpus_plan is not None:
-        planned_collections = corpus_plan.retrieval_scope.get("collections") if isinstance(corpus_plan.retrieval_scope, Mapping) else None
+        planned_collections = (
+            corpus_plan.retrieval_scope.get("collections")
+            if isinstance(corpus_plan.retrieval_scope, Mapping)
+            else None
+        )
+        if authoritative_collections:
+            planned_collections = authoritative_collections
         if isinstance(planned_collections, list) and planned_collections:
-            profile["collections"] = [str(item) for item in planned_collections if str(item or "").strip()]
+            profile["collections"] = [
+                str(item) for item in planned_collections if str(item or "").strip()
+            ]
             if profile["collections"]:
                 profile["collection"] = profile["collections"][0]
                 collections = profile["collections"]
@@ -2199,8 +2381,16 @@ async def retrieve_rag_context(
         profile["_corpus_plan_max_variants"] = corpus_plan.max_variants
         profile["_corpus_plan_max_candidates"] = corpus_plan.max_candidates
         profile["_corpus_plan_soft_scope_filters"] = dict(corpus_plan.soft_scope_filters or {})
-        profile["_corpus_plan_soft_scope_collections"] = list(corpus_plan.soft_scope_collections or [])
-        profile["_corpus_plan_recall_floor_collections"] = list(corpus_plan.recall_floor_collections or [])
+        profile["_corpus_plan_soft_scope_collections"] = [
+            item
+            for item in (corpus_plan.soft_scope_collections or [])
+            if not authoritative_collections or item in authoritative_collections
+        ]
+        profile["_corpus_plan_recall_floor_collections"] = [
+            item
+            for item in (corpus_plan.recall_floor_collections or [])
+            if not authoritative_collections or item in authoritative_collections
+        ]
         profile["_corpus_plan_recall_floor_top_n"] = int(corpus_plan.recall_floor_top_n or 0)
     # Authoritative correction overlay (Volet 3): once a workspace opts into
     # expert-fiche corrections the resolved fiche collection must ALWAYS be a
@@ -2215,9 +2405,13 @@ async def retrieve_rag_context(
     # collection unscoped (see ``_expert_fiche_collection`` below) so the
     # planner's document_filename filter — scoped to the OTHER collections'
     # docs — cannot filter every fiche chunk out.
-    expert_fiche_collection = _enabled_expert_fiche_collection(
-        workspace_slug=request.get("workspace_slug"),
-        source_policy=request.get("source_policy"),
+    expert_fiche_collection = (
+        ""
+        if authoritative_collections
+        else _enabled_expert_fiche_collection(
+            workspace_slug=request.get("workspace_slug"),
+            source_policy=request.get("source_policy"),
+        )
     )
     if expert_fiche_collection:
         profile["_expert_fiche_collection"] = expert_fiche_collection
@@ -2230,6 +2424,10 @@ async def retrieve_rag_context(
     expert_fiche_included = bool(
         expert_fiche_collection and expert_fiche_collection in (collections or [])
     )
+    if authoritative_collections:
+        profile["collections"] = authoritative_collections
+        profile["collection"] = authoritative_collections[0]
+        collections = authoritative_collections
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
         "query": query,
@@ -2250,7 +2448,8 @@ async def retrieve_rag_context(
         "synthesis_k": profile["synthesis_k"],
         "source_display_k": profile["source_display_k"],
         "fallback": bool(fallback_reason or (corpus_plan.fallback_reason if corpus_plan else None)),
-        "fallback_reason": fallback_reason or (corpus_plan.fallback_reason if corpus_plan else None),
+        "fallback_reason": fallback_reason
+        or (corpus_plan.fallback_reason if corpus_plan else None),
         "knowledge_guides": len(guides),
         "query_expanded_with_guides": bool(guides),
         "knowledge_guide_hint_chars": len(guide_hint),
@@ -2262,7 +2461,9 @@ async def retrieve_rag_context(
         "latency_budget": {
             "profile": profile.get("latency_profile"),
             "retrieval_profile": profile.get("retrieval_profile"),
-            "allow_cross_encoder": bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
+            "allow_cross_encoder": bool(
+                (profile.get("latency_budget") or {}).get("allow_cross_encoder")
+            ),
             "deadline_seconds": profile.get("deadline_seconds")
             or _deadline_seconds_for_profile(str(profile.get("latency_profile") or "fast")),
             "top_k": profile["top_k"],
@@ -2273,10 +2474,16 @@ async def retrieve_rag_context(
         "scope_confidence": corpus_plan.scope_confidence if corpus_plan else 0.0,
         "scope_reason": corpus_plan.scope_reason if corpus_plan else "",
         "dense_policy": corpus_plan.dense_policy if corpus_plan else "standard",
-        "deep_retrieval_recommended": corpus_plan.deep_retrieval_recommended if corpus_plan else False,
+        "deep_retrieval_recommended": corpus_plan.deep_retrieval_recommended
+        if corpus_plan
+        else False,
         "soft_scope_filters": dict(corpus_plan.soft_scope_filters or {}) if corpus_plan else {},
-        "soft_scope_collections": list(corpus_plan.soft_scope_collections or []) if corpus_plan else [],
-        "recall_floor_collections": list(corpus_plan.recall_floor_collections or []) if corpus_plan else [],
+        "soft_scope_collections": list(corpus_plan.soft_scope_collections or [])
+        if corpus_plan
+        else [],
+        "recall_floor_collections": list(corpus_plan.recall_floor_collections or [])
+        if corpus_plan
+        else [],
         "recall_floor_top_n": int(corpus_plan.recall_floor_top_n or 0) if corpus_plan else 0,
         "expert_fiche_collection": expert_fiche_collection or None,
         "expert_fiche_collection_included": expert_fiche_included,
@@ -2318,11 +2525,15 @@ async def retrieve_rag_context(
             payload["project_inventory"] = inventory
             payload_metrics = payload.get("metrics")
             if isinstance(payload_metrics, dict):
-                payload_metrics["project_inventory_total_projects"] = inventory.get("total_projects")
+                payload_metrics["project_inventory_total_projects"] = inventory.get(
+                    "total_projects"
+                )
                 payload_metrics["project_inventory_terms"] = inventory.get("terms")
         return payload
 
-    if is_collection_inventory_query(query) or (corpus_plan is not None and corpus_plan.intent == "catalogue"):
+    if is_collection_inventory_query(query) or (
+        corpus_plan is not None and corpus_plan.intent == "catalogue"
+    ):
         inventory_context = _retrieve_collection_inventory_context(
             profile,
             started=started,
@@ -2383,27 +2594,29 @@ async def retrieve_rag_context(
         metrics["chunks_retrieved"] = len(guide_chunks)
         metrics["no_context"] = len(guide_chunks) == 0
         _finalize_retrieval_metrics(metrics)
-        return await _attach_project_inventory({
-            "chunks": guide_chunks,
-            "scores": guide_scores,
-            "metadatas": guide_metas,
-            "pipeline": "fallback_hybrid",
-            "label": "none",
-            "reason": "DocumentService unavailable",
-            "detail": str(exc),
-            "mode_label": "none",
-            "mode_reason": "DocumentService unavailable",
-            "use_hybrid": True,
-            "query": query,
-            "retrieval_query": retrieval_query,
-            "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
-            "retrieval_constraints": {},
-            "clarification": clarification,
-            "metrics": _jsonable(metrics),
-            "retrieval_decision_trace": _jsonable(metrics.get("retrieval_decision_trace")),
-            "collections_touched": [],
-            "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
-        })
+        return await _attach_project_inventory(
+            {
+                "chunks": guide_chunks,
+                "scores": guide_scores,
+                "metadatas": guide_metas,
+                "pipeline": "fallback_hybrid",
+                "label": "none",
+                "reason": "DocumentService unavailable",
+                "detail": str(exc),
+                "mode_label": "none",
+                "mode_reason": "DocumentService unavailable",
+                "use_hybrid": True,
+                "query": query,
+                "retrieval_query": retrieval_query,
+                "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+                "retrieval_constraints": {},
+                "clarification": clarification,
+                "metrics": _jsonable(metrics),
+                "retrieval_decision_trace": _jsonable(metrics.get("retrieval_decision_trace")),
+                "collections_touched": [],
+                "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
+            }
+        )
 
     use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
         doc_svc,
@@ -2481,7 +2694,9 @@ async def retrieve_rag_context(
             "filter_keys": sorted(soft_scope_filters),
         }
 
-    def _retrieve_coro(call_filters: dict[str, Any] | None, call_deadline: float, query_override: str | None = None):
+    def _retrieve_coro(
+        call_filters: dict[str, Any] | None, call_deadline: float, query_override: str | None = None
+    ):
         return retrieve_for_mode(
             doc_svc,
             query_override or retrieval_query,
@@ -2520,47 +2735,49 @@ async def retrieve_rag_context(
         )
         guide_chunks, guide_scores, guide_metas = guide_context_entries(guides)
         _finalize_retrieval_metrics(metrics)
-        return await _attach_project_inventory(_jsonable(
-            {
-                "chunks": guide_chunks,
-                "scores": guide_scores,
-                "metadatas": guide_metas,
-                "pipeline": "retrieval_timeout",
-                "label": "Retrieval deadline",
-                "reason": "Interactive retrieval exceeded its latency budget.",
-                "detail": "A deeper retrieval can continue asynchronously without blocking the chat stream.",
-                "mode_label": mode_label,
-                "mode_reason": mode_reason,
-                "use_hybrid": use_hybrid,
-                "top_k": profile["top_k"],
-                "candidate_pool_k": profile["candidate_pool_k"],
-                "synthesis_k": profile["synthesis_k"],
-                "source_display_k": profile["source_display_k"],
-                "query": query,
-                "retrieval_query": retrieval_query,
-                "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
-                "retrieval_constraints": {},
-                "clarification": clarification,
-                "collection": profile["collection"],
-                "collections": collections,
-                "knowledge_scope": profile.get("knowledge_scope"),
-                "scope_label": profile.get("scope_label"),
-                "vector_db": profile["vector_db"],
-                "workspace_slug": profile["workspace_slug"],
-                "metrics": metrics,
-                "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
-                "retrieval_scope": metrics.get("retrieval_scope"),
-                "retrieval_plan": metrics.get("retrieval_plan"),
-                "scope_confidence": metrics.get("scope_confidence"),
-                "scope_reason": metrics.get("scope_reason"),
-                "dense_policy": metrics.get("dense_policy"),
-                "fallback_reason": metrics.get("fallback_reason"),
-                "latency_budget": metrics.get("latency_budget"),
-                "deep_retrieval_recommended": True,
-                "collections_touched": [profile["collection"]],
-                "collection_errors": [],
-            }
-        ))
+        return await _attach_project_inventory(
+            _jsonable(
+                {
+                    "chunks": guide_chunks,
+                    "scores": guide_scores,
+                    "metadatas": guide_metas,
+                    "pipeline": "retrieval_timeout",
+                    "label": "Retrieval deadline",
+                    "reason": "Interactive retrieval exceeded its latency budget.",
+                    "detail": "A deeper retrieval can continue asynchronously without blocking the chat stream.",
+                    "mode_label": mode_label,
+                    "mode_reason": mode_reason,
+                    "use_hybrid": use_hybrid,
+                    "top_k": profile["top_k"],
+                    "candidate_pool_k": profile["candidate_pool_k"],
+                    "synthesis_k": profile["synthesis_k"],
+                    "source_display_k": profile["source_display_k"],
+                    "query": query,
+                    "retrieval_query": retrieval_query,
+                    "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+                    "retrieval_constraints": {},
+                    "clarification": clarification,
+                    "collection": profile["collection"],
+                    "collections": collections,
+                    "knowledge_scope": profile.get("knowledge_scope"),
+                    "scope_label": profile.get("scope_label"),
+                    "vector_db": profile["vector_db"],
+                    "workspace_slug": profile["workspace_slug"],
+                    "metrics": metrics,
+                    "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
+                    "retrieval_scope": metrics.get("retrieval_scope"),
+                    "retrieval_plan": metrics.get("retrieval_plan"),
+                    "scope_confidence": metrics.get("scope_confidence"),
+                    "scope_reason": metrics.get("scope_reason"),
+                    "dense_policy": metrics.get("dense_policy"),
+                    "fallback_reason": metrics.get("fallback_reason"),
+                    "latency_budget": metrics.get("latency_budget"),
+                    "deep_retrieval_recommended": True,
+                    "collections_touched": [profile["collection"]],
+                    "collection_errors": [],
+                }
+            )
+        )
 
     # Deep scope-miss recovery. A ledger-inferred document scope can point at
     # documents that exist in the SQL ledger but were never ingested into the
@@ -2604,7 +2821,9 @@ async def retrieve_rag_context(
                 scope_miss_recovery = {
                     "scope_miss_recovery": True,
                     "scope_miss_dropped_filters": [
-                        key for key in _SCOPE_MISS_FILTER_KEYS if key in (profile.get("retrieval_filters") or {})
+                        key
+                        for key in _SCOPE_MISS_FILTER_KEYS
+                        if key in (profile.get("retrieval_filters") or {})
                     ],
                 }
                 logger.info(
@@ -2630,6 +2849,7 @@ async def retrieve_rag_context(
     if comparative_plan is not None and result.chunks:
         comparative_remaining = deadline_seconds - (time.perf_counter() - retrieval_started_perf)
         if comparative_remaining >= 0.5:
+
             async def _comparative_subretrieve(subquery: str, sub_deadline: float):
                 return await _retrieve_coro(
                     primary_filters,
@@ -2657,9 +2877,13 @@ async def retrieve_rag_context(
             )
             metrics.update(comparative_diag)
         else:
-            metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "deadline"})
+            metrics.update(
+                {"comparative_decompose": False, "comparative_skipped_reason": "deadline"}
+            )
     elif comparative_plan is not None:
-        metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "no_primary_hits"})
+        metrics.update(
+            {"comparative_decompose": False, "comparative_skipped_reason": "no_primary_hits"}
+        )
 
     # Recall floor: the hard document_filename allowlist is a filename-keyword
     # guess and can omit the real answer doc. Add a bounded UNSCOPED dense pass
@@ -2714,15 +2938,14 @@ async def retrieve_rag_context(
             metrics["recall_floor"] = {"applied": False, "reason": "deadline"}
 
     retrieval_diagnostics = {
-        key: value for key, value in (getattr(result, "diagnostics", {}) or {}).items() if value is not None
+        key: value
+        for key, value in (getattr(result, "diagnostics", {}) or {}).items()
+        if value is not None
     }
     sparse_status = str(retrieval_diagnostics.get("sparse_status") or "").strip().lower()
     dense_only = bool(
         not use_hybrid
-        or (
-            retrieval_diagnostics.get("sparse_backend")
-            and sparse_status not in {"ok"}
-        )
+        or (retrieval_diagnostics.get("sparse_backend") and sparse_status not in {"ok"})
     )
     metadatas = []
     for meta in result.metadatas or []:
@@ -2806,7 +3029,9 @@ async def retrieve_rag_context(
         doc_svc=doc_svc,
     )
     context_build_started_perf = time.perf_counter()
-    summary_artifact = _summary_artifact_for_profile(profile, metrics=metrics, query=retrieval_query)
+    summary_artifact = _summary_artifact_for_profile(
+        profile, metrics=metrics, query=retrieval_query
+    )
     chunks, scores, metadatas, summary_artifact_count = _prepend_summary_artifact_context(
         chunks,
         scores,
@@ -2843,7 +3068,8 @@ async def retrieve_rag_context(
     metrics.update(
         {
             "duration_ms": duration_ms,
-            "retrieval_elapsed_ms": retrieval_diagnostics.get("retrieval_elapsed_ms") or retrieval_elapsed_ms,
+            "retrieval_elapsed_ms": retrieval_diagnostics.get("retrieval_elapsed_ms")
+            or retrieval_elapsed_ms,
             "dense_elapsed_ms": retrieval_diagnostics.get("dense_elapsed_ms"),
             "sparse_elapsed_ms": retrieval_diagnostics.get("sparse_elapsed_ms"),
             "rerank_ms": rerank_ms,
@@ -2855,8 +3081,12 @@ async def retrieve_rag_context(
             "duplicates_removed": duplicates_removed,
             "knowledge_guides": guide_count,
             "summary_artifact_evidence": summary_artifact_count,
-            "summary_artifact_status": (summary_artifact or {}).get("status") if summary_artifact else None,
-            "summary_artifact_path": (summary_artifact or {}).get("jsonl_path") if summary_artifact else None,
+            "summary_artifact_status": (summary_artifact or {}).get("status")
+            if summary_artifact
+            else None,
+            "summary_artifact_path": (summary_artifact or {}).get("jsonl_path")
+            if summary_artifact
+            else None,
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "exact_match_guardrail_inserted": bool(exact_guardrail_count),
@@ -2964,7 +3194,11 @@ def _fuse_collection_results(
         scores = collection_result.get("scores") or []
         metadatas = collection_result.get("metadatas") or []
         for rank, chunk in enumerate(chunks):
-            meta = dict(metadatas[rank] if rank < len(metadatas) and isinstance(metadatas[rank], Mapping) else {})
+            meta = dict(
+                metadatas[rank]
+                if rank < len(metadatas) and isinstance(metadatas[rank], Mapping)
+                else {}
+            )
             meta["collection"] = collection_result.get("collection")
             meta["collection_name"] = collection_result.get("collection")
             key = _content_key(chunk, meta)
@@ -3015,8 +3249,12 @@ async def _retrieve_multi_collection_context(
     collection_results: list[dict[str, Any]] = []
     collection_errors: list[dict[str, str]] = []
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
-    latency_budget = metrics.get("latency_budget") if isinstance(metrics.get("latency_budget"), Mapping) else {}
-    deadline_seconds = float(latency_budget.get("deadline_seconds") or settings.rag_fast_retrieval_deadline_seconds)
+    latency_budget = (
+        metrics.get("latency_budget") if isinstance(metrics.get("latency_budget"), Mapping) else {}
+    )
+    deadline_seconds = float(
+        latency_budget.get("deadline_seconds") or settings.rag_fast_retrieval_deadline_seconds
+    )
     dense_policy = str(metrics.get("dense_policy") or "")
     allow_legacy_hybrid = bool(
         profile.get(
@@ -3055,7 +3293,9 @@ async def _retrieve_multi_collection_context(
     retrieval_loop_deadline_perf = retrieval_loop_started_perf + max(deadline_seconds, 0.01)
     deadline_exceeded = False
     for collection in profile.get("collections") or []:
-        is_expert_fiche = bool(expert_fiche_collection) and str(collection) == expert_fiche_collection
+        is_expert_fiche = (
+            bool(expert_fiche_collection) and str(collection) == expert_fiche_collection
+        )
         use_soft_scope = bool(
             not is_expert_fiche
             and soft_scope_filters
@@ -3071,7 +3311,9 @@ async def _retrieve_multi_collection_context(
         remaining_seconds = retrieval_loop_deadline_perf - time.perf_counter()
         if remaining_seconds <= 0:
             deadline_exceeded = True
-            collection_errors.append({"collection": collection, "error": "retrieval_deadline_exceeded"})
+            collection_errors.append(
+                {"collection": collection, "error": "retrieval_deadline_exceeded"}
+            )
             break
         try:
             doc_svc = _document_service_for_profile(profile, collection)
@@ -3181,7 +3423,9 @@ async def _retrieve_multi_collection_context(
                     except (TimeoutError, asyncio.TimeoutError):
                         floor_result = None
                     except Exception as exc:  # noqa: BLE001 - floor must never break retrieval.
-                        logger.warning("recall floor pass failed", collection=collection, error=str(exc))
+                        logger.warning(
+                            "recall floor pass failed", collection=collection, error=str(exc)
+                        )
                         floor_result = None
                     if floor_result is not None and getattr(floor_result, "chunks", None):
                         floor_metas = []
@@ -3209,7 +3453,9 @@ async def _retrieve_multi_collection_context(
                         recall_floor_added[str(collection)] = len(floor_result.chunks)
         except TimeoutError:
             deadline_exceeded = True
-            collection_errors.append({"collection": collection, "error": "retrieval_deadline_exceeded"})
+            collection_errors.append(
+                {"collection": collection, "error": "retrieval_deadline_exceeded"}
+            )
             break
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -3319,13 +3565,17 @@ async def _retrieve_multi_collection_context(
         bool((item.get("diagnostics") or {}).get("exact_match_required"))
         for item in collection_results
     )
-    exact_metadata_diagnostics = {
-        "exact_metadata_attempted": exact_metadata_attempted,
-        "exact_metadata_hits": exact_metadata_hits,
-        "exact_metadata_elapsed_ms": exact_metadata_elapsed_ms,
-        "exact_match_required": exact_match_required,
-        "exact_match_missing": bool(exact_match_required and exact_metadata_hits <= 0),
-    } if exact_metadata_attempted else {}
+    exact_metadata_diagnostics = (
+        {
+            "exact_metadata_attempted": exact_metadata_attempted,
+            "exact_metadata_hits": exact_metadata_hits,
+            "exact_metadata_elapsed_ms": exact_metadata_elapsed_ms,
+            "exact_match_required": exact_match_required,
+            "exact_match_missing": bool(exact_match_required and exact_metadata_hits <= 0),
+        }
+        if exact_metadata_attempted
+        else {}
+    )
     context_build_started_perf = time.perf_counter()
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -3384,8 +3634,12 @@ async def _retrieve_multi_collection_context(
         {
             "duration_ms": duration_ms,
             "retrieval_elapsed_ms": retrieval_loop_ms,
-            "dense_elapsed_ms": dense_elapsed_sum if any(value is not None for value in dense_elapsed_values) else None,
-            "sparse_elapsed_ms": sparse_elapsed_sum if any(value is not None for value in sparse_elapsed_values) else None,
+            "dense_elapsed_ms": dense_elapsed_sum
+            if any(value is not None for value in dense_elapsed_values)
+            else None,
+            "sparse_elapsed_ms": sparse_elapsed_sum
+            if any(value is not None for value in sparse_elapsed_values)
+            else None,
             "rerank_ms": rerank_ms,
             "context_build_ms": context_build_ms,
             "chunks_retrieved": len(chunks),
@@ -3409,7 +3663,9 @@ async def _retrieve_multi_collection_context(
             "no_context": len(chunks) == 0,
             "collections_touched": touched,
             "collection_errors": collection_errors,
-            "fallback": bool(fallback_reason) or deadline_exceeded or bool(collection_errors and not chunks),
+            "fallback": bool(fallback_reason)
+            or deadline_exceeded
+            or bool(collection_errors and not chunks),
             "fallback_reason": fallback_reason
             or metrics.get("fallback_reason")
             or ("retrieval_deadline_exceeded" if deadline_exceeded else None),

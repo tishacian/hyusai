@@ -15,7 +15,6 @@ Three concerns share this router:
      ``POST /decisions/{id}/status`` endpoint for accept/reject
      actions (no new mutation endpoint here — we reuse Decisions).
 """
-import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -24,28 +23,30 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import WORKSPACE_REVIEWER, is_admin_template, normalize_role_template
 from app.db.base import get_db
-from app.models.decision import Decision
 from app.models.canonical_answer import CanonicalAnswer
+from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.run import Run
-from app.models.workspace import Workspace
-from app.services.evaluation.feedback_service import serialize_feedback
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.audit_logger import emit_audit_event
 from app.services.evaluation.canonical_answer_service import (
     CanonicalAnswerError,
     create_canonical_answer,
     serialize_canonical_answer,
 )
-from app.services.evaluation.judge import get_judge_service, DIMENSION_LABELS
+from app.services.evaluation.feedback_service import serialize_feedback
+from app.services.evaluation.judge import DIMENSION_LABELS, get_judge_service
 from app.services.evaluation.rag_components import (
-    RAG_COMPONENT_LABELS,
     QUESTION_TYPE_LABELS,
+    RAG_COMPONENT_LABELS,
     component_health,
     heuristic_question_type,
     infer_failed_components,
-    normalize_question_type,
     targeted_components,
 )
 from app.services.evaluation_preset_service import (
@@ -54,6 +55,44 @@ from app.services.evaluation_preset_service import (
 )
 
 router = APIRouter()
+
+
+def _require_review_queue_access(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+) -> None:
+    """Keep full Run evidence in the governed reviewer/admin surface."""
+
+    if getattr(user, "role", None) == "admin":
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    role = (
+        normalize_role_template(membership.role_template, membership.role)
+        if membership is not None
+        else None
+    )
+    if membership is None or not (
+        is_admin_template(membership.role_template, membership.role) or role == WORKSPACE_REVIEWER
+    ):
+        raise HTTPException(403, "Reviewer/admin access required for the review queue")
+
+
+def _authenticated_actor(user: User) -> str:
+    return str(
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or getattr(user, "keycloak_sub", None)
+        or user.id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +210,11 @@ async def latest_evaluation(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    q = db.query(EvaluationScore).filter(
-        EvaluationScore.workspace_id == workspace.id
-    ).order_by(EvaluationScore.created_at.desc())
+    q = (
+        db.query(EvaluationScore)
+        .filter(EvaluationScore.workspace_id == workspace.id)
+        .order_by(EvaluationScore.created_at.desc())
+    )
     if agent_id:
         q = q.filter(EvaluationScore.agent_id == agent_id)
     row = q.first()
@@ -322,11 +363,7 @@ async def evaluation_by_run(
     EvaluationScore row to prevent cross-tenant lookup via guessed
     run ids.
     """
-    run = (
-        db.query(Run)
-        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
-        .first()
-    )
+    run = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -397,6 +434,7 @@ async def review_queue(
     ),
     limit: int = Query(default=50, ge=1, le=200),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """List ``review_required`` decisions + their linked run context.
@@ -404,6 +442,7 @@ async def review_queue(
     Joined with Run so the UI can show composite score + breach
     reasons without a second fetch. Ordered by newest first.
     """
+    _require_review_queue_access(db, workspace=workspace, user=user)
     q = (
         db.query(Decision)
         .filter(
@@ -425,9 +464,7 @@ async def review_queue(
 
     items: List[Dict[str, Any]] = []
     wanted_component = (
-        component.strip().lower().replace("-", "_").replace(" ", "_")
-        if component
-        else None
+        component.strip().lower().replace("-", "_").replace(" ", "_") if component else None
     )
     if wanted_component and wanted_component not in RAG_COMPONENT_LABELS:
         raise HTTPException(status_code=400, detail=f"Unknown RAG component: {component}")
@@ -448,9 +485,7 @@ async def review_queue(
                     "status": decision.status,
                     "title": decision.title,
                     "rationale": decision.rationale,
-                    "created_at": decision.created_at.isoformat()
-                    if decision.created_at
-                    else None,
+                    "created_at": decision.created_at.isoformat() if decision.created_at else None,
                     "approved_by": decision.approved_by,
                     "approved_at": decision.approved_at.isoformat()
                     if decision.approved_at
@@ -538,12 +573,10 @@ async def eval_trend(
             for row in rows
         ]
 
-    breach_count = (
-        q.filter(
-            (EvaluationScore.composite_score < composite_min)
-            | (EvaluationScore.hallucination_rate > hallucination_max)
-        ).count()
-    )
+    breach_count = q.filter(
+        (EvaluationScore.composite_score < composite_min)
+        | (EvaluationScore.hallucination_rate > hallucination_max)
+    ).count()
     total = q.count()
 
     return {
@@ -641,9 +674,7 @@ async def evaluation_taxonomy():
     return {
         "components": RAG_COMPONENT_LABELS,
         "question_types": QUESTION_TYPE_LABELS,
-        "question_type_components": {
-            key: targeted_components(key) for key in QUESTION_TYPE_LABELS
-        },
+        "question_type_components": {key: targeted_components(key) for key in QUESTION_TYPE_LABELS},
     }
 
 
@@ -657,16 +688,13 @@ async def list_canonical_answers(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _require_review_queue_access(db, workspace=workspace, user=user)
     q = db.query(CanonicalAnswer).filter(CanonicalAnswer.workspace_id == workspace.id)
     total = q.count()
-    rows = (
-        q.order_by(CanonicalAnswer.updated_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    rows = q.order_by(CanonicalAnswer.updated_at.desc()).offset(offset).limit(limit).all()
     return {
         "total": total,
         "limit": limit,
@@ -679,15 +707,17 @@ async def list_canonical_answers(
 async def create_canonical_answer_endpoint(
     body: CanonicalAnswerIn,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _require_review_queue_access(db, workspace=workspace, user=user)
     try:
         row = create_canonical_answer(
             db,
             workspace_id=workspace.id,
             question=body.question,
             answer=body.answer,
-            actor=body.actor,
+            actor=_authenticated_actor(user),
             source_decision_id=body.source_decision_id,
             source_feedback_id=body.source_feedback_id,
             source_run_id=body.source_run_id,
@@ -703,8 +733,10 @@ async def create_canonical_answer_endpoint(
 async def delete_canonical_answer_endpoint(
     answer_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _require_review_queue_access(db, workspace=workspace, user=user)
     row = (
         db.query(CanonicalAnswer)
         .filter(CanonicalAnswer.id == answer_id, CanonicalAnswer.workspace_id == workspace.id)
@@ -712,6 +744,13 @@ async def delete_canonical_answer_endpoint(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Canonical answer not found")
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="canonical_answer.deleted",
+        actor=_authenticated_actor(user),
+        details={"canonical_answer_id": row.id},
+        db=db,
+    )
     db.delete(row)
     db.commit()
     return None
