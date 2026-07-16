@@ -15,10 +15,15 @@ def test_resolve_transversal_inventory_requires_exhaustive_retrieval():
 
 
 def test_resolve_project_summary_profile():
-    decision = resolve_answer_profile("Résume le projet AKK200", industrial_answer_policy())
-
-    assert decision.profile == "project_summary"
-    assert decision.requires_exhaustive_retrieval is False
+    for query in (
+        "Résume le projet AKK200",
+        "resume BAO100",
+        "Résume-moi BCX200",
+        "summarize ACJ100",
+    ):
+        decision = resolve_answer_profile(query, industrial_answer_policy())
+        assert decision.profile == "project_summary", query
+        assert decision.requires_exhaustive_retrieval is False, query
 
 
 def test_resolve_broad_knowledge_request_as_project_summary():

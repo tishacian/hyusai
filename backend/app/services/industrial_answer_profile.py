@@ -198,6 +198,10 @@ _PROJECT_SUMMARY_RE = re.compile(
     r"\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview|pr[ée]sentation)\b.*\b(projet|project|manuel|manual|dossier|document)\b"
     r"|\b(projet|project|manuel|manual)\b.*\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview)\b"
     r"|\b(d[ée]taille|d[ée]tailler|d[ée]cris|d[ée]crire|d[ée]crit|pr[ée]sente|pr[ée]senter|contenu|contient)\b.*\b(manuel|manual|projet|project|document|dossier)\b"
+    # A project code already names the project object, so users should not
+    # have to spell out "le projet" for the summary route.  This is the common
+    # Andritz chat phrasing ("resume BAO100").
+    r"|\b(r[eé]sume|synth[eè]se|summari[sz]e)\b(?:[-\s]+moi)?(?:\s+(?:le|la|the))?(?:\s+(?:projet|project|dossier))?\s+[A-Z]{2,}\d{2,}\b"
     # "tell me everything about project X": broad-knowledge requests that want a
     # structured project synthesis, not a single fact. Anchored on an explicit
     # broad-knowledge phrase + a project object (word or project code) so plain
