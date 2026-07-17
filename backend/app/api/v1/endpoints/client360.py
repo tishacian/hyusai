@@ -172,6 +172,10 @@ class SyncFromCollectionBody(BaseModel):
         default="phase1",
         description="phase1 (Greece/Turkey + pilot techs) or all",
     )
+    rehydrate_mvp: bool = Field(
+        default=True,
+        description="Link existing MVP pilot Client360DataSource rows to the unified collection",
+    )
 
 
 class OpportunityPatch(BaseModel):
@@ -342,6 +346,7 @@ def client360_sources_sync_from_collection(
             collection_slug=body.collection_slug,
             dry_run=body.dry_run,
             scope=scope,
+            rehydrate_mvp=body.rehydrate_mvp,
         )
         if body.dry_run:
             result["mvp_archive_preview"] = preview_archive_mvp_orphan_sources(

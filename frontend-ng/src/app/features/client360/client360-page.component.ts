@@ -43,8 +43,10 @@ interface Client360DataSource {
 interface Client360SyncFromCollectionResult {
   collection_slug?: string;
   dry_run?: boolean;
+  files_seen?: number;
   sources_seen?: number;
   sources_upserted?: number;
+  mvp_sources_linked?: number;
   records_seen?: number;
   created?: number;
   updated?: number;
@@ -781,7 +783,11 @@ interface Client360CampaignDraftsResult {
               }
             </div>
             @if (!unifiedCollectionStats().hasLinkedSources && unifiedCollectionStats().totalSources > 0) {
-              <p class="hint">Aucune source n'est encore liee a {{ unifiedCollectionSlug }}. Les comptes ci-dessus refletent l'ensemble des sources workspace.</p>
+              <p class="hint">
+                Aucune source n'est encore liee a {{ unifiedCollectionSlug }}.
+                Cliquez « Synchroniser les sources » pour rattacher le pilote MVP ;
+                les fichiers Installed_base_SPL doivent d'abord etre promus dans la collection.
+              </p>
             }
             <div class="data-actions">
               <button
@@ -1816,10 +1822,17 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.syncResult.set(payload);
         this.syncBusy.set(false);
         const upserted = payload.sources_upserted ?? payload.created ?? payload.updated;
+        const linked = payload.mvp_sources_linked;
+        const parts: string[] = [];
+        if (linked != null && linked > 0) parts.push(`${linked} pilote(s) rattache(s)`);
+        if (upserted != null) parts.push(`${upserted} source(s) SPL`);
+        if (!parts.length && (payload.files_seen ?? 0) === 0) {
+          parts.push('aucun fichier SPL promu — rattachement pilote uniquement');
+        }
         this.syncStatus.set(
           dryRun
-            ? `Dry-run sync OK${upserted != null ? ` · ${upserted} source(s)` : ''}`
-            : `Sources synchronisees${upserted != null ? ` · ${upserted}` : ''}`,
+            ? `Dry-run sync OK${parts.length ? ` · ${parts.join(' · ')}` : ''}`
+            : `Sources synchronisees${parts.length ? ` · ${parts.join(' · ')}` : ''}`,
         );
         if (!dryRun) this.refresh({ scope, generation });
         else this.loadSummary(this.mailAiResolved(), { scope, generation });

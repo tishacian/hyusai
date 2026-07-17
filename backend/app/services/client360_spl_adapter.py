@@ -607,10 +607,19 @@ def sync_sources_from_collection(
     collection_slug: str = CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
     dry_run: bool = False,
     scope: str = "phase1",
+    rehydrate_mvp: bool = True,
 ) -> dict[str, Any]:
     """Map collection spreadsheets into Client360DataSource rows.
 
     ``scope``: ``phase1`` (Greece/Turkey + pilot) or ``all``.
+
+    Always rehydrates MVP pilot sources into the unified collection first (unless
+    ``rehydrate_mvp=False``), so the UI is not stuck at 0 linked sources when
+    deposit SPL files are still ``received`` / unpromoted.
+
+    Only **promoted** (or already-in-collection) spreadsheets are parsed. Reading
+    raw ``received`` deposit xlsx (Sales 32k / Machine 11k) from the sync HTTP
+    path previously hung the Données tab.
     """
     collection = (
         db.query(KnowledgeCollection)
@@ -623,14 +632,24 @@ def sync_sources_from_collection(
     if collection is None:
         raise LookupError(f"Knowledge collection not found: {collection_slug}")
 
+    rehydrate_result: dict[str, Any] | None = None
+    if rehydrate_mvp:
+        rehydrate_result = rehydrate_pilot_mvp_into_collection(
+            db,
+            workspace,
+            collection_slug=collection.slug,
+            dry_run=dry_run,
+        )
+
     workspace_scope = client360_scope(workspace)
     filenames = _list_collection_filenames(db, workspace, collection)
-    # Also consider deposit files already promoted / pending with expected prefixes.
+    # Only promoted deposit files — never parse staging ``received`` blobs here.
     deposit_candidates = (
         db.query(DepositFile)
         .filter(
             DepositFile.workspace_id == workspace.id,
-            DepositFile.filename.ilike("%Installed_base_SPL%"),
+            DepositFile.status == "promoted",
+            DepositFile.filename.ilike("Installed_base_SPL/%"),
         )
         .all()
     )
@@ -638,7 +657,8 @@ def sync_sources_from_collection(
         db.query(DepositFile)
         .filter(
             DepositFile.workspace_id == workspace.id,
-            DepositFile.filename.ilike("%Client360_Pilot%"),
+            DepositFile.status == "promoted",
+            DepositFile.filename.ilike("Client360_Pilot/%"),
         )
         .all()
     )
@@ -654,6 +674,29 @@ def sync_sources_from_collection(
     try:
         for filename in filenames:
             role = detect_spl_role(filename)
+            # Materials master is Phase-2 enrichment — skip on the interactive sync path.
+            if role == "materials_consumptions" and scope == "phase1":
+                skipped["materials_deferred"] = skipped.get("materials_deferred", 0) + 1
+                sources_out.append(
+                    {
+                        "action": "skipped",
+                        "filename": filename,
+                        "role": role,
+                        "reason": "materials_deferred_phase2",
+                    }
+                )
+                continue
+            if role == "spc" and scope == "phase1":
+                skipped["spc_deferred"] = skipped.get("spc_deferred", 0) + 1
+                sources_out.append(
+                    {
+                        "action": "skipped",
+                        "filename": filename,
+                        "role": role,
+                        "reason": "spc_deferred_until_size_ok",
+                    }
+                )
+                continue
             if role == "generic" and "installed_base" not in _fold(filename):
                 # Ignore notices / unrelated collection noise if any slipped in.
                 if classify_data_source(filename) == "other" and "consumption" not in _fold(
@@ -783,9 +826,11 @@ def sync_sources_from_collection(
         "files_seen": len(filenames),
         "sources": sources_out,
         "skipped": skipped,
+        "rehydrate_mvp": rehydrate_result,
         "sources_upserted": sum(
             1 for item in sources_out if item.get("action") in {"created", "updated", "preview"}
         ),
+        "mvp_sources_linked": (rehydrate_result or {}).get("count") or 0,
     }
 
 

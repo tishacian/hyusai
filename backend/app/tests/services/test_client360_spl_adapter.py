@@ -11,11 +11,14 @@ from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollec
 from app.models.workspace import Workspace
 from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
 from app.services.client360_pdr import classify_data_source
+from app.models.client360 import Client360DataSource
+from app.services.client360_contract import CLIENT360_PILOT_DATASET_MARKER
 from app.services.client360_spl_adapter import (
     detect_spl_role,
     map_row_for_role,
     months_to_weeks,
     passes_phase1_scope,
+    rehydrate_pilot_mvp_into_collection,
     sync_sources_from_collection,
 )
 
@@ -201,3 +204,54 @@ def test_sync_from_collection_dry_run_with_xlsx_fixture(db_session, tmp_path, mo
     records = family["metadata"]["records"]
     assert records[0]["periodicity_weeks"] == pytest.approx(13.035)
     assert records[0]["part_family"] == "Injector Strip"
+    assert result.get("mvp_sources_linked") == 0
+
+
+def test_sync_rehydrates_mvp_without_promoted_files(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    collection = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        name="Andritz Client360 Installed Base",
+        status="created",
+        document_names=[],
+        vector_collection_name="andritz_client360_installed_base",
+        artifact_prefix=f"knowledge/{CLIENT360_INSTALLED_BASE_COLLECTION_SLUG}/",
+        document_count=0,
+        chunk_count=0,
+    )
+    orphan = Client360DataSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        source_type="installed_base",
+        label="MVP Pilot - Septona Greece installed base",
+        filename="SEPTONA - Client 360.xlsx",
+        status="ready",
+        row_count=1,
+        meta_data={
+            "pilot_dataset": CLIENT360_PILOT_DATASET_MARKER,
+            "records": [{"customer_name": "Septona S.A.", "country": "Greece", "installed_quantity": 1}],
+        },
+    )
+    db_session.add_all([collection, orphan])
+    db_session.commit()
+
+    result = sync_sources_from_collection(
+        db_session,
+        workspace,
+        collection_slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        dry_run=False,
+        scope="phase1",
+        rehydrate_mvp=True,
+    )
+    assert result["mvp_sources_linked"] == 1
+    assert result["files_seen"] == 0
+    db_session.refresh(orphan)
+    assert orphan.collection_slug == CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
+    assert orphan.meta_data.get("rehydrated_from_mvp") is True
+
+    preview = rehydrate_pilot_mvp_into_collection(
+        db_session, workspace, dry_run=True
+    )
+    assert preview["count"] == 0  # already linked + adapter_version stamped
