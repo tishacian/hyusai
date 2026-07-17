@@ -3033,6 +3033,16 @@ def _passage_scope_hint(metadata: dict[str, Any]) -> str:
         ("source_family", md.get("source_family")),
         ("document_type", md.get("document_type") or md.get("source_kind")),
         ("inventory_evidence", "true" if md.get("inventory_evidence") else None),
+        ("equipment_family", md.get("inventory_equipment_family")),
+        ("functional_category", md.get("inventory_functional_category")),
+        (
+            "family_attested_by_spare",
+            "true"
+            if md.get("inventory_family_attested_by_spare")
+            else "false"
+            if "inventory_family_attested_by_spare" in md
+            else None,
+        ),
     )
     hints: list[str] = []
     for label, value in fields:
@@ -3343,6 +3353,16 @@ def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
         "dans le dossier, en les enumerant eux aussi. Un "
         "manuel generique ne prouve jamais a lui seul que le modele est installe "
         "sur le projet.\n"
+        "CONTROLE FINAL DE COUVERTURE : pour chaque extrait marque "
+        "inventory_evidence=true hors source_family=spare_parts_list, verifie le "
+        "couple nom de fichier / equipment_family. Si ce libelle designe bien la "
+        "famille d'equipements demandee et qu'il est repete dans le contenu, il doit "
+        "apparaitre une fois dans l'une des deux sections, meme si l'extrait est une "
+        "page de titre, un glossaire ou une introduction. Place-le en section (1) "
+        "seulement si son rattachement au projet est atteste; sinon place-le en "
+        "section (2) avec la reserve documentaire. Ignore les libelles de navigation, "
+        "de dossier ou de schema qui ne sont pas eux-memes un equipement demande. "
+        "Termine chaque ligne factuelle par au moins un repere de source [n].\n"
         "Ne conclus jamais qu'il n'existe aucun autre item si un autre extrait en "
         "nomme un. Si les extraits ne prouvent pas l'exhaustivite du projet, presente "
         "le resultat comme la liste documentee dans les extraits, sans le qualifier "
