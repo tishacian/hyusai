@@ -3063,13 +3063,37 @@ _INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS = 1.5
 _INVENTORY_COVERAGE_LABEL_RE = re.compile(r"^[\wÀ-ÿ .,/()&+:'’\-]{2,120}$")
 
 
+def _bounded_inventory_evidence_excerpt(content: str, limit: int) -> str:
+    """Return a literal prefix ending on a source record boundary.
+
+    A clipped token or unfinished final record must never become selectable
+    evidence. Very long unstructured records are omitted rather than exposed
+    partially to the semantic reviewer.
+    """
+    bounded_limit = max(int(limit or 0), 0)
+    if bounded_limit <= 0:
+        return ""
+    if len(content) <= bounded_limit:
+        return content
+    prefix = content[:bounded_limit]
+    boundary = 0
+    for position, char in enumerate(prefix):
+        if char in "\n\r\f;|":
+            boundary = position + 1
+        elif char in ".!?" and (
+            position + 1 == len(content) or content[position + 1].isspace()
+        ):
+            boundary = position + 1
+    return prefix[:boundary].rstrip() if boundary > 0 else ""
+
+
 def _inventory_coverage_evidence_blocks(
     passages: list[dict[str, Any]],
-) -> tuple[str, dict[int, dict[str, Any]]]:
-    """Render only admitted evidence, preserving its public citation index."""
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Render admitted evidence behind stable server-owned references."""
     remaining = _INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS
     blocks: list[str] = []
-    evidence_by_index: dict[int, dict[str, Any]] = {}
+    evidence_by_ref: dict[str, dict[str, Any]] = {}
     for index, passage in enumerate(passages, start=1):
         metadata = passage.get("metadata") or {}
         if metadata.get("inventory_evidence") is not True or remaining <= 0:
@@ -3079,14 +3103,28 @@ def _inventory_coverage_evidence_blocks(
         content = str(passage.get("content") or "").strip()
         if not content:
             continue
-        excerpt = content[: min(per_passage_limit, remaining)]
+        excerpt = _bounded_inventory_evidence_excerpt(
+            content,
+            min(per_passage_limit, remaining),
+        )
+        if not excerpt:
+            continue
         remaining -= len(excerpt)
-        evidence_by_index[index] = {"content": excerpt, "metadata": metadata}
         scope = _passage_scope_hint(metadata)
         source = _passage_source_label(metadata, index)
-        header = f"[{index}] ({source}; {scope})" if scope else f"[{index}] ({source})"
+        evidence_ref = f"E{index}"
+        header = (
+            f"[{evidence_ref} -> citation {index}] ({source}; {scope})"
+            if scope
+            else f"[{evidence_ref} -> citation {index}] ({source})"
+        )
+        evidence_by_ref[evidence_ref] = {
+            "content": excerpt,
+            "metadata": metadata,
+            "citation_index": index,
+        }
         blocks.append(f"{header}\n{excerpt}")
-    return "\n\n".join(blocks), evidence_by_index
+    return "\n\n".join(blocks), evidence_by_ref
 
 
 def _build_inventory_coverage_review_prompt(
@@ -3112,15 +3150,15 @@ def _build_inventory_coverage_review_prompt(
         "localement associe a cette categorie est explicitement present dans la preuve et absent "
         "du brouillon. Ignore codes article, prix, quantites, composants auxiliaires et details "
         "non demandes. Ne deduis aucun role d'entreprise ni aucune installation.\n"
-        "Pour chaque omission certaine, recopie (1) un label source exact et concis et (2) une "
-        "courte citation textuelle exacte qui contient ce label et l'ancre a la categorie. Ne "
-        "repete rien deja rendu, meme groupe ou abrege. En cas de doute, status=complete.\n\n"
+        "Chaque bloc de preuve porte une reference stable comme [E2]. Pour chaque omission "
+        "certaine, retourne uniquement (1) cette evidence_ref sans crochets et (2) un label "
+        "source exact et concis, copie dans CE MEME bloc. Le serveur reconstruira lui-meme "
+        "la citation et sa section: ne recopie pas de support_quote, ne choisis pas de section "
+        "et n'invente aucune qualification. Ne repete rien deja rendu, meme groupe ou abrege. "
+        "En cas de doute, status=complete.\n\n"
         "Reponds en JSON STRICT, sans texte autour, selon ce schema:\n"
         '{"status":"complete|missing","requested_category":"categorie",'
-        '"additions":[{"section":"project_documented|documentary_only",'
-        '"label":"span exact","support_quote":"span exact de la preuve",'
-        '"citation_index":1,"project_basis":"authoritative_inventory|family_attested|'
-        'explicit_project_statement|document_only"}]}\n\n'
+        '"additions":[{"evidence_ref":"E2","label":"span exact de ce bloc"}]}\n\n'
         f"Question:\n{query}\n\nBrouillon:\n{draft}\n\nPreuves admises:\n{evidence_text}\n"
     )
 
@@ -3186,40 +3224,63 @@ def _inventory_label_is_present(label: str, text: str) -> bool:
     )
 
 
-def _inventory_local_label_context(support_quote: str, label: str) -> str:
-    """Return the source clause that contains the exact proposed label."""
-    normalized_quote = _normalized_inventory_lines(support_quote)
+def _inventory_local_label_contexts(source_record: str, label: str) -> list[str]:
+    """Return bounded source clauses for every exact label occurrence."""
+    normalized_record = _normalized_inventory_lines(source_record)
     normalized_label = _normalized_inventory_span(label)
-    label_at = normalized_quote.find(normalized_label)
-    if label_at < 0:
+    if not normalized_label:
+        return []
+    contexts: list[str] = []
+    for match in re.finditer(
+        rf"(?<!\w){re.escape(normalized_label)}(?!\w)",
+        normalized_record,
+    ):
+        label_at, label_end = match.span()
+        left = max(
+            normalized_record.rfind(separator, 0, label_at)
+            for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+        )
+        right_candidates = [
+            position
+            for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+            if (position := normalized_record.find(separator, label_end)) >= 0
+        ]
+        right = min(right_candidates) if right_candidates else len(normalized_record)
+        local_start = max(left + 1, label_at - 180)
+        local_end = min(right, label_end + 180)
+        contexts.append(normalized_record[local_start:local_end])
+    return contexts
+
+
+_INVENTORY_EVIDENCE_REF_RE = re.compile(r"^E[1-9][0-9]*$")
+
+
+def _normalized_inventory_evidence_ref(value: Any) -> str:
+    reference = str(value or "").strip().upper()
+    return reference if _INVENTORY_EVIDENCE_REF_RE.fullmatch(reference) else ""
+
+
+def _inventory_exact_source_label(label: str, source_record: str) -> str:
+    """Resolve a reviewer-selected label to the exact source-cased span."""
+    parts = [part for part in re.split(r"\s+", str(label or "").strip()) if part]
+    if not parts:
         return ""
-    label_end = label_at + len(normalized_label)
-    left = max(
-        normalized_quote.rfind(separator, 0, label_at)
-        for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
-    )
-    right_candidates = [
-        position
-        for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
-        if (position := normalized_quote.find(separator, label_end)) >= 0
-    ]
-    right = min(right_candidates) if right_candidates else len(normalized_quote)
-    # A maliciously long clause must not turn the locality check back into a
-    # whole-quote check. Keep a bounded window around the literal label span.
-    local_start = max(left + 1, label_at - 180)
-    local_end = min(right, label_end + 180)
-    return normalized_quote[local_start:local_end]
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    match = re.search(rf"(?<!\w){pattern}(?!\w)", source_record, flags=re.IGNORECASE)
+    if match is None:
+        return ""
+    return " ".join(match.group(0).split())
 
 
 def _validated_inventory_coverage_additions(
     parsed: dict[str, Any],
     *,
     draft: str,
-    evidence_by_index: dict[int, dict[str, Any]],
+    evidence_by_ref: dict[str, dict[str, Any]],
     project_code: str,
     requested_category: str,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Accept only literal source spans; model-authored prose is never rendered."""
+    """Accept only server-resolved source spans; reviewer prose is never rendered."""
     if str(parsed.get("status") or "").strip().lower() != "missing":
         return [], []
     raw_additions = parsed.get("additions")
@@ -3229,53 +3290,58 @@ def _validated_inventory_coverage_additions(
     accepted: list[dict[str, Any]] = []
     rejected: list[str] = []
     seen_labels: set[str] = set()
+    expected_project_code = str(project_code or "").strip().upper()
     for raw in raw_additions[:8]:
         if not isinstance(raw, dict):
             rejected.append("invalid_row")
             continue
-        section = str(raw.get("section") or "").strip().lower()
-        basis = str(raw.get("project_basis") or "").strip().lower()
-        label = " ".join(str(raw.get("label") or "").split())
-        support_quote = "\n".join(
-            " ".join(line.split())
-            for line in str(raw.get("support_quote") or "").splitlines()
-        ).strip()
+        raw_label = str(raw.get("label") or "")
+        label = " ".join(raw_label.split())
+        if "evidence_ref" not in raw:
+            rejected.append("missing_evidence_ref")
+            continue
+        evidence_ref = _normalized_inventory_evidence_ref(raw.get("evidence_ref"))
+        if not evidence_ref:
+            rejected.append("invalid_evidence_ref")
+            continue
+        evidence = evidence_by_ref.get(evidence_ref)
+        if evidence is None:
+            rejected.append("unknown_evidence_ref")
+            continue
         try:
-            citation_index = int(raw.get("citation_index"))
+            citation_index = int(evidence.get("citation_index"))
         except (TypeError, ValueError):
             citation_index = 0
-        evidence = evidence_by_index.get(citation_index)
+        source_record = str(evidence.get("content") or "")
+        if evidence_ref != f"E{citation_index}":
+            rejected.append("evidence_citation_mismatch")
+            continue
         if (
-            section not in {"project_documented", "documentary_only"}
-            or basis
-            not in {
-                "authoritative_inventory",
-                "family_attested",
-                "explicit_project_statement",
-                "document_only",
-            }
-            or evidence is None
+            citation_index <= 0
             or not _INVENTORY_COVERAGE_LABEL_RE.fullmatch(label)
-            or not 8 <= len(support_quote) <= 700
-            or "\n" in label
+            or not 1 <= len(source_record) <= 8000
+            or any(ord(char) < 32 or ord(char) == 127 for char in raw_label)
             or "http://" in label.lower()
             or "https://" in label.lower()
         ):
             rejected.append("invalid_shape")
             continue
         metadata = evidence.get("metadata") or {}
-        if str(metadata.get("project_code") or "").strip().upper() != project_code:
+        if metadata.get("inventory_evidence") is not True:
+            rejected.append("non_inventory_evidence")
+            continue
+        if (
+            str(metadata.get("project_code") or "").strip().upper()
+            != expected_project_code
+        ):
             rejected.append("project_mismatch")
             continue
-        # Preserve record/line boundaries. A model must not flatten two source
-        # rows into one apparently local category-to-label association.
-        normalized_content = _normalized_inventory_lines(evidence.get("content"))
-        normalized_quote = _normalized_inventory_lines(support_quote)
-        normalized_label = _normalized_inventory_span(label)
-        if normalized_quote not in normalized_content or normalized_label not in normalized_quote:
-            rejected.append("span_not_literal")
+        source_label = _inventory_exact_source_label(label, source_record)
+        if not source_label:
+            rejected.append("label_not_literal")
             continue
-        if _inventory_label_is_present(label, draft) or normalized_label in seen_labels:
+        normalized_label = _normalized_inventory_span(source_label)
+        if _inventory_label_is_present(source_label, draft) or normalized_label in seen_labels:
             rejected.append("already_present")
             continue
 
@@ -3286,10 +3352,17 @@ def _validated_inventory_coverage_additions(
             category_terms = []
         category_terms.append(requested_category)
         category_stems = set().union(*(_inventory_term_stems(term) for term in category_terms))
-        local_context = _inventory_local_label_context(support_quote, label)
-        quote_stems = _inventory_term_stems(local_context)
-        label_stems = _inventory_term_stems(label)
-        if not local_context or not category_stems & quote_stems:
+        local_contexts = _inventory_local_label_contexts(source_record, source_label)
+        # This guard proves literal provenance and category locality, not a
+        # hard-coded equipment taxonomy. Semantic membership deliberately
+        # remains the generic reviewer's task.
+        category_contexts = [
+            context
+            for context in local_contexts
+            if category_stems & _inventory_term_stems(context)
+        ]
+        label_stems = _inventory_term_stems(source_label)
+        if not category_contexts:
             rejected.append("category_not_local")
             continue
         if label_stems and label_stems <= category_stems:
@@ -3300,14 +3373,14 @@ def _validated_inventory_coverage_additions(
         project_grounded = bool(
             source_family == "spare_parts_list"
             or metadata.get("inventory_family_attested_by_spare") is True
-            or (
-                basis == "explicit_project_statement"
-                and project_code.casefold() in normalized_quote
-            )
         )
-        target_section = 1 if section == "project_documented" and project_grounded else 2
+        target_section = 1 if project_grounded else 2
         accepted.append(
-            {"section": target_section, "label": label, "citation_index": citation_index}
+            {
+                "section": target_section,
+                "label": source_label,
+                "citation_index": citation_index,
+            }
         )
         seen_labels.add(normalized_label)
     return accepted, rejected
@@ -3317,7 +3390,7 @@ def _apply_inventory_coverage_review(
     draft: str,
     parsed: dict[str, Any],
     *,
-    evidence_by_index: dict[int, dict[str, Any]],
+    evidence_by_ref: dict[str, dict[str, Any]],
     project_code: str,
     requested_category: str,
     lang_target: Any,
@@ -3329,7 +3402,7 @@ def _apply_inventory_coverage_review(
     additions, rejected = _validated_inventory_coverage_additions(
         parsed,
         draft=draft,
-        evidence_by_index=evidence_by_index,
+        evidence_by_ref=evidence_by_ref,
         project_code=project_code,
         requested_category=requested_category,
     )
@@ -3408,7 +3481,7 @@ async def _review_inventory_answer_coverage(
         return rendered_draft, {"status": "not_armed", "reason": "intent_unavailable"}
     if intent is None:
         return rendered_draft, {"status": "not_armed", "reason": "not_inventory"}
-    evidence_text, evidence_by_index = _inventory_coverage_evidence_blocks(passages)
+    evidence_text, evidence_by_ref = _inventory_coverage_evidence_blocks(passages)
     if not evidence_text:
         return rendered_draft, {"status": "not_armed", "reason": "no_inventory_evidence"}
     prompt = _build_inventory_coverage_review_prompt(
@@ -3458,7 +3531,7 @@ async def _review_inventory_answer_coverage(
     return _apply_inventory_coverage_review(
         rendered_draft,
         parsed,
-        evidence_by_index=evidence_by_index,
+        evidence_by_ref=evidence_by_ref,
         project_code=intent.project_code,
         requested_category=intent.category,
         lang_target=lang_target,

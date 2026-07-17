@@ -601,9 +601,7 @@ async def test_rag_answer_runs_generic_inventory_coverage_on_admitted_context(mo
             return draft
         return (
             '{"status":"missing","requested_category":"capteurs","additions":['
-            '{"section":"project_documented","label":"capteur PT100",'
-            '"support_quote":"capteur PT100","citation_index":1,'
-            '"project_basis":"authoritative_inventory"}]}'
+            '{"evidence_ref":"E1","label":"capteur PT100"}]}'
         )
 
     monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
@@ -922,8 +920,188 @@ def test_inventory_coverage_prompt_is_driven_by_requested_category_not_catalog()
     assert "Categorie demandee, extraite de la question: capteurs" in prompt
     assert "IGNORE-LES toutes" in prompt
     assert "aucun catalogue metier en dur" in prompt
+    assert '"evidence_ref":"E2"' in prompt
+    assert "ne recopie pas de support_quote" in prompt
     assert "pompe" not in prompt.lower()
     assert "moteur" not in prompt.lower()
+
+
+def test_inventory_coverage_evidence_refs_preserve_citation_and_safe_boundaries():
+    text, evidence_by_ref = wrappers._inventory_coverage_evidence_blocks(
+        [
+            {"content": "noise", "metadata": {}},
+            {
+                "content": "Projet ABC100\r\nCapteur PT100.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "document_filename": "inventory.pdf",
+                },
+            },
+        ]
+    )
+
+    assert "[E2 -> citation 2]" in text
+    assert evidence_by_ref["E2"]["citation_index"] == 2
+    assert evidence_by_ref["E2"]["content"] == "Projet ABC100\r\nCapteur PT100."
+    assert wrappers._bounded_inventory_evidence_excerpt("Capteur PT100. tronque", 17) == (
+        "Capteur PT100."
+    )
+    assert wrappers._bounded_inventory_evidence_excerpt("TOKEN_SANS_LIMITE", 8) == ""
+
+
+def test_inventory_coverage_refs_reject_wrong_project_non_inventory_and_bad_mapping():
+    draft = "### (1) Projet\n- Capteur P-10 [1]\n### (2) Notices\n- Aucune."
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {"evidence_ref": "E1", "label": "Capteur P-11"},
+                {"evidence_ref": "E2", "label": "Capteur P-12"},
+                {"evidence_ref": "E3", "label": "Capteur P-13"},
+            ],
+        },
+        evidence_by_ref={
+            "E1": {
+                "content": "Capteur P-11.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC1",
+                    "inventory_match_terms": ["capteur"],
+                },
+                "citation_index": 1,
+            },
+            "E2": {
+                "content": "Capteur P-12.",
+                "metadata": {
+                    "inventory_evidence": False,
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["capteur"],
+                },
+                "citation_index": 2,
+            },
+            "E3": {
+                "content": "Capteur P-13.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["capteur"],
+                },
+                "citation_index": 9,
+            },
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert set(meta["rejected"]) == {
+        "project_mismatch",
+        "non_inventory_evidence",
+        "evidence_citation_mismatch",
+    }
+
+
+def test_inventory_coverage_refs_infer_provenance_and_check_all_label_occurrences():
+    draft = "### (1) Projet\n- Capteur P-10 [1]\n### (2) Notices\n- Aucune."
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {"evidence_ref": "E1", "label": "SensorX"},
+                {"evidence_ref": "E2", "label": "SensorY"},
+            ],
+        },
+        evidence_by_ref={
+            "E1": {
+                "content": "SensorX. Projet ABC100 : notice du capteur SensorX.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["capteur"],
+                },
+                "citation_index": 1,
+            },
+            "E2": {
+                "content": "Capteur SensorY.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["capteur"],
+                    "inventory_family_attested_by_spare": True,
+                },
+                "citation_index": 2,
+            },
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert meta == {"status": "corrected", "accepted": 2, "rejected": []}
+    assert answer.index("**SensorY**") < answer.index("### (2)")
+    assert answer.index("**SensorX**") > answer.index("### (2)")
+
+
+def test_inventory_coverage_short_label_boundary_does_not_match_longer_draft_label():
+    draft = "### (1) Projet\n- Pompe PP11 [1]\n### (2) Notices\n- Aucune."
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {"status": "missing", "additions": [{"evidence_ref": "E1", "label": "PP"}]},
+        evidence_by_ref={
+            "E1": {
+                "content": "Pompe process PP.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["pompe"],
+                },
+                "citation_index": 1,
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+
+    assert meta["status"] == "corrected"
+    assert "**PP**" in answer
+
+
+def test_inventory_coverage_caps_server_validated_additions_at_eight():
+    draft = "### (1) Projet\n- Capteur S0 [1]\n### (2) Notices\n- Aucune."
+    labels = [f"Capteur S{index}" for index in range(1, 10)]
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {"evidence_ref": "E1", "label": label} for label in labels
+            ],
+        },
+        evidence_by_ref={
+            "E1": {
+                "content": ". ".join(labels) + ".",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["capteur"],
+                },
+                "citation_index": 1,
+            }
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert meta["accepted"] == 8
+    assert "**Capteur S8**" in answer
+    assert "**Capteur S9**" not in answer
 
 
 def test_inventory_coverage_review_applies_only_grounded_generic_additions():
@@ -936,48 +1114,34 @@ def test_inventory_coverage_review_applies_only_grounded_generic_additions():
     parsed = {
         "status": "missing",
         "additions": [
-            {
-                "section": "project_documented",
-                "label": "capteur de température PT100",
-                "support_quote": "capteur de température PT100",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
-            {
-                "section": "documentary_only",
-                "label": "capteur SensorX",
-                "support_quote": "Notice du capteur SensorX",
-                "citation_index": 2,
-                "project_basis": "document_only",
-            },
-            {
-                "section": "project_documented",
-                "label": "MOTOR-Z9",
-                "support_quote": "capteur de température PT100",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
+            {"evidence_ref": "E1", "label": "capteur de température PT100"},
+            {"evidence_ref": "E2", "label": "capteur SensorX"},
+            {"evidence_ref": "E1", "label": "MOTOR-Z9"},
         ],
     }
 
     answer, meta = wrappers._apply_inventory_coverage_review(
         draft,
         parsed,
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Projet ABC100 : capteur de température PT100.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["capteur"],
                 },
+                "citation_index": 1,
             },
-            2: {
+            "E2": {
                 "content": "Notice du capteur SensorX.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "inventory_match_terms": ["capteur"],
                 },
+                "citation_index": 2,
             },
         },
         project_code="ABC100",
@@ -990,7 +1154,7 @@ def test_inventory_coverage_review_applies_only_grounded_generic_additions():
     assert "MOTOR-Z9" not in answer
     assert meta["status"] == "corrected"
     assert meta["accepted"] == 2
-    assert "span_not_literal" in meta["rejected"]
+    assert "label_not_literal" in meta["rejected"]
 
 
 def test_inventory_coverage_review_fails_closed_on_roles_citations_duplicates_or_format():
@@ -998,45 +1162,28 @@ def test_inventory_coverage_review_fails_closed_on_roles_citations_duplicates_or
     parsed = {
         "status": "missing",
         "additions": [
-            {
-                "section": "project_documented",
-                "label": "Joint J1",
-                "support_quote": "Joint J1 et Joint J2",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
-            {
-                "section": "project_documented",
-                "label": "Joint J2",
-                "support_quote": "texte absent de la source",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
-            {
-                "section": "project_documented",
-                "label": "Joint J2",
-                "support_quote": "Joint J1 et Joint J2",
-                "citation_index": 9,
-                "project_basis": "authoritative_inventory",
-            },
+            {"evidence_ref": "E1", "label": "Joint J1"},
+            {"evidence_ref": "E1", "label": "Joint J404"},
+            {"evidence_ref": "E9", "label": "Joint J2"},
+            {"label": "Joint J2", "citation_index": 1},
+            {"evidence_ref": "E1", "label": "**Joint J2**"},
+            {"evidence_ref": "E1", "label": "Joint\tJ2"},
         ],
     }
 
     answer, meta = wrappers._apply_inventory_coverage_review(
         draft,
         parsed,
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Joint J1 et Joint J2.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["joints"],
                 },
-            },
-            2: {
-                "content": "SealBase.",
-                "metadata": {"project_code": "ABC100"},
+                "citation_index": 1,
             },
         },
         project_code="ABC100",
@@ -1048,7 +1195,9 @@ def test_inventory_coverage_review_fails_closed_on_roles_citations_duplicates_or
     assert meta["status"] == "rejected"
     assert set(meta["rejected"]) >= {
         "already_present",
-        "span_not_literal",
+        "label_not_literal",
+        "unknown_evidence_ref",
+        "missing_evidence_ref",
         "invalid_shape",
     }
 
@@ -1059,24 +1208,18 @@ def test_inventory_coverage_review_preserves_draft_when_two_section_contract_is_
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "project_documented",
-                    "label": "Capteur PT100",
-                    "support_quote": "Capteur PT100",
-                    "citation_index": 1,
-                    "project_basis": "authoritative_inventory",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "Capteur PT100"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Capteur PT100.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["capteur"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1095,24 +1238,18 @@ def test_inventory_coverage_review_rejects_numbered_rows_as_section_markers():
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "project_documented",
-                    "label": "Capteur PT100",
-                    "support_quote": "Capteur PT100",
-                    "citation_index": 1,
-                    "project_basis": "authoritative_inventory",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "Capteur PT100"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Capteur PT100.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["capteur"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1129,35 +1266,25 @@ def test_inventory_coverage_review_requires_category_local_to_label_and_handles_
     parsed = {
         "status": "missing",
         "additions": [
-            {
-                "section": "project_documented",
-                "label": "MOTOR-Z9",
-                "support_quote": "Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur.",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
-            {
-                "section": "project_documented",
-                "label": "Pompe P-20",
-                "support_quote": "Pompe P-20.",
-                "citation_index": 1,
-                "project_basis": "authoritative_inventory",
-            },
+            {"evidence_ref": "E1", "label": "MOTOR-Z9"},
+            {"evidence_ref": "E1", "label": "Pompe P-20"},
         ],
     }
     answer, meta = wrappers._apply_inventory_coverage_review(
         draft,
         parsed,
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": (
                     "Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur. Pompe P-20."
                 ),
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["pompes"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1187,24 +1314,18 @@ def test_inventory_coverage_review_rejects_neighbour_across_field_boundaries(
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "project_documented",
-                    "label": "MOTOR-Z9",
-                    "support_quote": support_quote,
-                    "citation_index": 1,
-                    "project_basis": "authoritative_inventory",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "MOTOR-Z9"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": support_quote,
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["pompe"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1222,24 +1343,18 @@ def test_inventory_coverage_review_preserves_source_lines_and_short_identity_lab
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "project_documented",
-                    "label": "MOTOR-Z9",
-                    "support_quote": "Pompe P-10 moteur MOTOR-Z9",
-                    "citation_index": 1,
-                    "project_basis": "authoritative_inventory",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "MOTOR-Z9"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Pompe P-10\nmoteur MOTOR-Z9",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["pompe"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1247,30 +1362,24 @@ def test_inventory_coverage_review_preserves_source_lines_and_short_identity_lab
         lang_target="fr",
     )
     assert flattened_answer == draft
-    assert "span_not_literal" in flattened_meta["rejected"]
+    assert "category_not_local" in flattened_meta["rejected"]
 
     answer, meta = wrappers._apply_inventory_coverage_review(
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "project_documented",
-                    "label": "URACA",
-                    "support_quote": "Pump Unit KD724-G — URACA ref. no.",
-                    "citation_index": 1,
-                    "project_basis": "authoritative_inventory",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "uraca"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Pump Unit KD724-G — URACA ref. no.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "source_family": "spare_parts_list",
                     "inventory_match_terms": ["pump"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1291,23 +1400,17 @@ def test_inventory_coverage_review_short_label_uses_boundaries_and_stays_in_sect
         draft,
         {
             "status": "missing",
-            "additions": [
-                {
-                    "section": "documentary_only",
-                    "label": "Pompe process PP",
-                    "support_quote": "Pompe process PP",
-                    "citation_index": 1,
-                    "project_basis": "document_only",
-                }
-            ],
+            "additions": [{"evidence_ref": "E1", "label": "Pompe process PP"}],
         },
-        evidence_by_index={
-            1: {
+        evidence_by_ref={
+            "E1": {
                 "content": "Pompe process PP.",
                 "metadata": {
+                    "inventory_evidence": True,
                     "project_code": "ABC100",
                     "inventory_match_terms": ["pompe"],
                 },
+                "citation_index": 1,
             }
         },
         project_code="ABC100",
@@ -1367,9 +1470,7 @@ async def test_inventory_coverage_review_is_generic_and_uses_only_admitted_evide
         captured["generation_options"] = kwargs.get("generation_options")
         return (
             '{"status":"missing","requested_category":"brûleurs","additions":['
-            '{"section":"project_documented","label":"brûleur BR-22",'
-            '"support_quote":"brûleur BR-10 et brûleur BR-22",'
-            '"citation_index":2,"project_basis":"authoritative_inventory"}]}'
+            '{"evidence_ref":"E2","label":"brûleur BR-22"}]}'
         )
 
     monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
