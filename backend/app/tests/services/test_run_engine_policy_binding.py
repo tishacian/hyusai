@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 
 from app.models.capability import Capability
@@ -153,6 +154,7 @@ def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_ses
         name="Tenant-safe system",
         objective="test",
         settings={"retrieval_contract": contract},
+        execution_profile={"max_runtime_s": 12},
         flow_definition={"variant": "test", "nodes": []},
     )
     run = Run(
@@ -184,3 +186,5 @@ def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_ses
     assert ctx["workspace_slug"] == workspace.slug
     assert ctx["user_id"] is None
     assert ctx["retrieval_contract"] == contract
+    remaining = ctx["_run_deadline_monotonic"] - time.monotonic()
+    assert 11.0 < remaining <= 12.0

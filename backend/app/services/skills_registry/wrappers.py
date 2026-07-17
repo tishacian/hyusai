@@ -246,6 +246,14 @@ async def _llm_rag_answer_v1(
         except Exception as exc:  # noqa: BLE001 — degrade to abstention, never crash the DAG
             logger.warning("llm_rag_answer_v1: grounded synthesis failed", error=str(exc))
             answer_text = _no_context_message(lang_target)
+        answer_text, coverage_review = await _review_inventory_answer_coverage(
+            query=query,
+            passages=passages,
+            draft=answer_text,
+            model=model,
+            ctx=ctx,
+            lang_target=lang_target,
+        )
         return {
             "answer": answer_text,
             "citations": _citations_from_passages(passages),
@@ -255,7 +263,8 @@ async def _llm_rag_answer_v1(
                     "raw_chunks_retrieved": len(passages),
                     "source": "join_context",
                     "stage_timings": {},
-                }
+                },
+                "inventory_coverage_review": coverage_review,
             },
         }
 
@@ -3014,6 +3023,410 @@ def _select_inventory_synthesis_passages(
     return selected
 
 
+_INVENTORY_COVERAGE_TIMEOUT_SECONDS = 8.0
+_INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS = 18000
+_INVENTORY_COVERAGE_POST_AUDIT_RESERVE_SECONDS = 5.0
+_INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS = 1.5
+_INVENTORY_COVERAGE_LABEL_RE = re.compile(r"^[\wÀ-ÿ .,/()&+:'’\-]{2,120}$")
+
+
+def _inventory_coverage_evidence_blocks(
+    passages: list[dict[str, Any]],
+) -> tuple[str, dict[int, dict[str, Any]]]:
+    """Render only admitted evidence, preserving its public citation index."""
+    remaining = _INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS
+    blocks: list[str] = []
+    evidence_by_index: dict[int, dict[str, Any]] = {}
+    for index, passage in enumerate(passages, start=1):
+        metadata = passage.get("metadata") or {}
+        if metadata.get("inventory_evidence") is not True or remaining <= 0:
+            continue
+        source_family = str(metadata.get("source_family") or "").strip().lower()
+        per_passage_limit = 8000 if source_family == "spare_parts_list" else 2200
+        content = str(passage.get("content") or "").strip()
+        if not content:
+            continue
+        excerpt = content[: min(per_passage_limit, remaining)]
+        remaining -= len(excerpt)
+        evidence_by_index[index] = {"content": excerpt, "metadata": metadata}
+        scope = _passage_scope_hint(metadata)
+        source = _passage_source_label(metadata, index)
+        header = f"[{index}] ({source}; {scope})" if scope else f"[{index}] ({source})"
+        blocks.append(f"{header}\n{excerpt}")
+    return "\n\n".join(blocks), evidence_by_index
+
+
+def _build_inventory_coverage_review_prompt(
+    *,
+    query: str,
+    project_code: str,
+    requested_category: str,
+    evidence_text: str,
+    draft: str,
+    lang_target: Any,
+) -> str:
+    """Build a semantic omission audit with no equipment taxonomy in code."""
+    return (
+        "Tu es le controleur de couverture d'une reponse d'inventaire industriel. "
+        "Tu ne fais aucune nouvelle recherche et tu ne connais aucun catalogue metier en dur.\n"
+        f"Projet exact demande: {project_code}.\n"
+        f"Categorie demandee, extraite de la question: {requested_category}.\n"
+        f"Langue de sortie: {lang_target or 'fr'}.\n\n"
+        "Compare le brouillon aux preuves admises. Les documents peuvent contenir beaucoup "
+        "d'autres categories: IGNORE-LES toutes. Ne controle que la categorie demandee, ses "
+        "traductions evidentes et ses variantes singulier/pluriel.\n"
+        "Propose une omission uniquement si un item, type, modele ou libelle documentaire "
+        "localement associe a cette categorie est explicitement present dans la preuve et absent "
+        "du brouillon. Ignore codes article, prix, quantites, composants auxiliaires et details "
+        "non demandes. Ne deduis aucun role d'entreprise ni aucune installation.\n"
+        "Pour chaque omission certaine, recopie (1) un label source exact et concis et (2) une "
+        "courte citation textuelle exacte qui contient ce label et l'ancre a la categorie. Ne "
+        "repete rien deja rendu, meme groupe ou abrege. En cas de doute, status=complete.\n\n"
+        "Reponds en JSON STRICT, sans texte autour, selon ce schema:\n"
+        '{"status":"complete|missing","requested_category":"categorie",'
+        '"additions":[{"section":"project_documented|documentary_only",'
+        '"label":"span exact","support_quote":"span exact de la preuve",'
+        '"citation_index":1,"project_basis":"authoritative_inventory|family_attested|'
+        'explicit_project_statement|document_only"}]}\n\n'
+        f"Question:\n{query}\n\nBrouillon:\n{draft}\n\nPreuves admises:\n{evidence_text}\n"
+    )
+
+
+def _inventory_section_markers(answer: str) -> tuple[Optional[int], Optional[int]]:
+    """Locate the exact Markdown contract, never ordinary numbered list rows."""
+    first_match = re.search(r"(?m)^\s{0,3}###\s+\(1\)(?:\s|$)", answer)
+    if first_match is None:
+        return None, None
+    second_match = re.search(
+        r"(?m)^\s{0,3}###\s+\(2\)(?:\s|$)",
+        answer[first_match.end() :],
+    )
+    if second_match is None:
+        return first_match.start(), None
+    return first_match.start(), first_match.end() + second_match.start()
+
+
+def _normalized_inventory_span(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _normalized_inventory_lines(value: Any) -> str:
+    """Normalize intra-line spacing while preserving source record boundaries."""
+    return "\n".join(
+        " ".join(line.casefold().split()) for line in str(value or "").splitlines()
+    )
+
+
+def _inventory_term_stems(value: Any) -> set[str]:
+    import unicodedata
+
+    folded = "".join(
+        char
+        for char in unicodedata.normalize("NFD", str(value or "").casefold())
+        if unicodedata.category(char) != "Mn"
+    )
+    stems: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", folded):
+        candidates = {token}
+        # Keep every conservative candidate. In particular, French/English
+        # plurals such as pompes/pompe, valves/valve and buses/buse must meet
+        # their singular evidence instead of being over-stemmed to pomp/valv/bus.
+        if len(token) > 3 and token.endswith(("s", "x")):
+            candidates.add(token[:-1])
+        if len(token) > 4 and token.endswith("es"):
+            candidates.add(token[:-2])
+        stems.update(candidate for candidate in candidates if len(candidate) >= 2)
+    return stems
+
+
+def _inventory_label_is_present(label: str, text: str) -> bool:
+    """Check a rendered label with Unicode word boundaries, not substrings."""
+    normalized_label = _normalized_inventory_span(label)
+    normalized_text = _normalized_inventory_span(text)
+    if not normalized_label or not normalized_text:
+        return False
+    return bool(
+        re.search(
+            rf"(?<!\w){re.escape(normalized_label)}(?!\w)",
+            normalized_text,
+        )
+    )
+
+
+def _inventory_local_label_context(support_quote: str, label: str) -> str:
+    """Return the source clause that contains the exact proposed label."""
+    normalized_quote = _normalized_inventory_lines(support_quote)
+    normalized_label = _normalized_inventory_span(label)
+    label_at = normalized_quote.find(normalized_label)
+    if label_at < 0:
+        return ""
+    label_end = label_at + len(normalized_label)
+    left = max(
+        normalized_quote.rfind(separator, 0, label_at)
+        for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+    )
+    right_candidates = [
+        position
+        for separator in ("\n", ".", ",", ";", ":", "/", "!", "?", "|")
+        if (position := normalized_quote.find(separator, label_end)) >= 0
+    ]
+    right = min(right_candidates) if right_candidates else len(normalized_quote)
+    # A maliciously long clause must not turn the locality check back into a
+    # whole-quote check. Keep a bounded window around the literal label span.
+    local_start = max(left + 1, label_at - 180)
+    local_end = min(right, label_end + 180)
+    return normalized_quote[local_start:local_end]
+
+
+def _validated_inventory_coverage_additions(
+    parsed: dict[str, Any],
+    *,
+    draft: str,
+    evidence_by_index: dict[int, dict[str, Any]],
+    project_code: str,
+    requested_category: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Accept only literal source spans; model-authored prose is never rendered."""
+    if str(parsed.get("status") or "").strip().lower() != "missing":
+        return [], []
+    raw_additions = parsed.get("additions")
+    if not isinstance(raw_additions, list):
+        return [], ["invalid_additions"]
+
+    accepted: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    seen_labels: set[str] = set()
+    for raw in raw_additions[:8]:
+        if not isinstance(raw, dict):
+            rejected.append("invalid_row")
+            continue
+        section = str(raw.get("section") or "").strip().lower()
+        basis = str(raw.get("project_basis") or "").strip().lower()
+        label = " ".join(str(raw.get("label") or "").split())
+        support_quote = "\n".join(
+            " ".join(line.split())
+            for line in str(raw.get("support_quote") or "").splitlines()
+        ).strip()
+        try:
+            citation_index = int(raw.get("citation_index"))
+        except (TypeError, ValueError):
+            citation_index = 0
+        evidence = evidence_by_index.get(citation_index)
+        if (
+            section not in {"project_documented", "documentary_only"}
+            or basis
+            not in {
+                "authoritative_inventory",
+                "family_attested",
+                "explicit_project_statement",
+                "document_only",
+            }
+            or evidence is None
+            or not _INVENTORY_COVERAGE_LABEL_RE.fullmatch(label)
+            or not 8 <= len(support_quote) <= 700
+            or "\n" in label
+            or "http://" in label.lower()
+            or "https://" in label.lower()
+        ):
+            rejected.append("invalid_shape")
+            continue
+        metadata = evidence.get("metadata") or {}
+        if str(metadata.get("project_code") or "").strip().upper() != project_code:
+            rejected.append("project_mismatch")
+            continue
+        # Preserve record/line boundaries. A model must not flatten two source
+        # rows into one apparently local category-to-label association.
+        normalized_content = _normalized_inventory_lines(evidence.get("content"))
+        normalized_quote = _normalized_inventory_lines(support_quote)
+        normalized_label = _normalized_inventory_span(label)
+        if normalized_quote not in normalized_content or normalized_label not in normalized_quote:
+            rejected.append("span_not_literal")
+            continue
+        if _inventory_label_is_present(label, draft) or normalized_label in seen_labels:
+            rejected.append("already_present")
+            continue
+
+        match_terms = metadata.get("inventory_match_terms")
+        if isinstance(match_terms, (list, tuple, set)):
+            category_terms = [str(term) for term in match_terms if str(term).strip()]
+        else:
+            category_terms = []
+        category_terms.append(requested_category)
+        category_stems = set().union(*(_inventory_term_stems(term) for term in category_terms))
+        local_context = _inventory_local_label_context(support_quote, label)
+        quote_stems = _inventory_term_stems(local_context)
+        label_stems = _inventory_term_stems(label)
+        if not local_context or not category_stems & quote_stems:
+            rejected.append("category_not_local")
+            continue
+        if label_stems and label_stems <= category_stems:
+            rejected.append("category_label_not_item")
+            continue
+
+        source_family = str(metadata.get("source_family") or "").strip().lower()
+        project_grounded = bool(
+            source_family == "spare_parts_list"
+            or metadata.get("inventory_family_attested_by_spare") is True
+            or (
+                basis == "explicit_project_statement"
+                and project_code.casefold() in normalized_quote
+            )
+        )
+        target_section = 1 if section == "project_documented" and project_grounded else 2
+        accepted.append(
+            {"section": target_section, "label": label, "citation_index": citation_index}
+        )
+        seen_labels.add(normalized_label)
+    return accepted, rejected
+
+
+def _apply_inventory_coverage_review(
+    draft: str,
+    parsed: dict[str, Any],
+    *,
+    evidence_by_index: dict[int, dict[str, Any]],
+    project_code: str,
+    requested_category: str,
+    lang_target: Any,
+) -> tuple[str, dict[str, Any]]:
+    """Render validated labels only; preserve the original answer byte-for-byte otherwise."""
+    status = str(parsed.get("status") or "").strip().lower()
+    if status == "complete":
+        return draft, {"status": "complete", "accepted": 0, "rejected": []}
+    additions, rejected = _validated_inventory_coverage_additions(
+        parsed,
+        draft=draft,
+        evidence_by_index=evidence_by_index,
+        project_code=project_code,
+        requested_category=requested_category,
+    )
+    if not additions:
+        return draft, {"status": "rejected", "accepted": 0, "rejected": rejected}
+    first_at, second_at = _inventory_section_markers(draft)
+    if first_at is None or second_at is None:
+        return draft, {
+            "status": "rejected",
+            "accepted": 0,
+            "rejected": [*rejected, "missing_section_contract"],
+        }
+    language = str(lang_target or "fr").strip().lower()[:2]
+    section_1: list[str] = []
+    section_2: list[str] = []
+    for addition in additions:
+        label = addition["label"]
+        citation = addition["citation_index"]
+        if language == "en":
+            detail = (
+                "explicitly documented for the project"
+                if addition["section"] == 1
+                else "documented in the corpus without proof of installation"
+            )
+        else:
+            detail = (
+                "explicitement documenté pour le projet"
+                if addition["section"] == 1
+                else "documenté dans le corpus sans preuve d’installation"
+            )
+        line = f"- **{label}** — {detail} [{citation}]."
+        (section_1 if addition["section"] == 1 else section_2).append(line)
+    updated = draft[:second_at].rstrip()
+    if section_1:
+        updated += "\n\n" + "\n".join(section_1)
+    second_block = draft[second_at:].lstrip()
+    if section_2:
+        heading_end = second_block.find("\n")
+        if heading_end < 0:
+            second_block = second_block.rstrip() + "\n\n" + "\n".join(section_2)
+        else:
+            heading = second_block[:heading_end].rstrip()
+            body = second_block[heading_end + 1 :].lstrip()
+            second_block = heading + "\n\n" + "\n".join(section_2)
+            if body:
+                second_block += "\n\n" + body
+    updated += "\n\n" + second_block
+    return updated, {
+        "status": "corrected",
+        "accepted": len(additions),
+        "rejected": rejected,
+    }
+
+
+async def _review_inventory_answer_coverage(
+    *,
+    query: str,
+    passages: list[dict[str, Any]],
+    draft: Any,
+    model: Optional[str],
+    ctx: dict[str, Any],
+    lang_target: Any,
+) -> tuple[str, dict[str, Any]]:
+    """Run one bounded semantic audit over already-admitted evidence."""
+    rendered_draft = str(draft or "").strip()
+    if not rendered_draft or _is_abstention(rendered_draft):
+        return rendered_draft, {"status": "not_armed", "reason": "non_substantive_draft"}
+    try:
+        from app.services.rag.single_project_inventory_intent import (
+            parse_single_project_inventory_intent,
+        )
+
+        intent = parse_single_project_inventory_intent(query)
+    except Exception as exc:  # noqa: BLE001 - optional audit must fail soft.
+        logger.warning("inventory coverage: intent parser unavailable", error=str(exc))
+        return rendered_draft, {"status": "not_armed", "reason": "intent_unavailable"}
+    if intent is None:
+        return rendered_draft, {"status": "not_armed", "reason": "not_inventory"}
+    evidence_text, evidence_by_index = _inventory_coverage_evidence_blocks(passages)
+    if not evidence_text:
+        return rendered_draft, {"status": "not_armed", "reason": "no_inventory_evidence"}
+    prompt = _build_inventory_coverage_review_prompt(
+        query=query,
+        project_code=intent.project_code,
+        requested_category=intent.category,
+        evidence_text=evidence_text,
+        draft=rendered_draft,
+        lang_target=lang_target,
+    )
+    import asyncio
+    import time
+
+    timeout_seconds = _INVENTORY_COVERAGE_TIMEOUT_SECONDS
+    try:
+        run_deadline = float(ctx.get("_run_deadline_monotonic"))
+    except (TypeError, ValueError):
+        run_deadline = 0.0
+    if run_deadline > 0:
+        remaining = run_deadline - time.monotonic()
+        call_budget = remaining - _INVENTORY_COVERAGE_POST_AUDIT_RESERVE_SECONDS
+        if call_budget < _INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS:
+            return rendered_draft, {
+                "status": "not_armed",
+                "reason": "insufficient_runtime_budget",
+            }
+        timeout_seconds = min(timeout_seconds, call_budget)
+
+    try:
+        completion = await asyncio.wait_for(
+            _route_llm_complete(prompt, model, ctx),
+            timeout=timeout_seconds,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        return rendered_draft, {"status": "timeout"}
+    except Exception as exc:  # noqa: BLE001 - keep the grounded draft on audit failure.
+        logger.warning("inventory coverage: review failed", error=str(exc))
+        return rendered_draft, {"status": "error"}
+    parsed = _loads_lenient_json(completion)
+    if parsed is None:
+        return rendered_draft, {"status": "invalid_json"}
+    return _apply_inventory_coverage_review(
+        rendered_draft,
+        parsed,
+        evidence_by_index=evidence_by_index,
+        project_code=intent.project_code,
+        requested_category=intent.category,
+        lang_target=lang_target,
+    )
+
+
 def _passage_source_label(metadata: dict[str, Any], index: int) -> str:
     md = metadata or {}
     return str(
@@ -3290,14 +3703,6 @@ _COMPLEX_PROJECT_QUERY_RE = re.compile(
     r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
     re.IGNORECASE,
 )
-_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
-    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b"
-    r"[^?.!\n]{0,160}\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|injectors?|buses?|nozzles?|"
-    r"rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
-    re.IGNORECASE,
-)
-
-
 def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     """Return narrow synthesis rules for explicitly list-shaped equipment asks.
 
@@ -3307,31 +3712,17 @@ def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     profile labels containing ``inventory`` remain supported for planner- or
     workspace-defined variants.
     """
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
+
     profile = str(answer_profile or "").strip().lower()
     text = str(query or "")
-    explicit_list_marker = re.search(
-        r"\b(liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b",
-        text,
-        re.IGNORECASE,
-    )
-    explicit_plural_set = re.search(
-        r"\b(quels?|quelles?|which)\b[^?.!\n]{0,80}\b("
-        r"pompes|pumps|moteurs|motors|injecteurs|injectors|buses|nozzles|rouleaux|rollers|"
-        r"s[ée]cheurs|dryers|filtres|filters|pi[eè]ces|parts)\b",
-        text,
-        re.IGNORECASE,
-    )
-    is_inventory = "inventory" in profile or (
-        profile == "equipment_detail"
-        and bool(_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text))
-        and bool(explicit_list_marker or explicit_plural_set)
-    )
+    intent = parse_single_project_inventory_intent(text)
+    is_inventory = "inventory" in profile or (profile == "equipment_detail" and intent is not None)
     if not is_inventory:
         return ""
-    equipment_match = _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text)
-    requested_equipment = (
-        equipment_match.group(2) if equipment_match else "equipements demandes"
-    )
+    requested_equipment = intent.category if intent is not None else "equipements demandes"
     return (
         "CONTROLE D'INVENTAIRE OBLIGATOIRE : avant de rediger, construis en silence "
         "l'union de TOUS les libelles d'equipements rencontres, passage par passage "
@@ -3347,7 +3738,8 @@ def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
         "atteste par au moins un extrait pertinent, en fusionnant uniquement les "
         "doublons certains, et cite chaque item. Ne privilegie pas seulement les "
         "premiers extraits.\n"
-        "Structure obligatoirement la reponse en deux sections et distingue (1) tous "
+        "Structure obligatoirement la reponse en deux sections dont les titres Markdown "
+        "commencent exactement par '### (1)' et '### (2)'. Distingue en (1) tous "
         "les items rattaches au projet ou au perimetre "
         "demande par le contenu, le libelle de source ou ses metadonnees, et (2) les "
         "modeles seulement decrits dans une notice generique ou fournisseur presente "
@@ -3398,17 +3790,11 @@ _GERMAN_QUERY_RE = re.compile(
 
 
 def _is_single_project_equipment_inventory_query(query: str) -> bool:
-    project_codes = {
-        match.group(1).upper()
-        for match in _PROJECT_CODE_RE.finditer(query or "")
-        if match.group(1)
-    }
-    return bool(
-        len(project_codes) == 1
-        and _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(query or "")
-        and not _CROSS_PROJECT_TARGET_RE.search(query or "")
-        and not _COMPLEX_PROJECT_QUERY_RE.search(query or "")
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
     )
+
+    return parse_single_project_inventory_intent(query or "") is not None
 
 
 def _deterministic_single_project_plan(
@@ -3432,19 +3818,31 @@ def _deterministic_single_project_plan(
     if response_language not in {"fr", "en"} or _GERMAN_QUERY_RE.search(query):
         return None
 
-    project_codes = {
-        match.group(1).upper() for match in _PROJECT_CODE_RE.finditer(query) if match.group(1)
-    }
-    if (
-        len(project_codes) != 1
-        or _COMPLEX_PROJECT_QUERY_RE.search(query)
-        or _CROSS_PROJECT_TARGET_RE.search(query)
-    ):
-        return None
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
 
-    equipment_inventory = _is_single_project_equipment_inventory_query(query)
-    if _EXHAUSTIVE_PROJECT_QUERY_RE.search(query) and not equipment_inventory:
-        return None
+    inventory_intent = parse_single_project_inventory_intent(query)
+    equipment_inventory = inventory_intent is not None
+    if inventory_intent is not None:
+        # The generic parser owns both category and scope for this lane. Legacy
+        # complexity words such as safety/repair/diagnostic may be part of a
+        # perfectly valid requested category and must not veto it.
+        project_code = inventory_intent.project_code
+    else:
+        project_codes = {
+            match.group(1).upper()
+            for match in _PROJECT_CODE_RE.finditer(query)
+            if match.group(1)
+        }
+        if (
+            len(project_codes) != 1
+            or _COMPLEX_PROJECT_QUERY_RE.search(query)
+            or _CROSS_PROJECT_TARGET_RE.search(query)
+            or _EXHAUSTIVE_PROJECT_QUERY_RE.search(query)
+        ):
+            return None
+        project_code = next(iter(project_codes))
 
     # Reuse the same deterministic classifier as classic chat; do not invent a
     # second intent taxonomy in the Agentic wrapper.
@@ -3454,7 +3852,6 @@ def _deterministic_single_project_plan(
     if not equipment_inventory and profile.reason not in _SIMPLE_PROJECT_PROFILE_REASONS:
         return None
 
-    project_code = next(iter(project_codes))
     mode = "balanced"
     retrieval = (
         dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None

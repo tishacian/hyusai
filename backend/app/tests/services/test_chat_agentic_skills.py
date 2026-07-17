@@ -9,6 +9,8 @@ so the tests assert the FROZEN output shapes (docs/chat-agentic-thinking-spec
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from app.services.skills_registry import wrappers
@@ -168,6 +170,11 @@ async def test_plan_survives_model_exception(monkeypatch):
     [
         ("quelles sont les pompes du projet BCX200", "equipment_detail", "BCX200", "balanced"),
         ("liste toutes les pompes du projet BCX200", "equipment_detail", "BCX200", "balanced"),
+        ("quels sont les brûleurs du projet BCX200", "equipment_detail", "BCX200", "balanced"),
+        ("List safety valves for project ABC123", "equipment_detail", "ABC123", "balanced"),
+        ("List installation tools for project ALPHA", "equipment_detail", "ALPHA", "balanced"),
+        ("List diagnostic modules for project 2026", "equipment_detail", "2026", "balanced"),
+        ("List repair kits for project X1", "equipment_detail", "X1", "balanced"),
         ("résume BAO100", "project_summary", "BAO100", "balanced"),
         ("quelle est la pression du projet BCX200 ?", "precise_fact", "BCX200", "balanced"),
     ],
@@ -527,6 +534,65 @@ async def test_rag_answer_consumes_join_context_without_re_retrieval(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_rag_answer_runs_generic_inventory_coverage_on_admitted_context(monkeypatch):
+    calls: list[str] = []
+    draft = (
+        "### (1) Éléments documentés pour le projet\n- Capteur P-10 [1]\n"
+        "### (2) Documentation sans preuve d’installation\n- SensorBase [2]"
+    )
+
+    async def fake_complete(prompt, model, ctx):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return draft
+        return (
+            '{"status":"missing","requested_category":"capteurs","additions":['
+            '{"section":"project_documented","label":"capteur PT100",'
+            '"support_quote":"capteur PT100","citation_index":1,'
+            '"project_basis":"authoritative_inventory"}]}'
+        )
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    out = await wrappers._llm_rag_answer_v1(
+        {
+            "query": "quels sont les capteurs du projet ABC100 ?",
+            "context": [
+                {
+                    "content": "Projet ABC100 : capteur P-10 et capteur PT100.",
+                    "metadata": {
+                        "chunk_id": "inventory-1",
+                        "document_filename": "ABC100 inventory.pdf",
+                        "project_code": "ABC100",
+                        "source_family": "spare_parts_list",
+                        "inventory_evidence": True,
+                        "inventory_match_terms": ["capteur"],
+                    },
+                },
+                {
+                    "content": "Notice SensorBase.",
+                    "metadata": {
+                        "chunk_id": "manual-2",
+                        "project_code": "ABC100",
+                        "inventory_evidence": True,
+                    },
+                },
+            ],
+            "lang_target": "fr",
+            "answer_profile": "equipment_detail",
+        },
+        {},
+    )
+
+    assert len(calls) == 2
+    assert "**capteur PT100**" in out["answer"]
+    assert out["meta"]["inventory_coverage_review"] == {
+        "status": "corrected",
+        "accepted": 1,
+        "rejected": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_rag_answer_abstains_on_empty_join_context(monkeypatch):
     out = await wrappers._llm_rag_answer_v1(
         {"query": "q", "context": [], "lang_target": "en"},
@@ -588,6 +654,8 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "famille demandee (pompes)" in prompt
     assert "ses formes singulier/pluriel, ses traductions" in prompt
     assert "deux sections" in prompt
+    assert "### (1)" in prompt
+    assert "### (2)" in prompt
     assert "modeles seulement decrits dans une notice generique ou fournisseur" in prompt
     assert "ne prouve jamais a lui seul que le modele est installe" in prompt
     assert "FORMAT COMPACT OBLIGATOIRE" in prompt
@@ -605,6 +673,13 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "Termine chaque ligne factuelle par au moins un repere de source [n]" in prompt
     assert "Ne conclus jamais qu'il n'existe aucun autre item" in prompt
     assert "liste documentee dans les extraits" in prompt
+
+    generic_contract = wrappers._grounded_profile_contract(
+        "quels sont les accouplements du projet ABC100 ?",
+        "equipment_detail",
+    )
+    assert "famille demandee (accouplements)" in generic_contract
+    assert "pompes" not in generic_contract.lower()
 
 
 def test_grounded_prompt_keeps_long_inventory_evidence_but_bounds_regular_passages():
@@ -778,6 +853,501 @@ def test_inventory_synthesis_keeps_all_protected_context_after_evidence():
     assert selected[:6] == evidence
     assert selected[6:] == protected
     assert len(selected) == 11
+
+
+def test_inventory_coverage_prompt_is_driven_by_requested_category_not_catalog():
+    prompt = wrappers._build_inventory_coverage_review_prompt(
+        query="quels sont les capteurs du projet ABC100 ?",
+        project_code="ABC100",
+        requested_category="capteurs",
+        evidence_text="[1] Capteur PT100.",
+        draft="### (1) Projet\n- Capteur de pression [1]\n### (2) Notices\n- Aucun.",
+        lang_target="fr",
+    )
+
+    assert "Categorie demandee, extraite de la question: capteurs" in prompt
+    assert "IGNORE-LES toutes" in prompt
+    assert "aucun catalogue metier en dur" in prompt
+    assert "pompe" not in prompt.lower()
+    assert "moteur" not in prompt.lower()
+
+
+def test_inventory_coverage_review_applies_only_grounded_generic_additions():
+    draft = (
+        "### (1) Éléments rattachés au projet ABC100\n\n"
+        "- Capteur de pression P-10 [1]\n\n"
+        "### (2) Notices seulement documentaires\n\n"
+        "- SensorBase [2]"
+    )
+    parsed = {
+        "status": "missing",
+        "additions": [
+            {
+                "section": "project_documented",
+                "label": "capteur de température PT100",
+                "support_quote": "capteur de température PT100",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+            {
+                "section": "documentary_only",
+                "label": "capteur SensorX",
+                "support_quote": "Notice du capteur SensorX",
+                "citation_index": 2,
+                "project_basis": "document_only",
+            },
+            {
+                "section": "project_documented",
+                "label": "MOTOR-Z9",
+                "support_quote": "capteur de température PT100",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+        ],
+    }
+
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        parsed,
+        evidence_by_index={
+            1: {
+                "content": "Projet ABC100 : capteur de température PT100.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["capteur"],
+                },
+            },
+            2: {
+                "content": "Notice du capteur SensorX.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["capteur"],
+                },
+            },
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert answer.index("PT100") < answer.index("### (2)")
+    assert answer.index("SensorX") > answer.index("### (2)")
+    assert "MOTOR-Z9" not in answer
+    assert meta["status"] == "corrected"
+    assert meta["accepted"] == 2
+    assert "span_not_literal" in meta["rejected"]
+
+
+def test_inventory_coverage_review_fails_closed_on_roles_citations_duplicates_or_format():
+    draft = "### (1) Projet\n- Joint J1 [1]\n### (2) Notices\n- SealBase [2]"
+    parsed = {
+        "status": "missing",
+        "additions": [
+            {
+                "section": "project_documented",
+                "label": "Joint J1",
+                "support_quote": "Joint J1 et Joint J2",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+            {
+                "section": "project_documented",
+                "label": "Joint J2",
+                "support_quote": "texte absent de la source",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+            {
+                "section": "project_documented",
+                "label": "Joint J2",
+                "support_quote": "Joint J1 et Joint J2",
+                "citation_index": 9,
+                "project_basis": "authoritative_inventory",
+            },
+        ],
+    }
+
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        parsed,
+        evidence_by_index={
+            1: {
+                "content": "Joint J1 et Joint J2.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["joints"],
+                },
+            },
+            2: {
+                "content": "SealBase.",
+                "metadata": {"project_code": "ABC100"},
+            },
+        },
+        project_code="ABC100",
+        requested_category="joints",
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert meta["status"] == "rejected"
+    assert set(meta["rejected"]) >= {
+        "already_present",
+        "span_not_literal",
+        "invalid_shape",
+    }
+
+
+def test_inventory_coverage_review_preserves_draft_when_two_section_contract_is_missing():
+    draft = "Liste simple : capteur P-10 [1]."
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "project_documented",
+                    "label": "Capteur PT100",
+                    "support_quote": "Capteur PT100",
+                    "citation_index": 1,
+                    "project_basis": "authoritative_inventory",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": "Capteur PT100.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["capteur"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert meta["status"] == "rejected"
+    assert "missing_section_contract" in meta["rejected"]
+
+
+def test_inventory_coverage_review_rejects_numbered_rows_as_section_markers():
+    draft = "1. Capteur P-10 [1]\n2. Capteur P-20 [1]"
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "project_documented",
+                    "label": "Capteur PT100",
+                    "support_quote": "Capteur PT100",
+                    "citation_index": 1,
+                    "project_basis": "authoritative_inventory",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": "Capteur PT100.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["capteur"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="capteurs",
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert "missing_section_contract" in meta["rejected"]
+
+
+def test_inventory_coverage_review_requires_category_local_to_label_and_handles_plural():
+    draft = "### (1) Projet\n- Pompe P-10 [1]\n### (2) Notices\n- Aucune."
+    parsed = {
+        "status": "missing",
+        "additions": [
+            {
+                "section": "project_documented",
+                "label": "MOTOR-Z9",
+                "support_quote": "Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur.",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+            {
+                "section": "project_documented",
+                "label": "Pompe P-20",
+                "support_quote": "Pompe P-20.",
+                "citation_index": 1,
+                "project_basis": "authoritative_inventory",
+            },
+        ],
+    }
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        parsed,
+        evidence_by_index={
+            1: {
+                "content": (
+                    "Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur. Pompe P-20."
+                ),
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["pompes"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+
+    assert "MOTOR-Z9" not in answer
+    assert "**Pompe P-20**" in answer
+    assert "category_not_local" in meta["rejected"]
+
+
+@pytest.mark.parametrize(
+    "support_quote",
+    [
+        "Pompe P-10, moteur MOTOR-Z9",
+        "Pompe P-10 / moteur MOTOR-Z9",
+        "Pompe P-10 : moteur MOTOR-Z9",
+        "Pompe P-10\nmoteur MOTOR-Z9",
+    ],
+)
+def test_inventory_coverage_review_rejects_neighbour_across_field_boundaries(
+    support_quote,
+):
+    draft = "### (1) Projet\n- Pompe P-10 [1]\n### (2) Notices\n- Aucune."
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "project_documented",
+                    "label": "MOTOR-Z9",
+                    "support_quote": support_quote,
+                    "citation_index": 1,
+                    "project_basis": "authoritative_inventory",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": support_quote,
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["pompe"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert "category_not_local" in meta["rejected"]
+
+
+def test_inventory_coverage_review_preserves_source_lines_and_short_identity_labels():
+    draft = "### (1) Projet\n- Pompe P-10 [1]\n### (2) Notices\n- Aucune."
+    flattened_answer, flattened_meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "project_documented",
+                    "label": "MOTOR-Z9",
+                    "support_quote": "Pompe P-10 moteur MOTOR-Z9",
+                    "citation_index": 1,
+                    "project_basis": "authoritative_inventory",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": "Pompe P-10\nmoteur MOTOR-Z9",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["pompe"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+    assert flattened_answer == draft
+    assert "span_not_literal" in flattened_meta["rejected"]
+
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "project_documented",
+                    "label": "URACA",
+                    "support_quote": "Pump Unit KD724-G — URACA ref. no.",
+                    "citation_index": 1,
+                    "project_basis": "authoritative_inventory",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": "Pump Unit KD724-G — URACA ref. no.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["pump"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+    assert meta["status"] == "corrected"
+    assert "**URACA**" in answer
+
+
+def test_inventory_coverage_review_short_label_uses_boundaries_and_stays_in_section_two():
+    draft = (
+        "### (1) Projet\n- Application documentée [1]\n"
+        "### (2) Notices\n- Modèle existant [2]\n"
+        "### Limites\nLa documentation n'est pas exhaustive."
+    )
+    answer, meta = wrappers._apply_inventory_coverage_review(
+        draft,
+        {
+            "status": "missing",
+            "additions": [
+                {
+                    "section": "documentary_only",
+                    "label": "Pompe process PP",
+                    "support_quote": "Pompe process PP",
+                    "citation_index": 1,
+                    "project_basis": "document_only",
+                }
+            ],
+        },
+        evidence_by_index={
+            1: {
+                "content": "Pompe process PP.",
+                "metadata": {
+                    "project_code": "ABC100",
+                    "inventory_match_terms": ["pompe"],
+                },
+            }
+        },
+        project_code="ABC100",
+        requested_category="pompes",
+        lang_target="fr",
+    )
+
+    assert meta["status"] == "corrected"
+    assert "**Pompe process PP**" in answer
+    assert answer.index("**Pompe process PP**") < answer.index("### Limites")
+
+
+@pytest.mark.asyncio
+async def test_inventory_coverage_review_skips_when_run_deadline_has_no_reserve(monkeypatch):
+    called = False
+
+    async def fake_complete(prompt, model, ctx):
+        nonlocal called
+        called = True
+        return '{"status":"complete","additions":[]}'
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    draft = "### (1) Projet\n- Capteur P-10 [1]\n### (2) Notices\n- Aucune."
+    answer, meta = await wrappers._review_inventory_answer_coverage(
+        query="quels sont les capteurs du projet ABC100 ?",
+        passages=[
+            {
+                "content": "Projet ABC100 : capteur P-10.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["capteur"],
+                },
+            }
+        ],
+        draft=draft,
+        model="test-model",
+        ctx={"_run_deadline_monotonic": time.monotonic() + 5.5},
+        lang_target="fr",
+    )
+
+    assert answer == draft
+    assert meta == {
+        "status": "not_armed",
+        "reason": "insufficient_runtime_budget",
+    }
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_inventory_coverage_review_is_generic_and_uses_only_admitted_evidence(monkeypatch):
+    captured: dict = {}
+
+    async def fake_complete(prompt, model, ctx):
+        captured["prompt"] = prompt
+        return (
+            '{"status":"missing","requested_category":"brûleurs","additions":['
+            '{"section":"project_documented","label":"brûleur BR-22",'
+            '"support_quote":"brûleur BR-10 et brûleur BR-22",'
+            '"citation_index":2,"project_basis":"authoritative_inventory"}]}'
+        )
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    draft = "### (1) Projet\n- Brûleur BR-10 [2]\n### (2) Notices\n- BurnerBase [3]"
+    answer, meta = await wrappers._review_inventory_answer_coverage(
+        query="quels sont les brûleurs du projet ABC100 ?",
+        passages=[
+            {"content": "semantic noise", "metadata": {}},
+            {
+                "content": "Projet ABC100 : brûleur BR-10 et brûleur BR-22.",
+                "metadata": {
+                    "inventory_evidence": True,
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_match_terms": ["brûleur"],
+                },
+            },
+            {
+                "content": "Notice BurnerBase.",
+                "metadata": {"inventory_evidence": True, "project_code": "ABC100"},
+            },
+        ],
+        draft=draft,
+        model="test-model",
+        ctx={},
+        lang_target="fr",
+    )
+
+    assert "**brûleur BR-22**" in answer
+    assert "[2]" in answer
+    assert "semantic noise" not in captured["prompt"]
+    assert "brûleurs" in captured["prompt"]
+    assert meta == {"status": "corrected", "accepted": 1, "rejected": []}
 
 
 # ---------------------------------------------------------------------------

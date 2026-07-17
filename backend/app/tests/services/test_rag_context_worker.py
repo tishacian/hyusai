@@ -3445,6 +3445,29 @@ def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_neutr
     assert "unrelated project alias" not in spec["terms"]
     assert len(spec["terms"]) <= 12
 
+    generic_spec = rag_context._single_project_inventory_evidence_spec(
+        "Quels sont les brûleurs du projet PRJ204 ?",
+        {"project_code": ["PRJ204"]},
+        policy,
+    )
+    assert generic_spec is not None
+    assert generic_spec["project_code"] == "PRJ204"
+    assert "brûleurs" in generic_spec["terms"]
+
+    for category_query in (
+        "List safety valves for project PRJ204",
+        "Inventory of repair kits for project PRJ204",
+        "List installation tools for project PRJ204",
+        "Liste des modules de diagnostic du projet PRJ204",
+    ):
+        category_spec = rag_context._single_project_inventory_evidence_spec(
+            category_query,
+            {"project_code": ["PRJ204"]},
+            policy,
+        )
+        assert category_spec is not None
+        assert category_spec["project_code"] == "PRJ204"
+
     assert (
         rag_context._single_project_inventory_evidence_spec(
             "Quelles sont les pompes du projet PRJ204 ?",

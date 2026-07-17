@@ -270,6 +270,15 @@ def _build_initial_ctx(
     to repeat them.
     """
     input_ref = run.input_ref if isinstance(run.input_ref, dict) else {}
+    execution_profile = (
+        system.execution_profile if isinstance(system.execution_profile, dict) else {}
+    )
+    try:
+        max_runtime_s = float(execution_profile.get("max_runtime_s") or 40.0)
+    except (TypeError, ValueError):
+        max_runtime_s = 40.0
+    max_runtime_s = max(1.0, min(44.0, max_runtime_s))
+    run_deadline_monotonic = time.monotonic() + max_runtime_s
     workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
     return {
         "system_id": system.id,
@@ -289,6 +298,10 @@ def _build_initial_ctx(
         "default_prompt_type": getattr(system, "default_prompt_type", None),
         "default_model": getattr(system, "default_model", None),
         "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
+        # In-process optional stages can reserve enough time for the terminal
+        # DAG nodes instead of being cancelled by the outer Agentic membrane.
+        # A monotonic value is deliberately ephemeral and never persisted.
+        "_run_deadline_monotonic": run_deadline_monotonic,
     }
 
 

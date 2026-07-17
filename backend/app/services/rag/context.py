@@ -109,14 +109,6 @@ _INVENTORY_OBJECT_RE = re.compile(
     r"\b(" r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection" r")\b",
     re.IGNORECASE,
 )
-_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
-    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b"
-    r"[^?.!\n]{0,160}\b(?P<equipment>pompes?|pumps?|moteurs?|motors?|injecteurs?|"
-    r"injectors?|buses?|nozzles?|rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|"
-    r"filters?|pi[eè]ces?|parts?)\b",
-    re.IGNORECASE,
-)
-_SINGLE_PROJECT_CODE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*\d{2,}[A-Z0-9]*\b")
 _INVENTORY_EXCLUSION_RE = re.compile(
     r"\b(compare|comparaison|compar[ea]|diff[ée]rences?|versus|vs\.?|"
     r"pourquoi|why|warum|comment|how|wie|si|if|wenn|"
@@ -2323,17 +2315,20 @@ def _single_project_inventory_evidence_spec(
     The canonical retrieval remains fully policy-aware; no project,
     manufacturer or model is embedded in application code here.
     """
+    from app.services.rag.single_project_inventory_intent import (
+        parse_single_project_inventory_intent,
+    )
+
     text = str(query or "").strip()
-    match = _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text)
-    if not match or _INVENTORY_EXCLUSION_RE.search(text):
+    intent = parse_single_project_inventory_intent(text)
+    # The vocabulary-agnostic parser already rejects non-enumeration task
+    # shapes. Re-applying the broad legacy exclusion regex to the whole query
+    # would incorrectly suppress valid material categories such as "safety
+    # valves", "repair kits" or "diagnostic modules".
+    if intent is None:
         return None
 
-    query_codes = list(
-        dict.fromkeys(
-            code_match.group(0).upper()
-            for code_match in _SINGLE_PROJECT_CODE_RE.finditer(text.upper())
-        )
-    )
+    query_codes = [intent.project_code]
     active_filters = {
         str(key): value
         for key, value in (retrieval_filters or {}).items()
@@ -2369,11 +2364,11 @@ def _single_project_inventory_evidence_spec(
             seen_terms.add(folded)
             terms.append(cleaned)
 
-    add(match.group("equipment"))
+    add(intent.category)
     # Expand only the equipment noun and only through generic facets. A guide
     # may map a project code or equipment noun to preferred suppliers; importing
     # those aliases here hides the other equipment families in the same dossier.
-    for term in expanded_terms_for_query(match.group("equipment"), None):
+    for term in expanded_terms_for_query(intent.category, None):
         add(term)
         if len(terms) >= 12:
             break
