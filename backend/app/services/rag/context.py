@@ -118,8 +118,14 @@ _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
 )
 _SINGLE_PROJECT_CODE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*\d{2,}[A-Z0-9]*\b")
 _INVENTORY_EXCLUSION_RE = re.compile(
-    r"\b(compare|comparaison|compar[ea]|versus|vs\.?|proc[ée]dure|procedure|maintenance|"
-    r"entretien|pr[ée]cautions?|s[ée]curit[ée]|safety|r[ée]paration|repair|diagnostic)\b",
+    r"\b(compare|comparaison|compar[ea]|diff[ée]rences?|versus|vs\.?|"
+    r"pourquoi|why|warum|comment|how|wie|si|if|wenn|"
+    r"analy[sz]e|analyse[rz]?|expliqu[ea]|explain|erkl[äa]r|"
+    r"causes?|cons[ée]quences?|risques?|risk|hypoth[eè]se|hypothetical|sc[ée]nario|"
+    r"proc[ée]dure|procedure|diagnostic|troubleshoot|d[ée]pannage|"
+    r"pr[ée]cautions?|maintenance|entretien|s[ée]curit[ée]|safety|installation|"
+    r"mise\s+en\s+service|commissioning|r[ée]paration|repair)\b|"
+    r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
     re.IGNORECASE,
 )
 # The Agentic chat membrane is 40 s end-to-end.  Do not let this optional
@@ -2438,7 +2444,11 @@ def _ensure_inventory_evidence_coverage(
         }
 
     limit = max(1, int(synthesis_k or 1))
-    evidence_cap = min(len(evidence_rows), max(2, min(6, limit // 3)))
+    # An explicit inventory benefits more from documentary family coverage than
+    # from another near-duplicate semantic hit. Reserve up to two fifths of the
+    # canonical synthesis budget (hard-capped at eight); the answer wrapper
+    # separately bounds the final prompt after guides/guardrails are appended.
+    evidence_cap = min(len(evidence_rows), max(2, min(8, (limit * 2 + 4) // 5)))
 
     def safe_score(value: Any, default: float = 0.0) -> float:
         try:
@@ -2459,8 +2469,11 @@ def _ensure_inventory_evidence_coverage(
 
     # Qdrant deliberately returns one family per functional category before a
     # second family from the same category. For synthesis, keep authoritative
-    # spare-parts evidence first, then restore score order so a high-confidence
-    # second pump family is not hidden behind low-value navigation rows.
+    # spare-parts evidence first and reserve one sibling-family slot when a
+    # lower-ranked family lives in a category already represented by equipment
+    # explicitly attested in the spare list. This generic bridge protects a
+    # distinct supplier family from being hidden by several higher-scoring
+    # manuals for already-listed model variants. Remaining rows use score order.
     spare_rows = [
         row
         for row in evidence_rows
@@ -2468,9 +2481,30 @@ def _ensure_inventory_evidence_coverage(
         == "spare_parts_list"
     ]
     other_rows = [row for row in evidence_rows if row not in spare_rows]
+    attested_categories = {
+        str((row.get("metadata") or {}).get("inventory_functional_category") or "")
+        for row in other_rows
+        if bool((row.get("metadata") or {}).get("inventory_family_attested_by_spare"))
+    }
+    attested_categories.discard("")
+    sibling_family_rows = [
+        row
+        for row in other_rows
+        if not bool((row.get("metadata") or {}).get("inventory_family_attested_by_spare"))
+        and str((row.get("metadata") or {}).get("inventory_functional_category") or "")
+        in attested_categories
+    ]
+    sibling_family_rows.sort(key=lambda row: safe_score(row.get("score")), reverse=True)
+    reserved_sibling_rows = sibling_family_rows[:1]
+    reserved_ids = {id(row) for row in reserved_sibling_rows}
     ordered_rows = [
         *spare_rows,
-        *sorted(other_rows, key=lambda row: safe_score(row.get("score")), reverse=True),
+        *reserved_sibling_rows,
+        *sorted(
+            (row for row in other_rows if id(row) not in reserved_ids),
+            key=lambda row: safe_score(row.get("score")),
+            reverse=True,
+        ),
     ]
 
     evidence: list[tuple[str, float, dict[str, Any]]] = []

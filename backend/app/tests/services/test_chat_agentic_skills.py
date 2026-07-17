@@ -640,6 +640,127 @@ def test_grounded_custom_inventory_profile_uses_inventory_contract():
     assert "parcours TOUS les extraits" in prompt
 
 
+def test_inventory_synthesis_keeps_all_evidence_and_bounds_expansions():
+    evidence = [
+        {
+            "content": f"inventory evidence {index}",
+            "metadata": {"inventory_evidence": True, "document_id": f"e-{index}"},
+        }
+        for index in range(6)
+    ]
+    regular = [
+        {"content": f"semantic expansion {index}", "metadata": {"document_id": f"s-{index}"}}
+        for index in range(12)
+    ]
+
+    selected = wrappers._select_inventory_synthesis_passages(
+        "quelles sont les pompes du projet ABC100 ?",
+        "equipment_detail",
+        [*evidence, *regular],
+    )
+
+    assert len(selected) == 10
+    assert selected[:6] == evidence
+    assert selected[6:] == regular[:4]
+
+
+def test_inventory_synthesis_preserves_full_context_without_evidence_floor():
+    passages = [
+        {"content": f"canonical {index}", "metadata": {}}
+        for index in range(14)
+    ]
+
+    assert (
+        wrappers._select_inventory_synthesis_passages(
+            "quelles sont les pompes du projet ABC100 ?",
+            "equipment_detail",
+            passages,
+        )
+        is passages
+    )
+
+
+def test_inventory_synthesis_uses_query_shape_not_planner_profile():
+    evidence = [
+        {"content": "inventory evidence", "metadata": {"inventory_evidence": True}}
+    ]
+    regular = [
+        {"content": f"regular {index}", "metadata": {}}
+        for index in range(14)
+    ]
+
+    selected = wrappers._select_inventory_synthesis_passages(
+        "quelles sont les pompes du projet ABC100 ?",
+        "technical",
+        [*evidence, *regular],
+    )
+
+    assert len(selected) == 10
+    cross_project = [*evidence, *regular]
+    assert (
+        wrappers._select_inventory_synthesis_passages(
+            "quels projets ABC100 et DEF200 utilisent ces pompes ?",
+            "transversal_inventory",
+            cross_project,
+        )
+        is cross_project
+    )
+
+    english_selected = wrappers._select_inventory_synthesis_passages(
+        "inventory of injectors for project ABC100",
+        "technical",
+        [*evidence, *regular],
+    )
+    assert len(english_selected) == 10
+    assert "CONTROLE D'INVENTAIRE OBLIGATOIRE" in wrappers._grounded_profile_contract(
+        "inventory of injectors for project ABC100",
+        "equipment_detail",
+    )
+
+
+def test_inventory_synthesis_keeps_all_protected_context_after_evidence():
+    evidence = [
+        {
+            "content": f"inventory evidence {index}",
+            "metadata": {"inventory_evidence": True},
+        }
+        for index in range(6)
+    ]
+    regular = [{"content": f"regular {index}", "metadata": {}} for index in range(8)]
+    protected = [
+        {
+            "content": "guide",
+            "metadata": {"source_type": "knowledge_guide"},
+        },
+        {
+            "content": "summary",
+            "metadata": {"semantic_type": "summary_artifact"},
+        },
+        {
+            "content": "table",
+            "metadata": {"source_type": "table_analysis"},
+        },
+        {
+            "content": "document",
+            "metadata": {"semantic_type": "document_analysis"},
+        },
+        {
+            "content": "exact guardrail",
+            "metadata": {"semantic_type": "exact_match_guardrail"},
+        },
+    ]
+
+    selected = wrappers._select_inventory_synthesis_passages(
+        "quelles sont les pompes du projet ABC100 ?",
+        "equipment_detail",
+        [*evidence, *regular, *protected],
+    )
+
+    assert selected[:6] == evidence
+    assert selected[6:] == protected
+    assert len(selected) == 11
+
+
 # ---------------------------------------------------------------------------
 # semantic_search_v1 — C1(b): resolve tenant slug + balanced lane + budgets
 # ---------------------------------------------------------------------------

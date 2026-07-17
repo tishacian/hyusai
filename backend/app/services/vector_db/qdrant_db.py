@@ -1132,12 +1132,11 @@ class QdrantVectorDB(VectorDBBase):
         bounded_limit = max(1, min(int(limit or 6), 12))
 
         def _search_inventory() -> List[Dict[str, Any]]:
-            # ``collection_exists`` does not expose a request timeout in every
-            # supported qdrant-client version (notably the production client),
-            # unlike ``query_points*`` and ``scroll`` below.  The whole sync
-            # lane is already fenced by the caller's 1.2 s asyncio budget.
-            if not self.client.collection_exists(self.collection_name):
-                return []
+            # Do not preflight with ``collection_exists``: the production client
+            # version cannot bound that call, and cancelling the outer asyncio
+            # wait does not stop its executor thread. The actual query/scroll
+            # operations below all carry a one-second transport timeout and
+            # already fail soft when the collection is absent or unavailable.
             project_condition = FieldCondition(key="project_code", match=MatchValue(value=code))
             text_conditions = [
                 FieldCondition(key="content", match=MatchText(text=term)) for term in terms
@@ -1361,7 +1360,7 @@ class QdrantVectorDB(VectorDBBase):
             category_counts: dict[str, int] = {}
             seen_content: set[str] = set()
 
-            def document_family_keys(
+            def document_family_values(
                 metadata: Dict[str, Any],
                 document_key: str,
             ) -> tuple[str, str]:
@@ -1398,9 +1397,86 @@ class QdrantVectorDB(VectorDBBase):
                 category = significant[0] if significant else filename_key
                 family = significant[-1] if len(significant) > 1 else filename_key
                 return (
-                    f"family:{family or document_key}",
-                    f"category:{category or document_key}",
+                    family or document_key,
+                    category or document_key,
                 )
+
+            def family_evidence_tokens(value: Any) -> set[str]:
+                """Normalize equipment labels into comparable model tokens."""
+                normalized = str(value or "").lower()
+                normalized = re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])", " ", normalized)
+                return set(re.sub(r"[^a-z0-9]+", " ", normalized).split())
+
+            # Expose the generic diversity keys to callers and compare every
+            # candidate family with the authoritative spare-parts evidence.
+            # This lets a lower-ranked, distinct supplier family retain one
+            # coverage slot instead of letting several already-attested model
+            # manuals from the same functional category consume every slot.
+            for row in ranked:
+                metadata = row.get("metadata") or {}
+                document_key = str(
+                    metadata.get("document_id")
+                    or metadata.get("document_filename")
+                    or row.get("id")
+                )
+                family, category = document_family_values(metadata, document_key)
+                metadata["inventory_equipment_family"] = family
+                metadata["inventory_functional_category"] = category
+
+            spare_rows = [
+                row
+                for row in ranked
+                if str((row.get("metadata") or {}).get("source_family") or "").lower()
+                == "spare_parts_list"
+            ]
+            spare_tokens = family_evidence_tokens(
+                " ".join(str(row.get("content") or "") for row in spare_rows)
+            )
+            for row in ranked:
+                metadata = row.get("metadata") or {}
+                family_tokens = family_evidence_tokens(
+                    metadata.get("inventory_equipment_family")
+                )
+                metadata["inventory_family_attested_by_spare"] = bool(
+                    family_tokens and spare_tokens and family_tokens <= spare_tokens
+                )
+            attested_categories = {
+                str((row.get("metadata") or {}).get("inventory_functional_category") or "")
+                for row in ranked
+                if bool(
+                    (row.get("metadata") or {}).get(
+                        "inventory_family_attested_by_spare"
+                    )
+                )
+            }
+            for row in ranked:
+                metadata = row.get("metadata") or {}
+                metadata["inventory_category_has_spare_attested_family"] = bool(
+                    str(metadata.get("inventory_functional_category") or "")
+                    in attested_categories
+                )
+
+            unattested_family_rows = [
+                row
+                for row in ranked
+                if str((row.get("metadata") or {}).get("source_family") or "").lower()
+                != "spare_parts_list"
+                and not bool(
+                    (row.get("metadata") or {}).get(
+                        "inventory_family_attested_by_spare"
+                    )
+                )
+            ]
+            # Prefer the missing family inside a category otherwise dominated
+            # by spare-attested models. Stable sorting preserves score order
+            # within both priority classes.
+            unattested_family_rows.sort(
+                key=lambda row: not bool(
+                    (row.get("metadata") or {}).get(
+                        "inventory_category_has_spare_attested_family"
+                    )
+                )
+            )
 
             def add_rows(
                 rows: List[Dict[str, Any]],
@@ -1420,7 +1496,12 @@ class QdrantVectorDB(VectorDBBase):
                     content_key = hashlib.sha1(
                         " ".join(str(row.get("content") or "").split()).encode("utf-8")
                     ).hexdigest()
-                    family_key, category_key = document_family_keys(metadata, document_key)
+                    family = str(metadata.get("inventory_equipment_family") or document_key)
+                    category = str(
+                        metadata.get("inventory_functional_category") or document_key
+                    )
+                    family_key = f"family:{family}"
+                    category_key = f"category:{category}"
                     if (
                         not document_key
                         or content_key in seen_content
@@ -1437,12 +1518,6 @@ class QdrantVectorDB(VectorDBBase):
                     if len(selected) >= cap:
                         return
 
-            spare_rows = [
-                row
-                for row in ranked
-                if str((row.get("metadata") or {}).get("source_family") or "").lower()
-                == "spare_parts_list"
-            ]
             add_rows(
                 spare_rows,
                 cap=min(2, bounded_limit),
@@ -1450,13 +1525,47 @@ class QdrantVectorDB(VectorDBBase):
                 per_family=2,
                 per_category=2,
             )
+            reserve_unattested_slot = bool(
+                spare_rows
+                and unattested_family_rows
+                and len(selected) < bounded_limit
+            )
+            attested_category_counts: dict[str, int] = {}
+            for row in ranked:
+                metadata = row.get("metadata") or {}
+                if not bool(metadata.get("inventory_family_attested_by_spare")):
+                    continue
+                category = str(metadata.get("inventory_functional_category") or "")
+                if category:
+                    attested_category_counts[category] = (
+                        attested_category_counts.get(category, 0) + 1
+                    )
+            reserve_attested_repeat_slot = bool(
+                reserve_unattested_slot
+                and any(count > 1 for count in attested_category_counts.values())
+                and bounded_limit - len(selected) > 1
+            )
             if len(selected) < bounded_limit:
+                reserved_slots = int(reserve_unattested_slot) + int(
+                    reserve_attested_repeat_slot
+                )
                 add_rows(
                     ranked,
-                    cap=bounded_limit,
+                    cap=max(len(selected), bounded_limit - reserved_slots),
                     per_document=1,
                     per_family=1,
                     per_category=1,
+                )
+            if spare_rows and len(selected) < bounded_limit:
+                add_rows(
+                    unattested_family_rows,
+                    cap=min(
+                        bounded_limit - int(reserve_attested_repeat_slot),
+                        len(selected) + 1,
+                    ),
+                    per_document=1,
+                    per_family=1,
+                    per_category=2,
                 )
             if len(selected) < bounded_limit:
                 add_rows(
@@ -1464,7 +1573,7 @@ class QdrantVectorDB(VectorDBBase):
                     cap=bounded_limit,
                     per_document=1,
                     per_family=1,
-                    per_category=2,
+                    per_category=3,
                 )
             return selected[:bounded_limit]
 

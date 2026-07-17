@@ -893,8 +893,118 @@ async def test_inventory_evidence_uses_grouped_sparse_and_keeps_two_complementar
     assert grouped_kwargs["group_size"] == 1
     assert grouped_kwargs["using"] == "sparse"
     assert grouped_kwargs["timeout"] == 1
-    client.collection_exists.assert_called_once_with("col")
+    client.collection_exists.assert_not_called()
     client.scroll.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_inventory_evidence_reserves_unattested_family_within_category(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+
+    def manual(
+        chunk_id: str,
+        model: str,
+        category: str,
+        score: float,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=chunk_id,
+            score=score,
+            payload={
+                "chunk_id": chunk_id,
+                "content": f"Pump {model} operating and service manual.",
+                "document_id": f"{chunk_id}-doc",
+                "document_filename": f"{model} manual.pdf",
+                "inner_document_path": (
+                    f"PRJ204/files/section_7/{category}/{model}/FR/manual.pdf"
+                ),
+                "project_code": "PRJ204",
+                "source_family": "supplier_manual",
+            },
+        )
+
+    attested_a = manual("attested-a", "AX-10", "high-pressure", 0.9)
+    attested_b = manual("attested-b", "AX10-20", "high-pressure", 0.85)
+    novel_family = manual("novel", "ZX-900", "high-pressure", 0.4)
+    filter_a = manual("filter-a", "FL-1", "filtration", 0.8)
+    cooling = manual("cooling", "CL-7", "cooling", 0.75)
+    drainage = manual("drainage", "DR-5", "drainage", 0.7)
+    spare = SimpleNamespace(
+        id="spare",
+        score=0.95,
+        payload={
+            "chunk_id": "spare",
+            "content": "HP pumps: complete pump AX 10 and complete pump AX 20.",
+            "document_id": "spare-doc",
+            "document_filename": "Spare Parts List PRJ204.pdf",
+            "project_code": "PRJ204",
+            "source_family": "spare_parts_list",
+        },
+    )
+    client.query_points_groups.return_value = SimpleNamespace(
+        groups=[
+            SimpleNamespace(hits=[row])
+            for row in [
+                attested_a,
+                attested_b,
+                filter_a,
+                cooling,
+                drainage,
+                novel_family,
+            ]
+        ]
+    )
+    client.query_points.return_value = SimpleNamespace(points=[spare])
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    rows = await db.search_inventory_evidence(
+        project_code="PRJ204",
+        content_terms=["pump"],
+        limit=5,
+    )
+
+    assert [row["id"] for row in rows] == [
+        "spare",
+        "attested-a",
+        "filter-a",
+        "novel",
+        "attested-b",
+    ]
+    assert "cooling" not in {row["id"] for row in rows}
+    assert "drainage" not in {row["id"] for row in rows}
+    by_id = {row["id"]: row["metadata"] for row in rows}
+    assert by_id["attested-a"]["inventory_equipment_family"] == "ax-10"
+    assert by_id["attested-a"]["inventory_functional_category"] == "high-pressure"
+    assert by_id["attested-a"]["inventory_family_attested_by_spare"] is True
+    assert by_id["attested-a"]["inventory_category_has_spare_attested_family"] is True
+    assert by_id["novel"]["inventory_equipment_family"] == "zx-900"
+    assert by_id["novel"]["inventory_functional_category"] == "high-pressure"
+    assert by_id["novel"]["inventory_family_attested_by_spare"] is False
+    assert by_id["novel"]["inventory_category_has_spare_attested_family"] is True
+
+    # If the only unattested family was already admitted by the primary pass,
+    # the final fallback must reclaim the reserved slot for the next candidate.
+    client.query_points_groups.return_value = SimpleNamespace(
+        groups=[
+            SimpleNamespace(hits=[row])
+            for row in [attested_a, attested_b, filter_a]
+        ]
+    )
+    fallback_rows = await db.search_inventory_evidence(
+        project_code="PRJ204",
+        content_terms=["pump"],
+        limit=4,
+    )
+    assert [row["id"] for row in fallback_rows] == [
+        "spare",
+        "attested-a",
+        "filter-a",
+        "attested-b",
+    ]
 
 
 @pytest.mark.asyncio

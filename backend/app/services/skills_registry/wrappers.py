@@ -231,6 +231,11 @@ async def _llm_rag_answer_v1(
                     }
                 },
             }
+        passages = _select_inventory_synthesis_passages(
+            query,
+            payload.get("answer_profile"),
+            passages,
+        )
         model = payload.get("model") or ctx.get("default_model")
         prompt = _build_grounded_answer_prompt(
             query, passages, lang_target, payload.get("answer_profile")
@@ -2934,6 +2939,81 @@ def _context_passages(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _select_inventory_synthesis_passages(
+    query: str,
+    answer_profile: Any,
+    passages: list[dict[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Bound explicit inventory synthesis after retrieval has established recall.
+
+    The project inventory lane places up to eight diversified, citeable evidence
+    chunks first. Sending every parent/semantic expansion after those rows made
+    the single synthesis call exceed the interactive membrane even though no
+    additional equipment family was being discovered. Keep all inventory
+    evidence, retrieval guardrails and guide/artifact context plus the first
+    complementary canonical passages. If the evidence lane did not arm or
+    failed, preserve the full canonical context unchanged. ``answer_profile``
+    is deliberately not an activation gate: the planner may label the same
+    mono-project inventory differently, while the deterministic query shape is
+    the stable contract shared with retrieval.
+    """
+    _ = answer_profile
+    if not _is_single_project_equipment_inventory_query(query):
+        return passages
+    evidence = [
+        passage
+        for passage in passages
+        if bool((passage.get("metadata") or {}).get("inventory_evidence"))
+    ]
+    if not evidence:
+        return passages
+
+    protected_source_types = {
+        "knowledge_guide",
+        "summary_artifact",
+        "table_analysis",
+        "document_analysis",
+        "collection_inventory",
+        "dense_coarse_guardrail",
+    }
+    protected_semantic_types = {
+        *protected_source_types,
+        "exact_match_guardrail",
+    }
+    protected = []
+    for passage in passages:
+        metadata = passage.get("metadata") or {}
+        source_type = str(metadata.get("source_type") or metadata.get("type") or "").lower()
+        semantic_type = str(metadata.get("semantic_type") or "").lower()
+        if source_type in protected_source_types or semantic_type in protected_semantic_types:
+            protected.append(passage)
+
+    base_limit = min(max(int(limit or 10), 1), 12)
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def append_unique(passage: dict[str, Any]) -> None:
+        content = " ".join(str(passage.get("content") or "").split())
+        if not content:
+            return
+        key = content[:8000]
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(passage)
+
+    for passage in [*evidence, *protected]:
+        append_unique(passage)
+    bounded_limit = max(base_limit, len(selected))
+    for passage in passages:
+        append_unique(passage)
+        if len(selected) >= bounded_limit:
+            break
+    return selected
+
+
 def _passage_source_label(metadata: dict[str, Any], index: int) -> str:
     md = metadata or {}
     return str(
@@ -3201,8 +3281,8 @@ _COMPLEX_PROJECT_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
-    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire)\b"
-    r"[^?.!\n]{0,160}\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|buses?|nozzles?|"
+    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b"
+    r"[^?.!\n]{0,160}\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|injectors?|buses?|nozzles?|"
     r"rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
     re.IGNORECASE,
 )
@@ -3220,11 +3300,13 @@ def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     profile = str(answer_profile or "").strip().lower()
     text = str(query or "")
     explicit_list_marker = re.search(
-        r"\b(liste[rz]?|list|tous|toutes|all|inventaire)\b", text, re.IGNORECASE
+        r"\b(liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b",
+        text,
+        re.IGNORECASE,
     )
     explicit_plural_set = re.search(
         r"\b(quels?|quelles?|which)\b[^?.!\n]{0,80}\b("
-        r"pompes|pumps|moteurs|motors|injecteurs|buses|nozzles|rouleaux|rollers|"
+        r"pompes|pumps|moteurs|motors|injecteurs|injectors|buses|nozzles|rouleaux|rollers|"
         r"s[ée]cheurs|dryers|filtres|filters|pi[eè]ces|parts)\b",
         text,
         re.IGNORECASE,

@@ -3480,6 +3480,23 @@ def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_neutr
         )
         is None
     )
+    assert (
+        rag_context._single_project_inventory_evidence_spec(
+            "Quelles pompes du projet PRJ204 et comment les installer ?",
+            {"project_code": ["PRJ204"]},
+            policy,
+        )
+        is None
+    )
+
+    english_spec = rag_context._single_project_inventory_evidence_spec(
+        "Inventory of injectors for project PRJ204",
+        {"project_code": ["PRJ204"]},
+        policy,
+    )
+    assert english_spec is not None
+    assert english_spec["project_code"] == "PRJ204"
+    assert "injectors" in english_spec["terms"]
 
 
 def test_inventory_evidence_coverage_survives_compression_without_growing_budget():
@@ -3557,3 +3574,58 @@ def test_inventory_evidence_coverage_prioritizes_authority_then_score():
     ]
     assert all(metadata.get("inventory_evidence") for metadata in metadatas[:3])
     assert diag == {"admission_cap": 3, "inserted": 0, "replaced": 3}
+
+
+def test_inventory_evidence_coverage_reserves_sibling_family_and_eight_slots():
+    rows = [
+        {
+            "content": "Authoritative complete equipment list.",
+            "score": 0.95,
+            "metadata": {"source_family": "spare_parts_list", "document_id": "spl"},
+        },
+        *[
+            {
+                "content": f"Attested model manual {index}.",
+                "score": 0.9 - (index * 0.01),
+                "metadata": {
+                    "document_id": f"attested-{index}",
+                    "inventory_family_attested_by_spare": True,
+                    "inventory_functional_category": "process-line",
+                },
+            }
+            for index in range(5)
+        ],
+        {
+            "content": "Distinct sibling supplier family.",
+            "score": 0.4,
+            "metadata": {
+                "document_id": "sibling",
+                "inventory_family_attested_by_spare": False,
+                "inventory_functional_category": "process-line",
+            },
+        },
+        {
+            "content": "Unrelated low-score family.",
+            "score": 0.3,
+            "metadata": {
+                "document_id": "other",
+                "inventory_family_attested_by_spare": False,
+                "inventory_functional_category": "utilities",
+            },
+        },
+    ]
+
+    chunks, _scores, metadatas, diag = rag_context._ensure_inventory_evidence_coverage(
+        [f"semantic {index}" for index in range(18)],
+        [0.8] * 18,
+        [{"document_id": f"semantic-{index}"} for index in range(18)],
+        rows,
+        synthesis_k=18,
+        collection="notices",
+    )
+
+    assert len(chunks) == 18
+    assert chunks[0] == "Authoritative complete equipment list."
+    assert chunks[1] == "Distinct sibling supplier family."
+    assert sum(bool(metadata.get("inventory_evidence")) for metadata in metadatas) == 8
+    assert diag == {"admission_cap": 8, "inserted": 0, "replaced": 8}
