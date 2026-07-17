@@ -2943,6 +2943,7 @@ def _passage_scope_hint(metadata: dict[str, Any]) -> str:
         ("project", md.get("project_code")),
         ("source_family", md.get("source_family")),
         ("document_type", md.get("document_type") or md.get("source_kind")),
+        ("inventory_evidence", "true" if md.get("inventory_evidence") else None),
     )
     hints: list[str] = []
     for label, value in fields:
@@ -3008,10 +3009,17 @@ def _build_grounded_answer_prompt(
         src = _passage_source_label(metadata, index)
         scope_hint = _passage_scope_hint(metadata) if profile_contract else ""
         source_header = f"{src}; {scope_hint}" if scope_hint else src
-        # Keep enough of each passage to preserve spec tables (carrier values can
-        # sit a few hundred chars into a messy HTML chunk); chunks are ~1-2k chars.
+        # Keep enough of each passage to preserve spec tables. Inventory
+        # evidence is bounded separately because a source spare-parts chunk can
+        # contain several pump sections across a page break.
+        is_authoritative_inventory = bool(
+            metadata.get("inventory_evidence")
+            and str(metadata.get("source_family") or "").lower() == "spare_parts_list"
+        )
+        passage_limit = 8000 if is_authoritative_inventory else 4000
         blocks.append(
-            f"[{index}] ({source_header})\n{str(passage.get('content') or '')[:4000]}"
+            f"[{index}] ({source_header})\n"
+            f"{str(passage.get('content') or '')[:passage_limit]}"
         )
     context_text = "\n\n".join(blocks)
     return (
@@ -3219,15 +3227,29 @@ def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     )
     if not is_inventory:
         return ""
+    equipment_match = _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text)
+    requested_equipment = (
+        equipment_match.group(2) if equipment_match else "equipements demandes"
+    )
     return (
+        "CONTROLE D'INVENTAIRE OBLIGATOIRE : avant de rediger, construis en silence "
+        "l'union de TOUS les libelles d'equipements rencontres, passage par passage "
+        "et ligne par ligne. Dans chaque source_family=spare_parts_list, traite chaque "
+        f"bloc ou en-tete correspondant a la famille demandee ({requested_equipment}), "
+        "y compris ses formes singulier/pluriel, ses traductions et les blocs situes "
+        "apres un saut de page, et "
+        "conserve tous les identifiants exacts des lignes de maintenance, pieces de "
+        "rechange et equipements complets. Ne t'arrete jamais au premier bloc. "
         "Pour cette question d'inventaire, parcours TOUS les extraits avant de "
         "rediger. Enumere chaque equipement, type, modele et reference directement "
         "atteste par au moins un extrait pertinent, en fusionnant uniquement les "
         "doublons certains, et cite chaque item. Ne privilegie pas seulement les "
         "premiers extraits.\n"
-        "Distingue explicitement (1) les items rattaches au projet ou au perimetre "
+        "Structure obligatoirement la reponse en deux sections et distingue (1) tous "
+        "les items rattaches au projet ou au perimetre "
         "demande par le contenu, le libelle de source ou ses metadonnees, et (2) les "
-        "modeles seulement decrits dans une notice generique ou fournisseur. Un "
+        "modeles seulement decrits dans une notice generique ou fournisseur presente "
+        "dans le dossier, en les enumerant eux aussi. Un "
         "manuel generique ne prouve jamais a lui seul que le modele est installe "
         "sur le projet.\n"
         "Ne conclus jamais qu'il n'existe aucun autre item si un autre extrait en "

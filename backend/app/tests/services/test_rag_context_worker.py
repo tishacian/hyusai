@@ -3423,9 +3423,12 @@ def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
     ]
 
 
-def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_driven():
+def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_neutral():
     policy = RetrievalPolicy(
-        aliases=(("pompe", ("pump", "custom centrifugal unit")),),
+        aliases=(
+            ("pompe", ("pump", "custom supplier model")),
+            ("PRJ204", ("unrelated project alias",)),
+        ),
     )
 
     spec = rag_context._single_project_inventory_evidence_spec(
@@ -3438,7 +3441,8 @@ def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_drive
     assert spec["project_code"] == "PRJ204"
     assert "pompes" in spec["terms"]
     assert "pump" in spec["terms"]
-    assert "custom centrifugal unit" in spec["terms"]
+    assert "custom supplier model" not in spec["terms"]
+    assert "unrelated project alias" not in spec["terms"]
     assert len(spec["terms"]) <= 12
 
     assert (
@@ -3515,3 +3519,41 @@ def test_inventory_evidence_coverage_survives_compression_without_growing_budget
         if meta.get("inventory_evidence")
     )
     assert diag == {"admission_cap": 2, "inserted": 1, "replaced": 1}
+    assert metadatas[0]["source_family"] == "spare_parts_list"
+
+
+def test_inventory_evidence_coverage_prioritizes_authority_then_score():
+    rows = [
+        {
+            "content": "Authoritative complete pump list.",
+            "score": 0.6,
+            "metadata": {"source_family": "spare_parts_list", "document_id": "spl"},
+        },
+        {
+            "content": "Low-value navigation pump row.",
+            "score": 0.2,
+            "metadata": {"document_id": "nav"},
+        },
+        {
+            "content": "High-confidence second pump family.",
+            "score": 0.9,
+            "metadata": {"document_id": "manual"},
+        },
+    ]
+
+    chunks, _scores, metadatas, diag = rag_context._ensure_inventory_evidence_coverage(
+        [f"semantic {index}" for index in range(9)],
+        [0.8] * 9,
+        [{"document_id": f"semantic-{index}"} for index in range(9)],
+        rows,
+        synthesis_k=9,
+        collection="notices",
+    )
+
+    assert chunks[:3] == [
+        "Authoritative complete pump list.",
+        "High-confidence second pump family.",
+        "Low-value navigation pump row.",
+    ]
+    assert all(metadata.get("inventory_evidence") for metadata in metadatas[:3])
+    assert diag == {"admission_cap": 3, "inserted": 0, "replaced": 3}

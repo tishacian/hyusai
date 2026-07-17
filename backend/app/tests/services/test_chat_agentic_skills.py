@@ -573,10 +573,43 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "project=ABC100; source_family=equipment_list" in prompt
     assert "chaque equipement, type, modele et reference" in prompt
     assert "Ne privilegie pas seulement les premiers extraits" in prompt
+    assert "CONTROLE D'INVENTAIRE OBLIGATOIRE" in prompt
+    assert "famille demandee (pompes)" in prompt
+    assert "ses formes singulier/pluriel, ses traductions" in prompt
+    assert "deux sections" in prompt
     assert "modeles seulement decrits dans une notice generique ou fournisseur" in prompt
     assert "ne prouve jamais a lui seul que le modele est installe" in prompt
     assert "Ne conclus jamais qu'il n'existe aucun autre item" in prompt
     assert "liste documentee dans les extraits" in prompt
+
+
+def test_grounded_prompt_keeps_long_inventory_evidence_but_bounds_regular_passages():
+    tail_marker = "TAIL_INVENTORY_MODEL_Z9"
+    filler = "x" * 4500
+    prompt = wrappers._build_grounded_answer_prompt(
+        "quelles sont les pompes du projet ABC100 ?",
+        [
+            {
+                "content": filler + tail_marker,
+                "metadata": {
+                    "document_filename": "ABC100 spare parts.pdf",
+                    "project_code": "ABC100",
+                    "source_family": "spare_parts_list",
+                    "inventory_evidence": True,
+                },
+            },
+            {
+                "content": filler + "REGULAR_TAIL_MUST_BE_TRUNCATED",
+                "metadata": {"document_filename": "regular.pdf"},
+            },
+        ],
+        "fr",
+        "equipment_detail",
+    )
+
+    assert tail_marker in prompt
+    assert "inventory_evidence=true" in prompt
+    assert "REGULAR_TAIL_MUST_BE_TRUNCATED" not in prompt
 
 
 def test_grounded_non_inventory_equipment_prompt_avoids_exhaustive_scan_contract():

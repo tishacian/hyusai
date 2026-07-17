@@ -2311,8 +2311,11 @@ def _single_project_inventory_evidence_spec(
     The corpus planner remains the owner of scope.  This helper only arms when
     its exact single ``project_code`` filter agrees with the single code written
     in the question, so the additive lane can never broaden tenant/project
-    access.  Vocabulary comes from the active retrieval policy/source facets;
-    no project, manufacturer or model is embedded in application code.
+    access. Vocabulary comes from the generic source facets. Project-triggered
+    guide aliases are deliberately excluded from this additive coverage lane:
+    they bias a broad equipment inventory toward a few named suppliers/models.
+    The canonical retrieval remains fully policy-aware; no project,
+    manufacturer or model is embedded in application code here.
     """
     text = str(query or "").strip()
     match = _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text)
@@ -2361,7 +2364,10 @@ def _single_project_inventory_evidence_spec(
             terms.append(cleaned)
 
     add(match.group("equipment"))
-    for term in expanded_terms_for_query(text, retrieval_policy):
+    # Expand only the equipment noun and only through generic facets. A guide
+    # may map a project code or equipment noun to preferred suppliers; importing
+    # those aliases here hides the other equipment families in the same dossier.
+    for term in expanded_terms_for_query(match.group("equipment"), None):
         add(term)
         if len(terms) >= 12:
             break
@@ -2389,7 +2395,7 @@ async def _retrieve_single_project_inventory_evidence(
             searcher(
                 project_code=str(spec.get("project_code") or ""),
                 content_terms=list(spec.get("terms") or []),
-                limit=6,
+                limit=12,
             ),
             timeout=max(0.1, float(timeout_seconds)),
         )
@@ -2432,55 +2438,93 @@ def _ensure_inventory_evidence_coverage(
         }
 
     limit = max(1, int(synthesis_k or 1))
-    evidence_cap = min(len(evidence_rows), max(2, min(4, limit // 3)))
-    out_chunks = list(chunks[:limit])
-    out_scores = list(scores[:limit])
-    out_metas = [dict(meta or {}) for meta in metadatas[:limit]]
-    seen = {_chunk_exact_key(chunk) for chunk in out_chunks}
-    inserted = 0
-    replaced = 0
+    evidence_cap = min(len(evidence_rows), max(2, min(6, limit // 3)))
 
-    for row in evidence_rows[:evidence_cap]:
+    def safe_score(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    original = [
+        (str(chunk), safe_score(score), dict(metadata or {}))
+        for chunk, score, metadata in zip(
+            chunks[:limit],
+            scores[:limit],
+            metadatas[:limit],
+            strict=False,
+        )
+    ]
+    original_keys = {_chunk_exact_key(content) for content, _score, _metadata in original}
+
+    # Qdrant deliberately returns one family per functional category before a
+    # second family from the same category. For synthesis, keep authoritative
+    # spare-parts evidence first, then restore score order so a high-confidence
+    # second pump family is not hidden behind low-value navigation rows.
+    spare_rows = [
+        row
+        for row in evidence_rows
+        if str((row.get("metadata") or {}).get("source_family") or "").lower()
+        == "spare_parts_list"
+    ]
+    other_rows = [row for row in evidence_rows if row not in spare_rows]
+    ordered_rows = [
+        *spare_rows,
+        *sorted(other_rows, key=lambda row: safe_score(row.get("score")), reverse=True),
+    ]
+
+    evidence: list[tuple[str, float, dict[str, Any]]] = []
+    evidence_keys: set[str] = set()
+    for row in ordered_rows:
         content = str(row.get("content") or "").strip()
         if not content:
             continue
         key = _chunk_exact_key(content)
-        if key in seen:
+        if key in evidence_keys:
             continue
         metadata = dict(row.get("metadata") or {})
         metadata["inventory_evidence"] = True
         metadata.setdefault("collection", collection)
         metadata.setdefault("collection_name", collection)
-        try:
-            score = min(max(float(row.get("score") or 0.35), 0.01), 1.0)
-        except (TypeError, ValueError):
-            score = 0.35
+        score = min(max(safe_score(row.get("score"), 0.35), 0.01), 1.0)
+        evidence.append((content, score, metadata))
+        evidence_keys.add(key)
+        if len(evidence) >= evidence_cap:
+            break
 
-        if len(out_chunks) < limit:
-            out_chunks.append(content)
-            out_scores.append(score)
-            out_metas.append(metadata)
-            inserted += 1
-            seen.add(key)
+    # Evidence is intentionally placed first: inventory completeness must not
+    # depend on an LLM attending to a spare-parts list buried after a dozen
+    # semantic passages. Threshold-exempt context is never evicted.
+    protected_original = [
+        item for item in original if _is_threshold_exempt_metadata(item[2])
+    ]
+    regular_original = [
+        item for item in original if not _is_threshold_exempt_metadata(item[2])
+    ]
+    evidence = evidence[: max(0, limit - len(protected_original))]
+    evidence_keys = {_chunk_exact_key(content) for content, _score, _metadata in evidence}
+    combined: list[tuple[str, float, dict[str, Any]]] = list(evidence)
+    seen = set(evidence_keys)
+    for item in [*protected_original, *regular_original]:
+        key = _chunk_exact_key(item[0])
+        if key in seen:
             continue
-
-        replace_index = next(
-            (
-                index
-                for index in range(len(out_metas) - 1, -1, -1)
-                if not out_metas[index].get("inventory_evidence")
-                and not _is_threshold_exempt_metadata(out_metas[index])
-            ),
-            None,
-        )
-        if replace_index is None:
-            continue
-        seen.discard(_chunk_exact_key(out_chunks[replace_index]))
-        out_chunks[replace_index] = content
-        out_scores[replace_index] = score
-        out_metas[replace_index] = metadata
-        replaced += 1
+        combined.append(item)
         seen.add(key)
+        if len(combined) >= limit:
+            break
+
+    admitted_new = sum(
+        1
+        for content, _score, _metadata in evidence
+        if _chunk_exact_key(content) not in original_keys
+    )
+    free_slots = max(0, limit - len(original))
+    inserted = min(admitted_new, free_slots)
+    replaced = max(0, admitted_new - inserted)
+    out_chunks = [content for content, _score, _metadata in combined[:limit]]
+    out_scores = [score for _content, score, _metadata in combined[:limit]]
+    out_metas = [metadata for _content, _score, metadata in combined[:limit]]
 
     return out_chunks, out_scores, out_metas, {
         "admission_cap": evidence_cap,
