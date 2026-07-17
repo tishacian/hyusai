@@ -1132,7 +1132,11 @@ class QdrantVectorDB(VectorDBBase):
         bounded_limit = max(1, min(int(limit or 6), 12))
 
         def _search_inventory() -> List[Dict[str, Any]]:
-            if not self.client.collection_exists(self.collection_name, timeout=1):
+            # ``collection_exists`` does not expose a request timeout in every
+            # supported qdrant-client version (notably the production client),
+            # unlike ``query_points*`` and ``scroll`` below.  The whole sync
+            # lane is already fenced by the caller's 1.2 s asyncio budget.
+            if not self.client.collection_exists(self.collection_name):
                 return []
             project_condition = FieldCondition(key="project_code", match=MatchValue(value=code))
             text_conditions = [

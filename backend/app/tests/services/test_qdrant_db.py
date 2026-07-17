@@ -893,6 +893,7 @@ async def test_inventory_evidence_uses_grouped_sparse_and_keeps_two_complementar
     assert grouped_kwargs["group_size"] == 1
     assert grouped_kwargs["using"] == "sparse"
     assert grouped_kwargs["timeout"] == 1
+    client.collection_exists.assert_called_once_with("col")
     client.scroll.assert_not_called()
 
 
