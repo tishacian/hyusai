@@ -590,6 +590,8 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "deux sections" in prompt
     assert "modeles seulement decrits dans une notice generique ou fournisseur" in prompt
     assert "ne prouve jamais a lui seul que le modele est installe" in prompt
+    assert "FORMAT COMPACT OBLIGATOIRE" in prompt
+    assert "ne recopie pas les codes article, prix, moteurs" in prompt
     assert "CONTROLE FINAL DE COUVERTURE" in prompt
     assert "couple nom de fichier / equipment_family" in prompt
     assert "equipment_family=genericpump-z9" in prompt
@@ -597,6 +599,9 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "family_attested_by_spare=false" in prompt
     assert "conserve le nom du constructeur avec ce modele" in prompt
     assert "ne le deduis jamais par analogie" in prompt
+    assert "forme 'NOM ref. no.'" in prompt
+    assert "comme identifiant documentaire" in prompt
+    assert "ne suffit pas a qualifier le role" in prompt
     assert "Termine chaque ligne factuelle par au moins un repere de source [n]" in prompt
     assert "Ne conclus jamais qu'il n'existe aucun autre item" in prompt
     assert "liste documentee dans les extraits" in prompt
