@@ -20,6 +20,9 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import client360_pdr as client360_module
 from app.services.client360_pdr import (
+    _estimate_unit_price,
+    _index_purchase_costs,
+    _index_purchase_lead_times,
     build_customer_timeline,
     build_installed_base_tree,
     calculate_annual_theoretical_qty,
@@ -754,6 +757,143 @@ def test_addressable_weights_are_configurable(db_session) -> None:
     opportunity = db_session.query(Client360Opportunity).one()
     assert opportunity.meta_data["addressable_factors"]["factor"] == 1.0
     assert opportunity.potential_addressable == opportunity.potential_gap_qty
+
+
+def test_estimate_unit_price_falls_back_to_purchase_cost_average() -> None:
+    purchase_records = [
+        {
+            "part_reference": "BELT-9",
+            "part_family": "wear belts",
+            "unit_cost": 80.0,
+            "role": "purchase_history",
+        },
+        {
+            "part_reference": "BELT-9",
+            "part_family": "wear belts",
+            "unit_cost": 120.0,
+            "role": "purchase_history",
+        },
+    ]
+    pricing_index = {
+        "family": {},
+        "family_technology": {},
+        "purchase_cost": _index_purchase_costs(purchase_records),
+    }
+    price, meta = _estimate_unit_price(
+        {
+            "part_reference": "BELT-9",
+            "part_family": "wear belts",
+            "currency": "EUR",
+        },
+        pricing_index,
+    )
+    assert price == 100.0
+    assert meta["source"] == "purchase_cost_average"
+
+
+def test_index_purchase_lead_times_median_by_part_reference() -> None:
+    index = _index_purchase_lead_times(
+        [
+            {
+                "part_reference": "MAT-1",
+                "unit_cost": 10,
+                "delivery_time_weeks": 4,
+                "role": "purchase_history",
+            },
+            {
+                "part_reference": "MAT-1",
+                "unit_cost": 10,
+                "delivery_time_weeks": 8,
+                "role": "purchase_history",
+            },
+            {
+                "part_reference": "MAT-1",
+                "unit_cost": 10,
+                "delivery_time_weeks": 6,
+                "role": "purchase_history",
+            },
+        ]
+    )
+    assert index["mat 1"] == 6.0
+
+
+def test_opportunity_engine_uses_purchase_cost_and_lead_time(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                label="Installed base pilot",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "customer_name": "Septona",
+                            "country": "Greece",
+                            "hub": "EMEA",
+                            "technology": "JETLACE",
+                            "part_reference": "BELT-PH",
+                            "part_family": "wear belts",
+                            "installed_quantity": 10,
+                        }
+                    ]
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="periodicity",
+                label="Wear part periodicity",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "technology": "JETLACE",
+                            "part_family": "wear belts",
+                            "recommended_quantity": 2,
+                            "periodicity_weeks": 4,
+                        }
+                    ]
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="other",
+                label="Histo_Achat_Pieces_Machines_Montbonnot.xlsx",
+                status="ready",
+                meta_data={
+                    "role": "purchase_history",
+                    "aggregation": "by_material",
+                    "records": [
+                        {
+                            "part_reference": "BELT-PH",
+                            "part_description": "Wear belt",
+                            "unit_cost": 50.0,
+                            "currency": "EUR",
+                            "delivery_time_weeks": 7,
+                            "role": "purchase_history",
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    assert result["skipped"].get("installed_quantity_missing_for_generation", 0) >= 1
+    opportunity = db_session.query(Client360Opportunity).one()
+    assert opportunity.meta_data["pricing"]["source"] == "purchase_cost_average"
+    assert opportunity.meta_data["pricing"]["unit_price"] == 50.0
+    assert opportunity.delivery_time_weeks == 7
+    # annual = 10 * 2 * 52 / 4 = 260 ; no sales → gap uses sales_qty None → gap_qty None
+    # Actually looking at code: gap_qty requires sales_qty is not None
+    # So gap_value may be None. Pricing source is what we care about.
 
 
 def test_opportunity_engine_falls_back_to_family_average_price(db_session) -> None:

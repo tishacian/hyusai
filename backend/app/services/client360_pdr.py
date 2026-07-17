@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import statistics
 import unicodedata
 from datetime import datetime
 from email.utils import parseaddr
@@ -176,6 +177,13 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "delai",
         "delai semaines",
     ),
+    "unit_cost": (
+        "unit cost",
+        "net order value",
+        "purchase cost",
+        "achat",
+        "cout unitaire",
+    ),
     "sales_known_qty": (
         "sales qty",
         "qty sold",
@@ -325,7 +333,7 @@ def _coerce_record_value(field: str, raw_value: Any, numeric_value: Any = None) 
         "delivery_time_weeks",
     }:
         return _safe_float(numeric_value if numeric_value is not None else raw_value)
-    if field in {"sales_known_qty", "sales_known_value"}:
+    if field in {"sales_known_qty", "sales_known_value", "unit_cost"}:
         return _safe_non_negative_float(numeric_value if numeric_value is not None else raw_value)
     if field == "next_due_at":
         try:
@@ -563,6 +571,12 @@ def classify_data_source(text: str) -> str:
     if "sales_by_country" in underscored or "salesbycountry" in underscored:
         return "sap_sales_history"
     if "materials_consumption" in underscored:
+        return "other"
+    # Histo_Achat / purchase PO feed — enrichment only (never sap_sales_history / IB).
+    if any(
+        token in underscored
+        for token in ("histo_achat", "purchase_history", "po_delivered", "achat_pieces")
+    ):
         return "other"
     if "installed_base_spl" in underscored or re.search(
         r"installed[_\s-]*base[_\s-]*(machine|spc)\b", folded
@@ -1618,8 +1632,16 @@ def _canonicalize_source_record(
             "source_part_label",
             "contact_name",
             "contact_email",
+            "role",
+            "vendor_name",
+            "vendor_country",
+            "po_count",
+            "cost_sum",
         }:
-            out[key] = _safe_text(value) or None
+            if key in {"po_count", "cost_sum"}:
+                out[key] = _safe_float(value)
+            else:
+                out[key] = _safe_text(value) or None
     if not out.get("customer_key") and out.get("customer_name"):
         out["customer_key"] = _normalize_token(out.get("customer_name"))
     if not out.get("source_part_reference") and out.get("part_reference"):
@@ -1641,27 +1663,29 @@ def _records_from_data_sources(db: DBSession, workspace: Workspace) -> list[dict
     )
     for source in rows:
         metadata = _as_dict(source.meta_data)
+        source_role = _safe_text(metadata.get("role") or metadata.get("spl_role")) or None
         raw_rows = _as_list(
             metadata.get("records") or metadata.get("rows") or metadata.get("mapped_rows")
         )
         for raw in raw_rows:
             if not isinstance(raw, dict):
                 continue
-            records.append(
-                _canonicalize_source_record(
-                    raw,
-                    source_type=source.source_type,
-                    evidence_refs=source.evidence_refs
-                    or [
-                        {
-                            "kind": "client360_data_source",
-                            "source_id": source.id,
-                            "label": source.label,
-                        }
-                    ],
-                    source_id=source.id,
-                )
+            record = _canonicalize_source_record(
+                raw,
+                source_type=source.source_type,
+                evidence_refs=source.evidence_refs
+                or [
+                    {
+                        "kind": "client360_data_source",
+                        "source_id": source.id,
+                        "label": source.label,
+                    }
+                ],
+                source_id=source.id,
             )
+            if source_role and not record.get("role"):
+                record["role"] = source_role
+            records.append(record)
     return records
 
 
@@ -1913,6 +1937,69 @@ def _index_pricing(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[st
     return {"family": family, "family_technology": family_technology}
 
 
+def _is_purchase_history_record(record: dict[str, Any]) -> bool:
+    role = _normalize_token(record.get("role"))
+    if role == "purchase history" or role == "purchase_history":
+        return True
+    if _safe_non_negative_float(record.get("unit_cost")) is None:
+        return False
+    # unit_cost alone is enough when the feed stamped purchase fields without sales.
+    return (
+        record.get("sales_known_qty") is None
+        and record.get("sales_known_value") is None
+        and bool(_safe_text(record.get("part_reference")))
+    )
+
+
+def _index_purchase_costs(records: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Average purchase unit_cost by part_reference and part_family (never sales)."""
+    by_ref_buckets: dict[str, dict[str, float]] = {}
+    by_family_buckets: dict[str, dict[str, float]] = {}
+    for record in records:
+        if not _is_purchase_history_record(record):
+            continue
+        cost = _safe_non_negative_float(record.get("unit_cost"))
+        if cost is None or cost <= 0:
+            continue
+        ref_key = _normalize_token(record.get("part_reference"))
+        if ref_key:
+            bucket = by_ref_buckets.setdefault(ref_key, {"value": 0.0, "qty": 0.0})
+            bucket["value"] += cost
+            bucket["qty"] += 1.0
+        family = _record_family(record)
+        family_key = _mapping_key(family)
+        if family_key:
+            bucket = by_family_buckets.setdefault(family_key, {"value": 0.0, "qty": 0.0})
+            bucket["value"] += cost
+            bucket["qty"] += 1.0
+    return {
+        "by_part_reference": {
+            key: round(bucket["value"] / bucket["qty"], 4)
+            for key, bucket in by_ref_buckets.items()
+            if bucket["qty"] > 0
+        },
+        "by_family": {
+            key: round(bucket["value"] / bucket["qty"], 4)
+            for key, bucket in by_family_buckets.items()
+            if bucket["qty"] > 0
+        },
+    }
+
+
+def _index_purchase_lead_times(records: list[dict[str, Any]]) -> dict[str, float]:
+    """Median delivery_time_weeks by part_reference from purchase history rows."""
+    by_ref: dict[str, list[float]] = {}
+    for record in records:
+        if not _is_purchase_history_record(record):
+            continue
+        lead = _safe_float(record.get("delivery_time_weeks"))
+        ref_key = _normalize_token(record.get("part_reference"))
+        if lead is None or lead <= 0 or not ref_key:
+            continue
+        by_ref.setdefault(ref_key, []).append(lead)
+    return {key: float(statistics.median(values)) for key, values in by_ref.items()}
+
+
 def _bucket_unit_price(bucket: dict[str, float] | None) -> Optional[float]:
     if not bucket or bucket.get("qty", 0.0) <= 0:
         return None
@@ -1951,6 +2038,19 @@ def _estimate_unit_price(
         return family_tech_price, {
             "source": "family_technology_average",
             "unit_price": family_tech_price,
+            "currency": currency,
+        }
+    purchase_index = _as_dict(pricing_index.get("purchase_cost"))
+    by_ref = _as_dict(purchase_index.get("by_part_reference"))
+    ref_key = _normalize_token(record.get("part_reference"))
+    purchase_price = _safe_non_negative_float(by_ref.get(ref_key)) if ref_key else None
+    if purchase_price is None:
+        by_family = _as_dict(purchase_index.get("by_family"))
+        purchase_price = _safe_non_negative_float(by_family.get(_mapping_key(family)))
+    if purchase_price is not None:
+        return purchase_price, {
+            "source": "purchase_cost_average",
+            "unit_price": purchase_price,
             "currency": currency,
         }
     return None, {"source": None, "unit_price": None, "currency": currency}
@@ -2188,6 +2288,9 @@ def run_opportunity_engine(
     periodicity_index = _index_periodicity(mapped_records)
     sales_index = _index_sales(mapped_records)
     pricing_index = _index_pricing(mapped_records)
+    purchase_cost_index = _index_purchase_costs(mapped_records)
+    purchase_lead_index = _index_purchase_lead_times(mapped_records)
+    pricing_index["purchase_cost"] = purchase_cost_index
     conversion_rate = _observed_conversion_rate(db, workspace)
     opportunity_records: list[dict[str, Any]] = []
     for record in mapped_records:
@@ -2200,6 +2303,11 @@ def run_opportunity_engine(
             )
             record = _merge_record(record, periodicity)
             record = _merge_record(record, _sales_for_record(record, sales_index))
+        if record.get("delivery_time_weeks") is None:
+            ref_key = _normalize_token(record.get("part_reference"))
+            lead = purchase_lead_index.get(ref_key) if ref_key else None
+            if lead is not None:
+                record = _merge_record(record, {"delivery_time_weeks": lead})
         if not any(
             record.get(key) is not None
             for key in (

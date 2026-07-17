@@ -34,8 +34,38 @@ evidence). **Ne pas** y mélanger les notices techniques SPL (ZIP).
 | `Installed base - SPC.xlsx` | `installed_base` | Quantités installées Material / Title |
 | `Sales_By_Country.xlsx` | `sap_sales_history` | Agrégats ventes (Phase 1 : GR / TR) |
 | `Materials_Consumptions.xlsx` | enrichissement | Lead time / prix / stock — Phase 2 |
+| `Histo_Achat_Pieces_Machines_Montbonnot.xlsx` | `other` (`metadata.role=purchase_history`) | Enrichissement coût unitaire + délai (Phase 2) — **jamais** `sap_sales_history` |
 
 Préfixe deposit typique : `Installed_base_SPL/`.
+
+### Histo_Achat Montbonnot (`purchase_history`)
+
+Feed d’enrichissement Phase 2 (coût + délai), **pas** d’historique de ventes client.
+
+| Règle | Détail |
+| --- | --- |
+| Classification | `source_type=other` + `metadata.role=purchase_history` |
+| Interdit | Ne **jamais** classer / syncer comme `sap_sales_history` (pas de `sales_known_*`) |
+| Court terme ops | Promote **vault only** (collection), **sans** sync Phase 1 |
+| Sync enrichissement | Uniquement Phase 2 : `include_purchase_history: true` (ou `scope=all`) |
+| Taille | ~46 Mo → exception basename dans le script promote (jusqu’à **60 Mo** pour `histo_achat_pieces_machines_montbonnot.xlsx` uniquement) |
+
+```bash
+# Promote vault only (recommandé court terme) — sans --sync
+python -m scripts.promote_client360_installed_base \
+  --workspace andritz --promote
+# Exception taille 60 Mo appliquée automatiquement pour ce basename.
+
+# Sync Phase 2 (enrichissement moteur) — pas le bouton UI Phase 1
+POST /api/v1/client360/sources/sync-from-collection
+{
+  "collection_slug": "andritz-client360-installed-base",
+  "dry_run": false,
+  "include_purchase_history": true
+}
+```
+
+Avec `--sync` Phase 1 seul : le fichier peut être promu mais le sync `purchase_history` est **skippé** (attendu). Option script : `--include-purchase-history`.
 
 ### Pilotes MVP (référence métier)
 
@@ -88,13 +118,16 @@ POST /api/v1/client360/sources/sync-from-collection
 {
   "collection_slug": "andritz-client360-installed-base",
   "dry_run": false,
-  "scope": {}   # optionnel (filtre pays / tech côté backend)
+  "scope": {},   # optionnel (filtre pays / tech côté backend)
+  "include_purchase_history": false
 }
 ```
 
 - `dry_run: true` — prévisualise sans persister.
 - `dry_run: false` — upsert `Client360DataSource` avec `collection_slug`,
   `metadata.records`, `metadata.origin_file`, `metadata.adapter_version`.
+- `include_purchase_history: true` — sync le feed Histo_Achat (`other` / `purchase_history`) ;
+  défaut `false` (Phase 1 skip). Voir section [Histo_Achat Montbonnot](#histo_achat-montbonnot-purchase_history).
 
 ## Moteur d’opportunités
 
@@ -137,14 +170,16 @@ Séquence recommandée :
 ## UI Client360 (onglet Données)
 
 - Statut collection unifiée (slug, sources liées, comptes / `row_count` par `source_type`).
-- **Synchroniser les sources** → `POST …/sources/sync-from-collection`.
+- **Synchroniser les sources** → `POST …/sources/sync-from-collection` (Phase 1 : **pas** de CTA dédié pour Histo_Achat).
 - **Dry-run moteur** / **Calculer** → `POST …/engines/opportunities/run`.
 - Table des `data_sources` (summary API) avec highlight des lignes liées au slug unifié.
+- Colonne Type : `other` + `metadata.role=purchase_history` → label **Achats Montbonnot** (sinon « Autre »).
 
 ## Checklist ops rapide
 
 - [ ] Collection `andritz-client360-installed-base` créée (workspace `andritz`)
-- [ ] 5 fichiers `Installed_base_SPL/*` promus + indexés
+- [ ] Fichiers Phase 1 `Installed_base_SPL/*` promus + indexés
+- [ ] Histo_Achat : promote vault only (exception 60 Mo) ; sync Phase 2 via `include_purchase_history` si besoin
 - [ ] Pilotes Septona / Turquie ré-ingérés et promus
 - [ ] Sync adaptateur OK (`status=ready` sur sources minimales)
 - [ ] Dry-run engine : parité MVP Septona / Turquie

@@ -7,8 +7,16 @@ Usage:
     python -m scripts.promote_client360_installed_base --workspace andritz --sync
     python -m scripts.promote_client360_installed_base --workspace andritz --rehydrate-mvp
 
+Promote vault only (no engine sync) — recommended for Histo_Achat (~46MB):
+    python -m scripts.promote_client360_installed_base --workspace andritz --promote
+
+Phase-2 purchase history sync (after promote):
+    python -m scripts.promote_client360_installed_base \\
+      --workspace andritz --sync --include-purchase-history
+
 Idempotent promote of deposit files whose path matches:
-  - Installed_base_SPL/<allowlisted xlsx>  (5 SAP exports; SPC may hit --max-promote-bytes)
+  - Installed_base_SPL/<allowlisted xlsx>  (SAP exports; SPC may hit --max-promote-bytes;
+    Histo_Achat alone is allowed up to 60MB)
   - Client360_Pilot/*xlsx  (optional pilot folder only)
 
 Does NOT match bare SEPTONA / Needlepunch / CIC / photos / notices via substring.
@@ -51,12 +59,22 @@ SPL_BASENAME_ALLOWLIST = frozenset(
         "installed base - spc.xlsx",
         "sales_by_country.xlsx",
         "materials_consumptions.xlsx",
+        "histo_achat_pieces_machines_montbonnot.xlsx",
     }
 )
+HISTO_ACHAT_BASENAME = "histo_achat_pieces_machines_montbonnot.xlsx"
+HISTO_ACHAT_MAX_PROMOTE_BYTES = 60_000_000
 
 
 def _deposit_basename(filename: str) -> str:
     return str(filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _effective_max_promote_bytes(filename: str, default_max: int) -> int:
+    """Allow Histo_Achat (~46MB) up to 60MB; other files keep the default cap."""
+    if _deposit_basename(filename).lower() == HISTO_ACHAT_BASENAME:
+        return max(default_max, HISTO_ACHAT_MAX_PROMOTE_BYTES)
+    return default_max
 
 
 def _matches_client360_deposit(filename: str) -> bool:
@@ -154,9 +172,18 @@ def main() -> None:
     parser.add_argument("--actor", default="system:client360-promote@local")
     parser.add_argument("--dry-run", action="store_true", help="Report only")
     parser.add_argument("--ensure-collection", action="store_true", default=True)
-    parser.add_argument("--promote", action="store_true", help="Promote matching deposit files")
+    parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="Promote matching deposit files (vault only; may be used without --sync)",
+    )
     parser.add_argument("--sync", action="store_true", help="Run SPL adapter sync")
     parser.add_argument("--scope", default="phase1", choices=["phase1", "all"])
+    parser.add_argument(
+        "--include-purchase-history",
+        action="store_true",
+        help="Phase-2: include Histo_Achat purchase_history when syncing (also with --scope all)",
+    )
     parser.add_argument(
         "--rehydrate-mvp",
         action="store_true",
@@ -212,10 +239,14 @@ def main() -> None:
         skipped_large = [
             {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes}
             for f in promotable
-            if int(f.size_bytes or 0) > args.max_promote_bytes
+            if int(f.size_bytes or 0)
+            > _effective_max_promote_bytes(f.filename or "", args.max_promote_bytes)
         ]
         promotable = [
-            f for f in promotable if int(f.size_bytes or 0) <= args.max_promote_bytes
+            f
+            for f in promotable
+            if int(f.size_bytes or 0)
+            <= _effective_max_promote_bytes(f.filename or "", args.max_promote_bytes)
         ]
         report["promotable"] = [
             {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes, "status": f.status}
@@ -258,6 +289,7 @@ def main() -> None:
                 collection_slug=args.collection,
                 dry_run=args.dry_run,
                 scope=args.scope,
+                include_purchase_history=args.include_purchase_history,
             )
             if args.dry_run:
                 db.rollback()

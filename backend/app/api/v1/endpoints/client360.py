@@ -176,6 +176,13 @@ class SyncFromCollectionBody(BaseModel):
         default=True,
         description="Link existing MVP pilot Client360DataSource rows to the unified collection",
     )
+    include_purchase_history: bool = Field(
+        default=False,
+        description=(
+            "Phase-2 opt-in: sync Histo_Achat purchase_history feed "
+            "(also included when scope=all)"
+        ),
+    )
 
 
 class OpportunityPatch(BaseModel):
@@ -347,6 +354,7 @@ def client360_sources_sync_from_collection(
             dry_run=body.dry_run,
             scope=scope,
             rehydrate_mvp=body.rehydrate_mvp,
+            include_purchase_history=body.include_purchase_history,
         )
         if body.dry_run:
             result["mvp_archive_preview"] = preview_archive_mvp_orphan_sources(

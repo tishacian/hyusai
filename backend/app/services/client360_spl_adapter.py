@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import logging
 import re
+import statistics
 import tempfile
 import unicodedata
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -52,8 +54,17 @@ _logger = logging.getLogger(__name__)
 MONTHS_TO_WEEKS = 4.345
 TABLE_FACT_FALLBACK_LIMIT = 8000
 PHASE1_COUNTRY_KEYS = {"greece", "turkey", "gr", "tr", "el"}
+PURCHASE_HISTORY_MAX_MATERIALS = 20_000
+PURCHASE_HISTORY_SHEET = "View_ASAP_PO_Delivered_By_Proje"
+PURCHASE_HISTORY_ROLE_TOKENS = (
+    "histo_achat",
+    "purchase_history",
+    "po_delivered",
+    "achat_pieces",
+)
 
 SPL_ROLES = (
+    "purchase_history",
     "machine",
     "spc",
     "family_opportunity",
@@ -80,6 +91,9 @@ def detect_spl_role(filename: str) -> str:
         return "sales_by_country"
     if "materials_consumption" in underscored:
         return "materials_consumptions"
+    # Before ``machine``: Histo_Achat_…_Machines_… must not become machine.
+    if any(token in underscored for token in PURCHASE_HISTORY_ROLE_TOKENS):
+        return "purchase_history"
     if re.search(r"(^|_)spc($|_)", underscored) or "installed_base_spc" in underscored:
         return "spc"
     if "machine" in underscored:
@@ -290,9 +304,121 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "enrichment": True,
         }
 
+    if role == "purchase_history":
+        material = _safe_text(_pick(row, "Material", "part_reference"))
+        if not material:
+            return None
+        unit_cost = _safe_non_negative_float(
+            _pick(
+                row,
+                "(EUR) Net order value",
+                "Net order value",
+                "Net Order Value",
+                "unit_cost",
+            )
+        )
+        delivery_raw = _safe_float(
+            _pick(
+                row,
+                "Planned Deliv# Time",
+                "Planned Deliv Time",
+                "Planned Delivery Time",
+                "delivery_time_weeks",
+            )
+        )
+        out: dict[str, Any] = {
+            "part_reference": material,
+            "part_description": _safe_text(
+                _pick(row, "Material Description", "Description", "part_description")
+            )
+            or None,
+            "unit_cost": unit_cost,
+            "currency": _safe_text(_pick(row, "Currency", "Document Currency")) or "EUR",
+            "delivery_time_weeks": delivery_raw,
+            "project_code": _safe_text(_pick(row, "Project definition", "Project Definition"))
+            or None,
+            "project_name": _safe_text(_pick(row, "Name", "Project Name", "project_name")) or None,
+            "wbs_element": _safe_text(_pick(row, "Andritz WBS Element", "WBS Element")) or None,
+            "vendor_name": _safe_text(_pick(row, "Vendor Name", "Vendor")) or None,
+            # Vendor geography — never map to client ``country``.
+            "vendor_country": _safe_text(_pick(row, "Country", "Country Key", "vendor_country"))
+            or None,
+            "role": "purchase_history",
+        }
+        if delivery_raw is not None and delivery_raw > 104:
+            out["delivery_time_unit_note"] = "raw_value_may_not_be_weeks"
+        return out
+
     # pilot / generic: rely on already-canonical or aliasable keys
     out = {key: value for key, value in row.items() if value not in (None, "")}
     return out or None
+
+
+def aggregate_purchase_history_records(
+    records: list[dict[str, Any]],
+    *,
+    max_materials: int = PURCHASE_HISTORY_MAX_MATERIALS,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collapse PO lines to one structured record per Material."""
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        part_ref = _safe_text(record.get("part_reference"))
+        if not part_ref:
+            continue
+        groups[part_ref].append(record)
+
+    truncated = len(groups) > max_materials
+    if truncated:
+        _logger.warning(
+            "purchase_history aggregation truncated from %s to %s materials",
+            len(groups),
+            max_materials,
+        )
+
+    aggregated: list[dict[str, Any]] = []
+    for part_ref in list(groups.keys())[:max_materials]:
+        rows = groups[part_ref]
+        costs = [
+            cost
+            for cost in (_safe_non_negative_float(row.get("unit_cost")) for row in rows)
+            if cost is not None and cost > 0
+        ]
+        leads = [
+            lead
+            for lead in (_safe_float(row.get("delivery_time_weeks")) for row in rows)
+            if lead is not None and lead > 0
+        ]
+        descriptions = [
+            text
+            for text in (_safe_text(row.get("part_description")) for row in rows)
+            if text
+        ]
+        description = Counter(descriptions).most_common(1)[0][0] if descriptions else None
+        last = rows[-1]
+        aggregated.append(
+            {
+                "part_reference": part_ref,
+                "part_description": description or last.get("part_description"),
+                "unit_cost": round(sum(costs) / len(costs), 4) if costs else None,
+                "currency": _safe_text(last.get("currency")) or "EUR",
+                "delivery_time_weeks": float(statistics.median(leads)) if leads else None,
+                "po_count": len(rows),
+                "cost_sum": round(sum(costs), 4) if costs else None,
+                "last_project_name": last.get("project_name"),
+                "last_wbs_element": last.get("wbs_element"),
+                "vendor_name": last.get("vendor_name"),
+                "vendor_country": last.get("vendor_country"),
+                "role": "purchase_history",
+            }
+        )
+
+    meta = {
+        "aggregation": "by_material",
+        "material_count": len(aggregated),
+        "po_lines_seen": len(records),
+        "truncated": truncated,
+    }
+    return aggregated, meta
 
 
 def _source_type_for_role(role: str, filename: str) -> str:
@@ -302,7 +428,7 @@ def _source_type_for_role(role: str, filename: str) -> str:
         return "sap_sales_history"
     if role in {"machine", "spc", "pilot"}:
         return "installed_base" if role != "pilot" else classify_data_source(filename)
-    if role == "materials_consumptions":
+    if role in {"materials_consumptions", "purchase_history"}:
         return "other"
     return classify_data_source(filename)
 
@@ -327,12 +453,22 @@ def _minimal_columns_ok(source_type: str, records: list[dict[str, Any]]) -> bool
     return True
 
 
-def _read_xlsx_rows(path: Path) -> list[dict[str, Any]]:
+def _read_xlsx_rows(
+    path: Path, *, preferred_sheet: str | None = None
+) -> list[dict[str, Any]]:
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
-        sheet = workbook.active
+        sheet = None
+        if preferred_sheet:
+            preferred_fold = _fold(preferred_sheet)
+            for name in workbook.sheetnames:
+                if preferred_fold in _fold(name) or _fold(name) in preferred_fold:
+                    sheet = workbook[name]
+                    break
+        if sheet is None:
+            sheet = workbook.active
         rows_iter = sheet.iter_rows(values_only=True)
         try:
             headers = next(rows_iter)
@@ -530,18 +666,24 @@ def _upsert_data_source(
     role: str,
     read_via: str,
     dry_run: bool,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ready = _minimal_columns_ok(source_type, records)
+    if role == "purchase_history" and records:
+        ready = True
     status = "ready" if ready else ("needs_review" if records else "error")
     label = Path(origin_file).name
     metadata = {
         "records": records,
         "origin_file": origin_file,
         "adapter_version": CLIENT360_SPL_ADAPTER_VERSION,
+        "role": role,
         "spl_role": role,
         "read_via": read_via,
         "record_count": len(records),
     }
+    if extra_metadata:
+        metadata.update(extra_metadata)
     evidence = [
         {
             "kind": "client360_spl_adapter",
@@ -608,10 +750,14 @@ def sync_sources_from_collection(
     dry_run: bool = False,
     scope: str = "phase1",
     rehydrate_mvp: bool = True,
+    include_purchase_history: bool = False,
 ) -> dict[str, Any]:
     """Map collection spreadsheets into Client360DataSource rows.
 
     ``scope``: ``phase1`` (Greece/Turkey + pilot) or ``all``.
+
+    ``include_purchase_history``: Phase-2 opt-in to sync Histo_Achat (also
+    included when ``scope == "all"``). Phase-1 interactive sync skips it.
 
     Always rehydrates MVP pilot sources into the unified collection first (unless
     ``rehydrate_mvp=False``), so the UI is not stuck at 0 linked sources when
@@ -670,6 +816,7 @@ def sync_sources_from_collection(
     sources_out: list[dict[str, Any]] = []
     skipped: dict[str, int] = {}
     temp_paths: list[Path] = []
+    allow_purchase_history = include_purchase_history or scope == "all"
 
     try:
         for filename in filenames:
@@ -683,6 +830,19 @@ def sync_sources_from_collection(
                         "filename": filename,
                         "role": role,
                         "reason": "materials_deferred_phase2",
+                    }
+                )
+                continue
+            if role == "purchase_history" and not allow_purchase_history:
+                skipped["purchase_history_deferred"] = (
+                    skipped.get("purchase_history_deferred", 0) + 1
+                )
+                sources_out.append(
+                    {
+                        "action": "skipped",
+                        "filename": filename,
+                        "role": role,
+                        "reason": "purchase_history_deferred_phase2",
                     }
                 )
                 continue
@@ -713,13 +873,17 @@ def sync_sources_from_collection(
             if path is not None:
                 temp_paths.append(path)
                 try:
-                    raw_rows = _read_xlsx_rows(path)
+                    preferred = (
+                        PURCHASE_HISTORY_SHEET if role == "purchase_history" else None
+                    )
+                    raw_rows = _read_xlsx_rows(path, preferred_sheet=preferred)
                     read_via = "xlsx"
                 except Exception as exc:  # noqa: BLE001
                     _logger.warning("failed reading xlsx %s: %s", filename, exc)
                     skipped["xlsx_read_error"] = skipped.get("xlsx_read_error", 0) + 1
 
-            if not raw_rows:
+            # Purchase history must come from the workbook (not table-facts 5k cap).
+            if not raw_rows and role != "purchase_history":
                 raw_rows = _records_from_table_facts_for_file(
                     db,
                     workspace,
@@ -748,7 +912,11 @@ def sync_sources_from_collection(
                 if not record:
                     skipped["unmapped_row"] = skipped.get("unmapped_row", 0) + 1
                     continue
-                if scope == "phase1" and not passes_phase1_scope(record, scope=workspace_scope):
+                if (
+                    role != "purchase_history"
+                    and scope == "phase1"
+                    and not passes_phase1_scope(record, scope=workspace_scope)
+                ):
                     skipped["phase1_filtered"] = skipped.get("phase1_filtered", 0) + 1
                     continue
                 if role == "sales_by_country" and scope == "phase1":
@@ -757,6 +925,11 @@ def sync_sources_from_collection(
                         skipped["sales_country_filtered"] = skipped.get("sales_country_filtered", 0) + 1
                         continue
                 mapped.append(record)
+
+            extra_metadata: dict[str, Any] | None = None
+            if role == "purchase_history":
+                mapped, agg_meta = aggregate_purchase_history_records(mapped)
+                extra_metadata = agg_meta
 
             source_type = _source_type_for_role(role, filename)
             # Family-Opportunity also carries market pricing — emit a companion
@@ -773,6 +946,7 @@ def sync_sources_from_collection(
                 role=role,
                 read_via=read_via,
                 dry_run=dry_run,
+                extra_metadata=extra_metadata,
             )
             sources_out.append(result)
 
@@ -823,6 +997,7 @@ def sync_sources_from_collection(
         "collection_slug": collection.slug,
         "dry_run": dry_run,
         "scope": scope,
+        "include_purchase_history": allow_purchase_history,
         "files_seen": len(filenames),
         "sources": sources_out,
         "skipped": skipped,

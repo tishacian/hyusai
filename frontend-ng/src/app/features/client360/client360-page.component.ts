@@ -873,7 +873,7 @@ interface Client360CampaignDraftsResult {
               <tbody>
                 @for (source of summary()?.data_sources ?? []; track source.id) {
                   <tr [ngClass]="{ 'is-unified': source.collection_slug === unifiedCollectionSlug }">
-                    <td>{{ labelSourceType(source.source_type) }}</td>
+                    <td>{{ labelSourceType(source.source_type, source.metadata) }}</td>
                     <td>
                       <strong>{{ source.label }}</strong>
                       <small>{{ source.origin }}{{ source.filename ? ' · ' + source.filename : '' }}</small>
@@ -2428,7 +2428,10 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     return labels[value] || value;
   }
 
-  labelSourceType(value: string): string {
+  labelSourceType(value: string, metadata?: Record<string, unknown> | null): string {
+    if (value === 'other' && metadata?.['role'] === 'purchase_history') {
+      return 'Achats Montbonnot';
+    }
     const labels: Record<string, string> = {
       installed_base: 'Base installee',
       periodicity: 'Periodicite',
