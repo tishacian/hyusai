@@ -2853,8 +2853,20 @@ async def _route_llm_complete(prompt: str, model: Optional[str], ctx: dict[str, 
     from app.services.model_router import ModelRouter
 
     prefs = _resolve_model_preferences(model or (ctx or {}).get("default_model"))
-    router = ModelRouter()
-    client = await router.get_client(prefs)
+    cache_owner = ctx if isinstance(ctx, dict) else {}
+    client_cache = cache_owner.get("_resolved_model_client_cache")
+    if not isinstance(client_cache, dict):
+        client_cache = {}
+        cache_owner["_resolved_model_client_cache"] = client_cache
+    cache_key = f"{prefs.get('provider')}\x00{prefs.get('model')}"
+    client = client_cache.get(cache_key)
+    if client is None:
+        router = ModelRouter()
+        client = await router.get_client(prefs)
+        # Skill context is an ephemeral shallow copy and is never persisted;
+        # reusing the just-validated client avoids a second remote health probe
+        # when a bounded answer audit immediately follows generation.
+        client_cache[cache_key] = client
     result = await client.generate(model=prefs["model"], prompt=prompt)
     if isinstance(result, dict):
         return str(
@@ -3023,7 +3035,7 @@ def _select_inventory_synthesis_passages(
     return selected
 
 
-_INVENTORY_COVERAGE_TIMEOUT_SECONDS = 8.0
+_INVENTORY_COVERAGE_TIMEOUT_SECONDS = 10.0
 _INVENTORY_COVERAGE_TOTAL_EVIDENCE_CHARS = 18000
 _INVENTORY_COVERAGE_POST_AUDIT_RESERVE_SECONDS = 5.0
 _INVENTORY_COVERAGE_MIN_CALL_BUDGET_SECONDS = 1.5

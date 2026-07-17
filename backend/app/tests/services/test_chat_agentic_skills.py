@@ -73,6 +73,30 @@ def test_resolve_model_preferences_is_provider_neutral():
     assert wrappers._resolve_model_preferences("azure:gpt-4o-mini")["provider"] == "openai"
 
 
+@pytest.mark.asyncio
+async def test_route_llm_complete_reuses_resolved_client_within_skill_context(monkeypatch):
+    calls = {"router": 0, "resolve": 0, "generate": 0}
+
+    class FakeClient:
+        async def generate(self, model, prompt):
+            calls["generate"] += 1
+            return {"content": prompt}
+
+    class FakeRouter:
+        def __init__(self):
+            calls["router"] += 1
+
+        async def get_client(self, preferences):
+            calls["resolve"] += 1
+            return FakeClient()
+
+    monkeypatch.setattr("app.services.model_router.ModelRouter", FakeRouter)
+    ctx = {}
+    assert await wrappers._route_llm_complete("first", "gpt-4o-mini", ctx) == "first"
+    assert await wrappers._route_llm_complete("second", "gpt-4o-mini", ctx) == "second"
+    assert calls == {"router": 1, "resolve": 1, "generate": 2}
+
+
 def test_lenient_json_tolerates_fences_and_prose():
     parsed = wrappers._loads_lenient_json('Voici le plan:\n```json\n{"action": "answer",}\n```\nmerci')
     assert parsed == {"action": "answer"}
