@@ -2844,7 +2844,13 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
     return {"provider": default_provider, "model": raw}
 
 
-async def _route_llm_complete(prompt: str, model: Optional[str], ctx: dict[str, Any]) -> str:
+async def _route_llm_complete(
+    prompt: str,
+    model: Optional[str],
+    ctx: dict[str, Any],
+    *,
+    generation_options: Optional[dict[str, Any]] = None,
+) -> str:
     """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
 
     Normalises the heterogeneous client return shapes (OpenAI ``content`` vs
@@ -2867,7 +2873,22 @@ async def _route_llm_complete(prompt: str, model: Optional[str], ctx: dict[str, 
         # reusing the just-validated client avoids a second remote health probe
         # when a bounded answer audit immediately follows generation.
         client_cache[cache_key] = client
-    result = await client.generate(model=prefs["model"], prompt=prompt)
+    options = dict(generation_options or {})
+    try:
+        from app.services.model_clients.ollama_client import OllamaClient
+
+        is_ollama = isinstance(client, OllamaClient)
+    except Exception:  # noqa: BLE001 - optional provider-specific translation.
+        is_ollama = False
+    if is_ollama and options:
+        ollama_options = dict(options.pop("options", {}) or {})
+        if options.get("max_tokens") is not None:
+            ollama_options["num_predict"] = options.pop("max_tokens")
+        if options.get("temperature") is not None:
+            ollama_options["temperature"] = options.pop("temperature")
+        if ollama_options:
+            options["options"] = ollama_options
+    result = await client.generate(model=prefs["model"], prompt=prompt, **options)
     if isinstance(result, dict):
         return str(
             result.get("content") or result.get("response") or result.get("completion") or ""
@@ -3418,7 +3439,12 @@ async def _review_inventory_answer_coverage(
 
     try:
         completion = await asyncio.wait_for(
-            _route_llm_complete(prompt, model, ctx),
+            _route_llm_complete(
+                prompt,
+                model,
+                ctx,
+                generation_options={"max_tokens": 700, "temperature": 0.0},
+            ),
             timeout=timeout_seconds,
         )
     except (TimeoutError, asyncio.TimeoutError):

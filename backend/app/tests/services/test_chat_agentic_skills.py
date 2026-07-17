@@ -97,6 +97,36 @@ async def test_route_llm_complete_reuses_resolved_client_within_skill_context(mo
     assert calls == {"router": 1, "resolve": 1, "generate": 2}
 
 
+@pytest.mark.asyncio
+async def test_route_llm_complete_translates_generation_bounds_for_ollama(monkeypatch):
+    captured = {}
+
+    class FakeOllama:
+        async def generate(self, model, prompt, **kwargs):
+            captured.update(kwargs)
+            return {"response": "{}"}
+
+    class FakeRouter:
+        async def get_client(self, preferences):
+            return FakeOllama()
+
+    monkeypatch.setattr("app.services.model_router.ModelRouter", FakeRouter)
+    monkeypatch.setattr(
+        "app.services.model_clients.ollama_client.OllamaClient",
+        FakeOllama,
+    )
+
+    result = await wrappers._route_llm_complete(
+        "audit",
+        "ollama:test-model",
+        {},
+        generation_options={"max_tokens": 700, "temperature": 0.0},
+    )
+
+    assert result == "{}"
+    assert captured == {"options": {"num_predict": 700, "temperature": 0.0}}
+
+
 def test_lenient_json_tolerates_fences_and_prose():
     parsed = wrappers._loads_lenient_json('Voici le plan:\n```json\n{"action": "answer",}\n```\nmerci')
     assert parsed == {"action": "answer"}
@@ -565,7 +595,7 @@ async def test_rag_answer_runs_generic_inventory_coverage_on_admitted_context(mo
         "### (2) Documentation sans preuve d’installation\n- SensorBase [2]"
     )
 
-    async def fake_complete(prompt, model, ctx):
+    async def fake_complete(prompt, model, ctx, **kwargs):
         calls.append(prompt)
         if len(calls) == 1:
             return draft
@@ -1294,7 +1324,7 @@ def test_inventory_coverage_review_short_label_uses_boundaries_and_stays_in_sect
 async def test_inventory_coverage_review_skips_when_run_deadline_has_no_reserve(monkeypatch):
     called = False
 
-    async def fake_complete(prompt, model, ctx):
+    async def fake_complete(prompt, model, ctx, **kwargs):
         nonlocal called
         called = True
         return '{"status":"complete","additions":[]}'
@@ -1332,8 +1362,9 @@ async def test_inventory_coverage_review_skips_when_run_deadline_has_no_reserve(
 async def test_inventory_coverage_review_is_generic_and_uses_only_admitted_evidence(monkeypatch):
     captured: dict = {}
 
-    async def fake_complete(prompt, model, ctx):
+    async def fake_complete(prompt, model, ctx, **kwargs):
         captured["prompt"] = prompt
+        captured["generation_options"] = kwargs.get("generation_options")
         return (
             '{"status":"missing","requested_category":"brûleurs","additions":['
             '{"section":"project_documented","label":"brûleur BR-22",'
@@ -1371,6 +1402,7 @@ async def test_inventory_coverage_review_is_generic_and_uses_only_admitted_evide
     assert "[2]" in answer
     assert "semantic noise" not in captured["prompt"]
     assert "brûleurs" in captured["prompt"]
+    assert captured["generation_options"] == {"max_tokens": 700, "temperature": 0.0}
     assert meta == {"status": "corrected", "accepted": 1, "rejected": []}
 
 
