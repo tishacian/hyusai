@@ -595,6 +595,8 @@ def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_dis
     assert "equipment_family=genericpump-z9" in prompt
     assert "functional_category=process-pumps" in prompt
     assert "family_attested_by_spare=false" in prompt
+    assert "conserve le nom du constructeur avec ce modele" in prompt
+    assert "ne le deduis jamais par analogie" in prompt
     assert "Termine chaque ligne factuelle par au moins un repere de source [n]" in prompt
     assert "Ne conclus jamais qu'il n'existe aucun autre item" in prompt
     assert "liste documentee dans les extraits" in prompt
