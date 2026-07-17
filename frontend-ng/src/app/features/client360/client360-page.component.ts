@@ -1832,7 +1832,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.syncStatus.set(
           dryRun
             ? `Dry-run sync OK${parts.length ? ` · ${parts.join(' · ')}` : ''}`
-            : `Sources synchronisees${parts.length ? ` · ${parts.join(' · ')}` : ''}`,
+            : `Sources synchronisees${parts.length ? ` · ${parts.join(' · ')}` : ''} — lancez Calculer pour maj les opportunites`,
         );
         if (!dryRun) this.refresh({ scope, generation });
         else this.loadSummary(this.mailAiResolved(), { scope, generation });
