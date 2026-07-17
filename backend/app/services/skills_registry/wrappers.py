@@ -2681,6 +2681,15 @@ _RETRIEVAL_BY_MODE = {
     },
 }
 
+# A single-project equipment inventory now has its own bounded recall floor in
+# ``rag.context``. Keep enough synthesis slots for its six diversified evidence
+# rows, while avoiding the 80-candidate/deep cross-encoder lane that repeatedly
+# exhausted the 40 s interactive membrane after recall was already complete.
+_SINGLE_PROJECT_INVENTORY_RETRIEVAL = {
+    **_RETRIEVAL_BY_MODE["balanced"],
+    "synthesis_k": 18,
+}
+
 _SELF_CORRECT_ACTIONS = ("escalate_deep", "translate", "declare_partial")
 
 # Inventory / cross-project / enumeration questions need the DEEP lane to
@@ -3155,9 +3164,9 @@ def _build_plan_prompt(query: str, history: Any) -> str:
 
 
 # Answer profiles that warrant decomposing the query into parallel sub-queries
-# (Phase 4 multi-hop). Inventory/enumeration is deliberately EXCLUDED: it keeps
-# its dedicated deep lane + project_code facet (a decomposition would drop the
-# exhaustive cross-project enumeration).
+# (Phase 4 multi-hop). Cross-project inventory/enumeration is deliberately
+# EXCLUDED: it keeps its dedicated deep lane + project_code facet (a
+# decomposition would drop the exhaustive cross-project enumeration).
 _MULTIHOP_PROFILE_TOKENS = (
     "comparison",
     "comparative",
@@ -3172,9 +3181,9 @@ _MULTIHOP_PROFILE_TOKENS = (
 # explicit project lookup does not need an LLM to decide between the retrieval
 # lanes: the deterministic answer-profile resolver has already established that
 # it is a summary / precise fact / equipment lookup.  Keeping this gate narrow
-# avoids the planner round-trip while preserving the deep lane for an exhaustive
-# equipment inventory and leaving comparisons, analyses, procedures and
-# follow-ups to the full planner.
+# avoids the planner round-trip. A mono-project equipment inventory uses the
+# bounded evidence floor; comparisons, analyses, procedures, cross-project
+# inventories and follow-ups remain on the full planner.
 _SIMPLE_PROJECT_PROFILE_REASONS = {
     "project_summary_query",
     "precise_fact_query",
@@ -3274,6 +3283,20 @@ _GERMAN_QUERY_RE = re.compile(
 )
 
 
+def _is_single_project_equipment_inventory_query(query: str) -> bool:
+    project_codes = {
+        match.group(1).upper()
+        for match in _PROJECT_CODE_RE.finditer(query or "")
+        if match.group(1)
+    }
+    return bool(
+        len(project_codes) == 1
+        and _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(query or "")
+        and not _CROSS_PROJECT_TARGET_RE.search(query or "")
+        and not _COMPLEX_PROJECT_QUERY_RE.search(query or "")
+    )
+
+
 def _deterministic_single_project_plan(
     query: str,
     *,
@@ -3305,7 +3328,7 @@ def _deterministic_single_project_plan(
     ):
         return None
 
-    equipment_inventory = bool(_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(query))
+    equipment_inventory = _is_single_project_equipment_inventory_query(query)
     if _EXHAUSTIVE_PROJECT_QUERY_RE.search(query) and not equipment_inventory:
         return None
 
@@ -3318,16 +3341,22 @@ def _deterministic_single_project_plan(
         return None
 
     project_code = next(iter(project_codes))
-    mode = "deep" if equipment_inventory else "balanced"
+    mode = "balanced"
+    retrieval = (
+        dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
+    )
+    plan_payload: dict[str, Any] = {
+        "action": "answer",
+        "mode": mode,
+        "answer_profile": "equipment_detail" if equipment_inventory else profile.profile,
+        "scope_hint": project_code,
+        "lang_target": response_language,
+        "confidence": 1.0,
+    }
+    if retrieval is not None:
+        plan_payload["retrieval"] = retrieval
     return _coerce_plan(
-        {
-            "action": "answer",
-            "mode": mode,
-            "answer_profile": "equipment_detail" if equipment_inventory else profile.profile,
-            "scope_hint": project_code,
-            "lang_target": response_language,
-            "confidence": 1.0,
-        },
+        plan_payload,
         query,
         has_history=False,
     )
@@ -3421,7 +3450,10 @@ def _coerce_plan(
 
     # Inventory / transversal questions need the deep lane to aggregate across
     # documents — deterministic upgrade (the LLM under-routes them to balanced).
-    inventory = _is_inventory_query(query)
+    single_project_inventory = _is_single_project_equipment_inventory_query(query)
+    inventory = _is_inventory_query(query) and not single_project_inventory
+    if single_project_inventory:
+        mode = "balanced"
     if inventory:
         mode = "deep"
 
@@ -3469,6 +3501,10 @@ def _coerce_plan(
         retrieval["top_k"] = max(retrieval["top_k"], deep["top_k"])
         retrieval["synthesis_k"] = max(retrieval["synthesis_k"], deep["synthesis_k"])
         retrieval["candidate_pool_k"] = max(retrieval["candidate_pool_k"], deep["candidate_pool_k"])
+    elif single_project_inventory:
+        # This invariant must also hold for follow-ups and LLM-planned runs, not
+        # only the no-history deterministic shortcut.
+        retrieval = dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL)
 
     try:
         confidence = float(parsed.get("confidence"))

@@ -166,8 +166,8 @@ async def test_plan_survives_model_exception(monkeypatch):
 @pytest.mark.parametrize(
     ("query", "expected_profile", "expected_scope", "expected_mode"),
     [
-        ("quelles sont les pompes du projet BCX200", "equipment_detail", "BCX200", "deep"),
-        ("liste toutes les pompes du projet BCX200", "equipment_detail", "BCX200", "deep"),
+        ("quelles sont les pompes du projet BCX200", "equipment_detail", "BCX200", "balanced"),
+        ("liste toutes les pompes du projet BCX200", "equipment_detail", "BCX200", "balanced"),
         ("résume BAO100", "project_summary", "BAO100", "balanced"),
         ("quelle est la pression du projet BCX200 ?", "precise_fact", "BCX200", "balanced"),
     ],
@@ -178,9 +178,9 @@ async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
     """A simple mono-project chat turn is routed without the planner LLM.
 
     This is an end-to-end latency guard: the old planner spent six seconds
-    before selecting deep for the BCX200 inventory and exhausted the 40 s
-    interactive budget. The deterministic route keeps deep recall for that
-    inventory, while summaries use the balanced lane.
+    before routing the BCX200 inventory and exhausted the 40 s interactive
+    budget. The deterministic route uses the bounded mono-project evidence
+    floor with 18 synthesis slots; summaries use the standard balanced lane.
     """
 
     async def _unexpected_model_call(*args, **kwargs):
@@ -202,7 +202,12 @@ async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
     assert out["lang_target"] == "fr"
     assert out["confidence"] == 1.0
     assert out["sub_queries"] == []
-    assert out["retrieval"] == wrappers._RETRIEVAL_BY_MODE[expected_mode]
+    expected_retrieval = (
+        wrappers._SINGLE_PROJECT_INVENTORY_RETRIEVAL
+        if expected_profile == "equipment_detail"
+        else wrappers._RETRIEVAL_BY_MODE[expected_mode]
+    )
+    assert out["retrieval"] == expected_retrieval
 
 
 @pytest.mark.asyncio
@@ -856,6 +861,39 @@ def test_coerce_plan_routes_inventory_to_deep():
     assert out["retrieval"]["deep_retrieval"] is True
     assert out["retrieval"]["synthesis_k"] >= 24
     assert out["retrieval"]["candidate_pool_k"] >= 80
+
+
+def test_coerce_plan_enforces_bounded_single_project_inventory_budget():
+    out = wrappers._coerce_plan(
+        {
+            "action": "answer",
+            "mode": "fast",
+            "retrieval": {
+                "latency_profile": "fast",
+                "retrieval_profile": "oracle_fast",
+                "top_k": 5,
+                "synthesis_k": 12,
+                "candidate_pool_k": 20,
+                "rag_pipeline_mode": "chah",
+                "deep_retrieval": False,
+            },
+        },
+        "liste toutes les pompes du projet BCX200",
+        has_history=True,
+    )
+
+    assert out["mode"] == "balanced"
+    assert out["retrieval"] == wrappers._SINGLE_PROJECT_INVENTORY_RETRIEVAL
+
+
+def test_coerce_plan_preserves_explicit_deep_single_project_analysis():
+    out = wrappers._coerce_plan(
+        {"action": "answer", "mode": "deep"},
+        "analyse en profondeur la liste de toutes les pompes du projet BCX200",
+    )
+
+    assert out["mode"] == "deep"
+    assert out["retrieval"]["retrieval_profile"] == "deep_async"
 
 
 def test_coerce_plan_emits_balanced_budget_triple_by_default():
