@@ -35,9 +35,25 @@ interface Client360DataSource {
   filename?: string | null;
   collection_slug?: string | null;
   status: string;
+  row_count?: number | null;
   error?: string | null;
   metadata?: Record<string, unknown>;
 }
+
+interface Client360SyncFromCollectionResult {
+  collection_slug?: string;
+  dry_run?: boolean;
+  sources_seen?: number;
+  sources_upserted?: number;
+  records_seen?: number;
+  created?: number;
+  updated?: number;
+  skipped?: Record<string, number>;
+  by_source_type?: Record<string, number>;
+  message?: string;
+}
+
+const CLIENT360_UNIFIED_COLLECTION_SLUG = 'andritz-client360-installed-base';
 
 interface Client360Opportunity {
   id: string;
@@ -745,22 +761,73 @@ interface Client360CampaignDraftsResult {
           <div class="ck-surface gap-panel">
             <div class="detail-head compact">
               <div>
-                <p class="ck-label c360-eyebrow">Moteur donnees</p>
-                <h2>Gaps metier</h2>
+                <p class="ck-label c360-eyebrow">Collection unifiee</p>
+                <h2>Installed base SPL</h2>
               </div>
-              <button type="button" class="primary" (click)="runEngine(false)">
+            </div>
+            <dl class="engine-facts">
+              <div><dt>Slug</dt><dd class="mono-slug">{{ unifiedCollectionSlug }}</dd></div>
+              <div><dt>Sources liees</dt><dd>{{ unifiedCollectionStats().linkedSources }} / {{ unifiedCollectionStats().totalSources }}</dd></div>
+              <div><dt>Pretes</dt><dd>{{ unifiedCollectionStats().readySources }}</dd></div>
+              <div><dt>Fichiers / origines</dt><dd>{{ unifiedCollectionStats().originSummary }}</dd></div>
+            </dl>
+            <h3>Comptes par type</h3>
+            <div class="chips">
+              @for (entry of unifiedCollectionStats().typeEntries; track entry.key) {
+                <span>{{ labelSourceType(entry.key) }} · {{ entry.count }}{{ entry.rows != null ? ' · ' + formatQty(entry.rows) + ' lignes' : '' }}</span>
+              }
+              @if (unifiedCollectionStats().typeEntries.length === 0) {
+                <span>Aucune source Client360 detectee</span>
+              }
+            </div>
+            @if (!unifiedCollectionStats().hasLinkedSources && unifiedCollectionStats().totalSources > 0) {
+              <p class="hint">Aucune source n'est encore liee a {{ unifiedCollectionSlug }}. Les comptes ci-dessus refletent l'ensemble des sources workspace.</p>
+            }
+            <div class="data-actions">
+              <button
+                type="button"
+                class="primary"
+                [disabled]="syncBusy()"
+                [attr.aria-busy]="syncBusy()"
+                [ngClass]="{ 'is-loading': syncBusy() }"
+                (click)="syncFromCollection(false)"
+              >
+                @if (syncBusy()) {
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Sync...
+                } @else {
+                  <ck-glyph name="orbit" [size]="14" color="currentColor" /> Synchroniser les sources
+                }
+              </button>
+              <button type="button" class="secondary" [disabled]="loading()" (click)="runEngine(true)">
+                <ck-glyph name="sliders" [size]="14" color="currentColor" /> Dry-run moteur
+              </button>
+              <button type="button" class="primary" [disabled]="loading()" (click)="runEngine(false)">
                 <ck-glyph name="play" [size]="14" color="currentColor" /> Calculer
               </button>
             </div>
-            <div class="chips">
-              @for (gap of summary()?.data_gaps ?? []; track gap) {
-                <span>{{ labelGap(gap) }}</span>
-              }
-              @if ((summary()?.data_gaps ?? []).length === 0) {
-                <span class="ok">Sources minimales detectees</span>
-              }
-            </div>
+            @if (syncStatus()) {
+              <div class="action-status" role="status" aria-live="polite">{{ syncStatus() }}</div>
+            }
+            @if (syncResult()) {
+              <dl class="engine-facts">
+                <div><dt>Sync</dt><dd>{{ syncResult()?.dry_run ? 'Dry-run' : 'Applique' }}</dd></div>
+                <div><dt>Sources vues</dt><dd>{{ syncResult()?.sources_seen ?? '-' }}</dd></div>
+                <div><dt>Upsert</dt><dd>{{ syncResult()?.sources_upserted ?? '-' }}</dd></div>
+                <div><dt>Records</dt><dd>{{ syncResult()?.records_seen ?? '-' }}</dd></div>
+                <div><dt>Crees</dt><dd>{{ syncResult()?.created ?? '-' }}</dd></div>
+                <div><dt>Maj</dt><dd>{{ syncResult()?.updated ?? '-' }}</dd></div>
+              </dl>
+            }
             <div class="scope-panel">
+              <h3>Gaps metier</h3>
+              <div class="chips">
+                @for (gap of summary()?.data_gaps ?? []; track gap) {
+                  <span>{{ labelGap(gap) }}</span>
+                }
+                @if ((summary()?.data_gaps ?? []).length === 0) {
+                  <span class="ok">Sources minimales detectees</span>
+                }
+              </div>
               <h3>Scope MVP</h3>
               <p>{{ summary()?.positioning?.mvp_contract?.promise || 'Potentiel PDR explicable, validation humaine et boucle impact.' }}</p>
               <div class="chips">
@@ -793,18 +860,20 @@ interface Client360CampaignDraftsResult {
                   <th>Type</th>
                   <th>Source</th>
                   <th>Collection</th>
+                  <th>Lignes</th>
                   <th>Statut</th>
                 </tr>
               </thead>
               <tbody>
                 @for (source of summary()?.data_sources ?? []; track source.id) {
-                  <tr>
+                  <tr [ngClass]="{ 'is-unified': source.collection_slug === unifiedCollectionSlug }">
                     <td>{{ labelSourceType(source.source_type) }}</td>
                     <td>
                       <strong>{{ source.label }}</strong>
-                      <small>{{ source.origin }}</small>
+                      <small>{{ source.origin }}{{ source.filename ? ' · ' + source.filename : '' }}</small>
                     </td>
                     <td>{{ source.collection_slug || '-' }}</td>
+                    <td>{{ source.row_count != null ? formatQty(source.row_count) : '-' }}</td>
                     <td><span class="status">{{ source.status }}</span></td>
                   </tr>
                 }
@@ -1315,6 +1384,10 @@ interface Client360CampaignDraftsResult {
     .chips .ok { color: var(--ck-signal-pos); }
     .scope-panel { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ck-stroke-2); }
     .scope-panel p { margin: 0; color: var(--ck-fg-3); font-size: 12px; line-height: 1.45; }
+    .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .mono-slug { font: 650 11px/1.35 var(--ck-font-mono); word-break: break-all; }
+    .hint { margin: 10px 0 0; color: var(--ck-fg-4); font-size: 11px; line-height: 1.4; }
+    tbody tr.is-unified { background: color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); }
     .reason-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
     .reason-list span.met { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
@@ -1365,9 +1438,11 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   private mappingValidationRequest: Subscription | null = null;
   private mappingReloadRequest: Subscription | null = null;
   private engineRunRequest: Subscription | null = null;
+  private syncRequest: Subscription | null = null;
   private actionRefreshRequests = new Subscription();
   private readonly unregisterWorkspaceReset: () => void;
   private destroyed = false;
+  readonly unifiedCollectionSlug = CLIENT360_UNIFIED_COLLECTION_SLUG;
   readonly view = signal<ViewKey>('opportunities');
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -1381,6 +1456,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly alertsResponse = signal<Client360AlertsResponse | null>(null);
   readonly mappingsResponse = signal<Client360MappingsResponse | null>(null);
   readonly engineResult = signal<Client360EngineResult | null>(null);
+  readonly syncResult = signal<Client360SyncFromCollectionResult | null>(null);
+  readonly syncBusy = signal(false);
+  readonly syncStatus = signal<string | null>(null);
   readonly mailAiResolved = signal(false);
   readonly generatingDraftOpportunityId = signal<string | null>(null);
   readonly sendingMailDraftId = signal<string | null>(null);
@@ -1458,6 +1536,46 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly campaigns = computed(() => this.campaignsResponse()?.items ?? []);
   readonly campaignSegments = computed(() => this.summary()?.positioning?.mvp_contract?.campaign_segments ?? []);
   readonly isDemoSafe = computed(() => this.workspace.isDemoSafeMode());
+  readonly unifiedCollectionStats = computed(() => {
+    const allSources = this.summary()?.data_sources ?? [];
+    const linked = allSources.filter(
+      (source) => source.collection_slug === CLIENT360_UNIFIED_COLLECTION_SLUG,
+    );
+    const scoped = linked.length > 0 ? linked : allSources;
+    const byType = new Map<string, { count: number; rows: number | null }>();
+    for (const source of scoped) {
+      const key = source.source_type || 'other';
+      const current = byType.get(key) ?? { count: 0, rows: null };
+      current.count += 1;
+      if (source.row_count != null && !Number.isNaN(Number(source.row_count))) {
+        current.rows = (current.rows ?? 0) + Number(source.row_count);
+      }
+      byType.set(key, current);
+    }
+    if (linked.length === 0 && allSources.length > 0) {
+      for (const [key, count] of Object.entries(this.summary()?.source_counts ?? {})) {
+        if (!byType.has(key)) byType.set(key, { count, rows: null });
+      }
+    }
+    const originCounts = new Map<string, number>();
+    for (const source of scoped) {
+      const origin = source.origin || 'unknown';
+      originCounts.set(origin, (originCounts.get(origin) ?? 0) + 1);
+    }
+    const originSummary = originCounts.size
+      ? [...originCounts.entries()].map(([origin, count]) => `${origin}: ${count}`).join(' · ')
+      : '-';
+    return {
+      linkedSources: linked.length,
+      totalSources: allSources.length,
+      readySources: linked.filter((source) => source.status === 'ready').length,
+      hasLinkedSources: linked.length > 0,
+      originSummary,
+      typeEntries: [...byType.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([key, value]) => ({ key, count: value.count, rows: value.rows })),
+    };
+  });
 
   constructor() {
     this.unregisterWorkspaceReset = this.workspace.registerContextReset(() => {
@@ -1670,6 +1788,57 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     });
   }
 
+  syncFromCollection(dryRun = false): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.workspaceActionGeneration;
+    this.cancelActionRefreshRequests();
+    this.mappingValidationRequest?.unsubscribe();
+    this.mappingValidationRequest = null;
+    this.mappingReloadRequest?.unsubscribe();
+    this.mappingReloadRequest = null;
+    this.engineRunRequest?.unsubscribe();
+    this.engineRunRequest = null;
+    this.syncRequest?.unsubscribe();
+    this.syncRequest = null;
+    this.syncBusy.set(true);
+    this.syncStatus.set(dryRun ? 'Previsualisation sync...' : 'Synchronisation des sources...');
+    this.error.set(null);
+    const request = this.http.post<Client360SyncFromCollectionResult>(
+      '/api/v1/client360/sources/sync-from-collection',
+      {
+        collection_slug: CLIENT360_UNIFIED_COLLECTION_SLUG,
+        dry_run: dryRun,
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
+      next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.syncResult.set(payload);
+        this.syncBusy.set(false);
+        const upserted = payload.sources_upserted ?? payload.created ?? payload.updated;
+        this.syncStatus.set(
+          dryRun
+            ? `Dry-run sync OK${upserted != null ? ` · ${upserted} source(s)` : ''}`
+            : `Sources synchronisees${upserted != null ? ` · ${upserted}` : ''}`,
+        );
+        if (!dryRun) this.refresh({ scope, generation });
+        else this.loadSummary(this.mailAiResolved(), { scope, generation });
+      },
+      error: (err) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.syncBusy.set(false);
+        const detail = err?.error?.detail;
+        this.syncStatus.set(null);
+        this.error.set(
+          typeof detail === 'string'
+            ? detail
+            : 'Impossible de synchroniser les sources depuis la collection',
+        );
+      },
+    });
+    this.syncRequest = request.closed ? null : request;
+  }
+
   runEngine(dryRun: boolean): void {
     const scope = this.workspace.captureRequestScope();
     const generation = ++this.workspaceActionGeneration;
@@ -1680,6 +1849,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.mappingReloadRequest = null;
     this.engineRunRequest?.unsubscribe();
     this.engineRunRequest = null;
+    this.syncRequest?.unsubscribe();
+    this.syncRequest = null;
     this.runEngineForScope(dryRun, scope, generation);
   }
 
@@ -1817,9 +1988,14 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.mappingReloadRequest = null;
     this.engineRunRequest?.unsubscribe();
     this.engineRunRequest = null;
+    this.syncRequest?.unsubscribe();
+    this.syncRequest = null;
     this.loading.set(false);
+    this.syncBusy.set(false);
     this.error.set(null);
     this.engineResult.set(null);
+    this.syncResult.set(null);
+    this.syncStatus.set(null);
   }
 
   updateOpportunityStatus(opp: Client360Opportunity, status: 'validated' | 'dismissed'): void {

@@ -151,3 +151,36 @@ test('Client360 pins and cancels every runEngine refresh read before it can muta
     component.ngOnDestroy();
   }
 });
+
+test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () => {
+  const harness = createHarness();
+  const { component, workspace, postCalls, getCalls } = harness;
+
+  try {
+    component.syncFromCollection(false);
+    assert.equal(postCalls[0].url, '/api/v1/client360/sources/sync-from-collection');
+    assert.equal(workspaceHeader(postCalls[0]), 'andritz');
+    assert.equal(component.syncBusy(), true);
+
+    postCalls[0].response.next({
+      collection_slug: 'andritz-client360-installed-base',
+      dry_run: false,
+      sources_upserted: 3,
+      records_seen: 120,
+    });
+    assert.equal(component.syncBusy(), false);
+    assert.equal(component.syncResult()?.sources_upserted, 3);
+    assert.equal(getCalls[0]?.url, '/api/v1/client360/summary');
+    assert.equal(workspaceHeader(getCalls[0]), 'andritz');
+
+    workspace.switchWorkspace();
+    assert.equal(component.syncResult(), null);
+    assert.equal(component.syncBusy(), false);
+    assert.ok(getCalls.every((call) => !call.response.observed));
+
+    getCalls[0].response.next({ data_sources: [] });
+    assert.equal(component.summary(), null);
+  } finally {
+    component.ngOnDestroy();
+  }
+});

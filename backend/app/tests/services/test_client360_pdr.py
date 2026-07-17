@@ -158,12 +158,12 @@ def test_summary_discovers_real_knowledge_sources_and_reports_missing_inputs(db_
     collection = KnowledgeCollection(
         id=str(uuid4()),
         workspace_id=workspace.id,
-        slug="andritz-client360-pilot",
-        name="Andritz Client360 Pilot",
+        slug="andritz-client360-installed-base",
+        name="Andritz Client360 Installed Base",
         status="ready",
         document_names=["SEPTONA - Client 360 periodicite.xlsx"],
-        vector_collection_name="andritz_client360_pilot",
-        artifact_prefix="knowledge/andritz-client360-pilot/",
+        vector_collection_name="andritz_client360_installed_base",
+        artifact_prefix="knowledge/andritz-client360-installed-base/",
         document_count=1,
         chunk_count=12,
     )
@@ -189,7 +189,7 @@ def test_summary_discovers_real_knowledge_sources_and_reports_missing_inputs(db_
     assert "first_replacement_confidence" in payload["positioning"]["mvp_contract"]["mvp_in_scope"]
     assert payload["positioning"]["mail_ai"]["route_id"] == "client360_pdr_mail_writer"
     assert payload["data_sources"][0]["origin"] == "knowledge_collection_source"
-    assert payload["data_sources"][0]["collection_slug"] == "andritz-client360-pilot"
+    assert payload["data_sources"][0]["collection_slug"] == "andritz-client360-installed-base"
     assert "installed_base_missing" in payload["data_gaps"]
     assert "sap_sales_history_missing" in payload["data_gaps"]
 

@@ -93,14 +93,40 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "account",
         "sold to",
         "ship to",
+        "equipment sold to party name",
+        "sold to party name",
+        "sold name",
     ),
-    "customer_key": ("customer id", "client id", "customer code", "sold to code", "sap customer"),
-    "country": ("country", "pays", "market"),
+    "customer_key": (
+        "customer id",
+        "client id",
+        "customer code",
+        "sold to code",
+        "sap customer",
+        "sold to party",
+    ),
+    "country": ("country", "pays", "market", "country key", "country code"),
     "hub": ("hub", "region", "sales hub"),
-    "technology": ("technology", "technologie", "machine type", "line type", "equipment type"),
+    "technology": (
+        "technology",
+        "technologie",
+        "machine type",
+        "line type",
+        "equipment type",
+        "object description",
+        "project name",
+    ),
     "line_label": ("line", "ligne", "production line"),
-    "machine_label": ("machine", "equipment", "asset", "installed machine"),
-    "part_family": ("part family", "famille", "famille piece", "wear family", "pdr family"),
+    "machine_label": ("machine", "equipment", "asset", "installed machine", "object description"),
+    "part_family": (
+        "part family",
+        "famille",
+        "famille piece",
+        "wear family",
+        "pdr family",
+        "familly",
+        "family",
+    ),
     "part_reference": (
         "part reference",
         "reference",
@@ -109,8 +135,15 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "sap material",
         "part number",
         "item",
+        "number",
     ),
-    "part_description": ("description", "designation", "part description", "material description"),
+    "part_description": (
+        "description",
+        "designation",
+        "part description",
+        "material description",
+        "title",
+    ),
     "installed_quantity": (
         "installed quantity",
         "installed qty",
@@ -118,6 +151,8 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "quantity installed",
         "base installee",
         "installed base",
+        "quantity",
+        "ib turkey",
     ),
     "recommended_quantity": (
         "recommended quantity",
@@ -520,6 +555,24 @@ def recommended_action_for(opportunity: Client360Opportunity) -> str:
 def classify_data_source(text: str) -> str:
     haystack = _safe_text(text).lower()
     folded = unicodedata.normalize("NFKD", haystack).encode("ascii", "ignore").decode("ascii")
+    underscored = re.sub(r"[^a-z0-9]+", "_", folded).strip("_")
+
+    # Installed_base_SPL / Client360 pilot filenames (underscored or spaced).
+    if "family" in underscored and "opportunity" in underscored:
+        return "periodicity"
+    if "sales_by_country" in underscored or "salesbycountry" in underscored:
+        return "sap_sales_history"
+    if "materials_consumption" in underscored:
+        return "other"
+    if "installed_base_spl" in underscored or re.search(
+        r"installed[_\s-]*base[_\s-]*(machine|spc)\b", folded
+    ):
+        return "installed_base"
+    if re.search(r"\b(base\s+installee|turquie|turkey)\b", folded) and re.search(
+        r"\b(base|installee|installed)\b", folded
+    ):
+        return "installed_base"
+
     if re.search(r"\b(periodicite|periodicity|periodic|wear\s*part|usure)\b", folded):
         return "periodicity"
     if re.search(

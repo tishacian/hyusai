@@ -18,6 +18,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.action_plans import serialize_action_item
 from app.services.client360_alerts import alerts_payload
 from app.services.client360_chat import handle_client360_chat_query
+from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
 from app.services.client360_pdr import (
     campaign_stats,
     client360_mail_settings_payload,
@@ -46,6 +47,10 @@ from app.services.client360_pdr import (
     serialize_opportunity,
     summary_payload,
     upsert_mapping_rule,
+)
+from app.services.client360_spl_adapter import (
+    preview_archive_mvp_orphan_sources,
+    sync_sources_from_collection,
 )
 from app.services.iam.app_entitlements import (
     CLIENT360_APP,
@@ -154,6 +159,19 @@ class MappingRulePatch(BaseModel):
 
 class EngineRunCreate(BaseModel):
     dry_run: bool = False
+
+
+class SyncFromCollectionBody(BaseModel):
+    collection_slug: str = Field(
+        default=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        min_length=1,
+        max_length=120,
+    )
+    dry_run: bool = False
+    scope: str = Field(
+        default="phase1",
+        description="phase1 (Greece/Turkey + pilot techs) or all",
+    )
 
 
 class OpportunityPatch(BaseModel):
@@ -305,6 +323,40 @@ def client360_opportunity_engine_run(
     else:
         db.commit()
     return result
+
+
+@router.post("/sources/sync-from-collection")
+def client360_sources_sync_from_collection(
+    body: SyncFromCollectionBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Map Installed_base_SPL / pilot spreadsheets into Client360DataSource rows."""
+    scope = (body.scope or "phase1").strip().lower()
+    if scope not in {"phase1", "all"}:
+        raise HTTPException(status_code=400, detail="scope must be 'phase1' or 'all'")
+    try:
+        result = sync_sources_from_collection(
+            db,
+            workspace,
+            collection_slug=body.collection_slug,
+            dry_run=body.dry_run,
+            scope=scope,
+        )
+        if body.dry_run:
+            result["mvp_archive_preview"] = preview_archive_mvp_orphan_sources(
+                db, workspace, collection_slug=body.collection_slug
+            )
+            db.rollback()
+        else:
+            db.commit()
+        return result
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/opportunities/{opportunity_id}")
