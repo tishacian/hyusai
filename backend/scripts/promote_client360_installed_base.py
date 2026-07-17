@@ -7,12 +7,13 @@ Usage:
     python -m scripts.promote_client360_installed_base --workspace andritz --sync
     python -m scripts.promote_client360_installed_base --workspace andritz --rehydrate-mvp
 
-Idempotent promote of deposit files whose filename matches:
-  - Installed_base_SPL/*
-  - Client360_Pilot/*
+Idempotent promote of deposit files whose path matches:
+  - Installed_base_SPL/<allowlisted xlsx>  (5 SAP exports; SPC may hit --max-promote-bytes)
+  - Client360_Pilot/*xlsx  (optional pilot folder only)
 
-Skips notices ZIP archives. Does not archive MVP sources unless --archive-mvp is
-passed (still dry-run by default; require --archive-mvp-apply for real archive).
+Does NOT match bare SEPTONA / Needlepunch / CIC / photos / notices via substring.
+Does not archive MVP sources unless --archive-mvp is passed (still dry-run by
+default; require --archive-mvp-apply for real archive).
 """
 
 from __future__ import annotations
@@ -41,39 +42,36 @@ from app.services.client360_spl_adapter import (
 from app.services.knowledge_collections import create_or_get_collection
 from app.services.secure_deposit import promote_files_to_collection_batch
 
-PROMOTE_PREFIXES = (
-    "Installed_base_SPL/",
-    "Installed_base_SPL\\",
-    "Client360_Pilot/",
-    "Client360_Pilot\\",
+# Exact basenames under Installed_base_SPL/ (case-insensitive).
+SPL_BASENAME_ALLOWLIST = frozenset(
+    {
+        "family - opportunity.xlsx",
+        "family_opportunity.xlsx",
+        "installed base - machine.xlsx",
+        "installed base - spc.xlsx",
+        "sales_by_country.xlsx",
+        "materials_consumptions.xlsx",
+    }
 )
-PROMOTE_NAME_MARKERS = (
-    "Installed_base_SPL",
-    "Client360_Pilot",
-    "Family - Opportunity",
-    "Family_Opportunity",
-    "Sales_By_Country",
-    "Materials_Consumptions",
-    "Installed base - Machine",
-    "Installed base - SPC",
-    "SEPTONA",
-    "Base installée TURQUIE",
-    "Base installee TURQUIE",
-)
+
+
+def _deposit_basename(filename: str) -> str:
+    return str(filename or "").replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def _matches_client360_deposit(filename: str) -> bool:
+    """True only for allowlisted SPL xlsx or Client360_Pilot/*.xlsx path prefixes."""
     name = str(filename or "")
     if not name:
         return False
     lower = name.lower()
-    if lower.endswith(".zip"):
+    if not lower.endswith(".xlsx"):
         return False
-    if "notices" in lower and "spl" in lower:
-        return False
-    if any(name.startswith(prefix) for prefix in PROMOTE_PREFIXES):
+    if name.startswith("Installed_base_SPL/") or name.startswith("Installed_base_SPL\\"):
+        return _deposit_basename(name).lower() in SPL_BASENAME_ALLOWLIST
+    if name.startswith("Client360_Pilot/") or name.startswith("Client360_Pilot\\"):
         return True
-    return any(marker.lower() in lower for marker in PROMOTE_NAME_MARKERS)
+    return False
 
 
 def _system_user(db, workspace: Workspace, actor: str) -> User:
