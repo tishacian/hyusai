@@ -65,6 +65,7 @@ from app.services.rag.retrieval_profiles import (
     normalize_retrieval_profile_name,
     retrieval_profile_for,
 )
+from app.services.rag.source_facets import expanded_terms_for_query
 from app.services.rag.summary_artifacts import load_summary_index_records
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import TableQueryEngine, should_run_table_analysis
@@ -108,6 +109,22 @@ _INVENTORY_OBJECT_RE = re.compile(
     r"\b(" r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection" r")\b",
     re.IGNORECASE,
 )
+_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
+    r"\b(quels?|quelles?|which|liste[rz]?|list|tous|toutes|all|inventaire|inventory)\b"
+    r"[^?.!\n]{0,160}\b(?P<equipment>pompes?|pumps?|moteurs?|motors?|injecteurs?|"
+    r"injectors?|buses?|nozzles?|rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|"
+    r"filters?|pi[eè]ces?|parts?)\b",
+    re.IGNORECASE,
+)
+_SINGLE_PROJECT_CODE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*\d{2,}[A-Z0-9]*\b")
+_INVENTORY_EXCLUSION_RE = re.compile(
+    r"\b(compare|comparaison|compar[ea]|versus|vs\.?|proc[ée]dure|procedure|maintenance|"
+    r"entretien|pr[ée]cautions?|s[ée]curit[ée]|safety|r[ée]paration|repair|diagnostic)\b",
+    re.IGNORECASE,
+)
+# The Agentic chat membrane is 40 s end-to-end.  Do not let this optional
+# evidence lane consume the time reserved for grounded generation/evaluation.
+_INVENTORY_EVIDENCE_RETRIEVAL_CUTOFF_SECONDS = 30.0
 _CONTENT_SEARCH_HINT_RE = re.compile(
     r"\b("
     r"sur|about|parle(?:nt)?|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|"
@@ -2284,6 +2301,194 @@ def _should_build_project_inventory(request: dict[str, Any], query: str) -> bool
     return bool(is_transversal and query_targets_projects(query))
 
 
+def _single_project_inventory_evidence_spec(
+    query: str,
+    retrieval_filters: Mapping[str, Any] | None,
+    retrieval_policy: RetrievalPolicy | None,
+) -> dict[str, Any] | None:
+    """Describe the tightly scoped lexical lane for equipment inventories.
+
+    The corpus planner remains the owner of scope.  This helper only arms when
+    its exact single ``project_code`` filter agrees with the single code written
+    in the question, so the additive lane can never broaden tenant/project
+    access.  Vocabulary comes from the active retrieval policy/source facets;
+    no project, manufacturer or model is embedded in application code.
+    """
+    text = str(query or "").strip()
+    match = _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text)
+    if not match or _INVENTORY_EXCLUSION_RE.search(text):
+        return None
+
+    query_codes = list(
+        dict.fromkeys(
+            code_match.group(0).upper()
+            for code_match in _SINGLE_PROJECT_CODE_RE.finditer(text.upper())
+        )
+    )
+    active_filters = {
+        str(key): value
+        for key, value in (retrieval_filters or {}).items()
+        if value not in (None, "", [], (), {})
+    }
+    # This additive lane deliberately relaxes no hard constraint.  Planner
+    # filename heuristics are handled by the existing recall-floor machinery;
+    # an inventory with any additional filter stays on the canonical pipeline.
+    if set(active_filters) != {"project_code"}:
+        return None
+    raw_filter_codes = active_filters.get("project_code")
+    if isinstance(raw_filter_codes, str):
+        filter_codes = [raw_filter_codes.strip().upper()]
+    elif isinstance(raw_filter_codes, (list, tuple, set)):
+        filter_codes = [str(item).strip().upper() for item in raw_filter_codes if str(item).strip()]
+    else:
+        filter_codes = []
+    filter_codes = list(dict.fromkeys(filter_codes))
+    if len(query_codes) != 1 or filter_codes != query_codes:
+        return None
+
+    terms: list[str] = []
+    seen_terms: set[str] = set()
+
+    def add(value: Any) -> None:
+        cleaned = " ".join(str(value or "").strip().split())
+        if not cleaned or len(cleaned) < 3 or len(cleaned) > 80:
+            return
+        if cleaned.upper() == query_codes[0]:
+            return
+        folded = cleaned.lower()
+        if folded not in seen_terms:
+            seen_terms.add(folded)
+            terms.append(cleaned)
+
+    add(match.group("equipment"))
+    for term in expanded_terms_for_query(text, retrieval_policy):
+        add(term)
+        if len(terms) >= 12:
+            break
+    if not terms:
+        return None
+    return {"project_code": query_codes[0], "terms": terms[:12]}
+
+
+async def _retrieve_single_project_inventory_evidence(
+    doc_svc: Any,
+    spec: Mapping[str, Any] | None,
+    *,
+    timeout_seconds: float = 1.5,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Fetch bounded Qdrant lexical evidence without a second deep retrieval."""
+    if not spec:
+        return [], {"status": "not_armed"}
+    vector_db = getattr(doc_svc, "vector_db", None)
+    searcher = getattr(vector_db, "search_inventory_evidence", None)
+    if not callable(searcher):
+        return [], {"status": "unsupported"}
+    started = time.perf_counter()
+    try:
+        rows = await asyncio.wait_for(
+            searcher(
+                project_code=str(spec.get("project_code") or ""),
+                content_terms=list(spec.get("terms") or []),
+                limit=6,
+            ),
+            timeout=max(0.1, float(timeout_seconds)),
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        return [], {
+            "status": "timeout",
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        }
+    except Exception as exc:  # noqa: BLE001 - additive evidence must fail soft.
+        logger.warning("rag_context: inventory evidence lane failed", error=str(exc))
+        return [], {
+            "status": "error",
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        }
+    valid = [dict(row) for row in (rows or []) if isinstance(row, Mapping)]
+    return valid, {
+        "status": "ready" if valid else "empty",
+        "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        "candidates": len(valid),
+        "project_code": spec.get("project_code"),
+        "terms": list(spec.get("terms") or []),
+    }
+
+
+def _ensure_inventory_evidence_coverage(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    evidence_rows: list[dict[str, Any]],
+    *,
+    synthesis_k: int,
+    collection: str,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    """Keep bounded project evidence after CE/compression evicts useful lists."""
+    if not evidence_rows:
+        return chunks, scores, metadatas, {
+            "admission_cap": 0,
+            "inserted": 0,
+            "replaced": 0,
+        }
+
+    limit = max(1, int(synthesis_k or 1))
+    evidence_cap = min(len(evidence_rows), max(2, min(4, limit // 3)))
+    out_chunks = list(chunks[:limit])
+    out_scores = list(scores[:limit])
+    out_metas = [dict(meta or {}) for meta in metadatas[:limit]]
+    seen = {_chunk_exact_key(chunk) for chunk in out_chunks}
+    inserted = 0
+    replaced = 0
+
+    for row in evidence_rows[:evidence_cap]:
+        content = str(row.get("content") or "").strip()
+        if not content:
+            continue
+        key = _chunk_exact_key(content)
+        if key in seen:
+            continue
+        metadata = dict(row.get("metadata") or {})
+        metadata["inventory_evidence"] = True
+        metadata.setdefault("collection", collection)
+        metadata.setdefault("collection_name", collection)
+        try:
+            score = min(max(float(row.get("score") or 0.35), 0.01), 1.0)
+        except (TypeError, ValueError):
+            score = 0.35
+
+        if len(out_chunks) < limit:
+            out_chunks.append(content)
+            out_scores.append(score)
+            out_metas.append(metadata)
+            inserted += 1
+            seen.add(key)
+            continue
+
+        replace_index = next(
+            (
+                index
+                for index in range(len(out_metas) - 1, -1, -1)
+                if not out_metas[index].get("inventory_evidence")
+                and not _is_threshold_exempt_metadata(out_metas[index])
+            ),
+            None,
+        )
+        if replace_index is None:
+            continue
+        seen.discard(_chunk_exact_key(out_chunks[replace_index]))
+        out_chunks[replace_index] = content
+        out_scores[replace_index] = score
+        out_metas[replace_index] = metadata
+        replaced += 1
+        seen.add(key)
+
+    return out_chunks, out_scores, out_metas, {
+        "admission_cap": evidence_cap,
+        "inserted": inserted,
+        "replaced": replaced,
+    }
+
+
 def _safe_build_project_inventory(profile: dict[str, Any], query: str) -> dict[str, Any] | None:
     """Wrap the facet aggregation so a Qdrant error never breaks the answer."""
     try:
@@ -2937,6 +3142,33 @@ async def retrieve_rag_context(
         else:
             metrics["recall_floor"] = {"applied": False, "reason": "deadline"}
 
+    inventory_evidence_spec = _single_project_inventory_evidence_spec(
+        retrieval_query,
+        retrieval_filters,
+        retrieval_policy,
+    )
+    inventory_evidence_rows: list[dict[str, Any]] = []
+    inventory_evidence_diag: dict[str, Any] | None = None
+    if inventory_evidence_spec is not None:
+        retrieval_stage_elapsed = time.perf_counter() - retrieval_started_perf
+        inventory_remaining = min(
+            deadline_seconds - retrieval_stage_elapsed,
+            _INVENTORY_EVIDENCE_RETRIEVAL_CUTOFF_SECONDS - retrieval_stage_elapsed,
+        )
+        if inventory_remaining >= 0.15:
+            inventory_evidence_rows, inventory_evidence_diag = (
+                await _retrieve_single_project_inventory_evidence(
+                    doc_svc,
+                    inventory_evidence_spec,
+                    timeout_seconds=min(1.2, max(0.1, inventory_remaining - 0.05)),
+                )
+            )
+        else:
+            inventory_evidence_diag = {
+                "status": "skipped_deadline",
+                "elapsed_ms": 0,
+            }
+
     retrieval_diagnostics = {
         key: value
         for key, value in (getattr(result, "diagnostics", {}) or {}).items()
@@ -3020,6 +3252,24 @@ async def retrieve_rag_context(
             is_exempt=_is_threshold_exempt_metadata,
         )
         metrics.update(coverage_diag)
+    if inventory_evidence_spec is not None:
+        (
+            chunks,
+            scores,
+            metadatas,
+            inventory_coverage_diag,
+        ) = _ensure_inventory_evidence_coverage(
+            chunks,
+            scores,
+            metadatas,
+            inventory_evidence_rows,
+            synthesis_k=synthesis_k,
+            collection=str(profile["collection"]),
+        )
+        metrics["inventory_evidence"] = {
+            **(inventory_evidence_diag or {}),
+            **inventory_coverage_diag,
+        }
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, parent_context_count = await _append_parent_context(

@@ -3421,3 +3421,97 @@ def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
         "andritz-non-wovens-france-excel-pilot",
         "documents",
     ]
+
+
+def test_single_project_inventory_evidence_spec_is_scope_locked_and_policy_driven():
+    policy = RetrievalPolicy(
+        aliases=(("pompe", ("pump", "custom centrifugal unit")),),
+    )
+
+    spec = rag_context._single_project_inventory_evidence_spec(
+        "Quelles sont les pompes du projet PRJ204 ?",
+        {"project_code": ["PRJ204"]},
+        policy,
+    )
+
+    assert spec is not None
+    assert spec["project_code"] == "PRJ204"
+    assert "pompes" in spec["terms"]
+    assert "pump" in spec["terms"]
+    assert "custom centrifugal unit" in spec["terms"]
+    assert len(spec["terms"]) <= 12
+
+    assert (
+        rag_context._single_project_inventory_evidence_spec(
+            "Quelles sont les pompes du projet PRJ204 ?",
+            {"project_code": ["OTHER999"]},
+            policy,
+        )
+        is None
+    )
+    assert (
+        rag_context._single_project_inventory_evidence_spec(
+            "Quelles sont les pompes du projet PRJ204 ?",
+            {
+                "project_code": ["PRJ204"],
+                "document_id": ["restricted-document"],
+            },
+            policy,
+        )
+        is None
+    )
+    assert (
+        rag_context._single_project_inventory_evidence_spec(
+            "Quelles sont les pompes des projets PRJ204 et XYZ300 ?",
+            {"project_code": ["PRJ204", "XYZ300"]},
+            policy,
+        )
+        is None
+    )
+    assert (
+        rag_context._single_project_inventory_evidence_spec(
+            "Quelles precautions de maintenance pour les pompes du projet PRJ204 ?",
+            {"project_code": ["PRJ204"]},
+            policy,
+        )
+        is None
+    )
+
+
+def test_inventory_evidence_coverage_survives_compression_without_growing_budget():
+    chunks, scores, metadatas, diag = rag_context._ensure_inventory_evidence_coverage(
+        ["semantic primary", "semantic tail"],
+        [0.9, 0.7],
+        [
+            {"document_id": "primary"},
+            {"document_id": "tail"},
+        ],
+        [
+            {
+                "content": "Complete pump P-101 in the spare parts list.",
+                "score": 0.6,
+                "metadata": {
+                    "document_id": "spare",
+                    "source_family": "spare_parts_list",
+                },
+            },
+            {
+                "content": "Centrifugal pump model Z-9 service manual.",
+                "score": 0.55,
+                "metadata": {"document_id": "supplier"},
+            },
+        ],
+        synthesis_k=3,
+        collection="notices",
+    )
+
+    assert len(chunks) == len(scores) == len(metadatas) == 3
+    assert "Complete pump P-101" in " ".join(chunks)
+    assert "Centrifugal pump model Z-9" in " ".join(chunks)
+    assert sum(bool(meta.get("inventory_evidence")) for meta in metadatas) == 2
+    assert all(
+        meta.get("collection") == "notices"
+        for meta in metadatas
+        if meta.get("inventory_evidence")
+    )
+    assert diag == {"admission_cap": 2, "inserted": 1, "replaced": 1}

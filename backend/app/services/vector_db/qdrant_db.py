@@ -1096,6 +1096,376 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _scroll_payloads)
 
+    async def search_inventory_evidence(
+        self,
+        *,
+        project_code: str,
+        content_terms: List[str],
+        limit: int = 6,
+        scan_limit: int = 192,
+    ) -> List[Dict[str, Any]]:
+        """Return bounded, project-scoped evidence for equipment inventories.
+
+        This is deliberately not another semantic/deep retrieval.  It uses the
+        existing Qdrant payload indexes to sample chunks whose ``content``
+        matches any active equipment term, plus authoritative spare-parts-list
+        chunks for the same project.  Results remain real source chunks and are
+        diversified by document before the caller adds a small coverage floor.
+        """
+        code = str(project_code or "").strip().upper()
+        terms: list[str] = []
+        for value in content_terms or []:
+            term = " ".join(str(value or "").strip().split())
+            if term and 2 < len(term) <= 80 and term.lower() not in {
+                existing.lower() for existing in terms
+            }:
+                terms.append(term)
+            if len(terms) >= 12:
+                break
+        if not code or not terms or limit <= 0 or self.client is None:
+            return []
+
+        from qdrant_client.models import FieldCondition, Filter, MatchText, MatchValue, MinShould
+
+        loop = asyncio.get_event_loop()
+        bounded_scan = max(limit, min(max(int(scan_limit or 192), 1), 384))
+        bounded_limit = max(1, min(int(limit or 6), 12))
+
+        def _search_inventory() -> List[Dict[str, Any]]:
+            if not self.client.collection_exists(self.collection_name, timeout=1):
+                return []
+            project_condition = FieldCondition(key="project_code", match=MatchValue(value=code))
+            text_conditions = [
+                FieldCondition(key="content", match=MatchText(text=term)) for term in terms
+            ]
+            content_filter = Filter(
+                must=[project_condition],
+                min_should=MinShould(conditions=text_conditions, min_count=1),
+            )
+            spare_filter = Filter(
+                must=[
+                    project_condition,
+                    FieldCondition(
+                        key="source_family", match=MatchValue(value="spare_parts_list")
+                    ),
+                ]
+            )
+
+            def _scroll_bounded(qfilter: Any, *, cap: int) -> list[Any]:
+                rows: list[Any] = []
+                next_offset = None
+                while len(rows) < cap:
+                    page, next_offset = self.client.scroll(
+                        collection_name=self.collection_name,
+                        scroll_filter=qfilter,
+                        limit=min(96, cap - len(rows)),
+                        offset=next_offset,
+                        with_payload=True,
+                        with_vectors=False,
+                        timeout=1,
+                    )
+                    rows.extend(page or [])
+                    if not page or next_offset is None:
+                        break
+                return rows
+
+            # Prefer the collection's native sparse index: it ranks matching
+            # chunks and groups manuals by document instead of taking an
+            # identifier-ordered scroll sample.  The bounded scroll remains a
+            # compatibility fallback for pre-sparse collections.
+            content_records: list[Any] = []
+            spare_records: list[Any] = []
+            sparse_query = _sparse_vector_from_text(" ".join(terms))
+            if _qdrant_sparse_enabled() and sparse_query.indices:
+                try:
+                    if hasattr(self.client, "query_points_groups"):
+                        grouped = self.client.query_points_groups(
+                            collection_name=self.collection_name,
+                            query=sparse_query,
+                            using=_SPARSE_VECTOR_NAME,
+                            query_filter=content_filter,
+                            group_by="document_id",
+                            group_size=1,
+                            limit=min(bounded_scan, max(24, bounded_limit * 4)),
+                            with_payload=True,
+                            with_vectors=False,
+                            timeout=1,
+                        )
+                        content_records = self._groups_to_points(
+                            grouped,
+                            limit=bounded_scan,
+                        )
+                    else:
+                        response = self.client.query_points(
+                            collection_name=self.collection_name,
+                            query=sparse_query,
+                            using=_SPARSE_VECTOR_NAME,
+                            query_filter=content_filter,
+                            limit=min(bounded_scan, max(24, bounded_limit * 4)),
+                            with_payload=True,
+                            with_vectors=False,
+                            timeout=1,
+                        )
+                        content_records = list(getattr(response, "points", None) or [])
+                except Exception as exc:  # noqa: BLE001 - sparse is an optimization.
+                    logger.debug(
+                        "Qdrant grouped inventory evidence unavailable",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+                    content_records = []
+                try:
+                    response = self.client.query_points(
+                        collection_name=self.collection_name,
+                        query=sparse_query,
+                        using=_SPARSE_VECTOR_NAME,
+                        query_filter=spare_filter,
+                        limit=min(4, bounded_scan),
+                        with_payload=True,
+                        with_vectors=False,
+                        timeout=1,
+                    )
+                    spare_records = list(getattr(response, "points", None) or [])
+                except Exception as exc:  # noqa: BLE001 - sparse is an optimization.
+                    logger.debug(
+                        "Qdrant sparse spare-parts evidence unavailable",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+                    spare_records = []
+
+            if not content_records:
+                try:
+                    content_records = _scroll_bounded(content_filter, cap=bounded_scan)
+                except Exception as exc:  # noqa: BLE001 - lane is best-effort.
+                    logger.debug(
+                        "Qdrant inventory evidence scan unavailable",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+            if not spare_records:
+                try:
+                    spare_records = _scroll_bounded(
+                        spare_filter,
+                        cap=min(32, bounded_scan),
+                    )
+                except Exception as exc:  # noqa: BLE001 - lane is best-effort.
+                    logger.debug(
+                        "Qdrant spare-parts evidence scan unavailable",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+
+            records = [*content_records, *spare_records]
+
+            by_point: dict[str, dict[str, Any]] = {}
+            for record in records:
+                payload = dict(getattr(record, "payload", None) or {})
+                if str(payload.get("project_code") or "").strip().upper() != code:
+                    # Keep the application-side invariant even if a test double
+                    # or a temporarily inconsistent payload index misbehaves.
+                    continue
+                content = str(payload.get("content") or "").strip()
+                if len(content) < 20:
+                    continue
+                searchable = " ".join(
+                    str(value or "").lower()
+                    for value in (
+                        content,
+                        payload.get("document_filename"),
+                        payload.get("document_title"),
+                        payload.get("inner_document_path"),
+                    )
+                )
+                matched = [term for term in terms if term.lower() in searchable]
+                if not matched:
+                    # The spare-parts pass is a source-family recall floor, but
+                    # unrelated parts must never enter an equipment answer.
+                    continue
+                href_count = searchable.count("href")
+                word_count = len(_SPARSE_TOKEN_RE.findall(content))
+                if href_count >= 8 and word_count < 160:
+                    continue
+                source_family = str(payload.get("source_family") or "").lower()
+                filename = str(payload.get("document_filename") or "")
+                filename_matches = sum(1 for term in matched if term.lower() in filename.lower())
+                try:
+                    sparse_score = min(max(float(getattr(record, "score", 0.0) or 0.0), 0.0), 1.0)
+                except (TypeError, ValueError):
+                    sparse_score = 0.0
+                document_haystack = " ".join(
+                    str(payload.get(key) or "").lower()
+                    for key in (
+                        "document_filename",
+                        "document_title",
+                        "inner_document_path",
+                        "document_type",
+                        "source_kind",
+                    )
+                )
+                is_pdf = (
+                    str(payload.get("extension") or "").strip().lower() == "pdf"
+                    or filename.lower().endswith(".pdf")
+                )
+                is_manual = source_family in {
+                    "pump_manual",
+                    "supplier_manual",
+                    "operating_manual",
+                    "operator_manual",
+                } or bool(
+                    re.search(
+                        r"\b(manual|manuel|notice|service|operating|operation|montage)\b",
+                        f"{document_haystack} {content[:1200].lower()}",
+                    )
+                )
+                score = (
+                    0.35
+                    + min(len(matched), 4) * 0.08
+                    + min(filename_matches, 2) * 0.04
+                    + (0.18 if source_family == "spare_parts_list" else 0.0)
+                    + (0.06 if is_manual else 0.0)
+                    + (0.03 if is_pdf else 0.0)
+                    + sparse_score * 0.12
+                    - (0.08 if href_count >= 8 else 0.0)
+                )
+                metadata = dict(payload)
+                metadata["inventory_evidence_backend"] = "qdrant_payload_fulltext"
+                metadata["inventory_match_terms"] = matched[:12]
+                metadata["inventory_sparse_score"] = sparse_score
+                point_key = str(
+                    payload.get("chunk_id")
+                    or getattr(record, "id", None)
+                    or hashlib.sha1(content.encode("utf-8")).hexdigest()
+                )
+                by_point[point_key] = {
+                    "id": str(payload.get("chunk_id") or getattr(record, "id", point_key)),
+                    "content": content,
+                    "score": min(score, 0.95),
+                    "metadata": metadata,
+                }
+
+            ranked = sorted(
+                by_point.values(),
+                key=lambda row: (
+                    -float(row.get("score") or 0.0),
+                    str((row.get("metadata") or {}).get("document_filename") or "").lower(),
+                ),
+            )
+            selected: list[dict[str, Any]] = []
+            document_counts: dict[str, int] = {}
+            family_counts: dict[str, int] = {}
+            category_counts: dict[str, int] = {}
+            seen_content: set[str] = set()
+
+            def document_family_keys(
+                metadata: Dict[str, Any],
+                document_key: str,
+            ) -> tuple[str, str]:
+                # Separate the functional folder (diversity category) from the
+                # actual equipment/model family.  Language roots such as
+                # ``PRJ204-ES`` are ignored, while numeric model variants remain
+                # distinct.  A PDF directly under a functional folder derives
+                # its family from its filename (Etabloc vs Etachrom, for example).
+                path = str(metadata.get("inner_document_path") or "").strip()
+                path_parts = [part for part in re.split(r"[/\\]+", path) if part]
+                significant: list[str] = []
+                for part in path_parts[:-1]:
+                    normalized = re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-")
+                    if (
+                        not normalized
+                        or normalized == code.lower()
+                        or re.fullmatch(
+                            rf"{re.escape(code.lower())}-(?:de|en|es|fr)",
+                            normalized,
+                        )
+                        or normalized in {"de", "en", "es", "fr", "files", "fichiers", "manuals"}
+                        or re.fullmatch(r"section-?\d+", normalized)
+                    ):
+                        continue
+                    significant.append(normalized)
+                filename = (
+                    path_parts[-1]
+                    if path_parts
+                    else str(metadata.get("document_filename") or document_key)
+                ).lower()
+                filename = re.sub(r"\.(?:html?|pdf)$", "", filename)
+                filename = re.sub(r"(?:[-_. ]+)(?:de|en|es|fr)$", "", filename)
+                filename_key = re.sub(r"[^a-z0-9]+", "-", filename).strip("-")
+                category = significant[0] if significant else filename_key
+                family = significant[-1] if len(significant) > 1 else filename_key
+                return (
+                    f"family:{family or document_key}",
+                    f"category:{category or document_key}",
+                )
+
+            def add_rows(
+                rows: List[Dict[str, Any]],
+                *,
+                cap: int,
+                per_document: int,
+                per_family: int,
+                per_category: int,
+            ) -> None:
+                for row in rows:
+                    metadata = row.get("metadata") or {}
+                    document_key = str(
+                        metadata.get("document_id")
+                        or metadata.get("document_filename")
+                        or row.get("id")
+                    )
+                    content_key = hashlib.sha1(
+                        " ".join(str(row.get("content") or "").split()).encode("utf-8")
+                    ).hexdigest()
+                    family_key, category_key = document_family_keys(metadata, document_key)
+                    if (
+                        not document_key
+                        or content_key in seen_content
+                        or document_counts.get(document_key, 0) >= per_document
+                        or family_counts.get(family_key, 0) >= per_family
+                        or category_counts.get(category_key, 0) >= per_category
+                    ):
+                        continue
+                    seen_content.add(content_key)
+                    document_counts[document_key] = document_counts.get(document_key, 0) + 1
+                    family_counts[family_key] = family_counts.get(family_key, 0) + 1
+                    category_counts[category_key] = category_counts.get(category_key, 0) + 1
+                    selected.append(row)
+                    if len(selected) >= cap:
+                        return
+
+            spare_rows = [
+                row
+                for row in ranked
+                if str((row.get("metadata") or {}).get("source_family") or "").lower()
+                == "spare_parts_list"
+            ]
+            add_rows(
+                spare_rows,
+                cap=min(2, bounded_limit),
+                per_document=2,
+                per_family=2,
+                per_category=2,
+            )
+            if len(selected) < bounded_limit:
+                add_rows(
+                    ranked,
+                    cap=bounded_limit,
+                    per_document=1,
+                    per_family=1,
+                    per_category=1,
+                )
+            if len(selected) < bounded_limit:
+                add_rows(
+                    ranked,
+                    cap=bounded_limit,
+                    per_document=1,
+                    per_family=1,
+                    per_category=2,
+                )
+            return selected[:bounded_limit]
+
+        return await loop.run_in_executor(None, _search_inventory)
+
     async def parent_contexts_for_hits(
         self,
         metadatas: List[Dict[str, Any]],

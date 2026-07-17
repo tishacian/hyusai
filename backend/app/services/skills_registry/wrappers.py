@@ -2936,6 +2936,27 @@ def _passage_source_label(metadata: dict[str, Any], index: int) -> str:
     )
 
 
+def _passage_scope_hint(metadata: dict[str, Any]) -> str:
+    """Expose only documentary scope metadata useful to grounded synthesis."""
+    md = metadata or {}
+    fields = (
+        ("project", md.get("project_code")),
+        ("source_family", md.get("source_family")),
+        ("document_type", md.get("document_type") or md.get("source_kind")),
+    )
+    hints: list[str] = []
+    for label, value in fields:
+        if isinstance(value, list | tuple | set):
+            rendered = ", ".join(str(item).strip() for item in value if str(item).strip())
+        elif isinstance(value, str | int | float):
+            rendered = str(value).strip()
+        else:
+            rendered = ""
+        if rendered:
+            hints.append(f"{label}={rendered[:160]}")
+    return "; ".join(hints)
+
+
 def _citations_from_passages(passages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build citation rows from passage metadata (chunk_id / document / score)."""
     citations: list[dict[str, Any]] = []
@@ -2980,12 +3001,18 @@ def _build_grounded_answer_prompt(
     so the prompt must explicitly invite cross-language table extraction while
     still forbidding fabrication.
     """
+    profile_contract = _grounded_profile_contract(query, answer_profile)
     blocks = []
     for index, passage in enumerate(passages, start=1):
-        src = _passage_source_label(passage.get("metadata") or {}, index)
+        metadata = passage.get("metadata") or {}
+        src = _passage_source_label(metadata, index)
+        scope_hint = _passage_scope_hint(metadata) if profile_contract else ""
+        source_header = f"{src}; {scope_hint}" if scope_hint else src
         # Keep enough of each passage to preserve spec tables (carrier values can
         # sit a few hundred chars into a messy HTML chunk); chunks are ~1-2k chars.
-        blocks.append(f"[{index}] ({src})\n{str(passage.get('content') or '')[:4000]}")
+        blocks.append(
+            f"[{index}] ({source_header})\n{str(passage.get('content') or '')[:4000]}"
+        )
     context_text = "\n\n".join(blocks)
     return (
         "Tu es un assistant technique industriel Andritz, specialise dans des "
@@ -3002,6 +3029,7 @@ def _build_grounded_answer_prompt(
         "un extrait doit etre omis, pas presente comme plausible. Si une donnee "
         "precise est reellement introuvable, dis-le "
         "brievement mais fournis tout de meme les elements pertinents disponibles.\n"
+        f"{profile_contract}"
         f"Langue de reponse: {lang_target or 'fr'}. Style attendu: {answer_profile or 'technical'}.\n\n"
         f"Contexte:\n{context_text}\n\n"
         f"Question: {query}\n\nReponse sourcee:"
@@ -3161,6 +3189,54 @@ _SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE = re.compile(
     r"rouleaux?|rollers?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
     re.IGNORECASE,
 )
+
+
+def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
+    """Return narrow synthesis rules for explicitly list-shaped equipment asks.
+
+    ``equipment_detail`` also covers ordinary datasheet questions, where an
+    exhaustive scan would add unrelated neighbouring equipment.  Apply this
+    contract only when the user explicitly asks for an inventory/enumeration;
+    profile labels containing ``inventory`` remain supported for planner- or
+    workspace-defined variants.
+    """
+    profile = str(answer_profile or "").strip().lower()
+    text = str(query or "")
+    explicit_list_marker = re.search(
+        r"\b(liste[rz]?|list|tous|toutes|all|inventaire)\b", text, re.IGNORECASE
+    )
+    explicit_plural_set = re.search(
+        r"\b(quels?|quelles?|which)\b[^?.!\n]{0,80}\b("
+        r"pompes|pumps|moteurs|motors|injecteurs|buses|nozzles|rouleaux|rollers|"
+        r"s[ée]cheurs|dryers|filtres|filters|pi[eè]ces|parts)\b",
+        text,
+        re.IGNORECASE,
+    )
+    is_inventory = "inventory" in profile or (
+        profile == "equipment_detail"
+        and bool(_SINGLE_PROJECT_EQUIPMENT_INVENTORY_RE.search(text))
+        and bool(explicit_list_marker or explicit_plural_set)
+    )
+    if not is_inventory:
+        return ""
+    return (
+        "Pour cette question d'inventaire, parcours TOUS les extraits avant de "
+        "rediger. Enumere chaque equipement, type, modele et reference directement "
+        "atteste par au moins un extrait pertinent, en fusionnant uniquement les "
+        "doublons certains, et cite chaque item. Ne privilegie pas seulement les "
+        "premiers extraits.\n"
+        "Distingue explicitement (1) les items rattaches au projet ou au perimetre "
+        "demande par le contenu, le libelle de source ou ses metadonnees, et (2) les "
+        "modeles seulement decrits dans une notice generique ou fournisseur. Un "
+        "manuel generique ne prouve jamais a lui seul que le modele est installe "
+        "sur le projet.\n"
+        "Ne conclus jamais qu'il n'existe aucun autre item si un autre extrait en "
+        "nomme un. Si les extraits ne prouvent pas l'exhaustivite du projet, presente "
+        "le resultat comme la liste documentee dans les extraits, sans le qualifier "
+        "d'exhaustif.\n"
+    )
+
+
 _EXHAUSTIVE_PROJECT_QUERY_RE = re.compile(
     r"\b(exhausti(?:f|ve)|complet(?:e|s)?|tous|toutes|all|liste[rz]?|list|inventaire)\b",
     re.IGNORECASE,

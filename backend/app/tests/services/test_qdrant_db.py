@@ -694,6 +694,226 @@ async def test_get_document_metadata_ensures_payload_indexes():
     assert "document_id" in indexed_fields
 
 
+@pytest.mark.asyncio
+async def test_inventory_evidence_is_project_scoped_source_diverse_and_spare_first(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", False)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    content_rows = [
+        SimpleNamespace(
+            id="manual-a-1",
+            payload={
+                "chunk_id": "manual-a-1",
+                "content": "Centrifugal pump model MIX-900 service manual.",
+                "document_id": "manual-a",
+                "document_filename": "MIX-900 manual.pdf",
+                "project_code": "PRJ204",
+                "source_family": "unknown",
+            },
+        ),
+        SimpleNamespace(
+            id="manual-a-2",
+            payload={
+                "chunk_id": "manual-a-2",
+                "content": "Pump MIX-900 installation and operation.",
+                "document_id": "manual-a",
+                "document_filename": "MIX-900 manual.pdf",
+                "project_code": "PRJ204",
+                "source_family": "unknown",
+            },
+        ),
+        SimpleNamespace(
+            id="manual-b-1",
+            payload={
+                "chunk_id": "manual-b-1",
+                "content": "Pompe verticale model VTX-4.",
+                "document_id": "manual-b",
+                "document_filename": "VTX-4.pdf",
+                "project_code": "PRJ204",
+                "source_family": "supplier_manual",
+            },
+        ),
+        SimpleNamespace(
+            id="wrong-project",
+            payload={
+                "chunk_id": "wrong-project",
+                "content": "Pump model SHOULD-NOT-LEAK service manual.",
+                "document_id": "other-project-manual",
+                "document_filename": "OTHER999 pump manual.pdf",
+                "project_code": "OTHER999",
+                "source_family": "supplier_manual",
+            },
+        ),
+    ]
+    spare_rows = [
+        SimpleNamespace(
+            id="spare-4",
+            payload={
+                "chunk_id": "spare-4",
+                "content": "Complete pump motor location: P-101, P-102 and PF-3.",
+                "document_id": "spare-list",
+                "document_filename": "Spare Parts List PRJ204.pdf",
+                "project_code": "PRJ204",
+                "source_family": "spare_parts_list",
+            },
+        )
+    ]
+    client.scroll.side_effect = [(content_rows, None), (spare_rows, None)]
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    rows = await db.search_inventory_evidence(
+        project_code="PRJ204",
+        content_terms=["pompe", "pump"],
+        limit=3,
+    )
+
+    assert len(rows) == 3
+    assert rows[0]["metadata"]["source_family"] == "spare_parts_list"
+    assert {row["metadata"]["document_id"] for row in rows} == {
+        "spare-list",
+        "manual-a",
+        "manual-b",
+    }
+    assert all(row["metadata"]["inventory_match_terms"] for row in rows)
+    assert all(
+        row["metadata"]["inventory_evidence_backend"] == "qdrant_payload_fulltext"
+        for row in rows
+    )
+
+    assert client.scroll.call_count == 2
+    content_filter = client.scroll.call_args_list[0].kwargs["scroll_filter"]
+    spare_filter = client.scroll.call_args_list[1].kwargs["scroll_filter"]
+    assert content_filter.must[0].key == "project_code"
+    assert content_filter.must[0].match.value == "PRJ204"
+    assert content_filter.min_should.min_count == 1
+    assert {condition.key for condition in content_filter.min_should.conditions} == {"content"}
+    assert [condition.key for condition in spare_filter.must] == [
+        "project_code",
+        "source_family",
+    ]
+    assert spare_filter.must[1].match.value == "spare_parts_list"
+
+
+@pytest.mark.asyncio
+async def test_inventory_evidence_uses_grouped_sparse_and_keeps_two_complementary_spare_chunks(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    manual_a = SimpleNamespace(
+        id="manual-a",
+        score=0.8,
+        payload={
+            "chunk_id": "manual-a",
+            "content": "Centrifugal pump model MIX-900 service manual.",
+            "document_id": "manual-a-doc",
+            "document_filename": "MIX-900 manual.pdf",
+            "inner_document_path": "PRJ204/files/section_7/mixing/MIX-900/FR/manual.pdf",
+            "project_code": "PRJ204",
+            "source_family": "supplier_manual",
+        },
+    )
+    manual_b = SimpleNamespace(
+        id="manual-b",
+        score=0.7,
+        payload={
+            "chunk_id": "manual-b",
+            "content": "Vertical pump model VTX-4 operating manual.",
+            "document_id": "manual-b-doc",
+            "document_filename": "VTX-4 manual.pdf",
+            "inner_document_path": "PRJ204/files/section_7/vertical/VTX-4/FR/manual.pdf",
+            "project_code": "PRJ204",
+            "source_family": "supplier_manual",
+        },
+    )
+    manual_a_translation = SimpleNamespace(
+        id="manual-a-es",
+        score=0.6,
+        payload={
+            "chunk_id": "manual-a-es",
+            "content": "Pump model MIX-900 translated service manual.",
+            "document_id": "manual-a-es-doc",
+            "document_filename": "MIX-900 ES manual.pdf",
+            "inner_document_path": "PRJ204-ES/files/section_7/mixing/MIX-900/ES/manual.pdf",
+            "project_code": "PRJ204",
+            "source_family": "supplier_manual",
+        },
+    )
+    spare_a = SimpleNamespace(
+        id="spare-a",
+        score=0.95,
+        payload={
+            "chunk_id": "spare-a",
+            "content": "Complete pump P-101 and pump P-102.",
+            "document_id": "spare-doc",
+            "document_filename": "Spare Parts List PRJ204.pdf",
+            "project_code": "PRJ204",
+            "source_family": "spare_parts_list",
+        },
+    )
+    spare_b = SimpleNamespace(
+        id="spare-b",
+        score=0.9,
+        payload={
+            "chunk_id": "spare-b",
+            "content": "Process pump PF-3 and pump PP-4 locations.",
+            "document_id": "spare-doc",
+            "document_filename": "Spare Parts List PRJ204.pdf",
+            "project_code": "PRJ204",
+            "source_family": "spare_parts_list",
+        },
+    )
+    client.query_points_groups.return_value = SimpleNamespace(
+        groups=[
+            SimpleNamespace(hits=[manual_a]),
+            SimpleNamespace(hits=[manual_a_translation]),
+            SimpleNamespace(hits=[manual_b]),
+        ]
+    )
+    client.query_points.return_value = SimpleNamespace(points=[spare_a, spare_b])
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    rows = await db.search_inventory_evidence(
+        project_code="PRJ204",
+        content_terms=["pump"],
+        limit=4,
+    )
+
+    assert [row["id"] for row in rows[:2]] == ["spare-a", "spare-b"]
+    assert {row["metadata"]["document_id"] for row in rows[2:]} == {
+        "manual-a-doc",
+        "manual-b-doc",
+    }
+    assert all(row["metadata"]["inventory_sparse_score"] > 0 for row in rows)
+    grouped_kwargs = client.query_points_groups.call_args.kwargs
+    assert grouped_kwargs["group_by"] == "document_id"
+    assert grouped_kwargs["group_size"] == 1
+    assert grouped_kwargs["using"] == "sparse"
+    assert grouped_kwargs["timeout"] == 1
+    client.scroll.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_inventory_evidence_fails_soft_when_fulltext_indexes_are_unavailable(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", False)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.scroll.side_effect = RuntimeError("full-text index unavailable")
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    rows = await db.search_inventory_evidence(
+        project_code="PRJ204",
+        content_terms=["pump"],
+    )
+
+    assert rows == []
+
+
 def test_get_metadatas_for_chunk_ids_sync():
     client = MagicMock()
     rec = SimpleNamespace(payload={"document_id": "d", "content": "x"})

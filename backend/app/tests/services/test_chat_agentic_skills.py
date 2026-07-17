@@ -544,6 +544,64 @@ def test_grounded_prompt_forbids_unsupported_equipment_analogies():
     assert "non explicitement atteste" in prompt
 
 
+def test_grounded_inventory_prompt_requires_complete_evidence_scan_and_scope_distinction():
+    prompt = wrappers._build_grounded_answer_prompt(
+        "quelles sont les pompes du projet ABC100 ?",
+        [
+            {
+                "content": "Projet ABC100 : pompe process P-101.",
+                "metadata": {
+                    "document_filename": "ABC100 equipment list.pdf",
+                    "project_code": "ABC100",
+                    "source_family": "equipment_list",
+                },
+            },
+            {
+                "content": "Manuel fournisseur du modele GenericPump Z9.",
+                "metadata": {"document_filename": "GenericPump Z9 manual.pdf"},
+            },
+            {
+                "content": "Projet ABC100 : pompe haute pression HP-202.",
+                "metadata": {"document_filename": "ABC100 spare parts.pdf"},
+            },
+        ],
+        "fr",
+        "equipment_detail",
+    )
+
+    assert "parcours TOUS les extraits" in prompt
+    assert "project=ABC100; source_family=equipment_list" in prompt
+    assert "chaque equipement, type, modele et reference" in prompt
+    assert "Ne privilegie pas seulement les premiers extraits" in prompt
+    assert "modeles seulement decrits dans une notice generique ou fournisseur" in prompt
+    assert "ne prouve jamais a lui seul que le modele est installe" in prompt
+    assert "Ne conclus jamais qu'il n'existe aucun autre item" in prompt
+    assert "liste documentee dans les extraits" in prompt
+
+
+def test_grounded_non_inventory_equipment_prompt_avoids_exhaustive_scan_contract():
+    prompt = wrappers._build_grounded_answer_prompt(
+        "detaille les caracteristiques de la pompe du projet ABC100",
+        [{"content": "Pression : 120 bar.", "metadata": {}}],
+        "fr",
+        "equipment_detail",
+    )
+
+    assert "parcours TOUS les extraits" not in prompt
+    assert "liste documentee dans les extraits" not in prompt
+
+
+def test_grounded_custom_inventory_profile_uses_inventory_contract():
+    prompt = wrappers._build_grounded_answer_prompt(
+        "inventaire demande",
+        [{"content": "Moteur M-1.", "metadata": {}}],
+        "fr",
+        "equipment_inventory",
+    )
+
+    assert "parcours TOUS les extraits" in prompt
+
+
 # ---------------------------------------------------------------------------
 # semantic_search_v1 — C1(b): resolve tenant slug + balanced lane + budgets
 # ---------------------------------------------------------------------------
