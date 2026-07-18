@@ -1,6 +1,7 @@
 """Document management endpoints"""
 
 import asyncio
+import json
 import mimetypes
 import os
 import shutil
@@ -13,12 +14,12 @@ from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import numpy as np
-
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
+from starlette.background import BackgroundTask
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
@@ -26,33 +27,49 @@ from app.core.iam.roles import is_admin_template
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.collection_source_backing import (
+    SourceBackingError,
+    backing_source_meta,
+    materialize_backing_source,
+    read_backing_source_bytes,
+    source_locator,
+)
 from app.services.knowledge_collections import (
     collection_inventory,
     collection_source_rows,
     create_or_get_collection,
-    create_collection as create_knowledge_collection,
     create_worker_job,
+    document_manifest_key,
     get_collection_or_404,
     normalize_source_name,
     original_key,
     resolve_original_key,
     serialize_collection,
     serialize_job,
-    update_job,
     update_collection_status,
+    update_job,
     upsert_collection_source,
+)
+from app.services.knowledge_collections import (
+    create_collection as create_knowledge_collection,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.secure_deposit import build_file_preview, preview_needs_file_bytes
 from app.services.worker_dispatch import dispatch_worker_job
-from app.services.worker_offline_retrieval_artifacts import SUPPORTED_KINDS as SUPPORTED_RETRIEVAL_ARTIFACT_KINDS
+from app.services.worker_offline_retrieval_artifacts import (
+    SUPPORTED_KINDS as SUPPORTED_RETRIEVAL_ARTIFACT_KINDS,
+)
 from app.services.workspace_features import chat_document_upload_enabled
 
 logger = get_logger(__name__)
@@ -935,6 +952,102 @@ def _scan_original_key_by_basename(store, collection, filename: str) -> Optional
     return None
 
 
+def _source_backing_locator(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    filename: str,
+) -> dict[str, Any] | None:
+    """Resolve a governed source locator from ledger, then manifest fallback."""
+    row = (
+        db.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.normalized_name == normalize_source_name(filename),
+        )
+        .first()
+    )
+    locator = source_locator(row.source_metadata if row else None)
+    if locator is not None:
+        return locator
+
+    store = get_object_store()
+    manifest_key = document_manifest_key(collection)
+    if not store.exists(manifest_key):
+        return None
+    try:
+        manifest = json.loads(store.read_bytes(manifest_key).decode("utf-8"))
+    except Exception:  # noqa: BLE001 - legacy/corrupt manifests fall through.
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    entry = manifest.get(filename)
+    if not isinstance(entry, dict):
+        entry = next(
+            (
+                value
+                for name, value in manifest.items()
+                if normalize_source_name(str(name)) == normalize_source_name(filename)
+                and isinstance(value, dict)
+            ),
+            None,
+        )
+    return source_locator(entry if isinstance(entry, dict) else None)
+
+
+def _resolve_governed_original_path(
+    db: DBSession,
+    workspace: Workspace,
+    collection_name: str,
+    document_id: str,
+    filename: str,
+) -> tuple[bool, Path | None, Path | None]:
+    """Materialise a governed locator without buffering it in API memory.
+
+    The boolean distinguishes "no governed locator" (legacy resolution may
+    continue) from "governed locator failed" (fail closed, never fall back to a
+    same-named local upload).  The third value is a temporary directory owned
+    by the response and must be removed after streaming completes.
+    """
+
+    try:
+        collection = get_collection_or_404(
+            db, workspace_id=workspace.id, collection_ref=collection_name
+        )
+    except HTTPException:
+        return False, None, None
+    try:
+        locator = _source_backing_locator(
+            db, collection=collection, filename=filename
+        )
+    except SourceBackingError as exc:
+        logger.warning(
+            f"Governed source locator is invalid for {document_id}: {exc}"
+        )
+        return True, None, None
+    if locator is None:
+        return False, None, None
+
+    temp_root = Path(tempfile.mkdtemp(prefix="agentium-governed-source-"))
+    safe_name = Path(str(filename or "source")).name or "source"
+    destination = temp_root / safe_name
+    try:
+        path = materialize_backing_source(
+            db,
+            workspace_id=workspace.id,
+            locator=locator,
+            destination=destination,
+            verify_direct_digest=True,
+            expected_collection_slug=collection.slug,
+            allowed_statuses={"received", "promoted"},
+        )
+        return True, path, temp_root
+    except Exception as exc:  # noqa: BLE001 - governed sources fail closed.
+        shutil.rmtree(temp_root, ignore_errors=True)
+        logger.warning(f"Governed source materialization failed for {document_id}: {exc}")
+        return True, None, None
+
+
 def _resolve_original_bytes(
     db: DBSession,
     workspace: Workspace,
@@ -953,6 +1066,25 @@ def _resolve_original_bytes(
         collection = get_collection_or_404(
             db, workspace_id=workspace.id, collection_ref=collection_name
         )
+        locator = _source_backing_locator(
+            db, collection=collection, filename=filename
+        )
+        if locator is not None:
+            # The governed locator is the authoritative original. Never let a
+            # stale same-named object-store key shadow it.
+            try:
+                return read_backing_source_bytes(
+                    db,
+                    workspace_id=workspace.id,
+                    locator=locator,
+                    expected_collection_slug=collection.slug,
+                    allowed_statuses={"received", "promoted"},
+                )
+            except Exception as exc:  # noqa: BLE001 - fail closed at the boundary.
+                logger.warning(
+                    f"Governed source lookup failed for {document_id}: {exc}"
+                )
+                return None
         store = get_object_store()
         key = resolve_original_key(collection, filename, store=store)
         if store.exists(key):
@@ -960,6 +1092,11 @@ def _resolve_original_bytes(
         fallback_key = _scan_original_key_by_basename(store, collection, filename)
         if fallback_key:
             return store.read_bytes(fallback_key)
+    except SourceBackingError as exc:
+        logger.warning(
+            f"Governed source locator is invalid for {document_id}: {exc}"
+        )
+        return None
     except HTTPException:
         pass
     except Exception as exc:  # noqa: BLE001 - object store is best-effort here.
@@ -987,6 +1124,23 @@ def _resolve_original_meta(
         collection = get_collection_or_404(
             db, workspace_id=workspace.id, collection_ref=collection_name
         )
+        locator = _source_backing_locator(
+            db, collection=collection, filename=filename
+        )
+        if locator is not None:
+            try:
+                return backing_source_meta(
+                    db,
+                    workspace_id=workspace.id,
+                    locator=locator,
+                    expected_collection_slug=collection.slug,
+                    allowed_statuses={"received", "promoted"},
+                )
+            except Exception as exc:  # noqa: BLE001 - fail closed at the boundary.
+                logger.warning(
+                    f"Governed source metadata lookup failed for {document_id}: {exc}"
+                )
+                return False, 0
         store = get_object_store()
         key = resolve_original_key(collection, filename, store=store)
         if store.exists(key):
@@ -994,6 +1148,11 @@ def _resolve_original_meta(
         fallback_key = _scan_original_key_by_basename(store, collection, filename)
         if fallback_key:
             return True, int(store.size(fallback_key) or 0)
+    except SourceBackingError as exc:
+        logger.warning(
+            f"Governed source locator is invalid for {document_id}: {exc}"
+        )
+        return False, 0
     except HTTPException:
         pass
     except Exception as exc:  # noqa: BLE001 - object store is best-effort here.
@@ -1035,31 +1194,38 @@ async def _document_filename_for_id(
 _OFFICE_PREVIEW_EXTENSIONS = {".doc", ".docx", ".pptx"}
 
 
-def _office_preview_pdf_bytes(original: bytes, filename: str) -> bytes:
+def _office_preview_pdf_file(source_path: Path, filename: str) -> Path:
     suffix = Path(filename).suffix.lower() or ".pptx"
+    output_dir = source_path.parent
+    cmd = [
+        "soffice",
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(output_dir),
+        str(source_path),
+    ]
+    completed = subprocess.run(cmd, capture_output=True, timeout=45, check=False)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or b"").decode(
+            "utf-8", errors="ignore"
+        )[:300]
+        raise RuntimeError(f"office_preview_conversion_failed:{detail}")
+    pdf_path = source_path.with_suffix(".pdf")
+    if not pdf_path.exists():
+        candidates = list(output_dir.glob("*.pdf"))
+        pdf_path = candidates[0] if candidates else pdf_path
+    if not pdf_path.exists():
+        raise RuntimeError(f"office_preview_conversion_missing:{suffix}")
+    return pdf_path
+
+
+def _office_preview_pdf_bytes(original: bytes, filename: str) -> bytes:
     with tempfile.TemporaryDirectory() as tmp_dir:
         source_path = Path(tmp_dir) / Path(filename).name
         source_path.write_bytes(original)
-        cmd = [
-            "soffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            tmp_dir,
-            str(source_path),
-        ]
-        completed = subprocess.run(cmd, capture_output=True, timeout=45, check=False)
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or b"").decode("utf-8", errors="ignore")[:300]
-            raise RuntimeError(f"office_preview_conversion_failed:{detail}")
-        pdf_path = source_path.with_suffix(".pdf")
-        if not pdf_path.exists():
-            candidates = list(Path(tmp_dir).glob("*.pdf"))
-            pdf_path = candidates[0] if candidates else pdf_path
-        if not pdf_path.exists():
-            raise RuntimeError(f"office_preview_conversion_missing:{suffix}")
-        return pdf_path.read_bytes()
+        return _office_preview_pdf_file(source_path, filename).read_bytes()
 
 
 @router.get("/{document_id}/metadata")
@@ -1320,13 +1486,37 @@ async def serve_document_raw(
         if not resolved_name:
             raise HTTPException(status_code=404, detail="Document not found")
 
+        governed, governed_path, cleanup_root = _resolve_governed_original_path(
+            db,
+            workspace,
+            collection_name,
+            document_id,
+            resolved_name,
+        )
+        media_type = mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
+        safe_disposition = "attachment" if disposition == "attachment" else "inline"
+        name = os.path.basename(resolved_name) or "document"
+        if governed:
+            if governed_path is None:
+                raise HTTPException(status_code=404, detail="Source file not found")
+            return FileResponse(
+                governed_path,
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f'{safe_disposition}; filename="{name}"',
+                    "Cache-Control": "private, max-age=3600",
+                },
+                background=(
+                    BackgroundTask(shutil.rmtree, cleanup_root, ignore_errors=True)
+                    if cleanup_root is not None
+                    else None
+                ),
+            )
+
         data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
         if data is None:
             raise HTTPException(status_code=404, detail="Source file not found")
 
-        media_type = mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
-        safe_disposition = "attachment" if disposition == "attachment" else "inline"
-        name = os.path.basename(resolved_name) or "document"
         return Response(
             content=data,
             media_type=media_type,
@@ -1366,11 +1556,40 @@ async def converted_preview_document(
             raise HTTPException(status_code=404, detail="Document not found")
         if Path(resolved_name).suffix.lower() not in _OFFICE_PREVIEW_EXTENSIONS:
             raise HTTPException(status_code=415, detail="Converted preview is not available for this file type")
+        safe_disposition = "attachment" if disposition == "attachment" else "inline"
+        governed, governed_path, cleanup_root = _resolve_governed_original_path(
+            db,
+            workspace,
+            collection_name,
+            document_id,
+            resolved_name,
+        )
+        if governed:
+            if governed_path is None or cleanup_root is None:
+                raise HTTPException(status_code=404, detail="Source file not found")
+            try:
+                pdf_path = _office_preview_pdf_file(governed_path, resolved_name)
+            except Exception:
+                shutil.rmtree(cleanup_root, ignore_errors=True)
+                raise
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": (
+                        f'{safe_disposition}; filename="{Path(resolved_name).stem}.pdf"'
+                    ),
+                    "Cache-Control": "private, max-age=300",
+                },
+                background=BackgroundTask(
+                    shutil.rmtree, cleanup_root, ignore_errors=True
+                ),
+            )
+
         data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
         if data is None:
             raise HTTPException(status_code=404, detail="Source file not found")
         pdf = _office_preview_pdf_bytes(data, resolved_name)
-        safe_disposition = "attachment" if disposition == "attachment" else "inline"
         return Response(
             content=pdf,
             media_type="application/pdf",

@@ -1,9 +1,9 @@
 """Document parser factory"""
-from typing import Dict, Type
-import mimetypes
 from pathlib import Path
-from app.services.document_parser.base import BaseDocumentParser, DocumentType
+from typing import Dict, Type
+
 from app.core.logging import get_logger
+from app.services.document_parser.base import BaseDocumentParser, DocumentType
 
 logger = get_logger(__name__)
 
@@ -27,7 +27,9 @@ class DocumentParserFactory:
         # For PDFs, prefer advanced parser if available
         if doc_type == DocumentType.PDF:
             try:
-                from app.services.document_parser.parsers.pdf_parser_advanced import AdvancedPDFParser
+                from app.services.document_parser.parsers.pdf_parser_advanced import (
+                    AdvancedPDFParser,
+                )
                 return AdvancedPDFParser()
             except ImportError:
                 logger.debug("Advanced PDF parser not available, using basic parser")
@@ -36,6 +38,29 @@ class DocumentParserFactory:
             from app.services.document_parser.parsers.spreadsheet_parser import SpreadsheetParser
 
             return SpreadsheetParser()
+        # Do not rely on importing ``parsers.__init__`` for registration.  The
+        # worker imports this factory directly, so legacy Office files would
+        # otherwise silently fall through to TextParser and yield binary noise.
+        if doc_type == DocumentType.DOC:
+            from app.services.document_parser.parsers.office_doc_parser import OfficeDocParser
+
+            return OfficeDocParser()
+        if doc_type == DocumentType.DOCX:
+            from app.services.document_parser.parsers.docx_parser import DocxParser
+
+            return DocxParser()
+        if doc_type == DocumentType.PPTX:
+            from app.services.document_parser.parsers.pptx_parser import PptxParser
+
+            return PptxParser()
+        if doc_type == DocumentType.IMAGE:
+            from app.services.document_parser.parsers.image_parser import ImageParser
+
+            return ImageParser()
+        if doc_type == DocumentType.MARKDOWN:
+            from app.services.document_parser.parsers.markdown_parser import MarkdownParser
+
+            return MarkdownParser()
         
         if not parser_class:
             # Fallback to text parser

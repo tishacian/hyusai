@@ -22,6 +22,9 @@ from app.services.rag.lexical_retrieval import (
     merge_lexical_configs,
     parse_lexical_config,
 )
+from app.services.rag.project_references import (
+    project_reference_terms as _shared_project_reference_terms,
+)
 
 logger = get_logger(__name__)
 
@@ -30,7 +33,6 @@ _POLICY_FENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]+")
-_PROJECT_REF_RE = re.compile(r"\b([A-Z]{3})[\s_-]?(\d{3})\b", re.IGNORECASE)
 _DIMENSION_REF_RE = re.compile(
     r"\b(?:d|dia|diameter|diametre|diamètre)\.?\s*\d+(?:[,.]\d+)?\b",
     re.IGNORECASE,
@@ -387,18 +389,18 @@ def _is_generic_cover_like(metadata: Mapping[str, Any]) -> bool:
     return any(marker in meta_text for marker in _DISCOVERY_GENERIC_MARKERS)
 
 
-def _project_reference_terms(value: str) -> tuple[str, ...]:
-    terms: list[str] = []
-    for match in _PROJECT_REF_RE.finditer(value or ""):
-        term = f"{match.group(1).upper()}{match.group(2)}"
-        if term not in terms:
-            terms.append(term)
-    return tuple(terms)
+def _project_reference_terms(
+    value: str,
+    *,
+    known_codes: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    return _shared_project_reference_terms(value, known_codes=known_codes)
 
 
 def _term_forms(term: str) -> tuple[str, ...]:
     text = _clean_text(term)
-    match = _PROJECT_REF_RE.fullmatch(text)
+    compact = re.sub(r"[^A-Za-z0-9]+", "", text).upper()
+    match = re.fullmatch(r"([A-Z]{2,})(\d{2,}[A-Z0-9]*)", compact)
     if not match:
         return (text,) if text else ()
     buyer = match.group(1).upper()
@@ -602,13 +604,18 @@ def evidence_coverage_details(
     }
 
 
-def required_terms_from_query(query: str, policy: RetrievalPolicy | None) -> tuple[str, ...]:
+def required_terms_from_query(
+    query: str,
+    policy: RetrievalPolicy | None,
+    *,
+    known_codes: Sequence[str] | None = None,
+) -> tuple[str, ...]:
     if not policy or not policy.enabled:
         return ()
 
     required: list[str] = []
     if policy.require_project_code_match:
-        required.extend(_project_reference_terms(query))
+        required.extend(_project_reference_terms(query, known_codes=known_codes))
 
     for term in policy.protected_terms:
         if _contains_any_term_form(query, term) and term not in required:
@@ -709,12 +716,17 @@ def score_result_with_policy(
     if not policy or not policy.enabled:
         return score
 
-    required_terms = required_terms_from_query(query, policy)
+    known_codes = [str(metadata.get("project_code") or "")]
+    required_terms = required_terms_from_query(query, policy, known_codes=known_codes)
     matched_required_terms = [term for term in required_terms if _contains_any_term_form(haystack, term)]
     for term in matched_required_terms:
         score += 14
 
-    project_terms = _project_reference_terms(query) if policy.require_project_code_match else ()
+    project_terms = (
+        _project_reference_terms(query, known_codes=known_codes)
+        if policy.require_project_code_match
+        else ()
+    )
     if project_terms:
         project_code = str(metadata.get("project_code") or "")
         if project_code and not any(_contains_any_term_form(project_code, term) for term in project_terms):
@@ -807,7 +819,12 @@ def matched_required_terms(
         return ()
     metadata = metadata or {}
     haystack = f"{content}\n{_metadata_text(metadata)}"
-    return tuple(term for term in required_terms_from_query(query, policy) if _contains_any_term_form(haystack, term))
+    known_codes = [str(metadata.get("project_code") or "")]
+    return tuple(
+        term
+        for term in required_terms_from_query(query, policy, known_codes=known_codes)
+        if _contains_any_term_form(haystack, term)
+    )
 
 
 def rerank_results_with_policy(
@@ -998,7 +1015,10 @@ def filter_aligned_to_required_terms(
     query: str,
     policy: RetrievalPolicy | None,
 ) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
-    required = required_terms_from_query(query, policy)
+    known_codes = [
+        str((metadata or {}).get("project_code") or "") for metadata in metadatas
+    ]
+    required = required_terms_from_query(query, policy, known_codes=known_codes)
     if not policy or not policy.require_project_code_match or not required or not chunks:
         return chunks, scores, metadatas, {
             "required_terms": list(required),

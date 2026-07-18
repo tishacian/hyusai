@@ -17,10 +17,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
-from app.core.logging import get_logger
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.services.rag.fusion_weights import FusionWeights, resolve_fusion_weights
 from app.services.rag.lexical_retrieval import analyze_query, identifier_variants
+from app.services.rag.project_references import extract_query_project_codes
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     query_variants_from_policy,
@@ -90,7 +91,10 @@ _TRIAL_CODE_RE = re.compile(
     r"\b(?:test|essai|trial|trials?\s*n[°o]?)?\s*([0-9]{1,3}[A-Z])\b",
     re.IGNORECASE,
 )
-_PROJECT_REFERENCE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]{1,}\d{2,}[A-Z0-9]*\b")
+# Exact retrieval ranking also serves equipment/part identifiers (TTN20777J,
+# V10234, CU250S-2). They are deliberately separate from project identity:
+# matching one here may boost a document, but can never create a project filter.
+_TECHNICAL_REFERENCE_RE = re.compile(r"\b[A-Z]{1,}[A-Z0-9_-]*\d{2,}[A-Z0-9_-]*\b")
 _DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[/-]([01]?\d)[/-](20\d{2}|19\d{2})\b")
 _DATE_YMD_RE = re.compile(r"\b(20\d{2}|19\d{2})[/-]([01]?\d)[/-]([0-3]?\d)\b")
 
@@ -1530,16 +1534,25 @@ def _compact_reference_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
 
-def _query_project_references(question: str) -> list[str]:
-    refs: list[str] = []
-    folded = str(question or "").upper()
-    for match in _PROJECT_REFERENCE_RE.findall(folded):
+def _query_project_references(
+    question: str,
+    *,
+    known_codes: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[str]:
+    """Return canonical projects without promoting arbitrary numeric/part identifiers."""
+    return extract_query_project_codes(question, known_codes=known_codes)[:5]
+
+
+def _query_exact_references(
+    question: str,
+    *,
+    known_codes: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[str]:
+    """Combine project identity with non-project technical IDs for exact ranking."""
+    refs = _query_project_references(question, known_codes=known_codes)
+    for match in _TECHNICAL_REFERENCE_RE.findall(str(question or "").upper()):
         compact = _compact_reference_text(match).upper()
-        if len(compact) >= 5 and compact not in refs:
-            refs.append(compact)
-    for prefix, suffix in re.findall(r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded):
-        compact = _compact_reference_text(f"{prefix}{suffix}").upper()
-        if len(compact) >= 5 and compact not in refs:
+        if compact and compact not in refs:
             refs.append(compact)
     return refs[:5]
 
@@ -1548,8 +1561,15 @@ def _prioritise_exact_project_reference_matches(
     results: list[dict[str, Any]],
     question: str,
 ) -> list[dict[str, Any]]:
-    refs = _query_project_references(question)
-    if not refs or not results:
+    if not results:
+        return results
+    known_codes = {
+        str((row.get("metadata") or {}).get("project_code") or "").strip().upper()
+        for row in results
+    }
+    known_codes.discard("")
+    refs = _query_exact_references(question, known_codes=known_codes)
+    if not refs:
         return results
     ranked: list[tuple[int, float, int, dict[str, Any]]] = []
     has_exact = False

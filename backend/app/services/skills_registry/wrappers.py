@@ -27,6 +27,10 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Optional
 
 from app.core.logging import get_logger
+from app.services.rag.project_references import (
+    extract_query_project_codes,
+    numeric_project_candidates,
+)
 
 logger = get_logger(__name__)
 
@@ -2717,8 +2721,7 @@ _INVENTORY_RE = re.compile(
 )
 
 # Named Andritz machines / systems / brands that GUARANTEE the query is in-corpus
-# — used to gate a false ``reject_oos`` (project codes like AKK200/D.60/CU250S-2
-# are already covered by ``_PROJECT_CODE_RE``). QMS-12 etc. are NOT project codes
+# — used to gate a false ``reject_oos``. QMS-12 etc. are NOT project codes
 # but ARE in-corpus, so the planner must never reject them (fix 2026-06-26).
 _KNOWN_ENTITY_RE = re.compile(
     r"\b(qualiscan|qms[\s-]?\d+|uraca|etachrom|sinamics|simotics|jetlace|servo\s*x|"
@@ -2765,16 +2768,104 @@ def _project_inventory_passage(inventory: Any) -> Optional[dict[str, Any]]:
     }
 
 
-def _has_known_corpus_anchor(query: str) -> bool:
+def _authoritative_query_project_codes(
+    query: str,
+    payload: dict[str, Any],
+    ctx: dict[str, Any],
+) -> set[str]:
+    """Validate bare numeric5 candidates against the bound source ledger.
+
+    The lookup is intentionally collection-exact and never falls back to every
+    collection in the workspace. It only answers the early Agentic clarify/OOS
+    gate; the corpus planner remains the owner of the eventual retrieval filter.
+    """
+
+    candidates = set(numeric_project_candidates(query))
+    if not candidates:
+        return set()
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    contract = (
+        ctx.get("retrieval_contract")
+        if isinstance(ctx.get("retrieval_contract"), dict)
+        else {}
+    )
+    collection_ref = (
+        contract.get("collection")
+        or contract.get("primary_collection")
+        or ctx.get("context_collection")
+        or payload.get("context_collection")
+    )
+    if not workspace_id or not str(collection_ref or "").strip():
+        return set()
+
+    try:
+        from app.db.base import SessionLocal
+        from app.models.knowledge_collection import (
+            KnowledgeCollection,
+            KnowledgeCollectionSource,
+        )
+
+        db = SessionLocal()
+        try:
+            project_value = KnowledgeCollectionSource.source_metadata[
+                "project_code"
+            ].as_string()
+            rows = (
+                db.query(project_value)
+                .join(
+                    KnowledgeCollection,
+                    KnowledgeCollectionSource.collection_id == KnowledgeCollection.id,
+                )
+                .filter(
+                    KnowledgeCollection.workspace_id == workspace_id,
+                    (
+                        (KnowledgeCollection.slug == str(collection_ref))
+                        | (KnowledgeCollection.id == str(collection_ref))
+                    ),
+                    KnowledgeCollection.status == "ready",
+                    KnowledgeCollectionSource.status.in_(
+                        ("ready", "indexed", "deduplicated")
+                    ),
+                    project_value.in_(sorted(candidates)),
+                )
+                .distinct()
+                .limit(len(candidates))
+                .all()
+            )
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 - an unavailable facet fails closed.
+        logger.warning(
+            "skills_registry: authoritative project-code lookup failed",
+            workspace_id=workspace_id,
+            collection=str(collection_ref),
+            error=str(exc),
+        )
+        return set()
+    return {
+        str(row[0] or "").strip().upper()
+        for row in rows
+        if str(row[0] or "").strip().upper() in candidates
+    }
+
+
+def _has_known_corpus_anchor(
+    query: str,
+    *,
+    known_project_codes: set[str] | None = None,
+) -> bool:
     """True when the query names a known project/machine/system in the corpus."""
     q = query or ""
-    return bool(_PROJECT_CODE_RE.search(q) or _KNOWN_ENTITY_RE.search(q))
+    return bool(
+        extract_query_project_codes(q, known_codes=known_project_codes)
+        or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
+        or _KNOWN_ENTITY_RE.search(q)
+    )
 
 
-# Clarify gating (C3). Andritz project/identifier codes: 2-4 letters + 2-3
-# digits (+ optional -N), plus the D.NN bearing style. A request carrying one is
-# specific enough to answer — never to clarify.
-_PROJECT_CODE_RE = re.compile(r"\b([A-Z]{2,4}\d{2,3}(?:-\d)?|D\.\d{2,3}|CU\d{3}[A-Z]?-?\d?)\b")
+# Equipment references that are valid corpus anchors but not project identities.
+# Project identity itself is owned by ``project_references``.
+_SPECIAL_CORPUS_REFERENCE_RE = re.compile(r"\b(?:D\.\d{2,3}|CU\d{3}[A-Z]?-?\d?)\b")
 _QUESTION_WORD_RE = re.compile(
     r"\b(quel|quelle|comment|pourquoi|where|how|what|why|wo|wie|was|warum)\b", re.IGNORECASE
 )
@@ -2798,7 +2889,12 @@ def _is_placeholder_text(value: Any) -> bool:
     return text in _PLACEHOLDER_SCOPES or text.startswith(("<", "the concrete search"))
 
 
-def _assess_clarify_gate(query: str, *, has_history: bool) -> dict[str, Any]:
+def _assess_clarify_gate(
+    query: str,
+    *,
+    has_history: bool,
+    known_project_codes: set[str] | None = None,
+) -> dict[str, Any]:
     """Deterministic sufficiency check — should a clarify actually be allowed?
 
     Mirrors ``agentic_chat_spike.assess_sufficiency``: clarify is only justified
@@ -2806,7 +2902,10 @@ def _assess_clarify_gate(query: str, *, has_history: bool) -> dict[str, Any]:
     explicit question on a named subject, or conversational history).
     """
     q = (query or "").strip()
-    has_project = bool(_PROJECT_CODE_RE.search(q))
+    has_project = bool(
+        extract_query_project_codes(q, known_codes=known_project_codes)
+        or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
+    )
     has_question = bool(_QUESTION_WORD_RE.search(q)) or "?" in q
     word_count = len(q.split())
     # Ambiguous = very short / no question framing AND no anchoring signal.
@@ -3913,6 +4012,7 @@ def _deterministic_single_project_plan(
     *,
     has_history: bool,
     ctx: dict[str, Any],
+    known_project_codes: set[str] | None = None,
 ) -> Optional[dict[str, Any]]:
     """Return a deterministic lane plan for a conservative project lookup.
 
@@ -3941,11 +4041,9 @@ def _deterministic_single_project_plan(
         # perfectly valid requested category and must not veto it.
         project_code = inventory_intent.project_code
     else:
-        project_codes = {
-            match.group(1).upper()
-            for match in _PROJECT_CODE_RE.finditer(query)
-            if match.group(1)
-        }
+        project_codes = set(
+            extract_query_project_codes(query, known_codes=known_project_codes)
+        )
         if (
             len(project_codes) != 1
             or _COMPLEX_PROJECT_QUERY_RE.search(query)
@@ -3981,6 +4079,7 @@ def _deterministic_single_project_plan(
         plan_payload,
         query,
         has_history=False,
+        known_project_codes=known_project_codes,
     )
 
 
@@ -4051,7 +4150,11 @@ def _coerce_sub_queries(parsed: dict[str, Any], query: str, answer_profile: str)
 
 
 def _coerce_plan(
-    parsed: dict[str, Any], query: str, *, has_history: bool = False
+    parsed: dict[str, Any],
+    query: str,
+    *,
+    has_history: bool = False,
+    known_project_codes: set[str] | None = None,
 ) -> dict[str, Any]:
     """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
 
@@ -4152,12 +4255,19 @@ def _coerce_plan(
     # (or matches a project code) — the planner over-rejects valid questions
     # (notably in German). Demote to answer; retrieval + the deliver context
     # gate decide the rest.
-    if action == "reject_oos" and _has_known_corpus_anchor(query):
+    if action == "reject_oos" and _has_known_corpus_anchor(
+        query,
+        known_project_codes=known_project_codes,
+    ):
         action = "answer"
 
     # C3 gate: only honour clarify when the request is genuinely ambiguous.
     if action == "clarify":
-        gate = _assess_clarify_gate(query, has_history=has_history)
+        gate = _assess_clarify_gate(
+            query,
+            has_history=has_history,
+            known_project_codes=known_project_codes,
+        )
         if gate["has_project_code"] or not gate["allow_clarify"] or not clarifying_question:
             action = "answer"
             clarifying_question = ""
@@ -4207,10 +4317,12 @@ async def _chat_agentic_plan_v1(
     query = str(payload.get("query") or "")
     history = payload.get("conversation_history")
     has_history = bool(isinstance(history, (list, tuple)) and history)
+    known_project_codes = _authoritative_query_project_codes(query, payload, ctx)
     deterministic_plan = _deterministic_single_project_plan(
         query,
         has_history=has_history,
         ctx=ctx,
+        known_project_codes=known_project_codes,
     )
     if deterministic_plan is not None:
         return deterministic_plan
@@ -4223,7 +4335,12 @@ async def _chat_agentic_plan_v1(
         logger.warning(
             "chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc)
         )
-    return _coerce_plan(_loads_lenient_json(completion) or {}, query, has_history=has_history)
+    return _coerce_plan(
+        _loads_lenient_json(completion) or {},
+        query,
+        has_history=has_history,
+        known_project_codes=known_project_codes,
+    )
 
 
 def _build_self_correct_prompt(

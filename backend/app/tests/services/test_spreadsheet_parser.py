@@ -123,11 +123,28 @@ async def test_spreadsheet_parser_extracts_csv_table_artifacts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_spreadsheet_parser_rejects_legacy_xls_without_text_fallback(tmp_path):
+async def test_spreadsheet_parser_converts_legacy_xls_without_text_fallback(
+    tmp_path, monkeypatch
+):
+    openpyxl = pytest.importorskip("openpyxl")
     workbook_path = tmp_path / "legacy.xls"
-    workbook_path.write_bytes(b"not parsed as text")
+    workbook_path.write_bytes(b"legacy-binary-container")
+
+    def fake_run(command, **_kwargs):
+        output_dir = command[command.index("--outdir") + 1]
+        converted = openpyxl.Workbook()
+        converted.active.append(["Project", "61038"])
+        converted.save(f"{output_dir}/legacy.xlsx")
+        return type("Completed", (), {"returncode": 0, "stderr": b"", "stdout": b""})()
+
+    monkeypatch.setattr(
+        "app.services.document_parser.parsers.spreadsheet_parser.subprocess.run",
+        fake_run,
+    )
 
     parser = DocumentParserFactory.get_parser(str(workbook_path))
+    parsed = await parser.parse(str(workbook_path))
 
-    with pytest.raises(ValueError, match="Legacy .xls spreadsheets are not supported"):
-        await parser.parse(str(workbook_path))
+    assert parsed.document_type == DocumentType.SPREADSHEET
+    assert parsed.metadata["conversion"] == "libreoffice_xlsx"
+    assert any("61038" in chunk["content"] for chunk in parsed.chunks)

@@ -14,6 +14,7 @@ from app.services.rag.pipeline_retrieval import (
     _merge_rrf,
     _prioritise_exact_project_reference_matches,
     _prioritise_spreadsheet_label_matches,
+    _query_project_references,
     _query_variants,
     _search_documents,
     retrieve_chah_like,
@@ -111,6 +112,35 @@ def test_prioritise_exact_project_reference_matches_before_near_codes():
     out = _prioritise_exact_project_reference_matches(rows, "Que dit TTN20777J ?")
 
     assert out[0]["metadata"]["document_filename"] == "TTN20777J card documentation.pdf"
+
+
+def test_project_ranking_resolver_distinguishes_needlepunch_from_part_references():
+    assert _query_project_references("résume le projet 61038") == ["61038"]
+    assert _query_project_references("61038", known_codes={"61038"}) == ["61038"]
+    assert _query_project_references("notice TTN17829J") == []
+    assert _query_project_references("variante V10234") == []
+    assert _query_project_references("vitesse 10000 rpm", known_codes={"10000"}) == []
+
+
+def test_prioritise_exact_needlepunch_project_metadata():
+    rows = [
+        {
+            "content": "wrong project",
+            "score": 0.99,
+            "combined_score": 0.99,
+            "metadata": {"project_code": "61001"},
+        },
+        {
+            "content": "right project",
+            "score": 0.2,
+            "combined_score": 0.2,
+            "metadata": {"project_code": "61038"},
+        },
+    ]
+
+    out = _prioritise_exact_project_reference_matches(rows, "résume 61038")
+
+    assert out[0]["metadata"]["project_code"] == "61038"
 
 
 class ExactTableFactService:

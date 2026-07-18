@@ -117,6 +117,11 @@ Note de profil opératoire Andritz (à lire absolument avant de toucher au chat)
   **références projet stables** — un agencement de machines dans une ligne, **pas
   une machine unique**. Les 3 lettres = premier client historique ; le nombre =
   position/phase dans la chaîne. La référence ne change pas si la ligne est revendue.
+- Needlepunch utilise un second schéma, numérique à cinq chiffres (ex. `61035`).
+  Il n'est valide que dans la structure
+  `Notices_Techniques_Needlepunch/<plage>/<code + libellé>/...`, avec un code
+  appartenant à la plage. Un nombre trouvé dans une pièce, un document ou une
+  mesure n'est jamais promu comme projet.
 - Les machines/équipements ne sont identifiés que lorsqu'ils sont **nommés** dans
   les notices : carde, TMS, TCF, EXCELLE, injector, pump, damper, sensor, jetlace…
 - **Termes à protéger contre le rewriting** (ne jamais reformuler/traduire) :
@@ -148,6 +153,12 @@ Pièges connus (voir [`andritz-data-indexing-context-2026-06-02.md`](./andritz-d
 - Beaucoup de données carde/BHX100 sont encore en `received` (non exploitables).
 - Les pages HTML de navigation (`menu`, `index`) doivent être **dépriorisées**
   comme preuve mais rester indexables si elles portent du contenu.
+
+Pour le corpus Needlepunch, utiliser exclusivement l'importeur incrémental
+no-copy et le dry-run hashé décrits dans le
+[`runbook Needlepunch`](./ops/andritz-needlepunch-indexing.md). Ne pas réutiliser
+le bulk SPL historique : il ne couvre pas ce préfixe et reconstruirait trop
+largement la collection transverse.
 
 ### 3.4 Règles de réponse du chat transverse (résumé)
 
@@ -221,7 +232,8 @@ sécurisé de la VM, indexés dans Postgres/Qdrant.
 | Réutilisation des briques (vue systèmes A+B) | [`pih/AGENTIUM-PIH-reuse-from-andritz.md`](./pih/AGENTIUM-PIH-reuse-from-andritz.md) |
 | Chat transverse Andritz (profils, style, retrieval) | [`andritz-chat-transverse-profile-note.md`](./andritz-chat-transverse-profile-note.md) |
 | Contexte data & indexation Andritz | [`andritz-data-indexing-context-2026-06-02.md`](./andritz-data-indexing-context-2026-06-02.md) |
-| Knowledge Guide notices SPL | [`andritz-notices-techniques-spl-knowledge-guide.md`](./andritz-notices-techniques-spl-knowledge-guide.md) |
+| Knowledge Guide notices transverses SPL + Needlepunch | [`andritz-notices-techniques-spl-knowledge-guide.md`](./andritz-notices-techniques-spl-knowledge-guide.md) |
+| Promotion opérateur Needlepunch | [`ops/andritz-needlepunch-indexing.md`](./ops/andritz-needlepunch-indexing.md) |
 | Capture de connaissance (spéc & ADR) | [`expert-knowledge-capture.md`](./expert-knowledge-capture.md), [`adr/0001-refonte-capture-le-fil.md`](./adr/0001-refonte-capture-le-fil.md) |
 | Flow Builder — nœuds source/asset & triggers | [`adr-flow-source-nodes.md`](./adr-flow-source-nodes.md) |
 | Politique de déploiement dev | [`dev-deploy-policy.md`](./dev-deploy-policy.md) |

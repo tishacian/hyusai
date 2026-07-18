@@ -14,15 +14,16 @@ from __future__ import annotations
 import asyncio
 import csv
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from app.services.document_parser.base import BaseDocumentParser, DocumentType, ParsedDocument
 
-
 _EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 _DELIMITED_EXTENSIONS = {".csv", ".tsv"}
-_SUPPORTED_EXTENSIONS = _EXCEL_EXTENSIONS | _DELIMITED_EXTENSIONS
+_SUPPORTED_EXTENSIONS = _EXCEL_EXTENSIONS | _DELIMITED_EXTENSIONS | {".xls"}
 _MAX_ROWS_PER_CHUNK = 80
 _MAX_SHEET_ROWS = 5_000
 _MAX_SHEET_COLS = 80
@@ -38,8 +39,6 @@ class SpreadsheetParser(BaseDocumentParser):
     async def parse(self, file_path: str, **kwargs) -> ParsedDocument:
         path = Path(file_path)
         suffix = path.suffix.lower()
-        if suffix == ".xls":
-            raise ValueError("Legacy .xls spreadsheets are not supported for Knowledge ingestion yet")
         if suffix not in _SUPPORTED_EXTENSIONS:
             raise ValueError(f"Unsupported spreadsheet extension: {path.suffix}")
 
@@ -61,6 +60,19 @@ class SpreadsheetParser(BaseDocumentParser):
             )
             document_type = DocumentType.CSV
             encoding = "utf-8"
+        elif suffix == ".xls":
+            parsed = await loop.run_in_executor(
+                None,
+                lambda: self._parse_legacy_workbook(
+                    path,
+                    rows_per_chunk=rows_per_chunk,
+                    max_sheet_rows=max_sheet_rows,
+                    max_sheet_cols=max_sheet_cols,
+                ),
+            )
+            document_type = DocumentType.SPREADSHEET
+            encoding = "binary"
+            metadata["conversion"] = "libreoffice_xlsx"
         else:
             parsed = await loop.run_in_executor(
                 None,
@@ -113,6 +125,45 @@ class SpreadsheetParser(BaseDocumentParser):
 
     def supports(self, file_path: str) -> bool:
         return Path(file_path).suffix.lower() in _SUPPORTED_EXTENSIONS
+
+    def _parse_legacy_workbook(
+        self,
+        path: Path,
+        *,
+        rows_per_chunk: int,
+        max_sheet_rows: int,
+        max_sheet_cols: int,
+    ) -> dict[str, Any]:
+        """Convert binary XLS with LibreOffice, then use the canonical parser."""
+        with tempfile.TemporaryDirectory(prefix="agentium-xls-") as tmp_dir:
+            completed = subprocess.run(
+                [
+                    "soffice",
+                    "--headless",
+                    "--convert-to",
+                    "xlsx",
+                    "--outdir",
+                    tmp_dir,
+                    str(path),
+                ],
+                capture_output=True,
+                timeout=90,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or b"").decode(
+                    "utf-8", errors="ignore"
+                )[:300]
+                raise RuntimeError(f"legacy_xls_conversion_failed:{detail}")
+            candidates = sorted(Path(tmp_dir).glob("*.xlsx"))
+            if not candidates:
+                raise RuntimeError("legacy_xls_conversion_missing")
+            return self._parse_workbook(
+                candidates[0],
+                rows_per_chunk=rows_per_chunk,
+                max_sheet_rows=max_sheet_rows,
+                max_sheet_cols=max_sheet_cols,
+            )
 
     def _parse_workbook(
         self,

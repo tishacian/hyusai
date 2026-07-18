@@ -637,6 +637,41 @@ async def test_delete_maps_string_ids_to_point_uuids():
 
 
 @pytest.mark.asyncio
+async def test_delete_by_metadata_uses_exact_wave_filter():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.count.return_value = SimpleNamespace(count=0)
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    assert await db.delete_by_metadata({"wave_id": "needlepunch-plan-001"}) is True
+
+    from qdrant_client.models import FilterSelector
+
+    kwargs = client.delete.call_args.kwargs
+    assert kwargs["collection_name"] == "col"
+    assert kwargs["wait"] is True
+    selector = kwargs["points_selector"]
+    assert isinstance(selector, FilterSelector)
+    assert selector.filter.must[0].key == "wave_id"
+    assert selector.filter.must[0].match.value == "needlepunch-plan-001"
+    client.count.assert_called_once_with(
+        collection_name="col",
+        count_filter=selector.filter,
+        exact=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_by_metadata_fails_closed_when_points_remain():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.count.return_value = SimpleNamespace(count=1)
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    assert await db.delete_by_metadata({"wave_id": "needlepunch-plan-001"}) is False
+
+
+@pytest.mark.asyncio
 async def test_get_count_delegates_to_client():
     client = MagicMock()
     client.collection_exists.return_value = True

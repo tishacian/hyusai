@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from app.services.rag.corpus_planner import (
+    _fast_ledger_candidate_rows,
+    _infer_filters,
+    _infer_ledger_document_scope,
+)
 from app.services.rag.retrieval_policy import (
     clarification_from_policy,
     evidence_coverage_details,
@@ -12,10 +17,6 @@ from app.services.rag.retrieval_policy import (
     rerank_results_with_policy,
     retrieval_policy_from_guides,
     score_result_with_policy,
-)
-from app.services.rag.corpus_planner import (
-    _fast_ledger_candidate_rows,
-    _infer_ledger_document_scope,
 )
 from app.services.rag.source_facets import score_source_family_match
 
@@ -224,6 +225,46 @@ def test_broad_project_scope_keeps_real_indexed_project_code():
     assert filters.get("project_code") == ["AKK200"]
 
 
+def test_corpus_planner_uses_authoritative_numeric_project_metadata():
+    rows = [
+        _ledger_row("needlepunch__61038__manual.pdf", project_code="61038"),
+        _ledger_row("needlepunch__61001__manual.pdf", project_code="61001"),
+    ]
+
+    filters, confidence, reasons = _infer_filters("résume 61038", rows)
+
+    assert filters["project_code"] == "61038"
+    assert confidence > 0
+    assert "project_code=61038" in reasons
+
+
+def test_corpus_planner_does_not_promote_part_or_measurement_references():
+    rows = [
+        _ledger_row("needlepunch__61038__TTN17829J.pdf", project_code="61038"),
+        _ledger_row("needlepunch__61001__V10234.pdf", project_code="61001"),
+    ]
+
+    for query in ("notice TTN17829J", "variante V10234", "vitesse 10000 rpm"):
+        filters, _, _ = _infer_filters(query, rows)
+        assert "project_code" not in filters, query
+
+
+def test_corpus_planner_does_not_self_authorise_numeric_machine_metadata():
+    row = SimpleNamespace(
+        filename="machine__61038__manual.pdf",
+        normalized_name="machine__61038__manual.pdf",
+        source_kind="pdf",
+        extension="pdf",
+        mime_type="application/pdf",
+        chunk_count=1,
+        source_metadata={"machine": "61038"},
+    )
+
+    filters, _, _ = _infer_filters("61038", [row])
+
+    assert "project_code" not in filters
+
+
 def test_policy_adds_dynamic_project_reference_variants():
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 
@@ -323,6 +364,39 @@ def test_policy_filters_other_projects_when_exact_project_reference_missing():
     assert constraints["required_terms"] == ["COL100"]
     assert constraints["missing_terms"] == ["COL100"]
     assert constraints["filtered_chunks_removed"] == 2
+
+
+def test_policy_filters_needlepunch_project_by_exact_numeric_code():
+    policy = retrieval_policy_from_guides([POLICY_GUIDE])
+
+    chunks, scores, metadatas, constraints = filter_aligned_to_required_terms(
+        ["Manual for project 61038", "Manual for project 61001"],
+        [0.7, 0.9],
+        [{"project_code": "61038"}, {"project_code": "61001"}],
+        query="résume 61038",
+        policy=policy,
+    )
+
+    assert chunks == ["Manual for project 61038"]
+    assert scores == [0.7]
+    assert metadatas[0]["project_code"] == "61038"
+    assert constraints["required_terms"] == ["61038"]
+
+
+def test_policy_recognises_bare_numeric_only_from_candidate_project_codes():
+    policy = retrieval_policy_from_guides([POLICY_GUIDE])
+
+    chunks, _, metadatas, constraints = filter_aligned_to_required_terms(
+        ["Manual for project 61038", "Manual for project 61001"],
+        [0.7, 0.9],
+        [{"project_code": "61038"}, {"project_code": "61001"}],
+        query="61038",
+        policy=policy,
+    )
+
+    assert chunks == ["Manual for project 61038"]
+    assert metadatas[0]["project_code"] == "61038"
+    assert constraints["required_terms"] == ["61038"]
 
 
 def test_cross_project_log_only_reports_without_filtering():

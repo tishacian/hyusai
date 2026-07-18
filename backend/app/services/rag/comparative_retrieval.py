@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import settings
-from app.services.rag.conversation_anchors import _REFERENCE_RE
+from app.services.rag.project_references import project_reference_terms
 
 # Comparative split patterns. Each captures the two compared entities (group 1
 # and group 2). Matched on the accent-folded, lower-cased query. Order matters:
@@ -40,6 +40,8 @@ _SPLIT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bcompare\s+(.+?)\s+(?:and|to|with|versus|vs\.?)\s+(.+?)(?:\s+(?:on|for|in)\b|\?|$)"),
     # FR: différence(s) … entre [le|la|les|l'] X et [le|la|les|l'] Y
     re.compile(r"difference[s]?\b.*?\bentre\s+(.+?)\s+et\s+(.+?)(?:\s+(?:sur|pour|dans)\b|\?|$)"),
+    # FR: comparaison(s) entre X et Y
+    re.compile(r"comparaison[s]?\b.*?\bentre\s+(.+?)\s+et\s+(.+?)(?:\s+(?:sur|pour|dans)\b|\?|$)"),
     # FR: compare(r/z) X (et|avec|versus|vs) Y
     re.compile(r"\bcompare[rz]?\s+(.+?)\s+(?:et|avec|versus|vs\.?)\s+(.+?)(?:\s+(?:sur|pour|dans)\b|\?|$)"),
     # DE: Unterschied(e) zwischen X und Y
@@ -131,7 +133,18 @@ def is_comparative_query(query: str) -> bool:
 
 
 def _build_subquery(entity: str, references: Sequence[str]) -> str:
-    refs = " ".join(dict.fromkeys(references))  # dedupe, keep order
+    # When the compared entities are themselves project codes, carrying every
+    # reference into both subqueries makes the corpus planner select the first
+    # project twice.  Keep only the reference structurally present in this
+    # entity.  If the entities are equipment names under one shared project,
+    # retain the original project anchor(s) as before.
+    entity_references = project_reference_terms(entity, known_codes=references)
+    selected = entity_references or tuple(dict.fromkeys(references))
+    refs = " ".join(
+        reference
+        for reference in selected
+        if reference not in entity_references
+    )
     return " ".join(part for part in (entity, refs) if part).strip()
 
 
@@ -157,9 +170,7 @@ def build_comparative_plan(query: str, *, latency_profile: str | None) -> Compar
     entities = parse_comparative_entities(query)
     if not entities:
         return None
-    references = tuple(
-        f"{m.group(1).upper()}{m.group(2)}" for m in _REFERENCE_RE.finditer(query)
-    )
+    references = project_reference_terms(query)
     left, right = entities
     subqueries = (
         _build_subquery(left, references),

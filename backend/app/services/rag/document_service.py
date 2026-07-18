@@ -1103,6 +1103,17 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error deleting document {document_id}: {e}")
             return False
+
+    async def delete_by_metadata(self, filters: Dict[str, Any]) -> bool:
+        """Delete only chunks matching exact source metadata when supported."""
+        try:
+            deleted = await self.vector_db.delete_by_metadata(filters)
+            if deleted and self.cache:
+                self.cache.clear()
+            return bool(deleted)
+        except Exception as e:
+            logger.error(f"Error deleting documents by metadata: {e}")
+            return False
     
     async def clear_all_documents(self) -> bool:
         """Clear all documents from the collection"""

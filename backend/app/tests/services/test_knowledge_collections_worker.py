@@ -21,6 +21,7 @@ from app.services.knowledge_collections import (
     document_manifest_key,
     original_key,
     update_job,
+    upsert_collection_source,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import (
@@ -29,7 +30,10 @@ from app.services.rag.bm25_store import (
     rebuild_bm25_artifact,
 )
 from app.services.worker_bm25 import run_bm25_rebuild
-from app.services.worker_ingest import run_document_ingest_index
+from app.services.worker_ingest import (
+    _finalize_linked_deposit_files,
+    run_document_ingest_index,
+)
 
 
 def _workspace(db_session, *, slug: str = "acme") -> Workspace:
@@ -99,6 +103,35 @@ def test_worker_ingest_skips_terminal_job(db_session, monkeypatch):
     assert result["status"] == "skipped"
     assert result["reason"] == "worker_job_already_terminal"
     assert refreshed.status == "cancelled"
+
+
+def test_worker_ingest_claim_is_idempotent_for_duplicate_delivery(
+    db_session,
+    monkeypatch,
+):
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Claimed Docs")
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    job.status = "running"
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: pytest.fail("a duplicate delivery must not parse"),
+    )
+
+    result = run_document_ingest_index(job.id)
+
+    assert result == {
+        "status": "skipped",
+        "reason": "worker_job_not_claimable",
+        "job_id": job.id,
+        "job_status": "running",
+    }
 
 
 def test_worker_ingest_indexes_collection_and_writes_ingested_text(
@@ -308,6 +341,304 @@ def test_worker_ingest_dedupes_identical_content(db_session, tmp_path, monkeypat
     )
     assert canonical.status == "ready"
     assert canonical.source_metadata["content_sha256"] == duplicate.source_metadata["content_sha256"]
+
+
+def test_worker_ingest_preserves_identical_content_across_projects(
+    db_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Needlepunch")
+    collection.document_names = ["manual-61001.txt", "manual-61009.txt"]
+    for name in collection.document_names:
+        get_object_store().write_bytes(original_key(collection, name), b"shared manual")
+    get_object_store().write_text(
+        document_manifest_key(collection),
+        json.dumps(
+            {
+                "manual-61001.txt": {"project_code": "61001"},
+                "manual-61009.txt": {"project_code": "61009"},
+            }
+        ),
+    )
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    db_session.commit()
+
+    class FakeParser:
+        async def parse(self, _path):
+            return SimpleNamespace(chunks=[{"content": "shared manual"}])
+
+    ingested: list[str] = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def clear_all_documents(self):
+            return True
+
+        async def ingest_documents_batch(self, paths, **_kwargs):
+            ingested.extend(Path(path).name for path in paths)
+            return {
+                "total": 2,
+                "successful": 2,
+                "failed": 0,
+                "results": [
+                    {"status": "success", "chunks_processed": 1, "document_id": "a"},
+                    {"status": "success", "chunks_processed": 1, "document_id": "b"},
+                ],
+            }
+
+        async def get_document_count(self):
+            return 2
+
+        async def list_documents(self):
+            return [{"document_id": "a"}, {"document_id": "b"}]
+
+    async def fake_bm25(**_kwargs):
+        return {"status": "ready", "chunk_count": 2}
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: FakeParser(),
+    )
+    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+
+    run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    assert sorted(ingested) == sorted(collection.document_names)
+    statuses = {
+        row.filename: row.status
+        for row in db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .all()
+    }
+    assert statuses == {"manual-61001.txt": "ready", "manual-61009.txt": "ready"}
+
+
+def test_worker_ingest_duplicate_only_incremental_wave_completes(
+    db_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Needlepunch")
+    collection.status = "ready"
+    collection.chunk_count = 3
+    collection.document_names = ["canonical.txt", "copy.txt"]
+    content = b"same project manual"
+    content_hash = __import__("hashlib").sha256(content).hexdigest()
+    get_object_store().write_bytes(original_key(collection, "copy.txt"), content)
+    get_object_store().write_text(
+        document_manifest_key(collection),
+        json.dumps({"copy.txt": {"project_code": "61001"}}),
+    )
+    db_session.add(
+        KnowledgeCollectionSource(
+            workspace_id=ws.id,
+            collection_id=collection.id,
+            filename="canonical.txt",
+            normalized_name="canonical.txt",
+            status="ready",
+            source_metadata={
+                "project_code": "61001",
+                "content_sha256": content_hash,
+            },
+        )
+    )
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    job.result = {
+        "ingest_options": {
+            "mode": "incremental",
+            "document_names": ["copy.txt"],
+            "wave_id": "needlepunch_61001_1",
+            "source_profile": "needlepunch",
+        }
+    }
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService",
+        lambda *_args, **_kwargs: pytest.fail("duplicate-only wave must not embed"),
+    )
+
+    result = run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    refreshed = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    duplicate = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename == "copy.txt",
+        )
+        .one()
+    )
+    assert refreshed.status == "completed"
+    assert refreshed.result["postflight_required"] is True
+    assert refreshed.result["postflight_status"] == "pending"
+    assert result["bm25"]["reason"] == "duplicate_only_wave"
+    assert duplicate.status == "deduplicated"
+    assert duplicate.source_metadata["project_code"] == "61001"
+    assert duplicate.source_metadata["duplicate_of"] == "canonical.txt"
+
+
+@pytest.mark.parametrize(
+    ("rollback_result", "rollback_chunk_count", "expected_collection_status"),
+    [(True, 41, "ready"), (True, 42, "error"), (False, 41, "error")],
+)
+def test_needlepunch_incremental_partial_failure_rolls_back_only_wave(
+    db_session,
+    tmp_path,
+    monkeypatch,
+    rollback_result,
+    rollback_chunk_count,
+    expected_collection_status,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Needlepunch")
+    collection.status = "ready"
+    collection.chunk_count = 41
+    collection.document_names = ["good.txt", "broken.txt"]
+    for name in collection.document_names:
+        get_object_store().write_bytes(original_key(collection, name), name.encode())
+    get_object_store().write_text(
+        document_manifest_key(collection),
+        json.dumps(
+            {
+                name: {
+                    "project_code": "61035",
+                    "source_profile": "needlepunch",
+                    "wave_id": "needlepunch-test-001",
+                }
+                for name in collection.document_names
+            }
+        ),
+    )
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    job.result = {
+        "ingest_options": {
+            "mode": "incremental",
+            "source_profile": "needlepunch",
+            "wave_id": "needlepunch-test-001",
+            "document_names": list(collection.document_names),
+            "baseline_document_names": [],
+            "baseline_document_count": 0,
+            "baseline_chunk_count": 41,
+        }
+    }
+    db_session.commit()
+
+    class FakeParser:
+        async def parse(self, path, **_kwargs):
+            content = Path(path).name
+            return SimpleNamespace(
+                chunks=[{"content": content}],
+                raw_content=content,
+            )
+
+    rolled_back: list[str] = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def ingest_documents_batch(self, paths, **_kwargs):
+            from app.db.base import SessionLocal
+
+            serving_db = SessionLocal()
+            try:
+                serving_collection = (
+                    serving_db.query(KnowledgeCollection)
+                    .filter(KnowledgeCollection.id == collection.id)
+                    .one()
+                )
+                assert serving_collection.status == "ready"
+            finally:
+                serving_db.close()
+            assert [Path(path).name for path in paths] == ["good.txt", "broken.txt"]
+            return {
+                "total": 2,
+                "successful": 1,
+                "failed": 1,
+                "results": [
+                    {
+                        "status": "success",
+                        "chunks_processed": 2,
+                        "document_id": "wave-good-document",
+                    },
+                    {
+                        "status": "error",
+                        "chunks_processed": 0,
+                        "error": "parser failed",
+                    },
+                ],
+            }
+
+        async def delete_document(self, document_id):
+            rolled_back.append(document_id)
+            return rollback_result
+
+        async def get_document_count(self):
+            return rollback_chunk_count
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: FakeParser(),
+    )
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService", FakeDocumentService
+    )
+
+    with pytest.raises(RuntimeError, match="verification failed"):
+        run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    refreshed_job = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    refreshed_collection = (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.id == collection.id)
+        .one()
+    )
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .all()
+    )
+    assert rolled_back == ["wave-good-document"]
+    assert refreshed_job.status == "failed"
+    assert refreshed_collection.status == expected_collection_status
+    assert refreshed_collection.chunk_count == 41
+    assert {row.status for row in sources} == {"error"}
+    if expected_collection_status == "ready":
+        assert refreshed_collection.last_error is None
+        assert refreshed_collection.document_names == []
+        assert refreshed_collection.document_count == 0
+    else:
+        assert "baseline chunk cardinality was not restored" in (
+            refreshed_collection.last_error or ""
+        )
 
 
 def test_worker_ingest_materialize_error_becomes_document_error(
@@ -541,6 +872,127 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
         "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip"
         in ledger["promoted_filenames"]
     )
+
+
+def test_zip_deposit_stays_received_until_postflight_after_all_members_indexed(
+    db_session,
+):
+    ws = _workspace(db_session, slug="andritz")
+    user = User(id="user-zip-waves", username="zip-operator")
+    db_session.add(user)
+    db_session.flush()
+    collection = create_collection(
+        db_session,
+        workspace=ws,
+        name="Needlepunch ZIP",
+        slug="andritz-notices-techniques-spl-pilot",
+    )
+    link = DepositAccessLink(
+        id="link-zip-waves",
+        workspace_id=ws.id,
+        created_by_user_id=user.id,
+        label="Needlepunch ZIP",
+        access_id="zip-waves",
+        password_hash="hash",
+        allowed_extensions=["zip"],
+    )
+    first_job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    archive_sha = "a" * 64
+    deposit = DepositFile(
+        id="deposit-zip-waves",
+        workspace_id=ws.id,
+        access_link_id=link.id,
+        filename=(
+            "Notices_Techniques_Needlepunch/60000-69999/"
+            "61038 Line/manuals.zip"
+        ),
+        object_key="obj/zip-waves",
+        size_bytes=200,
+        sha256=archive_sha,
+        status="received",
+        worker_job_id=first_job.id,
+        promotion_result={
+            "indexing_status": "queued",
+            "deposit_expected_document_count": 2,
+        },
+    )
+    db_session.add_all([link, deposit])
+    locator = {
+        "kind": "secure_deposit_zip_member",
+        "deposit_file_id": deposit.id,
+        "sha256": archive_sha,
+    }
+
+    def add_ready_source(name: str) -> None:
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=name,
+            status="ready",
+            origin="secure_deposit",
+            chunk_count=1,
+            source_metadata={
+                "source_deposit_path": deposit.filename,
+                "source_deposit_file_id": deposit.id,
+                "source_locator": {**locator, "member_path": name},
+            },
+        )
+
+    add_ready_source("member-1.txt")
+    db_session.flush()
+    first = _finalize_linked_deposit_files(
+        db_session,
+        job=first_job,
+        collection=collection,
+        file_names=["member-1.txt"],
+        document_metadata_by_name={
+            "member-1.txt": {"source_deposit_path": deposit.filename}
+        },
+        source_results_by_name={
+            "member-1.txt": {"status": "success", "chunks_processed": 1}
+        },
+        ingest_result={"failed": 0},
+        defer_promotion=True,
+    )
+    assert first[0]["indexing_status"] == "partial"
+    assert first[0]["awaiting_document_count"] == 1
+    assert deposit.status == "received"
+
+    second_job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    deposit.worker_job_id = second_job.id
+    add_ready_source("member-2.txt")
+    db_session.flush()
+    second = _finalize_linked_deposit_files(
+        db_session,
+        job=second_job,
+        collection=collection,
+        file_names=["member-2.txt"],
+        document_metadata_by_name={
+            "member-2.txt": {"source_deposit_path": deposit.filename}
+        },
+        source_results_by_name={
+            "member-2.txt": {"status": "success", "chunks_processed": 1}
+        },
+        ingest_result={"failed": 0},
+        defer_promotion=True,
+    )
+    assert second[0]["indexing_status"] == "indexed"
+    assert second[0]["cumulative_verified_document_count"] == 2
+    assert second[0]["awaiting_document_count"] == 0
+    assert deposit.status == "received"
+    assert deposit.promoted_at is None
+    assert deposit.promoted_collection_slug is None
+    assert deposit.promotion_result["postflight_status"] == "pending"
 
 
 def test_worker_ingest_defers_large_bm25_to_worker_job(

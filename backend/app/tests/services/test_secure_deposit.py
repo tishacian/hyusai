@@ -18,6 +18,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import document_manifest_key
 from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
+    _archive_document_metadata,
     _extract_andritz_project_reference,
     authenticate_link,
     build_deposit_archive,
@@ -1040,6 +1041,46 @@ def test_extract_andritz_project_reference_supports_letter_suffix(
 )
 def test_extract_andritz_project_reference_rejects_non_codes(source):
     assert _extract_andritz_project_reference(source) == {}
+
+
+def test_direct_needlepunch_document_metadata_keeps_structural_project_identity():
+    source_path = (
+        "Notices_Techniques_Needlepunch/60000-69999/"
+        "61035 - Customer/Manuals/TTN17829J.pdf"
+    )
+
+    metadata = _archive_document_metadata(
+        deposit_filename=source_path,
+        archive_path=None,
+        document_name="Needlepunch__TTN17829J.pdf",
+        extension="pdf",
+        source_deposit_file_id="deposit-61035-manual",
+    )
+
+    assert metadata["project_code"] == "61035"
+    assert metadata["project_code_scheme"] == "needlepunch_numeric5"
+    assert metadata["business_scope"] == "needlepunch"
+    assert metadata["project_range"] == "60000-69999"
+    assert metadata["project_folder"] == "61035 - Customer"
+    assert metadata["source_deposit_path"] == source_path
+    assert metadata["source_deposit_file_id"] == "deposit-61035-manual"
+    assert "initial_buyer_code" not in metadata
+    assert "project_position" not in metadata
+
+
+def test_direct_needlepunch_document_metadata_rejects_deeper_numeric_part_reference():
+    metadata = _archive_document_metadata(
+        deposit_filename=(
+            "Notices_Techniques_Needlepunch/60000-69999/"
+            "Manuals/61035/TTN17829J.pdf"
+        ),
+        archive_path=None,
+        document_name="TTN17829J.pdf",
+        extension="pdf",
+        source_deposit_file_id="deposit-invalid-structure",
+    )
+
+    assert "project_code" not in metadata
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():

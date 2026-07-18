@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from app.services.rag.project_references import extract_query_project_codes
 
 DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
     "precise_fact": {
@@ -210,6 +211,11 @@ _PROJECT_SUMMARY_RE = re.compile(
     r"|\btout\b.*\b(?:sur|about|concernant|au\s+sujet)\b.*\b(projet|project|dossier|[A-Z]{2,}\d{2,})\b",
     re.IGNORECASE,
 )
+_PROJECT_SUMMARY_ACTION_RE = re.compile(
+    r"\b(r[eé]sum[eé]|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview|"
+    r"tout\s+sur|tell\s+me\s+(?:everything|all)|parle[-\s]?moi)\b",
+    re.IGNORECASE,
+)
 _TRANSVERSAL_RE = re.compile(
     r"\b(quels|quelles|liste|list|tous|toutes|all|which)\b.*\b(projets|projects|manuels|manuals)\b"
     r"|\b(dans quels?|where)\b.*\b(projets?|projects?)\b"
@@ -224,7 +230,11 @@ _TRANSVERSAL_RE = re.compile(
     r"|\b(liste|list|tous|toutes|all)\b.*\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|buses?|nozzles?|rouleaux?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
     re.IGNORECASE,
 )
-_COMPARISON_RE = re.compile(r"\b(compare|compar[ea]|diff[ée]rence|versus| vs\.? )\b", re.IGNORECASE)
+_COMPARISON_RE = re.compile(
+    r"\b(compare|comparer|comparez|comparaison[s]?|comparison[s]?|"
+    r"diff[ée]rence[s]?|versus|vs\.?)\b",
+    re.IGNORECASE,
+)
 _EQUIPMENT_DETAIL_RE = re.compile(
     r"\b(d[ée]tails?|fiche|caract[ée]ristiques?|sp[ée]cifications?|details?|datasheet)\b.*"
     r"\b([A-Z]{2,}\d{2,}|pompe|pump|moteur|motor|injecteur|buse|nozzle|rouleau|dryer|s[ée]cheur|filtre)\b",
@@ -349,7 +359,9 @@ def resolve_answer_profile(
     text = str(query or "").strip()
     if not text:
         return AnswerProfileDecision("insufficient_context", "empty_query")
-    if _PROJECT_SUMMARY_RE.search(text):
+    if _PROJECT_SUMMARY_RE.search(text) or (
+        _PROJECT_SUMMARY_ACTION_RE.search(text) and extract_query_project_codes(text)
+    ):
         return AnswerProfileDecision("project_summary", "project_summary_query")
     if _COMPARISON_RE.search(text):
         return AnswerProfileDecision("comparison", "comparison_query")

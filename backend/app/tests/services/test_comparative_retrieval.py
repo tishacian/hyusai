@@ -28,6 +28,9 @@ from app.services.rag.comparative_retrieval import (
         # FR: différences entre X et Y
         ("Quelles differences de parametres entre les variateurs SINAMICS G150 et SINAMICS S120 ?",
          "g150", "s120"),
+        # FR: comparaison entre X et Y
+        ("Comparaison entre le projet 61038 et le projet 61001",
+         "61038", "61001"),
         # DE: Unterschied zwischen X und Y
         ("Was ist der Unterschied zwischen dem KD716 und dem KD724 Modell?", "kd716", "kd724"),
     ],
@@ -73,6 +76,25 @@ def test_build_plan_flag_gating(monkeypatch):
     # master kill-switch
     monkeypatch.setattr(settings, "rag_comparative_decompose_enabled", False)
     assert build_comparative_plan(query, latency_profile="deep") is None
+
+
+def test_build_plan_carries_both_needlepunch_project_references(monkeypatch):
+    monkeypatch.setattr(settings, "rag_comparative_decompose_enabled", True)
+    monkeypatch.setattr(cr, "is_comparative_query", lambda _query: True)
+
+    plan = build_comparative_plan("Compare 61038 et 61001", latency_profile="deep")
+
+    assert plan is not None
+    assert plan.references == ("61038", "61001")
+    assert plan.subqueries == ("61038", "61001")
+
+    french_plan = build_comparative_plan(
+        "Comparaison entre 61038 et 61001",
+        latency_profile="deep",
+    )
+    assert french_plan is not None
+    assert french_plan.references == ("61038", "61001")
+    assert french_plan.subqueries == ("61038", "61001")
 
 
 def test_master_flag_off_means_no_plan_even_for_clear_comparative(monkeypatch):

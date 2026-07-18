@@ -28,10 +28,10 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.settings_manager import get_resolved_settings
+from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_collections import (
     collection_inventory,
@@ -39,11 +39,17 @@ from app.services.knowledge_collections import (
     create_worker_job,
     document_manifest_key,
     original_key,
-    serialize_job as serialize_worker_job,
     update_collection_status,
+)
+from app.services.knowledge_collections import (
+    serialize_job as serialize_worker_job,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.rag.project_references import (
+    LEGACY_PROJECT_REFERENCE_RE,
+    derive_project_reference,
+)
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.worker_dispatch import dispatch_worker_job
 
@@ -97,17 +103,6 @@ _WORKER_PROMOTION_EXTENSIONS = (
 )
 _BULK_PROMOTION_MAX_FILES = 50
 _BULK_PROMOTION_MAX_DOCUMENTS = 200
-# Andritz project codes are ``BBB123`` (3 letters + 2-4 digits) optionally
-# followed by a 1-2 letter site/variant suffix (``ELM001Y``, ``NBD100ZH``). The
-# leading negative look-behind and trailing negative look-ahead keep the match
-# anchored to a discrete token so longer alphanumeric runs (3+ trailing letters,
-# embedded part numbers) are still rejected; an empty suffix preserves the
-# historical ``AKK200`` / ``BHX100`` output verbatim.
-_ANDRITZ_PROJECT_RE = re.compile(
-    r"(?<![A-Z0-9])([A-Z]{3})[\s_-]?(\d{2,4})([A-Z]{0,2})(?![A-Z0-9])", re.IGNORECASE
-)
-
-
 def enabled_workspace_slugs() -> set[str]:
     return {
         item.strip().lower()
@@ -731,18 +726,9 @@ def _archive_document_name(
 
 
 def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
-    for value in values:
-        for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
-            buyer = match.group(1).upper()
-            position = match.group(2)
-            suffix = (match.group(3) or "").upper()
-            return {
-                "project_code": f"{buyer}{position}{suffix}",
-                "initial_buyer_code": buyer,
-                "project_position": position,
-                "project_reference_kind": "andritz_project",
-            }
-    return {}
+    """Compatibility wrapper around the canonical source-aware resolver."""
+
+    return derive_project_reference(*values)
 
 
 def _extract_machine_reference(*values: str | None, exclude: str | None = None) -> dict[str, str]:
@@ -753,7 +739,7 @@ def _extract_machine_reference(*values: str | None, exclude: str | None = None) 
     belongs in a knowledge guide, not in payload metadata.
     """
     for value in values:
-        for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
+        for match in LEGACY_PROJECT_REFERENCE_RE.finditer(str(value or "")):
             reference = f"{match.group(1).upper()}{match.group(2)}{(match.group(3) or '').upper()}"
             if exclude and reference == exclude:
                 continue
@@ -787,6 +773,7 @@ def _archive_document_metadata(
     archive_path: str | None,
     document_name: str,
     extension: str | None,
+    source_deposit_file_id: str | None = None,
 ) -> dict[str, Any]:
     archive_name = PurePosixPath(str(deposit_filename or "")).name if deposit_filename else None
     metadata: dict[str, Any] = {
@@ -794,10 +781,11 @@ def _archive_document_metadata(
         "source_family": _classify_archive_source_family(" ".join([archive_path or "", document_name]), extension),
         "archive_name": archive_name,
         "source_deposit_path": deposit_filename,
+        "source_deposit_file_id": source_deposit_file_id,
         "inner_document_path": archive_path,
     }
+    metadata.update(derive_project_reference(deposit_filename, archive_path, document_name))
     if archive_path:
-        metadata.update(_extract_andritz_project_reference(deposit_filename, archive_path, document_name))
         metadata.update(
             _extract_machine_reference(
                 archive_path,
@@ -812,6 +800,7 @@ def _read_supported_archive_documents(
     path: Path,
     *,
     deposit_filename: str | None = None,
+    source_deposit_file_id: str | None = None,
     max_files: int | None = None,
     max_uncompressed_bytes: int | None = None,
     on_limit: str = "error",
@@ -879,6 +868,7 @@ def _read_supported_archive_documents(
                 archive_path=archive_path,
                 document_name=document_name,
                 extension=ext,
+                source_deposit_file_id=source_deposit_file_id,
             )
             if document_namespace:
                 # Record the namespace + the legacy (un-namespaced) flattened
@@ -1827,7 +1817,17 @@ async def promote_file_to_collection(
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
         )
-        result = await doc_service.ingest_document(str(tmp_path))
+        document_metadata = _archive_document_metadata(
+            deposit_filename=deposit_file.filename,
+            archive_path=None,
+            document_name=_single_document_name(deposit_file),
+            extension=extension,
+            source_deposit_file_id=deposit_file.id,
+        )
+        result = await doc_service.ingest_document(
+            str(tmp_path),
+            document_metadata=document_metadata,
+        )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1888,6 +1888,24 @@ def _promote_single_worker_file_to_collection(
     if document_name not in existing_names:
         existing_names.append(document_name)
     store.write_bytes(original_key(collection, document_name), source_path.read_bytes())
+    document_metadata = _archive_document_metadata(
+        deposit_filename=deposit_file.filename,
+        archive_path=None,
+        document_name=document_name,
+        extension=extension_for(deposit_file.filename or ""),
+        source_deposit_file_id=deposit_file.id,
+    )
+    manifest_key = document_manifest_key(collection)
+    document_manifest: dict[str, Any] = {}
+    if store.exists(manifest_key):
+        try:
+            loaded_manifest = json.loads(store.read_bytes(manifest_key).decode("utf-8"))
+            if isinstance(loaded_manifest, dict):
+                document_manifest = loaded_manifest
+        except Exception:
+            document_manifest = {}
+    document_manifest[document_name] = document_metadata
+    store.write_text(manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True))
 
     update_collection_status(
         db,
@@ -1924,6 +1942,7 @@ def _promote_single_worker_file_to_collection(
             "document_name": document_name,
             "extension": extension_for(deposit_file.filename or ""),
             "size_bytes": deposit_file.size_bytes,
+            "metadata": document_metadata,
         },
     }
     deposit_file.status = "promoted"
@@ -2016,6 +2035,7 @@ def promote_files_to_collection_batch(
                 archive_documents, _archive_stats = _read_supported_archive_documents(
                     source_path,
                     deposit_filename=deposit_file.filename,
+                    source_deposit_file_id=deposit_file.id,
                 )
             except HTTPException as exc:
                 skipped.append(
@@ -2052,6 +2072,7 @@ def promote_files_to_collection_batch(
                                 archive_path=None,
                                 document_name=_single_document_name(deposit_file),
                                 extension=extension,
+                                source_deposit_file_id=deposit_file.id,
                             ),
                             "source_path": source_path,
                         }
@@ -2247,7 +2268,11 @@ def _promote_archive_file_to_collection(
     collection_slug: str,
 ) -> DepositFile:
     archive_path = staged_file_path(deposit_file)
-    documents, _archive_stats = _read_supported_archive_documents(archive_path, deposit_filename=deposit_file.filename)
+    documents, _archive_stats = _read_supported_archive_documents(
+        archive_path,
+        deposit_filename=deposit_file.filename,
+        source_deposit_file_id=deposit_file.id,
+    )
 
     collection = create_or_get_collection(
         db,

@@ -1,9 +1,9 @@
+from app.services.rag.context import _history_augmented_query
 from app.services.rag.conversation_anchors import (
     anchor_terms,
     extract_salient_entities,
     has_reference,
 )
-from app.services.rag.context import _history_augmented_query
 
 
 def test_extract_salient_entities_finds_references_and_documents():
@@ -15,6 +15,12 @@ def test_extract_salient_entities_finds_references_and_documents():
     assert "ACO150" in entities["references"]
     assert "BBA120" in entities["references"]
     assert any("ACO150.pdf" in doc for doc in entities["documents"])
+
+
+def test_extract_salient_entities_finds_contextual_needlepunch_reference():
+    entities = extract_salient_entities("Résume le projet 61038")
+
+    assert entities["references"] == ["61038"]
 
 
 def test_anchor_terms_caps_and_prioritises_references():
@@ -69,6 +75,22 @@ def test_history_augmented_query_skips_when_query_has_own_reference():
     assert _history_augmented_query(request) == "et pour ACO150, même question ?"
 
 
+def test_history_augmented_query_keeps_numeric_project_for_possessive_followup():
+    request = {
+        "query": "et ses pièces ?",
+        "context": {
+            "conversation_history": [
+                {"role": "user", "content": "Résume le projet 61038"},
+            ],
+            "salient_entities": {"references": ["61038"], "documents": []},
+        },
+    }
+
+    augmented = _history_augmented_query(request)
+    assert augmented.startswith("et ses pièces ?")
+    assert "61038" in augmented
+
+
 def test_history_augmented_query_untouched_without_followup_signal():
     request = {
         "query": "Quelle est la pression nominale de la pompe URACA KD716 ?",
@@ -84,4 +106,6 @@ def test_history_augmented_query_untouched_without_followup_signal():
 
 def test_has_reference():
     assert has_reference("voir ACO150 svp")
+    assert has_reference("résume 61038")
+    assert not has_reference("vitesse 10000 rpm")
     assert not has_reference("et pour cette machine ?")

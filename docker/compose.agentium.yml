@@ -230,6 +230,7 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
       - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
     depends_on:
       agentium-rabbitmq:

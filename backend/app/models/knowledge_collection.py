@@ -3,13 +3,13 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -17,7 +17,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
-
 
 COLLECTION_STATUSES = ("created", "queued", "ingesting", "embedding", "ready", "error")
 WORKER_JOB_KINDS = (
@@ -145,7 +144,15 @@ class WorkerJob(Base):
     )
 
 
-SOURCE_STATUSES = ("queued", "ingesting", "indexed", "ready", "error", "deleted")
+SOURCE_STATUSES = (
+    "queued",
+    "ingesting",
+    "indexed",
+    "ready",
+    "error",
+    "deleted",
+    "deduplicated",
+)
 
 
 class KnowledgeCollectionSource(Base):

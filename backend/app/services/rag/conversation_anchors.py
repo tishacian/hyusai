@@ -18,9 +18,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-# Same shape as retrieval_policy._PROJECT_REF_RE, widened to 2-4 digits so it
-# also catches machine/series references like BBA120 or AKK200.
-_REFERENCE_RE = re.compile(r"\b([A-Z]{3})[\s_-]?(\d{2,4})\b", re.IGNORECASE)
+from app.services.rag.project_references import project_reference_terms
+
 _DOCUMENT_RE = re.compile(
     r"\b[\w][\w\- ()]{0,60}\.(?:pdf|xlsx?|docx?|csv|pptx?)\b",
     re.IGNORECASE,
@@ -62,8 +61,7 @@ def extract_salient_entities(*texts: Any) -> dict[str, list[str]]:
         text = str(raw or "")
         if not text:
             continue
-        for match in _REFERENCE_RE.finditer(text):
-            term = f"{match.group(1).upper()}{match.group(2)}"
+        for term in project_reference_terms(text):
             if term not in references:
                 references.append(term)
         for match in _DOCUMENT_RE.finditer(text):
@@ -100,4 +98,4 @@ def anchor_terms(entities: Mapping[str, Any] | None, *, limit: int = 2) -> list[
 
 def has_reference(text: str) -> bool:
     """Whether the text already carries its own project/machine reference."""
-    return bool(_REFERENCE_RE.search(str(text or "")))
+    return bool(project_reference_terms(str(text or "")))

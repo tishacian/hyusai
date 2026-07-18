@@ -1680,6 +1680,15 @@ def test_coerce_plan_preserves_genuine_clarify():
     assert out["clarifying_question"] == "Quel equipement vous interesse ?"
 
 
+def test_coerce_plan_demotes_clarify_for_authoritative_bare_numeric_project():
+    out = wrappers._coerce_plan(
+        {"action": "clarify", "clarifying_question": "Quel projet ?"},
+        "61038",
+        known_project_codes={"61038"},
+    )
+    assert out["action"] == "answer"
+
+
 # ---------------------------------------------------------------------------
 # _coerce_plan — OOS gate (never reject a valid in-corpus question, incl. DE)
 # ---------------------------------------------------------------------------
@@ -1698,6 +1707,69 @@ def test_coerce_plan_demotes_reject_oos_on_project_code():
         {"action": "reject_oos"},
         "Quel est le role du module CU250S-2 ?",
     )
+    assert out["action"] == "answer"
+
+
+def test_coerce_plan_demotes_reject_oos_for_authoritative_bare_numeric_project():
+    out = wrappers._coerce_plan(
+        {"action": "reject_oos"},
+        "61038",
+        known_project_codes={"61038"},
+    )
+    assert out["action"] == "answer"
+
+
+@pytest.mark.asyncio
+async def test_agentic_plan_validates_bare_numeric_project_in_bound_collection(
+    db_session,
+    monkeypatch,
+):
+    from app.models.workspace import Workspace
+    from app.services.knowledge_collections import (
+        create_collection,
+        upsert_collection_source,
+    )
+
+    workspace = Workspace(
+        id="ws-agentic-numeric5",
+        name="Andritz numeric5",
+        slug="andritz-numeric5",
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    collection = create_collection(
+        db_session,
+        workspace=workspace,
+        name="Notices",
+        slug="andritz-notices-techniques-spl-pilot",
+    )
+    collection.status = "ready"
+    upsert_collection_source(
+        db_session,
+        collection=collection,
+        filename="opaque-manual.pdf",
+        status="ready",
+        chunk_count=1,
+        source_metadata={"project_code": "61038"},
+    )
+    db_session.commit()
+    monkeypatch.setattr("app.db.base.SessionLocal", lambda: db_session)
+    _install_fake_router(
+        monkeypatch,
+        '{"action":"clarify","clarifying_question":"Quel projet ?"}',
+    )
+
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": "61038"},
+        {
+            "workspace_id": workspace.id,
+            "retrieval_contract": {
+                "asset_binding": "authoritative",
+                "collection": collection.slug,
+            },
+        },
+    )
+
     assert out["action"] == "answer"
 
 

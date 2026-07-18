@@ -983,6 +983,52 @@ def test_large_collection_balanced_scopes_project_code_from_document_names(db_se
     assert "R__RCZ100__RCZ100__fichiers__users manual__conveyor.pdf" not in scoped
 
 
+def test_large_collection_validates_bare_numeric_project_from_source_metadata(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(
+        id="ws-planner-numeric5",
+        name="Planner numeric5",
+        slug="planner-numeric5",
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    collection = create_collection(
+        db_session,
+        workspace=workspace,
+        name="Dense Needlepunch",
+    )
+    collection.document_count = 100_000
+    collection.chunk_count = 1_000_000
+    upsert_collection_source(
+        db_session,
+        collection=collection,
+        filename="opaque-manual.pdf",
+        status="ready",
+        chunk_count=8,
+        source_metadata={"project_code": "61038"},
+    )
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "balanced",
+            "rag_mode": "chah",
+        },
+        query="61038",
+    )
+
+    project_filter = plan.filters.get("project_code")
+    assert project_filter == "61038" or "61038" in project_filter
+
+
 def test_balanced_fact_scope_soft_boost_on_large_collections(db_session, monkeypatch):
     """Contract for the balanced fact-scope SOFT BOOST on large collections.
 

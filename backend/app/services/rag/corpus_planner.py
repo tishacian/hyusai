@@ -22,6 +22,11 @@ from app.core.logging import get_logger
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.services.knowledge_collections import collection_source_rows
+from app.services.rag.project_references import (
+    extract_query_project_codes,
+    numeric_project_candidates,
+    project_reference_terms,
+)
 from app.services.rag.retrieval_policy import RetrievalPolicy
 from app.services.rag.source_facets import expanded_terms_for_query, score_source_family_match
 from app.services.rag.summary_artifacts import load_summary_index_records
@@ -98,7 +103,6 @@ _SOURCE_KIND_ALIASES = {
     "docx": "document",
     "word": "document",
 }
-_PROJECT_CODE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]{1,}\d{2,}[A-Z0-9]*\b")
 _TERM_RE = re.compile(r"[a-z0-9àâçéèêëîïôûùüÿñæœ_-]{3,}", re.IGNORECASE)
 _QUERY_STOPWORDS = {
     "about",
@@ -371,7 +375,11 @@ def _targeted_collection_source_rows(
     code_terms = _source_lookup_terms(project_codes, None)
     content_terms = _source_lookup_terms(project_codes, source_lookup_query) - code_terms
 
-    def _run(terms: set[str]) -> list[Any]:
+    def _run(
+        terms: set[str],
+        *,
+        exact_project_codes: list[str] | None = None,
+    ) -> list[Any]:
         clauses: list[Any] = []
         for lookup_term in terms:
             like = f"%{lookup_term}%"
@@ -380,6 +388,12 @@ def _targeted_collection_source_rows(
                     KnowledgeCollectionSource.filename.ilike(like),
                     KnowledgeCollectionSource.normalized_name.ilike(like),
                 ]
+            )
+        if exact_project_codes:
+            clauses.append(
+                KnowledgeCollectionSource.source_metadata["project_code"]
+                .as_string()
+                .in_(exact_project_codes)
             )
         if not clauses:
             return []
@@ -401,7 +415,7 @@ def _targeted_collection_source_rows(
     # silently dropping the project's own documents and collapsing the inferred
     # scope to the dense guardrail. Querying the code separately guarantees the
     # project documents always reach the candidate set.
-    code_rows = _run(code_terms)
+    code_rows = _run(code_terms, exact_project_codes=project_codes)
     if not content_terms:
         return code_rows
     merged = list(code_rows)
@@ -503,6 +517,14 @@ def _rows_for_collections(
     rows: list[Any] = []
     collection_rows: list[KnowledgeCollection] = []
     project_codes = _query_project_codes(source_lookup_query or "") if source_lookup_query else []
+    lookup_project_codes = list(
+        dict.fromkeys(
+            [
+                *project_codes,
+                *numeric_project_candidates(source_lookup_query or ""),
+            ]
+        )
+    )
     for ref in collections:
         query = db.query(KnowledgeCollection).filter(
             (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
@@ -522,7 +544,7 @@ def _rows_for_collections(
             int(getattr(collection, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
             or int(getattr(collection, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
         )
-        if source_lookup_query and (project_codes or large_collection):
+        if source_lookup_query and (lookup_project_codes or large_collection):
             # Bounded DB-side targeting. We deliberately skip the *full* legacy
             # document_names rebuild here — on ledger-backed collections that
             # array can hold ~100k entries and rebuilding it wholesale in Python
@@ -530,7 +552,7 @@ def _rows_for_collections(
             source_rows = _targeted_collection_source_rows(
                 db,
                 collection=collection,
-                project_codes=project_codes,
+                project_codes=lookup_project_codes,
                 source_lookup_query=source_lookup_query,
             )
             for row in source_rows:
@@ -547,7 +569,7 @@ def _rows_for_collections(
             # rebuild was dropped here). This adds only term/code-matching names.
             name_rows = _targeted_document_name_rows(
                 collection,
-                project_codes=project_codes,
+                project_codes=lookup_project_codes,
                 source_lookup_query=source_lookup_query,
                 existing_rows=source_rows,
             )
@@ -773,20 +795,12 @@ def _spreadsheet_collection_refs(rows: list[Any]) -> list[str]:
     return refs
 
 
-def _query_project_codes(query: str) -> list[str]:
-    folded = _fold_text(query).upper()
-    codes: list[str] = []
-    for match in _PROJECT_CODE_RE.findall(folded):
-        compact = _compact_text(match).upper()
-        if len(compact) >= 5 and compact not in codes:
-            codes.append(compact)
-    for prefix, suffix in re.findall(
-        r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded
-    ):
-        compact = f"{prefix}{suffix}".upper()
-        if len(compact) >= 5 and compact not in codes:
-            codes.append(compact)
-    return codes
+def _query_project_codes(
+    query: str,
+    *,
+    known_codes: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    return extract_query_project_codes(query, known_codes=known_codes)
 
 
 def _is_broad_format_scope_query(query: str) -> bool:
@@ -849,7 +863,10 @@ def _infer_ledger_document_scope(
         return {}, 0.0, "", []
     terms = _expanded_query_terms(query, policy)
     family_expanded_terms = {_search_text(term) for term in expanded_terms_for_query(query, policy)}
-    project_codes = _query_project_codes(query)
+    project_codes = _query_project_codes(
+        query,
+        known_codes=_candidate_project_codes(rows),
+    )
     if not project_codes and _is_broad_format_scope_query(query):
         return {}, 0.0, "", []
     compact_query = _compact_text(query)
@@ -1012,10 +1029,16 @@ def _candidate_project_codes(rows: list[Any]) -> set[str]:
         meta = _source_metadata(row)
         for key in ("project_code", "project", "machine", "line", "archive_name"):
             value = str(meta.get(key) or "").strip().upper()
-            if value and len(value) >= 3:
+            if key == "project_code" and value:
                 codes.add(value)
-        for match in _PROJECT_CODE_RE.findall(str(getattr(row, "filename", "") or "").upper()):
-            codes.add(match)
+            elif value:
+                # Only the canonical ``project_code`` field is authoritative
+                # for an otherwise bare numeric identifier.  Other metadata
+                # fields may contain machine, part or archive numbers; they
+                # retain legacy SPL discovery but cannot self-authorise a
+                # Needlepunch numeric code.
+                codes.update(project_reference_terms(value))
+        codes.update(project_reference_terms(str(getattr(row, "filename", "") or "")))
     return codes
 
 
@@ -1051,13 +1074,9 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
         reasons.append("status=ready")
         confidence = max(confidence, 0.50)
 
-    query_upper = text.upper()
     candidate_codes = _candidate_project_codes(rows)
-    matched_codes = [
-        code
-        for code in sorted(candidate_codes, key=len, reverse=True)
-        if code and code in query_upper
-    ]
+    query_codes = _query_project_codes(text, known_codes=candidate_codes)
+    matched_codes = [code for code in query_codes if code in candidate_codes]
     if matched_codes:
         filters["project_code"] = matched_codes[0]
         reasons.append(f"project_code={matched_codes[0]}")
@@ -1068,7 +1087,7 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
     # select a candidate set, not carry the whole corpus.
     source_hits: list[str] = []
     words = {w for w in re.findall(r"[a-z0-9]{4,}", lower) if len(w) >= 4}
-    query_project_codes = _query_project_codes(text)
+    query_project_codes = query_codes
     if words and (not query_project_codes or matched_codes):
         scored: list[tuple[int, Any]] = []
         for row in rows:
@@ -1345,7 +1364,10 @@ def _fast_ledger_candidate_rows(
     high-signal subset; if none is obvious, retrieval falls back to bounded
     sparse search instead of blocking the direct answer.
     """
-    project_codes = _query_project_codes(query)
+    project_codes = _query_project_codes(
+        query,
+        known_codes=_candidate_project_codes(rows),
+    )
     terms = [
         _compact_text(term)
         for term in _expanded_query_terms(query, policy)
@@ -1613,7 +1635,10 @@ def plan_corpus(
     if workspace_id and not authoritative_collections:
         should_expand_workspace = True
         if latency_profile == "fast":
-            project_codes = _query_project_codes(query)
+            project_codes = _query_project_codes(
+                query,
+                known_codes=_candidate_project_codes(rows),
+            )
             table_lookup_requested = bool(_TABLE_VALUE_LOOKUP_RE.search(query))
             should_expand_workspace = bool(
                 table_lookup_requested or (project_codes and not fast_local_ledger_rows)

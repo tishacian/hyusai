@@ -81,7 +81,7 @@ _SPREADSHEET_SHEET_PREFIX_RE = re.compile(
 _FOLLOW_UP_RE = re.compile(
     r"\b("
     r"diff[ée]rentes?|plusieurs|autres?|reste|documents?|valeurs?|"
-    r"ce|ces|cette|celle|celui|ceux|cela|ça|m[êe]me|ailleurs|compare|compar[ée]r|"
+    r"ce|ces|cette|celle|celui|ceux|cela|ça|son|sa|ses|leurs?|m[êe]me|ailleurs|compare|compar[ée]r|"
     r"globalement|partout|tous|toutes|ensemble|connais|connues?|"
     r"et\s+pour|et\s+sur|quid|idem|pareil|aussi|[ée]galement|"
     r"different|multiple|other|same|those|these|this|it|them|compare|globally|all|known|"

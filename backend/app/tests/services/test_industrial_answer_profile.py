@@ -20,10 +20,22 @@ def test_resolve_project_summary_profile():
         "resume BAO100",
         "Résume-moi BCX200",
         "summarize ACJ100",
+        "résume 61038",
+        "résumé 61038",
+        "résume le projet 61038",
     ):
         decision = resolve_answer_profile(query, industrial_answer_policy())
         assert decision.profile == "project_summary", query
         assert decision.requires_exhaustive_retrieval is False, query
+
+
+def test_resolve_french_numeric_project_comparisons():
+    policy = industrial_answer_policy()
+    for query in (
+        "comparaison entre 61038 et 61001",
+        "différences entre le projet 61038 et le projet 61001",
+    ):
+        assert resolve_answer_profile(query, policy).profile == "comparison", query
 
 
 def test_resolve_broad_knowledge_request_as_project_summary():

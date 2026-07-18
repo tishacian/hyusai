@@ -55,6 +55,7 @@ _PAYLOAD_INDEX_FIELDS = (
     "retrieval_terms",
     "language",
     "status",
+    "wave_id",
 )
 _DENSE_VECTOR_NAME = "dense"
 _SPARSE_VECTOR_NAME = "sparse"
@@ -926,6 +927,34 @@ class QdrantVectorDB(VectorDBBase):
             )
 
         await loop.run_in_executor(None, _del)
+
+    async def delete_by_metadata(self, filters: Optional[Dict[str, Any]] = None) -> bool:
+        """Delete exactly the points selected by an indexed payload filter."""
+        if self.client is None or not filters:
+            return False
+        qf = self._filters_to_qdrant(filters)
+        if qf is None:
+            return False
+        from qdrant_client.models import FilterSelector
+
+        loop = asyncio.get_event_loop()
+
+        def _del():
+            if not self.client.collection_exists(self.collection_name):
+                return False
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=FilterSelector(filter=qf),
+                wait=True,
+            )
+            remaining = self.client.count(
+                collection_name=self.collection_name,
+                count_filter=qf,
+                exact=True,
+            ).count
+            return int(remaining or 0) == 0
+
+        return bool(await loop.run_in_executor(None, _del))
 
     async def update(self, ids: List[str], vectors: np.ndarray, metadatas: List[Dict]):
         await self.delete(ids)

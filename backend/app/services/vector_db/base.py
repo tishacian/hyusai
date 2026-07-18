@@ -1,6 +1,6 @@
 """Base vector database interface"""
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -33,6 +33,14 @@ class VectorDBBase(ABC):
     async def delete(self, ids: List[str]):
         """Delete vectors by IDs"""
         pass
+
+    async def delete_by_metadata(self, filters: Optional[Dict[str, Any]] = None) -> bool:
+        """Delete vectors matching exact payload filters when supported.
+
+        Backends without a native filtered delete return ``False`` so callers
+        can fall back to an explicit, already-recorded point-id list.
+        """
+        return False
     
     @abstractmethod
     async def update(self, ids: List[str], vectors: np.ndarray, metadatas: List[Dict]):

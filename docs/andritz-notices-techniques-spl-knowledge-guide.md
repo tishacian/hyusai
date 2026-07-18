@@ -1,12 +1,12 @@
-# ANDRITZ Notices Techniques SPL - Knowledge Guide
+# ANDRITZ Notices Techniques transverses - Knowledge Guide
 
-Statut : brouillon pret a publier comme Knowledge Guide apres creation de la collection pilote.
+Statut : reference de gouvernance du Knowledge Guide de la collection transverse.
 
 Target scope : `andritz-spl-knowledge-experiment`
 
 Target collection : `andritz-notices-techniques-spl-pilot`
 
-Objectif : aider Agentium a lire les notices techniques SPL sans confondre reference projet, ligne, machine, equipement et piece.
+Objectif : aider Agentium a lire les notices techniques SPL et Needlepunch sans confondre reference projet, ligne, machine, equipement, piece et reference documentaire.
 
 Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sources. Les reponses doivent citer le projet, l'archive, le document interne et la page ou section quand ces metadonnees sont disponibles.
 
@@ -281,7 +281,9 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
   },
   "answer_policy": {
     "instructions": [
-      "Traiter les codes de type XXX123 comme des references projet stables, pas comme des machines.",
+      "Traiter les codes SPL de type XXX123 et les codes Needlepunch numeriques a cinq chiffres valides comme des references projet stables, pas comme des machines.",
+      "Un code Needlepunch numerique n'est un projet que s'il provient de la structure de depot autoritative ou, dans une requete, d'un contexte projet fort ou d'un code exact deja present dans la collection autoritative.",
+      "Ne jamais inferer un projet Needlepunch depuis un nombre trouve dans un nom de piece, un document, un sous-dossier ou une mesure comme 10000 rpm.",
       "Si la question cite une reference projet exacte et qu'aucune source ne correspond a cette reference, dire explicitement que la base indexee ne contient pas cette reference plutot que repondre depuis un autre projet.",
       "Pour une reponse documentaire, citer projet, archive, document interne et page ou section lorsque disponibles.",
       "Ne pas generaliser une notice projet en regle gamme sans source explicite.",
@@ -291,9 +293,16 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
 }
 ```
 
-## Modele projet Andritz
+## Modeles projet Andritz
 
-Les references comme `BBA120`, `ACO140`, `DCI110`, `BIO100` ou `BHX100` sont des references projet stables.
+La collection transverse porte deux schemas de reference projet. Le schema est
+determine par la source ; il ne doit jamais etre devine par une regex numerique
+globale.
+
+### SPL alphanumerique
+
+Les references comme `BBA120`, `ACO140`, `DCI110`, `BIO100`, `BHX100` ou
+`ELM001Y` sont des references projet stables.
 
 - Les trois premieres lettres designent le premier buyer/client historique du projet.
 - Le nombre indique la position ou phase dans la chaine du projet, par exemple `100`, `120`, `200`.
@@ -301,9 +310,46 @@ Les references comme `BBA120`, `ACO140`, `DCI110`, `BIO100` ou `BHX100` sont des
 - La reference projet reste stable meme si la ligne est revendue a un autre client.
 - Ne pas interpreter automatiquement `BBA120` comme une machine. Les machines et equipements doivent etre identifies uniquement quand ils sont nommes dans la notice.
 
+Metadonnees attendues :
+
+- `project_code` conserve la reference canonique ;
+- `project_reference_kind = andritz_project` ;
+- `initial_buyer_code` et `project_position` restent disponibles quand ils sont
+  derivables de la grammaire SPL.
+
+### Needlepunch numerique
+
+Une reference a cinq chiffres est un projet Needlepunch uniquement lorsqu'elle
+est portee par la structure de depot autoritative :
+
+```text
+Notices_Techniques_Needlepunch/<borne-basse>-<borne-haute>/<code a 5 chiffres + libelle>/...
+```
+
+Le code doit appartenir a la plage parente. Seul le dossier projet situe
+immediatement sous la plage est lu : un nombre trouve plus bas dans le chemin
+n'est jamais promu comme projet. Par exemple, `61035` est un projet si le chemin
+respecte cette structure, tandis que `TTN17829J`, `V10234` et `10000 rpm` ne le
+sont pas.
+
+Metadonnees attendues :
+
+- `project_code` est une chaine de cinq chiffres ;
+- `project_reference_kind = andritz_project` ;
+- `project_code_scheme = needlepunch_numeric5` ;
+- `business_scope = needlepunch` ;
+- `project_range`, `project_folder`, `source_deposit_path` et
+  `source_deposit_file_id` assurent la tracabilite ;
+- `initial_buyer_code` et `project_position` ne sont pas inventes.
+
+Dans une requete, un nombre a cinq chiffres est reconnu seulement dans une
+grammaire forte (`projet`, `resume`, `comparaison`, `inventaire`) ou lorsqu'il
+correspond exactement a un code present dans la collection autoritative.
+
 ## Niveaux a distinguer
 
-- Projet : reference stable de type `XXX123`.
+- Projet : reference SPL alphanumerique ou reference Needlepunch numerique
+  validee par sa source.
 - Ligne : ensemble industriel vendu, deplace ou revendu.
 - Machine : machine nommee dans la notice.
 - Equipement : injector, pump, damper, sensor, jetlace, winder, etc.
@@ -312,7 +358,7 @@ Les references comme `BBA120`, `ACO140`, `DCI110`, `BIO100` ou `BHX100` sont des
 
 ## Familles de documents
 
-Les archives `Notices_Techniques_SPL` peuvent contenir :
+Les depots `Notices_Techniques_SPL` et `Notices_Techniques_Needlepunch` peuvent contenir :
 
 - operating manual ou user manual ;
 - spare parts list ;
@@ -351,7 +397,17 @@ Regles :
 
 ## Guidance retrieval
 
-Pour une question sur un code `XXX123`, chercher d'abord ce code comme projet. Ensuite seulement identifier les equipements nommes dans les chunks retournes.
+Pour une question sur un code SPL valide ou un code Needlepunch valide, chercher
+d'abord ce code exact comme projet. Le filtre `project_code` est strict : aucun
+chunk d'un autre projet ne doit etre utilise. Ensuite seulement identifier les
+equipements nommes dans les chunks retournes.
+
+Exemples positifs Needlepunch : `resume 61038`, `resume le projet 61038`,
+`compare les projets 61038 et 61035`, `inventaire du projet 61038`.
+
+Exemples negatifs : `TTN17829J`, `V10234` et `10000 rpm` ne doivent pas creer de
+filtre projet. Un follow-up comme `et ses pieces ?` conserve l'ancre projet
+precedemment validee, sans rescanner arbitrairement les nombres de la conversation.
 
 Pour une question procedurale, preferer les chunks avec `source_family = operating_manual`, `maintenance` ou `commissioning`.
 
