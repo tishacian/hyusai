@@ -215,28 +215,45 @@ membre du workspace cible, et autorise a promouvoir un depot via un role
 `admin`/`owner` restent compatibles). Il n'existe aucun acteur implicite de
 repli.
 
-Le CLI ci-dessous ne fait que mettre en file le job. Il laisse le lease
-`postflight_status=pending` et ne doit pas etre considere comme une promotion
-metier terminee. Pour un canary ou une campagne, utiliser ensuite le runner
-`scripts.run_notice_campaign` avec snapshot et gates (voir plus bas), sur la
-meme vague ; aucune vague suivante ne peut etre lancee entre-temps.
+`scripts.promote_notice_wave` est strictement un planificateur : il ne met
+jamais de job en file et n'accepte ni `--execute`, ni `--plan-hash`, ni
+`--actor-email`. Toute execution passe exclusivement par
+`scripts.run_notice_campaign`, qui applique les gates de capacite, de sante et
+de parite, attend le job, effectue le postflight puis borne le rollback au
+`wave_id` en cas d'echec.
+
+Executer d'abord le preflight du runner, sans `--execute` :
 
 ```sh
-docker exec agentium-backend python -m scripts.promote_notice_wave \
+docker exec agentium-backend python -m scripts.run_notice_campaign \
   --workspace andritz \
   --profile needlepunch \
   --campaign direct \
   --project 61035 \
   --collection andritz-notices-techniques-spl-pilot \
-  --execute \
   --plan-hash <sha256-complet> \
-  --actor-email <email-operateur>
+  --start-wave 1 \
+  --max-waves 1 \
+  --docker-capacity-path /data/object_store \
+  --deposit-capacity-path /data/secure_deposit
 ```
 
-Si le plan contient plusieurs vagues, ajouter `--wave-index <n>` et ne lancer
-qu'une vague a la fois. Un changement de fichier, SHA, taille, chemin ou
-selection provoque un refus pour derive du plan : refaire le dry-run et la revue,
-ne jamais contourner ce controle.
+Apres validation du preflight et d'une vraie sauvegarde restauree en exercice,
+rejouer la meme commande avec :
+
+```sh
+  --execute \
+  --actor-email <email-operateur> \
+  --snapshot-ref <reference-immuable-reelle>
+```
+
+La reference de snapshot doit identifier les artefacts effectivement crees et
+verifies ; une valeur fictive contournerait seulement un controle syntaxique et
+n'est pas une sauvegarde. Si le plan contient plusieurs vagues, avancer avec
+`--start-wave <n> --max-waves 1` et ne lancer qu'une vague a la fois. Un
+changement de fichier, SHA, taille, chemin ou selection provoque un refus pour
+derive du plan : refaire le dry-run et la revue, ne jamais contourner ce
+controle.
 
 L'execution ne doit creer qu'un job `document_ingest_index` avec :
 
@@ -420,8 +437,9 @@ jamais melanges avec ceux d'une autre archive dans la meme vague. Le
 `DepositFile` reste `received` apres chaque vague partielle et ne devient
 `promoted` que lorsque le nombre cumule de sources `ready` ou `deduplicated`
 atteint la couverture eligible approuvee pour le SHA immuable de l'archive.
-Executer les `--wave-index` sequentiellement ; le verrou de collection refuse
-toute seconde ingestion encore `queued` ou `running`.
+Executer les vagues sequentiellement avec
+`--start-wave <n> --max-waves 1` ; le verrou de collection refuse toute seconde
+ingestion encore `queued` ou `running`.
 
 Pour une source directe ou legacy, `size_bytes` doit tenir dans le champ
 PostgreSQL `INTEGER`, soit au plus `2^31 - 1` octets (2 147 483 647). Une source
