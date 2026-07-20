@@ -7,13 +7,17 @@ map round-trip, and the critical empty-map byte-identity contract.
 """
 from __future__ import annotations
 
+import pytest
+
 from app.services.run_engine.variable_pool import (
     RESERVED_NAMESPACES,
     VariablePool,
+    VariableResolutionError,
     apply_inputs_map,
     apply_outputs_map,
     resolve_selector,
     selector_segments,
+    variable_ref_validation_error,
 )
 
 
@@ -41,8 +45,41 @@ def test_selector_segments_rejects_malformed() -> None:
     assert selector_segments("") is None
     assert selector_segments(None) is None
     assert selector_segments({"path": ["x"]}) is None  # no node_id
+    assert selector_segments({"node_id": "run"}) is None  # path is mandatory
     assert selector_segments({"node_id": "", "path": []}) is None
+    assert selector_segments({"node_id": "  ", "path": []}) is None
+    assert selector_segments({"node_id": "n", "path": ["ok", 0]}) is None
+    assert selector_segments({"node_id": "n", "path": [""]}) is None
+    assert selector_segments({"node_id": "n", "path": [], "required": "false"}) is None
     assert selector_segments([]) is None
+
+
+def test_variable_ref_contract_has_stable_shape_reasons() -> None:
+    assert variable_ref_validation_error({"node_id": "run", "path": []}) is None
+    assert (
+        variable_ref_validation_error(
+            {"node_id": "run", "path": [], "required": False}
+        )
+        is None
+    )
+    assert (
+        variable_ref_validation_error({"node_id": " ", "path": []})
+        == "node_id_must_be_non_empty_string"
+    )
+    assert (
+        variable_ref_validation_error({"node_id": "run", "path": ["q", 0]})
+        == "path_must_be_string_array"
+    )
+    assert (
+        variable_ref_validation_error({"node_id": "run"})
+        == "path_must_be_string_array"
+    )
+    assert (
+        variable_ref_validation_error(
+            {"node_id": "run", "path": [], "required": 0}
+        )
+        == "required_must_be_boolean"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +117,13 @@ def test_pool_set_namespace_merges() -> None:
 
 
 def test_reserved_namespaces_constant() -> None:
-    assert set(RESERVED_NAMESPACES) == {"workspace", "system", "run", "node"}
+    assert set(RESERVED_NAMESPACES) == {
+        "workspace",
+        "system",
+        "run",
+        "node",
+        "context",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +186,75 @@ def test_apply_inputs_map_missing_selector_does_not_clobber_merge() -> None:
     config = {"inputs_map": {"answer": "ghost.path"}}
     resolved = apply_inputs_map(config, VariablePool(), {"answer": "kept"})
     assert resolved["answer"] == "kept"
+
+
+def test_strict_inputs_distinguish_explicit_null_from_absent() -> None:
+    pool = VariablePool({"run": {"nullable": None}})
+    resolved = apply_inputs_map(
+        {"inputs_map": {"answer": {"node_id": "run", "path": ["nullable"]}}},
+        pool,
+        {"answer": "legacy"},
+        io_mode="strict",
+    )
+    assert "answer" in resolved
+    assert resolved["answer"] is None
+
+    with pytest.raises(VariableResolutionError) as caught:
+        apply_inputs_map(
+            {"inputs_map": {"answer": {"node_id": "run", "path": ["absent"]}}},
+            pool,
+            {"answer": "legacy"},
+            io_mode="strict",
+        )
+    assert caught.value.reason == "missing"
+
+
+def test_strict_selector_is_required_by_default_and_can_explicitly_opt_out() -> None:
+    pool = VariablePool()
+    with pytest.raises(VariableResolutionError):
+        apply_inputs_map(
+            {"inputs_map": {"q": {"node_id": "run", "path": ["missing"]}}},
+            pool,
+            {},
+            io_mode="strict",
+        )
+    assert apply_inputs_map(
+        {
+            "inputs_map": {
+                "q": {"node_id": "run", "path": ["missing"], "required": False}
+            }
+        },
+        pool,
+        {},
+        io_mode="strict",
+    ) == {}
+
+
+def test_strict_rejects_non_boolean_required_even_when_value_exists() -> None:
+    pool = VariablePool({"run": {"query": "hello"}})
+    with pytest.raises(VariableResolutionError) as caught:
+        apply_inputs_map(
+            {
+                "inputs_map": {
+                    "q": {"node_id": "run", "path": ["query"], "required": "false"}
+                }
+            },
+            pool,
+            {},
+            io_mode="strict",
+        )
+    assert caught.value.reason == "required_must_be_boolean"
+
+
+def test_strict_passthrough_preserves_only_declared_present_fields() -> None:
+    predecessor = {"keep": None, "also": 7, "drop": "legacy"}
+    resolved = apply_inputs_map(
+        {"passthrough_inputs": ["keep", "also", "absent"]},
+        VariablePool(),
+        predecessor,
+        io_mode="strict",
+    )
+    assert resolved == {"keep": None, "also": 7}
 
 
 # ---------------------------------------------------------------------------

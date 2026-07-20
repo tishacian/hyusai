@@ -304,6 +304,67 @@ def test_variable_unresolved_warns_on_unknown_node() -> None:
     assert not has_errors(issues)
 
 
+def test_strict_variable_ref_shape_is_validated_before_resolution() -> None:
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {"id": "source", "kind": "source"},
+            {
+                "id": "consumer",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {
+                        "blank_owner": {"node_id": " ", "path": []},
+                        "mixed_path": {"node_id": "run", "path": ["query", 0]},
+                        "bad_required": {
+                            "node_id": "run",
+                            "path": ["query"],
+                            "required": "false",
+                        },
+                    },
+                },
+            },
+        ],
+        "edges": [{"from": "source", "to": "consumer", "kind": "data"}],
+    }
+    invalid = [
+        issue
+        for issue in validate_flow(flow)
+        if issue.code == "variable_contract_invalid" and issue.node_id == "consumer"
+    ]
+    assert len(invalid) == 3
+    assert all(issue.level == "error" for issue in invalid)
+
+
+def test_overlay_invalid_variable_ref_shape_warns_without_becoming_valid() -> None:
+    flow = {
+        "schema_version": 3,
+        "io_mode": "overlay",
+        "nodes": [
+            {
+                "id": "consumer",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {
+                        "q": {"node_id": "run", "path": [], "required": None}
+                    },
+                },
+            }
+        ],
+        "edges": [],
+    }
+    invalid = [
+        issue
+        for issue in validate_flow(flow)
+        if issue.code == "variable_contract_invalid"
+    ]
+    assert len(invalid) == 1
+    assert invalid[0].level == "warn"
+
+
 def test_variable_unresolved_warns_when_not_upstream() -> None:
     # ``later`` exists but is downstream of ``b`` -> not a valid source.
     flow = {

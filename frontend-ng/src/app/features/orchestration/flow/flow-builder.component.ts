@@ -27,9 +27,7 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import {
-  primitivesIncompatible,
   type CanonicalFlow,
-  type CanonicalFlowEdge,
 } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import {
@@ -49,11 +47,12 @@ import { FlowVersionsComponent } from './flow-versions.component';
 import { FlowManifestStripComponent } from './flow-manifest-strip.component';
 import { FlowValidationStripComponent } from './flow-validation-strip.component';
 import {
-  connectorsToEdge,
-  inputConnectorId,
-  outputConnectorId,
   type ParsedConnector,
 } from './flow-foblex.adapter';
+import {
+  buildPreconnectEdge,
+  isPaletteItemConnectable,
+} from './flow-preconnect';
 import {
   DEFAULT_PALETTE,
   defaultScratchFlow,
@@ -237,7 +236,7 @@ export class FlowBuilderComponent {
     // an input → the new node produces (its output side).
     const side = menu.connector.direction === 'out' ? 'in' : 'out';
     const all = [...this.palette, ...this.catalog.skillItems()];
-    return all.filter((item) => this.itemConnectable(item, side, menu.schema));
+    return all.filter((item) => isPaletteItemConnectable(item, side, menu.schema));
   });
 
   constructor() {
@@ -310,7 +309,12 @@ export class FlowBuilderComponent {
     }
     const id = this.store.addNode(paletteItemToNode(item, position));
     if (!preconnect) return;
-    const edge = this.preconnectEdge(preconnect, item, id);
+    const edge = buildPreconnectEdge(
+      preconnect,
+      item,
+      id,
+      this.originatingSchema(preconnect),
+    );
     if (edge) this.store.connect(edge);
   }
 
@@ -341,39 +345,6 @@ export class FlowBuilderComponent {
     if (!node || !connector.port) return undefined;
     const ports = connector.direction === 'out' ? node.outputs : node.inputs;
     return (ports ?? []).find((p) => p.name === connector.port)?.schema;
-  }
-
-  /** A palette item can connect on `side` when it declares a compatible port
-   *  there (or none → implicit passthrough), and isn't a source/sink that
-   *  structurally lacks the needed connector. */
-  private itemConnectable(
-    item: PaletteItem,
-    side: 'in' | 'out',
-    schema: string | undefined,
-  ): boolean {
-    if (side === 'in' && item.kind === 'source') return false;
-    if (side === 'out' && item.kind === 'sink') return false;
-    if (!schema) return true;
-    const ports = (side === 'in' ? item.inputs : item.outputs) ?? [];
-    if (ports.length === 0) return true; // implicit passthrough accepts anything
-    return ports.some((p) => !primitivesIncompatible(p.schema, schema));
-  }
-
-  /** Build the edge wiring the new node's first compatible port to the
-   *  originating handle. Reuses the adapter's connector id scheme. */
-  private preconnectEdge(
-    connector: ParsedConnector,
-    item: PaletteItem,
-    newId: string,
-  ): CanonicalFlowEdge | null {
-    if (connector.direction === 'out') {
-      const sourceId = outputConnectorId(connector.nodeId, connector.port);
-      const targetId = inputConnectorId(newId, (item.inputs ?? [])[0]?.name);
-      return connectorsToEdge(sourceId, targetId);
-    }
-    const targetId = inputConnectorId(connector.nodeId, connector.port);
-    const sourceId = outputConnectorId(newId, (item.outputs ?? [])[0]?.name);
-    return connectorsToEdge(sourceId, targetId);
   }
 
   onCycleRouting(): void {

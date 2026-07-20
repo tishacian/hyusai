@@ -12,7 +12,6 @@ import pytest
 from app.core.config import settings
 from app.models.audit import AuditLog
 from app.models.system import System
-from app.models.system_version import SystemVersion
 from app.services.chains import version_service
 
 
@@ -128,6 +127,30 @@ def test_rolling_window_purges_fifo(db_session, monkeypatch) -> None:
         .all()
     )
     assert len(purge_events) == 2, f"Expected 2 purge events, got {len(purge_events)}"
+
+
+def test_append_only_caller_can_disable_fifo_purge(db_session, monkeypatch) -> None:
+    """Backfills and staged rollouts must never delete historical versions."""
+    monkeypatch.setattr(settings, "custom_chain_version_window", 1)
+    system = _make_system(db_session)
+
+    for index in range(3):
+        version_service.record_new_version(
+            db=db_session,
+            system=system,
+            flow_definition={"nodes": [{"id": f"n{index}"}], "edges": []},
+            created_by="migration",
+            purge=False,
+        )
+
+    rows, total = version_service.list_versions(
+        db=db_session,
+        system_id=system.id,
+        workspace_id=system.workspace_id,
+    )
+    assert total == 3
+    assert [row.version_number for row in rows] == [3, 2, 1]
+    assert db_session.query(AuditLog).filter_by(event_type="chain.version.purged").count() == 0
 
 
 def test_rollback_creates_new_version_with_target_flow(db_session) -> None:

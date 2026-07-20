@@ -8,6 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "AI Orchestration Platform"
     app_version: str = "1.0.0-demo"
+    # Exact source revision baked into every deployable image. The protected
+    # deployment job rejects non-SHA values outside local development.
+    agentium_image_revision: str = "development"
     debug: bool = False
 
     api_v1_prefix: str = "/api/v1"
@@ -480,6 +483,10 @@ class Settings(BaseSettings):
     # current workspace slug is listed here.
     iam_generic_engine: bool = False
     iam_enforced_workspace_slugs: str = "andritz"
+
+    # P4 is double-gated: this global kill switch and an explicit per-System
+    # settings.features.subflow_celery=true opt-in must both be present.
+    enable_subflow_celery: bool = False
 
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"

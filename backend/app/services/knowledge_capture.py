@@ -7528,17 +7528,35 @@ def _chat_correction_markdown(
 def is_expert_review_required(source_policy: Optional[Mapping[str, Any]]) -> bool:
     """Whether expert corrections/captures must be reviewed before publication.
 
-    Honours a per-workspace ``source_policy["expert_review_required"]`` override
-    when present, otherwise falls back to the global default
-    ``settings.kc_expert_review_required`` (``True``). Keeping the default
-    ``True`` leaves the review workflow byte-for-byte unchanged unless a
-    workspace explicitly opts out (``expert_review_required: false``).
+    V1/derived policies retain the legacy override/default exactly.  When an
+    authoritative MembraneSpec v2 is surfaced into ``source_policy``, the
+    shared egress resolver becomes the sole owner in enforce mode and remains
+    observation-only in shadow mode.
     """
-    if isinstance(source_policy, Mapping) and "expert_review_required" in source_policy:
-        return bool(source_policy.get("expert_review_required"))
     from app.core.config import settings as cfg
 
-    return bool(getattr(cfg, "kc_expert_review_required", True))
+    legacy_required = bool(getattr(cfg, "kc_expert_review_required", True))
+    if isinstance(source_policy, Mapping) and "expert_review_required" in source_policy:
+        legacy_required = bool(source_policy.get("expert_review_required"))
+    if not isinstance(source_policy, Mapping):
+        return legacy_required
+    try:
+        from app.services.membrane.enforcement import EgressDisposition, decide_egress
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        spec = resolve_membrane_spec(source_policy=source_policy)
+        decision = decide_egress(
+            spec,
+            legacy_review_required=legacy_required,
+            include_provenance=False,
+        )
+        return decision.disposition is not EgressDisposition.ALLOW
+    except ValueError:
+        # An invalid v2 spec is unsafe to apply and should have been rejected at
+        # the ControlPolicy boundary.  Keep the safest legacy posture here.
+        return True
+    except Exception:  # noqa: BLE001 - compatibility path remains available.
+        return legacy_required
 
 
 _CHAT_CORRECTION_THEME_MAX_WORDS = 12

@@ -27,37 +27,55 @@ re-executing completed nodes.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
 from app.models.capability import Capability
+from app.models.context import Context
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.models.workspace import Workspace
+from app.services.membrane.enforcement import (
+    EgressDisposition,
+    MembraneEnforcementError,
+    decide_egress,
+    persist_provenance_artifact,
+)
+from app.services.membrane.spec import resolve_membrane_spec
+from app.services.outcome.derive import derive_outcome
 
 from .condition import ConditionError
 from .condition import evaluate as evaluate_condition
 from .engine import (
+    _attach_authoritative_membrane,
     _build_initial_ctx,
+    _evaluate_run_capability,
     _execute_task_node,
     _fail,
     _finalize_run,
     _load_adaptive_policy,
     _load_control_policy,
     _log_decision,
+    _record_capability_block,
+    _record_capability_shadow,
+    _runtime_valves_blocked,
     _snapshot_run_flow,
     execute_run,
 )
 from .events import bus as event_bus
 from .variable_pool import (
     VariablePool,
+    VariableResolutionError,
     apply_inputs_map,
     apply_outputs_map,
     resolve_selector,
@@ -65,6 +83,17 @@ from .variable_pool import (
 )
 
 logger = get_logger(__name__)
+
+
+def subflow_celery_enabled(system: System) -> bool:
+    """True only when both the deployment and System explicitly opt in."""
+    features = ((system.settings or {}).get("features") or {}) if isinstance(system.settings, dict) else {}
+    return bool(settings.enable_subflow_celery and features.get("subflow_celery") is True)
+
+
+def delegation_key(parent_id: str, node_id: str, iteration: Any = 0, branch: str = "default") -> str:
+    raw = f"{parent_id}\0{node_id}\0{iteration}\0{branch}".encode()
+    return hashlib.sha256(raw).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -81,14 +110,24 @@ _CONTROL_KINDS: Tuple[str, ...] = (
 )
 
 
-def should_use_dag(system: System) -> bool:
+def _workspace_strict_dag_enabled(workspace: Optional[Workspace]) -> bool:
+    raw_settings = getattr(workspace, "settings", None)
+    features = raw_settings.get("features") if isinstance(raw_settings, dict) else None
+    return bool(
+        isinstance(features, dict)
+        and features.get("flow_v3_dag_authoritative") is True
+    )
+
+
+def should_use_dag(system: System, workspace: Optional[Workspace] = None) -> bool:
     """Return True when ``system.flow_definition`` is a v2+ DAG with real
     control nodes. Accepts ``schema_version >= 2`` (v2 *and* the v3
     variable-membrane shape — the typed-port / ``VariableRef`` extensions
     are additive and parse identically here). v1 / legacy / empty flows
     fall through to the sequential walker so behaviour is unchanged for
-    pre-C6 Systems, and a v2/v3 task-only graph (no control nodes) still
-    routes to the sequential walker exactly as before.
+    pre-C6 Systems. A v3 strict task-only graph routes to this walker only
+    when its Workspace explicitly enables ``features.flow_v3_dag_authoritative``;
+    an absent/off flag preserves the sequential legacy path.
     """
     flow = getattr(system, "flow_definition", None) or {}
     if not isinstance(flow, dict):
@@ -98,7 +137,13 @@ def should_use_dag(system: System) -> bool:
     nodes = flow.get("nodes") or []
     if not isinstance(nodes, list):
         return False
-    return any((isinstance(n, dict) and (n.get("kind") in _CONTROL_KINDS)) for n in nodes)
+    if any((isinstance(n, dict) and (n.get("kind") in _CONTROL_KINDS)) for n in nodes):
+        return True
+    return (
+        int(flow.get("schema_version") or 0) >= 3
+        and flow.get("io_mode") == "strict"
+        and _workspace_strict_dag_enabled(workspace)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +173,9 @@ class DagEdge:
 class DagGraph:
     nodes: Dict[str, DagNode]
     edges: List[DagEdge]
+    io_mode: str = "overlay"
+    variable_namespaces: Set[str] = field(default_factory=set)
+    strict_authoritative: bool = False
     out_edges: Dict[str, List[DagEdge]] = field(default_factory=dict)
     in_edges: Dict[str, List[DagEdge]] = field(default_factory=dict)
 
@@ -184,7 +232,19 @@ class DagGraph:
                 )
             )
 
-        graph = cls(nodes=nodes, edges=edges)
+        raw_namespaces = flow.get("variable_namespaces") or []
+        graph = cls(
+            nodes=nodes,
+            edges=edges,
+            io_mode="strict" if flow.get("io_mode") == "strict" else "overlay",
+            variable_namespaces={
+                str(item)
+                for item in raw_namespaces
+                if isinstance(item, str) and item.strip()
+            }
+            if isinstance(raw_namespaces, list)
+            else set(),
+        )
         for nid in nodes:
             graph.out_edges[nid] = []
             graph.in_edges[nid] = []
@@ -240,6 +300,10 @@ class WalkerState:
     # duplicate. Empty dict for flows without subflows; absent in pre-P4
     # checkpoints (``from_payload`` tolerates the omission).
     subflow_children: Dict[str, str] = field(default_factory=dict)
+    # A synthetic terminal Membrane HOLD is not a graph node.  Persist its
+    # approval bit so resume can publish the already-computed output without
+    # re-running a task or asking for approval a second time.
+    membrane_egress_approved: bool = False
 
     def to_payload(self) -> Dict[str, Any]:
         return {
@@ -255,6 +319,7 @@ class WalkerState:
             "breakpoints": sorted(self.breakpoints),
             "pool": self.pool.to_dict(),
             "subflow_children": dict(self.subflow_children),
+            "membrane_egress_approved": self.membrane_egress_approved,
         }
 
     @classmethod
@@ -277,6 +342,7 @@ class WalkerState:
         # ``subflow_children`` key — default to an empty mapping so old
         # paused runs still rehydrate and resume.
         state.subflow_children = dict(payload.get("subflow_children") or {})
+        state.membrane_egress_approved = bool(payload.get("membrane_egress_approved"))
         return state
 
 
@@ -297,10 +363,19 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         if not system:
             return _fail(db, run, "system_not_found")
 
+        workspace = (
+            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            if (system.workspace_id or run.workspace_id)
+            else None
+        )
+
         # Prefer a pre-existing immutable snapshot (replay/retry); a new Run
         # falls back to the current System graph and snapshots it below.
         flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
+        graph.strict_authoritative = (
+            graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
+        )
         if not graph.nodes:
             return _fail(db, run, "empty_flow")
 
@@ -312,17 +387,37 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
+        run_gate = _evaluate_run_capability(control, system)
+        if not run_gate.allowed:
+            _record_capability_block(
+                db,
+                run,
+                system_id=system.id,
+                violations=list(run_gate.violations),
+            )
+            return _fail(db, run, "membrane_capability_block:system.engine.run")
+        if run_gate.would_block and run_gate.mode == "shadow":
+            _record_capability_shadow(
+                db,
+                run,
+                system_id=system.id,
+                violations=list(run_gate.violations),
+                action="system.engine.run",
+            )
+
         run.status = "running"
         run.started_at = run.started_at or datetime.utcnow()
         _snapshot_run_flow(db, run, system)
         db.commit()
 
+        initial_ctx = _build_initial_ctx(db, run, system, capability)
+        _attach_authoritative_membrane(initial_ctx, control)
         state = WalkerState(
-            ctx=_build_initial_ctx(db, run, system, capability),
+            ctx=initial_ctx,
             pending_counts={nid: len(graph.in_edges[nid]) for nid in graph.nodes},
             start_monotonic=time.monotonic(),
         )
-        _seed_pool(state.pool, run, system)
+        _seed_pool(db, state.pool, run, system, workspace=workspace)
         # Pick up optional debugger config from the run input. Shape:
         #   run.input_ref["_debug"] = {"mode": "step"|"breakpoints",
         #                              "breakpoints": ["n1", "n3"]}
@@ -417,9 +512,18 @@ async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> D
         if not system:
             return _fail(db, run, "system_not_found")
 
+        workspace = (
+            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            if (system.workspace_id or run.workspace_id)
+            else None
+        )
+
         # HITL resumes obey the immutable execution contract.
         flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
+        graph.strict_authoritative = (
+            graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
+        )
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = time.monotonic()
 
@@ -430,6 +534,24 @@ async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> D
         )
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
+
+        run_gate = _evaluate_run_capability(control, system)
+        if not run_gate.allowed:
+            _record_capability_block(
+                db,
+                run,
+                system_id=system.id,
+                violations=list(run_gate.violations),
+            )
+            return _fail(db, run, "membrane_capability_block:system.engine.run")
+        if run_gate.would_block and run_gate.mode == "shadow":
+            _record_capability_shadow(
+                db,
+                run,
+                system_id=system.id,
+                violations=list(run_gate.violations),
+                action="system.engine.run",
+            )
 
         hitl_node_id = pause_cp.get("node_id")
         paused_node = graph.nodes.get(hitl_node_id) if hitl_node_id else None
@@ -449,23 +571,38 @@ async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> D
         approved = bool(dec and dec.status in ("accepted", "applied"))
         rejected = bool(dec and dec.status == "rejected")
 
-        if is_subflow_pause:
+        is_membrane_egress = bool(pause_cp.get("membrane_egress"))
+        if is_membrane_egress:
+            if rejected:
+                return _fail(db, run, "membrane_egress_rejected")
+            if not approved:
+                # A proposed/missing decision is not authority to publish.
+                return {
+                    "id": run.id,
+                    "status": "hitl_pending",
+                    "awaiting_decision": target_decision_id,
+                }
+            state.membrane_egress_approved = True
+
+        if is_membrane_egress:
+            # Synthetic gate: every real graph node is already settled.
+            pass
+        elif is_subflow_pause:
             # Nothing to settle for the parent — the child resume (driven by
             # ``_run_subflow`` on re-entry) owns the decision and its own ctx.
             pass
         elif hitl_node_id and hitl_node_id in graph.nodes:
-            state.node_outputs[hitl_node_id] = {
+            hitl_output = {
                 "approved": approved,
                 "rejected": rejected,
                 "decision_id": target_decision_id,
                 "decision_status": dec.status if dec else None,
             }
-            state.done.add(hitl_node_id)
             state.ctx["hitl_approved"] = approved
             state.ctx["hitl_decision"] = dec.status if dec else None
-            # Decrement pending counts for downstream of the HITL node.
-            for e in graph.out_edges.get(hitl_node_id, []):
-                state.pending_counts[e.target] = max(0, state.pending_counts.get(e.target, 0) - 1)
+            # Reuse the single settlement path: HITL resume must publish the
+            # node namespace and outputs_map exactly like a normal completion.
+            _settle_node(graph, state, hitl_node_id, {"output": hitl_output})
 
         run.status = "running"
         db.commit()
@@ -525,7 +662,10 @@ async def _walk(
         serial: List[str] = []
         for nid in ready:
             kind = graph.nodes[nid].kind
-            (serial if kind in ("hitl", "subflow", "loop") else parallel).append(nid)
+            serial_kind = kind in ("hitl", "loop") or (
+                kind == "subflow" and not subflow_celery_enabled(system)
+            )
+            (serial if serial_kind else parallel).append(nid)
 
         if parallel:
             results = await asyncio.gather(
@@ -536,16 +676,24 @@ async def _walk(
                 return_exceptions=False,
             )
             for nid, outcome in zip(parallel, results):
+                if outcome.get("membrane_blocked"):
+                    return _fail(db, run, run.error or "membrane_policy_block")
                 _settle_node(graph, state, nid, outcome)
                 if outcome.get("pause"):
+                    if outcome.get("wait_subflow"):
+                        return _emit_subflow_pause(db, run, state, outcome)
                     return _emit_hitl_pause(db, run, state, outcome)
                 if _should_debug_pause(graph, state, nid):
                     return _emit_debug_pause(db, run, state, nid)
 
         for nid in serial:
             outcome = await _execute_node(db, run, graph.nodes[nid], graph, state, control=control)
+            if outcome.get("membrane_blocked"):
+                return _fail(db, run, run.error or "membrane_policy_block")
             _settle_node(graph, state, nid, outcome)
             if outcome.get("pause"):
+                if outcome.get("wait_subflow"):
+                    return _emit_subflow_pause(db, run, state, outcome)
                 return _emit_hitl_pause(db, run, state, outcome)
             if _should_debug_pause(graph, state, nid):
                 return _emit_debug_pause(db, run, state, nid)
@@ -576,6 +724,20 @@ async def _walk(
         .all()
     )
     last_output = _collect_terminal_output(graph, state)
+
+    membrane_result = _enforce_terminal_membrane(
+        db,
+        run,
+        state,
+        system=system,
+        capability=capability,
+        control=control,
+        invocations=invocations,
+        duration_ms=duration_ms,
+        last_output=last_output,
+    )
+    if membrane_result is not None:
+        return membrane_result
 
     summary = _finalize_run(
         db,
@@ -612,6 +774,206 @@ async def _walk(
         duration_ms=duration_ms,
     )
     return summary
+
+
+def _enforce_terminal_membrane(
+    db: DBSession,
+    run: Run,
+    state: WalkerState,
+    *,
+    system: System,
+    capability: Optional[Capability],
+    control,
+    invocations: List[SkillInvocation],
+    duration_ms: float,
+    last_output: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Apply the authoritative v2 egress/provenance contract before publish.
+
+    The graph is already fully settled at this point, but ``Run.output_ref`` is
+    intentionally still empty.  HOLD persists a synthetic HITL checkpoint;
+    resume rehydrates the walker and skips directly back here.
+    """
+
+    try:
+        spec = resolve_membrane_spec(control=control)
+    except Exception as exc:  # noqa: BLE001 - malformed v2 cannot fail open.
+        raw = (
+            (getattr(control, "extra", None) or {}).get("membrane_spec")
+            if control is not None and isinstance(getattr(control, "extra", None), dict)
+            else None
+        )
+        if isinstance(raw, dict) and int(raw.get("version") or 0) >= 2:
+            return _fail(db, run, f"membrane_spec_invalid:{str(exc)[:240]}")
+        return None
+    if not spec.authoritative or spec.version < 2:
+        return None
+
+    derived = derive_outcome(
+        invocations=invocations,
+        capability=capability,
+        control_hitl_threshold=None,
+        duration_ms=duration_ms,
+    )
+    citations = _collect_membrane_citations(
+        {
+            "output": last_output,
+            "pool": state.pool.to_dict(),
+            "nodes": state.node_outputs,
+        }
+    )
+    decision = decide_egress(
+        spec,
+        confidence=derived.confidence,
+        citations=citations,
+        legacy_review_required=False,
+    )
+    _append_checkpoint(
+        db,
+        run,
+        {
+            "kind": "membrane_egress_evaluated",
+            "mode": decision.mode,
+            "disposition": decision.disposition.value,
+            "would_disposition": decision.would_disposition.value,
+            "reasons": list(decision.reasons),
+            "citation_count": len(citations),
+            "confidence": derived.confidence,
+        },
+    )
+
+    if decision.disposition is EgressDisposition.BLOCK:
+        _log_decision(
+            db,
+            scope="run",
+            target_id=run.id,
+            kind="policy_block",
+            rationale={
+                "run_id": run.id,
+                "facet": "outbound",
+                "reasons": list(decision.reasons),
+                "mode": decision.mode,
+            },
+        )
+        run.output_ref = {}
+        db.commit()
+        return _fail(db, run, f"membrane_egress_block:{','.join(decision.reasons)}")
+
+    if (
+        decision.disposition is EgressDisposition.HOLD
+        and not state.membrane_egress_approved
+    ):
+        approval = _log_decision(
+            db,
+            scope="run",
+            target_id=run.id,
+            kind="hitl_approval",
+            rationale={
+                "run_id": run.id,
+                "facet": "outbound",
+                "reasons": list(decision.reasons),
+                "confidence": derived.confidence,
+                "citation_count": len(citations),
+            },
+            status="proposed",
+            title="Membrane egress approval",
+        )
+        run.output_ref = {}
+        db.commit()
+        return _emit_hitl_pause(
+            db,
+            run,
+            state,
+            {
+                "pause": True,
+                "membrane_egress": True,
+                "node_id": "__membrane_egress__",
+                "decision_id": approval.id if approval else None,
+                "prompt": "Approval required before this result can be published",
+            },
+        )
+
+    try:
+        artifact = persist_provenance_artifact(
+            spec,
+            workspace_id=str(run.workspace_id or system.workspace_id or ""),
+            system_id=system.id,
+            run_id=run.id,
+            payload={
+                "identity": {
+                    "workspace_id": run.workspace_id or system.workspace_id,
+                    "system_id": system.id,
+                    "run_id": run.id,
+                    "capability_id": system.capability_id,
+                },
+                "egress": {
+                    "disposition": decision.disposition.value,
+                    "reasons": list(decision.reasons),
+                    "confidence": derived.confidence,
+                    "citations": citations,
+                },
+                "output": last_output,
+            },
+        )
+    except MembraneEnforcementError as exc:
+        run.output_ref = {}
+        db.commit()
+        return _fail(db, run, str(exc))
+
+    if artifact is not None:
+        evidence = artifact.to_dict()
+        # Record the immutable URI/SHA both in the final output contract and
+        # in the invocation ledger that emitted the terminal audit event.
+        last_output["_membrane_provenance"] = evidence
+        audit_invocation = next(
+            (item for item in reversed(invocations) if item.skill_slug == "audit_log_v1"),
+            invocations[-1] if invocations else None,
+        )
+        if audit_invocation is not None:
+            trace = dict(audit_invocation.trace or {})
+            trace["membrane_provenance"] = evidence
+            audit_invocation.trace = trace
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "membrane_provenance",
+                "uri": artifact.uri,
+                "sha256": artifact.sha256,
+                "size_bytes": artifact.size_bytes,
+            },
+        )
+    return None
+
+
+def _collect_membrane_citations(value: Any) -> List[Any]:
+    """Find typed ``citations`` fields in terminal output and VariablePool."""
+
+    found: List[Any] = []
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            citations = item.get("citations")
+            if isinstance(citations, list):
+                found.extend(citations)
+            for nested in item.values():
+                visit(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                visit(nested)
+
+    visit(value)
+    deduped: List[Any] = []
+    seen: Set[str] = set()
+    for citation in found:
+        try:
+            key = repr(sorted(citation.items())) if isinstance(citation, dict) else repr(citation)
+        except Exception:  # noqa: BLE001 - a citation is still evidence.
+            key = repr(citation)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(citation)
+    return deduped
 
 
 def _settle_node(
@@ -749,9 +1111,18 @@ async def resume_run_dag_debug(
         if not system:
             return _fail(db, run, "system_not_found")
 
+        workspace = (
+            db.query(Workspace).filter(Workspace.id == (system.workspace_id or run.workspace_id)).first()
+            if (system.workspace_id or run.workspace_id)
+            else None
+        )
+
         # Debug resumes obey the immutable graph captured at first execution.
         flow = run.flow_snapshot or system.flow_definition or {}
         graph = DagGraph.from_flow_definition(flow)
+        graph.strict_authoritative = (
+            graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
+        )
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = time.monotonic()
 
@@ -815,10 +1186,26 @@ def _emit_hitl_pause(
         "decision_id": outcome.get("decision_id"),
         "prompt": outcome.get("prompt"),
         "state": state.to_payload(),
+        "membrane_egress": bool(outcome.get("membrane_egress")),
     }
-    _append_checkpoint(db, run, checkpoint)
-    run.status = "hitl_pending"
-    db.commit()
+    if checkpoint["membrane_egress"]:
+        # The full walker state is durable resume data and may contain the
+        # held result.  Persist it, but never mirror it onto the live SSE bus.
+        # The public event carries only the approval envelope.
+        run.checkpoints = [*(run.checkpoints or []), checkpoint]
+        run.status = "hitl_pending"
+        run.output_ref = {}
+        db.commit()
+        public_checkpoint = {key: value for key, value in checkpoint.items() if key != "state"}
+        public_checkpoint["result_held"] = True
+        try:
+            event_bus.publish(run.id, public_checkpoint)
+        except Exception:  # noqa: BLE001 - persisted state is authoritative.
+            pass
+    else:
+        _append_checkpoint(db, run, checkpoint)
+        run.status = "hitl_pending"
+        db.commit()
     # Close the current live stream — resume will spin up a fresh run
     # that SSE clients can re-subscribe to on reconnect.
     try:
@@ -836,6 +1223,38 @@ def _emit_hitl_pause(
         "status": "hitl_pending",
         "awaiting_decision": outcome.get("decision_id"),
         "prompt": outcome.get("prompt"),
+    }
+
+
+def _emit_subflow_pause(
+    db: DBSession, run: Run, state: WalkerState, outcome: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Persist a broker wait separately from a human approval pause."""
+    state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
+    checkpoint = {
+        "kind": "subflow_wait",
+        "t": datetime.utcnow().isoformat(),
+        "node_id": outcome.get("node_id"),
+        "child_run_id": outcome.get("child_run_id"),
+        "state": state.to_payload(),
+    }
+    # Checkpoint and status are one transaction. A very fast child callback
+    # must never observe the checkpoint while the parent still says running.
+    run.checkpoints = [*(run.checkpoints or []), checkpoint]
+    run.status = "waiting_subflows"
+    db.commit()
+    try:
+        event_bus.publish(run.id, checkpoint)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "id": run.id,
+        "status": "waiting_subflows",
+        "child_run_id": outcome.get("child_run_id"),
     }
 
 
@@ -968,6 +1387,20 @@ async def _execute_node(
     if merged_input:
         state.ctx.update({k: v for k, v in merged_input.items() if v is not None})
 
+    # ``node`` is a real built-in namespace, but it is local to this handler.
+    # Independent ready nodes execute concurrently, therefore it must never be
+    # written into the shared pool where one task could observe another task's
+    # scope.
+    node_pool = state.pool.with_namespace(
+        "node",
+        {
+            "id": node.id,
+            "kind": node.kind,
+            "label": node.label,
+            "config": _without_secret_values(node.config),
+        },
+    )
+
     # P1 — resolve ``config.inputs_map`` selectors against the typed pool.
     # When the map is empty/absent ``node_input`` is the same object as
     # ``merged_input`` and ``maps_present`` is False, so every handler stays
@@ -977,11 +1410,34 @@ async def _execute_node(
     # ``collection`` reverts to its Phase-1 map shape.
     effective_map = _effective_inputs_map(node, graph)
     maps_present = bool(effective_map)
-    node_input = (
-        apply_inputs_map({"inputs_map": effective_map}, state.pool, merged_input)
-        if maps_present
-        else merged_input
-    )
+    strict = graph.strict_authoritative
+    input_config = {
+        "inputs_map": effective_map or {},
+        "passthrough_inputs": node.config.get("passthrough_inputs") or [],
+    }
+    try:
+        node_input = (
+            apply_inputs_map(
+                input_config,
+                node_pool,
+                merged_input,
+                io_mode="strict" if strict else "overlay",
+            )
+            if maps_present or strict
+            else merged_input
+        )
+    except VariableResolutionError as exc:
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "variable_resolution_error",
+                "node_id": node.id,
+                "port": exc.port,
+                "selector": _sanitize(exc.selector),
+            },
+        )
+        raise
 
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}
@@ -1003,12 +1459,19 @@ async def _execute_node(
                 state,
                 control=control,
                 upstream=node_input,
-                resolved=maps_present,
+                resolved=maps_present or strict,
             )
             return result
 
         if node.kind == "decision":
-            result = _run_decision(node, graph, state, node_input)
+            result = _run_decision(
+                node,
+                graph,
+                state,
+                node_input,
+                pool=node_pool,
+                strict=strict,
+            )
             return result
 
         if node.kind == "fork":
@@ -1027,12 +1490,21 @@ async def _execute_node(
                 state,
                 control=control,
                 upstream=node_input,
-                resolved=maps_present,
+                resolved=maps_present or strict,
             )
             return result
 
         if node.kind == "loop":
-            result = await _run_loop(db, run, node, state, control=control, upstream=node_input)
+            result = await _run_loop(
+                db,
+                run,
+                node,
+                state,
+                control=control,
+                upstream=node_input,
+                resolved=maps_present or strict,
+                pool=node_pool,
+            )
             return result
 
         if node.kind == "hitl":
@@ -1109,13 +1581,20 @@ async def _run_task(
         last_output=last_output,
         node_id=node.id,
         resolved_input=last_output if resolved else None,
+        attempt_kind="task",
+        attempt_index=1,
     )
     if invocation is None:
         # Blocked by allowed_skills — keep passthrough so the DAG can still
         # settle; the policy_block Decision is already persisted.
-        return {"output": last_output}
+        return {
+            "output": last_output,
+            "membrane_blocked": bool(resolve_membrane_spec(control=control).enforcement_active),
+        }
     state.invocation_ids.append(invocation.id)
     state.total_cost += invocation.cost or 0.0
+    if _runtime_valves_blocked(db, run, control):
+        return {"output": {}, "membrane_blocked": True}
     if invocation.status == "completed":
         return {"output": invocation.output_ref or {}}
     # On failure / skipped: pass through upstream data but preserve the error
@@ -1129,7 +1608,13 @@ async def _run_task(
 
 
 def _run_decision(
-    node: DagNode, graph: DagGraph, state: WalkerState, merged_input: Dict[str, Any]
+    node: DagNode,
+    graph: DagGraph,
+    state: WalkerState,
+    merged_input: Dict[str, Any],
+    *,
+    pool: Optional[VariablePool] = None,
+    strict: bool = False,
 ) -> Dict[str, Any]:
     """Evaluate each branch condition; return the list of inactive branch
     labels so the walker can kill the corresponding out-edges.
@@ -1137,7 +1622,14 @@ def _run_decision(
     config = node.config or {}
     branches = config.get("branches") or []
     default_label = config.get("default_branch")
-    ctx_with_input = {**state.ctx, **(merged_input or {})}
+    # Strict conditions are evaluated from the node's typed payload. Built-in
+    # and declared namespaces remain addressable through the pool. Overlay
+    # preserves the historical flat ctx merge.
+    ctx_with_input = (
+        dict(merged_input or {})
+        if strict
+        else {**state.ctx, **(merged_input or {})}
+    )
 
     chosen: Optional[str] = None
     evaluations: List[Dict[str, Any]] = []
@@ -1147,7 +1639,7 @@ def _run_decision(
         label = b.get("label") or ""
         cond = b.get("condition") or ""
         try:
-            value = evaluate_condition(cond, ctx_with_input, pool=state.pool)
+            value = evaluate_condition(cond, ctx_with_input, pool=pool or state.pool)
         except ConditionError as exc:
             evaluations.append({"label": label, "error": str(exc), "value": False})
             value = False
@@ -1252,11 +1744,18 @@ async def _run_retry(
             last_output=last_output,
             node_id=node.id,
             resolved_input=last_output if resolved else None,
+            attempt_kind="task" if attempt == 1 else "retry",
+            attempt_index=attempt,
         )
         if invocation is None:
-            return {"output": last_output}
+            return {
+                "output": last_output,
+                "membrane_blocked": bool(resolve_membrane_spec(control=control).enforcement_active),
+            }
         state.invocation_ids.append(invocation.id)
         state.total_cost += invocation.cost or 0.0
+        if _runtime_valves_blocked(db, run, control):
+            return {"output": {}, "membrane_blocked": True}
         if invocation.status == "completed":
             return {
                 "output": {
@@ -1285,6 +1784,8 @@ async def _run_loop(
     *,
     control,
     upstream: Optional[Dict[str, Any]] = None,
+    resolved: bool = False,
+    pool: Optional[VariablePool] = None,
 ) -> Dict[str, Any]:
     config = node.config or {}
     max_iterations = int(config.get("max_iterations") or 1)
@@ -1295,7 +1796,9 @@ async def _run_loop(
     base_ctx = {**state.ctx, **merged}
     items: List[Any] = []
     if iterator_key:
-        src = base_ctx.get(iterator_key)
+        src = base_ctx.get(iterator_key) if isinstance(iterator_key, str) else None
+        if src is None:
+            src = resolve_selector(iterator_key, pool or state.pool, default=None)
         if isinstance(src, list):
             items = list(src)
     if not items and max_iterations > 0 and not iterator_key:
@@ -1314,18 +1817,34 @@ async def _run_loop(
                 control=control,
                 last_output=iter_input,
                 node_id=node.id,
+                resolved_input=iter_input if resolved else None,
+                attempt_kind="loop",
+                attempt_index=idx + 1,
             )
             if invocation is not None:
                 state.invocation_ids.append(invocation.id)
                 state.total_cost += invocation.cost or 0.0
+                if _runtime_valves_blocked(db, run, control):
+                    return {"output": {}, "membrane_blocked": True}
+                iteration_output = invocation.output_ref or {}
                 iterations.append(
                     {
                         "index": idx,
                         "status": invocation.status,
-                        "output": invocation.output_ref or {},
+                        "output": iteration_output,
                     }
                 )
+                # Publish every completed iteration immediately. A subsequent
+                # iteration/break condition and a later HITL checkpoint both
+                # observe the same settled variable state.
+                state.pool.set([node.id, "iterations", str(idx)], iteration_output)
+                apply_outputs_map(node.config, iteration_output, state.pool)
+                if pool is not None and pool is not state.pool:
+                    pool.set([node.id, "iterations", str(idx)], iteration_output)
+                    apply_outputs_map(node.config, iteration_output, pool)
             else:
+                if resolve_membrane_spec(control=control).enforcement_active:
+                    return {"output": {}, "membrane_blocked": True}
                 iterations.append({"index": idx, "status": "blocked", "output": {}})
         else:
             iterations.append({"index": idx, "status": "noop", "output": iter_input})
@@ -1335,7 +1854,7 @@ async def _run_loop(
                 if evaluate_condition(
                     break_on,
                     {**iter_ctx, **(iterations[-1]["output"] or {})},
-                    pool=state.pool,
+                    pool=pool or state.pool,
                 ):
                     break
             except ConditionError:
@@ -1429,27 +1948,24 @@ def _build_subflow_input(
     return resolved
 
 
-def _delegation_blocked(control, target: System) -> bool:
-    """Typed-edge delegation ACL (P4) via the membrane capability facet.
+def _delegation_acl(control, target: System, branch: str, payload: Dict[str, Any]):
+    """Resolve the authoritative typed delegation edge, fail-closed in v2 enforce."""
+    from .subflow_orchestration import delegation_acl_result
 
-    Inert unless an *authoritative* membrane declares a non-empty
-    ``capabilities.allowed_delegations`` — then the target System must be listed
-    (by id or ``subflow:<id>`` token). Derived / unset specs allow all
-    delegations, so existing flows are unchanged.
-    """
     try:
-        from app.services.membrane.spec import resolve_membrane_spec
-
         spec = resolve_membrane_spec(control=control)
-    except Exception:  # noqa: BLE001 — fail-soft: never block on resolver error.
-        return False
-    if not spec.authoritative:
-        return False
-    allowed = spec.capabilities.allowed_delegations
-    if not allowed:
-        return False
-    tokens = {target.id, f"subflow:{target.id}", target.name}
-    return tokens.isdisjoint(set(allowed))
+    except Exception as exc:  # malformed enforce contracts are not an allow-all
+        extra = getattr(control, "extra", None)
+        raw = (extra.get("membrane_spec") or {}) if isinstance(extra, dict) else {}
+        enforce = isinstance(raw, dict) and raw.get("version") == 2 and raw.get("enforcement_mode") == "enforce"
+        return (not enforce, "invalid_membrane_spec", None, enforce, str(exc))
+    allowed, reason, output_contract, enforced = delegation_acl_result(
+        spec,
+        target_system_id=target.id,
+        branch=branch,
+        input_payload=payload,
+    )
+    return allowed, reason, output_contract, enforced, None
 
 
 async def _run_subflow(
@@ -1492,7 +2008,7 @@ async def _run_subflow(
         # and fall through to recreate so the run can still make progress.
         state.subflow_children.pop(node.id, None)
 
-    target = db.query(System).filter(System.id == target_id).first()
+    target = db.query(System).filter(System.id == target_id, System.workspace_id == run.workspace_id).first()
     if not target:
         logger.warning(
             "dag_engine: subflow system missing",
@@ -1502,7 +2018,16 @@ async def _run_subflow(
         )
         return {"output": {"_error": "subflow_system_not_found"}}
 
-    if _delegation_blocked(control, target):
+    child_input = _build_subflow_input(config, upstream or {}, state.pool)
+    branch = str(
+        config.get("branch")
+        or (upstream or {}).get("_delegation_branch")
+        or "default"
+    )
+    allowed, acl_reason, output_contract, contract_enforced, acl_error = _delegation_acl(
+        control, target, branch, child_input
+    )
+    if not allowed:
         _log_decision(
             db,
             scope="run",
@@ -1511,35 +2036,115 @@ async def _run_subflow(
             rationale={
                 "delegation": target_id,
                 "node_id": node.id,
-                "reason": "delegation_not_in_membrane_acl",
+                "reason": acl_reason or "delegation_not_in_membrane_acl",
+                "error": acl_error,
             },
         )
         return {"output": {"_error": "delegation_blocked", "subflow_system_id": target_id}}
+    if acl_reason:
+        _log_decision(
+            db,
+            scope="run",
+            target_id=run.id,
+            kind="policy_shadow",
+            rationale={"delegation": target_id, "node_id": node.id, "reason": acl_reason},
+        )
 
-    child_input = _build_subflow_input(config, upstream or {}, state.pool)
     # Provenance: carry the delegating node id inside the child input_ref to
     # avoid a DDL migration (Run already has parent_run_id).
-    child_input["_delegation"] = {"parent_run_id": run.id, "delegation_node_id": node.id}
-
-    child = Run(
-        workspace_id=run.workspace_id,
-        system_id=target_id,
-        parent_run_id=run.id,
-        input_ref=child_input,
-        status="pending",
-        trigger="subflow",
+    target_contract = (
+        (target.flow_definition or {}).get("output_contract")
+        if isinstance(target.flow_definition, dict)
+        else None
     )
-    db.add(child)
-    db.commit()
+    if not isinstance(target_contract, dict):
+        target_contract = config.get("output_contract")
+    child_input["_delegation"] = {
+        "parent_run_id": run.id,
+        "delegation_node_id": node.id,
+        "branch": branch,
+        "output_contract": output_contract,
+        "target_output_contract": target_contract if isinstance(target_contract, dict) else None,
+        "contract_enforced": contract_enforced,
+    }
+
+    iteration = config.get(
+        "iteration",
+        (upstream or {}).get("_loop_iteration", (upstream or {}).get("iteration", 0)),
+    )
+    logical_key = delegation_key(run.id, node.id, iteration, branch)
+    child = db.query(Run).filter(Run.delegation_key == logical_key).first()
+    if child is None:
+        child = Run(
+            workspace_id=run.workspace_id,
+            system_id=target_id,
+            parent_run_id=run.id,
+            input_ref=child_input,
+            status="pending",
+            trigger="subflow",
+            delegation_key=logical_key,
+            delegation_node_id=node.id,
+            delegation_branch=branch,
+        )
+        db.add(child)
+        try:
+            db.commit()  # payload and logical key are durable before broker dispatch
+        except IntegrityError:
+            # Concurrent redelivery: the unique logical key owns exactly one
+            # child. Recover that row instead of creating a second execution.
+            db.rollback()
+            child = db.query(Run).filter(Run.delegation_key == logical_key).one()
     child_id = child.id
     # Record the mapping BEFORE executing so that if the child pauses for HITL
     # the parent's serialised checkpoint already carries the child run id and a
     # later resume can find it (rather than spawning a duplicate).
     state.subflow_children[node.id] = child_id
 
+    parent_system = db.query(System).filter(System.id == run.system_id).first()
+    if parent_system is not None and subflow_celery_enabled(parent_system):
+        from .engine import schedule_subflow_run
+
+        waiting = dict(run.waiting_subflows or {})
+        strategy = str(config.get("join_strategy") or config.get("strategy") or "all").lower()
+        if strategy not in {"all", "any", "race"}:
+            return {"output": {"_error": "invalid_subflow_join_strategy", "strategy": strategy}}
+        meta = dict(waiting.get("_meta") or {})
+        current_strategy = meta.get("strategy")
+        if current_strategy and current_strategy != strategy:
+            return {"output": {"_error": "mixed_subflow_join_strategies"}}
+        meta.update({"strategy": strategy, "state": "waiting"})
+        waiting["_meta"] = meta
+        entry = dict(waiting.get(logical_key) or {})
+        entry.update({"child_run_id": child_id, "node_id": node.id, "branch": branch,
+                      "iteration": iteration, "strategy": strategy,
+                      "status": child.status, "dispatch_state": "persisted"})
+        waiting[logical_key] = entry
+        run.waiting_subflows = waiting
+        db.commit()
+        if not child.celery_task_id:
+            try:
+                child.celery_task_id = schedule_subflow_run(child_id)
+                entry["celery_task_id"] = child.celery_task_id
+                entry["dispatch_state"] = "dispatched"
+                waiting[logical_key] = entry
+                run.waiting_subflows = waiting
+                db.commit()
+            except RuntimeError:
+                entry["dispatch_state"] = "ambiguous"
+                waiting[logical_key] = entry
+                run.waiting_subflows = waiting
+                db.commit()
+        return {"pause": True, "wait_subflow": True, "node_id": node.id, "child_run_id": child_id,
+                "prompt": "Subflow dispatched; awaiting durable completion"}
+
     # Execute the child as its own graph (in-process). Celery fan-out is wired
     # via ``schedule_subflow_run`` but the synchronous path is what merges back.
-    if should_use_dag(target):
+    target_workspace = (
+        db.query(Workspace).filter(Workspace.id == target.workspace_id).first()
+        if target.workspace_id
+        else None
+    )
+    if should_use_dag(target, target_workspace):
         child_summary = await execute_run_dag(child_id)
     else:
         child_summary = await execute_run(child_id)
@@ -1575,11 +2180,19 @@ async def _continue_subflow_child(
         return _subflow_outcome(db, node, state, child_id, target_id, child_summary)
 
     if status in ("running", "pending"):
+        if child.celery_task_id or child.delegation_key:
+            return {"pause": True, "wait_subflow": True, "node_id": node.id, "child_run_id": child_id,
+                    "prompt": "Subflow execution is still pending"}
         # Defensive: a synchronous in-process child should already be terminal
         # or paused. If we somehow re-enter while it is mid-flight, continue it
         # rather than creating a duplicate.
         target = db.query(System).filter(System.id == child.system_id).first()
-        if target is not None and should_use_dag(target):
+        target_workspace = (
+            db.query(Workspace).filter(Workspace.id == target.workspace_id).first()
+            if target is not None and target.workspace_id
+            else None
+        )
+        if target is not None and should_use_dag(target, target_workspace):
             child_summary = await execute_run_dag(child_id)
         else:
             child_summary = await execute_run(child_id)
@@ -1626,11 +2239,37 @@ def _settle_subflow_output(
     if fresh is not None:
         db.refresh(fresh)
     child_output = (fresh.output_ref if fresh else None) or {}
+    delegation = (
+        ((fresh.input_ref or {}).get("_delegation") or {})
+        if fresh is not None and isinstance(fresh.input_ref, dict)
+        else {}
+    )
+    contract_warning = None
+    if isinstance(delegation, dict):
+        from .subflow_orchestration import validate_contract
+
+        contracts = [
+            value
+            for value in (
+                delegation.get("output_contract"),
+                delegation.get("target_output_contract"),
+            )
+            if isinstance(value, dict) and value
+        ]
+        if contracts and not all(validate_contract(child_output, contract) for contract in contracts):
+            contract_warning = "delegation_output_contract_mismatch"
+            if delegation.get("contract_enforced") and fresh is not None:
+                fresh.status = "failed"
+                fresh.error = fresh.error or contract_warning
+                db.commit()
     state.total_cost += float(fresh.cost_internal or 0.0) if fresh else 0.0
     return {
         "output": {
             "subflow_system_id": target_id,
             "child_run_id": child_id,
+            "child_status": fresh.status if fresh else "failed",
+            **({"_error": fresh.error} if fresh is not None and fresh.error else {}),
+            **({"_contract_warning": contract_warning} if contract_warning else {}),
             **(child_output if isinstance(child_output, dict) else {}),
         }
     }
@@ -1639,12 +2278,21 @@ def _settle_subflow_output(
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-def _seed_pool(pool: VariablePool, run: Run, system: System) -> None:
-    """Seed the reserved namespaces (``run`` / ``system`` / ``workspace``).
+def _seed_pool(
+    db: DBSession,
+    pool: VariablePool,
+    run: Run,
+    system: System,
+    *,
+    workspace: Optional[Workspace] = None,
+) -> None:
+    """Seed all built-ins with real, tenant-scoped runtime values.
 
     ``inputs_map`` selectors such as ``run.query`` or
     ``system.voice_runtime.provider`` resolve against these. Node-output
     buckets (e.g. ``capture.gaps``) are filled later by ``apply_outputs_map``.
+    Workspace/System/Context configuration is recursively stripped of
+    credential-shaped fields before entering the pool.
     """
     input_ref = run.input_ref if isinstance(run.input_ref, dict) else {}
     pool.set_namespace("run", {**input_ref, "id": run.id, "input": input_ref})
@@ -1652,14 +2300,88 @@ def _seed_pool(pool: VariablePool, run: Run, system: System) -> None:
     pool.set_namespace(
         "system",
         {
-            **system_settings,
+            **_without_secret_values(system_settings),
             "id": system.id,
             "default_model": getattr(system, "default_model", None),
             "default_prompt_type": getattr(system, "default_prompt_type", None),
             "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
         },
     )
-    pool.set_namespace("workspace", {"id": run.workspace_id})
+    workspace_settings = (
+        workspace.settings
+        if workspace is not None and isinstance(getattr(workspace, "settings", None), dict)
+        else {}
+    )
+    pool.set_namespace(
+        "workspace",
+        {
+            "id": run.workspace_id,
+            "slug": getattr(workspace, "slug", None),
+            "name": getattr(workspace, "name", None),
+            "mode": getattr(workspace, "mode", None),
+            "settings": _without_secret_values(workspace_settings),
+        },
+    )
+
+    context = (
+        db.query(Context).filter(Context.id == system.context_id).first()
+        if system.context_id
+        else None
+    )
+    context_payload: Dict[str, Any] = {
+        "id": getattr(context, "id", None),
+        "name": getattr(context, "name", None),
+        "version": getattr(context, "version", None),
+        "data_refs": getattr(context, "data_refs", None) or [],
+        "memory_refs": getattr(context, "memory_refs", None) or [],
+        "history_refs": getattr(context, "history_refs", None) or [],
+        "environment_state": getattr(context, "environment_state", None) or {},
+        "business_constraints": getattr(context, "business_constraints", None) or {},
+        "permissions": getattr(context, "permissions", None) or {},
+    }
+    pool.set_namespace("context", _without_secret_values(context_payload))
+    # Seeded for contract completeness; each handler overlays its real local
+    # scope on an isolated pool copy before resolving inputs.
+    pool.set_namespace("node", {})
+
+
+_SECRET_KEYS = {
+    "password",
+    "passwd",
+    "secret",
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "auth_token",
+    "id_token",
+    "session_token",
+    "private_key",
+    "authorization",
+    "bearer",
+    "credential",
+    "credentials",
+    "dsn",
+    "token",
+}
+_SECRET_SUFFIXES = tuple(f"_{key}" for key in _SECRET_KEYS)
+
+
+def _without_secret_values(value: Any) -> Any:
+    """Copy JSON-like runtime config while dropping credential fields."""
+    if isinstance(value, dict):
+        clean: Dict[str, Any] = {}
+        for key, item in value.items():
+            name = str(key).strip().lower()
+            if name in _SECRET_KEYS or name.endswith(_SECRET_SUFFIXES):
+                continue
+            clean[str(key)] = _without_secret_values(item)
+        return clean
+    if isinstance(value, list):
+        return [_without_secret_values(item) for item in value]
+    if isinstance(value, tuple):
+        return [_without_secret_values(item) for item in value]
+    return value
 
 
 def _merge_predecessor_outputs(
@@ -1791,6 +2513,10 @@ def _terminate_interrupted_run(
     }
     run.checkpoints = [*(run.checkpoints or []), checkpoint]
     db.commit()
+    if run.waiting_subflows and status in {"failed", "cancelled"}:
+        from .subflow_orchestration import cancel_waiting_children
+
+        cancel_waiting_children(run.id, reason=f"parent_{status}:{error}"[:400])
     try:
         event_bus.publish(run.id, checkpoint)
         event_bus.close(run.id)

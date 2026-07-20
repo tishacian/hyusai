@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
+import pytest
+
+from app.services.membrane.spec import EnforcementMode, MembraneSpec, resolve_membrane_spec
 
 
 def _control(**kw) -> SimpleNamespace:
@@ -140,3 +142,54 @@ def test_malformed_facets_degrade_to_defaults() -> None:
     assert spec.inbound.collection_allowlist == []
     assert spec.valves.max_cost_per_decision is None
     assert spec.outbound.expert_review_required is True
+
+
+def test_v1_and_derived_specs_can_never_activate_enforcement() -> None:
+    explicit_v1 = MembraneSpec.from_dict(
+        {"version": 1, "enforcement_mode": "enforce", "inbound": {}}
+    )
+    derived = MembraneSpec.from_dict(
+        {"version": 2, "enforcement_mode": "enforce", "inbound": {}},
+        authoritative=False,
+    )
+    assert explicit_v1.effective_mode is EnforcementMode.COMPAT
+    assert "enforcement_mode" not in explicit_v1.to_dict()
+    assert derived.effective_mode is EnforcementMode.COMPAT
+
+
+def test_v2_round_trip_and_facet_states() -> None:
+    spec = MembraneSpec.from_dict(
+        {
+            "version": 2,
+            "enforcement_mode": "shadow",
+            "inbound": {"collection_allowlist": ["contracts"]},
+            "outbound": {"expert_review_required": False},
+            "capabilities": {"allowed_actions": ["system.engine.run"]},
+            "provenance": {"require_citations": True},
+            "valves": {"token_budget": 1200},
+        }
+    )
+    assert spec.to_dict()["enforcement_mode"] == "shadow"
+    assert spec.facet_states() == {
+        "inbound": "shadow",
+        "outbound": "not_configured",
+        "capabilities": "shadow",
+        "provenance": "shadow",
+        "valves": "shadow",
+    }
+    assert spec.facet_states(breached={"valves"})["valves"] == "breached"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"version": 2, "enforcement_mode": "typo"},
+        {"version": 2, "enforcement_mode": "enforce", "inbound": {"collection_allowlist": "all"}},
+        {"version": 2, "enforcement_mode": "enforce", "valves": {"token_budget": 0}},
+        {"version": 2, "enforcement_mode": "enforce", "outbound": {"gate_if_confidence_below": 2}},
+        {"version": 3, "enforcement_mode": "enforce"},
+    ],
+)
+def test_v2_rejects_ambiguous_contracts(raw) -> None:
+    with pytest.raises(ValueError):
+        MembraneSpec.from_dict(raw)

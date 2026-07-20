@@ -28,6 +28,7 @@ import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import type { FlowManifestField } from '@app/core/canonical-api.service';
 import {
   FlowSerializerService,
+  isValidVariableRef,
   type CanonicalFlow,
   type NodePort,
   type VariableRef,
@@ -86,12 +87,7 @@ interface FieldVM {
 
 /** A value is a typed VariableRef (v3) — same shape test as the serializer. */
 function isVariableRef(value: unknown): value is VariableRef {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    typeof (value as { node_id?: unknown }).node_id === 'string' &&
-    Array.isArray((value as { path?: unknown }).path)
-  );
+  return isValidVariableRef(value);
 }
 
 function getPath(root: Record<string, unknown> | undefined, path: string): unknown {

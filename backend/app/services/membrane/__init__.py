@@ -13,8 +13,28 @@ additive and fail-soft: a *derived* (non-authoritative) spec never changes
 behaviour, and even an *authoritative* spec only tightens things it explicitly
 opts into.
 """
+from .enforcement import (  # noqa: F401
+    CapabilityDecision,
+    EgressDecision,
+    EgressDisposition,
+    InboundDecision,
+    MembraneEnforcementError,
+    ProvenanceArtifact,
+    ValveDecision,
+    ValveUsage,
+    collect_valve_usage,
+    decide_egress,
+    enforce_inbound_collections,
+    enforce_inbound_sources,
+    evaluate_capability,
+    evaluate_valves,
+    persist_provenance_artifact,
+    token_count_from_payload,
+)
 from .spec import (  # noqa: F401
     CapabilityFacet,
+    EnforcementMode,
+    FacetState,
     InboundFacet,
     MembraneSpec,
     OutboundFacet,
@@ -25,10 +45,28 @@ from .spec import (  # noqa: F401
 
 __all__ = [
     "CapabilityFacet",
+    "EnforcementMode",
+    "FacetState",
     "InboundFacet",
     "MembraneSpec",
     "OutboundFacet",
     "ProvenanceFacet",
     "ValvesFacet",
     "resolve_membrane_spec",
+    "CapabilityDecision",
+    "EgressDecision",
+    "EgressDisposition",
+    "InboundDecision",
+    "MembraneEnforcementError",
+    "ProvenanceArtifact",
+    "ValveDecision",
+    "ValveUsage",
+    "decide_egress",
+    "collect_valve_usage",
+    "enforce_inbound_collections",
+    "enforce_inbound_sources",
+    "evaluate_capability",
+    "evaluate_valves",
+    "persist_provenance_artifact",
+    "token_count_from_payload",
 ]

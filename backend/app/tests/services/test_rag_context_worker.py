@@ -2759,7 +2759,7 @@ async def test_hard_scope_without_expert_fiche_flag_does_not_broaden(monkeypatch
     assert "expert_fiche_collection_searched" not in result["metrics"]
 
 
-async def test_expert_fiche_survives_membrane_inbound_allowlist(monkeypatch):
+async def test_expert_fiche_compat_overlay_survives_derived_membrane_allowlist(monkeypatch):
     monkeypatch.setattr(
         rag_context,
         "resolve_knowledge_scope",
@@ -2800,8 +2800,8 @@ async def test_expert_fiche_survives_membrane_inbound_allowlist(monkeypatch):
         "knowledge_scope": "andritz_spl",
         "source_policy": {
             "expert_fiche_correction_enabled": True,
-            # Authoritative membrane spec whose inbound allowlist excludes the
-            # fiche collection (only the notices collection is allowed inbound).
+            # A derived/v1 compatibility spec keeps the historical correction
+            # overlay even when its advisory allowlist omits the fiche.
             "membrane_spec": {"inbound": {"collection_allowlist": [_ANDRITZ_NOTICES]}},
         },
     }
@@ -2814,6 +2814,60 @@ async def test_expert_fiche_survives_membrane_inbound_allowlist(monkeypatch):
     result = await retrieve_rag_context(request)
     assert _ANDRITZ_FICHE in result["collections_touched"]
     assert _ANDRITZ_NOTICES in result["collections_touched"]
+
+
+async def test_expert_fiche_cannot_bypass_v2_enforce_membrane_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_spl",
+            "label": "Andritz SPL",
+            "collection_slugs": [_ANDRITZ_NOTICES],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+
+    def _passthrough_plan_corpus(*, db, profile, query, request=None, retrieval_policy=None):
+        return rag_corpus_planner.CorpusPlan(
+            intent="content_search",
+            dense=False,
+            source_count=1,
+            chunk_count=1,
+            latency_profile="fast",
+            deadline_seconds=2.5,
+            top_k=profile["top_k"],
+            candidate_pool_k=profile["candidate_pool_k"],
+            synthesis_k=profile["synthesis_k"],
+            source_display_k=profile["source_display_k"],
+            retrieval_scope={"collections": list(profile.get("collections") or [])},
+            filters={},
+        )
+
+    monkeypatch.setattr(rag_context, "plan_corpus", _passthrough_plan_corpus)
+    captured_filters = _install_multi_collection_capture(monkeypatch)
+    result = await retrieve_rag_context(
+        {
+            "query": "membrane v2 correction boundary",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_spl",
+            "source_policy": {
+                "expert_fiche_correction_enabled": True,
+                "membrane_spec": {
+                    "version": 2,
+                    "enforcement_mode": "enforce",
+                    "inbound": {"collection_allowlist": [_ANDRITZ_NOTICES]},
+                },
+            },
+        }
+    )
+
+    assert result["collections_touched"] == [_ANDRITZ_NOTICES]
+    assert _ANDRITZ_FICHE not in captured_filters
+    assert result["metrics"]["expert_fiche_collection"] is None
+    assert result["metrics"]["expert_fiche_collection_included"] is False
 
 
 # --- Document-discovery widen-then-rerank-then-truncate -------------------------
@@ -3136,7 +3190,7 @@ def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
         def __init__(self, *_args, **_kwargs):
             self.conf = SimpleNamespace(update=lambda **_kwargs: None)
 
-        def task(self, name=None):
+        def task(self, name=None, **_options):
             def _decorator(fn):
                 return SimpleNamespace(run=fn, name=name)
 

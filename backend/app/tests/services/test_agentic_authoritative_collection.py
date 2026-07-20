@@ -60,10 +60,9 @@ def test_get_retrieval_profile_preserves_authoritative_collection(monkeypatch):
     )
 
     def _must_not_union(*_args, **_kwargs):
-        raise AssertionError("authoritative collection must bypass additive overlays")
+        raise AssertionError("authoritative collection must bypass additive expert overlays")
 
     monkeypatch.setattr(rag_context, "_include_expert_fiche_collection", _must_not_union)
-    monkeypatch.setattr(rag_context, "_apply_membrane_inbound_collections", _must_not_union)
 
     profile = rag_context.get_retrieval_profile(
         {

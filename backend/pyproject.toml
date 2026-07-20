@@ -70,4 +70,5 @@ pythonpath = ["."]
 testpaths = ["app/tests"]
 markers = [
     "integration: tests that require external services (e.g. Qdrant on localhost)",
+    "rabbitmq: tests that require a real RabbitMQ broker",
 ]

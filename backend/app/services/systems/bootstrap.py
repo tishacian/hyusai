@@ -1019,7 +1019,26 @@ def resolve_workspace_chat_source_policy(
             _as_dict(system.flow_definition).get("source_policy")
         )
     workspace_policy = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("source_policy"))
-    return {**workspace_policy, **system_policy}
+    effective = {**workspace_policy, **system_policy}
+    # Surface the canonical ControlPolicy membrane through the existing
+    # source_policy request boundary.  V1 stays compat; only explicit v2 can
+    # become authoritative in RAG / Knowledge Capture.
+    if system is not None and system.control_policy_id:
+        from app.models.policy import ControlPolicy
+
+        control = (
+            db.query(ControlPolicy)
+            .filter(
+                ControlPolicy.id == system.control_policy_id,
+                ControlPolicy.workspace_id == workspace.id,
+            )
+            .first()
+        )
+        extra = _as_dict(getattr(control, "extra", None))
+        membrane = extra.get("membrane_spec")
+        if isinstance(membrane, dict) and membrane:
+            effective["membrane_spec"] = membrane
+    return effective
 
 
 # Expert-correction source_policy keys that an admin can toggle from the UI and

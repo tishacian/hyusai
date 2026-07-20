@@ -137,6 +137,14 @@ TRANSLATION_SUITE_MANIFEST = CapabilityIAMManifest(
     ),
 )
 
+SYSTEM_ENGINE_MANIFEST = CapabilityIAMManifest(
+    capability_id="system_engine",
+    permissions=(
+        PermissionRule("system", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("system", "engine.run", CAPTURE_OPERATOR_OR_ADMIN),
+    ),
+)
+
 
 MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     CAPTURE_MANIFEST.capability_id: CAPTURE_MANIFEST,
@@ -144,6 +152,7 @@ MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     VOICE2VOICE_MANIFEST.capability_id: VOICE2VOICE_MANIFEST,
     AGENTIUM_ACTIONS_MANIFEST.capability_id: AGENTIUM_ACTIONS_MANIFEST,
     TRANSLATION_SUITE_MANIFEST.capability_id: TRANSLATION_SUITE_MANIFEST,
+    SYSTEM_ENGINE_MANIFEST.capability_id: SYSTEM_ENGINE_MANIFEST,
 }
 
 

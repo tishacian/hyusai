@@ -51,6 +51,7 @@ logs/
 .coverage
 htmlcov/
 .tox/
+test-results/
 
 # Vector stores
 chroma_db/
@@ -66,4 +67,3 @@ data/
 /models/
 .cache/
 uploads/
-
