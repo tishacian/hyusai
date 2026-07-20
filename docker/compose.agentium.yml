@@ -387,6 +387,11 @@ volumes:
     external: true
     name: ${AGENTIUM_QDRANT_VOLUME:-qdrant_data}
   agentium_minio:
-    name: agentium_minio
+    # The runtime may point this logical volume at a bind-backed Docker volume
+    # hosted on an attached block device. Keeping the default name preserves
+    # local/development behaviour and leaves the previous VM volume available
+    # for rollback during a storage cutover.
+    external: ${AGENTIUM_MINIO_VOLUME_EXTERNAL:-false}
+    name: ${AGENTIUM_MINIO_VOLUME:-agentium_minio}
   agentium_livekit_redis:
     name: agentium_livekit_redis
