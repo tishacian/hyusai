@@ -47,6 +47,23 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
             source_metadata={"project_code": "BAO100"},
         )
 
+    # A strong numeric project query must not turn an embedded substring in an
+    # unrelated historical identifier into a filename scope.  Project 61001 is
+    # deliberately absent from the ledger at this point: this is the promotion
+    # canary state immediately before its first wave is indexed.
+    false_61001_filenames = []
+    for index in range(3):
+        filename = f"A__legacy_BID6100194_{index}__technical_notice.pdf"
+        false_61001_filenames.append(filename)
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=filename,
+            status="ready",
+            chunk_count=2,
+            source_metadata={"project_code": "BAO100"},
+        )
+
     ttn_filename = (
         "needlepunch__61035__TTN17829J_Operation_and_maintenance_manual_"
         "Needle_Punch_A50R.pdf"
@@ -75,6 +92,18 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
         "latency_profile": "fast",
         "rag_mode": "auto",
     }
+
+    unseen_project_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Résume le projet 61001",
+    )
+    assert unseen_project_plan.filters == {"project_code": "61001"}
+    assert "document_filename" not in unseen_project_plan.filters
+    assert not any(
+        filename in str(unseen_project_plan.filters)
+        for filename in false_61001_filenames
+    )
 
     ttn_plan = plan_corpus(
         db=db_session,

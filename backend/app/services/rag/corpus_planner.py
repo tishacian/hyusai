@@ -919,7 +919,18 @@ def _infer_ledger_document_scope(
         score = 0.0
         matched_project = False
         strong_phrase_match = False
+        metadata_project_code = _compact_text(source_metadata.get("project_code")).upper()
         for code in project_codes:
+            # A Needlepunch numeric5 identifier is a project only when the
+            # canonical source metadata says so. Filename substring matching
+            # would otherwise turn unrelated references such as BID6100194
+            # into a false project 61001 scope. Historical SPL identifiers keep
+            # their established filename/ledger fallback.
+            if code.isdigit() and len(code) == 5:
+                if metadata_project_code == code:
+                    matched_project = True
+                    score += 12.0
+                continue
             if code and code.lower() in source_only_compact:
                 matched_project = True
                 score += 12.0
@@ -1094,9 +1105,18 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
     candidate_codes = _candidate_project_codes(rows)
     query_codes = _query_project_codes(text, known_codes=candidate_codes)
     matched_codes = [code for code in query_codes if code in candidate_codes]
-    if matched_codes:
-        filters["project_code"] = matched_codes[0]
-        reasons.append(f"project_code={matched_codes[0]}")
+    numeric_candidates = set(numeric_project_candidates(text))
+    # Strong project grammar is authoritative for numeric5 even before that
+    # project's first source has been indexed. Exact known numeric codes remain
+    # covered by ``matched_codes``; document-like numbers (notice 12345), part
+    # references and measurements never enter this source-independent set.
+    strong_numeric_codes = [
+        code for code in _query_project_codes(text) if code in numeric_candidates
+    ]
+    scoped_codes = list(dict.fromkeys([*matched_codes, *strong_numeric_codes]))
+    if scoped_codes:
+        filters["project_code"] = scoped_codes[0] if len(scoped_codes) == 1 else scoped_codes
+        reasons.append(f"project_code={','.join(scoped_codes)}")
         confidence = max(confidence, 0.82)
 
     # If a source document is named very explicitly in the question, use its
