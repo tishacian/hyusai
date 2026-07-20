@@ -19,7 +19,7 @@ Vague E / E3.1 — versioning + DAG validation:
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
+from app.core.iam.dependencies import enforce_permission
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.capability import Capability
@@ -44,7 +45,10 @@ from app.services.chains import dag_validator, export_service, version_service
 from app.services.chat_execution_policy import (
     migration_059_system_id,
 )
+from app.services.membrane.enforcement import evaluate_capability
+from app.services.membrane.spec import resolve_membrane_spec
 from app.services.run_engine import schedule_run, triggers
+from app.services.system_perspective import build_system_perspective
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
@@ -464,6 +468,55 @@ async def get_system(
     return _serialize(s)
 
 
+def _system_360_enabled(workspace: Workspace, system: System) -> bool:
+    """Literal-boolean, marker-based gate for the Showcase vertical slice."""
+
+    workspace_settings = workspace.settings if isinstance(workspace.settings, dict) else {}
+    features = workspace_settings.get("features")
+    features = features if isinstance(features, dict) else {}
+    system_settings = system.settings if isinstance(system.settings, dict) else {}
+    experience = system_settings.get("experience")
+    experience = experience if isinstance(experience, dict) else {}
+    return bool(
+        features.get("cockpit_router_axes_v4") is True
+        and features.get("system_360_projection_v1") is True
+        and experience.get("system_360_canary") == "v1"
+    )
+
+
+@router.get("/{system_id}/perspective")
+async def get_system_perspective(
+    system_id: str,
+    lens: Literal["build", "operate", "steer", "govern"],
+    window: Literal["7d", "30d", "90d"] = "30d",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return one lens projection without changing the canonical System.
+
+    Both lookup and every aggregate in the read model are workspace-scoped.
+    The feature/experience gate intentionally returns 404 so an unmarked
+    System does not advertise a partially enabled product surface.
+    """
+
+    system = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if system is None or not _system_360_enabled(workspace, system):
+        raise HTTPException(404, "System perspective not found")
+    return build_system_perspective(
+        db,
+        workspace=workspace,
+        user=user,
+        system=system,
+        lens=lens,
+        window=window,
+    )
+
+
 @router.get("/{system_id}/flow-manifest")
 async def get_system_flow_manifest(
     system_id: str,
@@ -579,6 +632,9 @@ async def update_system(
     )
 
     updates = body.model_dump(exclude_unset=True, mode="json")
+    changed_fields = sorted(
+        key for key, value in updates.items() if getattr(s, key, None) != value
+    )
     prospective_settings = updates.get("settings", s.settings)
     prospective_flow = updates.get("flow_definition", s.flow_definition)
     if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
@@ -628,6 +684,16 @@ async def update_system(
     # nodes. Flag OFF (default) = Phase 1 behaviour (allowlist untouched).
     if new_flow is not None and settings.flow_asset_binding_authoritative:
         _sync_membrane_collection_allowlist(db, s, new_flow)
+
+    if changed_fields:
+        emit_audit_event(
+            workspace_id=workspace.id,
+            event_type="system.updated",
+            actor=_actor_display_name(user),
+            agent_id=s.id,
+            details={"system_id": s.id, "fields": changed_fields},
+            db=db,
+        )
 
     db.commit()
     db.refresh(s)
@@ -765,6 +831,66 @@ async def trigger_run(
         workspace=workspace,
         system=s,
     )
+    capability = (
+        db.query(Capability).filter(Capability.id == s.capability_id).first()
+        if s.capability_id
+        else None
+    )
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        resource_attrs={
+            "iam_manifest": "system_engine",
+            "system_id": s.id,
+            "capability_id": s.capability_id,
+            "capability": capability.slug if capability else None,
+        },
+        audit_prefix="system",
+    )
+
+    control = None
+    if s.control_policy_id:
+        control = (
+            db.query(ControlPolicy)
+            .filter(
+                ControlPolicy.id == s.control_policy_id,
+                ControlPolicy.workspace_id == workspace.id,
+                ControlPolicy.scope == "system",
+                ControlPolicy.target_id == s.id,
+            )
+            .first()
+        )
+    if control is None:
+        control = (
+            db.query(ControlPolicy)
+            .filter(
+                ControlPolicy.workspace_id == workspace.id,
+                ControlPolicy.scope == "system",
+                ControlPolicy.target_id == s.id,
+            )
+            .order_by(ControlPolicy.updated_at.desc())
+            .first()
+        )
+    spec = resolve_membrane_spec(control=control)
+    membrane_decision = evaluate_capability(
+        spec,
+        model=s.default_model,
+        action="system.engine.run",
+    )
+    if not membrane_decision.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "MEMBRANE_CAPABILITY_DENIED",
+                "message": "System execution denied by its enforced membrane",
+                "system_id": s.id,
+                "capability_id": s.capability_id,
+                "violations": list(membrane_decision.violations),
+            },
+        )
 
     run = Run(
         id=str(uuid4()),

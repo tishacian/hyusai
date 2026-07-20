@@ -208,9 +208,11 @@ export class MiniRailComponent {
   readonly visibleSections = computed<CockpitSection[]>(() => {
     const verb = this.activeVerb();
     if (!verb) return [];
-    const sections = this.navigation.axesV3Enabled()
-      ? verb.sections
-      : verb.legacySections;
+    const sections = this.navigation.axesV4Enabled()
+      ? verb.v4Sections ?? verb.sections
+      : this.navigation.axesV3Enabled()
+        ? verb.sections
+        : verb.legacySections;
     if (!sections) return [];
     const deepest = this.deepestResolvedScope();
     if (!this.navigation.axesV3Enabled() || !deepest) return sections;

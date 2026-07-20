@@ -21,6 +21,7 @@ test('side rail delegates every lens route to the route-owned navigation project
         provide: ZoomContextService,
         useValue: {
           lens,
+          axesV4Enabled: () => false,
           urlForLens: (target: string, fallback: string) => {
             calls.push([target, fallback]);
             return `/systems/system-42?lens=${target}`;
@@ -60,6 +61,7 @@ test('demo rail uses Mission Room home only when the extension is enabled', () =
         provide: ZoomContextService,
         useValue: {
           lens: () => 'hypervisor',
+          axesV4Enabled: () => false,
           urlForLens: (_target: string, fallback: string) => fallback,
           urlTreeForLens: (_target: string, fallback: string) => fallback,
         },
@@ -73,5 +75,34 @@ test('demo rail uses Mission Room home only when the extension is enabled', () =
   assert.equal(rail.routeFor(hypervisor), '/hypervisor/mission-room/cockpit');
 
   current = { mode: 'demo', settings: { mission_room: { enabled: false } } };
+  assert.equal(rail.routeFor(hypervisor), '/hypervisor');
+});
+
+test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () => {
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          current: () => ({ mode: 'demo', settings: { mission_room: { enabled: true } } }),
+          mode: () => 'demo',
+          isDemoMode: () => true,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'operate',
+          axesV4Enabled: () => true,
+          urlForLens: (_target: string, fallback: string) => fallback,
+          urlTreeForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(SideRailComponent);
+  const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
   assert.equal(rail.routeFor(hypervisor), '/hypervisor');
 });

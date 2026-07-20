@@ -245,6 +245,9 @@ export class SideRailComponent {
   }
 
   private fallbackRoute(v: CockpitVerb): string {
+    if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
+      return v.primaryRoute;
+    }
     return (
       v.key === 'hypervisor' &&
       this.workspace.isDemoMode() &&

@@ -1,7 +1,20 @@
 import type { CkGlyphName } from '@app/shared/cockpit';
 import type { WorkspaceMode } from '@app/core/workspace.service';
 
-export type CockpitLens = 'hypervisor' | 'build' | 'operate' | 'steer' | 'govern';
+/** A projection that can be applied to a hierarchy object. */
+export type ObjectLens = 'build' | 'operate' | 'steer' | 'govern';
+
+/**
+ * Primary rail destinations. Hypervisor is deliberately a Portfolio home,
+ * not an object lens. ``CockpitLens`` remains as a compatibility alias while
+ * workspaces that have not enabled axes v4 keep the five-lens behaviour.
+ */
+export type CockpitDestination = 'hypervisor' | ObjectLens;
+export type CockpitLens = CockpitDestination;
+
+export function isObjectLens(value: unknown): value is ObjectLens {
+  return value === 'build' || value === 'operate' || value === 'steer' || value === 'govern';
+}
 
 export type AgentiumObjectType =
   | 'Workspace'
@@ -485,7 +498,7 @@ export interface CockpitSection {
 }
 
 export interface CockpitVerb {
-  key: CockpitLens;
+  key: CockpitDestination;
   label: string;
   hint: string;
   glyph: CkGlyphName;
@@ -493,6 +506,8 @@ export interface CockpitVerb {
   primaryRoute: string;
   matches: string[];
   sections?: CockpitSection[];
+  /** Sections under axes v4; an empty list makes a destination Portfolio-only. */
+  v4Sections?: CockpitSection[];
   /** Pre-Lot-3 section set, retained while the routed axes feature is gated. */
   legacySections?: CockpitSection[];
   hiddenInModes?: WorkspaceMode[];
@@ -664,6 +679,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('hypervisor'),
     matches: surfaceRootsForLens('hypervisor'),
     sections: hierarchySections(),
+    v4Sections: [],
     legacySections: [],
     hiddenInModes: ['builder'],
   },
@@ -872,8 +888,12 @@ export function navigationObjectUrl(
   });
 }
 
-export function navigationPortfolioUrl(lens?: CockpitLens | null): string {
+export function navigationPortfolioUrl(
+  lens?: CockpitLens | null,
+  portfolioHomeOnly = false,
+): string {
   const path = agentiumSurfaceRoute('hypervisor');
+  if (portfolioHomeOnly) return path;
   return appendNavigationQuery(path, {
     lens: lensQueryForPath(path, lens),
   });
@@ -884,6 +904,7 @@ export function navigationLensUrl(
   targetLens: CockpitLens,
   fallbackRoute: string,
   verifiedAncestry?: NavigationAncestry,
+  preserveExplicitLens = false,
 ): string {
   const context = navigationRouteContext(currentUrl);
   const ownsHierarchyContext = Boolean(
@@ -900,7 +921,7 @@ export function navigationLensUrl(
     facet: context.query['facet'],
     focus: context.query['focus'],
     scope: context.scope,
-    lens: lensQueryForPath(context.path, targetLens),
+    lens: preserveExplicitLens ? targetLens : lensQueryForPath(context.path, targetLens),
     capabilityId: context.selectedType === 'capability' ? null : ancestry.capabilityId,
     systemId: context.selectedType === null || context.selectedType === 'run' || context.selectedType === 'skill'
       ? ancestry.systemId

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from scripts import seed_showcase_workspace as seed
-
 from app.api.v1.endpoints.runs import _invocation
 from app.models.audit import AuditLog
 from app.models.context import Context
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
+from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from scripts import seed_showcase_workspace as seed
 
 
 def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session):
@@ -20,7 +21,12 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
     assert created.settings == {
         "showcase_seed": True,
         "persona_nav": "full",
-        "features": {"cockpit_router_axes_v3": True},
+        "features": {
+            "cockpit_router_axes_v3": True,
+            "cockpit_router_axes_v4": False,
+            "system_360_projection_v1": False,
+            "flow_v3_dag_authoritative": False,
+        },
     }
 
     workspace_id = created.id
@@ -28,7 +34,12 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
     created.settings = {
         "showcase_seed": False,
         "persona_nav": "operator-override",
-        "features": {"chat_document_upload": False},
+        "features": {
+            "chat_document_upload": False,
+            "cockpit_router_axes_v4": True,
+            "system_360_projection_v1": True,
+            "flow_v3_dag_authoritative": True,
+        },
         "operator_preferences": {"density": "compact"},
         "custom_flag": "preserve-me",
     }
@@ -45,6 +56,9 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
         "features": {
             "chat_document_upload": False,
             "cockpit_router_axes_v3": True,
+            "cockpit_router_axes_v4": True,
+            "system_360_projection_v1": True,
+            "flow_v3_dag_authoritative": True,
         },
         "operator_preferences": {"density": "compact"},
         "custom_flag": "preserve-me",
@@ -65,7 +79,9 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
     assert malformed.settings == {
         "showcase_seed": True,
         "persona_nav": "full",
-        "features": {"cockpit_router_axes_v3": True},
+        "features": {
+            "cockpit_router_axes_v3": True,
+        },
         "custom_flag": "keep",
     }
 
@@ -83,6 +99,7 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     result = seed.seed_story(db_session, workspace, owner, systems, capabilities)
 
     translation_system = systems["translation"]
+    contract_system = systems["contract"]
     translation_capability = capabilities["showcase_translation_suite"]
     translation_context = (
         db_session.query(Context)
@@ -103,6 +120,37 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     )
 
     assert result["runs"] >= 14
+    assert capabilities["video_contract_risk"].id == contract_system.capability_id
+    assert contract_system.settings["experience"] == {"system_360_canary": "v1"}
+    assert contract_system.settings["steering_model"]["version"] == "contract-risk-v1"
+    assert contract_system.flow_definition["schema_version"] == 3
+    assert contract_system.flow_definition["io_mode"] == "strict"
+    assert [node["config"]["skill_slug"] for node in contract_system.flow_definition["nodes"]] == [
+        "semantic_search_v1",
+        "llm_rag_answer_v1",
+        "claim_audit_v1",
+        "audit_log_v1",
+    ]
+    assert contract_system.context_id is not None
+    assert contract_system.control_policy_id == policies["contract_control"].id
+    membrane = policies["contract_control"].extra["membrane_spec"]
+    assert policies["contract_control"].target_id == contract_system.id
+    assert membrane["version"] == 2
+    assert membrane["enforcement_mode"] == "shadow"
+    assert membrane["provenance"]["object_store_prefix"] == f"system-360/{contract_system.id}"
+    canaries = [
+        row
+        for row in db_session.query(System).filter(System.workspace_id == workspace.id).all()
+        if ((row.settings or {}).get("experience") or {}).get("system_360_canary") == "v1"
+    ]
+    assert [row.id for row in canaries] == [contract_system.id]
+    versions = (
+        db_session.query(SystemVersion)
+        .filter(SystemVersion.system_id == contract_system.id)
+        .order_by(SystemVersion.version_number.asc())
+        .all()
+    )
+    assert versions[-1].flow_definition == contract_system.flow_definition
     assert translation_system.flow_definition["variant"] == "translation_suite"
     assert "trans_sys_prompt_agent_2_only.txt" in (
         translation_system.flow_definition["prompt_contract"]["system_prompt_builder"]["source_files"][1]
@@ -177,3 +225,10 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     }
     assert "translation_suite.guardrail.blocked" in event_types
     assert "translation_suite.delivery.accepted" in event_types
+
+    before_runs = db_session.query(Run).filter(Run.workspace_id == workspace.id).count()
+    before_evals = result["evals"]
+    repeated = seed.seed_story(db_session, workspace, owner, systems, capabilities)
+    assert repeated["runs"] == before_runs
+    assert repeated["evals"] == before_evals
+    assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == before_runs

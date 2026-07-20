@@ -195,6 +195,20 @@ def _visible_run_or_404(
 
 
 def _row(r: Run) -> Dict[str, Any]:
+    membrane_held = _membrane_egress_held(r)
+    checkpoints = []
+    for checkpoint in list(r.checkpoints or []):
+        if (
+            membrane_held
+            and isinstance(checkpoint, dict)
+            and checkpoint.get("kind") == "hitl_pause"
+            and checkpoint.get("membrane_egress")
+        ):
+            public = {key: value for key, value in checkpoint.items() if key != "state"}
+            public["result_held"] = True
+            checkpoints.append(public)
+        else:
+            checkpoints.append(checkpoint)
     return {
         "id": r.id,
         "system_id": r.system_id,
@@ -218,8 +232,21 @@ def _row(r: Run) -> Dict[str, Any]:
         },
         "retries": r.retries,
         "error": r.error,
-        "checkpoints": r.checkpoints or [],
+        "checkpoints": checkpoints,
+        "waiting_subflows": r.waiting_subflows or {},
+        "result_held": membrane_held,
     }
+
+
+def _membrane_egress_held(r: Run) -> bool:
+    if (r.status or "") != "hitl_pending":
+        return False
+    return any(
+        isinstance(checkpoint, dict)
+        and checkpoint.get("kind") == "hitl_pause"
+        and checkpoint.get("membrane_egress") is True
+        for checkpoint in reversed(list(r.checkpoints or []))
+    )
 
 
 def _pending_hitl_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
@@ -244,7 +271,7 @@ def _pending_debug_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _invocation(i: SkillInvocation) -> Dict[str, Any]:
+def _invocation(i: SkillInvocation, *, redact_io: bool = False) -> Dict[str, Any]:
     return {
         "id": i.id,
         "skill_slug": i.skill_slug,
@@ -253,8 +280,8 @@ def _invocation(i: SkillInvocation) -> Dict[str, Any]:
         "completed_at": i.completed_at.isoformat() if i.completed_at else None,
         "latency_ms": i.latency_ms,
         "cost": i.cost,
-        "input_ref": i.input_ref or {},
-        "output_ref": i.output_ref or {},
+        "input_ref": {} if redact_io else i.input_ref or {},
+        "output_ref": {} if redact_io else i.output_ref or {},
         "metrics": i.metrics or {},
         "trace": i.trace or {},
         "error": i.error,
@@ -342,7 +369,9 @@ async def get_run(
     )
     payload: Dict[str, Any] = {
         **_row(r),
-        "invocations": [_invocation(i) for i in invocations],
+        "invocations": [
+            _invocation(i, redact_io=_membrane_egress_held(r)) for i in invocations
+        ],
     }
     pending_cp = _pending_hitl_checkpoint(r)
     if pending_cp:
@@ -636,6 +665,10 @@ def _step_wrapper(run_id: str, action: str, breakpoints: Optional[List[str]]) ->
 
     try:
         asyncio.run(resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints))
+        if action == "stop":
+            from app.services.run_engine.subflow_orchestration import cancel_waiting_children
+
+            cancel_waiting_children(run_id, reason="parent_debugger_stopped")
     except RuntimeError:
         loop = asyncio.get_event_loop()
         loop.create_task(resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints))
@@ -683,7 +716,15 @@ async def _run_event_stream(
                 ts = cp.get("t")
                 if isinstance(ts, str):
                     replayed_ts.add(ts)
-                yield _sse_format(cp.get("kind", "checkpoint"), cp)
+                public_cp = cp
+                if (
+                    run.status == "hitl_pending"
+                    and cp.get("kind") == "hitl_pause"
+                    and cp.get("membrane_egress") is True
+                ):
+                    public_cp = {key: value for key, value in cp.items() if key != "state"}
+                    public_cp["result_held"] = True
+                yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
 
             yield _sse_format(
                 "snapshot",
@@ -703,6 +744,7 @@ async def _run_event_stream(
             if run.status in _TERMINAL_STATUSES or run.status in (
                 "hitl_pending",
                 "debug_pending",
+                "waiting_subflows",
             ):
                 yield _sse_format("close", {"reason": "run_not_live", "status": run.status})
                 return
@@ -730,7 +772,7 @@ async def _run_event_stream(
                     # the wire via the checkpoint replay loop.
                     continue
                 yield _sse_format(event.get("kind", "event"), event)
-                if event.get("kind") in ("run_end", "hitl_pause", "debug_pause"):
+                if event.get("kind") in ("run_end", "hitl_pause", "debug_pause", "subflow_wait"):
                     break
             else:
                 # 15s tick with no events. Two responsibilities here:
@@ -747,6 +789,7 @@ async def _run_event_stream(
                 if status in _TERMINAL_STATUSES or status in (
                     "hitl_pending",
                     "debug_pending",
+                    "waiting_subflows",
                 ):
                     yield _sse_format("close", {"reason": "polled_terminal", "status": status})
                     break
@@ -804,6 +847,12 @@ def _resume_wrapper(run_id: str, decision_id: str) -> None:
 
     async def _resume_and_finalize() -> None:
         summary = await resume_run_dag(run_id, decision_id=decision_id)
+        # If this is a delegated child, its terminal transition atomically
+        # releases (or keeps waiting) the parent fan-out. The helper is a no-op
+        # for ordinary top-level Runs.
+        from app.services.run_engine.subflow_orchestration import resume_parent_for_child
+
+        await resume_parent_for_child(run_id)
         if summary.get("status") in {"completed", "failed"}:
             from app.services.chat_agentic_runtime import finalize_resumed_agentic_chat
 

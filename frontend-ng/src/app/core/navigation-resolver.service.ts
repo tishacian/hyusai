@@ -24,10 +24,29 @@ export class NavigationResolverService {
 
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
+      this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
       this.resolveBusinessProfile(requestedRoute) ||
       this.resolveUnavailableWorkspaceExtension(requestedRoute) ||
       this.resolveDemoEntrypoint(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
+    );
+  }
+
+  /** Axes v4 makes Hypervisor a Portfolio destination, never an object lens. */
+  private resolveLegacyHypervisorObjectLens(
+    requestedRoute: string,
+  ): NavigationRedirectDecision | null {
+    if (!this.axesV4Enabled()) return null;
+    const path = this.pathOnly(requestedRoute);
+    if (!/^\/(?:capabilities|systems|runs|skills)(?:\/|$)/.test(path)) return null;
+    const rawQuery = requestedRoute.includes('?')
+      ? requestedRoute.slice(requestedRoute.indexOf('?') + 1).split('#')[0]
+      : '';
+    if (new URLSearchParams(rawQuery).get('lens') !== 'hypervisor') return null;
+    return this.decision(
+      requestedRoute,
+      agentiumSurfaceRoute('hypervisor'),
+      'legacy_hypervisor_object_lens',
     );
   }
 
@@ -131,6 +150,9 @@ export class NavigationResolverService {
       !this.workspace.isDemoMode() ||
       this.pathOnly(requestedRoute) !== agentiumSurfaceRoute('hypervisor')
     ) return null;
+    // Under axes v4 the explicit Hypervisor destination is the Portfolio
+    // home. Mission Room remains an extension reachable by its own route.
+    if (this.axesV4Enabled()) return null;
 
     const configuredDefault = this.absoluteRoute(
       this.workspace.current()?.settings?.['default_route'],
@@ -206,6 +228,16 @@ export class NavigationResolverService {
 
   private pathOnly(value: string): string {
     return (value || '/').split('?')[0].split('#')[0] || '/';
+  }
+
+  private axesV4Enabled(): boolean {
+    const features = this.workspace.current()?.settings?.['features'];
+    return Boolean(
+      features &&
+      typeof features === 'object' &&
+      !Array.isArray(features) &&
+      (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true
+    );
   }
 
   private isMissionRoomRoute(value: string): boolean {

@@ -83,7 +83,7 @@ async def workspace_overview(
             "runs_running": sum(
                 1
                 for r in runs
-                if r.status in {"pending", "running", "hitl_pending", "debug_pending"}
+                if r.status in {"pending", "running", "hitl_pending", "debug_pending", "waiting_subflows"}
             ),
             "avg_latency_ms": _avg([r.duration_ms for r in runs if r.duration_ms is not None]),
             "p95_latency_ms": _p95([r.duration_ms for r in runs if r.duration_ms is not None]),
@@ -541,7 +541,10 @@ def _status_tone(status: Optional[str]) -> str:
         return "pos"
     if status in {"failed", "cancelled"}:
         return "neg"
-    if status in {"running", "queued", "pending", "created", "hitl_pending", "debug_pending"}:
+    if status in {
+        "running", "queued", "pending", "created", "hitl_pending", "debug_pending",
+        "waiting_subflows",
+    }:
         return "warn"
     return "info"
 

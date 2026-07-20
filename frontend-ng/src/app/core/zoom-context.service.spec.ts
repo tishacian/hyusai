@@ -42,6 +42,7 @@ class WorkspaceStub {
   private slug = 'workspace-a';
   private epoch = 1;
   private axesEnabled = true;
+  private axesV4 = false;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
 
   currentSlug = () => this.slug;
@@ -50,7 +51,10 @@ class WorkspaceStub {
     id: `id-${this.slug}`,
     slug: this.slug,
     name: this.slug === 'workspace-a' ? 'Workspace A' : 'Workspace B',
-    settings: { features: { cockpit_router_axes_v3: this.axesEnabled } },
+    settings: { features: {
+      cockpit_router_axes_v3: this.axesEnabled,
+      cockpit_router_axes_v4: this.axesV4,
+    } },
   });
 
   captureRequestScope() {
@@ -70,6 +74,10 @@ class WorkspaceStub {
     this.axesEnabled = enabled;
   }
 
+  setAxesV4Enabled(enabled: boolean): void {
+    this.axesV4 = enabled;
+  }
+
   switchWorkspace(): void {
     const transition: WorkspaceContextTransition = {
       previousSlug: this.slug,
@@ -83,9 +91,10 @@ class WorkspaceStub {
   }
 }
 
-function graphHarness(url: string) {
+function graphHarness(url: string, options: { axesV4?: boolean } = {}) {
   const router = new RouterStub(url);
   const workspace = new WorkspaceStub();
+  workspace.setAxesV4Enabled(options.axesV4 === true);
   const capability: Capability = {
     id: 'cap-real',
     slug: 'contract-risk',
@@ -235,6 +244,20 @@ test('global object jumps clear the previous ancestry and UrlTree parsing keeps 
   );
   assert.equal(tree.toString(), router.parsedUrls.at(-1));
   assert.doesNotMatch(router.parsedUrls.at(-1)!, /%3F/);
+});
+
+test('axes v4 sends Hypervisor to Portfolio while object lenses keep the selected System', () => {
+  const { navigation } = graphHarness(
+    '/systems/sys-real?lens=operate&facet=runs',
+    { axesV4: true },
+  );
+
+  assert.equal(navigation.urlForLens('hypervisor', '/wrong'), '/hypervisor');
+  assert.equal(
+    navigation.urlForLens('steer', '/steering'),
+    '/systems/sys-real?facet=runs&lens=steer&capabilityId=cap-real',
+  );
+  assert.equal(navigation.nodes()[0].href, '/hypervisor');
 });
 
 test('the selected System path rejects a Run query from another branch', () => {
