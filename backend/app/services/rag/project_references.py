@@ -18,7 +18,13 @@ NEEDLEPUNCH_DEPOSIT_PREFIX = "Notices_Techniques_Needlepunch"
 # Kept public so metadata helpers that look for a *second* machine reference
 # can share the exact legacy grammar without defining a competing regex.
 LEGACY_PROJECT_REFERENCE_RE = re.compile(
-    r"(?<![A-Z0-9])([A-Z]{3})[\s_-]?(\d{2,4})([A-Z]{0,2})(?![A-Z0-9])",
+    # A separated SPL reference such as ``BBA 120`` remains valid, but a
+    # French article followed by a count is ordinary prose.  Without this
+    # fail-closed exception, ``tous les 16 000 heures`` produced the invented
+    # project reference ``LES16`` and poisoned the next conversational turn.
+    # Keep compact ``LES16`` eligible: if that exact historical code exists it
+    # is structurally different from the grammatical ``les 16`` sequence.
+    r"(?<![A-Z0-9])(?!LES\s+\d)([A-Z]{3})[\s_-]?(\d{2,4})([A-Z]{0,2})(?![A-Z0-9])",
     re.IGNORECASE,
 )
 
@@ -49,7 +55,8 @@ _COMPARISON_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _MEASUREMENT_AFTER_RE = re.compile(
-    r"^\s*(?:rpm|tr(?:s)?\s*/\s*min|mm|cm|kg|hz|khz|kw|mw|bar|bars|v|volts?|°\s*c)\b",
+    r"^\s*(?:rpm|tr(?:s)?\s*/\s*min|mm|cm|kg|hz|khz|kw|mw|bar|bars|v|volts?|"
+    r"h(?:eures?)?|hours?|hrs?|°\s*c)\b",
     re.IGNORECASE,
 )
 

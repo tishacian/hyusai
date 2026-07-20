@@ -146,6 +146,20 @@ def test_extract_query_codes_rejects_embedded_references_and_measurements(query)
 
 def test_measurement_wins_over_an_accidental_known_code_collision():
     assert extract_query_project_codes("vitesse moteur 10000 rpm", known_codes={"10000"}) == []
+    assert extract_query_project_codes("toutes les 16000 heures", known_codes={"16000"}) == []
+
+
+def test_french_article_and_grouped_measurement_never_form_a_legacy_reference():
+    text = "Le remplacement est recommandé tous les 16 000 heures [1]."
+
+    assert extract_query_project_codes(text) == []
+    assert project_reference_terms(text) == ()
+
+    # Preserve real identifiers and their distinct identity rules: TTN17829J
+    # is an exact document/equipment identifier, not an Andritz project code.
+    assert extract_query_project_codes(
+        "Compare BAO100 avec le projet 61035 et la notice TTN17829J"
+    ) == ["BAO100", "61035"]
 
 
 def test_numeric_candidates_are_unvalidated_and_measurement_safe():

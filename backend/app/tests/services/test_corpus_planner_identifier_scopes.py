@@ -105,6 +105,24 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
         for filename in false_61001_filenames
     )
 
+    numeric_summary_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Résume le projet 61035 en citant précisément les documents utilisés.",
+    )
+    assert numeric_summary_plan.intent == "content_search"
+    assert numeric_summary_plan.dense_policy != "catalogue_inventory"
+    assert numeric_summary_plan.filters == {"project_code": ["61035"]}
+
+    spl_summary_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Peux-tu résumer le projet BAO100 avec les sources utilisées ?",
+    )
+    assert spl_summary_plan.intent == "content_search"
+    assert spl_summary_plan.dense_policy != "catalogue_inventory"
+    assert spl_summary_plan.filters == {"project_code": ["BAO100"]}
+
     ttn_plan = plan_corpus(
         db=db_session,
         profile=profile,

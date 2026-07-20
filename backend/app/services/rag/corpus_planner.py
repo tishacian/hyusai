@@ -48,6 +48,19 @@ _CATALOGUE_PHRASE_RE = re.compile(
     r"(?:de\s+quelles?\s+donn[ée]es?|quelles?\s+donn[ée]es?|what\s+data|available\s+data)",
     re.IGNORECASE,
 )
+_PROJECT_SUMMARY_REQUEST_RE = re.compile(
+    r"\b(?:"
+    r"r[eé]sum(?:e(?:s|z)?|er|[eé](?:e|es|s)?)|"
+    r"synth[eè]se|synth[ée]tis(?:e|er|es|ez)|"
+    r"summary|summari[sz](?:e|ing)|aper[cç]u|overview"
+    r")\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_CATALOGUE_REQUEST_RE = re.compile(
+    r"\b(?:catalogue|inventaire|inventory|combien|nombre|count|how\s+many|"
+    r"types?|formats?|extensions?)\b",
+    re.IGNORECASE,
+)
 _COMPARE_RE = re.compile(r"\b(compare|comparer|diff[ée]rences?|versus|vs\.?)\b", re.IGNORECASE)
 _PROCEDURE_RE = re.compile(
     r"\b(proc[ée]dure|procedure|mode\s+op[ée]ratoire|instruction|manuel|manual|"
@@ -211,6 +224,8 @@ def is_catalogue_query(query: str) -> bool:
     text = strip_conversation_anchor(query).strip()
     if not text:
         return False
+    if _is_scoped_project_summary_query(text):
+        return False
     if re.search(
         r"\b(?:quel|quelle|which|what)\b.*\b(?:source|document|fichier|file)\b.*\b(?:contient|contains?)\b",
         text,
@@ -233,6 +248,11 @@ def classify_intent(query: str) -> str:
     from app.services.rag.conversation_anchors import strip_conversation_anchor
 
     text = strip_conversation_anchor(query)
+    # Citation/source wording is answer-shaping context for a scoped project
+    # summary, not a request to enumerate the corpus.  Resolve this strong
+    # grammar before the generic document/source and catalogue branches.
+    if _is_scoped_project_summary_query(text):
+        return "content_search"
     if _DOCUMENT_DISCOVERY_RE.search(text) or (
         re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
         and _CONTENT_SEARCH_HINT_RE.search(text)
@@ -265,6 +285,25 @@ def classify_intent(query: str) -> str:
     if re.search(r"\b(source|document|fichier|file|manual|manuel)\b", text, re.IGNORECASE):
         return "source_lookup"
     return "content_search"
+
+
+def _is_scoped_project_summary_query(query: str) -> bool:
+    """Return whether a project summary outranks incidental source wording.
+
+    ``documents``/``sources`` alone are deliberately broad catalogue hints.
+    When a real SPL or Needlepunch project reference is paired with an explicit
+    summary action, those nouns usually ask for citations (for example
+    ``résume le projet 61035 en citant les documents``).  Explicit inventory,
+    catalogue or cardinality wording remains authoritative and is not
+    overridden here.
+    """
+
+    text = str(query or "").strip()
+    if not text or not _PROJECT_SUMMARY_REQUEST_RE.search(text):
+        return False
+    if _EXPLICIT_CATALOGUE_REQUEST_RE.search(text) or _CATALOGUE_PHRASE_RE.search(text):
+        return False
+    return bool(extract_query_project_codes(text))
 
 
 def _clean_filter_value(value: Any) -> Any:

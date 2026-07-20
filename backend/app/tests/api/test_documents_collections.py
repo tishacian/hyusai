@@ -412,6 +412,107 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
     assert [source["filename"] for source in scoped_body["sources"]] == ["manual-small.pdf"]
 
 
+def test_collection_inventory_numeric5_project_scope_is_exact_and_source_aware(
+    db_session,
+):
+    ws = Workspace(
+        id="ws-inventory-numeric5",
+        name="Inventory Numeric5",
+        slug="inventory-numeric5",
+    )
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Transverse Manuals")
+    db_session.add_all(
+        [
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="opaque-needlepunch-manual.pdf",
+                normalized_name="opaque-needlepunch-manual.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                status="ready",
+                source_metadata={
+                    "project_code": "61035",
+                    "project_code_scheme": "needlepunch_numeric5",
+                    "business_scope": "needlepunch",
+                },
+            ),
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="spare-part-1298561035.pdf",
+                normalized_name="spare-part-1298561035.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                status="ready",
+                source_metadata={
+                    "project_code": "61001",
+                    "project_code_scheme": "needlepunch_numeric5",
+                    "business_scope": "needlepunch",
+                },
+            ),
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="unscoped-61035-manual.pdf",
+                normalized_name="unscoped-61035-manual.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                status="ready",
+            ),
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="A__BCX200__manual.html",
+                normalized_name="A__BCX200__manual.html",
+                source_kind="markup",
+                extension="html",
+                status="ready",
+            ),
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="A__BCX200__wrong-project.html",
+                normalized_name="A__BCX200__wrong-project.html",
+                source_kind="markup",
+                extension="html",
+                status="ready",
+                source_metadata={"project_code": "ZZZ900"},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    numeric_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.slug}/inventory?project_code=61035"
+    )
+    assert numeric_response.status_code == 200
+    numeric_body = numeric_response.json()
+    assert numeric_body["sources_total"] == 1
+    assert [source["filename"] for source in numeric_body["sources"]] == [
+        "opaque-needlepunch-manual.pdf"
+    ]
+
+    legacy_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.slug}/inventory?project_code=BCX200"
+    )
+    assert legacy_response.status_code == 200
+    assert [source["filename"] for source in legacy_response.json()["sources"]] == [
+        "A__BCX200__manual.html"
+    ]
+
+    generic_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.slug}/inventory?q=61035"
+    )
+    assert generic_response.status_code == 200
+    assert [source["filename"] for source in generic_response.json()["sources"]] == [
+        "spare-part-1298561035.pdf",
+        "unscoped-61035-manual.pdf",
+    ]
+
+
 def test_list_documents_does_not_return_cross_workspace_ledger_sources(db_session, monkeypatch):
     current_ws = Workspace(id="ws-list-current", name="Current", slug="list-current")
     other_ws = Workspace(id="ws-list-other", name="Other", slug="list-other")

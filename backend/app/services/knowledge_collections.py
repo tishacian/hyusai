@@ -336,16 +336,39 @@ def collection_inventory(
         filtered_rows = [row for row in filtered_rows if str(row.status or "").lower() == wanted]
     if project_code:
         wanted = project_code.strip().lower()
+
+        def matches_project_code(row: KnowledgeCollectionSource) -> bool:
+            metadata = row.source_metadata or {}
+            metadata_values = {
+                str(metadata.get(key) or "").strip().lower()
+                for key in ("project_code", "project", "machine", "line")
+                if str(metadata.get(key) or "").strip()
+            }
+            if metadata_values:
+                return wanted in metadata_values
+
+            # A Needlepunch numeric identifier is authoritative only when it is
+            # carried by source metadata derived from the validated deposit
+            # path.  Searching it as an arbitrary filename substring turns
+            # part/material references such as ``1298561035`` into project
+            # matches.  Keep the historical filename fallback for SPL's
+            # alpha-numeric project references and keep ``q`` as the generic
+            # filename-search filter.
+            is_numeric5 = bool(re.fullmatch(r"\d{5}", wanted))
+            is_needlepunch_source = (
+                str(metadata.get("project_code_scheme") or "").strip().lower()
+                == "needlepunch_numeric5"
+                or str(metadata.get("business_scope") or "").strip().lower()
+                == "needlepunch"
+            )
+            if is_numeric5 or is_needlepunch_source:
+                return False
+            return wanted in str(row.filename or "").lower()
+
         filtered_rows = [
             row
             for row in filtered_rows
-            if wanted in {
-                str((row.source_metadata or {}).get("project_code") or "").lower(),
-                str((row.source_metadata or {}).get("project") or "").lower(),
-                str((row.source_metadata or {}).get("machine") or "").lower(),
-                str((row.source_metadata or {}).get("line") or "").lower(),
-            }
-            or wanted in str(row.filename or "").lower()
+            if matches_project_code(row)
         ]
     if archive_name:
         wanted = archive_name.strip().lower()

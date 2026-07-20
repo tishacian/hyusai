@@ -779,6 +779,34 @@ def test_catalogue_query_accepts_docs_abbreviation():
     assert classify_intent("Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 ?") == "source_lookup"
 
 
+def test_project_summary_with_citation_words_is_not_catalogue():
+    queries = (
+        # Needlepunch numeric5 project reference (live regression).
+        "Résume le projet 61035 en citant précisément les documents utilisés.",
+        # Historical SPL project reference, including polite source wording
+        # that would otherwise hit the source-lookup branch first.
+        "Peux-tu résumer le projet BAO100 avec les sources et documents utilisés ?",
+    )
+
+    for query in queries:
+        assert not is_catalogue_query(query), query
+        assert classify_intent(query) == "content_search", query
+        assert not rag_context.is_collection_inventory_query(query), query
+
+
+def test_explicit_project_catalogue_requests_remain_catalogue():
+    queries = (
+        "Combien de documents sont disponibles pour le projet 61035 ?",
+        "Dresse l'inventaire des sources du projet BAO100.",
+        "Quel catalogue de documents existe pour le projet 61035 ?",
+    )
+
+    for query in queries:
+        assert is_catalogue_query(query), query
+        assert classify_intent(query) == "catalogue", query
+        assert rag_context.is_collection_inventory_query(query), query
+
+
 def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(db_session):
     workspace = Workspace(id="ws-planner-table-spreadsheet", name="Planner Tables", slug="planner-tables")
     db_session.add(workspace)
