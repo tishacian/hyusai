@@ -14,17 +14,26 @@ from app.services.rag.project_references import (
     ("path", "code", "project_range"),
     [
         (
-            "Notices_Techniques_Needlepunch/60000-69999/61001 Bekaert/manual.pdf",
+            (
+                "Notices_Techniques_Needlepunch/60000-69999/"
+                "61001CdFreudenberg USA du 22 05 2003/manual.pdf"
+            ),
             "61001",
             "60000-69999",
         ),
         (
-            "Notices_Techniques_Needlepunch/60000-69999/61038 - Customer/file.doc",
+            (
+                "Notices_Techniques_Needlepunch/60000-69999/"
+                "61038CdMeishengWenzhouMach.Asselin du 20 11 2004/file.doc"
+            ),
             "61038",
             "60000-69999",
         ),
         (
-            "Notices_Techniques_Needlepunch/70000-79999/70170_Project/archive.zip",
+            (
+                "Notices_Techniques_Needlepunch/70000-79999/"
+                "70170 - SHIMALL _SIM200Y_ C-I4-854826-166 DOC Full Scope/archive.zip"
+            ),
             "70170",
             "70000-79999",
         ),
@@ -50,12 +59,17 @@ def test_derive_needlepunch_reference_from_trusted_structure(path, code, project
     [
         # Project is outside the declared range.
         "Notices_Techniques_Needlepunch/60000-69999/70170 Customer/manual.pdf",
+        # A sixth contiguous digit is not a separator or a project label.
+        "Notices_Techniques_Needlepunch/60000-69999/610011Customer/manual.pdf",
         # The parent range is an exact structural segment, not fuzzy prose.
         "Notices_Techniques_Needlepunch/60000 - 69999/61038 Customer/manual.pdf",
         # The five-digit code is lower than the immediate project folder.
         "Notices_Techniques_Needlepunch/60000-69999/Manuals/61038/manual.pdf",
         # A project folder must include its structural label.
         "Notices_Techniques_Needlepunch/60000-69999/61038/manual.pdf",
+        "Notices_Techniques_Needlepunch/60000-69999/61038 ---/manual.pdf",
+        # A concatenated label starts with a letter, not arbitrary punctuation.
+        "Notices_Techniques_Needlepunch/60000-69999/61038!Customer/manual.pdf",
         # Once the source declares Needlepunch, a legacy-looking filename must
         # not become a fallback project identity.
         "Notices_Techniques_Needlepunch/bad-range/bad-folder/BAO100.pdf",

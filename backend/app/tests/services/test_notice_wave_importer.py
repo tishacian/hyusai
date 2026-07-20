@@ -111,7 +111,7 @@ def test_plan_classifies_structural_paths_and_never_scans_deeper_numbers(db_sess
         file_id="valid-61001",
         path=(
             "Notices_Techniques_Needlepunch/60000-69999/"
-            "61001 Line A/manual.pdf"
+            "61001CdFreudenberg USA du 22 05 2003/manual.pdf"
         ),
     )
     _add_deposit(
@@ -161,7 +161,7 @@ def test_plan_classifies_structural_paths_and_never_scans_deeper_numbers(db_sess
         "project_code_scheme": "needlepunch_numeric5",
         "business_scope": "needlepunch",
         "project_range": "60000-69999",
-        "project_folder": "61001 Line A",
+        "project_folder": "61001CdFreudenberg USA du 22 05 2003",
     }
     assert by_id["deeper-number"].reason == "invalid_needlepunch_project_path"
     assert by_id["range-mismatch"].reason == "invalid_needlepunch_project_path"
@@ -175,7 +175,10 @@ def test_plan_prefix_is_confined_and_covered_by_hash(db_session):
         workspace=workspace,
         link=link,
         file_id="p61001",
-        path="Notices_Techniques_Needlepunch/60000-69999/61001 A/a.pdf",
+        path=(
+            "Notices_Techniques_Needlepunch/60000-69999/"
+            "61001CdFreudenberg USA du 22 05 2003/a.pdf"
+        ),
     )
     _add_deposit(
         db_session,

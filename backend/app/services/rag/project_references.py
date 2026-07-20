@@ -23,7 +23,16 @@ LEGACY_PROJECT_REFERENCE_RE = re.compile(
 )
 
 _NEEDLEPUNCH_RANGE_RE = re.compile(r"^(\d{5})-(\d{5})$")
-_NEEDLEPUNCH_PROJECT_FOLDER_RE = re.compile(r"^(\d{5})[\s_.-]+\S.*$")
+# The SFTP folder name is ``<five digit project code><label>``.  Most folders
+# separate both parts with whitespace/punctuation, but the historical tree also
+# contains canonical names such as ``61001CdFreudenberg...``.  The negative
+# lookahead is the important boundary: accepting a missing separator must never
+# turn the first five digits of a six-digit number into a project code.  A
+# concatenated label must start with a Unicode letter; a separated label must
+# start with an alphanumeric character after its separators.
+_NEEDLEPUNCH_PROJECT_FOLDER_RE = re.compile(
+    r"^(\d{5})(?!\d)(?:[\s_.-]+[^\W_].*|[^\W\d_].*)$"
+)
 _NUMERIC_PROJECT_RE = re.compile(r"(?<![A-Z0-9])(\d{5})(?![A-Z0-9])", re.IGNORECASE)
 
 _STRONG_QUERY_WORD_RE = re.compile(
