@@ -52,6 +52,7 @@ from app.services.rag.project_inventory import (
     build_project_inventory,
     query_targets_projects,
 )
+from app.services.rag.project_references import extract_query_project_codes
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
@@ -986,6 +987,70 @@ def _prepend_guide_context(
     )
 
 
+def _normalised_project_codes(value: Any) -> set[str]:
+    if isinstance(value, list | tuple | set):
+        values = value
+    else:
+        values = (value,)
+    return {
+        str(item or "").strip().upper()
+        for item in values
+        if str(item or "").strip()
+    }
+
+
+def _matched_resolved_project_scope_codes(
+    *,
+    query: str,
+    retrieval_filters: Mapping[str, Any] | None,
+    metadatas: list[dict[str, Any]],
+) -> set[str]:
+    """Return requested project codes proven by both hard scope and results.
+
+    Project identity remains owned by ``project_references``.  The hard filter
+    alone is insufficient: a stale/wrong payload must still trip the exact
+    guardrail, so a code is satisfied only when retrieved metadata carries the
+    same canonical ``project_code``.
+    """
+
+    if not isinstance(retrieval_filters, Mapping):
+        return set()
+    filtered_codes = _normalised_project_codes(retrieval_filters.get("project_code"))
+    if not filtered_codes:
+        return set()
+    requested_codes = set(
+        extract_query_project_codes(query, known_codes=filtered_codes)
+    ).intersection(filtered_codes)
+    if not requested_codes:
+        return set()
+    retrieved_codes: set[str] = set()
+    for metadata in metadatas:
+        if isinstance(metadata, Mapping):
+            retrieved_codes.update(
+                _normalised_project_codes(metadata.get("project_code"))
+            )
+    return requested_codes.intersection(retrieved_codes)
+
+
+def _requested_terms_are_only_project_scope(
+    requested_terms: set[str],
+    project_codes: set[str],
+) -> bool:
+    """Whether lexical exact terms contain no identifier beyond the project.
+
+    The generic lexical parser compacts ``projet 61035`` into
+    ``PROJET61035``.  Treat that parser artefact as the already-proven project
+    scope, but never consume a different document, component or part number.
+    """
+
+    project_terms = {
+        term
+        for code in project_codes
+        for term in (code, f"PROJET{code}", f"PROJECT{code}")
+    }
+    return bool(requested_terms) and requested_terms.issubset(project_terms)
+
+
 def _prepend_exact_match_guardrail_context(
     chunks: list[str],
     scores: list[float],
@@ -994,6 +1059,7 @@ def _prepend_exact_match_guardrail_context(
     query: str,
     policy: RetrievalPolicy,
     diagnostics: Mapping[str, Any],
+    retrieval_filters: Mapping[str, Any] | None = None,
 ) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
     if diagnostics.get("exact_match_missing") is not True:
         return chunks, scores, metadatas, 0
@@ -1012,6 +1078,15 @@ def _prepend_exact_match_guardrail_context(
             )
             if requested_set.intersection(set(details.get("matched_exact_terms") or [])):
                 return chunks, scores, metadatas, 0
+    matched_project_codes = _matched_resolved_project_scope_codes(
+        query=query,
+        retrieval_filters=retrieval_filters,
+        metadatas=metadatas,
+    )
+    if matched_project_codes and _requested_terms_are_only_project_scope(
+        set(requested), matched_project_codes
+    ):
+        return chunks, scores, metadatas, 0
     requested_text = ", ".join(requested) if requested else "an explicit identifier"
     content = (
         "Retrieval exact-match guardrail.\n"
@@ -3386,6 +3461,7 @@ async def retrieve_rag_context(
         query=retrieval_query,
         policy=retrieval_policy,
         diagnostics=retrieval_diagnostics,
+        retrieval_filters=retrieval_filters,
     )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     metrics.update(
@@ -3925,6 +4001,7 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
         diagnostics=exact_metadata_diagnostics,
+        retrieval_filters=retrieval_filters,
     )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     duration_ms = int((time.time() - started) * 1000)

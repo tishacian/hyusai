@@ -253,6 +253,101 @@ def test_exact_match_guardrail_context_is_prepended_when_required_code_is_missin
     assert chunks[1] == "Dense neighbor background"
 
 
+def _missing_exact_metadata_diagnostics() -> dict[str, object]:
+    return {
+        "exact_metadata_attempted": True,
+        "exact_metadata_hits": 0,
+        "exact_match_required": True,
+        "exact_match_missing": True,
+    }
+
+
+def test_empty_exact_terms_never_satisfy_project_scope_guardrail():
+    assert not rag_context._requested_terms_are_only_project_scope(set(), {"61035"})
+
+
+def test_exact_match_guardrail_accepts_matching_needlepunch_project_scope():
+    chunks = ["Needlepunch technical notice for the requested project."]
+    scores = [0.93]
+    metadatas = [{"document_filename": "notice.pdf", "project_code": "61035"}]
+
+    result = rag_context._prepend_exact_match_guardrail_context(
+        chunks,
+        scores,
+        metadatas,
+        query="Résume le projet 61035",
+        policy=RetrievalPolicy(),
+        diagnostics=_missing_exact_metadata_diagnostics(),
+        retrieval_filters={"project_code": ["61035"]},
+    )
+
+    assert result == (chunks, scores, metadatas, 0)
+
+
+def test_exact_match_guardrail_rejects_wrong_or_missing_needlepunch_project_metadata():
+    for metadata in (
+        {"document_filename": "wrong-project.pdf", "project_code": "61001"},
+        {"document_filename": "missing-project.pdf"},
+    ):
+        (
+            chunks,
+            _scores,
+            metadatas,
+            count,
+        ) = rag_context._prepend_exact_match_guardrail_context(
+            ["Dense neighbor background"],
+            [0.91],
+            [metadata],
+            query="Résume le projet 61035",
+            policy=RetrievalPolicy(),
+            diagnostics=_missing_exact_metadata_diagnostics(),
+            retrieval_filters={"project_code": ["61035"]},
+        )
+
+        assert count == 1
+        assert chunks[0].startswith("Retrieval exact-match guardrail.")
+        assert metadatas[0]["semantic_type"] == "exact_match_guardrail"
+
+
+def test_exact_match_guardrail_keeps_unmatched_document_identifier_under_project_scope():
+    (
+        chunks,
+        _scores,
+        metadatas,
+        count,
+    ) = rag_context._prepend_exact_match_guardrail_context(
+        ["Project 61035 background without the requested document."],
+        [0.91],
+        [{"document_filename": "other-document.pdf", "project_code": "61035"}],
+        query="Trouve TTN17829J pour le projet 61035",
+        policy=RetrievalPolicy(),
+        diagnostics=_missing_exact_metadata_diagnostics(),
+        retrieval_filters={"project_code": ["61035"]},
+    )
+
+    assert count == 1
+    assert chunks[0].startswith("Retrieval exact-match guardrail.")
+    assert "TTN17829J" in chunks[0]
+    assert metadatas[0]["semantic_type"] == "exact_match_guardrail"
+
+
+def test_exact_match_guardrail_preserves_spl_project_metadata_match():
+    chunks = ["Historical SPL project summary."]
+    scores = [0.92]
+    metadatas = [{"document_filename": "BAO100-manual.pdf", "project_code": "BAO100"}]
+
+    result = rag_context._prepend_exact_match_guardrail_context(
+        chunks,
+        scores,
+        metadatas,
+        query="Résume le projet BAO100",
+        policy=RetrievalPolicy(),
+        diagnostics=_missing_exact_metadata_diagnostics(),
+    )
+
+    assert result == (chunks, scores, metadatas, 0)
+
+
 async def test_retrieve_rag_context_applies_similarity_threshold(monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_similarity_threshold", 0.2)
 

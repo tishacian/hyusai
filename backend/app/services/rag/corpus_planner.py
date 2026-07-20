@@ -330,6 +330,10 @@ _SOURCE_LOOKUP_GENERIC_TERMS = {
     "fichier",
     "manual",
     "manuel",
+    "notice",
+    "operation",
+    "operator",
+    "operatormanual",
     "parts",
     "projet",
     "retrouver",
@@ -344,6 +348,7 @@ def _source_lookup_terms(project_codes: list[str], source_lookup_query: str | No
     candidate paths surface the same docs regardless of which ledger holds them.
     """
     lookup_terms: set[str] = set()
+    query_numeric_candidates = set(numeric_project_candidates(source_lookup_query or ""))
     for code in project_codes[:4]:
         compact = _compact_text(code).upper()
         variants = {code, compact}
@@ -354,6 +359,18 @@ def _source_lookup_terms(project_codes: list[str], source_lookup_query: str | No
         lookup_terms.update(variant for variant in variants if variant)
     for term in _expanded_query_terms(source_lookup_query or "")[:20]:
         compact_term = _compact_text(term)
+        # Five-digit project candidates are also useful filename anchors, but a
+        # measurement such as ``10000 rpm`` must not become an ILIKE
+        # ``%10000%`` source lookup: that substring is ubiquitous inside long
+        # industrial part/drawing numbers.  Reuse the shared measurement-safe
+        # numeric candidate grammar while leaving the explicit ``project_codes``
+        # injected above untouched.
+        if (
+            compact_term.isdigit()
+            and len(compact_term) == 5
+            and compact_term not in query_numeric_candidates
+        ):
+            continue
         # >=5 mirrors the strong filename signal in _infer_ledger_document_scope
         # (len(compact_term) >= 5 in source_only_compact). This keeps the DB
         # candidate set aligned with what the Python scorer would have matched.
