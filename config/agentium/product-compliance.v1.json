@@ -1034,6 +1034,158 @@
           }
         ]
       }
+    },
+    {
+      "id": "LOT6-SYSTEM360-PERSPECTIVES",
+      "lot": 6,
+      "title": "One marked System exposes four distinct, evidence-backed perspectives",
+      "kind": "full_stack",
+      "description": "A marker-discovered System keeps one canonical identity while Build, Operate, Steer and Govern expose separate persisted projections, and a protected SHA-bound browser gate records the runtime proof.",
+      "mental_model_sections": [
+        "5bis",
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "System perspective read model",
+            "path": "backend/app/services/system_perspective.py",
+            "contains": [
+              "OBJECT_LENSES = (\"build\", \"operate\", \"steer\", \"govern\")",
+              "FACT_STATES = {",
+              "def build_system_perspective("
+            ]
+          },
+          {
+            "label": "Protected runtime evidence pipeline",
+            "path": ".gitlab-ci.yml",
+            "contains": [
+              "agentium-lot6-system360-production:",
+              "AGENTIUM_ATTESTATION_ID_TOKEN:",
+              "deploy-lot6-system360.sh",
+              "agentium_deployment_attestation.py",
+              "agentium_trusted_compliance.py"
+            ]
+          },
+          {
+            "label": "Ordered structural rollout state machine",
+            "path": "backend/scripts/rollout_system360_canary.py",
+            "contains": [
+              "def discover_target(",
+              "def activate_projection(",
+              "def rollback(",
+              "required_skills_observed",
+              "grounded_output_verified",
+              "canonical_provenance_verified"
+            ]
+          },
+          {
+            "label": "Quiesced VM deployment wrapper",
+            "path": "scripts/deploy-lot6-system360.sh",
+            "contains": [
+              "create_backup \"quiesced\"",
+              "run_candidate alembic upgrade head",
+              "--exercise-query-stdin",
+              "rollback --apply"
+            ]
+          },
+          {
+            "label": "Authenticated evidence state derivation",
+            "path": "scripts/agentium_trusted_compliance.py",
+            "contains": [
+              "verify_gitlab_oidc",
+              "bound_ci_identity",
+              "derive_formal_report",
+              "authenticated_gitlab_oidc"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Marker-gated System perspective endpoint",
+            "path": "backend/app/api/v1/endpoints/systems.py",
+            "contains": [
+              "def _system_360_enabled(",
+              "@router.get(\"/{system_id}/perspective\")",
+              "experience.get(\"system_360_canary\") == \"v1\""
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Typed four-lens System projection",
+            "path": "frontend-ng/src/app/features/systems/system-perspective.component.ts",
+            "contains": [
+              "data-perspective-lens",
+              "system360-",
+              "Not measured",
+              "Not configured"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Authenticated marker-discovered System canary",
+            "path": "frontend-ng/e2e/tests/11-system360-canary.spec.ts",
+            "contains": [
+              "settings.experience.system_360_canary = \"v1\"",
+              "exactly one authorized workspace and System pair must carry the v1 canary marker",
+              "four_distinct_projections",
+              "ui_value_matches_api_per_lens",
+              "explicit_restricted_state",
+              "workspace_switch_purges_object",
+              "E2E_EXPECTED_SHA"
+            ],
+            "runner": "playwright"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT6-P4-DURABLE-SUBFLOWS",
+      "lot": 6,
+      "title": "Durable Celery subflows preserve delegated Run identity",
+      "kind": "backend",
+      "description": "A double-gated Celery execution path persists immutable child identities, resumes the parent idempotently and applies deterministic all, any and race joins under real broker redelivery.",
+      "mental_model_sections": [
+        "33"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Persisted subflow coordination",
+            "path": "backend/app/services/run_engine/subflow_orchestration.py",
+            "contains": [
+              "def resolve_waiting(",
+              "async def resume_parent_for_child(",
+              "def retry_ambiguous_dispatches(",
+              "subflow_any_join_satisfied"
+            ]
+          },
+          {
+            "label": "Protected PostgreSQL and RabbitMQ gate",
+            "path": ".gitlab-ci.yml",
+            "contains": [
+              "agentium-p4-rabbitmq-integration:",
+              "RUN_RABBITMQ_INTEGRATION: \"1\"",
+              "celery -A app.workers.celery_app:celery_app worker",
+              "test_subflow_celery_rabbitmq.py"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Real broker redelivery and fan-out integration",
+            "path": "backend/app/tests/integration/test_subflow_celery_rabbitmq.py",
+            "contains": [
+              "test_real_rabbitmq_redelivery_fanout_joins_hitl_and_cancellation",
+              "test_acks_late_redelivers_after_dedicated_worker_crash",
+              "RUN_RABBITMQ_INTEGRATION"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
     }
   ]
 }

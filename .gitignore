@@ -57,6 +57,7 @@ pdfs/
 
 # Runtime / deployment
 server.log
+/uvicorn.log
 uploads/
 # VM runtime env files contain deployment secrets. Keep the reviewed
 # `*.env.example` templates tracked, but never their populated `*.env` copies.

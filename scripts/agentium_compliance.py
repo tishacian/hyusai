@@ -60,7 +60,7 @@ MARKDOWN_TEXT_META_RE = re.compile(r"([\\`*_\[\]#|>~])")
 SAFE_REPOSITORY_PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 SAFE_SUFFIX_RE = re.compile(r"^\.[A-Za-z0-9._-]+$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-CLAIM_ID_RE = re.compile(r"^LOT[0-5]-[A-Z0-9][A-Z0-9-]*$")
+CLAIM_ID_RE = re.compile(r"^LOT[0-6]-[A-Z0-9][A-Z0-9-]*$")
 
 
 class ComplianceError(ValueError):
@@ -925,8 +925,8 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
             raise ComplianceError(f"Duplicate claim id: {claim_id}")
         seen_ids.add(claim_id)
         lot = claim.get("lot")
-        if not isinstance(lot, int) or isinstance(lot, bool) or not 0 <= lot <= 5:
-            raise ComplianceError(f"{prefix}.lot must be an integer from 0 through 5")
+        if not isinstance(lot, int) or isinstance(lot, bool) or not 0 <= lot <= 6:
+            raise ComplianceError(f"{prefix}.lot must be an integer from 0 through 6")
         if not claim_id.startswith(f"LOT{lot}-"):
             raise ComplianceError(f"{prefix}.id must agree with lot {lot}")
         seen_lots.add(lot)
@@ -1004,10 +1004,10 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
                     raise ComplianceError(
                         f"{proof_prefix}.runner must be one of {', '.join(sorted(RUNNERS))}"
                     )
-    if seen_lots != set(range(6)):
-        missing = ", ".join(str(lot) for lot in sorted(set(range(6)) - seen_lots))
+    if seen_lots != set(range(7)):
+        missing = ", ".join(str(lot) for lot in sorted(set(range(7)) - seen_lots))
         raise ComplianceError(
-            f"Manifest must represent Lots 0 through 5; missing: {missing}"
+            f"Manifest must represent Lots 0 through 6; missing: {missing}"
         )
     return manifest
 

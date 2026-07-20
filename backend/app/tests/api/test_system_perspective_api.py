@@ -142,4 +142,3 @@ def test_patch_audits_only_changed_field_names(db_session):
         "fields": ["objective", "settings"],
     }
     assert "must-never-enter-audit" not in str(event.details)
-

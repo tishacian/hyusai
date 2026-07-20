@@ -51,6 +51,7 @@ ENV PYTHONPATH=/app/backend:/app
 WORKDIR /app
 
 ARG AGENTIUM_IMAGE_REVISION=unknown
+ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
 LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
 
 CMD ["./run_celery.sh"]
