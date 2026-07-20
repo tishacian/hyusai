@@ -32,6 +32,7 @@ from app.services.knowledge_collections import (
     create_worker_job,
     document_manifest_key,
     ingested_key,
+    normalize_source_name,
     resolve_original_key,
     update_collection_status,
     update_job,
@@ -119,6 +120,71 @@ def _existing_content_hashes(
         if content_hash and key not in hashes:
             hashes[key] = row.filename
     return hashes
+
+
+def _incremental_document_inventory(
+    db, collection: KnowledgeCollection
+) -> tuple[list[str], int]:
+    """Build the source inventory without scrolling the full vector corpus.
+
+    Incremental jobs only need the durable source ledger after indexing their
+    private wave.  Keep pre-ledger ``document_names`` in their historical
+    order, except when every matching ledger row explicitly marks a name as
+    deleted, then append live ledger-only names deterministically.  A source
+    is counted as physically indexed only when the ledger says ``ready`` or
+    ``indexed``; error, in-flight and deduplicated rows remain in the source
+    inventory but do not claim their own vectors.
+    """
+
+    rows = (
+        db.query(
+            KnowledgeCollectionSource.filename,
+            KnowledgeCollectionSource.normalized_name,
+            KnowledgeCollectionSource.status,
+        )
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .order_by(
+            KnowledgeCollectionSource.filename.asc(),
+            KnowledgeCollectionSource.id.asc(),
+        )
+        .all()
+    )
+
+    statuses_by_name: dict[str, set[str]] = {}
+    live_name_by_normalized: dict[str, str] = {}
+    ledger_order: list[str] = []
+    for filename, normalized_name, status in rows:
+        normalized = normalize_source_name(normalized_name or filename)
+        statuses_by_name.setdefault(normalized, set()).add(str(status or ""))
+        if status == "deleted" or normalized in live_name_by_normalized:
+            continue
+        live_name_by_normalized[normalized] = str(filename or normalized_name)
+        ledger_order.append(normalized)
+
+    inventory: list[str] = []
+    inventory_normalized: set[str] = set()
+    for raw_name in collection.document_names or []:
+        name = str(raw_name)
+        normalized = normalize_source_name(name)
+        known_statuses = statuses_by_name.get(normalized)
+        if known_statuses and known_statuses == {"deleted"}:
+            continue
+        inventory.append(name)
+        inventory_normalized.add(normalized)
+
+    for normalized in ledger_order:
+        if normalized in inventory_normalized:
+            continue
+        inventory.append(live_name_by_normalized[normalized])
+        inventory_normalized.add(normalized)
+
+    indexed_count = sum(
+        1
+        for normalized, statuses in statuses_by_name.items()
+        if normalized in inventory_normalized
+        and statuses.intersection({"ready", "indexed"})
+    )
+    return inventory, indexed_count
 
 
 def _verification_status(
@@ -1014,7 +1080,13 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             )
         db.flush()
         chunk_count = await doc_service.get_document_count()
-        documents = await doc_service.list_documents()
+        if ingest_mode == "incremental":
+            inventory_document_names, indexed_document_count = (
+                _incremental_document_inventory(db, collection)
+            )
+        else:
+            documents = await doc_service.list_documents()
+            indexed_document_count = len(documents)
         update_job(db, job_id, progress=85, stage="bm25")
         db.commit()
         bm25 = await rebuild_bm25_artifact(
@@ -1076,9 +1148,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             deposit_summaries=deposit_summaries,
         )
 
-        source_document_count = len(
-            collection.document_names or file_names or documents
-        )
+        if ingest_mode == "incremental":
+            source_document_names = inventory_document_names
+            source_document_count = len(source_document_names)
+        else:
+            source_document_names = list(collection.document_names or file_names)
+            source_document_count = len(
+                collection.document_names or file_names or documents
+            )
 
         result = {
             "ingest": ingest_result,
@@ -1087,7 +1164,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             "collection_slug": collection.slug,
             "chunk_count": chunk_count,
             "document_count": source_document_count,
-            "indexed_document_count": len(documents),
+            "indexed_document_count": indexed_document_count,
             "deposit_files": deposit_summaries,
             "ingest_options": ingest_options,
             "postflight_required": requires_notice_postflight,
@@ -1103,7 +1180,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             status="ready",
             document_count=source_document_count,
             chunk_count=chunk_count,
-            document_names=list(collection.document_names or file_names),
+            document_names=source_document_names,
         )
         update_job(
             db, job_id, status="completed", progress=100, result=result, stage="ready"

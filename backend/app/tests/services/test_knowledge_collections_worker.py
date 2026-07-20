@@ -32,6 +32,7 @@ from app.services.rag.bm25_store import (
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_ingest import (
     _finalize_linked_deposit_files,
+    _incremental_document_inventory,
     run_document_ingest_index,
 )
 
@@ -134,6 +135,47 @@ def test_worker_ingest_claim_is_idempotent_for_duplicate_delivery(
     }
 
 
+def test_incremental_document_inventory_merges_legacy_and_ledger():
+    collection = SimpleNamespace(
+        id="collection-inventory",
+        document_names=[
+            "legacy-only.txt",
+            "mixed.txt",
+            "deleted-legacy.txt",
+        ],
+    )
+    rows = [
+        ("mixed.txt", "mixed.txt", "deleted"),
+        ("archive/mixed.txt", "mixed.txt", "indexed"),
+        ("deleted-legacy.txt", "deleted-legacy.txt", "deleted"),
+        ("ledger-error.txt", "ledger-error.txt", "error"),
+        ("ledger-ready.txt", "ledger-ready.txt", "ready"),
+        ("ledger-deleted.txt", "ledger-deleted.txt", "deleted"),
+    ]
+
+    class FakeQuery:
+        def filter(self, *_args):
+            return self
+
+        def order_by(self, *_args):
+            return self
+
+        def all(self):
+            return rows
+
+    fake_db = SimpleNamespace(query=lambda *_args: FakeQuery())
+
+    names, indexed_count = _incremental_document_inventory(fake_db, collection)
+
+    assert names == [
+        "legacy-only.txt",
+        "mixed.txt",
+        "ledger-error.txt",
+        "ledger-ready.txt",
+    ]
+    assert indexed_count == 2
+
+
 def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     db_session,
     tmp_path,
@@ -177,6 +219,8 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
                 chunks=[{"content": "hello world"}], raw_content="hello world"
             )
 
+    list_document_calls: list[bool] = []
+
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
             self.vector_db = object()
@@ -207,6 +251,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
             return 1
 
         async def list_documents(self):
+            list_document_calls.append(True)
             return [{"document_id": "doc-1", "filename": "manual.txt"}]
 
     async def fake_bm25(**_kwargs):
@@ -246,6 +291,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     assert source.source_metadata["source_family"] == "operating_manual"
     assert source.source_metadata["document_id"] is not None
     assert len(parse_calls) == 1
+    assert list_document_calls == [True]
     assert (
         get_object_store().read_bytes(
             f"{collection.artifact_prefix}/ingested/manual.txt"
@@ -839,7 +885,7 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
             return 2
 
         async def list_documents(self):
-            return [{"document_id": "doc-1", "filename": document_name}]
+            pytest.fail("incremental ingestion must not scan Qdrant documents")
 
     async def fake_bm25(**_kwargs):
         return {"status": "ready", "chunk_count": 2}
@@ -866,6 +912,8 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
         refreshed_deposit.promotion_result["indexing_verification"]["chunk_count"] == 2
     )
     assert result["deposit_files"][0]["indexing_status"] == "indexed"
+    assert result["indexed_document_count"] == 1
+    assert result["bm25"]["status"] == "ready"
     assert result["wave_ledger"]["status"] == "recorded"
     ledger = refreshed_ws.settings["spl_wave_ledger"][collection.slug]
     assert (
