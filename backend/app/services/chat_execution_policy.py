@@ -93,26 +93,23 @@ def _andritz_classic_retrieval_contract(
     workspace: Workspace,
     *,
     context_id: Optional[str],
-    rag_mode_override: Optional[str],
 ) -> Optional[dict[str, Any]]:
     """Keep ordinary Andritz classic turns inside the authoritative corpus.
 
     The collection boundary belongs to the workspace experience, not only to
     the Agentic runtime.  Consequently a zero-percent rollout, kill switch or
     drift fallback must never silently widen retrieval to every collection in
-    the workspace.  Explicit user-selected Context/RAG contracts retain their
-    existing classic semantics.
+    the workspace.  An explicit user-selected Context retains its existing
+    classic semantics.  A RAG mode override only selects the retrieval
+    algorithm and must never change the authoritative collection boundary.
     """
 
     workspace_settings = _as_dict(workspace.settings)
-    explicit_rag = bool(
-        rag_mode_override and str(rag_mode_override).strip().lower() not in {"", "auto"}
-    )
     is_andritz_contract = bool(
         workspace_settings.get("family") == "andritz"
         or ANDRITZ_MIGRATION_MARKER in workspace_settings
     )
-    if not is_andritz_contract or context_id or explicit_rag:
+    if not is_andritz_contract or context_id:
         return None
     return deepcopy(ANDRITZ_RETRIEVAL_CONTRACT)
 
@@ -298,7 +295,6 @@ def resolve_chat_execution(
     classic_retrieval_contract = _andritz_classic_retrieval_contract(
         workspace,
         context_id=context_id,
-        rag_mode_override=rag_mode_override,
     )
 
     if not bool(getattr(settings, "enable_agentic_chat", False)):

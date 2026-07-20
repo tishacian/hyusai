@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -418,13 +419,15 @@ class _CapturingClassicOrchestrator:
         yield {"chunk_type": "text", "content": "", "is_final": True}
 
 
+@pytest.mark.parametrize("rag_mode_override", [None, "hybrid", "chah"])
 def test_zero_percent_classic_chat_endpoints_stay_on_authoritative_collection(
     db_session,
     monkeypatch,
+    rag_mode_override,
 ):
     workspace, _surface, _executor = _seed_agentic_workspace(
         db_session,
-        suffix="classic-zero",
+        suffix=f"classic-zero-{rag_mode_override}",
     )
     workspace_settings = deepcopy(workspace.settings)
     workspace_settings["chat_execution"]["rollout"]["percentage"] = 0
@@ -452,6 +455,7 @@ def test_zero_percent_classic_chat_endpoints_stay_on_authoritative_collection(
             json={
                 "query": "Quelles pompes sont documentées pour le projet BCX200 ?",
                 "ui_locale": "fr",
+                "rag_mode_override": rag_mode_override,
             },
         )
 
@@ -461,6 +465,10 @@ def test_zero_percent_classic_chat_endpoints_stay_on_authoritative_collection(
         assert orchestrator.request["context_collection"] == ANDRITZ_NOTICES
         assert orchestrator.request["context_mode"] == "replace"
         assert orchestrator.request["authoritative_collections"] == [ANDRITZ_NOTICES]
+        if rag_mode_override is None:
+            assert orchestrator.request.get("rag_pipeline_mode") is None
+        else:
+            assert orchestrator.request["rag_pipeline_mode"] == rag_mode_override
         assert "knowledge_scope" not in orchestrator.request
 
 

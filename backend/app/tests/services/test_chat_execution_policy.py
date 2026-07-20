@@ -297,6 +297,38 @@ def test_master_switch_overrides_policy_and_explicit_canary(monkeypatch):
     db.query.assert_not_called()
 
 
+@pytest.mark.parametrize("rag_mode_override", ["hybrid", "chah"])
+def test_andritz_rag_algorithm_override_keeps_authoritative_classic_contract(
+    monkeypatch,
+    rag_mode_override,
+):
+    """Changing the retrieval algorithm must not change the Andritz corpus."""
+
+    monkeypatch.setattr(policy.settings, "enable_agentic_chat", False)
+    workspace = SimpleNamespace(
+        id="ws-andritz-rag-override",
+        settings={
+            "family": "andritz",
+            "chat_execution": _policy(percentage=100),
+        },
+    )
+    db = MagicMock()
+
+    decision = policy.resolve_chat_execution(
+        db,
+        workspace=workspace,
+        requested_system_id=None,
+        session_id="session-1",
+        answer_profile="precise_fact",
+        rag_mode_override=rag_mode_override,
+    )
+
+    assert decision.route == "classic"
+    assert decision.reason == "master_kill_switch_off"
+    assert decision.retrieval_contract == policy.ANDRITZ_RETRIEVAL_CONTRACT
+    db.query.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected_reason"),
     [
