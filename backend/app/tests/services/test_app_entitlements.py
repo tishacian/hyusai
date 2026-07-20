@@ -13,6 +13,7 @@ from app.services.iam.app_entitlements import (
     BUSINESS_APP_KEYS,
     CHAT_APP,
     CLIENT360_APP,
+    FSE_REPORTS_APP,
     KNOWLEDGE_CAPTURE_APP,
     WorkspaceEntitlementMutationConflictError,
     app_entitlements_enabled,
@@ -91,9 +92,14 @@ def _seed_membership(db_session) -> tuple[Workspace, User, WorkspaceMember]:
 
 def test_normalize_app_entitlements_is_strict_deduplicated_and_canonical() -> None:
     assert normalize_app_entitlements(
-        [KNOWLEDGE_CAPTURE_APP, CHAT_APP, CHAT_APP, CLIENT360_APP]
+        [KNOWLEDGE_CAPTURE_APP, CHAT_APP, CHAT_APP, CLIENT360_APP, FSE_REPORTS_APP]
     ) == list(BUSINESS_APP_KEYS)
     assert normalize_app_entitlements(None) == []
+    assert normalize_app_entitlements([KNOWLEDGE_CAPTURE_APP, CHAT_APP, CLIENT360_APP]) == [
+        CHAT_APP,
+        CLIENT360_APP,
+        KNOWLEDGE_CAPTURE_APP,
+    ]
 
     with pytest.raises(ValueError, match="Unknown application entitlement"):
         normalize_app_entitlements(["mission-room"])

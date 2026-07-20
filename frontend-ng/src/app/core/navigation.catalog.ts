@@ -139,6 +139,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Entree workspace pour preparer une capture de connaissances.',
   },
   {
+    id: 'fse-reports',
+    label: "Rapports d'intervention FSE",
+    route: '/knowledge/interventions',
+    lens: 'build',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/knowledge-capture',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: "Capture contrainte pour les rapports d'intervention FSE (template systeme).",
+  },
+  {
     id: 'orchestration',
     label: 'Flow Builder',
     route: '/orchestration',
@@ -515,6 +527,7 @@ export const BUSINESS_NAVIGATION_SURFACE_IDS = [
   'chat',
   'client360-pdr',
   'knowledge-capture',
+  'fse-reports',
 ] as const;
 
 const COCKPIT_LENSES = new Set<CockpitLens>([

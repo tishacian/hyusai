@@ -237,7 +237,7 @@ interface ContextConfigRow {
         >
           <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
           <div class="relative flex items-center gap-3 flex-wrap">
-            <app-icon name="atom" [size]="18" class="text-cyan-400" />
+            <app-icon name="atom" set="phosphor" [size]="18" class="text-cyan-400" />
             <span class="text-xs uppercase tracking-wider font-semibold text-cyan-300">
               {{ isTranslationSuite() ? 'Translation Suite' : (isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline') }}
             </span>
@@ -325,7 +325,7 @@ interface ContextConfigRow {
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="ck-surface t-elevated rounded-md p-6">
           <div class="flex items-center gap-2 mb-4">
-            <app-icon name="list-checks" [size]="16" class="text-cyan-400" />
+            <app-icon name="list-checks" set="phosphor" [size]="16" class="text-cyan-400" />
             <h3 class="text-base font-semibold text-white">Setup checklist</h3>
             <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
           </div>
@@ -428,7 +428,7 @@ interface ContextConfigRow {
           style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
         >
           <div class="w-10 h-10 rounded-md flex items-center justify-center bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30 shrink-0">
-            <app-icon name="workflow" [size]="18" />
+            <app-icon name="workflow" set="phosphor" [size]="18" />
           </div>
           <div class="flex-1 min-w-0">
             <div class="text-sm font-semibold text-white">Pipeline blueprint</div>
@@ -450,7 +450,7 @@ interface ContextConfigRow {
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-              <app-icon name="layers" [size]="16" class="text-cyan-400" />
+              <app-icon name="layers" set="phosphor" [size]="16" class="text-cyan-400" />
               Stages
             </h3>
             <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -505,7 +505,7 @@ interface ContextConfigRow {
           <section class="ck-surface t-elevated rounded-md p-5">
             <div class="flex items-start gap-3 mb-5">
               <div class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30 inline-flex items-center justify-center">
-                <app-icon name="database" [size]="16" />
+                <app-icon name="database" set="phosphor" [size]="16" />
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
@@ -702,7 +702,7 @@ interface ContextConfigRow {
 
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="tag" [size]="14" class="text-cyan-400" /> Identity
+            <app-icon name="tag" set="phosphor" [size]="14" class="text-cyan-400" /> Identity
           </h3>
           <div class="space-y-3 text-sm">
             <div>
@@ -728,7 +728,7 @@ interface ContextConfigRow {
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" [size]="14" class="text-cyan-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
+            <app-icon name="cpu" set="phosphor" [size]="14" class="text-cyan-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
@@ -750,7 +750,7 @@ interface ContextConfigRow {
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="database" [size]="14" class="text-cyan-400" /> Retrieval
+            <app-icon name="database" set="phosphor" [size]="14" class="text-cyan-400" /> Retrieval
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>

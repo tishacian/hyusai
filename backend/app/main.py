@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI):
         from app.services.systems.bootstrap import (
             ensure_client360_pdr_system_for_all_workspaces,
             ensure_expert_capture_system_for_all_workspaces,
+            ensure_fse_report_system_for_andritz,
             ensure_intelligence_system_for_all_workspaces,
             ensure_workspace_chat_system_for_all_workspaces,
         )
@@ -106,10 +107,12 @@ async def lifespan(app: FastAPI):
             sentinel_report = ensure_sentinel_ci_workspace(_db)
             intel_report = ensure_intelligence_system_for_all_workspaces(_db)
             expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
+            fse_report_report = ensure_fse_report_system_for_andritz(_db)
             workspace_chat_report = ensure_workspace_chat_system_for_all_workspaces(_db)
             client360_report = ensure_client360_pdr_system_for_all_workspaces(_db)
         logger.info("Intelligence System seeded", **intel_report)
         logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
+        logger.info("FSE intervention report System seeded", **fse_report_report)
         logger.info("Workspace Chat System seeded", **workspace_chat_report)
         logger.info("Client360 PDR System seeded", **client360_report)
         logger.info("SENTINEL-CI demo workspace seeded", **sentinel_report)

@@ -88,6 +88,7 @@ class WorkspaceApp(str, Enum):
     chat = "chat"
     client360_pdr = "client360-pdr"
     knowledge_capture = "knowledge-capture"
+    fse_reports = "fse-reports"
 
 
 class RuntimeStatus(str, Enum):

@@ -41,8 +41,14 @@ const CUSTOM_DESTINATION = '__custom__';
           Publier vers la base de connaissances
         </h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:62ch;">
-          La fiche acceptée devient un document indexé. Choisissez le titre final, la catégorie et la
-          collection de destination, puis publiez.
+          @if (engine.template(); as tpl) {
+            Publication du {{ tpl.label }} vers
+            <strong>{{ tpl.publication.collection }}</strong>
+            (source_type {{ tpl.publication.source_type }}). Vous pouvez encore ajuster titre et destination.
+          } @else {
+            La fiche acceptée devient un document indexé. Choisissez le titre final, la catégorie et la
+            collection de destination, puis publiez.
+          }
         </p>
       </div>
 
@@ -189,15 +195,16 @@ export class CaptureFilPublishComponent {
   );
   protected readonly category = signal('technique');
   /**
-   * Preselect the backend-suggested destination (the expert-fiche collection
-   * the chat recherche queries, resolved by `_apply_publication_defaults`);
-   * the user can still pick any collection or a custom slug.
+   * Preselect backend-suggested destination (`proposal.publication`, from
+   * template defaults / `_apply_publication_defaults`), else template.collection.
+   * The user can still pick any collection.
    */
   protected readonly destination = signal(
     (
-      this.engine.proposal()?.proposal?.publication?.destination ??
-      this.engine.proposal()?.proposal?.publication?.destination_scope ??
-      ''
+      this.engine.proposal()?.proposal?.publication?.destination
+      || this.engine.proposal()?.proposal?.publication?.destination_scope
+      || this.engine.template()?.publication.collection
+      || ''
     ).trim(),
   );
   protected readonly customDestination = signal('');

@@ -22,7 +22,11 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.logging import get_logger
-from app.core.iam.dependencies import current_membership, enforce_permission, require_app_entitlement
+from app.core.iam.dependencies import (
+    current_membership,
+    enforce_permission,
+    require_any_app_entitlement,
+)
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
 from app.db.base import get_db
@@ -31,7 +35,8 @@ from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
-from app.services.iam.app_entitlements import KNOWLEDGE_CAPTURE_APP
+from app.services.iam.app_entitlements import FSE_REPORTS_APP, KNOWLEDGE_CAPTURE_APP
+from app.services.capture_templates import get_capture_template, list_capture_templates
 from app.services.object_store import get_object_store
 from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
@@ -105,7 +110,9 @@ from app.services.knowledge_collections import (
 )
 from app.services.voice_runtime import list_voice_runtime_providers
 
-router = APIRouter(dependencies=[Depends(require_app_entitlement(KNOWLEDGE_CAPTURE_APP))])
+router = APIRouter(
+    dependencies=[Depends(require_any_app_entitlement(KNOWLEDGE_CAPTURE_APP, FSE_REPORTS_APP))]
+)
 logger = get_logger(__name__)
 
 CAPTURE_CAPABILITY = "expert_knowledge_capture"
@@ -402,6 +409,7 @@ class CapturePlanRequest(BaseModel):
     plan_source_kind: Optional[Literal["manual", "pasted_text", "uploaded_file", "conversation"]] = None
     plan_source_filename: Optional[str] = None
     plan_source_replaces_existing_plan: bool = False
+    header_fields: Optional[Dict[str, Any]] = None
 
 
 class PlanDialogueTurnRequest(BaseModel):
@@ -620,6 +628,46 @@ async def extract_plan_source(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/templates")
+async def list_capture_session_templates(
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capture_session",
+        action="read",
+        resource_attrs={"capability": CAPTURE_CAPABILITY},
+        audit_prefix="kc",
+    )
+    return {"templates": list_capture_templates()}
+
+
+@router.get("/templates/{template_id}")
+async def get_capture_session_template(
+    template_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capture_session",
+        action="read",
+        resource_attrs={"capability": CAPTURE_CAPABILITY},
+        audit_prefix="kc",
+    )
+    template = get_capture_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Capture template not found: {template_id}")
+    return template
+
+
 @router.post("/plans")
 async def plan_capture_session(
     body: CapturePlanRequest,
@@ -656,6 +704,7 @@ async def plan_capture_session(
             plan_source_filename=body.plan_source_filename,
             plan_source_replaces_existing_plan=body.plan_source_replaces_existing_plan,
             created_by_user_id=user.id,
+            header_fields=body.header_fields,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

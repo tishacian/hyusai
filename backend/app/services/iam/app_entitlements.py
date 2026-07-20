@@ -28,6 +28,7 @@ WORKSPACE_EXPERIENCE_FEATURE = "workspace_experience_v2"
 CHAT_APP = WorkspaceApp.chat.value
 CLIENT360_APP = WorkspaceApp.client360_pdr.value
 KNOWLEDGE_CAPTURE_APP = WorkspaceApp.knowledge_capture.value
+FSE_REPORTS_APP = WorkspaceApp.fse_reports.value
 
 BUSINESS_APP_KEYS: tuple[str, ...] = tuple(app.value for app in WorkspaceApp)
 _BUSINESS_APP_KEY_SET = frozenset(BUSINESS_APP_KEYS)

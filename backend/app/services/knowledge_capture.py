@@ -2256,6 +2256,39 @@ def build_open_questions(
             }
         )
 
+    from app.services.capture_templates import (
+        header_fields_from_plan,
+        required_field_gaps,
+        resolve_session_capture_template,
+    )
+
+    capture_template = resolve_session_capture_template(
+        plan=plan,
+        metrics=session.metrics or {},
+    )
+    if capture_template:
+        for gap in required_field_gaps(capture_template, header_fields_from_plan(plan)):
+            slug = str(gap.get("slug") or gap.get("id") or "").strip()
+            text = str(gap.get("description") or gap.get("title") or "").strip()
+            if not text:
+                continue
+            key = slug or text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "id": slug or f"open-{len(items) + 1:02d}",
+                    "text": text,
+                    "topic_id": gap.get("topic_id"),
+                    "priority": _coerce_priority(gap.get("priority")),
+                    "status": "open",
+                    "blocking": True,
+                    "required_field_key": gap.get("required_field_key"),
+                    "source": "capture_template_required_field",
+                }
+            )
+
     items.sort(key=lambda item: item.get("priority") or 0.0, reverse=True)
     return items
 
@@ -3096,11 +3129,17 @@ async def publish_proposal_to_knowledge(
                 # (keyed on source_type=expert_fiche) survives ingestion. Every
                 # capture publication IS an expert fiche, so default the marker
                 # when the proposal did not set it; without the pin/boost flags
-                # enabled this changes no ranking.
+                # enabled this changes no ranking. FSE templates override with
+                # ``source_type=fse_report`` via publication defaults.
                 "source_type": metadata.get("source_type") or "expert_fiche",
                 "origin": metadata.get("origin"),
                 "input_modality": metadata.get("input_modality"),
                 "related_documents": metadata.get("related_documents"),
+                "fse_customer": metadata.get("fse_customer"),
+                "fse_machine": metadata.get("fse_machine"),
+                "fse_reference": metadata.get("fse_reference"),
+                "fse_country": metadata.get("fse_country"),
+                "fse_intervention_date": metadata.get("fse_intervention_date"),
             }.items()
             if value
         }
@@ -3879,6 +3918,33 @@ def structure_capture_payload(
 
     plan = dict(plan_snapshot if plan_snapshot is not None else (session.plan or {}))
     open_questions = _build_proposal_open_questions(session, plan, evaluations)
+    from app.services.capture_templates import (
+        header_fields_from_plan,
+        required_field_open_questions,
+        resolve_session_capture_template,
+    )
+
+    capture_template = resolve_session_capture_template(
+        plan=plan,
+        metrics=session.metrics or {},
+    )
+    if capture_template:
+        # Missing required header fields become blocking open questions in review.
+        existing_keys = {
+            str(item.get("required_field_key") or item.get("gap_id") or "").strip()
+            for item in open_questions
+            if isinstance(item, dict)
+        }
+        for question in required_field_open_questions(
+            capture_template,
+            header_fields_from_plan(plan),
+        ):
+            key = str(question.get("required_field_key") or question.get("gap_id") or "").strip()
+            if key and key in existing_keys:
+                continue
+            open_questions.insert(0, question)
+            if key:
+                existing_keys.add(key)
     # Plan-hierarchy aligned structuring of the captured facts, enriched with the
     # per-section FINAL synthesis when available (cabled _structure_facts_by_plan).
     plan_structure = _structure_facts_by_plan(plan, captured)
@@ -3890,6 +3956,7 @@ def structure_capture_payload(
         open_questions,
     )
     from app.services.capture_report_templates import (
+        FSE_INTERVENTION_REPORT_TEMPLATE_ID,
         build_knowledge_sheet_content,
         resolve_knowledge_sheet_template,
     )
@@ -3900,7 +3967,8 @@ def structure_capture_payload(
         isinstance(entry, dict) and str(entry.get("synthesis") or "").strip()
         for entry in stored_synthesis.values()
     )
-    if has_final_synthesis:
+    # FSE report template keeps fixed sections; do not free-assemble from section synthesis.
+    if has_final_synthesis and template_id != FSE_INTERVENTION_REPORT_TEMPLATE_ID:
         # The FINAL pass ran: the report is assembled from the per-section
         # restructured syntheses (deduped, glossary-aligned), not the raw facts.
         markdown = _assemble_report_from_sections(session, plan_structure, open_questions)
@@ -3912,6 +3980,11 @@ def structure_capture_payload(
             open_questions,
             transcript=transcript,
         )
+    blocking_required = [
+        item
+        for item in open_questions
+        if isinstance(item, dict) and item.get("blocking") and item.get("source") == "capture_template_required_field"
+    ]
     transcript_segments = _build_transcript_segments(transcript, event_rows)
     return {
         "session_id": session.id,
@@ -3921,6 +3994,20 @@ def structure_capture_payload(
         "captured_facts": captured,
         "plan_structure": plan_structure,
         "open_questions": open_questions,
+        "finalize_checklist": {
+            "required_fields_complete": not blocking_required,
+            "missing_required_fields": [
+                {
+                    "key": item.get("required_field_key"),
+                    "label": (item.get("follow_up") or item.get("text") or "").replace(
+                        "Champ obligatoire manquant : ", ""
+                    ),
+                    "blocking": True,
+                }
+                for item in blocking_required
+            ],
+            "capture_template_id": (capture_template or {}).get("id"),
+        },
         "transcript": [],
         "transcript_events": [],
         "transcript_segments": transcript_segments,
@@ -4065,14 +4152,27 @@ def _apply_publication_defaults(
     previous_publication: Optional[Dict[str, Any]] = None,
     default_destination: Optional[str] = None,
 ) -> Dict[str, Any]:
+    from app.services.capture_templates import (
+        header_fields_from_plan,
+        publication_defaults_from_template,
+        resolve_session_capture_template,
+        tracking_metadata_from_header,
+    )
+
     publication = dict(previous_publication or {})
     existing = payload.get("publication")
     if isinstance(existing, dict):
         publication.update(existing)
+    capture_template = resolve_session_capture_template(
+        plan=session.plan or {},
+        metrics=session.metrics or {},
+    )
+    template_publication = publication_defaults_from_template(capture_template)
     category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(session, payload)
     destination = (
         _clean_optional_string(publication.get("destination"))
         or _clean_optional_string(publication.get("destination_scope"))
+        or _clean_optional_string(template_publication.get("destination"))
         or _clean_optional_string(default_destination)
         or _resolve_collection_name(ctx)
     )
@@ -4082,6 +4182,10 @@ def _apply_publication_defaults(
         or _clean_optional_string(recommended.get("title"))
         or _clean_optional_string(payload.get("title"))
         or session.title
+    )
+    source_type = (
+        _clean_optional_string(publication.get("source_type"))
+        or _clean_optional_string(template_publication.get("source_type"))
     )
     publication.update(
         {
@@ -4093,11 +4197,19 @@ def _apply_publication_defaults(
             "suggested": bool(not previous_publication),
         }
     )
+    if source_type:
+        publication["source_type"] = source_type
+    tracking = tracking_metadata_from_header(header_fields_from_plan(session.plan or {}))
+    if tracking:
+        publication["tracking"] = {**(publication.get("tracking") or {}), **tracking}
     payload["publication"] = publication
     metadata = dict(recommended.get("metadata") or {})
     metadata.setdefault("publication_category_suggested", category)
     metadata.setdefault("publication_destination_suggested", destination)
     metadata.setdefault("publication_destination_scope_suggested", destination)
+    if source_type:
+        metadata.setdefault("source_type", source_type)
+    metadata.update(tracking)
     recommended["metadata"] = metadata
     payload["recommended_ingestion"] = recommended
     return payload
@@ -6173,7 +6285,16 @@ def create_capture_plan(
     plan_source_filename: Optional[str] = None,
     plan_source_replaces_existing_plan: bool = False,
     created_by_user_id: Optional[str] = None,
+    header_fields: Optional[Dict[str, Any]] = None,
 ) -> ExpertCaptureSession:
+    from app.services.capture_templates import (
+        attach_template_to_plan,
+        get_capture_template,
+        plan_seed_to_provided_text,
+        required_field_gaps,
+        template_id_from_system_settings,
+    )
+
     stored_duration, unlimited_duration = _normalize_duration_minutes(duration_minutes)
     resolved_context_id, ctx = _resolve_capture_context(
         db,
@@ -6186,7 +6307,24 @@ def create_capture_plan(
         if (title or "").strip()
         else "Capturer les savoirs métier et retours d'expérience de l'expert."
     )
+    resolved_system_id = system_id
+    system_row: Optional[System] = None
+    if resolved_system_id:
+        system_row = (
+            db.query(System)
+            .filter(System.id == resolved_system_id, System.workspace_id == workspace_id)
+            .first()
+        )
+    capture_template = get_capture_template(
+        template_id_from_system_settings(system_row.settings if system_row else None)
+    )
+    effective_provided_plan_text = provided_plan_text
     normalized_plan_mode = (plan_mode or "ai_plan").strip().lower()
+    if capture_template:
+        # Constrained capture fork: force the template plan rails.
+        normalized_plan_mode = "provided_plan"
+        if not (effective_provided_plan_text or "").strip():
+            effective_provided_plan_text = plan_seed_to_provided_text(capture_template)
     if normalized_plan_mode not in VALID_PLAN_MODES:
         normalized_plan_mode = "plan_build"
     if normalized_plan_mode == "ai_plan" and not allow_ai_plan:
@@ -6206,11 +6344,11 @@ def create_capture_plan(
             duration_minutes=stored_duration,
             unlimited_duration=unlimited_duration,
             context_snapshot=snapshot,
-            provided_seed=provided_plan_text,
+            provided_seed=effective_provided_plan_text,
         )
         if normalized_plan_mode == "provided_plan":
             plan["mode"] = "provided_plan"
-            plan = _apply_provided_plan_seed(plan, provided_plan_text)
+            plan = _apply_provided_plan_seed(plan, effective_provided_plan_text)
     elif normalized_plan_mode == "ai_plan" and allow_ai_plan:
         gaps = build_knowledge_gaps(
             objective=clean_objective,
@@ -6233,23 +6371,41 @@ def create_capture_plan(
             duration_minutes=stored_duration,
             unlimited_duration=unlimited_duration,
             context_snapshot=snapshot,
-            provided_seed=provided_plan_text,
+            provided_seed=effective_provided_plan_text,
         )
     plan["mode"] = normalized_plan_mode
     plan["knowledge_refs"] = knowledge_refs or []
     plan["voice_runtime"] = voice_runtime
     plan = _attach_plan_source_metadata(
         plan,
-        kind=plan_source_kind,
+        kind=plan_source_kind or ("manual" if capture_template else None),
         filename=plan_source_filename,
-        seed=provided_plan_text,
+        seed=effective_provided_plan_text,
         replaces_existing_plan=plan_source_replaces_existing_plan,
     )
     if unlimited_duration:
         plan["unlimited_duration"] = True
+    if capture_template:
+        plan = attach_template_to_plan(plan, capture_template)
+        if isinstance(header_fields, dict):
+            plan["header_fields"] = {
+                str(key): str(value).strip()
+                for key, value in header_fields.items()
+                if str(key).strip() and str(value or "").strip()
+            }
+        gaps = [
+            *required_field_gaps(capture_template, plan.get("header_fields")),
+            *gaps,
+        ]
+        plan["oracle"] = {
+            **(plan.get("oracle") or {}),
+            "coverage_gaps": [
+                *required_field_gaps(capture_template, plan.get("header_fields")),
+                *list((plan.get("oracle") or {}).get("coverage_gaps") or []),
+            ],
+        }
 
     capability = db.query(Capability).filter(Capability.slug == CAPABILITY_SLUG).first()
-    resolved_system_id = system_id
     if not resolved_system_id and capability:
         default_system = (
             db.query(System)
@@ -6271,6 +6427,11 @@ def create_capture_plan(
     }
     if capture_domain:
         session_metrics["capture_domain"] = capture_domain.strip().lower()
+    if capture_template:
+        session_metrics["capture_template_id"] = capture_template.get("id")
+    session_title = title or (
+        str(capture_template.get("label") or "").strip() if capture_template else ""
+    ) or "Expert Knowledge Capture"
     session = ExpertCaptureSession(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
@@ -6278,7 +6439,7 @@ def create_capture_plan(
         context_id=resolved_context_id,
         system_id=resolved_system_id,
         created_by_user_id=created_by_user_id,
-        title=title or "Expert Knowledge Capture",
+        title=session_title,
         objective=clean_objective,
         expert_profile=expert_profile,
         duration_minutes=stored_duration,

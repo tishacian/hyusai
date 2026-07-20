@@ -1,4 +1,5 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom, type Observable, type Subscription } from 'rxjs';
 import {
   ApiService,
@@ -27,6 +28,11 @@ import {
 } from '@app/core/livekit-conversation.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import {
+  coerceCaptureTemplate,
+  lookupCaptureTemplate,
+  type CaptureTemplate,
+} from './capture-templates';
 
 /**
  * CaptureEngine — the headless brain of the cockpit "Le Fil" capture
@@ -174,6 +180,8 @@ export interface CaptureSessionInfo {
   status?: string | null;
   duration_minutes?: number | null;
   plan?: Record<string, unknown> | null;
+  /** Session metrics (may carry `capture_template_id`). */
+  metrics?: Record<string, unknown> | null;
   /** `plan_build` (topics built upfront) vs `free_conversation` (no plan). */
   plan_mode?: string | null;
   /** System this capture is scoped to (from `/systems/:id/capture`), if any. */
@@ -277,6 +285,17 @@ export class CaptureEngine {
   /** Once the operator toggles in-session, the system default must not stomp it. */
   private filLayoutTouched = false;
 
+  /**
+   * CaptureTemplate from system settings / session plan. Prefer GET
+   * `/knowledge-capture/templates/{id}`; FE registry is the offline fallback.
+   * Null = unconstrained capture.
+   */
+  private readonly _template = signal<CaptureTemplate | null>(null);
+  /** Tracks in-flight template fetches so a stale response cannot stomp a newer id. */
+  private templateFetchId: string | null = null;
+  /** Header identification fields captured on Prep (FSE and similar templates). */
+  private readonly _headerFields = signal<Record<string, string>>({});
+
   // ---- session minuterie / closure (P1, v0) ------------------------------
   private readonly _paused = signal(false);
   /** Cumulative extra minutes granted via {@link extendSession}. */
@@ -358,6 +377,10 @@ export class CaptureEngine {
   readonly lastError = this._lastError.asReadonly();
   /** Session display mode: pièces jointes au centre ('documents') vs transcript. */
   readonly filLayout = this._filLayout.asReadonly();
+  /** Active CaptureTemplate for the scoped system; null for classic knowledge-capture. */
+  readonly template = this._template.asReadonly();
+  /** Prep header fields (keys from `template.required_fields`). */
+  readonly headerFields = this._headerFields.asReadonly();
 
   /**
    * The session plan parsed into a typed topics/sous-sujets tree (P0 #1). Reads
@@ -1264,7 +1287,16 @@ export class CaptureEngine {
    */
   setSystemId(systemId: string | null): void {
     this._systemId.set(systemId || null);
-    if (systemId) this.resolveFilLayout(systemId);
+    if (systemId) {
+      this.resolveSystemCaptureSettings(systemId);
+    } else {
+      this._template.set(null);
+    }
+  }
+
+  /** Store Prep identification fields for finalize checklist / session payload. */
+  setHeaderFields(fields: Record<string, string>): void {
+    this._headerFields.set({ ...fields });
   }
 
   /**
@@ -1277,22 +1309,105 @@ export class CaptureEngine {
   }
 
   /**
-   * Resolve the system-level default (`settings.capture.fil_layout`). Any
-   * missing/invalid value → 'documents'. A prior in-session toggle wins.
+   * Resolve system-level capture settings: `fil_layout` and `template_id`.
+   * Missing/invalid layout → 'documents'. A prior in-session toggle wins for layout.
+   * Prefer session-bound template id when resuming; else fetch by system setting.
    */
-  private resolveFilLayout(systemId: string): void {
+  private resolveSystemCaptureSettings(systemId: string): void {
     this.canonicalApi.getSystem(systemId).subscribe((sys) => {
-      if (this.filLayoutTouched) return;
       const capture = this.asRecord(this.asRecord(sys?.settings)['capture']);
-      const raw = capture['fil_layout'];
-      this._filLayout.set(raw === 'transcript' ? 'transcript' : 'documents');
+      if (!this.filLayoutTouched) {
+        const raw = capture['fil_layout'];
+        this._filLayout.set(raw === 'transcript' ? 'transcript' : 'documents');
+      }
+      const sessionTemplateId = this.sessionTemplateId(this._session());
+      const templateId =
+        sessionTemplateId
+        || (typeof capture['template_id'] === 'string' ? capture['template_id'].trim() : '');
+      this.resolveTemplate(templateId || null);
     });
+  }
+
+  /**
+   * Apply a known template id directly (e.g. interventions route before the
+   * FSE system id is resolved, or tests). Prefer {@link setSystemId}.
+   */
+  setTemplateId(templateId: string | null): void {
+    this.resolveTemplate(templateId);
+  }
+
+  /**
+   * Prefer API template; keep FE registry as immediate + error fallback.
+   */
+  private resolveTemplate(templateId: string | null): void {
+    if (!templateId) {
+      this.templateFetchId = null;
+      this._template.set(null);
+      return;
+    }
+    const fallback = lookupCaptureTemplate(templateId);
+    if (fallback) this._template.set(fallback);
+    this.templateFetchId = templateId;
+    const requested = templateId;
+    this.api
+      .getCaptureTemplate(templateId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (raw) => {
+          if (this.templateFetchId !== requested) return;
+          const normalized = coerceCaptureTemplate(raw);
+          if (normalized) this._template.set(normalized);
+        },
+        error: () => {
+          if (this.templateFetchId !== requested) return;
+          if (!this._template() || this._template()?.id !== requested) {
+            this._template.set(fallback);
+          }
+        },
+      });
+  }
+
+  /** Template id stamped on the session plan / metrics (resume path). */
+  private sessionTemplateId(info: CaptureSessionInfo | null): string | null {
+    if (!info) return null;
+    const plan = this.asRecord(info.plan);
+    const snapshot = this.asRecord(plan['capture_template']);
+    for (const candidate of [
+      snapshot['id'],
+      plan['template_id'],
+      this.asRecord(info.metrics)['capture_template_id'],
+    ]) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    }
+    return null;
+  }
+
+  /** Hydrate header fields + template from a resumed/loaded session plan. */
+  private hydrateFromSession(info: CaptureSessionInfo | null): void {
+    if (!info) return;
+    const plan = this.asRecord(info.plan);
+    const headerRaw = plan['header_fields'];
+    if (headerRaw && typeof headerRaw === 'object' && !Array.isArray(headerRaw)) {
+      const fields: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headerRaw as Record<string, unknown>)) {
+        const k = String(key).trim();
+        const v = String(value ?? '').trim();
+        if (k && v) fields[k] = v;
+      }
+      this._headerFields.set(fields);
+    }
+    const snapshot = plan['capture_template'];
+    const coerced = coerceCaptureTemplate(snapshot);
+    if (coerced) this._template.set(coerced);
+    const templateId = this.sessionTemplateId(info);
+    if (templateId) this.resolveTemplate(templateId);
   }
 
   /** Bind the engine to a session without opening the realtime leg. */
   setSession(info: CaptureSessionInfo | null): void {
     this._session.set(info);
     if (info?.id) this._sessionId.set(info.id);
+    this.hydrateFromSession(info);
     // Resuming a system-scoped session preserves the scope for downstream lists.
     if (info?.system_id && info.system_id !== this._systemId()) {
       this.setSystemId(info.system_id);
@@ -2045,6 +2160,7 @@ export class CaptureEngine {
     this._lastError.set(null);
     // Layout stays on the system default; the ephemeral toggle dies with the séance.
     this.filLayoutTouched = false;
+    this._headerFields.set({});
     this._state.set('idle');
   }
 
@@ -2057,6 +2173,9 @@ export class CaptureEngine {
   private resetForWorkspaceChange(): void {
     this.reset();
     this._systemId.set(null);
+    this.templateFetchId = null;
+    this._template.set(null);
+    this._headerFields.set({});
     this._collections.set([]);
     this._micMuted.set(false);
     this._filLayout.set('documents');

@@ -17,6 +17,38 @@ export interface CapturePlanRequest {
   plan_source_kind?: 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation' | null;
   plan_source_filename?: string | null;
   plan_source_replaces_existing_plan?: boolean;
+  /** FSE (and future) header identification fields; ignored by older backends. */
+  header_fields?: Record<string, string> | null;
+  template_id?: string | null;
+}
+
+/** Schema-driven capture fork (mirrors backend `capture_templates`). */
+export interface CaptureTemplateFieldDto {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+}
+
+export interface CaptureTemplateDto {
+  id: string;
+  label: string;
+  plan_seed: { topics: Array<{ title: string; subtopics?: Array<{ title: string }> }> };
+  required_fields: CaptureTemplateFieldDto[];
+  report_template_id: string;
+  publication: { collection: string; source_type: string };
+  ui: { lock_plan: boolean; hide_free_mode: boolean };
+}
+
+/** Backend finalize gate for required header fields (on proposal payload). */
+export interface CaptureFinalizeChecklist {
+  required_fields_complete?: boolean;
+  missing_required_fields?: Array<{
+    key?: string | null;
+    label?: string | null;
+    blocking?: boolean;
+  }>;
+  capture_template_id?: string | null;
 }
 
 export interface CapturePlanSourceExtractResponse {
@@ -307,11 +339,15 @@ export interface ProposalOpenQuestion {
   gap_id?: string;
   reason?: string;
   follow_up?: string;
+  text?: string;
   answer?: string | null;
   answered_text?: string | null;
   priority?: number | string | null;
   severity?: number | string | null;
   status?: string | null;
+  blocking?: boolean;
+  required_field_key?: string | null;
+  source?: string | null;
 }
 
 /** A node in the structured report fiche (topic → sous-sujets → faits/synthèses). */
@@ -359,6 +395,7 @@ export interface CaptureProposal {
     objective?: string;
     captured_facts?: ProposalFact[];
     open_questions?: ProposalOpenQuestion[];
+    finalize_checklist?: CaptureFinalizeChecklist;
     recommended_ingestion?: { title?: string; content?: string; metadata?: Record<string, unknown> };
     report_markdown?: string;
     plan_structure?: { topics?: CaptureReportStructureNode[]; unassigned?: ProposalFact[] };
@@ -369,6 +406,7 @@ export interface CaptureProposal {
       final_title?: string | null;
       include_unresolved_questions?: boolean;
       suggested?: boolean;
+      source_type?: string | null;
       document_id?: string | null;
       collection_slug?: string | null;
       chunks_processed?: number | null;
@@ -763,6 +801,16 @@ export class ApiService {
 
   createCapturePlan(body: CapturePlanRequest): Observable<unknown> {
     return this.post('/knowledge-capture/plans', body);
+  }
+
+  listCaptureTemplates(): Observable<{ templates: CaptureTemplateDto[] }> {
+    return this.get<{ templates: CaptureTemplateDto[] }>('/knowledge-capture/templates');
+  }
+
+  getCaptureTemplate(templateId: string): Observable<CaptureTemplateDto> {
+    return this.get<CaptureTemplateDto>(
+      `/knowledge-capture/templates/${encodeURIComponent(templateId)}`,
+    );
   }
 
   extractCapturePlanSource(file: File): Observable<CapturePlanSourceExtractResponse> {

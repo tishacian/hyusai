@@ -1162,6 +1162,7 @@ test('candidate constant drift cannot move the independent legacy UI oracle', ()
       'chat',
       'client360-pdr',
       'knowledge-capture',
+      'fse-reports',
     ]);
     assert.equal(candidate.primarySurfaceIds.includes('candidate-only-drift'), true);
     assert.equal(compareWorkspaceExperiences(value).status, 'unexplained_divergence');

@@ -154,10 +154,20 @@ def require_app_entitlement(app_key: str):
     dependencies still decide which operations an entitled member may perform.
     """
 
-    normalized = normalize_app_entitlements([app_key])
-    if len(normalized) != 1:
-        raise ValueError("Exactly one application entitlement key is required")
-    canonical_app_key = normalized[0]
+    return require_any_app_entitlement(app_key)
+
+
+def require_any_app_entitlement(*app_keys: str):
+    """Like :func:`require_app_entitlement` but grants entry if any key matches.
+
+    Used when multiple surfaces share an API router (e.g. knowledge-capture and
+    fse-reports both hit ``/api/v1/knowledge-capture``).
+    """
+
+    normalized = normalize_app_entitlements(list(app_keys))
+    if not normalized:
+        raise ValueError("At least one application entitlement key is required")
+    primary_app_key = normalized[0]
 
     async def dependency(
         user: User = Depends(get_current_user),
@@ -170,7 +180,7 @@ def require_app_entitlement(app_key: str):
                 user=user,
                 workspace=workspace,
                 membership=None,
-                app_key=canonical_app_key,
+                app_key=primary_app_key,
                 enforced=False,
                 granted=True,
             )
@@ -184,13 +194,17 @@ def require_app_entitlement(app_key: str):
                     "message": "Not a member of this workspace",
                 },
             )
-        if not member_has_app_entitlement(db, membership, canonical_app_key):
-            raise app_entitlement_denied_exception(canonical_app_key)
+        granted_key = next(
+            (key for key in normalized if member_has_app_entitlement(db, membership, key)),
+            None,
+        )
+        if granted_key is None:
+            raise app_entitlement_denied_exception(primary_app_key)
         return AppEntitlementContext(
             user=user,
             workspace=workspace,
             membership=membership,
-            app_key=canonical_app_key,
+            app_key=granted_key,
             enforced=True,
             granted=True,
         )

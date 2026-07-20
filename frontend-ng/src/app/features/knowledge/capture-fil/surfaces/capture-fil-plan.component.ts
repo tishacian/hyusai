@@ -15,6 +15,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
+import { lockedPlanTopicTitles } from '../capture-templates';
 
 interface PlanSubtopic {
   id?: string;
@@ -68,6 +69,12 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:64ch;">
           {{ objective() }}
         </p>
+        @if (planLocked()) {
+          <div style="margin-top:10px; display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--ck-fg-3); line-height:1.5;">
+            <ck-glyph name="ledger" [size]="14" color="var(--ck-signal-cool)" />
+            <span>Plan type verrouillé — les sections de base ne peuvent pas être supprimées ; vous pouvez ajouter des sous-points.</span>
+          </div>
+        }
       </div>
 
       @if (isFree()) {
@@ -234,6 +241,9 @@ export class CaptureFilPlanComponent {
   protected readonly sessionId = this.engine.sessionId;
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Plan de capture');
   protected readonly objective = computed(() => this.engine.session()?.objective ?? '');
+  protected readonly planLocked = computed(
+    () => Boolean(this.engine.template()?.ui.lock_plan),
+  );
   /**
    * No-plan (free conversation) mode. Delegates to the engine so the detection
    * is robust on resume: the list/get serializer omits the top-level `plan_mode`,
@@ -265,7 +275,7 @@ export class CaptureFilPlanComponent {
   private partialRequestId = 0;
 
   constructor() {
-    this.topics.set(this.topicsFromSession());
+    this.topics.set(this.ensureLockedSeedTopics(this.topicsFromSession()));
     this.destroyRef.onDestroy(() => this.abortRecorder());
   }
 
@@ -277,6 +287,28 @@ export class CaptureFilPlanComponent {
     return Array.isArray(topics) ? topics.map((t) => this.cloneTopic(t)) : [];
   }
 
+  /** When lock_plan, re-inject any missing type-section titles from the seed. */
+  private ensureLockedSeedTopics(topics: PlanTopic[]): PlanTopic[] {
+    const tpl = this.engine.template();
+    if (!tpl?.ui.lock_plan) return topics;
+    const required = lockedPlanTopicTitles(tpl);
+    if (!required.length) return topics;
+    const present = new Set(
+      topics.map((t) => (t.title || '').trim().toLowerCase()).filter(Boolean),
+    );
+    const next = topics.map((t) => this.cloneTopic(t));
+    required.forEach((title, index) => {
+      if (present.has(title.toLowerCase())) return;
+      next.splice(Math.min(index, next.length), 0, {
+        id: `seed-t-${String(index + 1).padStart(2, '0')}`,
+        title,
+        objective: '',
+        subtopics: [],
+      });
+    });
+    return next;
+  }
+
   private cloneTopic(t: PlanTopic): PlanTopic {
     return {
       ...t,
@@ -286,8 +318,11 @@ export class CaptureFilPlanComponent {
 
   /** Reflect the textarea edit into the structured topics (preserving n-1 base). */
   protected onOutlineInput(text: string): void {
-    this.outlineDraft.set(text);
-    this.topics.set(this.parseOutline(text, this.topics()));
+    const parsed = this.parseOutline(text, this.topics());
+    const locked = this.ensureLockedSeedTopics(parsed);
+    const restored = this.planLocked() && locked.length !== parsed.length;
+    this.outlineDraft.set(restored ? this.serializeOutline(locked) : text);
+    this.topics.set(locked);
   }
 
   private async persistTopics(): Promise<void> {
@@ -762,6 +797,7 @@ export class CaptureFilPlanComponent {
       status: (payload['status'] as string) ?? prev?.status ?? null,
       duration_minutes: (payload['duration_minutes'] as number) ?? prev?.duration_minutes ?? null,
       plan: (payload['plan'] as Record<string, unknown>) ?? prev?.plan ?? null,
+      metrics: (payload['metrics'] as Record<string, unknown>) ?? prev?.metrics ?? null,
       plan_mode: (payload['plan_mode'] as string) ?? prev?.plan_mode ?? null,
       system_id: (payload['system_id'] as string | null) ?? prev?.system_id ?? null,
     };

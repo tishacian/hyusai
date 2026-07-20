@@ -1,9 +1,9 @@
 /**
  * Contract tests for the Andritz business navigation profile.
  *
- * The profile is intentionally small: the three actively-used applications
- * must remain present and admins only enter the reduced shell after opting in
- * to preview it.
+ * The profile is intentionally small: the actively-used applications must
+ * remain present and admins only enter the reduced shell after opting in to
+ * preview it.
  */
 import '@angular/compiler';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -12,7 +12,7 @@ import { Injector, computed, signal } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import { WorkspaceService, type WorkspaceInfo } from './workspace.service';
 
-const ANDRITZ_SURFACES = ['chat', 'client360-pdr', 'knowledge-capture'];
+const ANDRITZ_SURFACES = ['chat', 'client360-pdr', 'knowledge-capture', 'fse-reports'];
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -121,7 +121,7 @@ function makeHarness(
   };
 }
 
-test('business profile resolves the three Andritz applications in their stable order', () => {
+test('business profile resolves the Andritz applications in their stable order', () => {
   const { profile } = makeHarness('member');
 
   assert.deepEqual(profile.effective().primarySurfaces, ANDRITZ_SURFACES);
@@ -177,6 +177,7 @@ test('business allowed paths remain stable inputs for the navigation resolver', 
   assert.equal(profile.isBusinessAllowedPath('/chat'), true);
   assert.equal(profile.isBusinessAllowedPath('/client360/opportunities'), true);
   assert.equal(profile.isBusinessAllowedPath('/knowledge/capture?systemId=system-42'), true);
+  assert.equal(profile.isBusinessAllowedPath('/knowledge/interventions'), true);
   assert.equal(profile.isBusinessAllowedPath('/systems'), false);
 });
 

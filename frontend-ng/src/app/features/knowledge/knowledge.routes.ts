@@ -7,6 +7,11 @@ export const knowledgeRoutes: Routes = [
       import('./capture-fil/capture-router.component').then((m) => m.CaptureRouterComponent),
   },
   {
+    path: 'interventions',
+    loadComponent: () =>
+      import('./capture-fil/capture-router.component').then((m) => m.CaptureRouterComponent),
+  },
+  {
     path: '',
     loadComponent: () =>
       import('./knowledge-base.component').then((m) => m.KnowledgeBaseComponent),

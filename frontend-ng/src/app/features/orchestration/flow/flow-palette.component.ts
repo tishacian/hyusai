@@ -36,7 +36,7 @@ import type { PaletteItem } from './flow.types';
       <!-- Skills group: dynamic, from the live /skills catalog. -->
       <div class="ck-flow-palette__group">
         <h3 class="ck-flow-palette__label">
-          <app-icon name="boxes" [size]="12" /> Skills
+          <app-icon name="boxes" set="phosphor" [size]="12" /> Skills
           <span class="ck-flow-palette__count">{{ filteredSkills().length }}</span>
         </h3>
 
@@ -85,7 +85,7 @@ import type { PaletteItem } from './flow.types';
       <!-- Primitives group: structural graph semantics. -->
       <div class="ck-flow-palette__group">
         <h3 class="ck-flow-palette__label">
-          <app-icon name="layers" [size]="12" /> Primitives
+          <app-icon name="layers" set="phosphor" [size]="12" /> Primitives
         </h3>
         <div class="ck-flow-palette__list">
           @for (item of items(); track item.type) {

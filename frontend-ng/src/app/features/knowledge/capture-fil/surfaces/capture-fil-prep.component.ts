@@ -12,6 +12,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService, type CapturePlanRequest } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
+import {
+  composeTemplateSessionTitle,
+  planSeedToProvidedText,
+} from '../capture-templates';
 
 /**
  * Capture plan modes — aligned 1:1 with the v0 monolith (`with plan` /
@@ -33,6 +37,10 @@ interface ModeOption {
  * it creates the plan, binds the session to the shared {@link CaptureEngine} and
  * advances to the launch surface (where the plan is built and the capture is
  * explicitly started).
+ *
+ * When a CaptureTemplate is active (e.g. FSE), the free title/mode picker is
+ * replaced by the template's required header fields; free conversation is
+ * hidden when `ui.hide_free_mode`.
  */
 @Component({
   selector: 'app-capture-fil-prep',
@@ -45,23 +53,47 @@ interface ModeOption {
         <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
           Capture · Préparation
         </span>
-        <h2 style="margin:6px 0 4px; font-size:22px; font-weight:680; color:var(--ck-fg-1);">Cadrer la séance</h2>
+        <h2 style="margin:6px 0 4px; font-size:22px; font-weight:680; color:var(--ck-fg-1);">
+          {{ template() ? 'Identifier l’intervention' : 'Cadrer la séance' }}
+        </h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:62ch;">
-          Un titre suffit pour démarrer. Avec un plan, vous le construisez ensuite (dictée, assistant, import de
-          document) avant de lancer la capture.
+          @if (template(); as tpl) {
+            Renseignez les champs d’en-tête du {{ tpl.label }}. Le plan type sera pré-appliqué ;
+            la capture reste guidée (Fil + Scène + oracle).
+          } @else {
+            Un titre suffit pour démarrer. Avec un plan, vous le construisez ensuite (dictée, assistant, import de
+            document) avant de lancer la capture.
+          }
         </p>
       </div>
 
       <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:20px; display:flex; flex-direction:column; gap:16px;">
-        <label style="display:flex; flex-direction:column; gap:6px;">
-          <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Titre de la séance *</span>
-          <input
-            [value]="title()"
-            (input)="title.set($any($event.target).value)"
-            placeholder="Ex. Méthode d'analyse géotechnique avant terrassement"
-            style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
-          />
-        </label>
+        @if (template(); as tpl) {
+          @for (field of tpl.required_fields; track field.key) {
+            <label style="display:flex; flex-direction:column; gap:6px;">
+              <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
+                {{ field.label }}{{ field.required ? ' *' : '' }}
+              </span>
+              <input
+                [type]="field.kind === 'date' ? 'date' : 'text'"
+                [value]="headerField(field.key)"
+                (input)="setHeaderField(field.key, $any($event.target).value)"
+                [placeholder]="field.label"
+                style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
+              />
+            </label>
+          }
+        } @else {
+          <label style="display:flex; flex-direction:column; gap:6px;">
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Titre de la séance *</span>
+            <input
+              [value]="title()"
+              (input)="title.set($any($event.target).value)"
+              placeholder="Ex. Méthode d'analyse géotechnique avant terrassement"
+              style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
+            />
+          </label>
+        }
 
         <label style="display:flex; flex-direction:column; gap:6px; max-width:220px;">
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Durée indicative (min)</span>
@@ -74,22 +106,31 @@ interface ModeOption {
           />
         </label>
 
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Mode</span>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            @for (m of modes; track m.id) {
-              <button
-                type="button"
-                (click)="mode.set(m.id)"
-                style="flex:1; min-width:220px; text-align:left; padding:12px 14px; border-radius:var(--ck-radius-md); cursor:pointer; background:var(--ck-bg-inset);"
-                [style.border]="'1px solid ' + (mode() === m.id ? 'var(--ck-signal-cool)' : 'var(--ck-stroke-2)')"
-              >
-                <div style="font-size:13px; font-weight:600;" [style.color]="mode() === m.id ? 'var(--ck-signal-cool)' : 'var(--ck-fg-1)'">{{ m.label }}</div>
-                <div style="font-size:11.5px; color:var(--ck-fg-4); margin-top:3px; line-height:1.4;">{{ m.hint }}</div>
-              </button>
-            }
+        @if (!hideFreeMode()) {
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Mode</span>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              @for (m of modes; track m.id) {
+                <button
+                  type="button"
+                  (click)="mode.set(m.id)"
+                  style="flex:1; min-width:220px; text-align:left; padding:12px 14px; border-radius:var(--ck-radius-md); cursor:pointer; background:var(--ck-bg-inset);"
+                  [style.border]="'1px solid ' + (mode() === m.id ? 'var(--ck-signal-cool)' : 'var(--ck-stroke-2)')"
+                >
+                  <div style="font-size:13px; font-weight:600;" [style.color]="mode() === m.id ? 'var(--ck-signal-cool)' : 'var(--ck-fg-1)'">{{ m.label }}</div>
+                  <div style="font-size:11.5px; color:var(--ck-fg-4); margin-top:3px; line-height:1.4;">{{ m.hint }}</div>
+                </button>
+              }
+            </div>
           </div>
-        </div>
+        } @else if (template()) {
+          <div style="display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:var(--ck-radius-md); background:var(--ck-tint-faint); border:1px solid var(--ck-stroke-2);">
+            <ck-glyph name="ledger" [size]="15" color="var(--ck-signal-cool)" />
+            <div style="font-size:12.5px; color:var(--ck-fg-3); line-height:1.5;">
+              Mode plan type — conversation libre désactivée pour ce rapport.
+            </div>
+          </div>
+        }
       </div>
 
       @if (error()) {
@@ -140,8 +181,29 @@ export class CaptureFilPrepComponent {
   protected readonly mode = signal<PlanMode>('plan_build');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly headerValues = signal<Record<string, string>>({});
 
-  protected readonly canSubmit = computed(() => this.title().trim().length > 0);
+  protected readonly template = this.engine.template;
+  protected readonly hideFreeMode = computed(
+    () => Boolean(this.template()?.ui.hide_free_mode),
+  );
+
+  protected readonly canSubmit = computed(() => {
+    const tpl = this.template();
+    if (!tpl) return this.title().trim().length > 0;
+    const values = this.headerValues();
+    return tpl.required_fields
+      .filter((f) => f.required)
+      .every((f) => (values[f.key] || '').trim().length > 0);
+  });
+
+  protected headerField(key: string): string {
+    return this.headerValues()[key] ?? '';
+  }
+
+  protected setHeaderField(key: string, value: string): void {
+    this.headerValues.update((prev) => ({ ...prev, [key]: value }));
+  }
 
   protected toNumber(value: string): number {
     const n = Number.parseInt(value, 10);
@@ -153,19 +215,45 @@ export class CaptureFilPrepComponent {
     return `Capturer les savoirs métier et retours d'expérience liés à : ${title}.`;
   }
 
+  private objectiveForTemplate(fields: Record<string, string>, label: string): string {
+    const title = composeTemplateSessionTitle(fields, label);
+    return `Produire le ${label} pour : ${title}.`;
+  }
+
   protected prepare(): void {
     if (!this.canSubmit() || this.busy()) return;
     this.busy.set(true);
     this.error.set(null);
-    const title = this.title().trim();
+
+    const tpl = this.template();
+    const headerFields = { ...this.headerValues() };
+    const title = tpl
+      ? composeTemplateSessionTitle(headerFields, tpl.label)
+      : this.title().trim();
+    const planMode: string = tpl
+      ? 'provided_plan'
+      : this.mode();
+
     const body: CapturePlanRequest = {
-      objective: this.objectiveFor(title),
+      objective: tpl
+        ? this.objectiveForTemplate(headerFields, tpl.label)
+        : this.objectiveFor(title),
       title,
       duration_minutes: this.duration(),
       voice_runtime: 'cascade_openai',
-      plan_mode: this.mode(),
+      plan_mode: planMode,
       system_id: this.engine.systemId(),
     };
+
+    if (tpl) {
+      body.template_id = tpl.id;
+      body.header_fields = headerFields;
+      body.provided_plan_text = planSeedToProvidedText(tpl);
+      body.plan_source_kind = 'manual';
+      body.plan_source_replaces_existing_plan = true;
+      this.engine.setHeaderFields(headerFields);
+    }
+
     this.api
       .createCapturePlan(body)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -175,11 +263,15 @@ export class CaptureFilPrepComponent {
           const info: CaptureSessionInfo = {
             id: String(session['id'] ?? ''),
             title: (session['title'] as string) ?? title,
-            objective: (session['objective'] as string) ?? this.objectiveFor(title),
+            objective: (session['objective'] as string)
+              ?? (tpl
+                ? this.objectiveForTemplate(headerFields, tpl.label)
+                : this.objectiveFor(title)),
             status: (session['status'] as string) ?? 'planning',
             duration_minutes: (session['duration_minutes'] as number) ?? this.duration(),
             plan: (session['plan'] as Record<string, unknown>) ?? null,
-            plan_mode: this.mode(),
+            metrics: (session['metrics'] as Record<string, unknown>) ?? null,
+            plan_mode: planMode,
             system_id: (session['system_id'] as string | null) ?? this.engine.systemId(),
           };
           this.engine.setSession(info);

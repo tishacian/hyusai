@@ -12,6 +12,7 @@ export const BUSINESS_PRIMARY_SURFACE_IDS = [
   'chat',
   'client360-pdr',
   'knowledge-capture',
+  'fse-reports',
 ] as const;
 
 export const FULL_COCKPIT_VERBS = ['hypervisor', 'build', 'operate', 'steer', 'govern'] as const;
@@ -33,6 +34,7 @@ const LEGACY_BUSINESS_HEADER_SURFACE_IDS = [
   'chat',
   'client360-pdr',
   'knowledge-capture',
+  'fse-reports',
 ] as const;
 const LEGACY_FULL_SIDE_RAIL_VERBS = [
   'hypervisor',
@@ -298,6 +300,7 @@ function businessSurfaceRoute(surfaceId: string): string | null {
   if (surfaceId === 'chat') return '/chat';
   if (surfaceId === 'client360-pdr') return '/client360';
   if (surfaceId === 'knowledge-capture') return '/knowledge/capture';
+  if (surfaceId === 'fse-reports') return '/knowledge/interventions';
   return null;
 }
 
@@ -312,6 +315,7 @@ function isBusinessAllowedPath(input: WorkspaceExperienceInput, path: string): b
       normalized === '/client360' || normalized.startsWith('/client360/')
     ))
     || (businessSurfaceEnabled(input, 'knowledge-capture') && normalized === '/knowledge/capture')
+    || (businessSurfaceEnabled(input, 'fse-reports') && normalized === '/knowledge/interventions')
     || normalized === '/account'
     || normalized.startsWith('/account/');
 }
@@ -749,6 +753,7 @@ export function resolveLegacyWorkspaceExperience(
       || path === '/client360'
       || path.startsWith('/client360/')
       || path === '/knowledge/capture'
+      || path === '/knowledge/interventions'
       || path === '/account'
       || path.startsWith('/account/');
   };

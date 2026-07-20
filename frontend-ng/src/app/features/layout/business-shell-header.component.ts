@@ -34,7 +34,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             title="Recherche"
             aria-label="Recherche"
           >
-            <app-icon name="message-square" [size]="14" />
+            <app-icon name="message-square" set="phosphor" [size]="14" />
             <span class="business-nav-text business-nav-text-full">Recherche</span>
             <span class="business-nav-text business-nav-text-short">Recherche</span>
           </a>
@@ -47,7 +47,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             title="Client360 PDR"
             aria-label="Client360 PDR"
           >
-            <app-icon name="target" [size]="14" />
+            <app-icon name="target" set="phosphor" [size]="14" />
             <span class="business-nav-text business-nav-text-full">Client360 PDR</span>
             <span class="business-nav-text business-nav-text-short">Client360</span>
           </a>
@@ -61,9 +61,23 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             title="Capture de connaissances"
             aria-label="Capture de connaissances"
           >
-            <app-icon name="mic" [size]="14" />
+            <app-icon name="mic" set="phosphor" [size]="14" />
             <span class="business-nav-text business-nav-text-full">Capture de connaissances</span>
             <span class="business-nav-text business-nav-text-short">Capture</span>
+          </a>
+        }
+        @if (navigation.businessSurfaceEnabled('fse-reports')) {
+          <a
+            routerLink="/knowledge/interventions"
+            routerLinkActive="business-nav-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            class="business-nav-link"
+            title="Rapports d'intervention FSE"
+            aria-label="Rapports d'intervention FSE"
+          >
+            <app-icon name="file-text" set="phosphor" [size]="14" />
+            <span class="business-nav-text business-nav-text-full">Rapports FSE</span>
+            <span class="business-nav-text business-nav-text-short">FSE</span>
           </a>
         }
       </nav>

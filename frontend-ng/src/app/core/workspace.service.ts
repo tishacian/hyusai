@@ -4,7 +4,7 @@ import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shar
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
-export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture';
+export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture' | 'fse-reports';
 export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
   key: WorkspaceAppEntitlement;
   label: string;
@@ -12,6 +12,7 @@ export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
   { key: 'chat', label: 'Recherche' },
   { key: 'client360-pdr', label: 'Client360 PDR' },
   { key: 'knowledge-capture', label: 'Capture de connaissances' },
+  { key: 'fse-reports', label: "Rapports d'intervention FSE" },
 ]);
 
 export interface WorkspaceInfo {

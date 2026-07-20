@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { ActivatedRoute } from '@angular/router';
 import { PageFrameComponent } from '@app/shared/cockpit';
 import type { CaptureViewReference } from '@app/core/api.service';
-import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { CaptureEngine, type CaptureSessionInfo } from './capture-engine';
+import { FSE_INTERVENTION_V1 } from './capture-templates';
 import { LeFilSessionComponent } from './le-fil-session.component';
 import { ReportProvenanceComponent } from './report-provenance.component';
 import { CaptureFilDashboardComponent } from './surfaces/capture-fil-dashboard.component';
@@ -53,7 +54,7 @@ interface SurfaceTab {
     CaptureFilPublishComponent,
   ],
   template: `
-    <ck-page-frame eyebrow="Knowledge · Capture" [title]="headerTitle()" [hasActions]="false">
+    <ck-page-frame [eyebrow]="eyebrow()" [title]="headerTitle()" [hasActions]="false">
       <nav
         class="ck-surface"
         style="display:flex; gap:4px; padding:4px; border-radius:8px; margin-bottom:16px; flex-wrap:wrap;"
@@ -129,24 +130,70 @@ export class CaptureFilShellComponent {
    * after the actual system (or the generic capture label at capability level).
    */
   private readonly systemName = signal<string | null>(null);
-  protected readonly headerTitle = computed(
-    () => this.systemName() ?? 'Capture de connaissances',
+  private readonly interventionsRoute = signal(false);
+  protected readonly headerTitle = computed(() => {
+    if (this.systemName()) return this.systemName()!;
+    if (this.engine.template()) return this.engine.template()!.label;
+    return this.interventionsRoute()
+      ? FSE_INTERVENTION_V1.label
+      : 'Capture de connaissances';
+  });
+  protected readonly eyebrow = computed(() =>
+    this.engine.template() || this.interventionsRoute()
+      ? 'Knowledge · Interventions FSE'
+      : 'Knowledge · Capture',
   );
 
   constructor() {
     // System scope: `/systems/:systemId/capture` (route param) or the stable
-    // `/knowledge/capture?systemId=` deep link. New sessions inherit it and the
-    // dashboard filters by it; capability-level entry leaves it null.
+    // `/knowledge/capture?systemId=` / `/knowledge/interventions?systemId=` deep
+    // links. The interventions route also auto-resolves the FSE system by
+    // `settings.capture.template_id` when no systemId is provided.
     const snapshot = this.route.snapshot;
+    const path = snapshot.routeConfig?.path || '';
+    const isInterventions = path === 'interventions'
+      || snapshot.url.some((seg) => seg.path === 'interventions');
+    this.interventionsRoute.set(isInterventions);
+
     const systemId =
       snapshot.paramMap.get('systemId') || snapshot.queryParamMap.get('systemId');
-    this.engine.setSystemId(systemId);
-
     if (systemId) {
-      this.systems.getSystem(systemId).subscribe((sys) => {
-        if (sys?.name) this.systemName.set(sys.name);
-      });
+      this.bindSystem(systemId);
+    } else if (isInterventions) {
+      this.engine.setTemplateId(FSE_INTERVENTION_V1.id);
+      this.resolveFseSystem();
+    } else {
+      this.engine.setSystemId(null);
     }
+  }
+
+  private bindSystem(systemId: string): void {
+    this.engine.setSystemId(systemId);
+    this.systems.getSystem(systemId).subscribe((sys) => {
+      if (sys?.name) this.systemName.set(sys.name);
+    });
+  }
+
+  /** Find the workspace system seeded with the FSE capture template. */
+  private resolveFseSystem(): void {
+    this.systems.listSystems().subscribe((rows) => {
+      const match = (rows || []).find((sys) => this.systemTemplateId(sys) === FSE_INTERVENTION_V1.id)
+        || (rows || []).find((sys) => /intervention|fse/i.test(sys.name || ''));
+      if (match?.id) {
+        this.bindSystem(match.id);
+      }
+    });
+  }
+
+  private systemTemplateId(sys: System): string | null {
+    const settings = sys.settings && typeof sys.settings === 'object'
+      ? sys.settings as Record<string, unknown>
+      : null;
+    const capture = settings?.['capture'] && typeof settings['capture'] === 'object'
+      ? settings['capture'] as Record<string, unknown>
+      : null;
+    const raw = capture?.['template_id'];
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
   }
 
   protected readonly tabs: SurfaceTab[] = [

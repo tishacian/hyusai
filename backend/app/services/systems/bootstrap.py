@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import get_logger
 from app.models.capability import Capability
@@ -47,6 +48,14 @@ EXPERT_CAPTURE_OBJECTIVE = (
     "evaluate each answer, and produce HITL-reviewable knowledge update proposals."
 )
 EXPERT_CAPTURE_CAPABILITY_SLUG = "expert_knowledge_capture"
+FSE_REPORT_SYSTEM_NAME = "Rapport d'intervention FSE"
+FSE_REPORT_OBJECTIVE = (
+    "Produire des rapports d'intervention terrain structurés (Visit Report) : "
+    "plan type verrouillé, champs obligatoires, synthèse contrainte et publication "
+    "dans la collection andritz-fse-reports."
+)
+FSE_REPORT_TEMPLATE_ID = "fse_intervention_v1"
+FSE_REPORT_CREATED_BY = "system:fse_report_seed"
 EXPERT_CAPTURE_SKILL_SLUGS = [
     "knowledge_gap_analysis_v1",
     "expert_interview_plan_v1",
@@ -1905,6 +1914,17 @@ def _expert_capture_flow_definition(skills: dict[str, Skill]) -> dict[str, objec
     }
 
 
+def _is_fse_report_system(system: System) -> bool:
+    """True when the system is the constrained FSE intervention-report fork."""
+    if str(system.created_by or "").startswith(FSE_REPORT_CREATED_BY):
+        return True
+    if str(system.name or "").strip() == FSE_REPORT_SYSTEM_NAME:
+        return True
+    settings = system.settings if isinstance(system.settings, dict) else {}
+    capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+    return str(capture.get("template_id") or "").strip() == FSE_REPORT_TEMPLATE_ID
+
+
 def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
     capability = (
         db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
@@ -1927,16 +1947,21 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
     # Knowledge Capture" alongside it on every boot. Adopt the existing
     # capability system instead — preferring a non-seed (manual/blueprint) one —
     # and archive any redundant seed-created generics.
-    candidates = (
-        db.query(System)
-        .filter(
-            System.workspace_id == workspace_id,
-            System.capability_id == capability.id,
-            System.status != "retired",
+    # FSE report systems share the same capability but must stay distinct.
+    candidates = [
+        row
+        for row in (
+            db.query(System)
+            .filter(
+                System.workspace_id == workspace_id,
+                System.capability_id == capability.id,
+                System.status != "retired",
+            )
+            .order_by(System.created_at.asc())
+            .all()
         )
-        .order_by(System.created_at.asc())
-        .all()
-    )
+        if not _is_fse_report_system(row)
+    ]
 
     def _is_capture_seed(s: System) -> bool:
         return str(s.created_by or "").startswith("system:expert_capture_seed")
@@ -2016,6 +2041,161 @@ def ensure_expert_capture_system_for_all_workspaces(db: DBSession) -> dict[str, 
             .count()
         )
         system = ensure_expert_capture_system_default(db, ws.id)
+        if system is None:
+            report["skipped"] += 1
+        elif before == 0:
+            report["created"] += 1
+        else:
+            report["already"] += 1
+    return report
+
+
+def _fse_report_system_settings() -> dict[str, Any]:
+    return {
+        "capture": {
+            "template_id": FSE_REPORT_TEMPLATE_ID,
+        },
+        "surface": "fse-reports",
+        "surface_routes": ["/knowledge/interventions"],
+    }
+
+
+def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[System]:
+    """Idempotent seed for the constrained FSE intervention-report capture system.
+
+    Shares ``variant: expert_knowledge_capture`` and the same capability/skills as
+    classic capture, but binds ``settings.capture.template_id`` so sessions get
+    the Visit Report rails. Distinct from :func:`ensure_expert_capture_system_default`.
+    """
+    capability = (
+        db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
+    )
+    if not capability:
+        logger.warning(
+            "fse_report_system_seed.skip.missing_capability",
+            workspace_id=workspace_id,
+            slug=EXPERT_CAPTURE_CAPABILITY_SLUG,
+        )
+        return None
+
+    skills = _skill_lookup(db, EXPERT_CAPTURE_SKILL_SLUGS)
+    skill_ids = [skills[slug].id for slug in EXPERT_CAPTURE_SKILL_SLUGS if slug in skills]
+    flow_definition = _expert_capture_flow_definition(skills)
+    # Point the UI entry at the FSE surface without forking the flow graph.
+    flow_definition = {
+        **flow_definition,
+        "template_id": "fse-intervention-report-v1",
+        "template_name": FSE_REPORT_SYSTEM_NAME,
+        "ui": {
+            **(flow_definition.get("ui") or {}),
+            "type": "knowledge_capture",
+            "label": FSE_REPORT_SYSTEM_NAME,
+            "entry_route": "interventions",
+            "primary_action": "Nouveau rapport",
+            "legacy_route": "/knowledge/interventions",
+            "surface": "fse-reports",
+        },
+    }
+    system_settings = _fse_report_system_settings()
+
+    candidates = (
+        db.query(System)
+        .filter(
+            System.workspace_id == workspace_id,
+            System.capability_id == capability.id,
+            System.status != "retired",
+        )
+        .order_by(System.created_at.asc())
+        .all()
+    )
+    existing = next((row for row in candidates if _is_fse_report_system(row)), None)
+    if existing is not None:
+        flow = dict(existing.flow_definition or {})
+        if flow.get("variant") != "expert_knowledge_capture":
+            existing.flow_definition = flow_definition
+        else:
+            # Keep operator edits to nodes/edges; refresh UI entry + template metadata.
+            merged_flow = dict(flow)
+            merged_flow["template_id"] = flow_definition["template_id"]
+            merged_flow["template_name"] = flow_definition["template_name"]
+            ui = dict(merged_flow.get("ui") or {})
+            ui.update(flow_definition["ui"])
+            merged_flow["ui"] = ui
+            existing.flow_definition = merged_flow
+        settings = dict(existing.settings or {}) if isinstance(existing.settings, dict) else {}
+        capture = dict(settings.get("capture") or {}) if isinstance(settings.get("capture"), dict) else {}
+        capture["template_id"] = FSE_REPORT_TEMPLATE_ID
+        settings["capture"] = capture
+        settings.setdefault("surface", "fse-reports")
+        settings.setdefault("surface_routes", ["/knowledge/interventions"])
+        existing.settings = settings
+        flag_modified(existing, "settings")
+        flag_modified(existing, "flow_definition")
+        existing.name = existing.name or FSE_REPORT_SYSTEM_NAME
+        existing.objective = existing.objective or FSE_REPORT_OBJECTIVE
+        existing.skill_ids = skill_ids
+        existing.execution_mode = "human_augmented"
+        existing.coordination_pattern = "single_agent"
+        existing.status = "active"
+        existing.retrieval_mode_default = "chah"
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    system = System(
+        workspace_id=workspace_id,
+        name=FSE_REPORT_SYSTEM_NAME,
+        objective=FSE_REPORT_OBJECTIVE,
+        capability_id=capability.id,
+        skill_ids=skill_ids,
+        flow_definition=flow_definition,
+        settings=system_settings,
+        execution_mode="human_augmented",
+        execution_profile={
+            "runtime": "voice2voice_cascade",
+            "latency_target": "perceived_realtime",
+            "max_retrieval_prefetch_ms": 2500,
+            "durability": "audit_events",
+            "surface": "fse-reports",
+        },
+        coordination_pattern="single_agent",
+        status="active",
+        created_by=FSE_REPORT_CREATED_BY,
+        retrieval_mode_default="chah",
+    )
+    db.add(system)
+    db.commit()
+    db.refresh(system)
+    logger.info(
+        "fse_report_system_seed.created",
+        workspace_id=workspace_id,
+        system_id=system.id,
+        capability_id=capability.id,
+    )
+    return system
+
+
+def ensure_fse_report_system_for_andritz(db: DBSession) -> dict[str, int]:
+    """Seed the FSE report system for Andritz (and andritz-family) workspaces."""
+    report = {"created": 0, "skipped": 0, "already": 0}
+    workspaces = (
+        db.query(Workspace)
+        .filter(Workspace.is_active.is_(True), Workspace.deleted_at.is_(None))
+        .all()
+    )
+    for ws in workspaces:
+        slug = str(ws.slug or "").strip().lower()
+        settings = ws.settings if isinstance(ws.settings, dict) else {}
+        family = str(settings.get("family") or "").strip().lower()
+        if slug != "andritz" and family != WorkspaceFamily.andritz.value:
+            report["skipped"] += 1
+            continue
+        before = (
+            db.query(System)
+            .filter(System.workspace_id == ws.id, System.name == FSE_REPORT_SYSTEM_NAME)
+            .count()
+        )
+        system = ensure_fse_report_system(db, ws.id)
         if system is None:
             report["skipped"] += 1
         elif before == 0:

@@ -257,8 +257,22 @@ interface ReportSource {
               } @else {
                 <!-- read mode: structured fiche -->
                 <h2 class="ck-mono" style="margin:0 0 16px; font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-cool);">
-                  Fiche structurée
+                  {{ template() ? 'Fiche intervention FSE' : 'Fiche structurée' }}
                 </h2>
+
+                @if (headerRows().length) {
+                  <div style="margin:0 0 18px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; background:var(--ck-bg-panel);">
+                    <div style="padding:10px 16px; border-bottom:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);">
+                      <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Identification</span>
+                    </div>
+                    <dl style="margin:0; padding:12px 16px; display:grid; grid-template-columns:minmax(0,140px) minmax(0,1fr); gap:8px 14px;">
+                      @for (row of headerRows(); track row.key) {
+                        <dt class="ck-mono" style="font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-fg-4); padding-top:2px;">{{ row.label }}</dt>
+                        <dd style="margin:0; font-size:13.5px; color:var(--ck-fg-1);">{{ row.value || '—' }}</dd>
+                      }
+                    </dl>
+                  </div>
+                }
 
                 @for (card of fiche(); track card.key) {
                   <article style="margin:0 0 16px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; background:var(--ck-bg-panel);">
@@ -764,9 +778,25 @@ export class ReportProvenanceComponent {
   });
 
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Rapport de capture');
+  protected readonly template = this.engine.template;
+  protected readonly headerRows = computed(() => {
+    const tpl = this.template();
+    if (!tpl) return [];
+    const values = this.engine.headerFields();
+    return tpl.required_fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      value: (values[field.key] || '').trim(),
+    }));
+  });
   protected readonly reference = computed(() => {
     const proposal = this.engine.proposalId();
     const sessionId = this.engine.sessionId();
+    const tpl = this.template();
+    if (tpl) {
+      const ref = (this.engine.headerFields()['reference'] || '').trim();
+      if (ref) return ref;
+    }
     return proposal ? `proposition ${proposal}` : sessionId ? `séance ${sessionId}` : '—';
   });
   // ---- background-index banner (D5 / §5.4) -------------------------------

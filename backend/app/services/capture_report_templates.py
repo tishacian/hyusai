@@ -12,6 +12,7 @@ from app.models.expert_capture import ExpertCaptureSession
 INDUSTRIAL_TEMPLATE_ID = "industrial_v1"
 ANDRITZ_TEMPLATE_ID = "andritz_knowledge_v1"
 _INDUSTRIAL_TEMPLATE_IDS = frozenset({INDUSTRIAL_TEMPLATE_ID, ANDRITZ_TEMPLATE_ID})
+FSE_INTERVENTION_REPORT_TEMPLATE_ID = "fse_intervention_report_v1"
 DEFAULT_TEMPLATE_ID = "default"
 
 _CONDITION_TERMS = re.compile(
@@ -29,6 +30,16 @@ _DECISION_TERMS = re.compile(
 
 
 def resolve_knowledge_sheet_template(session: ExpertCaptureSession) -> str:
+    from app.services.capture_templates import resolve_session_capture_template
+
+    capture_template = resolve_session_capture_template(
+        plan=session.plan or {},
+        metrics=session.metrics or {},
+    )
+    if capture_template:
+        report_id = str(capture_template.get("report_template_id") or "").strip()
+        if report_id:
+            return report_id
     metrics = session.metrics or {}
     domain = str(metrics.get("capture_domain") or "").strip().lower()
     plan_domain = str((session.plan or {}).get("capture_domain") or "").strip().lower()
@@ -49,6 +60,12 @@ def build_knowledge_sheet_content(
     *,
     transcript: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
+    if template_id == FSE_INTERVENTION_REPORT_TEMPLATE_ID:
+        return build_fse_intervention_report(
+            session,
+            captured_facts,
+            open_questions=open_questions,
+        )
     if template_id in _INDUSTRIAL_TEMPLATE_IDS:
         return build_andritz_knowledge_sheet(
             session,
@@ -57,6 +74,96 @@ def build_knowledge_sheet_content(
             open_questions=open_questions,
         )
     return _default_knowledge_sheet(session, captured_facts, open_questions)
+
+
+def build_fse_intervention_report(
+    session: ExpertCaptureSession,
+    captured_facts: Iterable[Dict[str, Any]],
+    *,
+    open_questions: Optional[Iterable[Dict[str, Any]]] = None,
+) -> str:
+    """Fixed-section Visit Report–style sheet (little free synthesis)."""
+    from app.services.capture_templates import header_fields_from_plan
+
+    header = header_fields_from_plan(session.plan or {})
+    facts = [fact for fact in captured_facts if (fact.get("text") or "").strip()]
+    question_lines = _open_question_lines(open_questions or [])
+
+    header_lines = [
+        f"- **Client** : {header.get('customer') or 'À compléter'}",
+        f"- **Pays** : {header.get('country') or 'À compléter'}",
+        f"- **Site / machine** : {header.get('site_or_machine') or 'À compléter'}",
+        f"- **Référence** : {header.get('reference') or 'À compléter'}",
+        f"- **Participants** : {header.get('participants') or 'À compléter'}",
+        f"- **Date d'intervention** : {header.get('intervention_date') or 'À compléter'}",
+        f"- **Diffusion** : {header.get('distribution') or 'À compléter'}",
+        f"- **Émis par** : {(session.expert_profile or 'Expert métier').strip()}",
+    ]
+
+    subjects = _fse_subject_sections(session, facts)
+    markdown = (
+        f"# Rapport d'intervention FSE — {session.title}\n\n"
+        f"## En-tête\n"
+        + "\n".join(header_lines)
+        + "\n\n"
+        f"## Sujets\n{subjects}\n"
+    )
+    if question_lines:
+        markdown += "\n## Questions ouvertes (bloquantes)\n" + "\n".join(question_lines) + "\n"
+    return markdown
+
+
+def _fse_subject_sections(session: ExpertCaptureSession, facts: List[Dict[str, Any]]) -> str:
+    topics = [topic for topic in (session.plan or {}).get("topics") or [] if isinstance(topic, dict)]
+    if not topics:
+        return _bullet_lines(facts, "Aucun sujet capturé.")
+
+    lines: List[str] = []
+    assigned: set[int] = set()
+    for index, topic in enumerate(topics, start=1):
+        topic_id = str(topic.get("id") or index)
+        topic_title = str(topic.get("title") or f"Sujet {index}").strip()
+        lines.append(f"### {index}. {topic_title}")
+        subtopics = [item for item in topic.get("subtopics") or [] if isinstance(item, dict)]
+        if subtopics:
+            for sub_index, subtopic in enumerate(subtopics, start=1):
+                subtopic_id = str(subtopic.get("id") or f"{topic_id}.{sub_index}")
+                subtopic_title = str(subtopic.get("title") or f"Point {sub_index}").strip()
+                sub_facts = _facts_for_plan_node(
+                    facts,
+                    topic_id=topic_id,
+                    subtopic_id=subtopic_id,
+                    title=subtopic_title,
+                )
+                for fact_index, _fact in sub_facts:
+                    assigned.add(fact_index)
+                lines.append(f"- **{subtopic_title}** : {_fse_inline_fact_text(sub_facts)}")
+        else:
+            topic_facts = _facts_for_plan_node(
+                facts,
+                topic_id=topic_id,
+                subtopic_id=None,
+                title=topic_title,
+            )
+            for fact_index, _fact in topic_facts:
+                assigned.add(fact_index)
+            lines.append(f"- {_fse_inline_fact_text(topic_facts)}")
+        lines.append("")
+
+    unassigned = [fact for fact_index, fact in enumerate(facts) if fact_index not in assigned]
+    if unassigned:
+        lines.append("### Points hors plan")
+        lines.extend(_fact_bullets(unassigned))
+    return "\n".join(lines).strip()
+
+
+def _fse_inline_fact_text(facts: List[tuple[int, Dict[str, Any]]]) -> str:
+    texts = [
+        str(fact.get("text") or fact.get("statement") or "").strip()
+        for _index, fact in facts
+        if str(fact.get("text") or fact.get("statement") or "").strip()
+    ]
+    return " ; ".join(texts) if texts else "À compléter."
 
 
 def build_andritz_knowledge_sheet(

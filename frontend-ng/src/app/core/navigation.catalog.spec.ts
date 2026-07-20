@@ -22,7 +22,7 @@ test('Client360 stays classified under Operate in the standard admin cockpit', (
   assert.equal(matchCockpitVerb('/client360/opportunities')?.key, 'operate');
 });
 
-test('Andritz business app catalog keeps its three stable routes and API prefixes', () => {
+test('Andritz business app catalog keeps its stable routes and API prefixes', () => {
   assert.deepEqual(
     BUSINESS_NAVIGATION_SURFACE_IDS.map((surfaceId) => {
       const surface = agentiumSurfaceById(surfaceId);
@@ -38,6 +38,11 @@ test('Andritz business app catalog keeps its three stable routes and API prefixe
       {
         id: 'knowledge-capture',
         route: '/knowledge/capture',
+        apiPrefix: '/api/v1/knowledge-capture',
+      },
+      {
+        id: 'fse-reports',
+        route: '/knowledge/interventions',
         apiPrefix: '/api/v1/knowledge-capture',
       },
     ],
@@ -157,6 +162,7 @@ test('object builders use canonical locators and business guards match registere
   assert.equal(pathAllowedBySurfaceIds('/chat', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/client360/opportunities', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/knowledge/capture?systemId=sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), true);
+  assert.equal(pathAllowedBySurfaceIds('/knowledge/interventions', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/systems/sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), false);
 });
 
