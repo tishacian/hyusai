@@ -363,6 +363,9 @@ services:
       - "127.0.0.1:${AGENTIUM_QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+      # Qdrant defaults snapshots outside /qdrant/storage. Bind that path
+      # explicitly so production snapshots never consume the VM root disk.
+      - ${AGENTIUM_QDRANT_SNAPSHOT_PATH:-/home/ubuntu/agentium-data/qdrant_snapshots}:/qdrant/snapshots
     env_file:
       - ${AGENTIUM_QDRANT_ENV_FILE:-./env/qdrant.agentium.env.example}
     healthcheck:
