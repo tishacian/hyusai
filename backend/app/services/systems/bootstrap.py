@@ -2176,7 +2176,7 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
 
 
 def ensure_fse_report_system_for_andritz(db: DBSession) -> dict[str, int]:
-    """Seed the FSE report system for Andritz (and andritz-family) workspaces."""
+    """Seed the FSE report system for Andritz-family workspaces."""
     report = {"created": 0, "skipped": 0, "already": 0}
     workspaces = (
         db.query(Workspace)
@@ -2184,10 +2184,8 @@ def ensure_fse_report_system_for_andritz(db: DBSession) -> dict[str, int]:
         .all()
     )
     for ws in workspaces:
-        slug = str(ws.slug or "").strip().lower()
-        settings = ws.settings if isinstance(ws.settings, dict) else {}
-        family = str(settings.get("family") or "").strip().lower()
-        if slug != "andritz" and family != WorkspaceFamily.andritz.value:
+        # Family-driven (same pattern as Client360) — avoid workspace-slug branches.
+        if _workspace_family(ws) != WorkspaceFamily.andritz.value:
             report["skipped"] += 1
             continue
         before = (
