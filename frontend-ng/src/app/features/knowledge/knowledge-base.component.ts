@@ -21,6 +21,7 @@ import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 
 interface CollectionInfo {
+  slug: string;
   name: string;
   chunks: number;
   docs: number;
@@ -170,9 +171,9 @@ interface SearchResult {
               (click)="$event.stopPropagation()"
             >
               <option value="documents">documents</option>
-              @for (c of collections(); track c.name) {
-                @if (c.name !== 'documents') {
-                  <option [value]="c.name">{{ c.name }}</option>
+              @for (c of collections(); track c.slug) {
+                @if (c.slug !== 'documents') {
+                  <option [value]="c.slug">{{ c.name }}</option>
                 }
               }
             </select>
@@ -254,7 +255,7 @@ interface SearchResult {
       </div>
     } @else {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @for (doc of collections(); track doc.name) {
+        @for (doc of collections(); track doc.slug) {
           <div class="ck-surface rounded-md p-5 group">
             <div class="flex items-start gap-3 mb-4">
               <div
@@ -282,7 +283,7 @@ interface SearchResult {
               <app-status-pulse tone="success" label="Indexed" />
               <div class="flex items-center gap-1">
                 <a
-                  [routerLink]="['/knowledge', doc.name]"
+                  [routerLink]="['/knowledge', doc.slug]"
                   class="ck-ghost-icon p-1.5 rounded inline-flex items-center"
                   title="Open collection detail"
                 >
@@ -291,21 +292,21 @@ interface SearchResult {
                 <button
                   class="ck-ghost-icon p-1.5 rounded"
                   title="Browse documents"
-                  (click)="openBrowse(doc.name)"
+                  (click)="openBrowse(doc.slug)"
                 >
                   <app-icon name="folder" [size]="14" />
                 </button>
                 <button
                   class="ck-ghost-icon p-1.5 rounded"
                   title="Search in this collection"
-                  (click)="openSearchIn(doc.name)"
+                  (click)="openSearchIn(doc.slug)"
                 >
                   <app-icon name="search" [size]="14" />
                 </button>
                 <button
                   class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
                   title="Delete collection"
-                  (click)="requestDeleteCollection(doc.name)"
+                  (click)="requestDeleteCollection(doc.slug)"
                 >
                   <app-icon name="trash-2" [size]="14" />
                 </button>
@@ -332,8 +333,8 @@ interface SearchResult {
             class="ck-field-select px-2.5 py-2 text-xs"
           >
             <option value="">All</option>
-            @for (c of collections(); track c.name) {
-              <option [value]="c.name">{{ c.name }}</option>
+            @for (c of collections(); track c.slug) {
+              <option [value]="c.slug">{{ c.name }}</option>
             }
           </select>
           <input
@@ -851,14 +852,15 @@ export class KnowledgeBaseComponent implements OnInit {
           const bySlug = new Map(items.map((item) => [item.slug || item.name || '', item]));
           const displayItems = names.length ? names.map((name) => bySlug.get(name) ?? { slug: name }) : items;
           const infos: CollectionInfo[] = displayItems.map((item) => {
-            const name = item.slug || item.name || '';
+            const slug = item.slug || item.name || '';
             return {
-              name,
+              slug,
+              name: item.name || slug,
               chunks: item.chunk_count ?? 0,
               docs: item.source_count ?? item.document_count ?? 0,
               loading: false,
             };
-          }).filter((item) => !!item.name);
+          }).filter((item) => !!item.slug);
           this.collections.set(infos);
           this.loadingCollections.set(false);
         },

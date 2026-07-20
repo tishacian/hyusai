@@ -1,4 +1,4 @@
-"""Seed the Andritz SPL notices pilot collection, scope and guide.
+"""Seed the transverse Andritz technical-documentation collection, scope and guide.
 
 Usage:
     cd backend
@@ -27,8 +27,11 @@ from app.services.rag.knowledge_scopes import normalize_knowledge_scopes
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
-
 DEFAULT_COLLECTION = "andritz-notices-techniques-spl-pilot"
+COLLECTION_NAME = "ANDRITZ — Documentation technique transverse"
+COLLECTION_DESCRIPTION = (
+    "Notices techniques et documents projet transverses — SPL, Needlepunch et futurs périmètres."
+)
 DEFAULT_SCOPE = "andritz-spl-knowledge-experiment"
 GUIDE_TITLE = "ANDRITZ Notices Techniques SPL - Knowledge Guide"
 ANDRITZ_SPL_ADVISOR_PROFILE = "andritz_spl_advisor"
@@ -260,8 +263,8 @@ def main() -> None:
         collection = create_or_get_collection(
             db,
             workspace=workspace,
-            name="Andritz Notices Techniques SPL Pilot",
-            description="Pilot collection for SPL technical notices from Secure Deposit SFTP.",
+            name=COLLECTION_NAME,
+            description=COLLECTION_DESCRIPTION,
             slug=args.collection,
         )
         _upsert_scope(db, workspace, scope_key=args.scope, collection_slug=collection.slug)

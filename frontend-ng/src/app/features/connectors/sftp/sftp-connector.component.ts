@@ -446,7 +446,7 @@ const BULK_PROMOTE_LIMIT = 25;
               }
               @for (collection of knowledgeCollectionOptions(); track collection.slug) {
                 <option [value]="collection.slug">
-                  {{ collection.slug }}{{ collection.status ? ' · ' + collection.status : '' }}{{ collection.chunk_count !== undefined && collection.chunk_count !== null ? ' · ' + collection.chunk_count + ' chunks' : '' }}
+                  {{ collection.name || collection.slug }}{{ collection.name && collection.name !== collection.slug ? ' · ' + collection.slug : '' }}{{ collection.status ? ' · ' + collection.status : '' }}{{ collection.chunk_count !== undefined && collection.chunk_count !== null ? ' · ' + collection.chunk_count + ' chunks' : '' }}
                 </option>
               }
             </select>

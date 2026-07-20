@@ -4,7 +4,20 @@ from types import SimpleNamespace
 
 from app.models.workspace import Workspace
 from app.services.rag.retrieval_policy import retrieval_policy_from_guides
-from scripts.setup_andritz_notices_spl import ANDRITZ_SPL_ADVISOR_PROFILE, _guide_markdown, _upsert_chat_profiles
+from scripts.setup_andritz_notices_spl import (
+    ANDRITZ_SPL_ADVISOR_PROFILE,
+    COLLECTION_DESCRIPTION,
+    COLLECTION_NAME,
+    _guide_markdown,
+    _upsert_chat_profiles,
+)
+
+
+def test_transverse_collection_presentation_covers_spl_and_needlepunch():
+    assert COLLECTION_NAME == "ANDRITZ — Documentation technique transverse"
+    assert "SPL" in COLLECTION_DESCRIPTION
+    assert "Needlepunch" in COLLECTION_DESCRIPTION
+    assert "Pilot" not in COLLECTION_NAME
 
 
 def test_upsert_chat_profiles_adds_andritz_spl_balanced_profile():

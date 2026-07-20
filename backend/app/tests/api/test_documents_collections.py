@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import documents
 from app.core.config import settings
-from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
@@ -138,6 +142,71 @@ def test_collection_patch_denies_non_admin_without_mutating_metadata(db_session)
     db_session.refresh(collection)
     assert collection.name == "Manuals"
     assert collection.description == "Original description"
+
+
+def test_collection_patch_updates_only_presentation_fields(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-patch-admin", name="Patch Admin", slug="patch-admin")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(
+        db_session,
+        ws,
+        role="admin",
+        role_template="workspace_admin",
+    )
+    collection = create_collection(
+        db_session,
+        workspace=ws,
+        name="Legacy pilot name",
+        description="Legacy pilot description",
+        slug="andritz-notices-techniques-spl-pilot",
+    )
+    collection.document_count = 12
+    collection.chunk_count = 345
+    db_session.commit()
+    immutable = {
+        "id": collection.id,
+        "slug": collection.slug,
+        "vector_collection_name": collection.vector_collection_name,
+        "artifact_prefix": collection.artifact_prefix,
+        "document_count": collection.document_count,
+        "chunk_count": collection.chunk_count,
+    }
+
+    class FakeVectorDB:
+        async def get_count(self):
+            return immutable["chunk_count"]
+
+    monkeypatch.setattr(
+        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        classmethod(lambda cls, *args, **kwargs: FakeVectorDB()),
+    )
+
+    response = _client(db_session, ws).patch(
+        f"/documents/collections/{collection.id}",
+        json={
+            "name": "ANDRITZ — Documentation technique transverse",
+            "description": (
+                "Notices techniques et documents projet transverses — SPL, "
+                "Needlepunch et futurs périmètres."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "ANDRITZ — Documentation technique transverse"
+    assert body["description"].endswith("SPL, Needlepunch et futurs périmètres.")
+    for field, value in immutable.items():
+        assert body[field] == value
+
+    db_session.refresh(collection)
+    assert collection.name == body["name"]
+    assert collection.description == body["description"]
+    for field, value in immutable.items():
+        assert getattr(collection, field) == value
 
 
 def test_collection_inventory_can_page_sources(db_session, tmp_path, monkeypatch):

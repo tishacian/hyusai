@@ -2314,6 +2314,7 @@ export class KnowledgeViewComponent implements OnInit {
       .pipe(catchError(() => of<CollectionsPayload>({})))
       .subscribe((meta) => {
         const metaItem = (meta.items || []).find((item) => item.slug === this.kbId);
+        this.title.set(metaItem?.name || this.kbId || 'Knowledge base');
         this.docCount.set(
           metaItem?.document_count ??
             metaItem?.source_count ??
