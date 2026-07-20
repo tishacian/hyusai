@@ -483,6 +483,8 @@ class VoiceSessionGateway:
                 "provider": state.runtime,
                 "transport": state.transport,
                 "tandem_oracle": state.tandem_oracle_enabled,
+                # Seed N-1 / template open questions already on the plan.
+                "open_questions": list(state.live_open_questions),
             },
         )
         try:
@@ -1828,7 +1830,19 @@ class VoiceSessionGateway:
             if state.committed_turns_section != section_key:
                 state.committed_turns_section = section_key
                 state.committed_turn_texts = []
-                state.live_open_questions = []
+                # Keep cross-section questions (N-1 reprise, template gaps) —
+                # only section-scoped live oracle questions are cleared.
+                state.live_open_questions = [
+                    q
+                    for q in state.live_open_questions
+                    if isinstance(q, dict)
+                    and str(q.get("source") or "")
+                    in {
+                        "previous_report",
+                        "capture_template_required_field",
+                        "capture_template_consistency",
+                    }
+                ]
                 state.live_questions_generation += 1
                 state.last_questions_word_count = 0
             state.committed_turn_texts.append(text)
@@ -2061,7 +2075,31 @@ class VoiceSessionGateway:
                 # the generation was running.
                 if state.live_questions_generation != generation or state.committed_turns_section != section_key:
                     return
-                state.live_open_questions = questions
+                persistent = [
+                    q
+                    for q in state.live_open_questions
+                    if isinstance(q, dict)
+                    and str(q.get("source") or "")
+                    in {
+                        "previous_report",
+                        "capture_template_required_field",
+                        "capture_template_consistency",
+                    }
+                ]
+                # Prefer fresh live questions; keep persistent ones not duplicated by text.
+                seen_texts = {
+                    str(q.get("text") or q.get("follow_up") or "").strip().lower()
+                    for q in questions
+                    if str(q.get("text") or q.get("follow_up") or "").strip()
+                }
+                merged = list(questions)
+                for q in persistent:
+                    key = str(q.get("text") or q.get("follow_up") or "").strip().lower()
+                    if key and key not in seen_texts:
+                        merged.append(q)
+                        seen_texts.add(key)
+                state.live_open_questions = merged
+                questions = merged
                 if capture_session_id:
                     try:
                         from app.db.base import SessionLocal

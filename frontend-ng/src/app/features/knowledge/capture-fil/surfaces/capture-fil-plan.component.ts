@@ -77,6 +77,16 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         }
       </div>
 
+      @if (previousReportOpenCount() > 0) {
+        <div style="display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-radius:var(--ck-radius-md); background:color-mix(in oklab, var(--ck-signal-warn) 10%, transparent); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 35%, transparent);">
+          <ck-glyph name="warn" [size]="15" color="var(--ck-signal-warn)" />
+          <div style="font-size:13px; color:var(--ck-fg-2); line-height:1.5;">
+            {{ previousReportOpenCount() }} point{{ previousReportOpenCount() > 1 ? 's' : '' }} ouvert{{ previousReportOpenCount() > 1 ? 's' : '' }}
+            repris du rapport N-1 — ils apparaîtront dans l’Oracle dès le démarrage de la capture.
+          </div>
+        </div>
+      }
+
       @if (isFree()) {
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; gap:12px; align-items:flex-start;">
           <ck-glyph name="pulse" [size]="18" color="var(--ck-signal-cool)" />
@@ -239,6 +249,7 @@ export class CaptureFilPlanComponent {
   protected readonly outlineDraft = signal<string | null>(null);
 
   protected readonly sessionId = this.engine.sessionId;
+  protected readonly previousReportOpenCount = this.engine.previousReportOpenCount;
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Plan de capture');
   protected readonly objective = computed(() => this.engine.session()?.objective ?? '');
   protected readonly planLocked = computed(

@@ -6487,3 +6487,131 @@ def test_silent_capture_defers_transcript_rewrite_but_readers_stay_complete(db_s
     synced = get_session(db_session, workspace_id=workspace.id, session_id=session_id, materialize=False)
     assert kc._transcript_is_dirty(synced) is False
     assert len(synced.transcript) == len(texts) + 1
+
+
+# --------------------------------------------------------------------------- #
+# Report quality fixes: hors-plan redundancy filter, open-question criticality #
+# ordering, grounded-question lexical grounding                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_filter_redundant_unassigned_facts_drops_covered_facts():
+    """Hors-plan facts already covered by an assigned fact or a section synthesis
+    are duplicates of the plan assignment, not extra knowledge — they must be
+    dropped (with an observability counter), while novel and too-short facts stay."""
+    import app.services.knowledge_capture as kc
+
+    plan_structure = {
+        "topics": [
+            {
+                "topic_id": "t1",
+                "title": "Réglages",
+                "facts": [{"text": "La vitesse nominale des rouleaux est de 120 par minute."}],
+                "subtopics": [
+                    {
+                        "subtopic_id": "s1",
+                        "title": "Purge",
+                        "facts": [],
+                        "synthesis": (
+                            "La pompe de reprise doit être purgée deux minutes avant "
+                            "chaque redémarrage terrain."
+                        ),
+                    }
+                ],
+            }
+        ],
+        "unassigned": [
+            # Redundant with the assigned fact (punctuation/casing vary).
+            {"text": "Vitesse nominale des rouleaux : 120 par minute"},
+            # Redundant with the section synthesis prose.
+            {"text": "Pompe de reprise : deux minutes de purge avant redémarrage."},
+            # Novel information — must stay.
+            {"text": "Le capteur de pression doit être recalibré tous les six mois."},
+            # Too short to judge (< 3 content words) — always kept.
+            {"text": "Voir annexe."},
+        ],
+    }
+
+    result = kc._filter_redundant_unassigned_facts(plan_structure)
+    texts = [fact["text"] for fact in result["unassigned"]]
+    assert result["unassigned_dropped_redundant"] == 2
+    assert len(texts) == 2
+    assert any("capteur de pression" in text for text in texts)
+    assert any("annexe" in text.lower() for text in texts)
+
+
+def test_filter_redundant_unassigned_facts_noop_without_references():
+    import app.services.knowledge_capture as kc
+
+    plan_structure = {"topics": [], "unassigned": [{"text": "Un fait hors plan quelconque."}]}
+    result = kc._filter_redundant_unassigned_facts(plan_structure)
+    assert len(result["unassigned"]) == 1
+    assert "unassigned_dropped_redundant" not in result
+
+
+def test_proposal_open_questions_preserve_blocking_and_sort_by_criticality():
+    """`blocking` / `required_field_key` must survive the proposal mapping, and
+    the merged list is ordered blocking first, then priority descending."""
+    from types import SimpleNamespace
+
+    import app.services.knowledge_capture as kc
+
+    plan = {
+        "live_open_questions": [
+            {"id": "live-low", "text": "Question basse priorité ?", "priority": 0.3, "status": "open"},
+            {"id": "live-high", "text": "Question haute priorité ?", "priority": 0.9, "status": "open"},
+            {
+                "id": "req-serial",
+                "text": "Quel est le numéro de série de la machine ?",
+                "priority": 0.99,
+                "status": "open",
+                "blocking": True,
+                "required_field_key": "serial_number",
+                "source": "capture_template_required_field",
+            },
+        ]
+    }
+    questions = kc._build_proposal_open_questions(SimpleNamespace(evaluations=[]), plan, [])
+    assert [q["gap_id"] for q in questions] == ["req-serial", "live-high", "live-low"]
+    assert questions[0]["blocking"] is True
+    assert questions[0]["required_field_key"] == "serial_number"
+    # Non-blocking questions keep a clean shape (no spurious keys).
+    assert "blocking" not in questions[1]
+    assert "required_field_key" not in questions[1]
+
+
+def test_grounded_question_lexical_filter_drops_off_transcript_question():
+    """Anti-hallucination guard: a generated question whose content words do not
+    overlap the transcript window (and with no verbatim evidence) is dropped;
+    on-transcript questions and verbatim-evidence questions are kept."""
+    from app.services.capture_knowledge_oracle import question_is_grounded
+
+    context = (
+        "L'expert explique que la carde KD724 tourne à 120 par minute en vitesse "
+        "nominale et que la purge de la pompe de reprise dure deux minutes."
+    )
+    # On-transcript: enough content-word overlap with the window.
+    assert question_is_grounded(
+        "Quelle est la vitesse nominale exacte de la carde KD724 ?",
+        None,
+        context=context,
+    )
+    # Off-transcript subject: no overlap — dropped even with a fabricated evidence.
+    assert not question_is_grounded(
+        "Quel est le protocole de maintenance du robot de soudure ?",
+        "le robot de soudure est entretenu chaque semaine",
+        context=context,
+    )
+    # Verbatim evidence rescues a short question whose own words overlap little.
+    assert question_is_grounded(
+        "Pourquoi ce chiffre précisément ?",
+        "tourne à 120 par minute",
+        context=context,
+    )
+    # Section labels count as grounding vocabulary.
+    assert question_is_grounded(
+        "Quels réglages de calandre restent à préciser ?",
+        None,
+        context="On a parlé des réglages sans donner de valeurs.",
+        section_label="Réglages de la calandre",
+    )

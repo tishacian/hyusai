@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from '../capture-engine';
+import { composePublicationName } from '../capture-templates';
 
 interface CategoryOption {
   id: string;
@@ -42,7 +43,12 @@ const CUSTOM_DESTINATION = '__custom__';
         </h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:62ch;">
           @if (engine.template(); as tpl) {
-            Publication du {{ tpl.label }} vers
+            Publication du {{ tpl.label }}
+            @if (engine.interventionType(); as it) {
+              · {{ it.label }}
+              <span class="ck-mono" style="color:var(--ck-fg-4);"> ({{ it.doc_ref }})</span>
+            }
+            vers
             <strong>{{ tpl.publication.collection }}</strong>
             (source_type {{ tpl.publication.source_type }}). Vous pouvez encore ajuster titre et destination.
           } @else {
@@ -94,6 +100,18 @@ const CUSTOM_DESTINATION = '__custom__';
               placeholder="Titre de la fiche publiée"
               style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
             />
+            @if (publicationNamePreview(); as pubName) {
+              <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
+                Convention EX70 · {{ pubName }}
+                <button
+                  type="button"
+                  (click)="finalTitle.set(pubName)"
+                  style="margin-left:8px; border:none; background:transparent; color:var(--ck-signal-cool); cursor:pointer; font-size:11px; padding:0;"
+                >
+                  utiliser
+                </button>
+              </span>
+            }
           </label>
 
           <label style="display:flex; flex-direction:column; gap:6px; max-width:320px;">
@@ -190,8 +208,23 @@ export class CaptureFilPublishComponent {
     { id: 'autre', label: 'Autre' },
   ];
 
+  protected readonly publicationNamePreview = computed(() => {
+    if (!this.engine.template()) return '';
+    return composePublicationName(this.engine.headerFields());
+  });
+
   protected readonly finalTitle = signal(
-    this.engine.proposal()?.proposal?.title ?? this.engine.session()?.title ?? '',
+    (() => {
+      const suggested = this.engine.template()
+        ? composePublicationName(this.engine.headerFields())
+        : '';
+      return (
+        suggested
+        || this.engine.proposal()?.proposal?.title
+        || this.engine.session()?.title
+        || ''
+      );
+    })(),
   );
   protected readonly category = signal('technique');
   /**

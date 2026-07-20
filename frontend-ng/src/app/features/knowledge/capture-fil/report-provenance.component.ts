@@ -22,7 +22,9 @@ import {
   INDEX_STATE_DISPLAY,
   type CaptureTone,
   type ReportBlock,
+  type ReportOpenQuestionRef,
   type ReportSectionCard,
+  type ReportSubsectionCard,
   buildReportFiche,
   clockLabel,
   flattenReportList,
@@ -37,6 +39,11 @@ import {
   viewTitle,
   viewTone,
 } from './capture-presentation';
+import {
+  composePublicationName,
+  fieldAppliesToIntervention,
+  headerValueAsDisplay,
+} from './capture-templates';
 
 interface ReportSource {
   key: string;
@@ -73,6 +80,18 @@ interface ReportSource {
             </div>
             <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">{{ reference() }}</div>
           </div>
+          <!-- quick access to the open-questions management panel (bottom of fiche) -->
+          @if (hasProposal() && openQuestions().length) {
+            <button
+              type="button"
+              (click)="scrollToQuestions()"
+              [title]="'Aller au panneau de gestion des questions ouvertes'"
+              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-warn) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 10%, transparent); color:var(--ck-signal-warn); font-size:11.5px; font-weight:600;"
+            >
+              <ck-glyph name="warn" [size]="12" color="currentColor" />
+              Questions ouvertes ({{ openQuestions().length }}@if (blockingQuestionCount(); as b) {&nbsp;dont {{ b }} bloquante{{ b > 1 ? 's' : '' }}})
+            </button>
+          }
           <span
             style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:5px 10px; border-radius:999px; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);"
           >
@@ -260,6 +279,20 @@ interface ReportSource {
                   {{ template() ? 'Fiche intervention FSE' : 'Fiche structurée' }}
                 </h2>
 
+                @if (template() && (interventionType() || publicationNamePreview())) {
+                  <div style="margin:0 0 14px; display:flex; flex-wrap:wrap; gap:8px 14px; align-items:baseline;">
+                    @if (interventionType(); as it) {
+                      <span style="font-size:13px; color:var(--ck-fg-2);">
+                        <span style="font-weight:600; color:var(--ck-fg-1);">{{ it.label }}</span>
+                        <span class="ck-mono" style="margin-left:8px; font-size:11px; color:var(--ck-fg-4);">{{ it.doc_ref }}</span>
+                      </span>
+                    }
+                    @if (publicationNamePreview(); as pubName) {
+                      <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Publication · {{ pubName }}</span>
+                    }
+                  </div>
+                }
+
                 @if (headerRows().length) {
                   <div style="margin:0 0 18px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; background:var(--ck-bg-panel);">
                     <div style="padding:10px 16px; border-bottom:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);">
@@ -275,7 +308,11 @@ interface ReportSource {
                 }
 
                 @for (card of fiche(); track card.key) {
-                  <article style="margin:0 0 16px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; background:var(--ck-bg-panel);">
+                  <article
+                    [id]="sectionDomId(card.key)"
+                    style="margin:0 0 16px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; background:var(--ck-bg-panel); transition:outline-color var(--ck-dur-med);"
+                    [style.outline]="flashedSectionKey() === card.key ? '2px solid var(--ck-signal-cool)' : 'none'"
+                  >
                     <header style="display:flex; align-items:center; gap:11px; padding:11px 16px; border-bottom:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);">
                       <span class="ck-mono" style="flex:none; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; font-size:11px; font-weight:700; color:var(--ck-signal-cool); background:color-mix(in oklab, var(--ck-signal-cool) 16%, transparent); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 35%, transparent);">{{ card.index }}</span>
                       <h3 style="margin:0; font-size:14px; font-weight:650; color:var(--ck-fg-1);">{{ card.title }}</h3>
@@ -322,7 +359,11 @@ interface ReportSource {
                       }
 
                       @for (sub of card.subsections; track sub.key) {
-                        <section style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); padding:11px 13px; display:flex; flex-direction:column; gap:9px;">
+                        <section
+                          [id]="sectionDomId(sub.key)"
+                          style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); padding:11px 13px; display:flex; flex-direction:column; gap:9px;"
+                          [style.outline]="flashedSectionKey() === sub.key ? '2px solid var(--ck-signal-cool)' : 'none'"
+                        >
                           <h4 style="margin:0; font-size:12.5px; font-weight:600; color:var(--ck-fg-1);">{{ sub.title }}</h4>
                           @for (block of sub.blocks; track $index) {
                             @if (block.kind === 'heading') {
@@ -362,11 +403,38 @@ interface ReportSource {
                               </span>
                             </p>
                           }
+                          <!-- provenance markers of the reformulated prose (facts hidden by synthesis) -->
+                          @if (sub.blocks.length && sectionMarkers(sub).length) {
+                            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px;">
+                              <span class="ck-mono" style="font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-fg-5); margin-right:2px;">Ancres</span>
+                              @for (m of sectionMarkers(sub); track m.key) {
+                                <button
+                                  type="button"
+                                  class="ck-mono"
+                                  (click)="select(m.key)"
+                                  [title]="viewTitleOf(m.ref) + ' · ' + locationOf(m.ref)"
+                                  style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:3px; padding:1px 6px 1px 5px; border-radius:999px; line-height:1.4; font-size:9px; font-weight:700;"
+                                  [style.color]="tintOf(m.ref)"
+                                  [style.border]="'1px solid ' + (m.key === selectedKey() ? tintOf(m.ref) : 'color-mix(in oklab, ' + tintOf(m.ref) + ' 40%, transparent)')"
+                                  [style.background]="'color-mix(in oklab, ' + tintOf(m.ref) + ' ' + (m.key === selectedKey() ? '22' : '9') + '%, transparent)'"
+                                >
+                                  <ck-glyph name="crosshair" [size]="9" color="currentColor" /> {{ m.n }}
+                                </button>
+                              }
+                            </div>
+                          }
                           @if (sub.openQuestions.length) {
                             <div style="border-radius:var(--ck-radius-sm); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 30%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 7%, transparent); padding:7px 9px; display:flex; flex-direction:column; gap:4px;">
                               <span class="ck-mono" style="font-size:9.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-warn);">Questions ouvertes</span>
                               @for (q of sub.openQuestions; track $index) {
-                                <span style="font-size:12px; line-height:1.55; color:var(--ck-fg-2);">{{ q }}</span>
+                                <button
+                                  type="button"
+                                  (click)="jumpToQuestion(q)"
+                                  [title]="'Voir cette question dans le panneau de gestion'"
+                                  style="appearance:none; cursor:pointer; background:none; border:none; padding:0; text-align:left; font-size:12px; line-height:1.55; color:var(--ck-fg-2); text-decoration:underline dotted color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); text-underline-offset:3px;"
+                                >
+                                  {{ q.text }}
+                                </button>
                               }
                             </div>
                           }
@@ -383,11 +451,39 @@ interface ReportSource {
                         </section>
                       }
 
+                      <!-- provenance markers of the reformulated prose (facts hidden by synthesis) -->
+                      @if (card.blocks.length && sectionMarkers(card).length) {
+                        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px;">
+                          <span class="ck-mono" style="font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-fg-5); margin-right:2px;">Ancres</span>
+                          @for (m of sectionMarkers(card); track m.key) {
+                            <button
+                              type="button"
+                              class="ck-mono"
+                              (click)="select(m.key)"
+                              [title]="viewTitleOf(m.ref) + ' · ' + locationOf(m.ref)"
+                              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:3px; padding:1px 6px 1px 5px; border-radius:999px; line-height:1.4; font-size:9.5px; font-weight:700;"
+                              [style.color]="tintOf(m.ref)"
+                              [style.border]="'1px solid ' + (m.key === selectedKey() ? tintOf(m.ref) : 'color-mix(in oklab, ' + tintOf(m.ref) + ' 40%, transparent)')"
+                              [style.background]="'color-mix(in oklab, ' + tintOf(m.ref) + ' ' + (m.key === selectedKey() ? '22' : '9') + '%, transparent)'"
+                            >
+                              <ck-glyph name="crosshair" [size]="9" color="currentColor" /> {{ m.n }}
+                            </button>
+                          }
+                        </div>
+                      }
+
                       @if (card.openQuestions.length) {
                         <div style="border-radius:var(--ck-radius-sm); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 30%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 7%, transparent); padding:8px 10px; display:flex; flex-direction:column; gap:5px;">
                           <span class="ck-mono" style="font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-warn);">Questions ouvertes</span>
                           @for (q of card.openQuestions; track $index) {
-                            <span style="font-size:12.5px; line-height:1.55; color:var(--ck-fg-2);">{{ q }}</span>
+                            <button
+                              type="button"
+                              (click)="jumpToQuestion(q)"
+                              [title]="'Voir cette question dans le panneau de gestion'"
+                              style="appearance:none; cursor:pointer; background:none; border:none; padding:0; text-align:left; font-size:12.5px; line-height:1.55; color:var(--ck-fg-2); text-decoration:underline dotted color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); text-underline-offset:3px;"
+                            >
+                              {{ q.text }}
+                            </button>
                           }
                         </div>
                       }
@@ -455,6 +551,25 @@ interface ReportSource {
                         </button>
                       }
                     </div>
+                    <!-- reverse provenance: sections of the fiche citing the selected anchor -->
+                    @if (selected(); as sel) {
+                      @if (sectionRefsFor(sel).length) {
+                        <div style="margin-top:9px; display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+                          <span class="ck-mono" style="font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-fg-5);">Référencée dans</span>
+                          @for (section of sectionRefsFor(sel); track section.key) {
+                            <button
+                              type="button"
+                              (click)="scrollToSection(section.key)"
+                              [title]="'Aller à la section « ' + section.title + ' »'"
+                              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:3px 9px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-cool) 40%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-signal-cool); font-size:11px;"
+                            >
+                              <ck-glyph name="arrow-up" [size]="10" color="currentColor" />
+                              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ section.title }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    }
                   } @else {
                     <p style="font-size:13px; color:var(--ck-fg-4); font-style:italic;">
                       Aucune source pointée pour cette séance. Les affirmations sourcées apparaissent ici à mesure que des pièces sont
@@ -465,15 +580,35 @@ interface ReportSource {
 
                 <!-- open-questions management -->
                 @if (openQuestions().length) {
-                  <section style="margin:22px 0 0; border-top:1px solid var(--ck-stroke-2); padding-top:16px; display:flex; flex-direction:column; gap:10px;">
+                  <section id="kc-oq-panel" style="margin:22px 0 0; border-top:1px solid var(--ck-stroke-2); padding-top:16px; display:flex; flex-direction:column; gap:10px; scroll-margin-top:70px;">
                     <h3 class="ck-mono" style="margin:0; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-warn); display:flex; align-items:center; gap:7px;">
                       <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" /> Questions ouvertes ({{ openQuestions().length }})
                     </h3>
                     @for (q of openQuestions(); track $index) {
-                      <div style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-panel); padding:11px 13px; display:flex; flex-direction:column; gap:8px;"
-                        [style.opacity]="isResolved(q) ? '0.6' : '1'">
+                      <div
+                        [id]="'kc-oq-' + $index"
+                        style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-panel); padding:11px 13px; display:flex; flex-direction:column; gap:8px; scroll-margin-top:70px;"
+                        [style.opacity]="isResolved(q) ? '0.6' : '1'"
+                        [style.outline]="flashedQuestionIndex() === $index ? '2px solid var(--ck-signal-warn)' : 'none'"
+                      >
                         <div style="display:flex; align-items:flex-start; gap:8px;">
                           <span style="flex:1; font-size:13.5px; line-height:1.6; color:var(--ck-fg-1);">{{ questionText(q) }}</span>
+                          @if (q.source === 'previous_report') {
+                            <span
+                              class="ck-mono"
+                              style="flex:none; font-size:9px; letter-spacing:0.06em; text-transform:uppercase; padding:2px 7px; border-radius:999px; font-weight:700; color:var(--ck-signal-warn); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 12%, transparent);"
+                              title="Repris du rapport N-1"
+                            >N-1</span>
+                          }
+                          @if (criticalityBadge(q); as crit) {
+                            <span
+                              class="ck-mono"
+                              style="flex:none; font-size:9px; letter-spacing:0.06em; text-transform:uppercase; padding:2px 7px; border-radius:999px; font-weight:700;"
+                              [style.color]="crit.color"
+                              [style.border]="'1px solid color-mix(in oklab, ' + crit.color + ' 55%, transparent)'"
+                              [style.background]="'color-mix(in oklab, ' + crit.color + ' 12%, transparent)'"
+                            >{{ crit.label }}</span>
+                          }
                           <span class="ck-mono" style="flex:none; font-size:9px; letter-spacing:0.06em; text-transform:uppercase; padding:2px 7px; border-radius:999px; border:1px solid var(--ck-stroke-2);" [style.color]="questionStatusColor(q)">{{ questionStatusLabel(q) }}</span>
                         </div>
                         @if (q.answer || q.answered_text; as ans) {
@@ -581,6 +716,23 @@ interface ReportSource {
                   <span class="prov-v" [style.color]="indexTone(sel)">{{ indexLabel(sel) }}</span>
                 </span>
               </div>
+              <!-- reverse provenance: fiche sections citing this anchor -->
+              @if (sectionRefsFor(sel).length) {
+                <div style="display:flex; flex-direction:column; gap:5px;">
+                  <span class="ck-mono" style="font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ck-fg-5);">Citée dans</span>
+                  @for (section of sectionRefsFor(sel); track section.key) {
+                    <button
+                      type="button"
+                      (click)="scrollToSection(section.key)"
+                      [title]="'Aller à la section « ' + section.title + ' »'"
+                      style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; align-self:flex-start; max-width:100%; padding:4px 10px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-cool) 40%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-signal-cool); font-size:11.5px;"
+                    >
+                      <ck-glyph name="arrow-up" [size]="11" color="currentColor" />
+                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ section.title }}</span>
+                    </button>
+                  }
+                </div>
+              }
             </div>
 
             <button
@@ -733,12 +885,49 @@ export class ReportProvenanceComponent {
   protected readonly fiche = computed<ReportSectionCard[]>(() => buildReportFiche(this.engine.proposal()));
   protected readonly unassigned = computed(() => reportUnassignedFacts(this.engine.proposal()));
   protected readonly reportMarkdown = computed(() => this.engine.proposal()?.proposal?.report_markdown ?? '');
-  protected readonly openQuestions = computed<ProposalOpenQuestion[]>(
-    () => this.engine.proposal()?.proposal?.open_questions ?? [],
+  /** Review-panel questions, criticality-ordered: blocking first, then priority
+   * descending (raw backend scale kept), stable for ties. */
+  protected readonly openQuestions = computed<ProposalOpenQuestion[]>(() => {
+    const raw = this.engine.proposal()?.proposal?.open_questions ?? [];
+    return raw
+      .map((q, i) => ({ q, i }))
+      .sort((a, b) => {
+        const blocking = Number(Boolean(b.q.blocking)) - Number(Boolean(a.q.blocking));
+        if (blocking !== 0) return blocking;
+        const priority = this.priorityOf(b.q) - this.priorityOf(a.q);
+        if (priority !== 0) return priority;
+        return a.i - b.i;
+      })
+      .map((entry) => entry.q);
+  });
+  protected readonly blockingQuestionCount = computed(
+    () => this.openQuestions().filter((q) => Boolean(q.blocking)).length,
   );
   protected readonly accepted = computed(() => {
     const s = (this.engine.proposal()?.status ?? '').toLowerCase();
     return s === 'accepted' || s === 'published';
+  });
+
+  /** Brief visual pulse on the fiche section a reverse-provenance jump lands on. */
+  protected readonly flashedSectionKey = signal<string | null>(null);
+  /** Brief visual pulse on the management-panel question a fiche label jumps to. */
+  protected readonly flashedQuestionIndex = signal<number | null>(null);
+
+  /** Reverse provenance map: journaled anchor event id → fiche sections citing it. */
+  private readonly sectionsByEvent = computed(() => {
+    const map = new Map<string, Array<{ key: string; title: string }>>();
+    const add = (node: ReportSubsectionCard, title: string) => {
+      for (const eventId of node.sourceEventIds) {
+        const list = map.get(eventId) ?? [];
+        if (!list.some((entry) => entry.key === node.key)) list.push({ key: node.key, title });
+        map.set(eventId, list);
+      }
+    };
+    for (const card of this.fiche()) {
+      add(card, `${card.index}. ${card.title}`);
+      for (const sub of card.subsections) add(sub, `${card.index}. ${card.title} · ${sub.title}`);
+    }
+    return map;
   });
 
   /** Lookup so a fiche fact can resolve its journaled anchor (inline marker). */
@@ -779,22 +968,30 @@ export class ReportProvenanceComponent {
 
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Rapport de capture');
   protected readonly template = this.engine.template;
+  protected readonly interventionType = this.engine.interventionType;
+  protected readonly publicationNamePreview = computed(() => {
+    if (!this.template()) return '';
+    return composePublicationName(this.engine.headerFields());
+  });
   protected readonly headerRows = computed(() => {
     const tpl = this.template();
     if (!tpl) return [];
     const values = this.engine.headerFields();
-    return tpl.required_fields.map((field) => ({
-      key: field.key,
-      label: field.label,
-      value: (values[field.key] || '').trim(),
-    }));
+    const typeId = this.engine.interventionTypeId();
+    return tpl.required_fields
+      .filter((field) => fieldAppliesToIntervention(field, typeId))
+      .map((field) => ({
+        key: field.key,
+        label: field.label,
+        value: headerValueAsDisplay(values[field.key]),
+      }));
   });
   protected readonly reference = computed(() => {
     const proposal = this.engine.proposalId();
     const sessionId = this.engine.sessionId();
     const tpl = this.template();
     if (tpl) {
-      const ref = (this.engine.headerFields()['reference'] || '').trim();
+      const ref = headerValueAsDisplay(this.engine.headerFields()['reference']);
       if (ref) return ref;
     }
     return proposal ? `proposition ${proposal}` : sessionId ? `séance ${sessionId}` : '—';
@@ -899,7 +1096,84 @@ export class ReportProvenanceComponent {
     return (value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
+  // ---- section anchors & reverse provenance (P3) --------------------------
+
+  /** Anchor markers of a synthesized section (its facts are hidden by the prose). */
+  protected sectionMarkers(node: ReportSubsectionCard): ReportSource[] {
+    const byEvent = this.sourceIndex().byEvent;
+    const markers: ReportSource[] = [];
+    for (const eventId of node.sourceEventIds) {
+      const src = byEvent.get(eventId);
+      if (src) markers.push(src);
+    }
+    return markers;
+  }
+
+  /** Fiche sections citing the given anchor (reverse chip → section link). */
+  protected sectionRefsFor(ref: CaptureViewReference): Array<{ key: string; title: string }> {
+    const eventId = ref.event_id;
+    if (!eventId) return [];
+    return this.sectionsByEvent().get(eventId) ?? [];
+  }
+
+  protected sectionDomId(key: string): string {
+    return `kc-section-${key}`;
+  }
+
+  protected scrollToSection(key: string): void {
+    document.getElementById(this.sectionDomId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    this.flashedSectionKey.set(key);
+    setTimeout(() => {
+      if (this.flashedSectionKey() === key) this.flashedSectionKey.set(null);
+    }, 1600);
+  }
+
+  // ---- open-questions navigation (P2) --------------------------------------
+
+  protected scrollToQuestions(): void {
+    document.getElementById('kc-oq-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** Jump from a fiche section's question label to the management panel entry. */
+  protected jumpToQuestion(ref: ReportOpenQuestionRef): void {
+    const list = this.openQuestions();
+    const wanted = this.normStatement(ref.text);
+    const index = list.findIndex((q) => {
+      if (ref.gapId) {
+        const id = String(q.gap_id ?? q.id ?? q.question_id ?? '').trim();
+        if (id && id === ref.gapId) return true;
+      }
+      return this.normStatement(this.questionText(q)) === wanted;
+    });
+    if (index < 0) {
+      this.scrollToQuestions();
+      return;
+    }
+    document.getElementById(`kc-oq-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    this.flashedQuestionIndex.set(index);
+    setTimeout(() => {
+      if (this.flashedQuestionIndex() === index) this.flashedQuestionIndex.set(null);
+    }, 1600);
+  }
+
   // ---- open questions -----------------------------------------------------
+
+  /** Numeric priority, defensively parsed (backend mixes 0-3 and 0..1 scales). */
+  private priorityOf(q: ProposalOpenQuestion): number {
+    const raw = q.priority ?? q.severity;
+    const n = typeof raw === 'number' ? raw : parseFloat(String(raw ?? ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /** Criticality badge: blocking (red), high priority (warn) — per-item scale
+   * inferred defensively (values > 1 read on the 0-3 scale, else 0..1). */
+  protected criticalityBadge(q: ProposalOpenQuestion): { label: string; color: string } | null {
+    if (q.blocking) return { label: 'Bloquante', color: 'var(--ck-signal-neg)' };
+    const p = this.priorityOf(q);
+    const high = p > 1 ? p >= 2 : p >= 0.7;
+    return high ? { label: 'Priorité haute', color: 'var(--ck-signal-warn)' } : null;
+  }
+
   protected questionText(q: ProposalOpenQuestion): string {
     return String(
       (q as Record<string, unknown>)['text'] || q.follow_up || q.reason || q.gap_id || 'Question ouverte',

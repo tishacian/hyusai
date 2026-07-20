@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+
+_logger = logging.getLogger(__name__)
 
 _RPM_PATTERN = re.compile(r"(\d+)\s*/?\s*min", re.IGNORECASE)
 _NUMERIC_UNIT_PATTERN = re.compile(
@@ -1590,6 +1593,44 @@ async def reformulate_section_async(
         return fallback
 
 
+# Anti-hallucination guard for grounded open questions: a question is kept only
+# when it carries a verbatim `evidence` quote found in the context, or when
+# enough of its content words appear in the transcript window + section labels.
+_GROUNDED_QUESTION_MIN_OVERLAP = 0.4
+_GROUNDED_EVIDENCE_MIN_CHARS = 12
+
+
+def _grounding_normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip().lower())
+
+
+def question_is_grounded(
+    text: str,
+    evidence: Optional[str],
+    *,
+    context: str,
+    section_label: str = "",
+) -> bool:
+    """Lexical grounding check for a generated open question.
+
+    Keeps the question when its ``evidence`` quote literally appears in the
+    context, or when ≥ ``_GROUNDED_QUESTION_MIN_OVERLAP`` of its content words
+    overlap the context + plan section labels. Questions without content words
+    are kept (nothing to judge)."""
+    evidence_clean = _grounding_normalize(evidence or "")
+    if (
+        len(evidence_clean) >= _GROUNDED_EVIDENCE_MIN_CHARS
+        and evidence_clean in _grounding_normalize(context)
+    ):
+        return True
+    question_tokens = _content_tokens(text)
+    if not question_tokens:
+        return True
+    context_tokens = _content_tokens(context) | _content_tokens(section_label)
+    overlap = len(question_tokens & context_tokens) / len(question_tokens)
+    return overlap >= _GROUNDED_QUESTION_MIN_OVERLAP
+
+
 async def generate_grounded_open_questions_async(
     context: str,
     chunks: Optional[List[str]] = None,
@@ -1634,8 +1675,12 @@ async def generate_grounded_open_questions_async(
                 "détaillées, valeurs/conditions manquantes, exceptions évoquées sans précision, "
                 "contradictions avec la base. Formule des questions SPÉCIFIQUES et répondables, "
                 "ancrées sur le contenu, jamais génériques. N'invente pas de sujet hors de ce "
-                "qui a été dit. Retourne un JSON {questions: [{text, priority}]} où priority est "
-                "un nombre 0..1 (1 = plus pressant)."
+                "qui a été dit. Pour CHAQUE question, fournis dans 'evidence' une courte "
+                "citation VERBATIM (copiée mot pour mot) du passage de 'expert_statements' qui "
+                "motive la question. Si les propos sont trop courts ou insuffisants pour "
+                "identifier un vrai trou de connaissance, retourne une liste vide. Retourne un "
+                "JSON {questions: [{text, priority, evidence}]} où priority est un nombre 0..1 "
+                "(1 = plus pressant)."
             ),
         }
         response = await client.chat.completions.create(
@@ -1658,6 +1703,8 @@ async def generate_grounded_open_questions_async(
         if not isinstance(raw_questions, list):
             return []
         items: List[Dict[str, Any]] = []
+        dropped_ungrounded = 0
+        section_label = _section_label(plan_section)
         for index, raw in enumerate(raw_questions, start=1):
             if isinstance(raw, str):
                 raw = {"text": raw}
@@ -1665,6 +1712,12 @@ async def generate_grounded_open_questions_async(
                 continue
             text = str(raw.get("text") or raw.get("question") or "").strip()
             if not text:
+                continue
+            evidence = str(raw.get("evidence") or "").strip()
+            # Anti-hallucination: drop questions not lexically anchored on the
+            # transcript window (or whose evidence quote is not verbatim).
+            if not question_is_grounded(text, evidence, context=statements, section_label=section_label):
+                dropped_ungrounded += 1
                 continue
             try:
                 priority = float(raw.get("priority"))
@@ -1680,10 +1733,18 @@ async def generate_grounded_open_questions_async(
                     "status": "open",
                     "source": "oracle_grounded",
                     "grounding_status": grounding_status,
+                    "evidence": evidence or None,
                 }
             )
             if len(items) >= max(1, int(max_questions)):
                 break
+        if dropped_ungrounded:
+            _logger.info(
+                "grounded open questions: dropped %d ungrounded question(s) (%d kept, section=%s)",
+                dropped_ungrounded,
+                len(items),
+                section_label or "-",
+            )
         return items
     except Exception:
         return []

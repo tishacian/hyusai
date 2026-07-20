@@ -31,6 +31,9 @@ import { CanonicalApiService } from '@app/core/canonical-api.service';
 import {
   coerceCaptureTemplate,
   lookupCaptureTemplate,
+  resolveInterventionType,
+  type CaptureHeaderValue,
+  type CaptureInterventionType,
   type CaptureTemplate,
 } from './capture-templates';
 
@@ -81,6 +84,10 @@ export interface CaptureOracleItem {
   topic_id?: string | null;
   /** Backend priority (higher = surface first); already sorted by the gateway. */
   priority?: number | null;
+  /** Template / finalize blocking question (e.g. required field). */
+  blocking?: boolean;
+  /** Provenance: previous_report | oracle_live | capture_template_* … */
+  source?: string | null;
 }
 
 /**
@@ -294,7 +301,11 @@ export class CaptureEngine {
   /** Tracks in-flight template fetches so a stale response cannot stomp a newer id. */
   private templateFetchId: string | null = null;
   /** Header identification fields captured on Prep (FSE and similar templates). */
-  private readonly _headerFields = signal<Record<string, string>>({});
+  private readonly _headerFields = signal<Record<string, CaptureHeaderValue>>({});
+  /** Active FSE intervention type id (stamped on plan.capture_template). */
+  private readonly _interventionTypeId = signal<string | null>(null);
+  /** Open items reused from the previous published report (N-1), when present. */
+  private readonly _previousReportOpenCount = signal(0);
 
   // ---- session minuterie / closure (P1, v0) ------------------------------
   private readonly _paused = signal(false);
@@ -379,8 +390,16 @@ export class CaptureEngine {
   readonly filLayout = this._filLayout.asReadonly();
   /** Active CaptureTemplate for the scoped system; null for classic knowledge-capture. */
   readonly template = this._template.asReadonly();
-  /** Prep header fields (keys from `template.required_fields`). */
+  /** Prep header fields (keys from `template.required_fields`); may be structured. */
   readonly headerFields = this._headerFields.asReadonly();
+  /** Active intervention type id when the template is multi-type (FSE EX70). */
+  readonly interventionTypeId = this._interventionTypeId.asReadonly();
+  /** Count of open questions injected from the previous report (N-1). */
+  readonly previousReportOpenCount = this._previousReportOpenCount.asReadonly();
+  /** Resolved intervention type metadata (label, doc_ref, plan_seed). */
+  readonly interventionType = computed<CaptureInterventionType | null>(() =>
+    resolveInterventionType(this._template(), this._interventionTypeId()),
+  );
 
   /**
    * The session plan parsed into a typed topics/sous-sujets tree (P0 #1). Reads
@@ -1295,8 +1314,50 @@ export class CaptureEngine {
   }
 
   /** Store Prep identification fields for finalize checklist / session payload. */
-  setHeaderFields(fields: Record<string, string>): void {
+  setHeaderFields(fields: Record<string, CaptureHeaderValue>): void {
     this._headerFields.set({ ...fields });
+  }
+
+  /** Merge one or more header field updates (finalize editors, prep tweaks). */
+  patchHeaderFields(patch: Record<string, CaptureHeaderValue>): void {
+    this._headerFields.update((prev) => ({ ...prev, ...patch }));
+  }
+
+  /** Select the active FSE intervention type (prep cards). */
+  setInterventionTypeId(typeId: string | null): void {
+    this._interventionTypeId.set(typeId?.trim() || null);
+  }
+
+  /**
+   * Persist current header_fields (+ intervention type stamp) onto the session
+   * plan. Best-effort — older backends may stringify values until Phase A lands.
+   */
+  async persistHeaderFields(): Promise<void> {
+    const sessionId = this._sessionId();
+    const session = this._session();
+    if (!sessionId || !session?.plan) return;
+    const plan = { ...this.asRecord(session.plan) };
+    const typeId = this._interventionTypeId();
+    const header = { ...this._headerFields() };
+    if (typeId) header['intervention_type'] = typeId;
+    plan['header_fields'] = header;
+    const snapshot = { ...this.asRecord(plan['capture_template']) };
+    if (typeId) snapshot['intervention_type'] = typeId;
+    if (Object.keys(snapshot).length) plan['capture_template'] = snapshot;
+    try {
+      const updated = await firstValueFrom(this.api.updateCapturePlan(sessionId, plan));
+      const next = this.asRecord(updated);
+      if (next['plan'] && typeof next['plan'] === 'object') {
+        this._session.set({
+          ...session,
+          plan: next['plan'] as Record<string, unknown>,
+        });
+      } else {
+        this._session.set({ ...session, plan });
+      }
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
   }
 
   /**
@@ -1388,19 +1449,57 @@ export class CaptureEngine {
     const plan = this.asRecord(info.plan);
     const headerRaw = plan['header_fields'];
     if (headerRaw && typeof headerRaw === 'object' && !Array.isArray(headerRaw)) {
-      const fields: Record<string, string> = {};
+      const fields: Record<string, CaptureHeaderValue> = {};
       for (const [key, value] of Object.entries(headerRaw as Record<string, unknown>)) {
         const k = String(key).trim();
-        const v = String(value ?? '').trim();
-        if (k && v) fields[k] = v;
+        if (!k || value == null) continue;
+        if (typeof value === 'string') {
+          if (value.trim()) fields[k] = value;
+          continue;
+        }
+        fields[k] = value as CaptureHeaderValue;
       }
       this._headerFields.set(fields);
     }
     const snapshot = plan['capture_template'];
     const coerced = coerceCaptureTemplate(snapshot);
     if (coerced) this._template.set(coerced);
+    const snapRec = this.asRecord(snapshot);
+    const typeFromSnap =
+      typeof snapRec['intervention_type'] === 'string' ? snapRec['intervention_type'].trim() : '';
+    const typeFromPlan =
+      typeof plan['intervention_type'] === 'string' ? plan['intervention_type'].trim() : '';
+    const typeId = typeFromSnap || typeFromPlan || null;
+    if (typeId) this._interventionTypeId.set(typeId);
+    else if (coerced?.intervention_types?.length) {
+      this._interventionTypeId.set(coerced.intervention_types[0].id);
+    }
+    const prevItems = this.asRecord(plan['previous_report_open_items']);
+    const prevCount = prevItems['count'] ?? plan['previous_report_open_count'];
+    if (typeof prevCount === 'number' && Number.isFinite(prevCount)) {
+      this._previousReportOpenCount.set(Math.max(0, Math.floor(prevCount)));
+    } else {
+      const live = plan['live_open_questions'];
+      let fromPrevious = 0;
+      if (Array.isArray(live)) {
+        for (const q of live) {
+          if (!q || typeof q !== 'object') continue;
+          if ((q as Record<string, unknown>)['source'] === 'previous_report') fromPrevious += 1;
+        }
+      }
+      this._previousReportOpenCount.set(fromPrevious);
+    }
+    const headerType = this._headerFields()['intervention_type'];
+    if (typeof headerType === 'string' && headerType.trim()) {
+      this._interventionTypeId.set(headerType.trim());
+    }
     const templateId = this.sessionTemplateId(info);
     if (templateId) this.resolveTemplate(templateId);
+    // Seed oracle from plan.live_open_questions (N-1 reprise + template gaps).
+    const live = plan['live_open_questions'];
+    if (Array.isArray(live) && live.length) {
+      this.ingestOpenQuestions({ open_questions: live });
+    }
   }
 
   /** Bind the engine to a session without opening the realtime leg. */
@@ -2161,6 +2260,8 @@ export class CaptureEngine {
     // Layout stays on the system default; the ephemeral toggle dies with the séance.
     this.filLayoutTouched = false;
     this._headerFields.set({});
+    this._interventionTypeId.set(null);
+    this._previousReportOpenCount.set(0);
     this._state.set('idle');
   }
 
@@ -2176,6 +2277,8 @@ export class CaptureEngine {
     this.templateFetchId = null;
     this._template.set(null);
     this._headerFields.set({});
+    this._interventionTypeId.set(null);
+    this._previousReportOpenCount.set(0);
     this._collections.set([]);
     this._micMuted.set(false);
     this._filLayout.set('documents');
@@ -2379,6 +2482,12 @@ export class CaptureEngine {
         if (!text) continue;
         const id = String(q['id'] ?? q['question_id'] ?? this.uid());
         const prev = byId.get(id);
+        const blocking =
+          q['blocking'] === true || q['blocking'] === 'true' || q['blocking'] === 1
+            ? true
+            : q['blocking'] === false || q['blocking'] === 'false'
+              ? false
+              : prev?.blocking;
         byId.set(id, {
           id,
           text,
@@ -2386,6 +2495,11 @@ export class CaptureEngine {
           ts_ms: prev?.ts_ms ?? ts,
           topic_id: q['topic_id'] != null ? String(q['topic_id']) : prev?.topic_id ?? null,
           priority: q['priority'] != null ? Number(q['priority']) : prev?.priority ?? null,
+          blocking,
+          source:
+            q['source'] != null
+              ? String(q['source'])
+              : prev?.source ?? null,
         });
       }
       return Array.from(byId.values());

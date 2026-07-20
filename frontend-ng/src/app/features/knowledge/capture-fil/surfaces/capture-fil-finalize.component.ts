@@ -3,6 +3,19 @@ import type { CaptureShareLevelItem, ProposalOpenQuestion } from '@app/core/api.
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from '../capture-engine';
 import { CaptureTriageDialogComponent } from '../triage-dialog.component';
+import {
+  applicableTemplateFields,
+  asCheckboxGroup,
+  toCheckboxGroupPayload,
+  asEquipmentRows,
+  asStringArray,
+  emptyEquipmentRow,
+  headerValueAsDisplay,
+  isHeaderFieldFilled,
+  type CaptureHeaderValue,
+  type CaptureTemplateField,
+  type EquipmentProgressRow,
+} from '../capture-templates';
 
 /**
  * Finalisation surface (Option A) — hosts the end-of-capture triage then
@@ -12,7 +25,8 @@ import { CaptureTriageDialogComponent } from '../triage-dialog.component';
  * separate downstream surface (`app-capture-fil-publish`).
  *
  * When a CaptureTemplate is active, shows a checklist of required header fields
- * and soft-blocks generation until the operator confirms override if incomplete.
+ * (with editors for structured kinds) and soft-blocks generation until the
+ * operator confirms override if incomplete.
  */
 @Component({
   selector: 'app-capture-fil-finalize',
@@ -22,30 +36,123 @@ import { CaptureTriageDialogComponent } from '../triage-dialog.component';
   template: `
     <div style="max-width:780px; display:flex; flex-direction:column; gap:16px;">
       @if (template(); as tpl) {
-        <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; flex-direction:column; gap:12px;">
+        <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; flex-direction:column; gap:14px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <ck-glyph name="ledger" [size]="15" color="var(--ck-signal-cool)" />
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
               Champs obligatoires · {{ tpl.label }}
+              @if (engine.interventionType(); as it) {
+                · {{ it.label }}
+              }
             </span>
           </div>
-          <ul style="margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px;">
-            @for (row of fieldChecklist(); track row.key) {
-              <li style="display:flex; align-items:center; gap:10px; font-size:13px;">
+
+          @for (field of checklistFields(); track field.key) {
+            <div style="display:flex; flex-direction:column; gap:8px; padding-top:10px; border-top:1px solid var(--ck-stroke-2);">
+              <div style="display:flex; align-items:center; gap:8px;">
                 <ck-glyph
-                  [name]="row.ok ? 'check' : 'warn'"
+                  [name]="fieldOk(field) ? 'check' : 'warn'"
                   [size]="14"
-                  [color]="row.ok ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
+                  [color]="fieldOk(field) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
                 />
-                <span [style.color]="row.ok ? 'var(--ck-fg-2)' : 'var(--ck-fg-1)'">{{ row.label }}</span>
-                <span class="ck-mono" style="margin-left:auto; font-size:11px; color:var(--ck-fg-4); max-width:40ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                  {{ row.ok ? row.value : 'manquant' }}
+                <span style="font-size:13px; font-weight:600; color:var(--ck-fg-1);">
+                  {{ field.label }}{{ field.required ? ' *' : '' }}
                 </span>
-              </li>
-            }
-          </ul>
+              </div>
+
+              @if (field.kind === 'equipment_progress') {
+                <div style="overflow-x:auto; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md);">
+                  <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+                    <thead>
+                      <tr style="background:var(--ck-bg-inset); text-align:left;">
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Équipement</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3); width:72px;">%</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Problème / risque</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Mesure</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Responsable</th>
+                        <th style="padding:8px 6px; width:36px;"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of equipmentRows(field.key); track $index; let i = $index) {
+                        <tr style="border-top:1px solid var(--ck-stroke-2);">
+                          <td style="padding:4px 6px;">
+                            <input [value]="row.equipment" (input)="patchEquipment(field.key, i, 'equipment', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
+                          </td>
+                          <td style="padding:4px 6px;">
+                            <input type="number" min="0" max="100" [value]="row.percent" (input)="patchEquipment(field.key, i, 'percent', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
+                          </td>
+                          <td style="padding:4px 6px;">
+                            <input [value]="row.problem_risk || ''" (input)="patchEquipment(field.key, i, 'problem_risk', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
+                          </td>
+                          <td style="padding:4px 6px;">
+                            <input [value]="row.measure || ''" (input)="patchEquipment(field.key, i, 'measure', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
+                          </td>
+                          <td style="padding:4px 6px;">
+                            <input [value]="row.responsible || ''" (input)="patchEquipment(field.key, i, 'responsible', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
+                          </td>
+                          <td style="padding:4px 6px; text-align:center;">
+                            <button type="button" (click)="removeEquipmentRow(field.key, i)" title="Supprimer" style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:14px;">×</button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  type="button"
+                  (click)="addEquipmentRow(field.key)"
+                  style="align-self:flex-start; border:1px dashed var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); border-radius:var(--ck-radius-sm); padding:5px 10px; cursor:pointer; font-size:12px;"
+                >
+                  + Ajouter une ligne
+                </button>
+              } @else if (field.kind === 'checkbox_group') {
+                <div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset);">
+                  @for (opt of field.options || []; track opt.value) {
+                    <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ck-fg-2); cursor:pointer;">
+                      <input
+                        type="checkbox"
+                        [checked]="checkboxSelected(field.key, opt.value)"
+                        (change)="toggleCheckbox(field.key, opt.value, $any($event.target).checked)"
+                      />
+                      {{ opt.label }}
+                    </label>
+                  }
+                  @if (needsCheckboxDescription(field.key)) {
+                    <input
+                      [value]="checkboxDescription(field.key)"
+                      (input)="setCheckboxDescription(field.key, $any($event.target).value)"
+                      placeholder="Description des modifications *"
+                      style="margin-top:4px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-base); color:var(--ck-fg-1); font-size:13px; padding:8px 10px;"
+                    />
+                  }
+                </div>
+              } @else if (field.kind === 'select_multi') {
+                <div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset);">
+                  @for (opt of field.options || []; track opt.value) {
+                    <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ck-fg-2); cursor:pointer;">
+                      <input
+                        type="checkbox"
+                        [checked]="multiSelected(field.key, opt.value)"
+                        (change)="toggleMulti(field.key, opt.value, $any($event.target).checked)"
+                      />
+                      {{ opt.label }}
+                    </label>
+                  }
+                </div>
+              } @else {
+                <input
+                  [type]="field.kind === 'date' ? 'date' : 'text'"
+                  [value]="headerText(field.key)"
+                  (input)="setTextField(field.key, $any($event.target).value)"
+                  style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:14px; padding:8px 12px;"
+                />
+              }
+            </div>
+          }
+
           @if (incompleteRequired()) {
-            <div style="display:flex; flex-direction:column; gap:8px; padding-top:4px; border-top:1px solid var(--ck-stroke-2);">
+            <div style="display:flex; flex-direction:column; gap:8px; padding-top:8px; border-top:1px solid var(--ck-stroke-2);">
               <div style="font-size:12.5px; color:var(--ck-signal-warn); line-height:1.45;">
                 Des champs obligatoires manquent. Vous pouvez tout de même générer le rapport (soft-block) —
                 les trous resteront visibles en revue.
@@ -94,7 +201,7 @@ import { CaptureTriageDialogComponent } from '../triage-dialog.component';
       } @else {
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:24px; display:flex; flex-direction:column; gap:12px;">
           <div style="font-size:14px; color:var(--ck-fg-2); line-height:1.5;">
-            Cochez « Générer malgré les champs incomplets » pour ouvrir le triage et lancer la génération.
+            Complétez les champs ci-dessus ou cochez « Générer malgré les champs incomplets » pour ouvrir le triage.
           </div>
         </div>
       }
@@ -114,41 +221,10 @@ export class CaptureFilFinalizeComponent {
 
   protected readonly template = this.engine.template;
 
-  protected readonly fieldChecklist = computed(() => {
+  protected readonly checklistFields = computed(() => {
     const tpl = this.template();
-    const values = this.engine.headerFields();
-    const backendMissing = this.backendMissingRequired();
-
-    if (backendMissing) {
-      if (tpl) {
-        return tpl.required_fields.map((field) => {
-          const value = (values[field.key] || '').trim();
-          return {
-            key: field.key,
-            label: field.label,
-            value,
-            ok: !backendMissing.has(field.key),
-          };
-        });
-      }
-      return [...backendMissing.entries()].map(([key, label]) => ({
-        key,
-        label,
-        value: (values[key] || '').trim(),
-        ok: false,
-      }));
-    }
-
-    if (!tpl) return [];
-    return tpl.required_fields.map((field) => {
-      const value = (values[field.key] || '').trim();
-      return {
-        key: field.key,
-        label: field.label,
-        value,
-        ok: !field.required || value.length > 0,
-      };
-    });
+    if (!tpl) return [] as CaptureTemplateField[];
+    return applicableTemplateFields(tpl, this.engine.interventionTypeId());
   });
 
   protected readonly incompleteRequired = computed(() => {
@@ -156,8 +232,105 @@ export class CaptureFilFinalizeComponent {
     if (checklist && typeof checklist.required_fields_complete === 'boolean') {
       return !checklist.required_fields_complete;
     }
-    return this.fieldChecklist().some((row) => !row.ok);
+    return this.checklistFields().some((field) => !this.fieldOk(field));
   });
+
+  protected readonly canOpenTriage = computed(
+    () => !this.template() || !this.incompleteRequired() || this.forceGenerate(),
+  );
+
+  constructor() {
+    if (this.engine.documents().length === 0) void this.engine.loadDocuments();
+  }
+
+  protected fieldOk(field: CaptureTemplateField): boolean {
+    const backendMissing = this.backendMissingRequired();
+    if (backendMissing) return !backendMissing.has(field.key);
+    return isHeaderFieldFilled(field, this.engine.headerFields()[field.key]);
+  }
+
+  protected headerText(key: string): string {
+    return headerValueAsDisplay(this.engine.headerFields()[key]);
+  }
+
+  protected setTextField(key: string, value: string): void {
+    this.engine.patchHeaderFields({ [key]: value });
+  }
+
+  protected equipmentRows(key: string): EquipmentProgressRow[] {
+    const rows = asEquipmentRows(this.engine.headerFields()[key]);
+    return rows.length ? rows : [emptyEquipmentRow()];
+  }
+
+  protected addEquipmentRow(key: string): void {
+    const rows = [...this.equipmentRows(key), emptyEquipmentRow()];
+    this.engine.patchHeaderFields({ [key]: rows });
+  }
+
+  protected removeEquipmentRow(key: string, index: number): void {
+    const rows = this.equipmentRows(key).filter((_, i) => i !== index);
+    this.engine.patchHeaderFields({ [key]: rows.length ? rows : [emptyEquipmentRow()] });
+  }
+
+  protected patchEquipment(
+    key: string,
+    index: number,
+    prop: keyof EquipmentProgressRow,
+    value: string,
+  ): void {
+    const rows = this.equipmentRows(key).map((row, i) =>
+      i === index ? { ...row, [prop]: value } : row,
+    );
+    this.engine.patchHeaderFields({ [key]: rows });
+  }
+
+  protected multiSelected(key: string, option: string): boolean {
+    return asStringArray(this.engine.headerFields()[key]).includes(option);
+  }
+
+  protected toggleMulti(key: string, option: string, checked: boolean): void {
+    const current = asStringArray(this.engine.headerFields()[key]);
+    const next = checked
+      ? (current.includes(option) ? current : [...current, option])
+      : current.filter((v) => v !== option);
+    this.engine.patchHeaderFields({ [key]: next });
+  }
+
+  protected checkboxSelected(key: string, option: string): boolean {
+    return asCheckboxGroup(this.engine.headerFields()[key]).values.includes(option);
+  }
+
+  protected checkboxDescription(key: string): string {
+    return asCheckboxGroup(this.engine.headerFields()[key]).description;
+  }
+
+  protected needsCheckboxDescription(key: string): boolean {
+    const values = asCheckboxGroup(this.engine.headerFields()[key]).values;
+    return values.some((v) => v !== 'none');
+  }
+
+  protected toggleCheckbox(key: string, option: string, checked: boolean): void {
+    const group = asCheckboxGroup(this.engine.headerFields()[key]);
+    let values = [...group.values];
+    if (option === 'none' && checked) {
+      values = ['none'];
+    } else if (checked) {
+      values = values.filter((v) => v !== 'none');
+      if (!values.includes(option)) values.push(option);
+    } else {
+      values = values.filter((v) => v !== option);
+    }
+    this.engine.patchHeaderFields({
+      [key]: toCheckboxGroupPayload(values, group.description) satisfies CaptureHeaderValue,
+    });
+  }
+
+  protected setCheckboxDescription(key: string, description: string): void {
+    const group = asCheckboxGroup(this.engine.headerFields()[key]);
+    this.engine.patchHeaderFields({
+      [key]: toCheckboxGroupPayload(group.values, description),
+    });
+  }
 
   /** Missing required fields from proposal finalize_checklist / blocking OQs. */
   private backendMissingRequired(): Map<string, string> | null {
@@ -189,14 +362,6 @@ export class CaptureFilFinalizeComponent {
     return false;
   }
 
-  protected readonly canOpenTriage = computed(
-    () => !this.template() || !this.incompleteRequired() || this.forceGenerate(),
-  );
-
-  constructor() {
-    if (this.engine.documents().length === 0) void this.engine.loadDocuments();
-  }
-
   protected async onConfirm(items: CaptureShareLevelItem[]): Promise<void> {
     this.lastItems = items;
     await this.run();
@@ -213,6 +378,7 @@ export class CaptureFilFinalizeComponent {
     }
     this.finalizing.set(true);
     this.error.set(null);
+    await this.engine.persistHeaderFields();
     // Persist the triage first, then finalize over the LIVE WS so the backend
     // streams capture.finalize.progress stages to the banner; close the realtime
     // leg only once the proposal is ready (indexing continues server-side).

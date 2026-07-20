@@ -167,6 +167,13 @@ export interface ReportBlock {
   items?: ReportListItem[];
 }
 
+/** An open-question label surfaced on a fiche card, addressable back into the
+ * management panel (by gap id when available, else by its text). */
+export interface ReportOpenQuestionRef {
+  text: string;
+  gapId: string | null;
+}
+
 /** A rendered fiche node (topic or sous-sujet). Keeps full facts so the UI can
  * wire inline provenance markers against journaled anchors. */
 export interface ReportSubsectionCard {
@@ -174,8 +181,11 @@ export interface ReportSubsectionCard {
   title: string;
   blocks: ReportBlock[];
   facts: ProposalFact[];
+  /** Journaled anchor event ids of ALL the node's facts — kept even when a
+   * synthesis replaces the raw facts, so reformulated prose keeps its markers. */
+  sourceEventIds: string[];
   sources: CaptureReportSource[];
-  openQuestions: string[];
+  openQuestions: ReportOpenQuestionRef[];
 }
 
 /** A top-level fiche section (topic) with optional sous-sujets. */
@@ -213,28 +223,33 @@ export function buildReportFiche(proposal: CaptureProposal | null): ReportSectio
 
 function buildReportNode(key: string, node: CaptureReportStructureNode): ReportSubsectionCard {
   const synthesis = String(node.synthesis || '').trim();
+  const allFacts = (node.facts || []).filter((f) => Boolean(reportFactText(f)));
   // When a synthesis exists it already weaves the facts in prose; otherwise we
-  // surface the raw captured facts as bullets.
-  const facts = synthesis ? [] : (node.facts || []).filter((f) => Boolean(reportFactText(f)));
+  // surface the raw captured facts as bullets. Either way the anchor event ids
+  // are kept so synthesized sections still expose their provenance markers.
+  const facts = synthesis ? [] : allFacts;
+  const sourceEventIds = Array.from(
+    new Set(allFacts.map((f) => f.source_event_id).filter((id): id is string => Boolean(id))),
+  );
   return {
     key,
     title: String(node.title || 'Section').trim(),
     blocks: parseReportBlocks(synthesis),
     facts,
+    sourceEventIds,
     sources: (node.sources || []).filter((src) => Boolean(src)),
-    openQuestions: reportOpenQuestionLabels(node.open_questions || []),
+    openQuestions: reportOpenQuestionRefs(node.open_questions || []),
   };
 }
 
-function reportOpenQuestionLabels(questions: ProposalOpenQuestion[]): string[] {
+function reportOpenQuestionRefs(questions: ProposalOpenQuestion[]): ReportOpenQuestionRef[] {
   return questions
     .filter((q) => !['answered', 'invalid', 'dismissed'].includes(String(q.status || 'open').toLowerCase()))
-    .map((q) =>
-      String(
-        (q as Record<string, unknown>)['text'] || q.follow_up || q.reason || '',
-      ).trim(),
-    )
-    .filter((text) => Boolean(text));
+    .map((q) => ({
+      text: String((q as Record<string, unknown>)['text'] || q.follow_up || q.reason || '').trim(),
+      gapId: String(q.gap_id ?? q.id ?? q.question_id ?? '').trim() || null,
+    }))
+    .filter((ref) => Boolean(ref.text));
 }
 
 /** Facts captured outside any plan topic (rendered in a trailing "Hors plan"). */

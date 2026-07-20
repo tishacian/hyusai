@@ -121,6 +121,18 @@ import { clockLabel } from './capture-presentation';
         </div>
       }
 
+      @if (previousReportOpenCount() > 0) {
+        <div
+          style="flex:none; padding:7px 16px; background:color-mix(in oklab, var(--ck-signal-warn) 10%, var(--ck-bg-panel)); border-bottom:1px solid color-mix(in oklab, var(--ck-signal-warn) 28%, transparent); display:flex; align-items:center; gap:8px;"
+        >
+          <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" />
+          <span style="font-size:12px; color:var(--ck-fg-2);">
+            {{ previousReportOpenCount() }} point{{ previousReportOpenCount() > 1 ? 's' : '' }} ouvert{{ previousReportOpenCount() > 1 ? 's' : '' }}
+            repris du rapport N-1 — visibles dans le panneau Oracle.
+          </span>
+        </div>
+      }
+
       <!-- 5-minute notice (non-blocking) -->
       @if (lastFiveMinutes()) {
         <div
@@ -460,15 +472,18 @@ import { clockLabel } from './capture-presentation';
                     [style.border]="'1px solid ' + (q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 50%, transparent)' : 'var(--ck-stroke-2)')"
                     [style.background]="q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 9%, transparent)' : 'var(--ck-bg-inset)'"
                   >
-                    <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                       <span
-                        [title]="isHighPriority(q.priority) ? 'Priorité haute' : 'Priorité normale'"
+                        [title]="q.blocking ? 'Bloquante' : isHighPriority(q.priority) ? 'Priorité haute' : 'Priorité normale'"
                         style="flex:none; width:6px; height:6px; border-radius:999px;"
-                        [style.background]="isHighPriority(q.priority) ? 'var(--ck-signal-warn)' : 'var(--ck-fg-5)'"
+                        [style.background]="q.blocking ? 'var(--ck-signal-neg)' : isHighPriority(q.priority) ? 'var(--ck-signal-warn)' : 'var(--ck-fg-5)'"
                       ></span>
                       <span class="ck-mono" style="font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-signal-violet);">
-                        Oracle
+                        {{ q.source === 'previous_report' ? 'N-1' : 'Oracle' }}
                       </span>
+                      @if (q.blocking) {
+                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-neg);">bloquante</span>
+                      }
                       @if (oracleTopic(q.topic_id); as topic) {
                         <span
                           class="ck-mono"
@@ -651,8 +666,18 @@ export class LeFilSessionComponent {
   protected readonly refsCount = computed(
     () => this.engine.viewReferences().filter((r) => r.status === 'confirmed').length,
   );
+  protected readonly previousReportOpenCount = this.engine.previousReportOpenCount;
+
   protected readonly openOracle = computed(() =>
-    this.engine.oracle().filter((q) => q.status !== 'dismissed'),
+    this.engine
+      .oracle()
+      .filter((q) => q.status !== 'dismissed')
+      // Criticality order: blocking first, then priority descending.
+      .sort((a, b) => {
+        const blocking = Number(Boolean(b.blocking)) - Number(Boolean(a.blocking));
+        if (blocking !== 0) return blocking;
+        return (Number(b.priority ?? 0) || 0) - (Number(a.priority ?? 0) || 0);
+      }),
   );
 
   // ---- session minuterie / closure (P1, v0) ------------------------------

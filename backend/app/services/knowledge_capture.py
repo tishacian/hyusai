@@ -7,6 +7,7 @@ import json
 import logging
 import tempfile
 import time
+import unicodedata
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -2260,14 +2261,16 @@ def build_open_questions(
         header_fields_from_plan,
         required_field_gaps,
         resolve_session_capture_template,
+        site_modification_consistency_question,
     )
 
     capture_template = resolve_session_capture_template(
         plan=plan,
         metrics=session.metrics or {},
     )
+    header_fields = header_fields_from_plan(plan)
     if capture_template:
-        for gap in required_field_gaps(capture_template, header_fields_from_plan(plan)):
+        for gap in required_field_gaps(capture_template, header_fields):
             slug = str(gap.get("slug") or gap.get("id") or "").strip()
             text = str(gap.get("description") or gap.get("title") or "").strip()
             if not text:
@@ -2288,6 +2291,23 @@ def build_open_questions(
                     "source": "capture_template_required_field",
                 }
             )
+        consistency = site_modification_consistency_question(header_fields, expert_text)
+        if consistency:
+            key = str(consistency.get("id") or consistency.get("gap_id") or "").strip()
+            if key and key not in seen:
+                seen.add(key)
+                items.append(
+                    {
+                        "id": key,
+                        "text": consistency.get("text"),
+                        "topic_id": None,
+                        "priority": _coerce_priority(consistency.get("priority")),
+                        "status": "open",
+                        "blocking": False,
+                        "required_field_key": consistency.get("required_field_key"),
+                        "source": consistency.get("source"),
+                    }
+                )
 
     items.sort(key=lambda item: item.get("priority") or 0.0, reverse=True)
     return items
@@ -3099,7 +3119,29 @@ async def publish_proposal_to_knowledge(
         proposal_payload["publication"] = publication_meta
         proposal.proposal = proposal_payload
         flag_modified(proposal, "proposal")
-    filename = f"capture-{session.id[:8]}.md"
+    from app.services.capture_templates import (
+        header_fields_from_plan,
+        publication_filename_from_header,
+        resolve_session_capture_template,
+    )
+
+    publish_template = resolve_session_capture_template(
+        plan=session.plan or {},
+        metrics=session.metrics or {},
+    )
+    filename = (
+        _clean_optional_string(publication_meta.get("filename"))
+        or _clean_optional_string(metadata.get("publication_filename"))
+    )
+    if not filename and publish_template:
+        filename = publication_filename_from_header(
+            header_fields_from_plan(session.plan or {}),
+            fallback_session_id=session.id,
+        )
+    if not filename:
+        filename = f"capture-{session.id[:8]}.md"
+    publication_meta["filename"] = filename
+    metadata["publication_filename"] = filename
     store = get_object_store()
     store.write_text(original_key(collection, filename), content)
     store.write_text(ingested_key(collection, filename), content)
@@ -3121,6 +3163,7 @@ async def publish_proposal_to_knowledge(
                 "publication_category": publication_category,
                 "publication_destination": publication_destination,
                 "publication_final_title": publication_title,
+                "publication_filename": filename,
                 "collection_slug": collection.slug,
                 "expert_name": expert_name,
                 "captured_by_user_id": expert_user_id,
@@ -3140,6 +3183,8 @@ async def publish_proposal_to_knowledge(
                 "fse_reference": metadata.get("fse_reference"),
                 "fse_country": metadata.get("fse_country"),
                 "fse_intervention_date": metadata.get("fse_intervention_date"),
+                "fse_intervention_type": metadata.get("fse_intervention_type"),
+                "fse_week": metadata.get("fse_week"),
             }.items()
             if value
         }
@@ -3922,22 +3967,24 @@ def structure_capture_payload(
         header_fields_from_plan,
         required_field_open_questions,
         resolve_session_capture_template,
+        site_modification_consistency_question,
     )
 
     capture_template = resolve_session_capture_template(
         plan=plan,
         metrics=session.metrics or {},
     )
+    header_fields = header_fields_from_plan(plan)
     if capture_template:
         # Missing required header fields become blocking open questions in review.
         existing_keys = {
-            str(item.get("required_field_key") or item.get("gap_id") or "").strip()
+            str(item.get("required_field_key") or item.get("gap_id") or item.get("id") or "").strip()
             for item in open_questions
             if isinstance(item, dict)
         }
         for question in required_field_open_questions(
             capture_template,
-            header_fields_from_plan(plan),
+            header_fields,
         ):
             key = str(question.get("required_field_key") or question.get("gap_id") or "").strip()
             if key and key in existing_keys:
@@ -3945,10 +3992,22 @@ def structure_capture_payload(
             open_questions.insert(0, question)
             if key:
                 existing_keys.add(key)
+        transcript_text = " ".join(
+            str(turn.get("text") or "")
+            for turn in transcript
+            if turn.get("speaker") == "expert"
+        )
+        consistency = site_modification_consistency_question(header_fields, transcript_text)
+        if consistency:
+            key = str(consistency.get("id") or consistency.get("gap_id") or "").strip()
+            if key and key not in existing_keys:
+                open_questions.insert(0, consistency)
+                existing_keys.add(key)
     # Plan-hierarchy aligned structuring of the captured facts, enriched with the
     # per-section FINAL synthesis when available (cabled _structure_facts_by_plan).
     plan_structure = _structure_facts_by_plan(plan, captured)
     plan_structure = _attach_section_synthesis(plan_structure, plan)
+    plan_structure = _filter_redundant_unassigned_facts(plan_structure)
     plan_structure = _ensure_free_conversation_report_topic(
         session,
         plan_structure,
@@ -3979,6 +4038,7 @@ def structure_capture_payload(
             captured,
             open_questions,
             transcript=transcript,
+            plan_structure=plan_structure,
         )
     blocking_required = [
         item
@@ -4155,6 +4215,8 @@ def _apply_publication_defaults(
     from app.services.capture_templates import (
         header_fields_from_plan,
         publication_defaults_from_template,
+        publication_filename_from_header,
+        publication_title_from_header,
         resolve_session_capture_template,
         tracking_metadata_from_header,
     )
@@ -4168,6 +4230,11 @@ def _apply_publication_defaults(
         metrics=session.metrics or {},
     )
     template_publication = publication_defaults_from_template(capture_template)
+    header_fields = header_fields_from_plan(session.plan or {})
+    snapshot = (session.plan or {}).get("capture_template")
+    intervention_type = None
+    if isinstance(snapshot, dict):
+        intervention_type = snapshot.get("intervention_type")
     category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(session, payload)
     destination = (
         _clean_optional_string(publication.get("destination"))
@@ -4177,8 +4244,14 @@ def _apply_publication_defaults(
         or _resolve_collection_name(ctx)
     )
     recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
+    fse_title = (
+        publication_title_from_header(header_fields, fallback="")
+        if capture_template
+        else ""
+    )
     final_title = (
         _clean_optional_string(publication.get("final_title"))
+        or _clean_optional_string(fse_title)
         or _clean_optional_string(recommended.get("title"))
         or _clean_optional_string(payload.get("title"))
         or session.title
@@ -4199,7 +4272,16 @@ def _apply_publication_defaults(
     )
     if source_type:
         publication["source_type"] = source_type
-    tracking = tracking_metadata_from_header(header_fields_from_plan(session.plan or {}))
+    if capture_template:
+        filename = publication_filename_from_header(
+            header_fields,
+            fallback_session_id=session.id,
+        )
+        publication["filename"] = filename
+    tracking = tracking_metadata_from_header(
+        header_fields,
+        intervention_type=str(intervention_type or "") or None,
+    )
     if tracking:
         publication["tracking"] = {**(publication.get("tracking") or {}), **tracking}
     payload["publication"] = publication
@@ -4209,8 +4291,12 @@ def _apply_publication_defaults(
     metadata.setdefault("publication_destination_scope_suggested", destination)
     if source_type:
         metadata.setdefault("source_type", source_type)
+    if capture_template:
+        metadata["publication_filename"] = publication.get("filename")
     metadata.update(tracking)
     recommended["metadata"] = metadata
+    if capture_template and fse_title:
+        recommended["title"] = final_title
     payload["recommended_ingestion"] = recommended
     return payload
 
@@ -5896,7 +5982,7 @@ def _proposal_open_question_from_raw(
     default_source: str,
 ) -> Dict[str, Any]:
     text = _open_question_text(raw)
-    return {
+    question = {
         "gap_id": raw.get("id") or raw.get("gap_id"),
         "reason": raw.get("source") or raw.get("reason") or default_source,
         "follow_up": text,
@@ -5907,6 +5993,24 @@ def _proposal_open_question_from_raw(
         "status": _normalize_proposal_open_question_status(raw.get("status")),
         "source": raw.get("source") or default_source,
     }
+    # Criticality metadata must survive into the review payload (blocking
+    # template required-fields, and the field key they map to).
+    if raw.get("blocking"):
+        question["blocking"] = True
+    required_field_key = _clean_optional_string(raw.get("required_field_key"))
+    if required_field_key:
+        question["required_field_key"] = required_field_key
+    return question
+
+
+def _open_question_sort_key(question: Dict[str, Any]) -> Tuple[int, float]:
+    """Blocking questions first, then priority descending (raw scale kept —
+    coverage gaps use ~0-3, grounded questions 0..1). Stable for ties."""
+    try:
+        priority = float(question.get("priority"))
+    except (TypeError, ValueError):
+        priority = 0.0
+    return (0 if question.get("blocking") else 1, -priority)
 
 
 def _build_proposal_open_questions(
@@ -5957,7 +6061,7 @@ def _build_proposal_open_questions(
             continue
         _append(candidate, default_source="evaluation")
 
-    return merged
+    return sorted(merged, key=_open_question_sort_key)
 
 
 def merge_live_open_questions_into_plan(
@@ -5990,6 +6094,134 @@ def merge_live_open_questions_into_plan(
     session.plan = plan
     flag_modified(session, "plan")
     db.commit()
+
+
+def _header_match_key(header_fields: Mapping[str, Any]) -> Tuple[str, str, str]:
+    reference = str(header_fields.get("reference") or "").strip().lower()
+    customer = str(header_fields.get("customer") or "").strip().lower()
+    site = str(header_fields.get("site_or_machine") or "").strip().lower()
+    return reference, customer, site
+
+
+def _find_previous_fse_proposal(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    system_id: Optional[str],
+    header_fields: Mapping[str, Any],
+) -> Optional[KnowledgeUpdateProposal]:
+    """Latest accepted/published proposal for same system + reference (or customer+site)."""
+    reference, customer, site = _header_match_key(header_fields)
+    if not reference and not (customer and site):
+        return None
+    query = (
+        db.query(KnowledgeUpdateProposal)
+        .join(
+            ExpertCaptureSession,
+            ExpertCaptureSession.id == KnowledgeUpdateProposal.session_id,
+        )
+        .filter(
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+            KnowledgeUpdateProposal.status.in_(("accepted", "published")),
+        )
+    )
+    if system_id:
+        query = query.filter(ExpertCaptureSession.system_id == system_id)
+    rows = query.order_by(KnowledgeUpdateProposal.created_at.desc()).limit(40).all()
+    fallback: Optional[KnowledgeUpdateProposal] = None
+    for proposal in rows:
+        session = proposal.session
+        plan = (session.plan if session else None) or {}
+        prior_header = plan.get("header_fields") if isinstance(plan.get("header_fields"), dict) else {}
+        pub = (proposal.proposal or {}).get("publication") if isinstance(proposal.proposal, dict) else {}
+        tracking = pub.get("tracking") if isinstance(pub, dict) and isinstance(pub.get("tracking"), dict) else {}
+        prior_ref = str(
+            prior_header.get("reference")
+            or tracking.get("fse_reference")
+            or ""
+        ).strip().lower()
+        prior_customer = str(
+            prior_header.get("customer")
+            or tracking.get("fse_customer")
+            or ""
+        ).strip().lower()
+        prior_site = str(
+            prior_header.get("site_or_machine")
+            or tracking.get("fse_machine")
+            or ""
+        ).strip().lower()
+        if reference and prior_ref and prior_ref == reference:
+            return proposal
+        if (
+            not fallback
+            and customer
+            and site
+            and prior_customer == customer
+            and prior_site == site
+        ):
+            fallback = proposal
+    return fallback
+
+
+def _inject_previous_report_open_items(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    system_id: Optional[str],
+    plan: Dict[str, Any],
+    header_fields: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Inject unresolved N-1 open questions into plan.live_open_questions."""
+    from app.services.capture_templates import (
+        previous_report_open_question_payload,
+        unresolved_open_questions,
+    )
+
+    prior = _find_previous_fse_proposal(
+        db,
+        workspace_id=workspace_id,
+        system_id=system_id,
+        header_fields=header_fields,
+    )
+    if not prior:
+        plan["previous_report_open_items"] = {"count": 0}
+        return plan
+    payload = prior.proposal if isinstance(prior.proposal, dict) else {}
+    unresolved = unresolved_open_questions(payload.get("open_questions") or [])
+    if not unresolved:
+        plan["previous_report_open_items"] = {
+            "count": 0,
+            "source_proposal_id": prior.id,
+            "source_session_id": prior.session_id,
+        }
+        return plan
+    existing = [
+        dict(question)
+        for question in (plan.get("live_open_questions") or [])
+        if isinstance(question, dict)
+    ]
+    seen = {_open_question_dedupe_key(question) for question in existing if _open_question_dedupe_key(question)}
+    injected: List[Dict[str, Any]] = []
+    for index, question in enumerate(unresolved, start=1):
+        item = previous_report_open_question_payload(
+            question,
+            index=index,
+            source_proposal_id=prior.id,
+            source_session_id=prior.session_id,
+        )
+        key = _open_question_dedupe_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        existing.append(item)
+        injected.append(item)
+    plan["live_open_questions"] = existing
+    plan["previous_report_open_items"] = {
+        "count": len(injected),
+        "source_proposal_id": prior.id,
+        "source_session_id": prior.session_id,
+    }
+    return plan
 
 
 def _backfill_turn_plan_tags(
@@ -6200,6 +6432,96 @@ def _structure_facts_by_plan(
     return {"topics": structured_topics, "unassigned": unassigned}
 
 
+# "Hors plan" redundancy: an unassigned fact whose content words are (near-)fully
+# contained in an assigned fact or a section synthesis is a duplicate leftover of
+# the plan assignment, not extra knowledge — drop it from the report.
+_UNASSIGNED_REDUNDANCY_MIN = 0.8
+_REDUNDANCY_STOPWORDS = frozenset(
+    {
+        "les", "des", "une", "aux", "est", "sont", "pour", "avec", "dans", "sur",
+        "par", "pas", "que", "qui", "quand", "comme", "mais", "aussi", "plus",
+        "tres", "cette", "ces", "son", "ses", "leur", "leurs", "ete", "etre",
+        "fait", "faire", "tout", "tous", "toute", "toutes", "nous", "vous",
+        "ils", "elles", "elle", "donc", "alors", "puis", "sans", "sous", "chez",
+        "the", "and", "with", "from", "that", "this", "have", "has",
+    }
+)
+
+
+def _redundancy_tokens(text: str) -> set[str]:
+    """Normalized content words: lowercase, accents stripped, punctuation out."""
+    normalized = unicodedata.normalize("NFD", str(text or "").lower())
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized)
+        if len(token) >= 3 and token not in _REDUNDANCY_STOPWORDS
+    }
+
+
+def _filter_redundant_unassigned_facts(plan_structure: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop "hors plan" facts already covered by assigned facts or section syntheses.
+
+    Conservative lexical containment only (no LLM): an unassigned fact is dropped
+    when ≥ ``_UNASSIGNED_REDUNDANCY_MIN`` of its content words appear in a single
+    assigned fact or section synthesis. Dropped count is kept on the structure
+    (``unassigned_dropped_redundant``) for observability.
+    """
+    unassigned = list(plan_structure.get("unassigned") or [])
+    if not unassigned:
+        return plan_structure
+
+    reference_token_sets: List[set[str]] = []
+
+    def _collect(node: Dict[str, Any]) -> None:
+        for fact in node.get("facts") or []:
+            if isinstance(fact, dict):
+                tokens = _redundancy_tokens(fact.get("text") or fact.get("statement") or "")
+                if tokens:
+                    reference_token_sets.append(tokens)
+        synthesis_tokens = _redundancy_tokens(node.get("synthesis") or "")
+        if synthesis_tokens:
+            reference_token_sets.append(synthesis_tokens)
+
+    for topic in plan_structure.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        _collect(topic)
+        for subtopic in topic.get("subtopics") or []:
+            if isinstance(subtopic, dict):
+                _collect(subtopic)
+
+    if not reference_token_sets:
+        return plan_structure
+
+    kept: List[Dict[str, Any]] = []
+    dropped = 0
+    for fact in unassigned:
+        tokens = (
+            _redundancy_tokens(fact.get("text") or fact.get("statement") or "")
+            if isinstance(fact, dict)
+            else set()
+        )
+        # Short facts (< 3 content words) are too noisy to judge — always kept.
+        if len(tokens) >= 3 and any(
+            len(tokens & reference) / len(tokens) >= _UNASSIGNED_REDUNDANCY_MIN
+            for reference in reference_token_sets
+        ):
+            dropped += 1
+            continue
+        kept.append(fact)
+
+    if dropped:
+        plan_structure["unassigned"] = kept
+        plan_structure["unassigned_dropped_redundant"] = dropped
+        _logger.info(
+            "capture report: dropped %d redundant hors-plan fact(s) (%d kept)",
+            dropped,
+            len(kept),
+        )
+    return plan_structure
+
+
 def _plan_framed_markdown(
     session: ExpertCaptureSession,
     plan_structure: Dict[str, Any],
@@ -6288,8 +6610,12 @@ def create_capture_plan(
     header_fields: Optional[Dict[str, Any]] = None,
 ) -> ExpertCaptureSession:
     from app.services.capture_templates import (
+        apply_intervention_type_to_template,
+        apply_required_field_defaults,
         attach_template_to_plan,
         get_capture_template,
+        intervention_type_id_from_header,
+        normalize_header_fields,
         plan_seed_to_provided_text,
         required_field_gaps,
         template_id_from_system_settings,
@@ -6318,6 +6644,19 @@ def create_capture_plan(
     capture_template = get_capture_template(
         template_id_from_system_settings(system_row.settings if system_row else None)
     )
+    normalized_header_fields = normalize_header_fields(header_fields)
+    if capture_template:
+        capture_template = apply_intervention_type_to_template(
+            capture_template,
+            header_fields=normalized_header_fields,
+        )
+        normalized_header_fields = apply_required_field_defaults(
+            capture_template,
+            normalized_header_fields,
+        )
+        normalized_header_fields["intervention_type"] = intervention_type_id_from_header(
+            normalized_header_fields
+        )
     effective_provided_plan_text = provided_plan_text
     normalized_plan_mode = (plan_mode or "ai_plan").strip().lower()
     if capture_template:
@@ -6386,13 +6725,11 @@ def create_capture_plan(
     if unlimited_duration:
         plan["unlimited_duration"] = True
     if capture_template:
-        plan = attach_template_to_plan(plan, capture_template)
-        if isinstance(header_fields, dict):
-            plan["header_fields"] = {
-                str(key): str(value).strip()
-                for key, value in header_fields.items()
-                if str(key).strip() and str(value or "").strip()
-            }
+        plan = attach_template_to_plan(
+            plan,
+            capture_template,
+            header_fields=normalized_header_fields,
+        )
         gaps = [
             *required_field_gaps(capture_template, plan.get("header_fields")),
             *gaps,
@@ -6404,6 +6741,13 @@ def create_capture_plan(
                 *list((plan.get("oracle") or {}).get("coverage_gaps") or []),
             ],
         }
+        plan = _inject_previous_report_open_items(
+            db,
+            workspace_id=workspace_id,
+            system_id=resolved_system_id,
+            plan=plan,
+            header_fields=plan.get("header_fields") or {},
+        )
 
     capability = db.query(Capability).filter(Capability.slug == CAPABILITY_SLUG).first()
     if not resolved_system_id and capability:
@@ -8680,7 +9024,9 @@ async def answer_proposal_open_question(
 
     plan = session.plan or {}
     captured = list(session.captured_facts or [])
-    plan_structure = _attach_section_synthesis(_structure_facts_by_plan(plan, captured), plan)
+    plan_structure = _filter_redundant_unassigned_facts(
+        _attach_section_synthesis(_structure_facts_by_plan(plan, captured), plan)
+    )
     report = _assemble_report_from_sections(session, plan_structure, questions)
 
     payload["open_questions"] = questions
@@ -9606,7 +9952,11 @@ def _serialize_published_fiche(
 
     preview_url = None
     if document_id and collection_slug:
-        filename = f"capture-{(session.id[:8] if session else proposal.session_id[:8])}.md"
+        filename = (
+            _clean_optional_string(publication.get("filename"))
+            or _clean_optional_string(metadata.get("publication_filename"))
+            or f"capture-{(session.id[:8] if session else proposal.session_id[:8])}.md"
+        )
         preview_url = (
             f"documents/{quote(str(document_id), safe='')}/rich-preview"
             f"?collection_name={quote(str(collection_slug), safe='')}"

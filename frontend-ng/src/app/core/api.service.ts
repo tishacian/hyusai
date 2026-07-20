@@ -17,9 +17,11 @@ export interface CapturePlanRequest {
   plan_source_kind?: 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation' | null;
   plan_source_filename?: string | null;
   plan_source_replaces_existing_plan?: boolean;
-  /** FSE (and future) header identification fields; ignored by older backends. */
-  header_fields?: Record<string, string> | null;
+  /** FSE (and future) header identification fields; may hold structured values. */
+  header_fields?: Record<string, unknown> | null;
   template_id?: string | null;
+  /** Active FSE intervention type id (`weekly_site` | `field_service` | `process`). */
+  intervention_type?: string | null;
 }
 
 /** Schema-driven capture fork (mirrors backend `capture_templates`). */
@@ -28,6 +30,16 @@ export interface CaptureTemplateFieldDto {
   label: string;
   kind: string;
   required: boolean;
+  options?: Array<{ value: string; label: string }>;
+  default?: unknown;
+  condition?: string | { intervention_type?: string[] };
+}
+
+export interface CaptureInterventionTypeDto {
+  id: string;
+  label: string;
+  doc_ref: string;
+  plan_seed: { topics: Array<{ title: string; subtopics?: Array<{ title: string }> }> };
 }
 
 export interface CaptureTemplateDto {
@@ -36,8 +48,13 @@ export interface CaptureTemplateDto {
   plan_seed: { topics: Array<{ title: string; subtopics?: Array<{ title: string }> }> };
   required_fields: CaptureTemplateFieldDto[];
   report_template_id: string;
-  publication: { collection: string; source_type: string };
+  publication: {
+    collection: string;
+    source_type: string;
+    filename_convention?: string;
+  };
   ui: { lock_plan: boolean; hide_free_mode: boolean };
+  intervention_types?: CaptureInterventionTypeDto[];
 }
 
 /** Backend finalize gate for required header fields (on proposal payload). */
