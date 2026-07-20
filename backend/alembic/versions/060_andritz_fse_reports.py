@@ -18,6 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "060_andritz_fse_reports"
@@ -91,12 +92,12 @@ def upgrade() -> None:
     )
     entitlements = sa.table(
         "workspace_member_app_entitlements",
-        sa.column("id"),
-        sa.column("workspace_member_id"),
-        sa.column("app_key"),
-        sa.column("granted_at"),
-        sa.column("granted_by_user_id"),
-        sa.column("grant_source"),
+        sa.column("id", sa.Integer()),
+        sa.column("workspace_member_id", sa.Integer()),
+        sa.column("app_key", sa.String(length=80)),
+        sa.column("granted_at", sa.DateTime()),
+        sa.column("granted_by_user_id", sa.String(length=36)),
+        sa.column("grant_source", sa.String(length=80)),
     )
     capabilities = sa.table(
         "capabilities",
@@ -174,7 +175,6 @@ def upgrade() -> None:
                     continue
                 bind.execute(
                     sa.insert(entitlements).values(
-                        id=str(uuid4()),
                         workspace_member_id=member_id,
                         app_key=FSE_APP_KEY,
                         granted_at=now,

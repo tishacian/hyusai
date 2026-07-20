@@ -34,6 +34,8 @@ from app.models.workspace import (
 from app.services.iam.app_entitlements import (
     BUSINESS_APP_KEYS,
     CHAT_APP,
+    FSE_REPORTS_APP,
+    KNOWLEDGE_CAPTURE_APP,
 )
 
 MEMBER_ROLES = (
@@ -322,22 +324,24 @@ def test_workspace_admin_cannot_bypass_a_missing_app_grant(db_session) -> None:
 
 
 @pytest.mark.parametrize(
-    ("app_key", "method", "path", "body"),
+    ("app_keys", "denied_app_key", "method", "path", "body"),
     (
-        (CHAT_APP, "post", "/api/v1/chat/completion", {"query": "blocked"}),
-        (CHAT_APP, "get", "/api/v1/sessions", None),
+        ((CHAT_APP,), CHAT_APP, "post", "/api/v1/chat/completion", {"query": "blocked"}),
+        ((CHAT_APP,), CHAT_APP, "get", "/api/v1/sessions", None),
         (
-            "knowledge-capture",
+            (KNOWLEDGE_CAPTURE_APP, FSE_REPORTS_APP),
+            KNOWLEDGE_CAPTURE_APP,
             "get",
             "/api/v1/knowledge-capture/voice-runtimes",
             None,
         ),
-        ("client360-pdr", "get", "/api/v1/client360/scope", None),
+        (("client360-pdr",), "client360-pdr", "get", "/api/v1/client360/scope", None),
     ),
 )
-def test_each_business_router_enforces_its_exact_app_grant(
+def test_each_business_router_enforces_its_entry_app_grants(
     db_session,
-    app_key: str,
+    app_keys: tuple[str, ...],
+    denied_app_key: str,
     method: str,
     path: str,
     body: dict | None,
@@ -350,7 +354,8 @@ def test_each_business_router_enforces_its_exact_app_grant(
     ).one()
     db_session.query(WorkspaceMemberAppEntitlement).filter_by(
         workspace_member_id=membership.id,
-        app_key=app_key,
+    ).filter(
+        WorkspaceMemberAppEntitlement.app_key.in_(app_keys)
     ).delete(synchronize_session=False)
     db_session.commit()
 
@@ -366,7 +371,7 @@ def test_each_business_router_enforces_its_exact_app_grant(
     assert response.json()["detail"] == {
         "code": "WORKSPACE_APP_ACCESS_DENIED",
         "message": "Workspace application access denied",
-        "app_key": app_key,
+        "app_key": denied_app_key,
     }
 
 

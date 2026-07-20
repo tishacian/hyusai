@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.models.context import Context
+from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.capture_templates import (
     FSE_INTERVENTION_TEMPLATE_ID,
@@ -12,13 +13,18 @@ from app.services.capture_templates import (
     required_field_open_questions,
     template_id_from_system_settings,
 )
-from app.services.knowledge_capture import create_capture_plan, create_update_proposal, structure_capture_payload
+from app.services.knowledge_capture import (
+    create_capture_plan,
+    create_update_proposal,
+    structure_capture_payload,
+)
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.systems.bootstrap import (
     FSE_REPORT_SYSTEM_NAME,
     FSE_REPORT_TEMPLATE_ID,
     ensure_expert_capture_system_default,
     ensure_fse_report_system,
+    ensure_fse_report_system_for_andritz,
 )
 
 
@@ -78,6 +84,37 @@ def test_ensure_fse_report_system_distinct_from_expert_capture(db_session):
     assert adopted.id == capture.id
     db_session.refresh(fse)
     assert fse.status == "active"
+
+
+def test_fse_report_seed_targets_workspace_family_not_slug(db_session):
+    branded_alias = Workspace(
+        id="ws-fse-andritz-family",
+        name="Andritz Field Service",
+        slug="andritz-field-service",
+        settings={"family": "andritz"},
+    )
+    unrelated = Workspace(
+        id="ws-fse-unrelated",
+        name="Unrelated",
+        slug="unrelated",
+        settings={"family": "standard"},
+    )
+    db_session.add_all([branded_alias, unrelated])
+    seed_skills_and_capabilities(db_session)
+
+    report = ensure_fse_report_system_for_andritz(db_session)
+
+    assert report == {"created": 1, "skipped": 1, "already": 0}
+    assert (
+        db_session.query(System)
+        .filter(
+            System.workspace_id == branded_alias.id,
+            System.name == FSE_REPORT_SYSTEM_NAME,
+        )
+        .count()
+        == 1
+    )
+    assert db_session.query(System).filter(System.workspace_id == unrelated.id).count() == 0
 
 
 def test_create_capture_plan_applies_template_from_system(db_session):
