@@ -93,6 +93,14 @@ export function lookupCaptureTemplate(templateId: string | null | undefined): Ca
   return REGISTRY[templateId] ?? null;
 }
 
+/** A constrained template is usable only through the System that owns it. */
+export function captureTemplateSystemReady(
+  template: CaptureTemplate | null | undefined,
+  systemId: string | null | undefined,
+): boolean {
+  return !template || Boolean(systemId?.trim());
+}
+
 /**
  * Coerce an API / plan-snapshot payload into a CaptureTemplate. Merges with the
  * FE registry when the snapshot is partial so surfaces keep a complete shape.

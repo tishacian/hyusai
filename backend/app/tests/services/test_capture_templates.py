@@ -1,6 +1,7 @@
 """Focused tests for FSE CaptureTemplate rails (Phase A / C-2)."""
 from __future__ import annotations
 
+from app.models.capability import Capability
 from app.models.context import Context
 from app.models.system import System
 from app.models.workspace import Workspace
@@ -115,6 +116,49 @@ def test_fse_report_seed_targets_workspace_family_not_slug(db_session):
         == 1
     )
     assert db_session.query(System).filter(System.workspace_id == unrelated.id).count() == 0
+
+
+def test_fse_report_seed_hydrates_migration_placeholder_graph(db_session):
+    workspace = Workspace(
+        id="ws-fse-migration-placeholder",
+        name="Andritz migration placeholder",
+        slug="andritz-migration-placeholder",
+        settings={"family": "andritz"},
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    capability = (
+        db_session.query(Capability)
+        .filter(Capability.slug == "expert_knowledge_capture")
+        .one()
+    )
+    placeholder = System(
+        workspace_id=workspace.id,
+        name=FSE_REPORT_SYSTEM_NAME,
+        objective="Migration placeholder",
+        capability_id=capability.id,
+        skill_ids=[],
+        flow_definition={
+            "schema_version": 3,
+            "variant": "expert_knowledge_capture",
+            "source": "migration_060",
+            "nodes": [],
+            "edges": [],
+        },
+        settings={"capture": {"template_id": FSE_REPORT_TEMPLATE_ID}},
+        status="active",
+        created_by="system:fse_report_seed",
+    )
+    db_session.add(placeholder)
+    db_session.commit()
+
+    hydrated = ensure_fse_report_system(db_session, workspace.id)
+
+    assert hydrated is not None
+    assert hydrated.id == placeholder.id
+    assert hydrated.flow_definition.get("nodes")
+    assert hydrated.flow_definition.get("edges")
+    assert hydrated.skill_ids
 
 
 def test_create_capture_plan_applies_template_from_system(db_session):

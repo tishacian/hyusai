@@ -2111,7 +2111,13 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
     existing = next((row for row in candidates if _is_fse_report_system(row)), None)
     if existing is not None:
         flow = dict(existing.flow_definition or {})
-        if flow.get("variant") != "expert_knowledge_capture":
+        migration_placeholder = flow.get("source") == "migration_060"
+        has_graph = bool(flow.get("nodes")) and bool(flow.get("edges"))
+        if (
+            flow.get("variant") != "expert_knowledge_capture"
+            or migration_placeholder
+            or not has_graph
+        ):
             existing.flow_definition = flow_definition
         else:
             # Keep operator edits to nodes/edges; refresh UI entry + template metadata.

@@ -76,6 +76,7 @@ const storeSpecs = [
   'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
   'src/app/features/knowledge/knowledge-capture.component.spec.ts',
   'src/app/features/knowledge/capture-fil/capture-engine.spec.ts',
+  'src/app/features/knowledge/capture-fil/capture-templates.spec.ts',
   'src/app/features/orchestration/flow/flow.store.spec.ts',
   'src/app/features/orchestration/flow/flow-run.service.spec.ts',
   'src/app/features/orchestration/flow/flow-persistence.service.spec.ts',

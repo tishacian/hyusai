@@ -13,6 +13,7 @@ import { ApiService, type CapturePlanRequest } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
 import {
+  captureTemplateSystemReady,
   composeTemplateSessionTitle,
   planSeedToProvidedText,
 } from '../capture-templates';
@@ -149,7 +150,7 @@ interface ModeOption {
           [style.cursor]="!canSubmit() || busy() ? 'not-allowed' : 'pointer'"
         >
           <ck-glyph name="arrow-right" [size]="14" color="currentColor" />
-          {{ busy() ? 'Préparation…' : 'Préparer la séance' }}
+          {{ waitingForSystem() ? 'Connexion au système FSE…' : (busy() ? 'Préparation…' : 'Préparer la séance') }}
         </button>
       </div>
     </div>
@@ -187,10 +188,14 @@ export class CaptureFilPrepComponent {
   protected readonly hideFreeMode = computed(
     () => Boolean(this.template()?.ui.hide_free_mode),
   );
+  protected readonly waitingForSystem = computed(
+    () => !captureTemplateSystemReady(this.template(), this.engine.systemId()),
+  );
 
   protected readonly canSubmit = computed(() => {
     const tpl = this.template();
     if (!tpl) return this.title().trim().length > 0;
+    if (!captureTemplateSystemReady(tpl, this.engine.systemId())) return false;
     const values = this.headerValues();
     return tpl.required_fields
       .filter((f) => f.required)

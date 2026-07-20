@@ -375,6 +375,29 @@ def test_each_business_router_enforces_its_entry_app_grants(
     }
 
 
+def test_fse_template_plan_fails_closed_without_its_bound_system(db_session) -> None:
+    state = _seed_andritz_contract(db_session)
+    client = _client(db_session, state.users["workspace_contributor"])
+
+    response = client.post(
+        "/api/v1/knowledge-capture/plans",
+        headers=_andritz_headers(),
+        json={
+            "title": "FSE race guard",
+            "objective": "Must not become a generic capture session",
+            "plan_mode": "provided_plan",
+            "template_id": "fse_intervention_v1",
+            "system_id": None,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Capture template requires a matching active system_id"
+    )
+    assert db_session.query(ExpertCaptureSession).filter_by(title="FSE race guard").count() == 0
+
+
 def test_same_app_grant_in_another_workspace_does_not_authorize_andritz(db_session) -> None:
     state = _seed_andritz_contract(db_session)
     contributor = state.users["workspace_contributor"]

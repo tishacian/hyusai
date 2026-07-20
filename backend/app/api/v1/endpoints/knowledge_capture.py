@@ -31,12 +31,17 @@ from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
 from app.db.base import get_db
 from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
+from app.models.system import System
 from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
 from app.services.iam.app_entitlements import FSE_REPORTS_APP, KNOWLEDGE_CAPTURE_APP
-from app.services.capture_templates import get_capture_template, list_capture_templates
+from app.services.capture_templates import (
+    get_capture_template,
+    list_capture_templates,
+    template_id_from_system_settings,
+)
 from app.services.object_store import get_object_store
 from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
@@ -410,6 +415,7 @@ class CapturePlanRequest(BaseModel):
     plan_source_filename: Optional[str] = None
     plan_source_replaces_existing_plan: bool = False
     header_fields: Optional[Dict[str, Any]] = None
+    template_id: Optional[str] = None
 
 
 class PlanDialogueTurnRequest(BaseModel):
@@ -684,6 +690,30 @@ async def plan_capture_session(
         resource_attrs={"capability": CAPTURE_CAPABILITY},
         audit_prefix="kc",
     )
+    requested_template_id = str(body.template_id or "").strip()
+    if requested_template_id:
+        template = get_capture_template(requested_template_id)
+        if template is None:
+            raise HTTPException(status_code=400, detail="Unknown capture template")
+        bound_system = None
+        if body.system_id:
+            bound_system = (
+                db.query(System)
+                .filter(
+                    System.id == body.system_id,
+                    System.workspace_id == workspace.id,
+                    System.status != "retired",
+                )
+                .first()
+            )
+        bound_template_id = template_id_from_system_settings(
+            bound_system.settings if bound_system else None
+        )
+        if bound_template_id != requested_template_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Capture template requires a matching active system_id",
+            )
     try:
         session = create_capture_plan(
             db,
