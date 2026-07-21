@@ -87,6 +87,39 @@ def _aggregate(db: DBSession, workspace_id: str, *, system_id: Optional[str] = N
     }
 
 
+def _aggregate_for_scope(
+    db: DBSession,
+    workspace_id: str,
+    *,
+    scope: str,
+    target_id: Optional[str],
+    period: str,
+) -> Dict[str, Any]:
+    """Route one aggregate to the identifier owned by its declared scope.
+
+    Keeping this conversion in one place prevents a System id from being
+    silently applied to ``Run.capability_id`` by simulation endpoints.
+    """
+
+    if scope == "system":
+        return _aggregate(
+            db,
+            workspace_id,
+            system_id=target_id,
+            period=period,
+        )
+    if scope == "capability":
+        return _aggregate(
+            db,
+            workspace_id,
+            capability_id=target_id,
+            period=period,
+        )
+    if scope == "portfolio":
+        return _aggregate(db, workspace_id, period=period)
+    raise ValueError("scope must be portfolio, capability or system")
+
+
 @router.get("/portfolio")
 async def portfolio_impact(
     period: str = Query("qtd"),

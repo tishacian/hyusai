@@ -26,6 +26,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
   'src/app/features/orchestration/flow/flow-foblex.adapter.spec.ts',
+  'src/app/features/orchestration/flow/flow-preconnect.spec.ts',
   'src/app/features/orchestration/flow/flow-manifest-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-variable.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.vm.spec.ts',

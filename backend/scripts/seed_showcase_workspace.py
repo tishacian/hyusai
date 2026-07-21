@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import sys
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -342,16 +343,17 @@ TRANSLATION_SKILL_SLUGS = [
 
 CAPABILITIES = [
     {
-        "slug": "showcase_contract_risk",
+        "slug": "video_contract_risk",
         "name": "Contract Risk Detection",
         "description": "Review commercial contracts for risky clauses and unsupported claims.",
         "tier": "client",
         "industry": "enterprise",
         "input_unit": "contract",
         "output_unit": "risk_brief",
-        "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "claim_audit_v1"],
+        "skill_slugs": ["semantic_search_v1", "llm_rag_answer_v1", "claim_audit_v1", "audit_log_v1"],
         "pricing": {"unit": "per_contract", "unit_price": 1.2, "currency": "EUR"},
         "value_per_outcome": 38.0,
+        "sla": {"max_latency_ms": 3500, "success_rate": 0.95},
     },
     {
         "slug": "showcase_tender_response",
@@ -540,7 +542,15 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
             settings={
                 "showcase_seed": True,
                 "persona_nav": "full",
-                "features": {"cockpit_router_axes_v3": True},
+                "features": {
+                    "cockpit_router_axes_v3": True,
+                    # Lot 6 rollout owns these transitions. A fresh seed is
+                    # safe by default and an existing rolled-out workspace
+                    # keeps its current values below.
+                    "cockpit_router_axes_v4": False,
+                    "system_360_projection_v1": False,
+                    "flow_v3_dag_authoritative": False,
+                },
             },
         )
         db.add(ws)
@@ -629,6 +639,58 @@ def skill_ids_for(db: DBSession, slugs: Iterable[str]) -> List[str]:
     return [by_slug[slug] for slug in slugs if slug in by_slug]
 
 
+def system360_membrane_v2_template(
+    *,
+    object_store_prefix: str = "system-360/pending",
+) -> Dict[str, Any]:
+    """Return the canonical five-facet Membrane v2 for the Showcase canary.
+
+    The staged production bootstrap imports this factory so the seed and the
+    rollout cannot silently drift into two different security contracts.
+    Discovery remains entirely structural; the prefix is derived from the
+    selected System id only after the target has been resolved.
+    """
+
+    contract_skills = [
+        "semantic_search_v1",
+        "llm_rag_answer_v1",
+        "claim_audit_v1",
+        "audit_log_v1",
+    ]
+    return {
+        "version": 2,
+        "enforcement_mode": "shadow",
+        "inbound": {
+            "collection_allowlist": ["documents", NOTICES_COLLECTION],
+            "reference_type_filters": [],
+            "reject_cross_project_sources": False,
+            "preserve_reference_types": True,
+        },
+        "outbound": {
+            "expert_review_required": False,
+            "gate_if_confidence_below": 0.65,
+        },
+        "capabilities": {
+            "allowed_skills": contract_skills,
+            "allowed_models": ["gpt-4o-mini"],
+            "allowed_delegations": [],
+            "allowed_actions": ["system.engine.run"],
+        },
+        "provenance": {
+            "require_citations": True,
+            "object_store_prefix": object_store_prefix,
+        },
+        "valves": {
+            "max_cost_per_decision": 5.0,
+            "max_latency_ms": 10_000,
+            "mandatory_hitl_if_confidence_below": 0.65,
+            "hard_abort": True,
+            "token_budget": 12_000,
+            "circuit_breaker": {"failure_threshold": 3, "max_attempts": 5},
+        },
+    }
+
+
 def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capability]:
     out: Dict[str, Capability] = {}
     for entry in CAPABILITIES:
@@ -676,6 +738,46 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             extra={"showcase_seed": True},
         )
         db.add(control)
+    contract_control = db.query(ControlPolicy).filter(
+        ControlPolicy.workspace_id == workspace.id,
+        ControlPolicy.name == "Contract Risk System 360 membrane",
+    ).first()
+    membrane_template = system360_membrane_v2_template()
+    contract_skills = list(membrane_template["capabilities"]["allowed_skills"])
+    existing_membrane: Optional[Dict[str, Any]] = None
+    if contract_control:
+        existing_extra = contract_control.extra if isinstance(contract_control.extra, dict) else {}
+        existing_spec = existing_extra.get("membrane_spec")
+        if isinstance(existing_spec, dict) and existing_spec.get("version") == 2:
+            existing_membrane = copy.deepcopy(existing_spec)
+    contract_extra = {
+        "showcase_seed": True,
+        # A seed refresh never rolls back, advances or rewrites a v2 contract
+        # already owned by the staged rollout.
+        "membrane_spec": existing_membrane or membrane_template,
+    }
+    if contract_control:
+        contract_control.scope = "system"
+        contract_control.max_cost_per_decision = 5.0
+        contract_control.max_latency_ms = 10_000
+        contract_control.mandatory_hitl_if_confidence_below = 0.65
+        contract_control.allowed_models = ["gpt-4o-mini"]
+        contract_control.allowed_skills = contract_skills
+        contract_control.extra = contract_extra
+    else:
+        contract_control = ControlPolicy(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Contract Risk System 360 membrane",
+            scope="system",
+            max_cost_per_decision=5.0,
+            max_latency_ms=10_000,
+            mandatory_hitl_if_confidence_below=0.65,
+            allowed_models=["gpt-4o-mini"],
+            allowed_skills=contract_skills,
+            extra=contract_extra,
+        )
+        db.add(contract_control)
     adaptive = db.query(AdaptivePolicy).filter(
         AdaptivePolicy.workspace_id == workspace.id,
         AdaptivePolicy.name == "Showcase quality adaptation",
@@ -795,6 +897,7 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
     db.commit()
     return {
         "control": control,
+        "contract_control": contract_control,
         "adaptive": adaptive,
         "translation_control": translation_control,
         "translation_adaptive": translation_adaptive,
@@ -1538,6 +1641,112 @@ def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> Dict[s
     }
 
 
+def flow_contract_risk_system360() -> Dict[str, Any]:
+    """Executable v3-strict Contract Risk vertical slice.
+
+    Every input selector is a typed VariableRef.  The ``contract`` namespace
+    is explicitly declared and populated by upstream ``outputs_map`` entries;
+    the audit event type comes from the bound Context rather than an implicit
+    runtime literal.
+    """
+
+    def ref(node_id: str, *path: str) -> dict[str, Any]:
+        return {"node_id": node_id, "path": list(path)}
+
+    return {
+        "schema_version": 3,
+        "variant": "system_360_contract_risk_v1",
+        "io_mode": "strict",
+        "variable_namespaces": ["contract"],
+        "nodes": [
+            {
+                "id": "retrieve",
+                "kind": "task",
+                "label": "Retrieve governed evidence",
+                "config": {
+                    "skill_slug": "semantic_search_v1",
+                    "inputs_map": {"query": ref("run", "query")},
+                    "outputs_map": {"results": "contract.evidence"},
+                },
+                "inputs": [{"name": "query", "schema": "string"}],
+                "outputs": [{"name": "results", "schema": "array"}],
+            },
+            {
+                "id": "answer",
+                "kind": "task",
+                "label": "Generate grounded risk answer",
+                "config": {
+                    "skill_slug": "llm_rag_answer_v1",
+                    "inputs_map": {
+                        "query": ref("run", "query"),
+                        "context": ref("contract", "evidence"),
+                    },
+                    "outputs_map": {
+                        "answer": "contract.answer",
+                        "citations": "contract.citations",
+                    },
+                },
+                "inputs": [
+                    {"name": "query", "schema": "string"},
+                    {"name": "context", "schema": "array"},
+                ],
+                "outputs": [
+                    {"name": "answer", "schema": "string"},
+                    {"name": "citations", "schema": "array"},
+                ],
+            },
+            {
+                "id": "claim_audit",
+                "kind": "task",
+                "label": "Audit claims against citations",
+                "config": {
+                    "skill_slug": "claim_audit_v1",
+                    "inputs_map": {
+                        "query": ref("run", "query"),
+                        "answer": ref("contract", "answer"),
+                        "citations": ref("contract", "citations"),
+                    },
+                    "outputs_map": {
+                        "claims": "contract.claims",
+                        "verdict": "contract.verdict",
+                    },
+                },
+                "inputs": [
+                    {"name": "query", "schema": "string"},
+                    {"name": "answer", "schema": "string"},
+                    {"name": "citations", "schema": "array"},
+                ],
+                "outputs": [
+                    {"name": "claims", "schema": "array"},
+                    {"name": "verdict", "schema": "string"},
+                ],
+            },
+            {
+                "id": "audit_log",
+                "kind": "task",
+                "label": "Persist audit trace",
+                "config": {
+                    "skill_slug": "audit_log_v1",
+                    "inputs_map": {
+                        "event_type": ref("context", "environment_state", "audit_event_type"),
+                        "details": ref("claim_audit"),
+                    },
+                },
+                "inputs": [
+                    {"name": "event_type", "schema": "string"},
+                    {"name": "details", "schema": "object"},
+                ],
+                "outputs": [{"name": "id", "schema": "string"}],
+            },
+        ],
+        "edges": [
+            {"from": "retrieve", "to": "answer", "kind": "data", "from_port": "results", "to_port": "context"},
+            {"from": "answer", "to": "claim_audit", "kind": "data", "from_port": "answer", "to_port": "answer"},
+            {"from": "claim_audit", "to": "audit_log", "kind": "data", "to_port": "details"},
+        ],
+    }
+
+
 def ensure_systems(
     db: DBSession,
     workspace: Workspace,
@@ -1549,8 +1758,8 @@ def ensure_systems(
             "key": "contract",
             "name": "Contract Risk Copilot",
             "objective": "Answer contract risk questions with grounded policy citations and quality feedback.",
-            "capability": "showcase_contract_risk",
-            "flow": {},
+            "capability": "video_contract_risk",
+            "flow": flow_contract_risk_system360(),
             "prompt": "factual",
             "retrieval": "hybrid",
         },
@@ -1609,6 +1818,23 @@ def ensure_systems(
                 "system_type": "translation_suite" if spec["key"] == "translation" else spec["key"],
                 "brand": "PMI Sovereign Stack" if spec["key"] == "translation" else "Agentium Showcase",
                 **(
+                    {
+                        "experience": {"system_360_canary": "v1"},
+                        "steering_model": {
+                            "version": "contract-risk-v1",
+                            "cost_multiplier": 0.9,
+                            "value_multiplier": 1.1,
+                            "confidence": 0.7,
+                            "assumptions": [
+                                "Evidence mix remains comparable to the selected window.",
+                                "Projected values are simulated and are not measurements.",
+                            ],
+                        },
+                    }
+                    if spec["key"] == "contract"
+                    else {}
+                ),
+                **(
                     {"translation_suite": translation_config_snapshot()}
                     if spec["key"] == "translation"
                     else {}
@@ -1632,6 +1858,7 @@ def ensure_systems(
             "control_policy_id": (
                 policies["translation_control"].id
                 if spec["key"] == "translation"
+                else policies["contract_control"].id if spec["key"] == "contract"
                 else policies["control"].id if spec["key"] == "compliance" else None
             ),
             "adaptive_policy_id": policies["translation_adaptive"].id if spec["key"] == "translation" else policies["adaptive"].id,
@@ -1642,6 +1869,23 @@ def ensure_systems(
             "retrieval_mode_default": spec["retrieval"],
         }
         if system:
+            existing_settings = dict(system.settings) if isinstance(system.settings, dict) else {}
+            seeded_settings = dict(payload["settings"])
+            if isinstance(existing_settings.get("experience"), dict) and isinstance(
+                seeded_settings.get("experience"), dict
+            ):
+                seeded_settings["experience"] = {
+                    **existing_settings["experience"],
+                    **seeded_settings["experience"],
+                }
+            payload["settings"] = {**existing_settings, **seeded_settings}
+            if (
+                spec["key"] == "contract"
+                and isinstance(existing_settings.get("_lot6_system360_rollout_v1"), dict)
+            ):
+                # Once staged, only the rollout/backfill may move the active
+                # flow between append-only versions.
+                payload["flow_definition"] = system.flow_definition
             for key, value in payload.items():
                 setattr(system, key, value)
             system.updated_at = datetime.utcnow()
@@ -1649,28 +1893,59 @@ def ensure_systems(
             system = System(id=str(uuid4()), workspace_id=workspace.id, name=spec["name"], **payload)
             db.add(system)
             db.flush()
+        if spec["key"] == "contract":
+            contract_control = policies["contract_control"]
+            contract_control.target_id = system.id
+            extra = dict(contract_control.extra) if isinstance(contract_control.extra, dict) else {}
+            raw_membrane = extra.get("membrane_spec")
+            membrane = dict(raw_membrane) if isinstance(raw_membrane, dict) else {}
+            raw_provenance = membrane.get("provenance")
+            provenance = dict(raw_provenance) if isinstance(raw_provenance, dict) else {}
+            provenance["object_store_prefix"] = f"system-360/{system.id}"
+            membrane["provenance"] = provenance
+            extra["membrane_spec"] = membrane
+            contract_control.extra = extra
         ensure_system_version(db, workspace, system, spec["flow"])
         out[spec["key"]] = system
+
+    # Canary discovery is marker-based.  Keep the invariant structural even
+    # when an operator previously copied the marker onto another Showcase
+    # System: exactly the Contract System owns it after reconciliation.
+    contract_id = out["contract"].id
+    for candidate in db.query(System).filter(System.workspace_id == workspace.id).all():
+        candidate_settings = dict(candidate.settings) if isinstance(candidate.settings, dict) else {}
+        raw_experience = candidate_settings.get("experience")
+        experience = dict(raw_experience) if isinstance(raw_experience, dict) else {}
+        if candidate.id == contract_id:
+            experience["system_360_canary"] = "v1"
+        else:
+            experience.pop("system_360_canary", None)
+        if experience:
+            candidate_settings["experience"] = experience
+        else:
+            candidate_settings.pop("experience", None)
+        candidate.settings = candidate_settings
     db.commit()
     return out
 
 
 def ensure_system_version(db: DBSession, workspace: Workspace, system: System, flow: Dict[str, Any]) -> None:
-    existing = db.query(SystemVersion).filter(
-        SystemVersion.system_id == system.id,
-        SystemVersion.version_number == 1,
-    ).first()
-    if existing:
-        existing.flow_definition = flow or {}
-        existing.message = "Showcase seed baseline"
+    latest = (
+        db.query(SystemVersion)
+        .filter(SystemVersion.system_id == system.id)
+        .order_by(SystemVersion.version_number.desc())
+        .first()
+    )
+    canonical_flow = flow or {}
+    if latest and latest.flow_definition == canonical_flow:
         return
     db.add(SystemVersion(
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=system.id,
-        version_number=1,
-        flow_definition=flow or {},
-        message="Showcase seed baseline",
+        version_number=(latest.version_number + 1) if latest else 1,
+        flow_definition=canonical_flow,
+        message="Showcase System 360 baseline" if latest else "Showcase seed baseline",
         created_by="showcase-seed",
     ))
 
@@ -1685,7 +1960,11 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
         "data_refs": [f"showcase/{name}" for name in DOCS],
         "memory_refs": ["canonical_answers", "review_queue", "proactive_recommendations"],
         "history_refs": ["showcase_runs_7d"],
-        "environment_state": {"industry": "enterprise services", "region": "EU"},
+        "environment_state": {
+            "industry": "enterprise services",
+            "region": "EU",
+            "audit_event_type": "system.contract_risk.claims_audited",
+        },
         "business_constraints": {"no_unverified_claims": True, "hitl_for_compliance": True},
         "permissions": {"personas": ["executive", "builder", "operator", "quality_owner", "admin"]},
         "ephemeral": False,
@@ -1696,6 +1975,8 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
     else:
         context = Context(id=str(uuid4()), workspace_id=workspace.id, name="Showcase Enterprise Context", **payload)
         db.add(context)
+    db.flush()
+    systems["contract"].context_id = context.id
     translation_context = db.query(Context).filter(
         Context.workspace_id == workspace.id,
         Context.name == "PMI Sovereign Translation Context",
@@ -2198,6 +2479,24 @@ def seed_story(
     capabilities: Dict[str, Capability],
     context: Optional[Context] = None,
 ) -> Dict[str, int]:
+    completed_seed = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace.id,
+            AuditLog.event_type == "showcase.workspace.seeded",
+        )
+        .first()
+    )
+    if completed_seed is not None:
+        # Demo fixtures are immutable evidence, not measurements to refresh on
+        # every seed invocation. ``--reset`` remains the explicit rebuild path.
+        return {
+            "runs": db.query(Run).filter(Run.workspace_id == workspace.id).count(),
+            "evals": db.query(EvaluationScore)
+            .filter(EvaluationScore.workspace_id == workspace.id)
+            .count(),
+        }
+
     runs: List[Run] = []
     evals: List[EvaluationScore] = []
 
@@ -2306,6 +2605,11 @@ def seed_story(
     seed_review_decisions(db, workspace, runs, evals, replay, canonical)
     seed_chat_session(db, workspace, owner, runs[:3])
     seed_audit(db, workspace, owner, replay, canonical)
+    for run in runs:
+        input_ref = dict(run.input_ref or {})
+        input_ref["showcase_seed"] = True
+        input_ref["evidence_kind"] = "synthetic_demo"
+        run.input_ref = input_ref
     db.commit()
     return {"runs": len(runs), "evals": len(evals)}
 

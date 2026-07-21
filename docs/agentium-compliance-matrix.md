@@ -20,6 +20,8 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | `api` | ✅ 1/1 required | ✅ 1/1 required | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ✅ 3/3 required | ✅ 8/8 required | `node`, `pytest` | 🟠 Static verified |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
+| 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
+| 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 2/2 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 
 ## Evidence detail
 
@@ -160,6 +162,27 @@ One machine-readable manifest derives repository states, rejects manual formal b
 - **implementation / PASS** — [Repository CI compliance gate](../.gitlab-ci.yml)
 - **implementation / PASS** — [Pinned-checkout deployment static gate](../scripts/deploy-vm.sh)
 - **tests / PASS** — [Static compliance governance tests](../backend/app/tests/infra/test_agentium_compliance_contract.py)
+
+### `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives
+
+A marker-discovered System keeps one canonical identity while Build, Operate, Steer and Govern expose separate persisted projections, and a protected SHA-bound browser gate records the runtime proof. Mental model: §5bis, §33.
+
+- **implementation / PASS** — [System perspective read model](../backend/app/services/system_perspective.py)
+- **implementation / PASS** — [Protected runtime evidence pipeline](../.gitlab-ci.yml)
+- **implementation / PASS** — [Ordered structural rollout state machine](../backend/scripts/rollout_system360_canary.py)
+- **implementation / PASS** — [Quiesced VM deployment wrapper](../scripts/deploy-lot6-system360.sh)
+- **implementation / PASS** — [Authenticated evidence state derivation](../scripts/agentium_trusted_compliance.py)
+- **api / PASS** — [Marker-gated System perspective endpoint](../backend/app/api/v1/endpoints/systems.py)
+- **frontend / PASS** — [Typed four-lens System projection](../frontend-ng/src/app/features/systems/system-perspective.component.ts)
+- **tests / PASS** — [Authenticated marker-discovered System canary](../frontend-ng/e2e/tests/11-system360-canary.spec.ts)
+
+### `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity
+
+A double-gated Celery execution path persists immutable child identities, resumes the parent idempotently and applies deterministic all, any and race joins under real broker redelivery. Mental model: §33.
+
+- **implementation / PASS** — [Persisted subflow coordination](../backend/app/services/run_engine/subflow_orchestration.py)
+- **implementation / PASS** — [Protected PostgreSQL and RabbitMQ gate](../.gitlab-ci.yml)
+- **tests / PASS** — [Real broker redelivery and fan-out integration](../backend/app/tests/integration/test_subflow_celery_rabbitmq.py)
 
 ## Residual workspace-slug branch debt
 

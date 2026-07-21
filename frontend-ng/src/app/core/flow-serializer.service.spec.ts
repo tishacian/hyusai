@@ -20,6 +20,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FlowSerializerService,
+  variableRefValidationError,
   type CanonicalFlow,
 } from './flow-serializer.service';
 
@@ -249,6 +250,82 @@ test('validateFlow: variable_unresolved warns on unknown/non-upstream refs, sile
     edges: [{ from: 'a', to: 'b', kind: 'data' }],
   };
   assert.ok(!s.validateFlow(good).some((i) => i.code === 'variable_unresolved'));
+});
+
+test('VariableRef JSON shape matches the backend strict contract', () => {
+  assert.equal(variableRefValidationError({ node_id: 'run', path: [] }), null);
+  assert.equal(variableRefValidationError({ node_id: 'run', path: [], required: false }), null);
+  assert.equal(
+    variableRefValidationError({ node_id: ' ', path: [] }),
+    'node_id_must_be_non_empty_string',
+  );
+  assert.equal(
+    variableRefValidationError({ node_id: 'run', path: ['query', 0] }),
+    'path_must_be_string_array',
+  );
+  assert.equal(variableRefValidationError({ node_id: 'run' }), 'path_must_be_string_array');
+  assert.equal(
+    variableRefValidationError({ node_id: 'run', path: [], required: 'false' }),
+    'required_must_be_boolean',
+  );
+});
+
+test('validateFlow rejects the same malformed VariableRefs as the backend', () => {
+  const flow = {
+    schema_version: 3,
+    io_mode: 'strict',
+    nodes: [
+      { id: 'source', type: 'source', kind: 'source' },
+      {
+        id: 'consumer',
+        type: 'task',
+        kind: 'task',
+        config: {
+          skill_slug: 'x',
+          inputs_map: {
+            blank_owner: { node_id: ' ', path: [] },
+            mixed_path: { node_id: 'run', path: ['query', 0] },
+            bad_required: { node_id: 'run', path: ['query'], required: 'false' },
+          },
+        },
+      },
+    ],
+    edges: [{ from: 'source', to: 'consumer', kind: 'data' }],
+  } as unknown as CanonicalFlow;
+  const invalid = svc()
+    .validateFlow(flow)
+    .filter(
+      (issue) => issue.code === 'variable_contract_invalid' && issue.node_id === 'consumer',
+    );
+  assert.equal(invalid.length, 3);
+  assert.ok(invalid.every((issue) => issue.level === 'error'));
+});
+
+test('strict dot-path conversion refuses empty path segments', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    io_mode: 'strict',
+    variable_namespaces: ['session'],
+    nodes: [
+      {
+        id: 'consumer',
+        type: 'task',
+        kind: 'task',
+        config: { skill_slug: 'x', inputs_map: { q: 'session..objective' } },
+      },
+    ],
+    edges: [],
+  };
+  assert.equal(svc().dotPathToVariableRef('session..objective', flow), null);
+  const nodeFlow: CanonicalFlow = {
+    ...flow,
+    nodes: [
+      { id: 'task.primary', type: 'source', kind: 'source' },
+      ...flow.nodes,
+    ],
+  };
+  assert.equal(svc().dotPathToVariableRef('task.primary.', nodeFlow), null);
+  assert.ok(svc().validateFlow(flow).some((issue) => issue.code === 'variable_unresolved'));
 });
 
 test('topoSort returns an order for a DAG and null for a cycle', () => {

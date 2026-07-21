@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const chromiumExecutable = process.env['E2E_CHROMIUM_EXECUTABLE'];
+const junitOutput = process.env['PLAYWRIGHT_JUNIT_OUTPUT_NAME'] ?? 'e2e/results/junit.xml';
 
 /**
  * Agentium E2E test config (Vague E / E2).
@@ -34,7 +35,11 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: process.env.CI
-    ? [['github'], ['html', { outputFolder: 'e2e/report', open: 'never' }]]
+    ? [
+        ['list'],
+        ['junit', { outputFile: junitOutput, embedAnnotationsAsProperties: true }],
+        ['html', { outputFolder: 'e2e/report', open: 'never' }],
+      ]
     : [['list'], ['html', { outputFolder: 'e2e/report', open: 'never' }]],
 
   timeout: 60_000,

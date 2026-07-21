@@ -30,6 +30,7 @@ test('Capability scope hides its own level and routes Systems inside the same an
         useValue: {
           lens,
           axesV3Enabled: () => true,
+          axesV4Enabled: () => false,
           loading: () => false,
           route,
           scope,
@@ -76,6 +77,7 @@ test('clicking the active mini-rail scope is a strict no-op', () => {
         useValue: {
           lens,
           axesV3Enabled: () => true,
+          axesV4Enabled: () => false,
           loading: () => false,
           route,
           scope,
@@ -114,6 +116,7 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
         useValue: {
           lens: () => 'operate',
           axesV3Enabled: () => false,
+          axesV4Enabled: () => false,
           loading: () => false,
           route: () => navigationRouteContext('/runs', false),
           scope: () => null,
@@ -135,4 +138,34 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
     injector.get(MiniRailComponent).visibleSections().map((section) => section.key),
     ['runs', 'observability', 'intelligence', 'missions'],
   );
+});
+
+test('axes v4 exposes no object index under the Portfolio-only Hypervisor destination', () => {
+  const injector = Injector.create({
+    providers: [
+      MiniRailComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'hypervisor',
+          axesV3Enabled: () => true,
+          axesV4Enabled: () => true,
+          loading: () => false,
+          route: () => navigationRouteContext('/hypervisor'),
+          scope: () => null,
+          capabilityId: () => null,
+          systemId: () => null,
+          runId: () => null,
+          skillRef: () => null,
+          capabilityLabel: () => null,
+          systemLabel: () => null,
+          runLabel: () => null,
+          skillLabel: () => null,
+          urlForScope: (section: CockpitSection) => section.route,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  assert.deepEqual(injector.get(MiniRailComponent).visibleSections(), []);
 });

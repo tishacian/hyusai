@@ -17,7 +17,8 @@ typed store so the graph can resolve its own IO:
 * :func:`apply_outputs_map` — write a node output into the pool per
   ``config.outputs_map``.
 
-Reserved namespaces (``workspace`` / ``system`` / ``run`` / ``node``) resolve
+Reserved namespaces (``workspace`` / ``system`` / ``run`` / ``node`` /
+``context``) resolve
 outside the node graph; any other head segment is treated as a node id or a
 free-form logical bucket (the seeded capture flow uses ``session`` / ``capture``
 / ``turn`` / ``context`` buckets, for instance).
@@ -30,17 +31,62 @@ byte-identical to the pre-P1 flat-merge path.
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 # Reserved namespaces addressable from any node (mirrors the frontend
 # ``RESERVED_VARIABLE_NAMESPACES`` in flow-serializer.service.ts).
-RESERVED_NAMESPACES: Tuple[str, ...] = ("workspace", "system", "run", "node")
+RESERVED_NAMESPACES: Tuple[str, ...] = ("workspace", "system", "run", "node", "context")
 
 # Sentinel distinguishing "selector absent from the pool" from "selector
 # present but holds None" — only the former should fall back to the merge.
 _MISSING = object()
 
 Selector = Union[str, Sequence[str], Dict[str, Any]]
+
+
+class VariableResolutionError(ValueError):
+    """A required strict input selector was absent from the pool.
+
+    The exception is intentionally structured (port + selector) so the DAG
+    terminal error and the authoring validator can expose the same contract
+    violation without confusing an absent value with an explicit JSON null.
+    """
+
+    def __init__(self, *, port: str, selector: Any, reason: str = "missing") -> None:
+        self.port = port
+        self.selector = selector
+        self.reason = reason
+        if reason == "missing":
+            message = f"required variable for input {port!r} is missing: {selector!r}"
+        else:
+            message = f"invalid VariableRef for input {port!r} ({reason}): {selector!r}"
+        super().__init__(message)
+
+
+def variable_ref_validation_error(value: Any) -> Optional[str]:
+    """Return a stable reason when ``value`` is not a valid VariableRef.
+
+    This is the backend half of the authoring/runtime contract mirrored by
+    ``variableRefValidationError`` in the Angular serializer.  Empty paths are
+    valid (they select the whole namespace/node), but every present segment
+    must be a non-empty string. ``required`` is optional and, when present,
+    must be a JSON boolean rather than a truthy/falsy surrogate.
+    """
+
+    if not isinstance(value, Mapping):
+        return "must_be_object"
+    node_id = value.get("node_id")
+    if not isinstance(node_id, str) or not node_id.strip():
+        return "node_id_must_be_non_empty_string"
+    path = value.get("path")
+    if not isinstance(path, list):
+        return "path_must_be_string_array"
+    if any(not isinstance(segment, str) or not segment.strip() for segment in path):
+        return "path_must_be_string_array"
+    if "required" in value and not isinstance(value.get("required"), bool):
+        return "required_must_be_boolean"
+    return None
 
 
 def selector_segments(selector: Selector) -> Optional[List[str]]:
@@ -53,13 +99,9 @@ def selector_segments(selector: Selector) -> Optional[List[str]]:
         return None
     # Typed VariableRef: {"node_id": str, "path": [str, ...]}.
     if isinstance(selector, dict):
-        node_id = selector.get("node_id")
-        if not isinstance(node_id, str) or not node_id:
+        if variable_ref_validation_error(selector) is not None:
             return None
-        path = selector.get("path") or []
-        if not isinstance(path, (list, tuple)):
-            return None
-        return [node_id, *[str(p) for p in path]]
+        return [selector["node_id"], *selector["path"]]
     # Raw [head, *path] sequence (but not a bare string).
     if isinstance(selector, (list, tuple)):
         segs = [str(s) for s in selector if s is not None and str(s) != ""]
@@ -130,6 +172,18 @@ class VariablePool:
         # Deep copy so callers can't mutate the pool through the payload.
         return copy.deepcopy(self._store)
 
+    def with_namespace(self, name: str, mapping: Dict[str, Any]) -> "VariablePool":
+        """Return an isolated copy with one namespace overlaid.
+
+        ``node`` is execution-local.  Independent DAG nodes may execute in the
+        same asyncio tick, so mutating the shared pool for that namespace would
+        make selectors race.  A cheap copy keeps the shared published outputs
+        authoritative while giving each handler its own current-node scope.
+        """
+        clone = VariablePool(self.to_dict())
+        clone.set_namespace(name, mapping)
+        return clone
+
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "VariablePool":
         return cls(data if isinstance(data, dict) else {})
@@ -153,6 +207,8 @@ def apply_inputs_map(
     config: Optional[Dict[str, Any]],
     pool: VariablePool,
     predecessor_merge: Optional[Dict[str, Any]] = None,
+    *,
+    io_mode: str = "overlay",
 ) -> Dict[str, Any]:
     """Resolve ``config.inputs_map`` into a skill input dict.
 
@@ -164,13 +220,45 @@ def apply_inputs_map(
     When ``inputs_map`` is empty/absent the predecessor merge is returned
     verbatim (byte-identical to the pre-P1 path).
     """
-    base: Dict[str, Any] = dict(predecessor_merge or {})
+    strict = io_mode == "strict"
+    predecessor = dict(predecessor_merge or {})
+    if strict:
+        passthrough = (config or {}).get("passthrough_inputs", [])
+        if not isinstance(passthrough, (list, tuple)):
+            passthrough = []
+        # Preserve only explicitly declared predecessor fields.  ``in`` rather
+        # than ``get`` keeps an explicit null distinct from an absent key.
+        base = {
+            str(port): predecessor[str(port)]
+            for port in passthrough
+            if str(port) in predecessor
+        }
+    else:
+        base = predecessor
     inputs_map = (config or {}).get("inputs_map") if isinstance(config, dict) else None
     if not isinstance(inputs_map, dict) or not inputs_map:
         return base
     for port, selector in inputs_map.items():
+        if strict and isinstance(selector, dict):
+            invalid_reason = variable_ref_validation_error(selector)
+            if invalid_reason is not None:
+                raise VariableResolutionError(
+                    port=str(port),
+                    selector=selector,
+                    reason=invalid_reason,
+                )
         value = resolve_selector(selector, pool, default=_MISSING)
-        if value is not _MISSING and value is not None:
+        if value is _MISSING:
+            required = not (isinstance(selector, dict) and selector.get("required") is False)
+            if strict and required:
+                raise VariableResolutionError(port=str(port), selector=selector)
+            continue
+        if strict:
+            # Explicit null is a real value in strict contracts.
+            base[str(port)] = value
+        elif value is not None:
+            # Overlay is the legacy contract: null historically meant "do not
+            # clobber the predecessor merge".  Preserve it byte-for-byte.
             base[str(port)] = value
     return base
 

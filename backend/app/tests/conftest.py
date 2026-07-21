@@ -15,7 +15,8 @@ import tempfile
 # ---------------------------------------------------------------------------
 # Test DSN — must be set before the first `from app.*` import happens.
 # ---------------------------------------------------------------------------
-_TEST_DB = pathlib.Path(tempfile.gettempdir()) / "pytest_omnirag.db"
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
+_TEST_DB = pathlib.Path(tempfile.gettempdir()) / f"pytest_omnirag-{_WORKER}-{os.getpid()}.db"
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
 # Neutralise side-effects that would otherwise trigger real external calls
 # at import time (Qdrant ping, Redis connect, Azure OpenAI cost meter).

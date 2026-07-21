@@ -4,14 +4,14 @@ ControlPolicy + AdaptivePolicy are mounted here as a single concept.
 `POST /simulate` returns the projected impact of a lever change without
 persisting anything (used by the Steering cockpit's <300ms preview).
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.impact import _aggregate
+from app.api.v1.endpoints.impact import _aggregate_for_scope
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
@@ -89,9 +89,21 @@ class ControlPolicyBody(BaseModel):
         value["membrane_spec"] = MembraneSpec.from_dict(raw).to_dict()
         return value
 
+    @model_validator(mode="after")
+    def _validate_enforced_membrane_scope(self):
+        raw = self.extra.get("membrane_spec") if isinstance(self.extra, dict) else None
+        if not isinstance(raw, dict):
+            return self
+        spec = MembraneSpec.from_dict(raw)
+        if spec.enforcement_active and (self.scope != "system" or not self.target_id):
+            raise ValueError(
+                "an enforced membrane_spec v2 must be bound to a concrete system target_id"
+            )
+        return self
+
 
 def _serialize_cp(p: ControlPolicy) -> Dict[str, Any]:
-    return {
+    payload = {
         "id": p.id,
         "name": p.name,
         "scope": p.scope,
@@ -103,6 +115,24 @@ def _serialize_cp(p: ControlPolicy) -> Dict[str, Any]:
         "allowed_skills": p.allowed_skills or [],
         "extra": p.extra or {},
     }
+    try:
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        spec = resolve_membrane_spec(control=p)
+        payload["membrane"] = {
+            "version": spec.version,
+            "enforcement_mode": spec.effective_mode.value,
+            "authoritative": spec.authoritative,
+            "facet_states": spec.facet_states(),
+        }
+    except Exception:  # noqa: BLE001 - existing policy rows remain readable.
+        payload["membrane"] = {
+            "version": None,
+            "enforcement_mode": "compat",
+            "authoritative": False,
+            "facet_states": {},
+        }
+    return payload
 
 
 @router.get("/policies")
@@ -288,9 +318,15 @@ async def delete_adaptive(
 
 # ---- Simulate ----
 class SimulateBody(BaseModel):
-    scope: str = "capability"
+    scope: Literal["portfolio", "capability", "system"] = "capability"
     target_id: Optional[str] = None
     levers: Dict[str, float] = {}
+
+    @model_validator(mode="after")
+    def _require_system_target(self):
+        if self.scope == "system" and not self.target_id:
+            raise ValueError("target_id is required when scope=system")
+        return self
 
 
 @router.post("/simulate")
@@ -299,7 +335,14 @@ async def simulate(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    base = _aggregate(db, workspace.id, capability_id=body.target_id, period="rolling_30d")
+    period = "rolling_30d"
+    base = _aggregate_for_scope(
+        db,
+        workspace.id,
+        scope=body.scope,
+        target_id=body.target_id,
+        period=period,
+    )
     resource = float(body.levers.get("resource", 0.5))  # 0=lean, 1=deep
     velocity = float(body.levers.get("velocity", 0.5))  # 0=thorough, 1=rapid
     autonomy = float(body.levers.get("autonomy", 0.5))  # 0=hitl, 1=full
@@ -315,8 +358,23 @@ async def simulate(
         ((projected_value - projected_cost) / projected_cost) if projected_cost else None
     )
     return {
+        "kind": "simulation",
+        "measured": False,
         "scope": body.scope,
         "target_id": body.target_id,
+        "model": {"id": "control-plane-levers", "version": 1},
+        "assumptions": {
+            "resource": "controls cost and estimated-value multipliers",
+            "velocity": "controls the latency index",
+            "autonomy": "controls the risk index",
+        },
+        "provenance": {
+            "source": "runs",
+            "period": period,
+            "scope": body.scope,
+            "target_id": body.target_id,
+        },
+        "confidence": None,
         "base": base,
         "projected": {
             "total_cost": projected_cost,

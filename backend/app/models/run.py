@@ -30,7 +30,8 @@ class Run(Base):
     input_ref = Column(JSON, default=dict)
     output_ref = Column(JSON, default=dict)
 
-    status = Column(String(20), default="pending", index=True)  # pending | running | completed | failed | cancelled
+    # pending | running | waiting_subflows | hitl_pending | completed | failed | cancelled
+    status = Column(String(20), default="pending", index=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, nullable=True)
@@ -83,6 +84,14 @@ class Run(Base):
     # No FK to keep hard-deletes cheap (workspace teardown, GDPR purge).
     parent_run_id = Column(String(36), nullable=True, index=True)
     replay_overrides = Column(JSON, nullable=True)
+
+    # P4 durable delegation envelope.  The logical key is stable across broker
+    # redeliveries, so retries always recover the same child Run.
+    delegation_key = Column(String(64), nullable=True, unique=True)
+    delegation_node_id = Column(String(160), nullable=True)
+    delegation_branch = Column(String(160), nullable=True)
+    celery_task_id = Column(String(255), nullable=True)
+    waiting_subflows = Column(JSON, default=dict, nullable=False)
 
     system = relationship("System", back_populates="runs")
     invocations = relationship(

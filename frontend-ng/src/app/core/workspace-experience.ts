@@ -109,6 +109,7 @@ export interface WorkspaceExperienceRouteResolution {
     | 'business_system_capture_compatibility'
     | 'workspace_default_route'
     | 'workspace_extension_unavailable'
+    | 'legacy_hypervisor_object_lens'
     | 'workspace_settings_entrypoint';
 }
 

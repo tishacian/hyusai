@@ -241,3 +241,53 @@ def test_translation_suite_manifest_enforces_operator_reviewer_admin_roles(db_se
     assert reviewer_release.allowed is True
     assert viewer_policy_manage.allowed is False
     assert admin_identity_manage.allowed is True
+
+
+def test_system_engine_run_keeps_business_capability_as_resource_attribute(db_session):
+    operator_ws, operator, operator_membership = _subject(db_session, WORKSPACE_CONTRIBUTOR)
+    viewer_ws, viewer, viewer_membership = _subject(db_session, WORKSPACE_VIEWER)
+    engine = AuthorizationEngine()
+    attrs = {
+        "iam_manifest": "system_engine",
+        "system_id": "system-contract-risk",
+        "capability_id": "capability-contract-risk",
+        "capability": "video_contract_risk",
+    }
+
+    allowed = engine.evaluate(
+        db_session,
+        user=operator,
+        workspace=operator_ws,
+        membership=operator_membership,
+        resource_kind="system",
+        action="engine.run",
+        resource_attrs=attrs,
+        audit_denials=False,
+    )
+    denied = engine.evaluate(
+        db_session,
+        user=viewer,
+        workspace=viewer_ws,
+        membership=viewer_membership,
+        resource_kind="system",
+        action="engine.run",
+        resource_attrs=attrs,
+        audit_denials=False,
+    )
+
+    assert allowed.allowed is True
+    assert allowed.policy_id.startswith("system_engine:system.engine.run")
+    assert denied.allowed is False
+
+    viewer_read = engine.evaluate(
+        db_session,
+        user=viewer,
+        workspace=viewer_ws,
+        membership=viewer_membership,
+        resource_kind="system",
+        action="read",
+        resource_attrs=attrs,
+        audit_denials=False,
+    )
+    assert viewer_read.allowed is True
+    assert viewer_read.policy_id.startswith("system_engine:system.read")

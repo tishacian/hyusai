@@ -23,6 +23,8 @@ _This block is generated from `config/agentium/product-compliance.v1.json`. Run 
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟠 Static verified |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | 🟠 Static verified |
+| 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | 🟠 Static verified |
+| 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | 🟠 Static verified |
 
 These are static repository states. External runner/deployment JSON is recorded as untrusted evidence and cannot promote a formal delivery state; see [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).
 <!-- END GENERATED: AGENTIUM PRODUCT COMPLIANCE -->

@@ -46,16 +46,85 @@ def rag_retrieve_context(payload: dict) -> dict:
     return run_rag_retrieve_context(payload)
 
 
-@celery_app.task(name="agentium.subflow_run")
-def subflow_run(child_run_id: str) -> dict:
+@celery_app.task(
+    name="agentium.subflow_run",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def subflow_run(self, child_run_id: str) -> dict:
     """Execute a delegated child run (P4 multi-agent fan-out).
 
     Thin wrapper over ``run_engine.engine.run_subflow_child`` so the heavy
     engine import stays lazy (keeps worker boot light and avoids import cycles).
     """
+    from app.db.base import SessionLocal
+    from app.models.run import Run
     from app.services.run_engine.engine import run_subflow_child
+    from app.services.run_engine.subflow_orchestration import resume_parent_for_child_sync
 
-    return run_subflow_child(child_run_id)
+    with SessionLocal() as db:
+        child = db.query(Run).filter(Run.id == child_run_id).first()
+        terminal = child is not None and child.status in {"completed", "failed", "cancelled"}
+        terminal_result = {
+            "id": child_run_id,
+            "status": child.status if child else "missing",
+            "error": child.error if child else "run_not_found",
+        }
+    execution_error = None
+    try:
+        result = terminal_result if terminal else run_subflow_child(child_run_id)
+    except Exception as exc:  # includes Celery soft time limits
+        from datetime import datetime
+
+        execution_error = str(exc)[:400]
+        with SessionLocal() as db:
+            failed = db.query(Run).filter(Run.id == child_run_id).first()
+            if failed is not None and failed.status not in {"completed", "failed", "cancelled"}:
+                failed.status = "failed"
+                failed.error = failed.error or f"subflow_worker_failed:{execution_error}"
+                failed.completed_at = datetime.utcnow()
+                db.commit()
+        result = {"id": child_run_id, "status": "failed", "error": execution_error}
+    coordination = resume_parent_for_child_sync(child_run_id)
+    if coordination.get("status") == "checkpoint_pending":
+        # A very fast child may beat the parent checkpoint commit. Redeliver
+        # the same task/child id; terminal child execution is idempotent and no
+        # second child can be created because delegation_key is unique.
+        raise self.retry(countdown=1, max_retries=5)
+    if execution_error is not None:
+        raise RuntimeError(execution_error)
+    return {**result, "parent_coordination": coordination}
+
+
+@celery_app.task(
+    name="agentium.subflow_crash_probe",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def subflow_crash_probe(self, token: str) -> dict:
+    """Protected integration probe proving RabbitMQ worker-loss redelivery.
+
+    It is inert outside the explicit protected-test environment. A dedicated
+    solo worker dies on first delivery; a second worker receives the same task
+    and writes the redelivery marker. This must never be routed to production.
+    """
+    import os
+    from pathlib import Path
+    from uuid import UUID
+
+    if os.getenv("RUN_RABBITMQ_INTEGRATION") != "1":
+        raise RuntimeError("subflow crash probe is disabled")
+    safe_token = str(UUID(str(token)))
+    root = Path(os.getenv("SUBFLOW_CRASH_PROBE_DIR", "/tmp"))
+    first = root / f"agentium-p4-crash-{safe_token}.first"
+    redelivered = root / f"agentium-p4-crash-{safe_token}.redelivered"
+    if not first.exists():
+        first.write_text(str(self.request.id), encoding="utf-8")
+        os._exit(91)  # dedicated integration worker only
+    redelivered.write_text(str(self.request.id), encoding="utf-8")
+    return {"status": "redelivered", "task_id": str(self.request.id)}
 
 
 @celery_app.task(name="agentium.visual_snapshot_capture")

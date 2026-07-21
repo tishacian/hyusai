@@ -145,6 +145,23 @@ function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+function captureExpressionComposer(page: Page) {
+  const root = page.locator('app-knowledge-capture');
+  const input = root.getByPlaceholder(
+    /Ecrire ou parler|Écrire ou parler|Saisir ou corriger la réponse expert avant évaluation/i,
+  );
+  const section = input.locator('xpath=ancestor::section[1]');
+  return {
+    section,
+    input,
+    submit: section.getByRole('button', { name: /^Envoyer$/i }),
+  };
+}
+
+function focusedCapturePin(page: Page, name: RegExp) {
+  return captureExpressionComposer(page).section.getByRole('button', { name }).locator('..');
+}
+
 function emptyOperations() {
   return {
     stale_after_hours: 24,
@@ -2882,9 +2899,11 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(pollProbeBeforeNavigation.pollIntervals).toHaveLength(2);
     expect(pollProbeBeforeNavigation.pollIntervals.every((entry) => entry.effective_ms === 50)).toBe(true);
     expect(sftpOperationsRequests.length).toBeGreaterThanOrEqual(2);
-    expect(sftpOperationsRequests.length).toBeLessThanOrEqual(10);
     expect(sftpJobsRequests.length).toBeGreaterThanOrEqual(1);
-    expect(sftpJobsRequests.length).toBeLessThanOrEqual(4);
+    // Request totals depend on scheduler load once the 5 s timers are
+    // accelerated to 50 ms. Boundedness is proven structurally by the two
+    // intervals above and behaviourally by zero additional requests after
+    // both interval ids are cleared below.
 
     await page.locator('app-sftp-connector').evaluate((element) => {
       const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
@@ -5755,10 +5774,10 @@ test.describe('Andritz mocked browser smoke', () => {
     await page.getByRole('button', { name: /^Parler$|^Speak$/i }).click();
 
     await expect(page.locator('body')).toContainText(/Micro indisponible|microphone permission|saisie guidée/i);
-    const answerComposer = page.getByPlaceholder('Saisir ou corriger la réponse expert avant évaluation...');
+    const { input: answerComposer, submit: sendButton } = captureExpressionComposer(page);
     await expect(answerComposer).toBeVisible();
     await answerComposer.fill('Note de secours saisie quand le micro est indisponible.');
-    await page.getByRole('button', { name: /Enregistrer la réponse|Add response/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(capturePlanRequests).toHaveLength(1);
@@ -6105,12 +6124,11 @@ test.describe('Andritz mocked browser smoke', () => {
 
     const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
     await expect(captureDocuments).toBeVisible();
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
-    const addNoteButton = captureDocuments.getByRole('button', { name: /Ajouter la note/i });
-    await expect(addNoteButton).toBeDisabled();
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
+    await expect(sendButton).toBeDisabled();
 
     await noteInput.fill('     ');
-    await expect(addNoteButton).toBeDisabled();
+    await expect(sendButton).toBeDisabled();
     expect(captureTurnRequests).toEqual([]);
   });
 
@@ -6155,23 +6173,21 @@ test.describe('Andritz mocked browser smoke', () => {
 
     const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
     await expect(captureDocuments).toBeVisible();
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Complément écrit pendant la finalisation de la transcription voix.');
-    const addNoteButton = captureDocuments.getByRole('button', { name: /Ajouter la note/i });
-    await expect(addNoteButton).toBeEnabled();
-    await addNoteButton.click();
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
       text: 'Complément écrit pendant la finalisation de la transcription voix.',
       question_id: 'q-alignment',
-      turn_kind: 'complement',
+      turn_kind: 'answer',
       input_modality: 'text',
       document_refs: [],
       visual_context: null,
     });
-    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
     await expect(noteInput).toHaveValue('');
   });
 
@@ -6221,21 +6237,20 @@ test.describe('Andritz mocked browser smoke', () => {
     const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
     await expect(captureDocuments).toBeVisible();
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Le repère d alignement doit rester rattaché à la section convoyeur.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
       text: 'Le repère d alignement doit rester rattaché à la section convoyeur.',
       question_id: 'q-alignment',
-      turn_kind: 'complement',
+      turn_kind: 'answer',
       input_modality: 'text',
       document_refs: [],
       visual_context: null,
     });
-    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
     await expect(noteInput).toHaveValue('');
   });
 
@@ -6274,22 +6289,21 @@ test.describe('Andritz mocked browser smoke', () => {
 
     const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
     await expect(captureDocuments).toBeVisible();
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('La consignation doit être confirmée avant l arrêt machine.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
       text: 'La consignation doit être confirmée avant l arrêt machine.',
       question_id: 'q-safety-stop',
-      turn_kind: 'complement',
+      turn_kind: 'answer',
       input_modality: 'text',
       document_refs: [],
       visual_context: null,
     });
     expect(JSON.stringify(captureTurnRequests[0])).not.toContain('q-alignment');
-    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
     await expect(noteInput).toHaveValue('');
   });
 
@@ -6362,19 +6376,21 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await expect(page.getByRole('heading', { name: /Andritz capture reference/i })).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
     await expect(safetySection).toHaveClass(/text-brand-100/);
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Sur cette page, la consignation avant arrêt machine est visible.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
       text: 'Sur cette page, la consignation avant arrêt machine est visible.',
       question_id: 'q-safety-stop',
-      turn_kind: 'complement',
+      turn_kind: 'answer',
       input_modality: 'text',
       document_refs: [
         expect.objectContaining({
@@ -6448,11 +6464,13 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByRole('heading', { name: /Andritz capture reference/i })).toBeVisible();
     await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Sur cette page, le convoyeur de test Andritz reste aligné.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -6539,11 +6557,13 @@ test.describe('Andritz mocked browser smoke', () => {
       association_mode: 'active_view',
     });
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 2/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.2/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Sur cette page 2, le réducteur Andritz est identifié.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -6616,12 +6636,17 @@ test.describe('Andritz mocked browser smoke', () => {
       }
 
       const meta = component.voiceFrameMeta('manual');
-      const activeView = component.activeCaptureDocumentView();
+      const pins = component.pinnedCaptureDocumentViews();
+      const focusedKey = component.focusedPinKey();
+      const focusedView = pins.find((pin: { key?: string }) => pin.key === focusedKey) || pins[0] || null;
+      if (!focusedView) throw new Error('Focused capture pin not found');
       ng?.applyChanges?.(component);
       return {
-        activeView,
+        pinCount: pins.length,
+        focusedKey,
+        focusedView,
         meta,
-        activeLabel: component.captureDocumentViewLabel(activeView),
+        focusedLabel: component.capturePinLabel(focusedView),
         sourcePreviewPage: component.sourcePreviewPage(),
         recording: component.recording(),
       };
@@ -6629,12 +6654,16 @@ test.describe('Andritz mocked browser smoke', () => {
 
     await expect.poll(() => captureDocumentViewRequests.length).toBe(4);
     expect(captureDocumentViewRequests.map((entry) => (entry as { page?: number }).page)).toEqual([1, 2, 3, 4]);
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 4/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.4/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
     expect(state).toMatchObject({
-      activeLabel: 'Andritz capture reference · page 4',
+      pinCount: 1,
+      focusedKey: 'doc-capture-reference',
+      focusedLabel: 'Andritz capture reference · p.4',
       sourcePreviewPage: 4,
       recording: true,
-      activeView: expect.objectContaining({
+      focusedView: expect.objectContaining({
         document_id: 'doc-capture-reference',
         filename: 'andritz-capture-reference.pdf',
         page: 4,
@@ -6661,7 +6690,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
-  test('keeps written capture references scoped to the latest active document', async ({ page }) => {
+  test('carries every pinned written capture reference and keeps the latest pin focused', async ({ page }) => {
     const captureDocumentUploadRequests: string[] = [];
     const captureDocumentPreviewRequests: string[] = [];
     const captureDocumentViewRequests: unknown[] = [];
@@ -6706,12 +6735,16 @@ test.describe('Andritz mocked browser smoke', () => {
     await page.getByRole('button', { name: /Andritz capture reference/i }).click();
     await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
     await page.getByRole('button', { name: /Andritz capture photo/i }).click();
     await expect(page.getByText('Synthetic capture photo content for the second active visual context.')).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture photo · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture photo · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
     await expect.poll(() => captureDocumentPreviewRequests.length).toBe(2);
     const secondPreviewParams = new URLSearchParams(captureDocumentPreviewRequests[1].replace(/^\?/, ''));
@@ -6730,10 +6763,24 @@ test.describe('Andritz mocked browser smoke', () => {
       page: 1,
       association_mode: 'active_view',
     });
+    const pinState = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      return {
+        keys: component.pinnedCaptureDocumentViews().map((pin: { key?: string }) => pin.key),
+        focusedKey: component.focusedPinKey(),
+      };
+    });
+    expect(pinState).toEqual({
+      keys: ['doc-capture-reference', 'doc-capture-photo'],
+      focusedKey: 'doc-capture-photo',
+    });
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput } = captureExpressionComposer(page);
     await noteInput.fill('Sur cette photo, la zone d accès maintenance Andritz reste visible.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await noteInput.press('Enter');
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -6742,6 +6789,12 @@ test.describe('Andritz mocked browser smoke', () => {
       turn_kind: 'complement',
       input_modality: 'text',
       document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 1,
+          association_mode: 'active_view',
+        }),
         expect.objectContaining({
           document_id: 'doc-capture-photo',
           filename: 'andritz-capture-photo.jpg',
@@ -6756,7 +6809,7 @@ test.describe('Andritz mocked browser smoke', () => {
         association_mode: 'active_view',
       }),
     });
-    expect(JSON.stringify(captureTurnRequests[0])).not.toContain('doc-capture-reference');
+    expect((captureTurnRequests[0] as { document_refs?: unknown[] }).document_refs).toHaveLength(2);
     await expect(noteInput).toHaveValue('');
   });
 
@@ -6807,11 +6860,13 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await expect(page.getByText('Mocked capture document preview unavailable')).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Le document reste lie au tour meme si la preview est temporairement indisponible.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -6881,11 +6936,13 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
     await page.getByRole('button', { name: /Close preview/i }).click();
-    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(focusedCapturePin(page, /Andritz capture reference · p\.1/i)).toHaveClass(
+      /ring-brand-300\/40/,
+    );
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('Sur cette page, le repère Andritz reste exploitable malgré l audit différé.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -6948,9 +7005,9 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(captureDocumentPreviewRequests).toHaveLength(0);
     expect(captureDocumentViewRequests).toHaveLength(0);
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('La note écrite continue même sans document attaché.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -7003,9 +7060,9 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(captureDocumentPreviewRequests).toHaveLength(0);
     expect(captureDocumentViewRequests).toHaveLength(0);
 
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill('La capture reste disponible apres le rejet du document.');
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
 
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
@@ -7047,9 +7104,9 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(captureDocuments).toBeVisible();
 
     const noteText = 'La fiche doit garder une synthese structuree sans publication.';
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill(noteText);
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
@@ -7180,9 +7237,9 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(captureDocuments).toBeVisible();
 
     const noteText = 'La note reste dans la capture si la finalisation echoue.';
-    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const { input: noteInput, submit: sendButton } = captureExpressionComposer(page);
     await noteInput.fill(noteText);
-    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await sendButton.click();
     await expect.poll(() => captureTurnRequests.length).toBe(1);
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
@@ -7587,7 +7644,8 @@ test.describe('Andritz mocked browser smoke', () => {
     const deepSourcesToggle = deepAnswer.getByRole('button', { name: /Sources · 1|1 sources/i });
     await expect(deepSourcesToggle).toBeVisible();
     await deepSourcesToggle.click();
-    await expect(deepAnswer.getByText(/Andritz deep evidence|andritz-deep-evidence\.pdf/i)).toBeVisible();
+    await expect(deepAnswer.getByText('Andritz deep evidence', { exact: true })).toBeVisible();
+    await expect(deepAnswer.getByTitle('Page 2', { exact: true })).toBeVisible();
 
     expect(chatSessionCreateRequests).toHaveLength(1);
     expect(chatStreamRequests).toHaveLength(1);

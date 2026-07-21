@@ -3,16 +3,16 @@
 Composes data from `impact`, `runs`, `capabilities` and `decisions` to feed
 the executive cockpit. Designed to be a single roundtrip per surface.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.impact import _aggregate
+from app.api.v1.endpoints.impact import _aggregate, _aggregate_for_scope
 from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
@@ -121,9 +121,15 @@ def _signal_label(r: Run) -> str:
 
 # ---- Recommendations + What-If ----
 class WhatIfRequest(BaseModel):
-    scope: str = "capability"
+    scope: Literal["portfolio", "capability", "system"] = "capability"
     target_id: Optional[str] = None
     levers: Dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def _require_system_target(self):
+        if self.scope == "system" and not self.target_id:
+            raise ValueError("target_id is required when scope=system")
+        return self
 
 
 class ProactiveRecommendationRequest(BaseModel):
@@ -188,7 +194,14 @@ async def simulate_what_if(
     """Deterministic client-side feel: we compute a delta-projection from the
     current aggregates without touching the runtime. Phase 4 will route the
     same payload through the real adaptive policy simulator."""
-    base = _aggregate(db, workspace.id, capability_id=body.target_id, period="qtd")
+    period = "qtd"
+    base = _aggregate_for_scope(
+        db,
+        workspace.id,
+        scope=body.scope,
+        target_id=body.target_id,
+        period=period,
+    )
     levers = body.levers or {}
 
     # Accept both the canonical 4-lever mental model (resource/velocity/autonomy/risk_tolerance)
@@ -237,8 +250,24 @@ async def simulate_what_if(
         ((projected_value - projected_cost) / projected_cost) if projected_cost else None
     )
     return {
+        "kind": "simulation",
+        "measured": False,
         "scope": body.scope,
         "target_id": body.target_id,
+        "model": {"id": "hypervisor-what-if-levers", "version": 1},
+        "assumptions": {
+            "resource": "controls cost and estimated-value multipliers",
+            "velocity": "controls latency and a bounded value adjustment",
+            "autonomy": "controls the cost multiplier",
+            "risk_tolerance": "controls the estimated-value multiplier",
+        },
+        "provenance": {
+            "source": "runs",
+            "period": period,
+            "scope": body.scope,
+            "target_id": body.target_id,
+        },
+        "confidence": None,
         "base": base,
         "projected": {
             "total_cost": projected_cost,

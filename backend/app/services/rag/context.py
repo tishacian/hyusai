@@ -527,27 +527,75 @@ def _apply_membrane_inbound_collections(
     """Membrane inbound facet — restrict the searched collections to the
     authoritative allowlist (P3).
 
-    Read-through and inert by default: a workspace with no explicit
-    ``membrane_spec`` (the common case, incl. derived specs) keeps the full
-    collection set byte-for-byte. Only an *authoritative* spec carrying a
-    non-empty ``inbound.collection_allowlist`` filters the set (order-preserving
-    intersection); if the intersection is empty we fall back to the original
-    collections rather than searching nothing.
+    Read-through and v1 remain byte-for-byte compatible.  An authoritative v2
+    ``enforce`` contract is fail-closed: an empty intersection is a policy
+    error and can never broaden back to the original collection set.
     """
     if not isinstance(source_policy, Mapping):
         return collections
     try:
+        from app.services.membrane.enforcement import enforce_inbound_collections
         from app.services.membrane.spec import resolve_membrane_spec
 
         spec = resolve_membrane_spec(source_policy=source_policy)
-    except Exception:  # noqa: BLE001 — fail-soft, never break retrieval.
+        decision = enforce_inbound_collections(spec, collections)
+    except ValueError:
+        # An invalid explicit v2 contract is unsafe to interpret.
+        raise
+    except Exception:  # noqa: BLE001 — v1/derived retain fail-soft behaviour.
         return collections
-    allowlist = spec.inbound.collection_allowlist
-    if not spec.authoritative or not allowlist:
-        return collections
-    allowed = set(allowlist)
-    filtered = [c for c in collections if c in allowed]
-    return filtered or collections
+    if decision.blocked:
+        from app.services.membrane.enforcement import MembraneEnforcementError
+
+        raise MembraneEnforcementError("membrane_inbound_no_allowed_collections")
+    return decision.collections
+
+
+def _apply_membrane_inbound_evidence(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    profile: Mapping[str, Any],
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    """Apply v2 reference-type/project constraints to the final evidence set."""
+
+    raw_spec = profile.get("_membrane_spec")
+    if not isinstance(raw_spec, Mapping):
+        return chunks, scores, metadatas, {}
+    from app.services.membrane.enforcement import (
+        MembraneEnforcementError,
+        enforce_inbound_sources,
+    )
+    from app.services.membrane.spec import resolve_membrane_spec
+
+    spec = resolve_membrane_spec(source_policy={"membrane_spec": raw_spec})
+    sources = [
+        {"_index": index, "metadata": metadata if isinstance(metadata, Mapping) else {}}
+        for index, metadata in enumerate(metadatas)
+    ]
+    decision = enforce_inbound_sources(
+        spec,
+        sources,
+        expected_project=str(profile.get("_membrane_expected_project") or "") or None,
+    )
+    if decision.blocked:
+        raise MembraneEnforcementError("membrane_inbound_no_allowed_evidence")
+    keep = [int(source["_index"]) for source in decision.sources]
+    if not keep and not sources:
+        keep = []
+    telemetry = {
+        "mode": decision.mode,
+        "violations": list(decision.violations),
+        "would_block": decision.would_block,
+        "filtered_count": max(0, len(sources) - len(keep)),
+    }
+    return (
+        [chunks[index] for index in keep if index < len(chunks)],
+        [scores[index] for index in keep if index < len(scores)],
+        [metadatas[index] for index in keep if index < len(metadatas)],
+        telemetry,
+    )
 
 
 def _deep_rewrite_variants(
@@ -889,10 +937,10 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
             workspace_slug=request.get("workspace_slug"),
             source_policy=request.get("source_policy"),
         )
-        collections = _apply_membrane_inbound_collections(
-            collections,
-            source_policy=request.get("source_policy"),
-        )
+    collections = _apply_membrane_inbound_collections(
+        collections,
+        source_policy=request.get("source_policy"),
+    )
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": _history_augmented_query(request),
@@ -923,6 +971,12 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
             "top_k": top_k,
             "candidate_pool_k": candidate_pool_k,
         },
+        "_membrane_spec": (
+            request.get("source_policy", {}).get("membrane_spec")
+            if isinstance(request.get("source_policy"), Mapping)
+            else None
+        ),
+        "_membrane_expected_project": request.get("project_code"),
         "retrieval_filters": {
             key: value
             for key, value in raw_retrieval_filters.items()
@@ -2767,13 +2821,31 @@ async def retrieve_rag_context(
         )
     )
     if expert_fiche_collection:
-        profile["_expert_fiche_collection"] = expert_fiche_collection
         planned_collections = list(profile.get("collections") or [])
         if expert_fiche_collection not in planned_collections:
             planned_collections.append(expert_fiche_collection)
-            profile["collections"] = planned_collections
-            profile["collection"] = planned_collections[0]
-            collections = planned_collections
+        # The correction overlay is not a second authority boundary. Reuse the
+        # Membrane resolver after planner replacement so explicit v2 enforce
+        # can remove (or reject) a collection that the compatibility overlay
+        # tried to reintroduce. Derived/v1 behaviour remains unchanged.
+        source_policy = request.get("source_policy")
+        raw_membrane = (
+            source_policy.get("membrane_spec")
+            if isinstance(source_policy, Mapping)
+            else None
+        )
+        if isinstance(raw_membrane, Mapping) and raw_membrane.get("version") == 2:
+            planned_collections = _apply_membrane_inbound_collections(
+                planned_collections,
+                source_policy=source_policy,
+            )
+        profile["collections"] = planned_collections
+        profile["collection"] = planned_collections[0]
+        collections = planned_collections
+        if expert_fiche_collection in planned_collections:
+            profile["_expert_fiche_collection"] = expert_fiche_collection
+        else:
+            expert_fiche_collection = ""
     expert_fiche_included = bool(
         expert_fiche_collection and expert_fiche_collection in (collections or [])
     )
@@ -3463,6 +3535,12 @@ async def retrieve_rag_context(
         diagnostics=retrieval_diagnostics,
         retrieval_filters=retrieval_filters,
     )
+    chunks, scores, metadatas, membrane_inbound = _apply_membrane_inbound_evidence(
+        chunks,
+        scores,
+        metadatas,
+        profile=profile,
+    )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     metrics.update(
         {
@@ -3489,6 +3567,7 @@ async def retrieve_rag_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "exact_match_guardrail_inserted": bool(exact_guardrail_count),
+            "membrane_inbound": membrane_inbound or None,
             "retrieval_constraints": retrieval_constraints,
             **threshold_metrics,
             **diversity_metrics,
@@ -4003,6 +4082,12 @@ async def _retrieve_multi_collection_context(
         diagnostics=exact_metadata_diagnostics,
         retrieval_filters=retrieval_filters,
     )
+    chunks, scores, metadatas, membrane_inbound = _apply_membrane_inbound_evidence(
+        chunks,
+        scores,
+        metadatas,
+        profile=profile,
+    )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     duration_ms = int((time.time() - started) * 1000)
     # A collection can appear twice in collection_results (unscoped pass + soft
@@ -4050,6 +4135,7 @@ async def _retrieve_multi_collection_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "exact_match_guardrail_inserted": bool(exact_guardrail_count),
+            "membrane_inbound": membrane_inbound or None,
             "retrieval_constraints": retrieval_constraints,
             **exact_metadata_diagnostics,
             **threshold_metrics,

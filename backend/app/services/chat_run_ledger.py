@@ -136,6 +136,7 @@ def _attach_membrane_provenance(
     """
     try:
         from app.models.policy import ControlPolicy
+        from app.services.membrane.enforcement import persist_provenance_artifact
         from app.services.membrane.spec import resolve_membrane_spec
 
         control = None
@@ -160,13 +161,36 @@ def _attach_membrane_provenance(
             "decision": run.decision,
             "confidence": run.confidence,
         }
+        # V1 remains metadata-only.  V2 writes canonical, checksum-addressed
+        # bytes to the ObjectStore; enforce mode propagates persistence errors
+        # so a mandatory provenance contract cannot be reported as successful.
+        if spec.version >= 2:
+            artifact = persist_provenance_artifact(
+                spec,
+                workspace_id=str(run.workspace_id or ""),
+                system_id=run.system_id,
+                run_id=run.id,
+                payload=provenance,
+            )
+            if artifact is not None:
+                provenance["artifact"] = artifact.to_dict()
         target = next(
             (inv for inv in invocations if inv.skill_slug == "audit_log_v1"),
             invocations[-1] if invocations else None,
         )
         if target is not None:
             target.trace = {**(target.trace or {}), "membrane": provenance}
-    except Exception:  # noqa: BLE001 — provenance is best-effort, never break chat.
+    except Exception as exc:  # noqa: BLE001 - v2 enforce is intentionally fatal.
+        try:
+            from app.services.membrane.enforcement import MembraneEnforcementError
+
+            if isinstance(exc, MembraneEnforcementError):
+                run.status = "failed"
+                run.error = run.error or str(exc)
+                db.flush()
+                raise
+        except ImportError:
+            pass
         return
 
 

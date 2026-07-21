@@ -29,7 +29,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import desc
@@ -39,7 +40,6 @@ from app.core.config import settings
 from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.services.audit_logger import emit_audit_event
-
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +83,11 @@ def record_new_version(
     system: System,
     flow_definition: Mapping[str, Any],
     created_by: str,
-    message: Optional[str] = None,
-    rolled_back_from_id: Optional[str] = None,
-    audit_actor: Optional[str] = None,
-) -> Optional[SystemVersion]:
+    message: str | None = None,
+    rolled_back_from_id: str | None = None,
+    audit_actor: str | None = None,
+    purge: bool = True,
+) -> SystemVersion | None:
     """Persist a new ``SystemVersion`` for this system and trim the
     rolling window. Commits on the caller's session (we only flush —
     the caller decides when to commit so we stay inside their
@@ -119,7 +120,10 @@ def record_new_version(
     db.add(version)
     db.flush()
 
-    purged_ids = _purge_window(db=db, system_id=system.id)
+    # Product/runtime edits retain the bounded rolling window.  Migration and
+    # rollout callers can opt out explicitly: those operations promise never
+    # to delete a historical SystemVersion while establishing a new contract.
+    purged_ids = _purge_window(db=db, system_id=system.id) if purge else []
 
     emit_audit_event(
         workspace_id=system.workspace_id,
@@ -159,7 +163,7 @@ def record_new_version(
     return version
 
 
-def _purge_window(*, db: DBSession, system_id: str) -> List[str]:
+def _purge_window(*, db: DBSession, system_id: str) -> list[str]:
     """Trim the oldest versions so the system stays within
     ``settings.custom_chain_version_window``. Return the ids of purged
     rows.
@@ -199,10 +203,10 @@ def list_versions(
     *,
     db: DBSession,
     system_id: str,
-    workspace_id: Optional[str],
+    workspace_id: str | None,
     limit: int = 100,
     offset: int = 0,
-) -> Tuple[List[SystemVersion], int]:
+) -> tuple[list[SystemVersion], int]:
     """Return ``(rows, total)`` for the given system, workspace-scoped.
 
     ``limit`` is hard-capped at 500 (the rolling window size) to make
@@ -227,9 +231,9 @@ def get_version(
     *,
     db: DBSession,
     system_id: str,
-    workspace_id: Optional[str],
+    workspace_id: str | None,
     version_number: int,
-) -> Optional[SystemVersion]:
+) -> SystemVersion | None:
     q = db.query(SystemVersion).filter(
         SystemVersion.system_id == system_id,
         SystemVersion.version_number == int(version_number),
@@ -245,8 +249,9 @@ def rollback_to_version(
     system: System,
     version_number: int,
     created_by: str,
-    message: Optional[str] = None,
-    audit_actor: Optional[str] = None,
+    message: str | None = None,
+    audit_actor: str | None = None,
+    purge: bool = True,
 ) -> SystemVersion:
     """Roll the system back to ``version_number`` by creating a new
     version whose ``flow_definition`` equals that target. Also updates
@@ -279,6 +284,7 @@ def rollback_to_version(
         message=message or f"Rolled back to v{target.version_number}",
         rolled_back_from_id=target.id,
         audit_actor=audit_actor,
+        purge=purge,
     )
     # `record_new_version` returns None when the target flow is identical
     # to the current flow — in that case the rollback is a no-op but we
@@ -321,7 +327,7 @@ def rollback_to_version(
     return new_version
 
 
-def serialize_version(version: SystemVersion) -> Dict[str, Any]:
+def serialize_version(version: SystemVersion) -> dict[str, Any]:
     """Shape for API responses."""
     return {
         "id": version.id,
@@ -336,7 +342,7 @@ def serialize_version(version: SystemVersion) -> Dict[str, Any]:
     }
 
 
-def serialize_version_summary(version: SystemVersion) -> Dict[str, Any]:
+def serialize_version_summary(version: SystemVersion) -> dict[str, Any]:
     """Listing shape — drops the heavyweight ``flow_definition`` so the
     versions panel can stay snappy even with 500 rows.
     """

@@ -38,9 +38,17 @@ Gating policy used by ``PATCH /systems/{id}``:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
+from app.services.chains.variable_contract import (
+    declared_namespaces,
+    dot_path_to_variable_ref,
+)
+from app.services.run_engine.variable_pool import (
+    RESERVED_NAMESPACES,
+    variable_ref_validation_error,
+)
 
 _CANONICAL_BUILDER_IDS: Set[str] = {
     "builder.objective",
@@ -165,7 +173,7 @@ _PRIMITIVE_SCHEMAS: Set[str] = {
 
 # Reserved variable namespaces that resolve outside the node graph
 # (mirror of ``RESERVED_VARIABLE_NAMESPACES`` on the frontend).
-_RESERVED_VARIABLE_NAMESPACES: Set[str] = {"workspace", "system", "run", "node"}
+_RESERVED_VARIABLE_NAMESPACES: Set[str] = set(RESERVED_NAMESPACES)
 
 
 def _ports(node: Mapping[str, Any], key: str) -> Dict[str, Optional[str]]:
@@ -211,14 +219,8 @@ def _ancestors(node_id: str, rev: Mapping[str, Sequence[str]]) -> Set[str]:
 
 
 def _is_variable_ref(value: Any) -> bool:
-    """A typed v3 ``VariableRef`` carries a string ``node_id`` and a list
-    ``path``; legacy dot-path strings are opaque and skipped.
-    """
-    return (
-        isinstance(value, Mapping)
-        and isinstance(value.get("node_id"), str)
-        and isinstance(value.get("path"), list)
-    )
+    """Return whether a value satisfies the complete typed v3 contract."""
+    return variable_ref_validation_error(value) is None
 
 
 def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
@@ -229,6 +231,54 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
     issues: List[ValidationIssue] = []
     nodes = _iter_nodes(flow)
     edges = _iter_edges(flow)
+
+    raw_io_mode = flow.get("io_mode")
+    strict = raw_io_mode == "strict"
+    try:
+        schema_version = int(flow.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        schema_version = 0
+    if raw_io_mode is not None and raw_io_mode not in {"overlay", "strict"}:
+        issues.append(
+            ValidationIssue(
+                level="error",
+                code="variable_contract_invalid",
+                message="io_mode must be 'overlay' or 'strict'.",
+            )
+        )
+    if strict and schema_version < 3:
+        issues.append(
+            ValidationIssue(
+                level="error",
+                code="variable_contract_invalid",
+                message="io_mode 'strict' requires schema_version >= 3.",
+            )
+        )
+    namespaces = declared_namespaces(flow)
+    raw_namespaces = flow.get("variable_namespaces")
+    if raw_namespaces is not None and (
+        not isinstance(raw_namespaces, list)
+        or any(not isinstance(item, str) or not item.strip() for item in raw_namespaces)
+    ):
+        issues.append(
+            ValidationIssue(
+                level="error",
+                code="variable_contract_invalid",
+                message="variable_namespaces must be a list of non-empty strings.",
+            )
+        )
+    reserved_redeclarations = sorted(namespaces & _RESERVED_VARIABLE_NAMESPACES)
+    if reserved_redeclarations:
+        issues.append(
+            ValidationIssue(
+                level="error",
+                code="variable_contract_invalid",
+                message=(
+                    "Built-in namespace(s) cannot be redeclared: "
+                    + ", ".join(reserved_redeclarations)
+                ),
+            )
+        )
 
     # No structural validation possible on an empty flow. We tolerate it
     # (a draft with no nodes is legitimately a valid "empty" save) and
@@ -487,19 +537,64 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
             continue
         inputs_map = cfg.get("inputs_map")
         if not isinstance(inputs_map, Mapping):
-            continue
+            inputs_map = {}
         ancestors: Optional[Set[str]] = None
         for port, raw in inputs_map.items():
+            if isinstance(raw, str) and strict:
+                conversion = dot_path_to_variable_ref(
+                    raw,
+                    node_ids=[item for item in ids],
+                    variable_namespaces=namespaces,
+                )
+                if not conversion.converted:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="variable_unresolved",
+                            message=(
+                                f"Input {port!r} selector {raw!r} has no unambiguous "
+                                f"owner ({conversion.reason})."
+                            ),
+                            node_id=nid,
+                        )
+                    )
+                    continue
+                raw = conversion.ref
+            ref_candidate = isinstance(raw, Mapping) and any(
+                key in raw for key in ("node_id", "path", "required")
+            )
+            ref_error = variable_ref_validation_error(raw) if ref_candidate else None
+            if ref_error is not None:
+                issues.append(
+                    ValidationIssue(
+                        level="error" if strict else "warn",
+                        code="variable_contract_invalid",
+                        message=f"Input {port!r} has an invalid VariableRef ({ref_error}).",
+                        node_id=nid,
+                    )
+                )
+                continue
             if not _is_variable_ref(raw):
+                if strict:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="variable_unresolved",
+                            message=f"Input {port!r} must be a VariableRef in strict mode.",
+                            node_id=nid,
+                        )
+                    )
                 continue
             ref_node = raw.get("node_id")
             path = raw.get("path") or []
             if ref_node in _RESERVED_VARIABLE_NAMESPACES:
                 continue
+            if ref_node in namespaces:
+                continue
             if ref_node not in ids:
                 issues.append(
                     ValidationIssue(
-                        level="warn",
+                        level="error" if strict else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} references unknown node {ref_node!r}.",
                         node_id=nid,
@@ -511,7 +606,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
             if ref_node not in ancestors:
                 issues.append(
                     ValidationIssue(
-                        level="warn",
+                        level="error" if strict else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} reads from {ref_node!r}, which is not upstream of {nid!r}.",
                         node_id=nid,
@@ -523,12 +618,54 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
             if src_outputs and head and head not in src_outputs:
                 issues.append(
                     ValidationIssue(
-                        level="warn",
+                        level="error" if strict else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} reads port {head!r} not declared on {ref_node!r}.",
                         node_id=nid,
                     )
                 )
+
+        if strict:
+            passthrough = cfg.get("passthrough_inputs")
+            if passthrough is not None and (
+                not isinstance(passthrough, list)
+                or any(not isinstance(item, str) or not item for item in passthrough)
+            ):
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="variable_contract_invalid",
+                        message="passthrough_inputs must be a list of input field names.",
+                        node_id=nid,
+                    )
+                )
+
+            outputs_map = cfg.get("outputs_map")
+            if isinstance(outputs_map, Mapping):
+                for output_port, target in outputs_map.items():
+                    if not isinstance(target, str) or not target.strip():
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="variable_contract_invalid",
+                                message=f"Output {output_port!r} has an invalid target.",
+                                node_id=nid,
+                            )
+                        )
+                        continue
+                    head = target.split(".", 1)[0]
+                    if head not in namespaces:
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="variable_contract_invalid",
+                                message=(
+                                    f"Output {output_port!r} writes undeclared logical "
+                                    f"namespace {head!r}."
+                                ),
+                                node_id=nid,
+                            )
+                        )
 
     # asset_binding_mismatch (warn): a retrieval ``task`` fed by an ``asset`` node
     # via a data edge but whose ``inputs_map.collection`` VariableRef points at a

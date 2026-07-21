@@ -51,9 +51,14 @@ from app.api.v1.endpoints import (
     maritime,
     webcam_proxy,
     client360,
+    build_info,
 )
 
 api_router = APIRouter()
+
+# Public, secret-free deployment identity used by protected canaries before
+# they authenticate. It deliberately lives at /api/v1/build-info.
+api_router.include_router(build_info.router, prefix="/build-info", tags=["build-info"])
 
 # OmniRAG engine — preserved.
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

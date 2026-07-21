@@ -286,6 +286,7 @@ export type ExecutionMode =
 
 export interface System {
   id: string;
+  workspace_id?: string | null;
   name: string;
   objective?: string;
   capability_id?: string | null;

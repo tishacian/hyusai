@@ -15,6 +15,7 @@ import {
   navigationRouteContext,
   navigationScopeUrl,
   type CockpitLens,
+  type CockpitDestination,
   type CockpitRouteContext,
   type CockpitSection,
   type HierarchyObjectType,
@@ -75,7 +76,19 @@ export class ZoomContextService implements OnDestroy {
       features &&
       typeof features === 'object' &&
       !Array.isArray(features) &&
-      (features as Record<string, unknown>)['cockpit_router_axes_v3'] === true,
+      ((features as Record<string, unknown>)['cockpit_router_axes_v3'] === true ||
+        (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true),
+    );
+  });
+
+  /** Axes v4 separates the Portfolio home from the four object lenses. */
+  readonly axesV4Enabled = computed(() => {
+    const features = this.workspace.current()?.settings?.['features'];
+    return Boolean(
+      features &&
+      typeof features === 'object' &&
+      !Array.isArray(features) &&
+      (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true,
     );
   });
 
@@ -140,8 +153,11 @@ export class ZoomContextService implements OnDestroy {
     this.resolve(this.router.url || '/');
   }
 
-  urlForLens(targetLens: CockpitLens, fallbackRoute: string): string {
+  urlForLens(targetLens: CockpitDestination, fallbackRoute: string): string {
     if (!this.axesV3Enabled()) return fallbackRoute;
+    if (this.axesV4Enabled() && targetLens === 'hypervisor') {
+      return navigationPortfolioUrl(null, true);
+    }
     // A list route carries its identity only in query parameters. Until those
     // parents are proven, changing lens with an empty provisional ancestry
     // would silently turn a scoped canvas into a global one. Keep the current
@@ -155,10 +171,11 @@ export class ZoomContextService implements OnDestroy {
       targetLens,
       fallbackRoute,
       this.projection().ancestry,
+      this.axesV4Enabled(),
     );
   }
 
-  urlTreeForLens(targetLens: CockpitLens, fallbackRoute: string): UrlTree {
+  urlTreeForLens(targetLens: CockpitDestination, fallbackRoute: string): UrlTree {
     return this.router.parseUrl(this.urlForLens(targetLens, fallbackRoute));
   }
 
@@ -448,7 +465,7 @@ export class ZoomContextService implements OnDestroy {
       id: workspace?.id ?? null,
       label: 'Portfolio',
       sub: workspace?.name || 'Workspace portfolio',
-      href: navigationPortfolioUrl(lens),
+      href: navigationPortfolioUrl(lens, this.axesV4Enabled()),
     };
   }
 

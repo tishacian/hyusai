@@ -254,6 +254,26 @@ test('demo hypervisor resolves once to the configured default route', () => {
   });
 });
 
+test('axes v4 owns legacy hypervisor object links and keeps Hypervisor at Portfolio', () => {
+  const { resolver } = makeHarness({
+    mode: 'demo',
+    settings: {
+      features: { cockpit_router_axes_v4: true },
+      default_route: '/hypervisor/mission-room/cockpit',
+      mission_room: { enabled: true },
+    },
+  });
+
+  assert.deepEqual(resolver.resolve('/systems/system-42?lens=hypervisor&facet=runs'), {
+    requestedRoute: '/systems/system-42?lens=hypervisor&facet=runs',
+    resolvedRoute: '/hypervisor',
+    owner: 'navigation_resolver',
+    reason: 'legacy_hypervisor_object_lens',
+  });
+  assert.equal(resolver.resolve('/systems/system-42?lens=operate'), null);
+  assert.equal(resolver.resolve('/hypervisor'), null);
+});
+
 test('Mission Room fallback and deep links require the workspace extension', () => {
   const disabled = makeHarness({ mode: 'demo' }).resolver;
   assert.equal(disabled.resolve('/hypervisor'), null);

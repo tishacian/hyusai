@@ -19,12 +19,19 @@ import { NewsLabComponent } from '@app/features/intelligence/news-lab.component'
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import {
   WorkspaceViewContext,
   type WorkspaceViewRequest,
 } from '@app/core/workspace-view-context';
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
+import { SystemPerspectiveComponent } from './system-perspective.component';
+import {
+  SYSTEM_OBJECT_LENSES,
+  type PerspectiveFact,
+  type SystemPerspectiveResponse,
+} from './system-perspective.models';
 
 interface MetricsSummary {
   total_requests?: number;
@@ -118,6 +125,7 @@ interface ContextConfigRow {
     CkTabComponent,
     CkPanelComponent,
     NewsLabComponent,
+    SystemPerspectiveComponent,
   ],
   template: `
     <ck-object-header
@@ -189,6 +197,15 @@ interface ContextConfigRow {
       }
 
       <ck-tab id="overview" [label]="isExpertKnowledgeCapture() ? 'Aperçu' : 'Overview'">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="overview"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
         @if (isExpertKnowledgeCapture()) {
           <div class="space-y-5">
             <section class="ck-surface t-elevated rounded-md p-6">
@@ -376,9 +393,19 @@ interface ContextConfigRow {
         </section>
         </div>
         }
+        }
       </ck-tab>
 
       <ck-tab id="runs" label="Runs">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="runs"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <div>
@@ -418,9 +445,19 @@ interface ContextConfigRow {
             </div>
           }
         </div>
+        }
       </ck-tab>
 
       <ck-tab id="design" label="Design">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="design"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
         <div class="space-y-4">
         <!-- Orientation banner -->
         <div
@@ -492,9 +529,19 @@ interface ContextConfigRow {
           </ul>
         </section>
         </div>
+        }
       </ck-tab>
 
       <ck-tab id="context" label="Context">
+        @if (system360Enabled()) {
+          <app-system-perspective
+            [lens]="activeObjectLens()"
+            facet="context"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
         <div class="space-y-4">
         @if (contextLoading()) {
           <div class="ck-surface t-elevated rounded-md p-5 animate-pulse">
@@ -670,6 +717,7 @@ interface ContextConfigRow {
           </section>
         }
         </div>
+        }
       </ck-tab>
     </ck-tabs>
 
@@ -806,6 +854,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   private facetRouteSubscription: Subscription | null = null;
   private viewSubscriptions = new Subscription();
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly perspectiveCache = new Map<string, SystemPerspectiveResponse>();
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,
     () => this.resetWorkspaceState(),
@@ -895,6 +944,27 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   });
 
   readonly systemSnapshot = signal<System | null>(null);
+  readonly perspectives = signal<Partial<Record<ObjectLens, SystemPerspectiveResponse>>>({});
+  readonly perspectivesLoading = signal(false);
+  readonly perspectivesError = signal(false);
+  readonly activeObjectLens = computed<ObjectLens>(() => {
+    const lens = this.lensService.lens();
+    return isObjectLens(lens) ? lens : 'build';
+  });
+  readonly system360Enabled = computed(() => {
+    const workspaceSettings = asRecord(this.workspace.current()?.settings) ?? {};
+    const features = asRecord(workspaceSettings['features']) ?? {};
+    const systemSettings = asRecord(this.systemSnapshot()?.settings) ?? {};
+    const experience = asRecord(systemSettings['experience']) ?? {};
+    return (
+      features['cockpit_router_axes_v4'] === true &&
+      features['system_360_projection_v1'] === true &&
+      experience['system_360_canary'] === 'v1'
+    );
+  });
+  readonly activePerspective = computed(
+    () => this.perspectives()[this.activeObjectLens()] ?? null,
+  );
   readonly currentContext = signal<import('@app/core/canonical-api.service').Context | null>(null);
   readonly contextLoading = signal(false);
   readonly effectiveRetrievalContext = computed(() => buildEffectiveRetrievalContext(this.systemSnapshot()));
@@ -955,6 +1025,15 @@ export class SystemViewComponent implements OnInit, OnDestroy {
    * deltas); for now all lenses share the same 4 KPIs.
    */
   readonly objectKpis = computed<CkObjectKpi[]>(() => {
+    if (this.system360Enabled()) {
+      const header = this.perspectives()['build']?.header;
+      return [
+        { label: 'Status', value: perspectiveHeaderValue(header?.status) },
+        { label: 'Runs', value: perspectiveHeaderValue(header?.run_count) },
+        { label: 'Success', value: perspectiveHeaderValue(header?.success_rate, '%') },
+        { label: 'Last run', value: perspectiveHeaderValue(header?.last_run_at) },
+      ];
+    }
     const quality = this.latestEval()?.composite_score;
     const errRate = this.metrics()?.error_rate_percent;
     const yieldValue =
@@ -978,6 +1057,12 @@ export class SystemViewComponent implements OnInit, OnDestroy {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SystemTabId);
+    if (!this.system360Enabled()) return;
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+    });
   }
 
   readonly wizard = computed<WizardStep[]>(() => {
@@ -1229,6 +1314,13 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         } else {
           this.variant.set('standard');
         }
+        if (this.system360Enabled()) {
+          this.loadPerspectives(request, systemId);
+        } else {
+          this.perspectives.set({});
+          this.perspectivesLoading.set(false);
+          this.perspectivesError.set(false);
+        }
         this.applyRequestedFacet();
       },
       error: () => {
@@ -1270,6 +1362,60 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       },
     });
     this.viewSubscriptions.add(subscription);
+  }
+
+  private loadPerspectives(request: WorkspaceViewRequest, systemId: string): void {
+    const workspaceSlug = request.scope.workspaceSlug;
+    const window = '30d';
+    this.perspectivesLoading.set(true);
+    this.perspectivesError.set(false);
+    const subscription = forkJoin(
+      SYSTEM_OBJECT_LENSES.map((lens) => {
+        const cacheKey = this.perspectiveCacheKey(request, systemId, lens, window);
+        const cached = this.perspectiveCache.get(cacheKey);
+        if (cached) return of(cached);
+        return this.api
+          .get<SystemPerspectiveResponse>(
+            `/systems/${encodeURIComponent(systemId)}/perspective`,
+            { lens, window },
+            { workspaceSlug },
+          )
+          .pipe(catchError(() => of(null)));
+      }),
+    ).subscribe((responses) => {
+      if (!this.requestIsCurrent(request, systemId)) return;
+      const next: Partial<Record<ObjectLens, SystemPerspectiveResponse>> = {};
+      const expectedWorkspaceId = this.systemSnapshot()?.workspace_id;
+      for (const [index, response] of responses.entries()) {
+        const requestedLens = SYSTEM_OBJECT_LENSES[index];
+        if (
+          response &&
+          response.schema_version === 1 &&
+          response.identity?.system_id === systemId &&
+          (!expectedWorkspaceId || response.identity.workspace_id === expectedWorkspaceId) &&
+          response.lens === requestedLens
+        ) {
+          next[requestedLens] = response;
+          this.perspectiveCache.set(
+            this.perspectiveCacheKey(request, systemId, requestedLens, window),
+            response,
+          );
+        }
+      }
+      this.perspectives.set(next);
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(Object.keys(next).length !== SYSTEM_OBJECT_LENSES.length);
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  private perspectiveCacheKey(
+    request: WorkspaceViewRequest,
+    systemId: string,
+    lens: ObjectLens,
+    window: string,
+  ): string {
+    return [request.scope.epoch, request.scope.workspaceSlug, systemId, lens, window].join(':');
   }
 
   loadRuns(
@@ -1439,6 +1585,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.activeTab.set('overview');
     this.systemDefaults.set(null);
     this.systemSnapshot.set(null);
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
     this.currentContext.set(null);
     this.contextLoading.set(false);
     this.runs.set([]);
@@ -1453,6 +1602,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
 
   private resetWorkspaceState(): void {
     this.cancelViewRequests();
+    this.perspectiveCache.clear();
     this.clearSystemData();
     this.settingsPanelOpen.set(false);
     this.chatPanelOpen.set(false);
@@ -1556,4 +1706,14 @@ function formatContextValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function perspectiveHeaderValue(fact: PerspectiveFact | undefined, suffix = ''): string {
+  if (!fact) return 'Loading';
+  if (fact.state === 'not_measured') return 'Not measured';
+  if (fact.state === 'not_configured') return 'Not configured';
+  if (fact.state === 'restricted') return 'Restricted';
+  if (fact.state === 'unavailable') return 'Unavailable';
+  if (fact.value == null) return 'Unavailable';
+  return `${String(fact.value)}${suffix || fact.unit || ''}`;
 }

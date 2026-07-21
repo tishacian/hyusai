@@ -12,6 +12,7 @@ import {
   navigationRouteContext,
   navigationScopeUrl,
   pathAllowedBySurfaceIds,
+  isObjectLens,
 } from './navigation.catalog';
 
 test('Client360 stays classified under Operate in the standard admin cockpit', () => {
@@ -137,6 +138,7 @@ test('scope routes retain the real current ancestry', () => {
 test('object builders use canonical locators and business guards match registered surfaces', () => {
   assert.equal(navigationPortfolioUrl('steer'), '/hypervisor?lens=steer');
   assert.equal(navigationPortfolioUrl('hypervisor'), '/hypervisor');
+  assert.equal(navigationPortfolioUrl('steer', true), '/hypervisor');
   assert.equal(navigationObjectUrl('capability', 'cap/42'), '/capabilities/cap%2F42');
   assert.equal(navigationObjectUrl('system', 'sys-42', { lens: 'operate' }), '/systems/sys-42?lens=operate');
   assert.equal(navigationObjectUrl('run', 'run-42', { lens: 'operate' }), '/runs/run-42');
@@ -164,6 +166,25 @@ test('object builders use canonical locators and business guards match registere
   assert.equal(pathAllowedBySurfaceIds('/knowledge/capture?systemId=sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/knowledge/interventions', BUSINESS_NAVIGATION_SURFACE_IDS), true);
   assert.equal(pathAllowedBySurfaceIds('/systems/sys-1', BUSINESS_NAVIGATION_SURFACE_IDS), false);
+});
+
+test('axes v4 has four object lenses and a distinct Portfolio destination', () => {
+  assert.deepEqual(
+    COCKPIT_VERBS.filter((verb) => isObjectLens(verb.key)).map((verb) => verb.key),
+    ['build', 'operate', 'steer', 'govern'],
+  );
+  assert.deepEqual(COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor')?.v4Sections, []);
+  assert.equal(isObjectLens('hypervisor'), false);
+  assert.equal(
+    navigationLensUrl(
+      '/systems/sys-1?lens=govern&facet=design',
+      'build',
+      '/build',
+      { capabilityId: 'cap-1', systemId: 'sys-1', runId: null, skillRef: null },
+      true,
+    ),
+    '/systems/sys-1?facet=design&lens=build&capabilityId=cap-1',
+  );
 });
 
 test('unknown navigation query values never influence the cockpit projection', () => {

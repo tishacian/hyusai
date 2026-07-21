@@ -56,7 +56,12 @@ class AuthorizationEngine:
             getattr(membership, "role", None),
         )
         role_templates = self._effective_roles(role_template, flags)
-        manifest = get_manifest(str(attrs.get("capability") or "expert_knowledge_capture"))
+        # ``capability`` remains the business Capability attribute exposed to
+        # ABAC/audit.  A transverse action such as ``system.engine.run`` can
+        # select its own manifest without overwriting that resource identity.
+        manifest = get_manifest(
+            str(attrs.get("iam_manifest") or attrs.get("capability") or "expert_knowledge_capture")
+        )
         candidates = [
             rule
             for rule in manifest.permissions

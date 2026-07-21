@@ -95,6 +95,7 @@ export interface NodePort {
  *   - `system`    : the running System's static config (model, policy…).
  *   - `run`       : per-run inputs (the trigger payload, run id…).
  *   - `node`      : self-reference to the current node's own scope.
+ *   - `context`   : the System's canonical Context snapshot.
  *
  * Backward-compat: `inputs_map` still accepts a legacy dot-path string
  * (e.g. `"session.objective"`); v2 flows keep those untouched. The
@@ -103,6 +104,39 @@ export interface NodePort {
 export interface VariableRef {
   node_id: string;
   path: string[];
+  /** Strict-mode selectors are required unless explicitly opted out. */
+  required?: boolean;
+}
+
+/** Stable validation reason for the JSON VariableRef contract.
+ *
+ * Kept in lockstep with ``variable_ref_validation_error`` in the backend:
+ * an empty path selects the whole node/namespace, while node ids and every
+ * path segment must be non-empty strings. ``required`` never accepts truthy
+ * string/number substitutes.
+ */
+export function variableRefValidationError(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'must_be_object';
+  const candidate = value as { node_id?: unknown; path?: unknown; required?: unknown };
+  if (typeof candidate.node_id !== 'string' || candidate.node_id.trim().length === 0) {
+    return 'node_id_must_be_non_empty_string';
+  }
+  if (
+    !Array.isArray(candidate.path) ||
+    candidate.path.some(
+      (segment) => typeof segment !== 'string' || segment.trim().length === 0,
+    )
+  ) {
+    return 'path_must_be_string_array';
+  }
+  if ('required' in candidate && typeof candidate.required !== 'boolean') {
+    return 'required_must_be_boolean';
+  }
+  return null;
+}
+
+export function isValidVariableRef(value: unknown): value is VariableRef {
+  return variableRefValidationError(value) === null;
 }
 
 /** Reserved variable namespaces that resolve outside the node graph. */
@@ -111,6 +145,7 @@ export const RESERVED_VARIABLE_NAMESPACES: readonly string[] = [
   'system',
   'run',
   'node',
+  'context',
 ] as const;
 
 /**
@@ -146,6 +181,8 @@ export interface TaskNodeConfig {
    * rewrites legacy strings.
    */
   inputs_map?: Record<string, string | VariableRef>;
+  /** Strict-mode predecessor fields intentionally forwarded unchanged. */
+  passthrough_inputs?: string[];
   /** Map output port name → context key to write. */
   outputs_map?: Record<string, string>;
 }
@@ -302,6 +339,11 @@ export interface CanonicalFlow {
    *  `normalize()` performs an idempotent, non-destructive v2→v3
    *  backfill so older flows keep working unchanged. */
   schema_version?: number;
+  /** Overlay is legacy-compatible; strict is authoritative only behind the
+   *  Workspace ``flow_v3_dag_authoritative`` feature. */
+  io_mode?: 'overlay' | 'strict';
+  /** Logical pool buckets written by outputs_map and readable by inputs_map. */
+  variable_namespaces?: string[];
 }
 
 /** Validation diagnostic for a flow graph. */
@@ -322,6 +364,7 @@ export interface FlowValidationIssue {
     // that is not a reserved namespace and not present upstream. Warn
     // level — design-time hint, never blocks a save.
     | 'variable_unresolved'
+    | 'variable_contract_invalid'
     | 'hitl_no_prompt'
     | 'loop_no_budget'
     | 'retry_no_target'
@@ -565,6 +608,42 @@ export class FlowSerializerService {
 
   // ---------- C1 extensions: normalization / validation / topo / runnables ----------
 
+  /** Convert a legacy dot path only when its owner is deterministic.
+   *
+   * Node ids may contain dots (``task.retrieve.primary``), therefore the
+   * longest matching id wins before built-in/declared namespaces are tested.
+   * ``null`` means the selector is unknown or structurally ambiguous; callers
+   * must preserve the original string and surface validation instead of
+   * guessing.
+   */
+  dotPathToVariableRef(selector: string, flow: CanonicalFlow): VariableRef | null {
+    const text = String(selector ?? '').trim();
+    if (!text) return null;
+    const pathSegments = (tail: string): string[] | null => {
+      if (!tail) return [];
+      const segments = tail.split('.');
+      return segments.some((segment) => segment.trim().length === 0) ? null : segments;
+    };
+    const nodeIds = flow.nodes.map((node) => node.id).filter((id) => !!id);
+    const matches = nodeIds.filter((id) => text === id || text.startsWith(`${id}.`));
+    if (matches.length > 0) {
+      const longest = Math.max(...matches.map((id) => id.length));
+      const winners = matches.filter((id) => id.length === longest);
+      if (winners.length !== 1) return null;
+      const owner = winners[0];
+      const tail = text === owner ? '' : text.slice(owner.length + 1);
+      if (text !== owner && !tail) return null;
+      const path = pathSegments(tail);
+      return path === null ? null : { node_id: owner, path };
+    }
+    const [head, ...path] = text.split('.');
+    const declared = new Set((flow.variable_namespaces ?? []).filter((item) => !!item));
+    if (!RESERVED_VARIABLE_NAMESPACES.includes(head) && !declared.has(head)) return null;
+    return path.some((segment) => segment.trim().length === 0)
+      ? null
+      : { node_id: head, path };
+  }
+
   /**
    * Ensure every node carries a `kind` (defaults to `'task'`) and has
    * the minimal shape downstream consumers expect. Performs an
@@ -599,7 +678,7 @@ export class FlowSerializerService {
       }
     }
 
-    const nodes = flow.nodes.map((n) => {
+    const normalizedNodes = flow.nodes.map((n) => {
       const base = this.normalizeNode(n);
       const wantIn = (base.inputs?.length ?? 0) === 0 && inferredIn.has(base.id);
       const wantOut = (base.outputs?.length ?? 0) === 0 && inferredOut.has(base.id);
@@ -614,6 +693,22 @@ export class FlowSerializerService {
           : base.outputs,
       };
     });
+
+    const conversionFlow: CanonicalFlow = { ...flow, nodes: normalizedNodes, edges };
+    const nodes =
+      flow.io_mode === 'strict'
+        ? normalizedNodes.map((node) => {
+            const config = { ...(node.config ?? {}) } as Record<string, unknown>;
+            const rawMap = config['inputs_map'];
+            if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return node;
+            const inputsMap = { ...(rawMap as Record<string, unknown>) };
+            for (const [port, selector] of Object.entries(inputsMap)) {
+              if (typeof selector !== 'string') continue;
+              inputsMap[port] = this.dotPathToVariableRef(selector, conversionFlow) ?? selector;
+            }
+            return { ...node, config: { ...config, inputs_map: inputsMap } };
+          })
+        : normalizedNodes;
 
     const sv =
       typeof flow.schema_version === 'number' && flow.schema_version >= 3
@@ -645,6 +740,34 @@ export class FlowSerializerService {
   validateFlow(flow: CanonicalFlow): FlowValidationIssue[] {
     const issues: FlowValidationIssue[] = [];
     const ids = new Set(flow.nodes.map((n) => n.id));
+    const strict = flow.io_mode === 'strict';
+    const declaredNamespaces = new Set(
+      (flow.variable_namespaces ?? []).filter((item) => typeof item === 'string' && !!item),
+    );
+    if (flow.io_mode !== undefined && flow.io_mode !== 'overlay' && flow.io_mode !== 'strict') {
+      issues.push({
+        level: 'error',
+        code: 'variable_contract_invalid',
+        message: "io_mode must be 'overlay' or 'strict'.",
+      });
+    }
+    if (strict && (flow.schema_version ?? 0) < 3) {
+      issues.push({
+        level: 'error',
+        code: 'variable_contract_invalid',
+        message: "io_mode 'strict' requires schema_version >= 3.",
+      });
+    }
+    const reservedRedeclarations = [...declaredNamespaces].filter((item) =>
+      RESERVED_VARIABLE_NAMESPACES.includes(item),
+    );
+    if (reservedRedeclarations.length > 0) {
+      issues.push({
+        level: 'error',
+        code: 'variable_contract_invalid',
+        message: `Built-in namespace(s) cannot be redeclared: ${reservedRedeclarations.join(', ')}.`,
+      });
+    }
     const adj = new Map<string, string[]>();
     const rev = new Map<string, string[]>();
     flow.nodes.forEach((n) => {
@@ -788,44 +911,119 @@ export class FlowSerializerService {
     });
 
     // variable_unresolved: a config.inputs_map VariableRef points at a
-    // node_id/port not present upstream. Legacy dot-path strings are
-    // skipped (they are resolved by the run engine, not the graph).
+    // node_id/port not present upstream. Overlay leaves legacy strings opaque;
+    // strict converts only deterministic paths and rejects everything else.
     for (const n of flow.nodes) {
-      const inputsMap = (n.config as Record<string, unknown> | undefined)?.['inputs_map'];
-      if (!inputsMap || typeof inputsMap !== 'object') continue;
+      const config = (n.config as Record<string, unknown> | undefined) ?? {};
+      const inputsMap = config['inputs_map'];
       let ancestors: Set<string> | null = null;
-      for (const [port, raw] of Object.entries(inputsMap as Record<string, unknown>)) {
-        if (!this.isVariableRef(raw)) continue;
-        const ref = raw as VariableRef;
-        if (RESERVED_VARIABLE_NAMESPACES.includes(ref.node_id)) continue;
-        if (!ids.has(ref.node_id)) {
-          issues.push({
-            level: 'warn',
-            node_id: n.id,
-            code: 'variable_unresolved',
-            message: `Input "${port}" references unknown node "${ref.node_id}".`,
-          });
-          continue;
+      if (inputsMap && typeof inputsMap === 'object' && !Array.isArray(inputsMap)) {
+        for (const [port, stored] of Object.entries(inputsMap as Record<string, unknown>)) {
+          let raw = stored;
+          if (typeof raw === 'string' && strict) {
+            const converted = this.dotPathToVariableRef(raw, flow);
+            if (!converted) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'variable_unresolved',
+                message: `Input "${port}" selector "${raw}" has no unambiguous owner.`,
+              });
+              continue;
+            }
+            raw = converted;
+          }
+          const refCandidate =
+            !!raw &&
+            typeof raw === 'object' &&
+            !Array.isArray(raw) &&
+            ['node_id', 'path', 'required'].some((key) => key in (raw as object));
+          const refError = refCandidate ? variableRefValidationError(raw) : null;
+          if (refError) {
+            issues.push({
+              level: strict ? 'error' : 'warn',
+              node_id: n.id,
+              code: 'variable_contract_invalid',
+              message: `Input "${port}" has an invalid VariableRef (${refError}).`,
+            });
+            continue;
+          }
+          if (!this.isVariableRef(raw)) {
+            if (strict) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'variable_unresolved',
+                message: `Input "${port}" must be a VariableRef in strict mode.`,
+              });
+            }
+            continue;
+          }
+          const ref = raw as VariableRef;
+          if (
+            RESERVED_VARIABLE_NAMESPACES.includes(ref.node_id) ||
+            declaredNamespaces.has(ref.node_id)
+          ) {
+            continue;
+          }
+          if (!ids.has(ref.node_id)) {
+            issues.push({
+              level: strict ? 'error' : 'warn',
+              node_id: n.id,
+              code: 'variable_unresolved',
+              message: `Input "${port}" references unknown node "${ref.node_id}".`,
+            });
+            continue;
+          }
+          if (ancestors === null) ancestors = this.ancestorsOf(n.id, rev);
+          if (!ancestors.has(ref.node_id)) {
+            issues.push({
+              level: strict ? 'error' : 'warn',
+              node_id: n.id,
+              code: 'variable_unresolved',
+              message: `Input "${port}" reads from "${ref.node_id}", which is not upstream of "${n.id}".`,
+            });
+            continue;
+          }
+          const srcOutputs = byId.get(ref.node_id)?.outputs ?? [];
+          const head = ref.path[0];
+          if (srcOutputs.length > 0 && head && !srcOutputs.some((p) => p.name === head)) {
+            issues.push({
+              level: strict ? 'error' : 'warn',
+              node_id: n.id,
+              code: 'variable_unresolved',
+              message: `Input "${port}" reads port "${head}" not declared on "${ref.node_id}".`,
+            });
+          }
         }
-        if (ancestors === null) ancestors = this.ancestorsOf(n.id, rev);
-        if (!ancestors.has(ref.node_id)) {
+      }
+
+      if (strict) {
+        const passthrough = config['passthrough_inputs'];
+        if (
+          passthrough !== undefined &&
+          (!Array.isArray(passthrough) || passthrough.some((item) => typeof item !== 'string' || !item))
+        ) {
           issues.push({
-            level: 'warn',
+            level: 'error',
             node_id: n.id,
-            code: 'variable_unresolved',
-            message: `Input "${port}" reads from "${ref.node_id}", which is not upstream of "${n.id}".`,
+            code: 'variable_contract_invalid',
+            message: 'passthrough_inputs must be a list of input field names.',
           });
-          continue;
         }
-        const srcOutputs = byId.get(ref.node_id)?.outputs ?? [];
-        const head = ref.path[0];
-        if (srcOutputs.length > 0 && head && !srcOutputs.some((p) => p.name === head)) {
-          issues.push({
-            level: 'warn',
-            node_id: n.id,
-            code: 'variable_unresolved',
-            message: `Input "${port}" reads port "${head}" not declared on "${ref.node_id}".`,
-          });
+        const outputsMap = config['outputs_map'];
+        if (outputsMap && typeof outputsMap === 'object' && !Array.isArray(outputsMap)) {
+          for (const [port, target] of Object.entries(outputsMap as Record<string, unknown>)) {
+            const head = typeof target === 'string' ? target.split('.', 1)[0] : '';
+            if (!head || !declaredNamespaces.has(head)) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'variable_contract_invalid',
+                message: `Output "${port}" writes an undeclared logical namespace.`,
+              });
+            }
+          }
         }
       }
     }
@@ -837,12 +1035,7 @@ export class FlowSerializerService {
    *  `node_id` and an array `path`; anything else (incl. legacy dot-path
    *  strings) is treated as opaque and skipped by validation. */
   private isVariableRef(value: unknown): value is VariableRef {
-    return (
-      !!value &&
-      typeof value === 'object' &&
-      typeof (value as { node_id?: unknown }).node_id === 'string' &&
-      Array.isArray((value as { path?: unknown }).path)
-    );
+    return isValidVariableRef(value);
   }
 
   /** Backward-reachable set (ancestors) of `nodeId` over the reverse

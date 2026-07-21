@@ -26,8 +26,18 @@ def test_agentium_images_accept_the_revision_arg_and_emit_the_oci_label() -> Non
         assert build["args"]["AGENTIUM_IMAGE_REVISION"] == REVISION_BUILD_ARG
 
         dockerfile = (REPO_ROOT / dockerfile_path).read_text(encoding="utf-8")
-        assert dockerfile.count("ARG AGENTIUM_IMAGE_REVISION=unknown") == 1
+        # The multi-stage frontend must consume the same argument in both the
+        # Node build stage (served build-info) and final nginx stage (OCI
+        # label). Backend/worker are single-stage images.
+        expected_arg_declarations = 2 if service_name == "agentium-frontend" else 1
+        assert dockerfile.count("ARG AGENTIUM_IMAGE_REVISION=unknown") == expected_arg_declarations
         assert dockerfile.count(REVISION_LABEL) == 1
+
+    frontend = (REPO_ROOT / IMAGE_CONTRACTS["agentium-frontend"]).read_text(encoding="utf-8")
+    assert "RUN node scripts/write-build-info.mjs" in frontend
+    for service_name in ("agentium-backend", "agentium-worker-cpu"):
+        dockerfile = (REPO_ROOT / IMAGE_CONTRACTS[service_name]).read_text(encoding="utf-8")
+        assert "ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}" in dockerfile
 
     # The migration tool can also build and retag the backend image.
     migrate_build = compose["services"]["agentium-migrate"]["build"]

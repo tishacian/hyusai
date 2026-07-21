@@ -35,10 +35,19 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-07-15"
+CATALOG_VERSION = "2026-07-20"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
+    SurfaceMetadata(
+        "/api/v1/build-info",
+        "Governance",
+        "Deployment",
+        "internal",
+        "system",
+        "Platform",
+        notes="Secret-free immutable build identity used by deployment attestations.",
+    ),
     SurfaceMetadata(
         "/api/v1/catalog",
         "Governance",

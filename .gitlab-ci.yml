@@ -15,3 +15,218 @@ agentium-compliance:
     - python3 scripts/agentium_compliance.py --check
   rules:
     - when: always
+
+# P4 can only be declared complete after this protected broker-backed gate.
+# The integration test refuses SQLite/eager execution and exercises a real
+# PostgreSQL + RabbitMQ + Celery worker topology, including redelivery.
+agentium-p4-rabbitmq-integration:
+  stage: test
+  image: python:3.12-bookworm
+  id_tokens:
+    AGENTIUM_ATTESTATION_ID_TOKEN:
+      aud: $CI_SERVER_URL
+  services:
+    - name: postgres:16-bookworm
+      alias: postgres
+    - name: rabbitmq:4.1-management
+      alias: rabbitmq
+  variables:
+    POSTGRES_DB: agentium_p4
+    POSTGRES_USER: agentium_p4
+    POSTGRES_PASSWORD: agentium_p4_ci_only
+    RABBITMQ_DEFAULT_USER: agentium_p4
+    RABBITMQ_DEFAULT_PASS: agentium_p4_ci_only
+    DATABASE_URL: postgresql://agentium_p4:agentium_p4_ci_only@postgres:5432/agentium_p4
+    CELERY_BROKER_URL: amqp://agentium_p4:agentium_p4_ci_only@rabbitmq:5672//
+    ENABLE_SUBFLOW_CELERY: "true"
+    RUN_RABBITMQ_INTEGRATION: "1"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  cache:
+    key: agentium-p4-python312
+    paths:
+      - .cache/pip/
+  before_script:
+    - python3 -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
+    - mkdir -p backend/test-results/p4
+  script:
+    - |
+      python3 - <<'PY'
+      import socket
+      import time
+      for host, port in (("postgres", 5432), ("rabbitmq", 5672)):
+          deadline = time.monotonic() + 60
+          while True:
+              try:
+                  with socket.create_connection((host, port), timeout=2):
+                      break
+              except OSError:
+                  if time.monotonic() >= deadline:
+                      raise SystemExit(f"{host}:{port} did not become ready")
+                  time.sleep(1)
+      PY
+    - |
+      cd backend
+      alembic upgrade head
+      celery -A app.workers.celery_app:celery_app worker \
+        --pool=solo --concurrency=1 --loglevel=INFO \
+        --without-gossip --without-mingle --without-heartbeat \
+        --hostname="p4@%h" --pidfile=test-results/p4/worker.pid \
+        --logfile=test-results/p4/worker.log &
+      worker_pid=$!
+      trap 'kill -TERM "$worker_pid" 2>/dev/null || true; wait "$worker_pid" 2>/dev/null || true' EXIT
+      ready=0
+      for _ in $(seq 1 30); do
+        if celery -A app.workers.celery_app:celery_app inspect ping --timeout=2 >/dev/null 2>&1; then
+          ready=1
+          break
+        fi
+        sleep 1
+      done
+      test "$ready" -eq 1
+      python3 -m pytest -m rabbitmq \
+        app/tests/integration/test_subflow_celery_rabbitmq.py \
+        --junitxml=test-results/p4/junit.xml -q
+      cd "$CI_PROJECT_DIR"
+      python3 scripts/agentium_runner_attestation.py \
+        --runner pytest \
+        --claim LOT6-P4-DURABLE-SUBFLOWS \
+        --suite backend/app/tests/integration/test_subflow_celery_rabbitmq.py \
+        --output backend/test-results/p4/runner-attestation.json
+      python3 scripts/agentium_compliance.py --check \
+        --sha "$CI_COMMIT_SHA" \
+        --runner-attestation backend/test-results/p4/runner-attestation.json \
+        --report-json backend/test-results/p4/static-evidence.json
+      python3 scripts/agentium_trusted_compliance.py \
+        --static-report backend/test-results/p4/static-evidence.json \
+        --runner-attestation backend/test-results/p4/runner-attestation.json \
+        --output backend/test-results/p4/trusted-compliance.json
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - backend/test-results/p4/
+    reports:
+      junit: backend/test-results/p4/junit.xml
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true"'
+      when: on_success
+      allow_failure: false
+    - when: never
+
+# Lot 6 production proof is deliberately a single protected, manual gate.
+# The VM deployment remains SHA-pinned; the following read-only probe proves
+# the checkout, OCI labels, database revision and public build-info before the
+# authenticated browser canary runs.  Credentials are protected/masked GitLab
+# variables and are never passed on a command line or retained in artifacts.
+agentium-lot6-system360-production:
+  stage: deploy
+  image: node:22-bookworm
+  needs:
+    - job: agentium-compliance
+  resource_group: agentium-production
+  interruptible: false
+  timeout: 2h
+  id_tokens:
+    AGENTIUM_ATTESTATION_ID_TOKEN:
+      aud: $CI_SERVER_URL
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0"
+    PLAYWRIGHT_JUNIT_OUTPUT_NAME: "e2e/results/lot6-playwright-junit.xml"
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends ca-certificates openssh-client python3
+    - install -d -m 0700 "$HOME/.ssh"
+    - test -s "$AGENTIUM_DEPLOY_SSH_PRIVATE_KEY"
+    - test -s "$AGENTIUM_DEPLOY_KNOWN_HOSTS"
+    - install -m 0600 "$AGENTIUM_DEPLOY_SSH_PRIVATE_KEY" "$HOME/.ssh/id_ed25519"
+    - install -m 0600 "$AGENTIUM_DEPLOY_KNOWN_HOSTS" "$HOME/.ssh/known_hosts"
+    - test -n "$AGENTIUM_DEPLOY_HOST"
+    - test -n "$AGENTIUM_PRODUCTION_URL"
+    - test -n "$AGENTIUM_LOT6_EXERCISE_QUERY"
+    - test -n "$E2E_USERNAME"
+    - test -n "$E2E_PASSWORD"
+  script:
+    - python3 scripts/agentium_compliance.py --check
+    - npm --prefix frontend-ng ci
+    - frontend-ng/node_modules/.bin/playwright install --with-deps chromium
+    - >-
+      ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST"
+      "set -eu; cd /home/ubuntu/omnirag;
+      git fetch origin demo/agentic -q;
+      test \"\$(git rev-parse origin/demo/agentic)\" = \"$CI_COMMIT_SHA\";
+      git show \"$CI_COMMIT_SHA:scripts/deploy-lot6-system360.sh\"
+      > \"/tmp/agentium-lot6-$CI_COMMIT_SHA.sh\";
+      chmod 0700 \"/tmp/agentium-lot6-$CI_COMMIT_SHA.sh\""
+    - >-
+      printf '%s' "$AGENTIUM_LOT6_EXERCISE_QUERY" |
+      ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST"
+      "/tmp/agentium-lot6-$CI_COMMIT_SHA.sh
+      --repo-dir /home/ubuntu/omnirag --branch demo/agentic
+      --sha $CI_COMMIT_SHA --exercise-query-stdin"
+    - touch .agentium-lot6-rollout-activated
+    - mkdir -p frontend-ng/e2e/results/attestations frontend-ng/e2e/results/deployment
+    - >-
+      python3 scripts/agentium_deployment_attestation.py
+      --sha "$CI_COMMIT_SHA"
+      --host "$AGENTIUM_DEPLOY_HOST"
+      --repo-dir /home/ubuntu/omnirag
+      --branch demo/agentic
+      --environment production
+      --base-url "$AGENTIUM_PRODUCTION_URL"
+      --output frontend-ng/e2e/results/attestations/lot6-deployment.json
+      --junit frontend-ng/e2e/results/deployment/junit.xml
+      --html frontend-ng/e2e/results/deployment/index.html
+      --checksum frontend-ng/e2e/results/attestations/lot6-deployment.sha256
+    - export E2E_LOT6_CANARY=1
+    - export E2E_BASE_URL="$AGENTIUM_PRODUCTION_URL"
+    - export E2E_EXPECTED_SHA="$CI_COMMIT_SHA"
+    - export E2E_LOT6_RUNNER_ATTESTATION="$CI_PROJECT_DIR/frontend-ng/e2e/results/attestations/lot6-runner.json"
+    - export E2E_LOT6_BEHAVIOR_ATTESTATION="$CI_PROJECT_DIR/frontend-ng/e2e/results/attestations/lot6-behavior.json"
+    - >-
+      frontend-ng/node_modules/.bin/playwright test
+      --config frontend-ng/playwright.config.ts
+      frontend-ng/e2e/tests/11-system360-canary.spec.ts
+      --project chromium
+    - >-
+      python3 scripts/agentium_compliance.py
+      --check
+      --sha "$CI_COMMIT_SHA"
+      --runner-attestation frontend-ng/e2e/results/attestations/lot6-runner.json
+      --deployment-attestation frontend-ng/e2e/results/attestations/lot6-deployment.json
+      --report-json frontend-ng/e2e/results/attestations/lot6-static-evidence.json
+    - >-
+      python3 scripts/agentium_trusted_compliance.py
+      --static-report frontend-ng/e2e/results/attestations/lot6-static-evidence.json
+      --runner-attestation frontend-ng/e2e/results/attestations/lot6-runner.json
+      --deployment-attestation frontend-ng/e2e/results/attestations/lot6-deployment.json
+      --behavior-attestation frontend-ng/e2e/results/attestations/lot6-behavior.json
+      --output frontend-ng/e2e/results/attestations/lot6-trusted-compliance.json
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" != "success" ] && [ -f .agentium-lot6-rollout-activated ]; then
+        mkdir -p frontend-ng/e2e/results/attestations
+        ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$AGENTIUM_DEPLOY_HOST" \
+          "docker exec -w /app/backend agentium-backend python -m scripts.rollout_system360_canary rollback --apply" \
+          > frontend-ng/e2e/results/attestations/lot6-failure-rollback.json \
+          2> frontend-ng/e2e/results/attestations/lot6-failure-rollback.err || true
+      fi
+  environment:
+    name: production
+    url: $AGENTIUM_PRODUCTION_URL
+    deployment_tier: production
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - frontend-ng/e2e/report/
+      - frontend-ng/e2e/results/
+    reports:
+      junit:
+        - frontend-ng/e2e/results/lot6-playwright-junit.xml
+        - frontend-ng/e2e/results/deployment/junit.xml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+      allow_failure: false
+    - when: never
