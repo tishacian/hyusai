@@ -441,6 +441,10 @@ class Settings(BaseSettings):
     keycloak_client_id: str = "core-service"
     keycloak_client_secret: Optional[str] = None
     keycloak_resource_server_id: str = "core-resource-server"
+    # Public URL of the Agentium web app; used as the post-action redirect for
+    # Keycloak action emails (invitation / signup). Must match one of the
+    # core-service client's registered redirectUris.
+    app_public_url: Optional[str] = None
 
     # Redis (optional, not required for demo)
     redis_url: str = "redis://localhost:6379/0"

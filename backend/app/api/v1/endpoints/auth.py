@@ -1461,6 +1461,21 @@ async def _find_or_create_kc_user(email: str, admin_token: str) -> tuple[str, bo
     return kc_sub, True
 
 
+def _action_email_redirect_params() -> dict:
+    """Query params making Keycloak action emails link back to the app.
+
+    Without ``client_id``/``redirect_uri`` the final "account updated" page is
+    a dead end. ``redirect_uri`` must match a registered redirectUri of the
+    client; when no public app URL is configured we keep the legacy behavior.
+    """
+    if not settings.app_public_url:
+        return {}
+    return {
+        "client_id": settings.keycloak_client_id,
+        "redirect_uri": settings.app_public_url.rstrip("/") + "/",
+    }
+
+
 async def _send_invitation_email(kc_sub: str, admin_token: str) -> bool:
     """Trigger the ``UPDATE_PASSWORD``/``VERIFY_EMAIL`` action email.
 
@@ -1478,6 +1493,7 @@ async def _send_invitation_email(kc_sub: str, admin_token: str) -> bool:
             resp = await client.put(
                 f"{_get_admin_url()}/users/{kc_sub}/execute-actions-email",
                 json=["UPDATE_PASSWORD", "VERIFY_EMAIL"],
+                params=_action_email_redirect_params(),
                 headers=headers,
                 timeout=10,
             )
@@ -1505,6 +1521,7 @@ async def _send_signup_verification_email(kc_sub: str, admin_token: str) -> bool
             resp = await client.put(
                 f"{_get_admin_url()}/users/{kc_sub}/execute-actions-email",
                 json=["VERIFY_EMAIL"],
+                params=_action_email_redirect_params(),
                 headers=headers,
                 timeout=10,
             )
