@@ -221,7 +221,7 @@ def _discover_showcase_workspace(db: DBSession, *, lock: bool = False) -> Worksp
         Workspace.deleted_at.is_(None),
     )
     if lock:
-        workspace_query = workspace_query.with_for_update()
+        workspace_query = workspace_query.with_for_update(of=Workspace)
     workspaces = [
         workspace
         for workspace in workspace_query.all()
@@ -242,7 +242,7 @@ def _marked_systems(
 ) -> list[System]:
     query = db.query(System).filter(System.workspace_id == workspace.id)
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=System)
     return [
         system
         for system in query.all()
@@ -267,7 +267,7 @@ def _capability_for_system(
         ),
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=Capability)
     capabilities = query.all()
     if len(capabilities) != 1:
         raise RolloutError("the linked Capability is missing or crosses workspace scope")
@@ -290,7 +290,7 @@ def _policy_for_system(
         ControlPolicy.target_id == system.id,
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=ControlPolicy)
     policies = query.all()
     if len(policies) != 1:
         raise RolloutError("the bound ControlPolicy is missing or crosses System scope")
@@ -332,7 +332,7 @@ def _discover_bootstrap_candidate(
         System.status == "active",
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=System)
     candidates = []
     for system in query.all():
         settings = _system_settings(system)
@@ -369,7 +369,7 @@ def _required_skill_rows(
         or_(Skill.workspace_id == workspace.id, Skill.workspace_id.is_(None)),
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=Skill)
     rows = query.all()
     by_slug = {row.slug: row for row in rows}
     missing = [slug for slug in REQUIRED_SKILLS if slug not in by_slug]
@@ -393,7 +393,7 @@ def _context_for_system(
         Context.system_id == system.id,
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=Context)
     contexts = query.all()
     if len(contexts) != 1:
         raise RolloutError(
@@ -416,7 +416,7 @@ def _bootstrap_policy_candidate(
             ControlPolicy.workspace_id == workspace.id,
         )
         if lock:
-            query = query.with_for_update()
+            query = query.with_for_update(of=ControlPolicy)
         policies = query.all()
         if len(policies) != 1:
             raise RolloutError("the existing ControlPolicy link is missing or cross-workspace")
@@ -431,7 +431,7 @@ def _bootstrap_policy_candidate(
         ControlPolicy.target_id == system.id,
     )
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update(of=ControlPolicy)
     policies = query.all()
     if len(policies) > 1:
         raise RolloutError("multiple unbound ControlPolicies target the canary System")

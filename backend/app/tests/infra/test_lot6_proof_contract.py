@@ -336,6 +336,22 @@ def test_lot6_vm_wrapper_enforces_quiesced_order_and_stdin_exercise() -> None:
     )
 
 
+def test_lot6_rollout_locks_only_concrete_postgres_tables() -> None:
+    rollout = (ROOT / "backend/scripts/rollout_system360_canary.py").read_text(
+        encoding="utf-8"
+    )
+    assert ".with_for_update()" not in rollout
+    for model in (
+        "Workspace",
+        "System",
+        "Capability",
+        "ControlPolicy",
+        "Skill",
+        "Context",
+    ):
+        assert f".with_for_update(of={model})" in rollout
+
+
 def test_p4_protected_gate_uses_real_postgres_rabbitmq_and_worker() -> None:
     pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
     job = pipeline.split("agentium-p4-rabbitmq-integration:", 1)[1].split(
