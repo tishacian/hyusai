@@ -604,6 +604,7 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                     "system_360_projection_v1": False,
                     "flow_v3_dag_authoritative": False,
                     "sap_hana_connector": True,
+                    "model_portal_beta": True,
                 },
                 "catalog": {
                     "enabled_skills": ["sap_hana_query_v1"],
@@ -632,6 +633,7 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                 **current_features,
                 "cockpit_router_axes_v3": True,
                 "sap_hana_connector": True,
+                "model_portal_beta": True,
             },
             "catalog": {
                 **current_catalog,

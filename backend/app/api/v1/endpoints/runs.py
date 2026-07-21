@@ -6,7 +6,9 @@ skill calls.
 """
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -37,6 +39,7 @@ from app.services.decisions import (
     reject as reject_decision,
 )
 from app.services.outcome.derive import apply_operator_override
+from app.services.run_engine import schedule_run
 from app.services.run_engine.dag import resume_run_dag, resume_run_dag_debug
 from app.services.run_engine.events import bus as event_bus
 
@@ -1055,4 +1058,52 @@ async def list_run_replays(
             }
             for r in children
         ],
+    }
+
+
+@router.post("/{run_id}/rerun")
+async def rerun_run(
+    run_id: str,
+    background_tasks: BackgroundTasks,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Re-execute a Run's DAG with the same input (demo-grade re-run).
+
+    Creates a fresh Run pointing at the parent via ``parent_run_id``,
+    copying the parent's ``input_ref`` and ``flow_snapshot``, then hands
+    execution to the canonical run engine in the background.
+    """
+    parent = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
+
+    new_run = Run(
+        id=str(uuid4()),
+        workspace_id=parent.workspace_id,
+        system_id=parent.system_id,
+        capability_id=parent.capability_id,
+        initiated_by_user_id=getattr(user, "id", None),
+        input_ref=parent.input_ref or {},
+        status="pending",
+        started_at=datetime.utcnow(),
+        trigger="rerun",
+        parent_run_id=parent.id,
+        flow_snapshot=parent.flow_snapshot,
+    )
+    db.add(new_run)
+    db.commit()
+    db.refresh(new_run)
+
+    background_tasks.add_task(schedule_run, new_run.id)
+    return {
+        "id": new_run.id,
+        "status": new_run.status,
+        "system_id": new_run.system_id,
+        "trigger": new_run.trigger,
+        "parent_run_id": parent.id,
     }

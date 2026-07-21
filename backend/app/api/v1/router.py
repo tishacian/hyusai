@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     intelligence,
     sharepoint,
     hana,
+    model_portal,
     # Canonical (mental-model) layer.
     systems,
     capabilities,
@@ -82,6 +83,7 @@ api_router.include_router(observability.router, prefix="/observability", tags=["
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
 api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])
 api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
+api_router.include_router(model_portal.router, prefix="/models", tags=["model-portal"])
 
 # Canonical mental-model layer.
 api_router.include_router(systems.router,       prefix="/systems",       tags=["systems"])

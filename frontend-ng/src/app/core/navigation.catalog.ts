@@ -416,6 +416,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'SAP HANA Cloud connector configuration.',
   },
   {
+    id: 'model-portal',
+    label: 'Models & Providers',
+    route: '/connectors/models',
+    lens: 'govern',
+    object: 'Connector',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/models',
+    status: 'canonical',
+    audience: 'admin',
+    description: 'LLM providers and models the platform can route to.',
+  },
+  {
     id: 'presets',
     label: 'Presets',
     route: '/presets',

@@ -24,4 +24,9 @@ export const connectorsRoutes: Routes = [
     loadComponent: () =>
       import('./hana/hana-connector.component').then((m) => m.HanaConnectorComponent),
   },
+  {
+    path: 'models',
+    loadComponent: () =>
+      import('../models/model-portal.component').then((m) => m.ModelPortalComponent),
+  },
 ];
