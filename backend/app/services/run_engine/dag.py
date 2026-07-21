@@ -1439,6 +1439,21 @@ async def _execute_node(
         )
         raise
 
+    # Palette-dropped skill nodes carry their inspector-edited literals in
+    # ``config.params`` but an empty ``inputs_map`` (the UI seeds it empty),
+    # and in strict mode an empty map resolves to an empty payload. Merge the
+    # params as defaults so an inspector edit reaches the skill; explicit
+    # ``inputs_map`` selectors keep precedence (setdefault never clobbers).
+    if node.kind == "task" and strict and node.skill_slug:
+        config_params = (
+            node.config.get("params") if isinstance(node.config, dict) else None
+        )
+        if isinstance(config_params, dict):
+            for param_key, param_value in _without_secret_values(
+                config_params
+            ).items():
+                node_input.setdefault(param_key, param_value)
+
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}
     try:
