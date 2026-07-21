@@ -404,6 +404,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'SharePoint connector configuration.',
   },
   {
+    id: 'sap-hana',
+    label: 'SAP HANA',
+    route: '/connectors/sap-hana',
+    lens: 'govern',
+    object: 'Connector',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/hana',
+    status: 'canonical',
+    audience: 'admin',
+    description: 'SAP HANA Cloud connector configuration.',
+  },
+  {
     id: 'presets',
     label: 'Presets',
     route: '/presets',

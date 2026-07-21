@@ -19,4 +19,9 @@ export const connectorsRoutes: Routes = [
     loadComponent: () =>
       import('./sftp/sftp-connector.component').then((m) => m.SftpConnectorComponent),
   },
+  {
+    path: 'sap-hana',
+    loadComponent: () =>
+      import('./hana/hana-connector.component').then((m) => m.HanaConnectorComponent),
+  },
 ];

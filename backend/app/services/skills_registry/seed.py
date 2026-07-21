@@ -696,6 +696,38 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "output_schema": {"type": "object", "properties": {"summary": {"type": "string"}, "events": {"type": "array"}}},
     },
     {
+        "slug": "sap_hana_query_v1",
+        "version": "1",
+        "name": "SAP HANA Query",
+        "description": "Runs a parameterized SQL query against the workspace SAP HANA Cloud connector (read-only by default).",
+        "type": "connector",
+        "provider": "sap",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_query", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["sql"],
+            "properties": {
+                "sql": {"type": "string"},
+                "params": {"type": "object"},
+                "max_rows": {"type": "integer"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "columns": {"type": "array"},
+                "rows": {"type": "array"},
+                "row_count": {"type": "integer"},
+                "context": {
+                    "type": "array",
+                    "description": "Row passages for llm_rag_answer_v1 grounding.",
+                },
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",

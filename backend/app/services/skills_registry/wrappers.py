@@ -963,6 +963,62 @@ async def _calendar_read_v1(
             db.close()
 
 
+def _hana_rows_as_context(
+    columns: list[Any], rows: list[Any]
+) -> list[dict[str, Any]]:
+    """Format HANA result rows as llm_rag_answer_v1-compatible passages."""
+    col_names = [str(c) for c in (columns or [])]
+    passages: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, (list, tuple)):
+            continue
+        parts = []
+        for idx, value in enumerate(row):
+            key = col_names[idx] if idx < len(col_names) else f"c{idx}"
+            parts.append(f"{key}={value}")
+        content = " | ".join(parts).strip()
+        if not content:
+            continue
+        passages.append(
+            {
+                "content": content,
+                "metadata": {"source": "sap_hana", "source_family": "hana_query"},
+                "score": 1.0,
+            }
+        )
+    return passages
+
+
+async def _sap_hana_query_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.connectors.hana import service as hana_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not hana_service.is_workspace_enabled(workspace):
+            raise ValueError("SAP HANA connector is not enabled for this workspace")
+        config = hana_service.get_config(workspace, include_secrets=True)
+        max_rows = payload.get("max_rows")
+        result = hana_service.run_query(
+            config,
+            sql=str(payload.get("sql") or ""),
+            params=payload.get("params"),
+            max_rows=int(max_rows) if max_rows is not None else 200,
+            allow_writes=bool(payload.get("allow_writes")),
+        )
+        # Chainable to llm_rag_answer_v1 via inputs_map.context ← task.hana.context
+        result["context"] = _hana_rows_as_context(
+            list(result.get("columns") or []),
+            list(result.get("rows") or []),
+        )
+        return result
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -4591,6 +4647,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "scenario_compare_v1": (_scenario_compare_v1, "app.services.scenario_engine", "bound"),
     "scenario_recommend_v1": (_scenario_recommend_v1, "app.services.scenario_engine", "bound"),
     "calendar_read_v1": (_calendar_read_v1, "app.services.workspace_calendar", "bound"),
+    "sap_hana_query_v1": (
+        _sap_hana_query_v1,
+        "app.services.connectors.hana.service",
+        "bound",
+    ),
     "calendar_create_event_v1": (
         _calendar_create_event_v1,
         "app.services.workspace_calendar",

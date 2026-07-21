@@ -404,6 +404,21 @@ CAPABILITIES = [
             "baseline": "professional LSP delivery",
         },
     },
+    {
+        "slug": "showcase_hana_maintenance",
+        "name": "SAP HANA Maintenance Orders",
+        "description": (
+            "Query open/released PIH maintenance orders from SAP HANA Cloud "
+            "and synthesize a short operator brief."
+        ),
+        "tier": "client",
+        "industry": "energy_hydro",
+        "input_unit": "question",
+        "output_unit": "maintenance_brief",
+        "skill_slugs": ["sap_hana_query_v1", "llm_rag_answer_v1"],
+        "pricing": {"unit": "per_brief", "unit_price": 0.35, "currency": "EUR"},
+        "value_per_outcome": 18.0,
+    },
 ]
 
 
@@ -454,6 +469,7 @@ def main() -> int:
         controls = ensure_policies(db, workspace)
         capabilities = ensure_capabilities(db, workspace)
         systems = ensure_systems(db, workspace, capabilities, controls)
+        _maybe_configure_hana_connector(db, workspace)
         context = ensure_context(db, workspace, systems)
         knowledge = seed_knowledge_and_capture(db, workspace, skip_ingest=args.skip_ingest)
         doc_paths = write_docs(workspace.slug)
@@ -532,6 +548,42 @@ def reset_workspace(db: DBSession, slug: str) -> None:
     print(f"Reset showcase workspace {slug}")
 
 
+def _maybe_configure_hana_connector(db: DBSession, workspace: Workspace) -> None:
+    """If HANA_PASSWORD / HANA_CONNECTOR_PASSWORD is set, persist connector config.
+
+    Password is never hardcoded — operators export the env var before seeding.
+    """
+    import os
+
+    password = (
+        os.environ.get("HANA_PASSWORD", "").strip()
+        or os.environ.get("HANA_CONNECTOR_PASSWORD", "").strip()
+    )
+    if not password:
+        print(
+            "HANA connector: skipped (set HANA_PASSWORD or HANA_CONNECTOR_PASSWORD "
+            "to persist BTP credentials; or run scripts.seed_hana_demo_flow)."
+        )
+        return
+    from scripts.seed_hana_demo_flow import (
+        DEFAULT_HOST,
+        DEFAULT_PORT,
+        DEFAULT_USER,
+        configure_hana_connector,
+    )
+
+    host = os.environ.get("HANA_HOST", DEFAULT_HOST)
+    port = int(os.environ.get("HANA_PORT", DEFAULT_PORT))
+    user = os.environ.get("HANA_USER", DEFAULT_USER)
+    summary = configure_hana_connector(
+        db, workspace, host=host, port=port, user=user, password=password
+    )
+    print(
+        f"HANA connector configured: host={summary.get('host')} "
+        f"user={summary.get('user')} configured={summary.get('configured')}"
+    )
+
+
 def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
     ws = db.query(Workspace).filter(Workspace.slug == slug).first()
     if not ws:
@@ -551,6 +603,10 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                     "cockpit_router_axes_v4": False,
                     "system_360_projection_v1": False,
                     "flow_v3_dag_authoritative": False,
+                    "sap_hana_connector": True,
+                },
+                "catalog": {
+                    "enabled_skills": ["sap_hana_query_v1"],
                 },
             },
         )
@@ -563,6 +619,11 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
         current_settings = dict(ws.settings or {})
         raw_features = current_settings.get("features")
         current_features = dict(raw_features) if isinstance(raw_features, dict) else {}
+        raw_catalog = current_settings.get("catalog")
+        current_catalog = dict(raw_catalog) if isinstance(raw_catalog, dict) else {}
+        enabled_skills = list(current_catalog.get("enabled_skills") or [])
+        if "sap_hana_query_v1" not in enabled_skills:
+            enabled_skills.append("sap_hana_query_v1")
         ws.settings = {
             **current_settings,
             "showcase_seed": True,
@@ -570,6 +631,11 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
             "features": {
                 **current_features,
                 "cockpit_router_axes_v3": True,
+                "sap_hana_connector": True,
+            },
+            "catalog": {
+                **current_catalog,
+                "enabled_skills": enabled_skills,
             },
         }
         db.commit()
@@ -941,6 +1007,29 @@ def flow_debug() -> Dict[str, Any]:
             {"from": "route", "to": "draft", "kind": "branch", "branch_label": "draft"},
             {"from": "draft", "to": "sink"},
         ],
+    }
+
+
+def flow_hana_maintenance() -> Dict[str, Any]:
+    """PIH demo: HANA open orders → grounded LLM synthesis.
+
+    Canonical definition lives in ``scripts.seed_hana_demo_flow`` so the
+    dedicated seed/run script and this showcase seed stay identical.
+    """
+    from scripts.seed_hana_demo_flow import flow_hana_maintenance as _flow
+
+    return _flow()
+
+
+def _hana_demo_settings() -> Dict[str, Any]:
+    from scripts.seed_hana_demo_flow import DEMO_OPEN_ORDERS_SQL
+
+    return {
+        "hana_demo": {
+            "sql": DEMO_OPEN_ORDERS_SQL,
+            "max_rows": 50,
+            "dataset": "DEMO_MAINTENANCE_ORDERS",
+        }
     }
 
 
@@ -1797,6 +1886,19 @@ def ensure_systems(
             "coordination_pattern": "multi_agent_dag",
             "default_model": "sovereign-vllm:unsloth/gpt-oss-20b-BF16",
         },
+        {
+            "key": "hana",
+            "name": "SAP HANA Maintenance Copilot",
+            "objective": (
+                "Lister les ordres de maintenance ouverts/released depuis SAP HANA "
+                "Cloud et produire une synthèse priorisée pour l'opérateur PIH."
+            ),
+            "capability": "showcase_hana_maintenance",
+            "flow": flow_hana_maintenance(),
+            "prompt": "factual",
+            "retrieval": "hybrid",
+            "coordination_pattern": "graph",
+        },
     ]
     out: Dict[str, System] = {}
     for spec in specs:
@@ -1840,6 +1942,7 @@ def ensure_systems(
                     if spec["key"] == "translation"
                     else {}
                 ),
+                **(_hana_demo_settings() if spec["key"] == "hana" else {}),
             },
             "execution_mode": spec.get("execution_mode") or ("human_augmented" if spec["key"] == "compliance" else "real_time_decision"),
             "execution_profile": (
@@ -1853,7 +1956,15 @@ def ensure_systems(
                     "token_budget": {"input_tokens": 18_500_000, "output_tokens": 9_200_000, "determinism": "temperature_0"},
                 }
                 if spec["key"] == "translation"
-                else {"showcase_seed": True, "persona": spec["key"]}
+                else (
+                    {
+                        "showcase_seed": True,
+                        "persona": "maintenance_operator",
+                        "connector": "sap_hana",
+                    }
+                    if spec["key"] == "hana"
+                    else {"showcase_seed": True, "persona": spec["key"]}
+                )
             ),
             "coordination_pattern": spec.get("coordination_pattern") or ("graph" if spec["flow"] else "single_agent"),
             "control_policy_id": (

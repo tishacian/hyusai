@@ -267,6 +267,10 @@ type Tab = 'models' | 'connectors';
                   </div>
                   @if (c.status === 'active' || isConfigured(c.id)) {
                     <app-status-pulse tone="success" label="connected" />
+                  } @else if (c.status === 'beta') {
+                    <span class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20">
+                      Beta
+                    </span>
                   } @else if (c.status === 'available') {
                     <app-status-pulse tone="accent" label="available" />
                   } @else {
@@ -414,12 +418,21 @@ export class ResourcesPageComponent implements OnInit {
     return Array.from(set);
   });
 
+  readonly visibleConnectors = computed(() =>
+    CONNECTORS.filter((c) => this.isConnectorVisible(c)),
+  );
   readonly connectorsActive = computed(() => {
     this.connectorsVersion();
-    return CONNECTORS.filter((c) => c.status === 'active' || hasConnectorConfig(this.workspace.currentSlug(), c.id)).length;
+    return this.visibleConnectors().filter(
+      (c) => c.status === 'active' || hasConnectorConfig(this.workspace.currentSlug(), c.id),
+    ).length;
   });
-  readonly connectorsAvailable = computed(() => CONNECTORS.filter((c) => c.status !== 'coming-soon').length);
-  readonly connectorsComingSoon = computed(() => CONNECTORS.filter((c) => c.status === 'coming-soon').length);
+  readonly connectorsAvailable = computed(
+    () => this.visibleConnectors().filter((c) => c.status !== 'coming-soon').length,
+  );
+  readonly connectorsComingSoon = computed(
+    () => this.visibleConnectors().filter((c) => c.status === 'coming-soon').length,
+  );
   readonly appsEnabled = computed(() => {
     this.appsVersion();
     const t = readAppToggles(this.workspace.currentSlug());
@@ -428,7 +441,12 @@ export class ResourcesPageComponent implements OnInit {
 
   readonly tabs = [
     { id: 'models' as Tab, label: 'Models', icon: 'cpu', count: () => this.models().length },
-    { id: 'connectors' as Tab, label: 'Connectors', icon: 'plug', count: () => CONNECTORS.length },
+    {
+      id: 'connectors' as Tab,
+      label: 'Connectors',
+      icon: 'plug',
+      count: () => this.visibleConnectors().length,
+    },
   ];
 
   ngOnInit(): void {
@@ -483,7 +501,7 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   connectorsInCategory(id: string): ConnectorDef[] {
-    return CONNECTORS.filter((c) => c.category === id);
+    return this.visibleConnectors().filter((c) => c.category === id);
   }
 
   isConfigured(id: string): boolean {
@@ -498,9 +516,20 @@ export class ResourcesPageComponent implements OnInit {
       this.router.navigate(['/connectors', c.id]);
       return;
     }
+    if (c.id === 'sap_hana') {
+      this.router.navigate(['/connectors', 'sap-hana']);
+      return;
+    }
     this.active.set(c);
     this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), c.id) };
     this.drawerOpen.set(true);
+  }
+
+  private isConnectorVisible(c: ConnectorDef): boolean {
+    if (c.id === 'sap_hana') {
+      return this.workspace.sapHanaConnectorEnabled();
+    }
+    return true;
   }
 
   closeDrawer(): void {
@@ -526,6 +555,14 @@ export class ResourcesPageComponent implements OnInit {
     if (!c) return;
     if (c.backendPrefix === 'sharepoint' || c.backendPrefix === 'sftp') {
       this.api.get(`/${c.backendPrefix}/health`).subscribe({
+        next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
+        error: () =>
+          this.toast.error(`${c.name} is unreachable — check the backend`, 'Connection test'),
+      });
+      return;
+    }
+    if (c.backendPrefix === 'hana') {
+      this.api.post(`/${c.backendPrefix}/test`, {}).subscribe({
         next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
         error: () =>
           this.toast.error(`${c.name} is unreachable — check the backend`, 'Connection test'),

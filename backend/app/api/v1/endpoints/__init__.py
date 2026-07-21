@@ -20,6 +20,7 @@ __all__ = [
     "observability",
     "intelligence",
     "sharepoint",
+    "hana",
     "systems",
     "capabilities",
     "skills",

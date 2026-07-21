@@ -107,6 +107,14 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                     <app-icon name="arrow-right" [size]="14" />
                     Open secure deposit
                   </a>
+                } @else if (connector.id === 'sap_hana') {
+                  <a
+                    routerLink="/connectors/sap-hana"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
+                  >
+                    <app-icon name="arrow-right" [size]="14" />
+                    Open SAP HANA setup
+                  </a>
                 } @else if (connector.id === 'institutional_calendar') {
                   <a
                     routerLink="/hypervisor/mission-room/agenda"
@@ -251,25 +259,29 @@ export class ConnectorsPageComponent {
   readonly workspaceSettings = computed(
     () => (this.workspace.current()?.settings || {}) as Record<string, any>,
   );
-  readonly supportedCount = computed(() => CONNECTORS.length);
+  readonly visibleConnectors = computed(() =>
+    CONNECTORS.filter((connector) => this.isConnectorVisible(connector)),
+  );
+  readonly supportedCount = computed(() => this.visibleConnectors().length);
   readonly configuredCount = computed(() => {
     this.connectorVersion();
-    return CONNECTORS.filter((connector) => this.isConnectedOrConfigured(connector)).length;
+    return this.visibleConnectors().filter((connector) => this.isConnectedOrConfigured(connector)).length;
   });
   readonly availableCount = computed(
-    () => CONNECTORS.filter((connector) => connector.status !== 'coming-soon').length,
+    () => this.visibleConnectors().filter((connector) => connector.status !== 'coming-soon').length,
   );
   readonly plannedCount = computed(
-    () => CONNECTORS.filter((connector) => connector.status === 'coming-soon').length,
+    () => this.visibleConnectors().filter((connector) => connector.status === 'coming-soon').length,
   );
 
   connectorsInCategory(categoryId: string): ConnectorDef[] {
-    return CONNECTORS.filter((connector) => connector.category === categoryId);
+    return this.visibleConnectors().filter((connector) => connector.category === categoryId);
   }
 
   connectorStatus(connector: ConnectorDef): string {
     if (this.isConnectedOrConfigured(connector)) return 'configured';
     if (connector.status === 'active') return 'ready';
+    if (connector.status === 'beta') return 'beta';
     if (connector.status === 'available') return 'available';
     return 'planned';
   }
@@ -279,6 +291,7 @@ export class ConnectorsPageComponent {
       return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
     }
     if (connector.status === 'active') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
+    if (connector.status === 'beta') return 'bg-violet-500/10 text-violet-200 ring-violet-500/20';
     if (connector.status === 'available') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
     return 'bg-amber-500/10 text-amber-300 ring-amber-500/20';
   }
@@ -297,6 +310,10 @@ export class ConnectorsPageComponent {
   openSetup(connector: ConnectorDef): void {
     if (connector.id === 'sharepoint' || connector.id === 'sftp') {
       this.router.navigate(['/connectors', connector.id]);
+      return;
+    }
+    if (connector.id === 'sap_hana') {
+      this.router.navigate(['/connectors', 'sap-hana']);
       return;
     }
     this.activeConnector.set(connector);
@@ -347,6 +364,13 @@ export class ConnectorsPageComponent {
     return hasConnectorConfig(this.workspace.currentSlug(), connector.id) || this.workspaceConnectorEnabled(connector.id);
   }
 
+  private isConnectorVisible(connector: ConnectorDef): boolean {
+    if (connector.id === 'sap_hana') {
+      return this.workspace.sapHanaConnectorEnabled();
+    }
+    return true;
+  }
+
   private workspaceConnectorEnabled(id: string): boolean {
     const settings = this.workspaceSettings();
     const connectorSettings = (settings['connectors'] || {}) as Record<string, any>;
@@ -360,6 +384,9 @@ export class ConnectorsPageComponent {
     }
     if (id === 'sftp') {
       return connectorSettings['secure_deposit']?.enabled === true || connectorSettings['sftp']?.enabled === true;
+    }
+    if (id === 'sap_hana') {
+      return connectorSettings['sap_hana']?.enabled === true || !!connectorSettings['sap_hana']?.host;
     }
     return connectorSettings[id]?.enabled === true;
   }

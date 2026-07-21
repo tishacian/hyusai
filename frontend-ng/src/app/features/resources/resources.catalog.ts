@@ -18,7 +18,7 @@
  *     against `/skills` — not this file).
  */
 
-export type ConnectorStatus = 'active' | 'available' | 'coming-soon';
+export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta';
 export type ConnectorCategory = 'microsoft' | 'channels' | 'data-storage';
 
 export interface ConnectorField {
@@ -226,6 +226,28 @@ export const CONNECTORS: ConnectorDef[] = [
       { key: 'database', label: 'Database', type: 'text', required: true },
       { key: 'username', label: 'Username', type: 'text' },
       { key: 'password', label: 'Password', type: 'password' },
+    ],
+  },
+  {
+    id: 'sap_hana',
+    category: 'data-storage',
+    icon: 'database',
+    name: 'SAP HANA',
+    description: 'Query SAP HANA Cloud for structured ERP / maintenance data from Flow Builder skills.',
+    version: 'hdbcli v2',
+    status: 'beta',
+    backendPrefix: 'hana',
+    fields: [
+      {
+        key: 'host',
+        label: 'Host',
+        type: 'text',
+        placeholder: 'xxxx.hna1.prod-us10.hanacloud.ondemand.com',
+        required: true,
+      },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '443', required: true },
+      { key: 'user', label: 'User', type: 'text', placeholder: 'DBADMIN', required: true },
+      { key: 'password', label: 'Password', type: 'password', required: true },
     ],
   },
   {

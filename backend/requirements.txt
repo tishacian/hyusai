@@ -71,3 +71,7 @@ PyYAML>=6.0
 playwright>=1.48.0
 msal>=1.30.0
 cryptography>=43.0.0
+
+# SAP HANA Cloud connector
+# - hdbcli: official SAP HANA client (SQL over TLS to BTP / HANA Cloud)
+hdbcli>=2.20

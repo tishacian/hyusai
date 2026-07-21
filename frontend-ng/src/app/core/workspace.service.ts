@@ -200,6 +200,15 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['app_entitlements_v1'] === true,
     );
   });
+  readonly sapHanaConnectorEnabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['sap_hana_connector'] === true,
+    );
+  });
 
   captureRequestScope(): WorkspaceRequestScope {
     const state = this.state();
