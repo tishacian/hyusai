@@ -1,22 +1,29 @@
-"""Models & Providers portal (workspace-gated beta, read-only).
+"""Models & Providers portal — live plane (workspace-gated beta).
 
-Reports which LLM providers the platform can route to, based purely on
-config/env presence — no network calls. Adapters live in two places:
-``app.services.model_router`` (ollama/openai/anthropic runtime clients) and
-``app.llm.providers`` (azure_openai, openrouter, gemini, ...).
+Exposes provider health, effective routing, ledger distribution, and
+admin-gated serving-node lifecycle proxied to omnirag-llm-portal.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import AliasChoices, BaseModel, Field
+from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
+from app.core.iam.roles import is_admin_template
+from app.db.base import get_db
+from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.model_plane import distribution as distribution_service
+from app.services.model_plane import providers as providers_service
+from app.services.model_plane import serving_nodes as serving_nodes_service
+from app.services.model_plane.registration import list_routable_providers
+from app.services.model_router import ModelRouter
 from app.services.workspace_features import feature_enabled
 
 router = APIRouter()
@@ -32,65 +39,46 @@ def _require_enabled(workspace: Workspace) -> None:
         )
 
 
-def _env_set(*names: str) -> bool:
-    return all(bool(os.getenv(name)) for name in names)
+def _require_workspace_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> None:
+    if getattr(user, "role", None) == "admin":
+        return
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == getattr(user, "id", None),
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not membership or not is_admin_template(
+        getattr(membership, "role_template", None),
+        membership.role,
+    ):
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
-def _providers() -> List[Dict[str, Any]]:
-    """Config-presence snapshot of every provider adapter the code supports."""
-    azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    return [
-        {
-            "key": "ollama",
-            "label": "Ollama",
-            "kind": "local",
-            "status": "configured" if settings.ollama_base_url else "available",
-            "models": [settings.ollama_default_model],
-            "notes": "Local / sovereign serving",
-        },
-        {
-            "key": "openai",
-            "label": "OpenAI",
-            "kind": "cloud",
-            "status": "configured" if _env_set("OPENAI_API_KEY") else "available",
-            "models": ["gpt-5"],
-            "notes": "OpenAI API (chat completions, streaming)",
-        },
-        {
-            "key": "azure_openai",
-            "label": "Azure OpenAI / AI Foundry",
-            "kind": "cloud",
-            "status": "configured"
-            if _env_set("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT")
-            else "available",
-            "models": [azure_deployment] if azure_deployment else ["gpt-5 (deployment)"],
-            "notes": "Azure-hosted OpenAI deployments, incl. AI Foundry endpoints",
-        },
-        {
-            "key": "openrouter",
-            "label": "OpenRouter",
-            "kind": "cloud",
-            "status": "configured" if _env_set("OPENROUTER_API_KEY") else "available",
-            "models": [os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-4.5")],
-            "notes": "Multi-provider gateway (Anthropic, Meta, Mistral, ...)",
-        },
-        {
-            "key": "anthropic",
-            "label": "Anthropic",
-            "kind": "cloud",
-            "status": "configured" if _env_set("ANTHROPIC_API_KEY") else "available",
-            "models": ["claude-3-4-sonnet"],
-            "notes": "Claude models via the Anthropic API",
-        },
-        {
-            "key": "gemini",
-            "label": "Google Gemini",
-            "kind": "cloud",
-            "status": "configured" if _env_set("GEMINI_API_KEY") else "available",
-            "models": [os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.0-flash-exp")],
-            "notes": "Gemini models via the Google AI API",
-        },
-    ]
+class CreateInstanceBody(BaseModel):
+    # UI historically sent ``engine``; llm-portal expects ``provider``.
+    provider: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("provider", "engine"),
+    )
+    model: str = Field(..., min_length=1)
+    port: int = Field(..., ge=1, le=65535)
+    name: Optional[str] = None
+    image: Optional[str] = None
+    gpu_devices: Optional[List[str]] = None
+    environment: Optional[Dict[str, str]] = None
+    memory_limit: Optional[str] = "16g"
+    shm_size: Optional[str] = "16g"
+    auto_start: Optional[bool] = True
+    quantization: Optional[str] = None
 
 
 @router.get("/providers")
@@ -99,4 +87,143 @@ async def list_model_providers(
     user: User = Depends(get_current_user),
 ):
     _require_enabled(workspace)
-    return {"providers": _providers()}
+    # Refresh local serving registry so kind:local entries stay current.
+    await serving_nodes_service.list_nodes(sync_registry=True)
+    providers = await providers_service.list_providers(include_local_serving=True)
+    return {"providers": providers}
+
+
+@router.get("/routing")
+async def get_model_routing(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    await serving_nodes_service.list_nodes(sync_registry=True)
+    router_runtime = ModelRouter()
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id)
+        .order_by(System.name.asc())
+        .all()
+    )
+    return {
+        "default_provider": settings.default_provider,
+        "default_model": settings.default_model,
+        "ollama_default_model": settings.ollama_default_model,
+        "primary": {
+            "provider": settings.default_provider,
+            "model": settings.default_model,
+        },
+        "fallback_chain": list(router_runtime.fallback_chain),
+        "registered_clients": sorted(router_runtime.clients.keys()),
+        "local_serving": list_routable_providers(),
+        "systems": [
+            {
+                "id": system.id,
+                "name": system.name,
+                "default_model": system.default_model,
+                "status": system.status,
+            }
+            for system in systems
+        ],
+    }
+
+
+@router.get("/distribution")
+async def get_model_distribution(
+    window: str = Query(default="7d", pattern="^(7d|30d)$"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    try:
+        return distribution_service.get_distribution(
+            db,
+            workspace_id=workspace.id,
+            window=window,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/nodes")
+async def list_serving_nodes(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    _require_enabled(workspace)
+    return await serving_nodes_service.list_nodes(sync_registry=True)
+
+
+@router.post("/nodes/{node_name}/instances")
+async def create_serving_instance(
+    node_name: str,
+    body: CreateInstanceBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        instance = await serving_nodes_service.create_instance(
+            node_name,
+            body.model_dump(exclude_none=True),
+        )
+    except serving_nodes_service.PortalClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"instance": instance}
+
+
+@router.post("/nodes/{node_name}/instances/{instance_id}/start")
+async def start_serving_instance(
+    node_name: str,
+    instance_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        result = await serving_nodes_service.start_instance(node_name, instance_id)
+    except serving_nodes_service.PortalClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return result if isinstance(result, dict) else {"result": result}
+
+
+@router.post("/nodes/{node_name}/instances/{instance_id}/stop")
+async def stop_serving_instance(
+    node_name: str,
+    instance_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        result = await serving_nodes_service.stop_instance(node_name, instance_id)
+    except serving_nodes_service.PortalClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return result if isinstance(result, dict) else {"result": result}
+
+
+@router.delete("/nodes/{node_name}/instances/{instance_id}")
+async def delete_serving_instance(
+    node_name: str,
+    instance_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        result = await serving_nodes_service.delete_instance(node_name, instance_id)
+    except serving_nodes_service.PortalClientError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return result if isinstance(result, dict) else {"result": result}

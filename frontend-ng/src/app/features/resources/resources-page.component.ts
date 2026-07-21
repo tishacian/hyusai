@@ -3,13 +3,16 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -28,6 +31,24 @@ import {
   readConnectorConfig,
   writeConnectorConfig,
 } from './resources.catalog';
+import {
+  DistributionBucket,
+  DistributionResponse,
+  DistributionWindow,
+  ModelProvider,
+  NodesResponse,
+  ProvidersResponse,
+  RoutingResponse,
+  ServingInstance,
+  ServingNode,
+  distCount,
+  distLatency,
+  instanceEngine,
+  nodeKey,
+  providerLabel,
+  routingFallbackLabel,
+  routingPrimaryLabel,
+} from './model-plane.types';
 
 interface ModelInfo {
   id?: string;
@@ -39,7 +60,9 @@ interface ModelInfo {
   [key: string]: unknown;
 }
 
-type Tab = 'models' | 'connectors';
+type Tab = 'models' | 'providers' | 'serving' | 'connectors';
+
+const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
 
 @Component({
   selector: 'app-resources-page',
@@ -82,7 +105,7 @@ type Tab = 'models' | 'connectors';
         <ck-stat-readout variant="tile" label="Models" [value]="models().length" icon="cpu" />
         <ck-stat-readout variant="tile"
           label="Providers"
-          [value]="providers().length"
+          [value]="showPortalTabs() ? liveProviders().length : providers().length"
           icon="server"
         />
       }
@@ -108,11 +131,11 @@ type Tab = 'models' | 'connectors';
     </div>
 
     <!-- Tabs -->
-    <div class="flex items-center gap-1 mb-5 p-1 bg-white/5 ring-1 ring-white/10 rounded-md w-fit">
-      @for (t of tabs; track t.id) {
+    <div class="flex items-center gap-1 mb-5 p-1 bg-white/5 ring-1 ring-white/10 rounded-md w-fit flex-wrap">
+      @for (t of tabs(); track t.id) {
         <button
           type="button"
-          (click)="tab.set(t.id)"
+          (click)="selectTab(t.id)"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition"
           [ngClass]="tab() === t.id
             ? 'bg-white/[0.06] text-white ring-1 ring-cyan-400/35'
@@ -214,6 +237,273 @@ type Tab = 'models' | 'connectors';
           </ul>
         }
         </section>
+      }
+    }
+
+    <!-- Providers tab -->
+    @if (tab() === 'providers' && showPortalTabs()) {
+      @if (portalError(); as err) {
+        <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
+          {{ err }}
+        </div>
+      }
+
+      @if (routing(); as route) {
+        <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-gray-400">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Primary</span>
+            <span class="font-mono text-cyan-300">{{ primaryRouteLabel(route) }}</span>
+          </span>
+          <span class="text-gray-600">·</span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Fallback</span>
+            <span class="font-mono text-gray-300">{{ fallbackRouteLabel(route) }}</span>
+          </span>
+        </div>
+      }
+
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 mb-6">
+        @for (p of liveProviders(); track p.key) {
+          <section class="ck-surface rounded-md p-5 flex flex-col gap-3">
+            <header class="flex items-start justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span
+                  class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 text-cyan-300"
+                >
+                  <app-icon [name]="p.kind === 'local' ? 'server' : 'cloud'" [size]="16" />
+                </span>
+                <div class="min-w-0">
+                  <h2 class="text-sm font-semibold text-white truncate">{{ providerTitle(p) }}</h2>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                    {{ p.key }}
+                    @if (p.latency_ms != null) {
+                      · {{ p.latency_ms }} ms
+                    }
+                  </p>
+                </div>
+              </div>
+              <span
+                class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1"
+                [ngClass]="providerStatusClass(p.status)"
+              >
+                {{ p.status }}
+              </span>
+            </header>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              @if (p.kind) {
+                <span
+                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1"
+                  [ngClass]="
+                    p.kind === 'local'
+                      ? 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20'
+                      : 'bg-indigo-500/10 text-indigo-300 ring-indigo-500/20'
+                  "
+                >
+                  {{ p.kind }}
+                </span>
+              }
+              @for (model of p.models; track model) {
+                <span
+                  class="inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded bg-black/30 text-gray-300 ring-1 ring-white/10"
+                >
+                  {{ model }}
+                </span>
+              }
+            </div>
+
+            @if (p.notes) {
+              <p class="text-[11px] text-gray-400 leading-relaxed">{{ p.notes }}</p>
+            }
+          </section>
+        } @empty {
+          @if (!loading()) {
+            <app-empty-state
+              icon="cloud"
+              title="No providers reported"
+              description="Provider status will appear once the model plane API is available."
+            />
+          }
+        }
+      </div>
+
+      <!-- Distribution mini-view -->
+      <section class="ck-surface rounded-md overflow-hidden">
+        <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3 flex-wrap">
+          <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+            <app-icon name="bar-chart-3" [size]="16" class="text-cyan-400" />
+            Routing distribution
+          </h3>
+          <div class="flex items-center gap-1 p-0.5 bg-white/5 ring-1 ring-white/10 rounded">
+            @for (w of distWindows; track w) {
+              <button
+                type="button"
+                (click)="setDistWindow(w)"
+                class="px-2.5 py-1 rounded text-[10px] font-mono transition"
+                [ngClass]="distWindow() === w
+                  ? 'bg-white/[0.08] text-white'
+                  : 'text-gray-500 hover:text-gray-300'"
+              >
+                {{ w }}
+              </button>
+            }
+          </div>
+        </div>
+        @if (distributionBuckets().length === 0) {
+          <app-empty-state
+            size="sm"
+            icon="bar-chart-3"
+            title="No distribution data"
+            description="Invocation counts appear after routed traffic is recorded."
+          />
+        } @else {
+          <ul class="divide-y divide-white/5 px-5 py-2">
+            @for (b of distributionBuckets(); track distKey(b)) {
+              <li class="py-3">
+                <div class="flex items-center justify-between gap-3 mb-1.5 text-xs">
+                  <span class="font-mono text-gray-200 truncate">{{ distLabel(b) }}</span>
+                  <span class="text-gray-500 font-mono tabular-nums shrink-0">
+                    {{ bucketCount(b) }}
+                    @if (b.cost != null) {
+                      · {{ formatCost(b.cost) }}
+                    }
+                    @if (bucketLatency(b) != null) {
+                      · {{ bucketLatency(b) }} ms
+                    }
+                  </span>
+                </div>
+                <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    class="h-full rounded-full bg-cyan-500/60"
+                    [style.width.%]="distBarWidth(b)"
+                  ></div>
+                </div>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    }
+
+    <!-- Serving tab -->
+    @if (tab() === 'serving' && showPortalTabs()) {
+      @if (portalError(); as err) {
+        <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
+          {{ err }}
+        </div>
+      }
+
+      @if (servingNodes().length === 0 && !loading()) {
+        <app-empty-state
+          icon="server"
+          title="No serving node attached"
+          description="Attach an omnirag-llm-portal host in backend config to manage local GPU serving from here."
+        />
+      } @else {
+        @for (node of servingNodes(); track nodeId(node)) {
+          <section class="ck-surface rounded-md overflow-hidden mb-4">
+            <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3 flex-wrap">
+              <div class="min-w-0">
+                <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+                  <app-icon name="server" [size]="16" class="text-cyan-400" />
+                  {{ node.name || node.key || 'Serving node' }}
+                </h3>
+                <p class="text-[11px] text-gray-500 font-mono mt-0.5">
+                  {{ nodeId(node) }}
+                  @if (node.status) {
+                    · {{ node.status }}
+                  }
+                </p>
+              </div>
+              <button
+                type="button"
+                (click)="openCreateInstance(node)"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30 transition"
+              >
+                <app-icon name="plus" [size]="12" /> Create instance
+              </button>
+            </div>
+
+            @if (node.gpu; as gpu) {
+              <div class="px-5 py-3 border-b border-white/5 flex flex-wrap gap-4 text-xs text-gray-400">
+                <span>
+                  <span class="text-gray-500 uppercase tracking-wider text-[10px] font-semibold mr-1">GPU</span>
+                  {{ gpu.count ?? gpu.devices?.length ?? 0 }}
+                </span>
+                @if (gpu.memory_total_mb != null) {
+                  <span class="font-mono tabular-nums">
+                    {{ gpu.memory_used_mb ?? 0 }} / {{ gpu.memory_total_mb }} MB
+                  </span>
+                }
+                @if (gpu.utilization != null) {
+                  <span class="font-mono tabular-nums">{{ gpu.utilization }}% util</span>
+                }
+              </div>
+            }
+
+            @if (!node.instances?.length) {
+              <div class="px-5 py-6 text-center text-xs text-gray-500">
+                No instances on this node yet.
+              </div>
+            } @else {
+              <ul class="divide-y divide-white/5">
+                @for (inst of node.instances!; track inst.id) {
+                  <li class="px-5 py-3 flex items-center gap-3 text-sm">
+                    <div class="min-w-0 flex-1">
+                      <div class="text-white font-mono text-xs truncate">
+                        {{ inst.name || inst.model || inst.id }}
+                      </div>
+                      <div class="text-[11px] text-gray-500 mt-0.5">
+                        @if (engineOf(inst)) {
+                          <span class="capitalize">{{ engineOf(inst) }}</span>
+                        }
+                        @if (inst.model && inst.name) {
+                          <span> · {{ inst.model }}</span>
+                        }
+                        @if (inst.port) {
+                          <span class="font-mono"> · :{{ inst.port }}</span>
+                        }
+                      </div>
+                    </div>
+                    <app-status-pulse
+                      [tone]="instancePulseTone(inst)"
+                      [label]="inst.status || 'unknown'"
+                    />
+                    <div class="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        title="Start"
+                        (click)="startInstance(node, inst)"
+                        [disabled]="lifecycleBusy() === inst.id"
+                        class="p-1.5 rounded text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition"
+                      >
+                        <app-icon name="play" [size]="14" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Stop"
+                        (click)="stopInstance(node, inst)"
+                        [disabled]="lifecycleBusy() === inst.id"
+                        class="p-1.5 rounded text-amber-300 hover:bg-amber-500/10 disabled:opacity-40 transition"
+                      >
+                        <app-icon name="square" [size]="14" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete"
+                        (click)="deleteInstance(node, inst)"
+                        [disabled]="lifecycleBusy() === inst.id"
+                        class="p-1.5 rounded text-red-300 hover:bg-red-500/10 disabled:opacity-40 transition"
+                      >
+                        <app-icon name="trash-2" [size]="14" />
+                      </button>
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          </section>
+        }
       }
     }
 
@@ -382,32 +672,118 @@ type Tab = 'models' | 'connectors';
         </div>
       }
     </app-drawer>
+
+    <!-- Create serving instance drawer -->
+    <app-drawer
+      [open]="createOpen()"
+      title="Create instance"
+      [subtitle]="createNodeLabel()"
+      icon="server"
+      [width]="420"
+      (close)="closeCreate()"
+    >
+      <form (ngSubmit)="submitCreateInstance()" class="space-y-4">
+        <div>
+          <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            Engine
+          </label>
+          <select
+            [(ngModel)]="createDraft.engine"
+            name="engine"
+            class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/60 text-sm"
+          >
+            <option value="ollama">Ollama</option>
+            <option value="vllm">vLLM</option>
+            <option value="llamacpp">llama.cpp</option>
+            <option value="lmdeploy">LMDeploy</option>
+            <option value="sglang">SGLang</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            Model <span class="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            [(ngModel)]="createDraft.model"
+            name="model"
+            required
+            placeholder="e.g. llama3.2:3b"
+            class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 text-sm font-mono"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            Port <span class="text-red-400">*</span>
+          </label>
+          <input
+            type="number"
+            [(ngModel)]="createDraft.port"
+            name="port"
+            required
+            placeholder="11434"
+            class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 text-sm font-mono"
+          />
+        </div>
+        <div class="flex items-center gap-2 pt-2">
+          <button
+            type="submit"
+            [disabled]="!createDraft.model.trim() || !createPortValid() || lifecycleBusy() === 'create'"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+          >
+            <app-icon name="plus" [size]="14" /> Create
+          </button>
+          <button
+            type="button"
+            (click)="closeCreate()"
+            class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-sm ring-1 ring-white/10 transition"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </app-drawer>
   `,
 })
 export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
   readonly allConnectors = CONNECTORS;
+  readonly distWindows: DistributionWindow[] = ['7d', '30d'];
 
   readonly tab = signal<Tab>('models');
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly modelPortalEnabled = this.workspace.modelPortalEnabled;
+  /** Portal tabs require beta flag; demo-safe mode always wins. */
+  readonly showPortalTabs = computed(
+    () => this.modelPortalEnabled() && !this.isDemoMode(),
+  );
 
   readonly models = signal<ModelInfo[]>([]);
   readonly loading = signal(false);
+  readonly portalError = signal<string | null>(null);
+  readonly liveProviders = signal<ModelProvider[]>([]);
+  readonly routing = signal<RoutingResponse | null>(null);
+  readonly distribution = signal<DistributionResponse | null>(null);
+  readonly distWindow = signal<DistributionWindow>('7d');
+  readonly servingNodes = signal<ServingNode[]>([]);
+  readonly lifecycleBusy = signal<string | null>(null);
 
-  // Reverse index model_id (provider:name | name) → list of systems pinning it,
-  // populated from the canonical `/systems` list so the Models tab can show
-  // which Systems override each model.
   readonly systemUsage = signal<Record<string, string[]>>({});
 
   readonly active = signal<ConnectorDef | null>(null);
   readonly drawerOpen = signal(false);
   draftValues: Record<string, string> = {};
+
+  readonly createOpen = signal(false);
+  readonly createNode = signal<ServingNode | null>(null);
+  createDraft = { engine: 'ollama', model: '', port: '' as string | number };
 
   private readonly appsVersion = signal(0);
   private readonly connectorsVersion = signal(0);
@@ -416,6 +792,25 @@ export class ResourcesPageComponent implements OnInit {
     const set = new Set<string>();
     for (const m of this.models()) if (m.provider) set.add(m.provider);
     return Array.from(set);
+  });
+
+  readonly distributionBuckets = computed(() => {
+    const d = this.distribution();
+    if (!d) return [] as DistributionBucket[];
+    return d.by_provider ?? d.providers ?? d.by_model ?? d.models ?? [];
+  });
+
+  readonly maxDistCount = computed(() => {
+    let max = 0;
+    for (const b of this.distributionBuckets()) {
+      max = Math.max(max, distCount(b));
+    }
+    return max || 1;
+  });
+
+  readonly createNodeLabel = computed(() => {
+    const n = this.createNode();
+    return n ? nodeKey(n) || 'node' : '';
   });
 
   readonly visibleConnectors = computed(() =>
@@ -439,22 +834,72 @@ export class ResourcesPageComponent implements OnInit {
     return Object.values(t).filter(Boolean).length;
   });
 
-  readonly tabs = [
-    { id: 'models' as Tab, label: 'Models', icon: 'cpu', count: () => this.models().length },
-    {
-      id: 'connectors' as Tab,
+  readonly tabs = computed(() => {
+    const items: Array<{ id: Tab; label: string; icon: string; count: () => number }> = [
+      {
+        id: 'models',
+        label: 'Models',
+        icon: 'cpu',
+        count: () => (this.isDemoMode() ? 0 : this.models().length),
+      },
+    ];
+    if (this.showPortalTabs()) {
+      items.push(
+        {
+          id: 'providers',
+          label: 'Providers',
+          icon: 'cloud',
+          count: () => this.liveProviders().length,
+        },
+        {
+          id: 'serving',
+          label: 'Serving',
+          icon: 'server',
+          count: () => this.servingNodes().length,
+        },
+      );
+    }
+    items.push({
+      id: 'connectors',
       label: 'Connectors',
       icon: 'plug',
       count: () => this.visibleConnectors().length,
-    },
-  ];
+    });
+    return items;
+  });
+
+  constructor() {
+    effect(() => {
+      if (!this.showPortalTabs()) {
+        const t = this.tab();
+        if (t === 'providers' || t === 'serving') {
+          this.tab.set('models');
+        }
+      }
+    });
+  }
 
   ngOnInit(): void {
+    const q = this.route.snapshot.queryParamMap.get('tab');
+    if (q && TAB_IDS.includes(q as Tab)) {
+      this.tab.set(q as Tab);
+    }
     this.refresh();
+  }
+
+  selectTab(id: Tab): void {
+    this.tab.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: id === 'models' ? null : id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   refresh(): void {
     this.loading.set(true);
+    this.portalError.set(null);
     this.api.get<{ models: ModelInfo[] } | ModelInfo[]>('/models').subscribe({
       next: (res) => {
         const list = Array.isArray(res) ? res : res?.models ?? [];
@@ -467,6 +912,68 @@ export class ResourcesPageComponent implements OnInit {
       },
     });
     this.refreshSystemUsage();
+    if (this.showPortalTabs()) {
+      this.loadPortalData();
+    }
+  }
+
+  private loadPortalData(): void {
+    const window = this.distWindow();
+    forkJoin({
+      providers: this.api.get<ProvidersResponse>('/models/providers').pipe(
+        catchError((err) => {
+          this.notePortalError(err, 'providers');
+          return of({ providers: [] } as ProvidersResponse);
+        }),
+      ),
+      routing: this.api.get<RoutingResponse>('/models/routing').pipe(
+        catchError(() => of(null)),
+      ),
+      distribution: this.api
+        .get<DistributionResponse>('/models/distribution', { window })
+        .pipe(catchError(() => of(null))),
+      nodes: this.api.get<NodesResponse>('/models/nodes').pipe(
+        catchError(() => of({ nodes: [] } as NodesResponse)),
+      ),
+    }).subscribe({
+      next: ({ providers, routing, distribution, nodes }) => {
+        this.liveProviders.set(
+          (providers?.providers ?? []).map((p) => ({
+            ...p,
+            models: Array.isArray(p.models) ? p.models.filter(Boolean).map(String) : [],
+          })),
+        );
+        this.routing.set(routing);
+        this.distribution.set(distribution);
+        this.servingNodes.set(nodes?.nodes ?? []);
+      },
+    });
+  }
+
+  private notePortalError(err: { status?: number; error?: { detail?: string } }, label: string): void {
+    if (err?.status === 403) {
+      this.portalError.set('Model portal is not available for this workspace (403).');
+      return;
+    }
+    if (err?.status === 404) {
+      // Endpoint not shipped yet — silent empty state.
+      return;
+    }
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string' && detail) {
+      this.portalError.set(detail);
+      return;
+    }
+    this.portalError.set(`Failed to load ${label}`);
+  }
+
+  setDistWindow(w: DistributionWindow): void {
+    this.distWindow.set(w);
+    if (!this.showPortalTabs()) return;
+    this.api
+      .get<DistributionResponse>('/models/distribution', { window: w })
+      .pipe(catchError(() => of(null)))
+      .subscribe((res) => this.distribution.set(res));
   }
 
   private refreshSystemUsage(): void {
@@ -510,8 +1017,6 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   openConnector(c: ConnectorDef): void {
-    // SharePoint has a dedicated page (E4.1 — full sync + ingest + audit
-    // flow). The generic drawer is for connectors without a bespoke UI.
     if (c.id === 'sharepoint' || c.id === 'sftp') {
       this.router.navigate(['/connectors', c.id]);
       return;
@@ -599,5 +1104,168 @@ export class ResourcesPageComponent implements OnInit {
   providerInitial(m: ModelInfo): string {
     const p = (m.provider || this.modelName(m)).toString();
     return p.charAt(0).toUpperCase();
+  }
+
+  providerTitle(p: ModelProvider): string {
+    return providerLabel(p);
+  }
+
+  providerStatusClass(status: string): string {
+    switch (status) {
+      case 'active':
+        return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
+      case 'configured':
+        return 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20';
+      case 'unreachable':
+        return 'bg-red-500/10 text-red-300 ring-red-500/20';
+      default:
+        return 'bg-white/5 text-gray-400 ring-white/10';
+    }
+  }
+
+  distKey(b: DistributionBucket): string {
+    return `${b.key ?? b.provider ?? ''}:${b.model ?? ''}`;
+  }
+
+  distLabel(b: DistributionBucket): string {
+    if (b.model && (b.provider || b.key)) {
+      return `${b.provider || b.key} / ${b.model}`;
+    }
+    return (b.key || b.provider || b.model || 'unknown').toString();
+  }
+
+  distBarWidth(b: DistributionBucket): number {
+    return Math.max(4, Math.round((distCount(b) / this.maxDistCount()) * 100));
+  }
+
+  formatCost(cost: number): string {
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    return `$${cost.toFixed(2)}`;
+  }
+
+  nodeId(node: ServingNode): string {
+    return nodeKey(node);
+  }
+
+  instancePulseTone(inst: ServingInstance): 'success' | 'warning' | 'danger' | 'accent' {
+    const s = (inst.status || '').toLowerCase();
+    if (s === 'running' || s === 'active') return 'success';
+    if (s === 'starting' || s === 'stopping' || s === 'stopped') return 'warning';
+    if (s === 'error' || s === 'failed') return 'danger';
+    return 'accent';
+  }
+
+  openCreateInstance(node: ServingNode): void {
+    this.createNode.set(node);
+    this.createDraft = { engine: 'ollama', model: '', port: 11434 };
+    this.createOpen.set(true);
+  }
+
+  closeCreate(): void {
+    this.createOpen.set(false);
+    this.createNode.set(null);
+  }
+
+  createPortValid(): boolean {
+    const port = Number(this.createDraft.port);
+    return Number.isFinite(port) && port >= 1 && port <= 65535;
+  }
+
+  primaryRouteLabel(route: RoutingResponse): string {
+    return routingPrimaryLabel(route);
+  }
+
+  fallbackRouteLabel(route: RoutingResponse): string {
+    return routingFallbackLabel(route);
+  }
+
+  bucketCount(b: DistributionBucket): number {
+    return distCount(b);
+  }
+
+  bucketLatency(b: DistributionBucket): number | null | undefined {
+    return distLatency(b);
+  }
+
+  engineOf(inst: ServingInstance): string {
+    return instanceEngine(inst);
+  }
+
+  submitCreateInstance(): void {
+    const node = this.createNode();
+    const key = node ? nodeKey(node) : '';
+    const model = this.createDraft.model.trim();
+    const port = Number(this.createDraft.port);
+    if (!key || !model || !Number.isFinite(port) || port < 1 || port > 65535) return;
+    // Backend + llm-portal expect ``provider``; ``engine`` kept as alias.
+    const body: Record<string, unknown> = {
+      provider: this.createDraft.engine,
+      engine: this.createDraft.engine,
+      model,
+      port,
+    };
+
+    this.lifecycleBusy.set('create');
+    this.api.post(`/models/nodes/${encodeURIComponent(key)}/instances`, body).subscribe({
+      next: () => {
+        this.lifecycleBusy.set(null);
+        this.toast.success('Instance created', 'Serving');
+        this.closeCreate();
+        this.loadPortalData();
+      },
+      error: (err) => {
+        this.lifecycleBusy.set(null);
+        this.toast.error(err?.error?.detail || 'Failed to create instance', 'Serving');
+      },
+    });
+  }
+
+  startInstance(node: ServingNode, inst: ServingInstance): void {
+    this.lifecycleAction(node, inst, 'start');
+  }
+
+  stopInstance(node: ServingNode, inst: ServingInstance): void {
+    this.lifecycleAction(node, inst, 'stop');
+  }
+
+  deleteInstance(node: ServingNode, inst: ServingInstance): void {
+    const key = nodeKey(node);
+    if (!key) return;
+    this.lifecycleBusy.set(inst.id);
+    this.api
+      .delete(`/models/nodes/${encodeURIComponent(key)}/instances/${encodeURIComponent(inst.id)}`)
+      .subscribe({
+        next: () => {
+          this.lifecycleBusy.set(null);
+          this.toast.success('Instance deleted', 'Serving');
+          this.loadPortalData();
+        },
+        error: (err) => {
+          this.lifecycleBusy.set(null);
+          this.toast.error(err?.error?.detail || 'Failed to delete instance', 'Serving');
+        },
+      });
+  }
+
+  private lifecycleAction(node: ServingNode, inst: ServingInstance, action: 'start' | 'stop'): void {
+    const key = nodeKey(node);
+    if (!key) return;
+    this.lifecycleBusy.set(inst.id);
+    this.api
+      .post(
+        `/models/nodes/${encodeURIComponent(key)}/instances/${encodeURIComponent(inst.id)}/${action}`,
+        {},
+      )
+      .subscribe({
+        next: () => {
+          this.lifecycleBusy.set(null);
+          this.toast.success(`Instance ${action === 'start' ? 'started' : 'stopped'}`, 'Serving');
+          this.loadPortalData();
+        },
+        error: (err) => {
+          this.lifecycleBusy.set(null);
+          this.toast.error(err?.error?.detail || `Failed to ${action} instance`, 'Serving');
+        },
+      });
   }
 }

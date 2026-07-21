@@ -45,8 +45,37 @@ class ModelRouter:
                 self.fallback_chain.append("anthropic")
         except Exception as e:
             self.logger.debug("Anthropic client not initialized", error=str(e))
+
+        # Active serving instances (vLLM / OpenAI-compatible) from model_plane.
+        self._register_serving_providers()
         
         self.logger.info("Model router initialized", clients=list(self.clients.keys()))
+
+    def _register_serving_providers(self) -> None:
+        """Attach cached local serving endpoints as OpenAI-compatible clients."""
+        try:
+            from app.services.model_clients.openai_client import OpenAIClient
+            from app.services.model_plane.registration import list_routable_providers
+        except Exception as e:
+            self.logger.debug("Serving provider registration skipped", error=str(e))
+            return
+
+        for meta in list_routable_providers():
+            key = meta.get("key")
+            base_url = meta.get("openai_base_url")
+            if not key or not base_url:
+                continue
+            try:
+                self.clients[key] = OpenAIClient(
+                    api_key=str(meta.get("api_key") or "local"),
+                    base_url=str(base_url),
+                )
+            except Exception as e:
+                self.logger.debug(
+                    "Failed to register serving provider",
+                    key=key,
+                    error=str(e),
+                )
     
     async def get_client(
         self, 

@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 
 export const connectorsRoutes: Routes = [
   {
@@ -26,7 +27,8 @@ export const connectorsRoutes: Routes = [
   },
   {
     path: 'models',
-    loadComponent: () =>
-      import('../models/model-portal.component').then((m) => m.ModelPortalComponent),
+    pathMatch: 'full',
+    // RedirectFunction must return string | UrlTree (not RedirectCommand).
+    redirectTo: () => inject(Router).parseUrl('/resources?tab=providers'),
   },
 ];

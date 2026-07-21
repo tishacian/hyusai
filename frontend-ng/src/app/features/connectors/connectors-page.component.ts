@@ -27,14 +27,6 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
       icon="layers"
       [subtitle]="'Workspace-scoped connector catalog for ' + workspaceName() + '. Setup stays inside the workspace boundary.'"
     >
-      @if (modelPortalEnabled()) {
-        <a
-          routerLink="/connectors/models"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        >
-          <app-icon name="cpu" [size]="14" /> Models & Providers
-        </a>
-      }
       <a
         routerLink="/resources"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
@@ -255,7 +247,6 @@ export class ConnectorsPageComponent {
 
   readonly categories = CONNECTOR_CATEGORIES;
   readonly allConnectors = CONNECTORS;
-  readonly modelPortalEnabled = this.workspace.modelPortalEnabled;
   readonly connectorVersion = signal(0);
   readonly activeConnector = signal<ConnectorDef | null>(null);
   readonly drawerOpen = signal(false);

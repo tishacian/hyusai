@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     ollama_rope_scale: Optional[float] = None
     ollama_rope_alpha: Optional[float] = None
 
+    # LLM serving nodes (omnirag-llm-portal). JSON list of
+    # {"name","base_url","token"} objects. Empty = first-class zero-node
+    # state (demo VM default). Never expose portal URLs to the browser —
+    # the backend proxies lifecycle calls with the node token.
+    llm_serving_nodes_json: str = ""
+
     # Database (PostgreSQL recommended; SQLite fallback for dev-only)
     database_url: str = "postgresql://agentium:agentium@localhost:5432/agentium"
 

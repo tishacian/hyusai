@@ -2698,7 +2698,19 @@ async def _chain_mixed_hah_v1(
 # ``docs/chat-agentic-thinking-spec.md`` §7 and mirror the node ports of the
 # artifact, so downstream ``inputs_map`` VariableRefs resolve.
 # ---------------------------------------------------------------------------
-_KNOWN_PROVIDERS = {"ollama", "openai", "azure", "anthropic"}
+_KNOWN_PROVIDERS = {
+    "ollama",
+    "openai",
+    "azure",
+    "anthropic",
+    "vllm",
+    "openrouter",
+    "gemini",
+    "llamacpp",
+    "lmstudio",
+    "lmdeploy",
+    "sglang",
+}
 
 _PLAN_ENUMS = {
     "action": ("answer", "clarify", "reject_oos"),
@@ -2990,8 +3002,12 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
     for sep in (":", "/"):
         if sep in raw:
             head, tail = raw.split(sep, 1)
-            if head.lower() in _KNOWN_PROVIDERS and tail.strip():
-                provider = "openai" if head.lower() == "azure" else head.lower()
+            head_l = head.lower()
+            # serving_<node>_<id> keys from model_plane local registration
+            if (
+                head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")
+            ) and tail.strip():
+                provider = "openai" if head_l == "azure" else head_l
                 return {"provider": provider, "model": tail.strip()}
     low = raw.lower()
     if low.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
