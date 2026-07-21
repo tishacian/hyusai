@@ -1,0 +1,263 @@
+/**
+ * Agentium login / execute-actions theme
+ * Matches the branded invitation email (dark slate + cyan).
+ */
+
+:root {
+  --agentium-bg: #0b1120;
+  --agentium-bg-elevated: #111827;
+  --agentium-border: #1f2937;
+  --agentium-text: #e5e7eb;
+  --agentium-muted: #9ca3af;
+  --agentium-dim: #6b7280;
+  --agentium-accent: #3b82f6;
+  --agentium-accent-hover: #60a5fa;
+  --agentium-accent-soft: rgba(59, 130, 246, 0.15);
+  --agentium-danger: #f87171;
+  --agentium-radius: 12px;
+  --agentium-font: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --agentium-mono: "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+html.agentium-login,
+html.agentium-login body,
+.agentium-login,
+.login-pf body {
+  min-height: 100%;
+  background: var(--agentium-bg) !important;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.18), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(14, 165, 233, 0.08), transparent) !important;
+  color: var(--agentium-text) !important;
+  font-family: var(--agentium-font) !important;
+}
+
+/* PatternFly login shell */
+.agentium-login .pf-v5-c-login,
+.login-pf .pf-v5-c-login {
+  background: transparent !important;
+  min-height: 100vh;
+  padding: 2.5rem 1rem;
+}
+
+.agentium-login .pf-v5-c-login__container,
+.login-pf .pf-v5-c-login__container {
+  max-width: 28rem;
+}
+
+/* Brand header above the card */
+.agentium-login .pf-v5-c-login__header,
+.login-pf .pf-v5-c-login__header {
+  margin-bottom: 1.25rem !important;
+  text-align: center;
+}
+
+.agentium-login .pf-v5-c-brand,
+.agentium-login .pf-v5-c-login__header .pf-v5-c-title,
+.login-pf .pf-v5-c-login__header .pf-v5-c-title {
+  font-family: var(--agentium-mono) !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.2em !important;
+  text-transform: uppercase !important;
+  color: var(--agentium-accent-hover) !important;
+  font-weight: 500 !important;
+}
+
+.agentium-login .pf-v5-c-login__header::before,
+.login-pf .pf-v5-c-login__header::before {
+  content: "Agentium · Cockpit";
+  display: block;
+  font-family: var(--agentium-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--agentium-accent-hover);
+  margin-bottom: 0.35rem;
+}
+
+/* Hide duplicate brand text if Keycloak already renders realm name similarly */
+.agentium-login .pf-v5-c-login__header .pf-v5-c-brand {
+  display: none;
+}
+
+/* Main card */
+.agentium-login .pf-v5-c-login__main,
+.agentium-login-main,
+.login-pf .pf-v5-c-login__main {
+  background: var(--agentium-bg-elevated) !important;
+  border: 1px solid var(--agentium-border) !important;
+  border-radius: var(--agentium-radius) !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35) !important;
+  overflow: hidden;
+}
+
+.agentium-login .pf-v5-c-login__main-header,
+.login-pf .pf-v5-c-login__main-header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--agentium-border) !important;
+  padding: 1.5rem 1.75rem 1rem !important;
+}
+
+.agentium-login-title,
+.agentium-login .pf-v5-c-login__main-header .pf-v5-c-title,
+.login-pf .pf-v5-c-login__main-header .pf-v5-c-title {
+  color: #f9fafb !important;
+  font-size: 1.35rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  font-family: var(--agentium-font) !important;
+}
+
+.agentium-login .pf-v5-c-login__main-body,
+.login-pf .pf-v5-c-login__main-body {
+  padding: 1.25rem 1.75rem 1.75rem !important;
+  color: var(--agentium-text) !important;
+}
+
+.agentium-login .pf-v5-c-login__main-footer,
+.login-pf .pf-v5-c-login__main-footer {
+  border-top: 1px solid var(--agentium-border) !important;
+  background: transparent !important;
+}
+
+/* Form labels & helper text */
+.agentium-login .pf-v5-c-form__label-text,
+.agentium-login label,
+.login-pf .pf-v5-c-form__label-text {
+  color: var(--agentium-muted) !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+
+.agentium-login .pf-v5-c-helper-text__item-text,
+.agentium-login .pf-v5-c-form__helper-text {
+  color: var(--agentium-dim) !important;
+}
+
+/* Inputs */
+.agentium-input,
+.agentium-login .pf-v5-c-form-control,
+.login-pf .pf-v5-c-form-control {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid var(--agentium-border) !important;
+  border-radius: 8px !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
+.agentium-login .pf-v5-c-form-control:focus,
+.agentium-login .pf-v5-c-form-control:focus-within {
+  border-color: rgba(59, 130, 246, 0.7) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px var(--agentium-accent-soft) !important;
+}
+
+.agentium-login .pf-v5-c-form-control::placeholder {
+  color: var(--agentium-dim) !important;
+}
+
+.agentium-login .pf-v5-c-input-group {
+  background: transparent !important;
+}
+
+.agentium-login .pf-v5-c-button.pf-m-control {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border-color: var(--agentium-border) !important;
+  color: var(--agentium-muted) !important;
+}
+
+/* Primary CTA */
+.agentium-btn-primary,
+.agentium-login .pf-v5-c-button.pf-m-primary,
+.login-pf .pf-v5-c-button.pf-m-primary {
+  background: var(--agentium-accent) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  padding: 0.65rem 1.25rem !important;
+}
+
+.agentium-login .pf-v5-c-button.pf-m-primary:hover {
+  background: var(--agentium-accent-hover) !important;
+}
+
+.agentium-login .pf-v5-c-button.pf-m-secondary,
+.agentium-login .pf-v5-c-button.pf-m-link {
+  color: var(--agentium-accent-hover) !important;
+  background: transparent !important;
+}
+
+/* Alerts */
+.agentium-login .pf-v5-c-alert {
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--agentium-border) !important;
+  color: var(--agentium-text) !important;
+}
+
+.agentium-login .pf-v5-c-alert.pf-m-danger,
+.agentium-login .pf-v5-c-alert.pf-m-error {
+  border-color: rgba(248, 113, 113, 0.35) !important;
+  background: rgba(248, 113, 113, 0.08) !important;
+}
+
+.agentium-login .pf-v5-c-alert.pf-m-success {
+  border-color: rgba(52, 211, 153, 0.35) !important;
+  background: rgba(52, 211, 153, 0.08) !important;
+}
+
+.agentium-login .pf-v5-c-alert__title {
+  color: inherit !important;
+}
+
+/* Checkbox */
+.agentium-login .pf-v5-c-check__label {
+  color: var(--agentium-muted) !important;
+}
+
+/* Footer band / links */
+.agentium-login .pf-v5-c-login__main-footer-band,
+.agentium-login .kc-login-footer-band {
+  color: var(--agentium-dim) !important;
+  font-size: 0.8rem !important;
+}
+
+.agentium-login a,
+.login-pf a {
+  color: var(--agentium-accent-hover) !important;
+}
+
+.agentium-login a:hover {
+  color: #93c5fd !important;
+}
+
+/* Locale selector */
+.agentium-login .pf-v5-c-menu-toggle,
+.agentium-login .pf-v5-c-select {
+  color: var(--agentium-muted) !important;
+}
+
+/* Info / error standalone pages */
+.agentium-login #kc-info-message,
+.agentium-login #kc-error-message {
+  color: var(--agentium-text);
+}
+
+/* Reduce PatternFly light surfaces that leak through */
+.agentium-login .pf-v5-c-card,
+.agentium-login .card-pf {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 480px) {
+  .agentium-login .pf-v5-c-login__main-header,
+  .agentium-login .pf-v5-c-login__main-body {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+  }
+}
