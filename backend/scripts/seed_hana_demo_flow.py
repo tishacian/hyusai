@@ -74,9 +74,16 @@ DEMO_QUERY = (
 
 
 def flow_hana_maintenance() -> Dict[str, Any]:
-    """source → HANA query → grounded LLM synthesis → sink."""
+    """source → HANA query → grounded LLM synthesis → sink.
+
+    ``schema_version: 3`` + ``io_mode: strict`` are required so
+    ``should_use_dag`` routes Flow Builder Execute through the DAG walker
+    (the sequential walker ignores ``inputs_map`` and the HANA node would
+    fail with "sql is required").
+    """
     return {
-        "schema_version": 2,
+        "schema_version": 3,
+        "io_mode": "strict",
         "nodes": [
             {
                 "id": "src",
@@ -115,7 +122,13 @@ def flow_hana_maintenance() -> Dict[str, Any]:
                 "config": {
                     "skill_slug": "llm_rag_answer_v1",
                     "inputs_map": {
-                        "query": {"node_id": "run", "path": ["query"]},
+                        # Flow Builder Execute dispatches an empty input_ref,
+                        # so run.query is unreliable; the demo question is
+                        # seeded in system.settings.hana_demo.question.
+                        "query": {
+                            "node_id": "system",
+                            "path": ["hana_demo", "question"],
+                        },
                         "context": {"node_id": "task.hana", "path": ["context"]},
                     },
                 },
@@ -253,6 +266,7 @@ def ensure_hana_system(
             "sql": DEMO_OPEN_ORDERS_SQL,
             "max_rows": 50,
             "dataset": "DEMO_MAINTENANCE_ORDERS",
+            "question": DEMO_QUERY,
         },
     }
     payload = {
