@@ -33,6 +33,8 @@ ENVELOPE_VERSION = 1
 DEFAULT_PORT = 443
 DEFAULT_MAX_ROWS = 200
 DEFAULT_CONNECT_TIMEOUT_MS = 10_000
+# Short TCP connect timeout so demo fallback kicks in within a few seconds.
+CONNECT_TIMEOUT_MS = 3_000
 
 _READ_ONLY_PREFIX = re.compile(r"^\s*(?:/\*.*?\*/\s*)*(?:\(\s*)?(SELECT|WITH)\b", re.IGNORECASE | re.DOTALL)
 
@@ -217,6 +219,7 @@ def _connect(config: Mapping[str, Any]):
         encrypt=encrypt,
         sslValidateCertificate=False,
         communicationTimeout=DEFAULT_CONNECT_TIMEOUT_MS,
+        connectTimeout=CONNECT_TIMEOUT_MS,
     )
 
 
@@ -276,7 +279,20 @@ def run_query(
         raise ValueError("max_rows must be an integer") from exc
 
     started = time.perf_counter()
-    conn = _connect(config)
+    try:
+        conn = _connect(config)
+    except Exception as exc:
+        # Demo resilience: when the live HANA instance is unreachable and the
+        # statement is read-only, answer from the in-memory demo dataset.
+        if allow_writes:
+            raise
+        logger.warning(
+            "HANA connection failed (%s); falling back to in-memory demo dataset",
+            exc,
+        )
+        from app.services.connectors.hana import demo_dataset
+
+        return demo_dataset.run_demo_query(sql, params, limit=limit)
     try:
         cursor = conn.cursor()
         try:
@@ -298,6 +314,7 @@ def run_query(
                     "rows": [],
                     "row_count": max(row_count, 0),
                     "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "source": "hana_live",
                 }
             fetched = cursor.fetchmany(limit)
             rows = [
@@ -317,4 +334,5 @@ def run_query(
         "rows": rows,
         "row_count": len(rows),
         "duration_ms": int((time.perf_counter() - started) * 1000),
+        "source": "hana_live",
     }
