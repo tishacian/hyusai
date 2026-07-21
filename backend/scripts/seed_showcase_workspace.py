@@ -1890,8 +1890,8 @@ def ensure_systems(
             "key": "hana",
             "name": "SAP HANA Maintenance Copilot",
             "objective": (
-                "Lister les ordres de maintenance ouverts/released depuis SAP HANA "
-                "Cloud et produire une synthèse priorisée pour l'opérateur PIH."
+                "List open/released maintenance orders from SAP HANA Cloud and "
+                "produce a prioritised synthesis for the PIH operator."
             ),
             "capability": "showcase_hana_maintenance",
             "flow": flow_hana_maintenance(),

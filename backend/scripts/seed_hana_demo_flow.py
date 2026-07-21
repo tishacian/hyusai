@@ -68,8 +68,8 @@ ORDER BY PRIORITY DESC, ORDER_ID
 """.strip()
 
 DEMO_QUERY = (
-    "Quels ordres de maintenance SAP HANA sont ouverts ou released, "
-    "et lesquels sont prioritaires ?"
+    "Which SAP HANA maintenance orders are open or released, "
+    "and which ones should be prioritised?"
 )
 
 
@@ -128,7 +128,7 @@ def flow_hana_maintenance() -> Dict[str, Any]:
             {
                 "id": "task.synthesize",
                 "kind": "task",
-                "label": "Synthèse ordres ouverts",
+                "label": "Open orders synthesis",
                 "config": {
                     "skill_slug": "llm_rag_answer_v1",
                     # Same inspector-editable pattern: the question is a
@@ -285,8 +285,8 @@ def ensure_hana_system(
     }
     payload = {
         "objective": (
-            "Lister les ordres de maintenance ouverts/released depuis SAP HANA "
-            "Cloud et produire une synthèse priorisée pour l'opérateur PIH."
+            "List open/released maintenance orders from SAP HANA Cloud and "
+            "produce a prioritised synthesis for the PIH operator."
         ),
         "capability_id": capability.id,
         "skill_ids": list(capability.skill_ids or []),
