@@ -1,7 +1,8 @@
-"""Models & Providers portal — live plane (workspace-gated beta).
+"""Models & Providers portal — live plane + workspace configuration (beta).
 
-Exposes provider health, effective routing, ledger distribution, and
-admin-gated serving-node lifecycle proxied to omnirag-llm-portal.
+Exposes provider health, effective routing, ledger distribution, admin-gated
+serving-node lifecycle, and workspace-scoped config (routing, cloud keys,
+serving-node attach).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.model_plane import distribution as distribution_service
 from app.services.model_plane import providers as providers_service
 from app.services.model_plane import serving_nodes as serving_nodes_service
+from app.services.model_plane import workspace_config as ws_config
 from app.services.model_plane.registration import list_routable_providers
 from app.services.model_router import ModelRouter
 from app.services.workspace_features import feature_enabled
@@ -63,7 +65,6 @@ def _require_workspace_admin(
 
 
 class CreateInstanceBody(BaseModel):
-    # UI historically sent ``engine``; llm-portal expects ``provider``.
     provider: str = Field(
         ...,
         min_length=1,
@@ -81,15 +82,37 @@ class CreateInstanceBody(BaseModel):
     quantization: Optional[str] = None
 
 
+class RoutingUpdateBody(BaseModel):
+    default_provider: str = Field(..., min_length=1)
+    default_model: str = Field(..., min_length=1)
+    fallback_chain: Optional[List[str]] = None
+
+
+class CredentialUpdateBody(BaseModel):
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    clear_api_key: bool = False
+    endpoint: Optional[str] = Field(default=None, max_length=512)
+    api_version: Optional[str] = Field(default=None, max_length=64)
+    deployment: Optional[str] = Field(default=None, max_length=256)
+
+
+class ServingNodeUpsertBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    base_url: str = Field(..., min_length=1, max_length=512)
+    token: Optional[str] = Field(default=None, max_length=512)
+
+
 @router.get("/providers")
 async def list_model_providers(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
 ):
     _require_enabled(workspace)
-    # Refresh local serving registry so kind:local entries stay current.
-    await serving_nodes_service.list_nodes(sync_registry=True)
-    providers = await providers_service.list_providers(include_local_serving=True)
+    await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
+    providers = await providers_service.list_providers(
+        include_local_serving=True,
+        workspace=workspace,
+    )
     return {"providers": providers}
 
 
@@ -100,8 +123,9 @@ async def get_model_routing(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
-    await serving_nodes_service.list_nodes(sync_registry=True)
+    await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     router_runtime = ModelRouter()
+    ws_routing = ws_config.get_routing(workspace)
     systems = (
         db.query(System)
         .filter(System.workspace_id == workspace.id)
@@ -109,14 +133,15 @@ async def get_model_routing(
         .all()
     )
     return {
-        "default_provider": settings.default_provider,
-        "default_model": settings.default_model,
+        "default_provider": ws_routing["default_provider"],
+        "default_model": ws_routing["default_model"],
         "ollama_default_model": settings.ollama_default_model,
         "primary": {
-            "provider": settings.default_provider,
-            "model": settings.default_model,
+            "provider": ws_routing["default_provider"],
+            "model": ws_routing["default_model"],
         },
-        "fallback_chain": list(router_runtime.fallback_chain),
+        "fallback_chain": ws_routing["fallback_chain"],
+        "source": ws_routing["source"],
         "registered_clients": sorted(router_runtime.clients.keys()),
         "local_serving": list_routable_providers(),
         "systems": [
@@ -129,6 +154,108 @@ async def get_model_routing(
             for system in systems
         ],
     }
+
+
+@router.put("/routing")
+async def put_model_routing(
+    body: RoutingUpdateBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        config = ws_config.set_routing(
+            db,
+            workspace,
+            default_provider=body.default_provider,
+            default_model=body.default_model,
+            fallback_chain=body.fallback_chain,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return config["routing"]
+
+
+@router.get("/config")
+async def get_portal_config(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    _require_enabled(workspace)
+    return ws_config.get_public_config(workspace)
+
+
+@router.put("/credentials/{provider}")
+async def put_provider_credential(
+    provider: str,
+    body: CredentialUpdateBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        config = ws_config.set_cloud_credential(
+            db,
+            workspace,
+            provider,
+            api_key=body.api_key,
+            clear_api_key=body.clear_api_key,
+            endpoint=body.endpoint,
+            api_version=body.api_version,
+            deployment=body.deployment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    providers_service.clear_health_cache()
+    return {
+        "cloud_credentials": config["cloud_credentials"],
+        "provider": next(
+            (c for c in config["cloud_credentials"] if c["key"] == provider),
+            {"key": provider, "api_key_set": False},
+        ),
+    }
+
+
+@router.put("/nodes")
+async def upsert_serving_node(
+    body: ServingNodeUpsertBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        config = ws_config.upsert_serving_node(
+            db,
+            workspace,
+            name=body.name,
+            base_url=body.base_url,
+            token=body.token,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"serving_nodes": config["serving_nodes"]}
+
+
+@router.delete("/nodes/{node_name}")
+async def detach_serving_node(
+    node_name: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        config = ws_config.delete_serving_node(db, workspace, node_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"serving_nodes": config["serving_nodes"]}
 
 
 @router.get("/distribution")
@@ -155,7 +282,9 @@ async def list_serving_nodes(
     user: User = Depends(get_current_user),
 ):
     _require_enabled(workspace)
-    return await serving_nodes_service.list_nodes(sync_registry=True)
+    return await serving_nodes_service.list_nodes(
+        sync_registry=True, workspace=workspace
+    )
 
 
 @router.post("/nodes/{node_name}/instances")
@@ -172,6 +301,7 @@ async def create_serving_instance(
         instance = await serving_nodes_service.create_instance(
             node_name,
             body.model_dump(exclude_none=True),
+            workspace=workspace,
         )
     except serving_nodes_service.PortalClientError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -189,7 +319,9 @@ async def start_serving_instance(
     _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
     try:
-        result = await serving_nodes_service.start_instance(node_name, instance_id)
+        result = await serving_nodes_service.start_instance(
+            node_name, instance_id, workspace=workspace
+        )
     except serving_nodes_service.PortalClientError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return result if isinstance(result, dict) else {"result": result}
@@ -206,7 +338,9 @@ async def stop_serving_instance(
     _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
     try:
-        result = await serving_nodes_service.stop_instance(node_name, instance_id)
+        result = await serving_nodes_service.stop_instance(
+            node_name, instance_id, workspace=workspace
+        )
     except serving_nodes_service.PortalClientError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return result if isinstance(result, dict) else {"result": result}
@@ -223,7 +357,9 @@ async def delete_serving_instance(
     _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
     try:
-        result = await serving_nodes_service.delete_instance(node_name, instance_id)
+        result = await serving_nodes_service.delete_instance(
+            node_name, instance_id, workspace=workspace
+        )
     except serving_nodes_service.PortalClientError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return result if isinstance(result, dict) else {"result": result}

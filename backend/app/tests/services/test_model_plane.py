@@ -74,7 +74,7 @@ def test_normalize_instance_engine_alias():
 
 @pytest.mark.asyncio
 async def test_list_nodes_zero_state(monkeypatch):
-    monkeypatch.setattr(serving_nodes_mod, "parse_serving_nodes", lambda: [])
+    monkeypatch.setattr(serving_nodes_mod, "parse_serving_nodes", lambda *a, **k: [])
     payload = await serving_nodes_mod.list_nodes()
     assert payload["empty"] is True
     assert payload["nodes"] == []

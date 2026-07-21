@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.model_plane.registration import list_routable_providers
+
+if TYPE_CHECKING:
+    from app.models.workspace import Workspace
 
 logger = get_logger(__name__)
 
@@ -23,6 +26,20 @@ _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 def _env(*names: str) -> bool:
     return all(bool(os.getenv(name)) for name in names)
+
+
+def _workspace_keys(workspace: Optional["Workspace"]) -> Dict[str, str]:
+    """Decrypted workspace API keys (provider → key), empty when none."""
+    if workspace is None:
+        return {}
+    from app.services.model_plane import workspace_config as ws_cfg
+
+    out: Dict[str, str] = {}
+    for provider in ws_cfg.CLOUD_PROVIDERS:
+        key = ws_cfg.get_decrypted_api_key(workspace, provider)
+        if key:
+            out[provider] = key
+    return out
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
@@ -117,11 +134,12 @@ def _extract_models(response: httpx.Response) -> List[str]:
     return []
 
 
-async def _health_openai() -> Dict[str, Any]:
-    key = os.getenv("OPENAI_API_KEY")
+async def _health_openai(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+    key = api_key or os.getenv("OPENAI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cached = _cache_get("openai")
+    cache_key = f"openai:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
     result = await _probe(
@@ -131,40 +149,47 @@ async def _health_openai() -> Dict[str, Any]:
     )
     if result["status"] == "active" and not result["models"]:
         result["models"] = [settings.default_model] if settings.default_model else []
-    _cache_set("openai", result)
+    _cache_set(cache_key, result)
     return result
 
 
-async def _health_azure() -> Dict[str, Any]:
-    if not _env("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"):
+async def _health_azure(
+    *,
+    api_key: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    api_version: Optional[str] = None,
+    deployment: Optional[str] = None,
+) -> Dict[str, Any]:
+    resolved_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
+    resolved_endpoint = (endpoint or os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
+    if not resolved_key or not resolved_endpoint:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cached = _cache_get("azure_openai")
+    cache_key = f"azure_openai:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY", "")
-    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     result = await _probe(
         method="GET",
-        url=f"{endpoint}/openai/models",
-        headers={"api-key": api_key},
-        params={"api-version": api_version},
+        url=f"{resolved_endpoint}/openai/models",
+        headers={"api-key": resolved_key},
+        params={"api-version": version},
     )
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    if result["status"] == "active" and not result["models"] and deployment:
-        result["models"] = [deployment]
-    elif result["status"] != "active" and deployment:
-        # Keep deployment visible even when listing fails (common on Foundry).
-        result["models"] = [deployment]
-    _cache_set("azure_openai", result)
+    dep = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    if result["status"] == "active" and not result["models"] and dep:
+        result["models"] = [dep]
+    elif result["status"] != "active" and dep:
+        result["models"] = [dep]
+    _cache_set(cache_key, result)
     return result
 
 
-async def _health_openrouter() -> Dict[str, Any]:
-    key = os.getenv("OPENROUTER_API_KEY")
+async def _health_openrouter(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+    key = api_key or os.getenv("OPENROUTER_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cached = _cache_get("openrouter")
+    cache_key = f"openrouter:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
     result = await _probe(
@@ -174,15 +199,16 @@ async def _health_openrouter() -> Dict[str, Any]:
     )
     if result["status"] == "active" and not result["models"]:
         result["models"] = [os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-4.5")]
-    _cache_set("openrouter", result)
+    _cache_set(cache_key, result)
     return result
 
 
-async def _health_anthropic() -> Dict[str, Any]:
-    key = os.getenv("ANTHROPIC_API_KEY")
+async def _health_anthropic(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+    key = api_key or os.getenv("ANTHROPIC_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cached = _cache_get("anthropic")
+    cache_key = f"anthropic:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
     result = await _probe(
@@ -195,15 +221,16 @@ async def _health_anthropic() -> Dict[str, Any]:
     )
     if result["status"] == "active" and not result["models"]:
         result["models"] = ["claude-3-5-sonnet-latest"]
-    _cache_set("anthropic", result)
+    _cache_set(cache_key, result)
     return result
 
 
-async def _health_gemini() -> Dict[str, Any]:
-    key = os.getenv("GEMINI_API_KEY")
+async def _health_gemini(*, api_key: Optional[str] = None) -> Dict[str, Any]:
+    key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cached = _cache_get("gemini")
+    cache_key = f"gemini:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
     result = await _probe(
@@ -213,7 +240,7 @@ async def _health_gemini() -> Dict[str, Any]:
     )
     if result["status"] == "active" and not result["models"]:
         result["models"] = [os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.0-flash")]
-    _cache_set("gemini", result)
+    _cache_set(cache_key, result)
     return result
 
 
@@ -236,8 +263,21 @@ async def _health_ollama() -> Dict[str, Any]:
     return result
 
 
-def _base_catalog() -> List[Dict[str, Any]]:
-    azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+def _base_catalog(
+    *,
+    workspace: Optional["Workspace"] = None,
+    ws_keys: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    keys = ws_keys if ws_keys is not None else _workspace_keys(workspace)
+    azure_meta: Dict[str, str] = {}
+    if workspace is not None:
+        from app.services.model_plane import workspace_config as ws_cfg
+
+        azure_meta = ws_cfg.get_azure_meta(workspace)
+    azure_deployment = azure_meta.get("deployment") or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    azure_endpoint = azure_meta.get("endpoint") or os.getenv("AZURE_OPENAI_ENDPOINT")
+    azure_key = keys.get("azure_openai") or os.getenv("AZURE_OPENAI_API_KEY")
+
     return [
         {
             "key": "ollama",
@@ -246,60 +286,82 @@ def _base_catalog() -> List[Dict[str, Any]]:
             "configured": bool(settings.ollama_base_url),
             "fallback_models": [settings.ollama_default_model] if settings.ollama_default_model else [],
             "notes": "Local / sovereign serving",
-            "health": _health_ollama,
+            "health": lambda: _health_ollama(),
+            "api_key_set": False,
+            "credential_source": None,
         },
         {
             "key": "openai",
             "label": "OpenAI",
             "kind": "cloud",
-            "configured": _env("OPENAI_API_KEY"),
+            "configured": bool(keys.get("openai") or os.getenv("OPENAI_API_KEY")),
             "fallback_models": [settings.default_model] if settings.default_model else ["gpt-5"],
             "notes": "OpenAI API (chat completions, streaming)",
-            "health": _health_openai,
+            "health": lambda: _health_openai(api_key=keys.get("openai")),
+            "api_key_set": bool(keys.get("openai") or os.getenv("OPENAI_API_KEY")),
+            "credential_source": "workspace" if keys.get("openai") else ("env" if os.getenv("OPENAI_API_KEY") else None),
         },
         {
             "key": "azure_openai",
             "label": "Azure OpenAI / AI Foundry",
             "kind": "cloud",
-            "configured": _env("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
+            "configured": bool(azure_key and azure_endpoint),
             "fallback_models": [azure_deployment] if azure_deployment else [],
             "notes": "Azure-hosted OpenAI deployments, incl. AI Foundry endpoints",
-            "health": _health_azure,
+            "health": lambda: _health_azure(
+                api_key=keys.get("azure_openai"),
+                endpoint=azure_meta.get("endpoint"),
+                api_version=azure_meta.get("api_version"),
+                deployment=azure_meta.get("deployment"),
+            ),
+            "api_key_set": bool(azure_key),
+            "credential_source": "workspace" if keys.get("azure_openai") else ("env" if azure_key else None),
         },
         {
             "key": "openrouter",
             "label": "OpenRouter",
             "kind": "cloud",
-            "configured": _env("OPENROUTER_API_KEY"),
+            "configured": bool(keys.get("openrouter") or os.getenv("OPENROUTER_API_KEY")),
             "fallback_models": [os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-4.5")],
             "notes": "Multi-provider gateway (Anthropic, Meta, Mistral, ...)",
-            "health": _health_openrouter,
+            "health": lambda: _health_openrouter(api_key=keys.get("openrouter")),
+            "api_key_set": bool(keys.get("openrouter") or os.getenv("OPENROUTER_API_KEY")),
+            "credential_source": "workspace" if keys.get("openrouter") else ("env" if os.getenv("OPENROUTER_API_KEY") else None),
         },
         {
             "key": "anthropic",
             "label": "Anthropic",
             "kind": "cloud",
-            "configured": _env("ANTHROPIC_API_KEY"),
+            "configured": bool(keys.get("anthropic") or os.getenv("ANTHROPIC_API_KEY")),
             "fallback_models": ["claude-3-5-sonnet-latest"],
             "notes": "Claude models via the Anthropic API",
-            "health": _health_anthropic,
+            "health": lambda: _health_anthropic(api_key=keys.get("anthropic")),
+            "api_key_set": bool(keys.get("anthropic") or os.getenv("ANTHROPIC_API_KEY")),
+            "credential_source": "workspace" if keys.get("anthropic") else ("env" if os.getenv("ANTHROPIC_API_KEY") else None),
         },
         {
             "key": "gemini",
             "label": "Google Gemini",
             "kind": "cloud",
-            "configured": _env("GEMINI_API_KEY"),
+            "configured": bool(keys.get("gemini") or os.getenv("GEMINI_API_KEY")),
             "fallback_models": [os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.0-flash")],
             "notes": "Gemini models via the Google AI API",
-            "health": _health_gemini,
+            "health": lambda: _health_gemini(api_key=keys.get("gemini")),
+            "api_key_set": bool(keys.get("gemini") or os.getenv("GEMINI_API_KEY")),
+            "credential_source": "workspace" if keys.get("gemini") else ("env" if os.getenv("GEMINI_API_KEY") else None),
         },
     ]
 
 
-async def list_providers(*, include_local_serving: bool = True) -> List[Dict[str, Any]]:
+async def list_providers(
+    *,
+    include_local_serving: bool = True,
+    workspace: Optional["Workspace"] = None,
+) -> List[Dict[str, Any]]:
     """Return live provider statuses + real model lists where available."""
+    ws_keys = _workspace_keys(workspace)
     providers: List[Dict[str, Any]] = []
-    for entry in _base_catalog():
+    for entry in _base_catalog(workspace=workspace, ws_keys=ws_keys):
         health_fn = entry["health"]
         if entry["configured"]:
             health = await health_fn()
@@ -325,6 +387,8 @@ async def list_providers(*, include_local_serving: bool = True) -> List[Dict[str
                 "latency_ms": latency_ms,
                 "notes": entry["notes"],
                 "error": error,
+                "api_key_set": entry.get("api_key_set"),
+                "credential_source": entry.get("credential_source"),
             }
         )
 

@@ -11,6 +11,8 @@ export interface ModelProvider {
   latency_ms?: number | null;
   notes?: string | null;
   error?: string | null;
+  api_key_set?: boolean;
+  credential_source?: 'workspace' | 'env' | string | null;
 }
 
 export interface ProvidersResponse {
@@ -30,11 +32,32 @@ export interface RoutingResponse {
   fallback_chain?: string[];
   default_provider?: string | null;
   default_model?: string | null;
+  source?: 'workspace' | 'global' | string | null;
   systems?: Array<{
     id?: string;
     name?: string;
     default_model?: string | null;
   }>;
+}
+
+export interface CredentialStatus {
+  key: string;
+  api_key_set?: boolean;
+  endpoint?: string;
+  api_version?: string;
+  deployment?: string;
+}
+
+export interface AttachedServingNode {
+  name: string;
+  base_url: string;
+  token_set?: boolean;
+}
+
+export interface PortalConfigResponse {
+  routing?: RoutingResponse;
+  cloud_credentials?: CredentialStatus[];
+  serving_nodes?: AttachedServingNode[];
 }
 
 export type DistributionWindow = '7d' | '30d';

@@ -248,19 +248,70 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </div>
       }
 
-      @if (routing(); as route) {
-        <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-gray-400">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Primary</span>
-            <span class="font-mono text-cyan-300">{{ primaryRouteLabel(route) }}</span>
-          </span>
-          <span class="text-gray-600">·</span>
-          <span class="inline-flex items-center gap-1.5">
-            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Fallback</span>
-            <span class="font-mono text-gray-300">{{ fallbackRouteLabel(route) }}</span>
-          </span>
-        </div>
-      }
+      <!-- Workspace routing config -->
+      <section class="ck-surface rounded-md p-5 mb-4">
+        <header class="mb-4 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+              <app-icon name="git-branch" [size]="16" class="text-cyan-400" />
+              Workspace routing
+            </h3>
+            <p class="text-[11px] text-gray-500 mt-1">
+              Primary provider/model and fallback chain for this workspace.
+              @if (routing()?.source) {
+                <span class="font-mono text-gray-400"> · source {{ routing()?.source }}</span>
+              }
+            </p>
+          </div>
+          @if (routing(); as route) {
+            <div class="text-[11px] text-gray-400 font-mono">
+              {{ primaryRouteLabel(route) }} · {{ fallbackRouteLabel(route) }}
+            </div>
+          }
+        </header>
+        <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="saveRouting()">
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Provider</span>
+            <select
+              [(ngModel)]="routingDraft.provider"
+              name="routeProvider"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            >
+              @for (opt of routingProviderOptions; track opt) {
+                <option [value]="opt">{{ opt }}</option>
+              }
+            </select>
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Default model</span>
+            <input
+              [(ngModel)]="routingDraft.model"
+              name="routeModel"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              placeholder="gpt-4o-mini"
+            />
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Fallback chain</span>
+            <input
+              [(ngModel)]="routingDraft.fallback"
+              name="routeFallback"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              placeholder="openai, ollama"
+            />
+          </label>
+          <div class="sm:col-span-3">
+            <button
+              type="submit"
+              [disabled]="configBusy() === 'routing'"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+            >
+              <app-icon name="save" [size]="14" />
+              {{ configBusy() === 'routing' ? 'Saving…' : 'Save routing' }}
+            </button>
+          </div>
+        </form>
+      </section>
 
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 mb-6">
         @for (p of liveProviders(); track p.key) {
@@ -278,6 +329,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     {{ p.key }}
                     @if (p.latency_ms != null) {
                       · {{ p.latency_ms }} ms
+                    }
+                    @if (p.credential_source) {
+                      · {{ p.credential_source }}
                     }
                   </p>
                 </div>
@@ -303,17 +357,91 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   {{ p.kind }}
                 </span>
               }
-              @for (model of p.models; track model) {
+              @if (p.api_key_set) {
+                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                  key set
+                </span>
+              }
+              @for (model of p.models.slice(0, 8); track model) {
                 <span
                   class="inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded bg-black/30 text-gray-300 ring-1 ring-white/10"
                 >
                   {{ model }}
                 </span>
               }
+              @if (p.models.length > 8) {
+                <span class="text-[10px] text-gray-500 font-mono">+{{ p.models.length - 8 }}</span>
+              }
             </div>
 
             @if (p.notes) {
               <p class="text-[11px] text-gray-400 leading-relaxed">{{ p.notes }}</p>
+            }
+
+            @if (isConfigurableCloud(p.key)) {
+              <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
+                <label class="block">
+                  <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    API key {{ p.api_key_set ? '(leave blank to keep)' : '' }}
+                  </span>
+                  <input
+                    type="password"
+                    [ngModel]="credentialDrafts[p.key]?.api_key || ''"
+                    (ngModelChange)="setCredentialField(p.key, 'api_key', $event)"
+                    [name]="'key-' + p.key"
+                    autocomplete="new-password"
+                    class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    [placeholder]="p.api_key_set ? '••••••••' : 'sk-…'"
+                  />
+                </label>
+                @if (p.key === 'azure_openai') {
+                  <input
+                    type="text"
+                    [ngModel]="credentialDrafts[p.key]?.endpoint || ''"
+                    (ngModelChange)="setCredentialField(p.key, 'endpoint', $event)"
+                    [name]="'endpoint-' + p.key"
+                    placeholder="https://….openai.azure.com"
+                    class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                  <div class="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      [ngModel]="credentialDrafts[p.key]?.deployment || ''"
+                      (ngModelChange)="setCredentialField(p.key, 'deployment', $event)"
+                      [name]="'dep-' + p.key"
+                      placeholder="deployment"
+                      class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    />
+                    <input
+                      type="text"
+                      [ngModel]="credentialDrafts[p.key]?.api_version || ''"
+                      (ngModelChange)="setCredentialField(p.key, 'api_version', $event)"
+                      [name]="'ver-' + p.key"
+                      placeholder="api-version"
+                      class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    />
+                  </div>
+                }
+                <div class="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    [disabled]="configBusy() === 'cred:' + p.key"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-200 text-[11px] font-medium ring-1 ring-cyan-400/30 hover:bg-cyan-500/30 disabled:opacity-40"
+                  >
+                    Save key
+                  </button>
+                  @if (p.api_key_set && p.credential_source === 'workspace') {
+                    <button
+                      type="button"
+                      (click)="clearCredential(p.key)"
+                      [disabled]="configBusy() === 'cred:' + p.key"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-red-300/90 text-[11px] hover:bg-red-500/10 disabled:opacity-40"
+                    >
+                      Clear
+                    </button>
+                  }
+                </div>
+              </form>
             }
           </section>
         } @empty {
@@ -393,11 +521,66 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </div>
       }
 
+      <section class="ck-surface rounded-md p-5 mb-4">
+        <header class="mb-3">
+          <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+            <app-icon name="plug" [size]="16" class="text-cyan-400" />
+            Attach serving node
+          </h3>
+          <p class="text-[11px] text-gray-500 mt-1">
+            Point this workspace at an omnirag-llm-portal host. Token is stored encrypted and never echoed.
+          </p>
+        </header>
+        <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="attachServingNode()">
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Name</span>
+            <input
+              [(ngModel)]="nodeDraft.name"
+              name="nodeName"
+              required
+              placeholder="gpu-lab"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            />
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Base URL</span>
+            <input
+              [(ngModel)]="nodeDraft.base_url"
+              name="nodeUrl"
+              required
+              placeholder="http://10.0.0.5:9000"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            />
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Portal token</span>
+            <input
+              type="password"
+              [(ngModel)]="nodeDraft.token"
+              name="nodeToken"
+              autocomplete="new-password"
+              placeholder="shared secret"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            />
+          </label>
+          <div class="sm:col-span-3">
+            <button
+              type="submit"
+              [disabled]="configBusy() === 'attach-node'"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+            >
+              <app-icon name="plus" [size]="14" />
+              {{ configBusy() === 'attach-node' ? 'Attaching…' : 'Attach node' }}
+            </button>
+          </div>
+        </form>
+      </section>
+
       @if (servingNodes().length === 0 && !loading()) {
         <app-empty-state
           icon="server"
           title="No serving node attached"
-          description="Attach an omnirag-llm-portal host in backend config to manage local GPU serving from here."
+          description="Attach an omnirag-llm-portal host above to manage local GPU / Ollama serving from here."
         />
       } @else {
         @for (node of servingNodes(); track nodeId(node)) {
@@ -415,13 +598,23 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   }
                 </p>
               </div>
-              <button
-                type="button"
-                (click)="openCreateInstance(node)"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30 transition"
-              >
-                <app-icon name="plus" [size]="12" /> Create instance
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  (click)="openCreateInstance(node)"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30 transition"
+                >
+                  <app-icon name="plus" [size]="12" /> Create instance
+                </button>
+                <button
+                  type="button"
+                  (click)="detachServingNode(node)"
+                  [disabled]="configBusy() === 'detach:' + nodeId(node)"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-red-300 hover:bg-red-500/10 ring-1 ring-red-400/20 transition disabled:opacity-40"
+                >
+                  Detach
+                </button>
+              </div>
             </div>
 
             @if (node.gpu; as gpu) {
@@ -785,6 +978,22 @@ export class ResourcesPageComponent implements OnInit {
   readonly createNode = signal<ServingNode | null>(null);
   createDraft = { engine: 'ollama', model: '', port: '' as string | number };
 
+  readonly configBusy = signal<string | null>(null);
+  readonly routingProviderOptions = [
+    'openai',
+    'azure_openai',
+    'ollama',
+    'openrouter',
+    'anthropic',
+    'gemini',
+  ];
+  routingDraft = { provider: 'openai', model: 'gpt-4o-mini', fallback: 'openai, ollama' };
+  credentialDrafts: Record<
+    string,
+    { api_key?: string; endpoint?: string; deployment?: string; api_version?: string }
+  > = {};
+  nodeDraft = { name: '', base_url: '', token: '' };
+
   private readonly appsVersion = signal(0);
   private readonly connectorsVersion = signal(0);
 
@@ -944,8 +1153,168 @@ export class ResourcesPageComponent implements OnInit {
           })),
         );
         this.routing.set(routing);
+        this.syncRoutingDraft(routing);
         this.distribution.set(distribution);
         this.servingNodes.set(nodes?.nodes ?? []);
+      },
+    });
+  }
+
+  private syncRoutingDraft(routing: RoutingResponse | null): void {
+    if (!routing) return;
+    const primary =
+      routing.primary && typeof routing.primary === 'object' ? routing.primary : null;
+    this.routingDraft = {
+      provider: (primary?.provider || routing.default_provider || 'openai').toString(),
+      model: (primary?.model || routing.default_model || 'gpt-4o-mini').toString(),
+      fallback: (routing.fallback_chain?.length
+        ? routing.fallback_chain.join(', ')
+        : 'openai, ollama'
+      ).toString(),
+    };
+  }
+
+  isConfigurableCloud(key: string): boolean {
+    return ['openai', 'azure_openai', 'openrouter', 'anthropic', 'gemini'].includes(key);
+  }
+
+  setCredentialField(
+    provider: string,
+    field: 'api_key' | 'endpoint' | 'deployment' | 'api_version',
+    value: string,
+  ): void {
+    const prev = this.credentialDrafts[provider] || {};
+    this.credentialDrafts = { ...this.credentialDrafts, [provider]: { ...prev, [field]: value } };
+  }
+
+  saveRouting(): void {
+    const provider = this.routingDraft.provider.trim();
+    const model = this.routingDraft.model.trim();
+    if (!provider || !model) {
+      this.toast.error('Provider and model are required', 'Routing');
+      return;
+    }
+    const fallback_chain = this.routingDraft.fallback
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    this.configBusy.set('routing');
+    this.api
+      .put<RoutingResponse>('/models/routing', {
+        default_provider: provider,
+        default_model: model,
+        fallback_chain,
+      })
+      .subscribe({
+        next: (res) => {
+          this.configBusy.set(null);
+          this.routing.set({
+            ...(this.routing() || {}),
+            ...res,
+            default_provider: res.default_provider || provider,
+            default_model: res.default_model || model,
+            fallback_chain: res.fallback_chain || fallback_chain,
+            primary: {
+              provider: res.default_provider || provider,
+              model: res.default_model || model,
+            },
+            source: 'workspace',
+          });
+          this.syncRoutingDraft(this.routing());
+          this.toast.success('Workspace routing saved', 'Routing');
+        },
+        error: (err) => {
+          this.configBusy.set(null);
+          this.toast.error(err?.error?.detail || 'Failed to save routing', 'Routing');
+        },
+      });
+  }
+
+  saveCredential(provider: string): void {
+    const draft = this.credentialDrafts[provider] || {};
+    const body: Record<string, unknown> = {};
+    if (draft.api_key?.trim()) body['api_key'] = draft.api_key.trim();
+    if (provider === 'azure_openai') {
+      if (draft.endpoint?.trim()) body['endpoint'] = draft.endpoint.trim();
+      if (draft.deployment?.trim()) body['deployment'] = draft.deployment.trim();
+      if (draft.api_version?.trim()) body['api_version'] = draft.api_version.trim();
+    }
+    if (!Object.keys(body).length) {
+      this.toast.info('Enter a value to save', 'Credentials');
+      return;
+    }
+    this.configBusy.set('cred:' + provider);
+    this.api.put(`/models/credentials/${encodeURIComponent(provider)}`, body).subscribe({
+      next: () => {
+        this.configBusy.set(null);
+        this.credentialDrafts = {
+          ...this.credentialDrafts,
+          [provider]: { ...draft, api_key: '' },
+        };
+        this.toast.success(`${provider} credentials saved`, 'Credentials');
+        this.loadPortalData();
+      },
+      error: (err) => {
+        this.configBusy.set(null);
+        this.toast.error(err?.error?.detail || 'Failed to save credentials', 'Credentials');
+      },
+    });
+  }
+
+  clearCredential(provider: string): void {
+    this.configBusy.set('cred:' + provider);
+    this.api
+      .put(`/models/credentials/${encodeURIComponent(provider)}`, { clear_api_key: true })
+      .subscribe({
+        next: () => {
+          this.configBusy.set(null);
+          this.toast.success(`${provider} workspace key cleared`, 'Credentials');
+          this.loadPortalData();
+        },
+        error: (err) => {
+          this.configBusy.set(null);
+          this.toast.error(err?.error?.detail || 'Failed to clear credentials', 'Credentials');
+        },
+      });
+  }
+
+  attachServingNode(): void {
+    const name = this.nodeDraft.name.trim();
+    const base_url = this.nodeDraft.base_url.trim();
+    if (!name || !base_url) {
+      this.toast.error('Name and base URL are required', 'Serving');
+      return;
+    }
+    const body: Record<string, unknown> = { name, base_url };
+    if (this.nodeDraft.token.trim()) body['token'] = this.nodeDraft.token.trim();
+    this.configBusy.set('attach-node');
+    this.api.put('/models/nodes', body).subscribe({
+      next: () => {
+        this.configBusy.set(null);
+        this.nodeDraft = { name: '', base_url: '', token: '' };
+        this.toast.success('Serving node attached', 'Serving');
+        this.loadPortalData();
+      },
+      error: (err) => {
+        this.configBusy.set(null);
+        this.toast.error(err?.error?.detail || 'Failed to attach node', 'Serving');
+      },
+    });
+  }
+
+  detachServingNode(node: ServingNode): void {
+    const key = nodeKey(node);
+    if (!key) return;
+    this.configBusy.set('detach:' + key);
+    this.api.delete(`/models/nodes/${encodeURIComponent(key)}`).subscribe({
+      next: () => {
+        this.configBusy.set(null);
+        this.toast.success('Serving node detached', 'Serving');
+        this.loadPortalData();
+      },
+      error: (err) => {
+        this.configBusy.set(null);
+        this.toast.error(err?.error?.detail || 'Failed to detach node', 'Serving');
       },
     });
   }

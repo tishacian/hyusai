@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import httpx
@@ -16,6 +16,9 @@ import httpx
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.model_plane.registration import sync_from_node_snapshots
+
+if TYPE_CHECKING:
+    from app.models.workspace import Workspace
 
 logger = get_logger(__name__)
 
@@ -30,39 +33,63 @@ class ServingNodeConfig:
     token: str = ""
 
 
-def parse_serving_nodes(raw: Optional[str] = None) -> List[ServingNodeConfig]:
-    """Parse ``LLM_SERVING_NODES_JSON`` (or override) into node configs.
+def parse_serving_nodes(
+    raw: Optional[str] = None,
+    *,
+    workspace: Optional["Workspace"] = None,
+) -> List[ServingNodeConfig]:
+    """Parse env ``LLM_SERVING_NODES_JSON`` and merge workspace-attached nodes.
 
-    Accepted shapes:
-    - ``[]`` / empty / whitespace → no nodes
+    Workspace entries override env nodes with the same ``name``.
+    Accepted env shapes:
+    - ``[]`` / empty / whitespace → no env nodes
     - JSON list of ``{"name","base_url","token"}``
     """
+    by_name: Dict[str, ServingNodeConfig] = {}
+
     text = (raw if raw is not None else settings.llm_serving_nodes_json) or ""
     text = text.strip()
-    if not text:
-        return []
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        logger.warning("Invalid LLM_SERVING_NODES_JSON", error=str(exc))
-        return []
-    if not isinstance(data, list):
-        logger.warning("LLM_SERVING_NODES_JSON must be a JSON list")
-        return []
-    nodes: List[ServingNodeConfig] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        base_url = str(item.get("base_url") or item.get("baseUrl") or "").strip().rstrip("/")
-        token = str(item.get("token") or "").strip()
-        if name and base_url:
-            nodes.append(ServingNodeConfig(name=name, base_url=base_url, token=token))
-    return nodes
+    if text:
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Invalid LLM_SERVING_NODES_JSON", error=str(exc))
+            data = []
+        if not isinstance(data, list):
+            logger.warning("LLM_SERVING_NODES_JSON must be a JSON list")
+            data = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            base_url = (
+                str(item.get("base_url") or item.get("baseUrl") or "").strip().rstrip("/")
+            )
+            token = str(item.get("token") or "").strip()
+            if name and base_url:
+                by_name[name] = ServingNodeConfig(
+                    name=name, base_url=base_url, token=token
+                )
+
+    if workspace is not None:
+        from app.services.model_plane import workspace_config as ws_cfg
+
+        for item in ws_cfg.list_serving_node_configs(workspace):
+            name = str(item.get("name") or "").strip()
+            base_url = str(item.get("base_url") or "").strip().rstrip("/")
+            token = str(item.get("token") or "").strip()
+            if name and base_url:
+                by_name[name] = ServingNodeConfig(
+                    name=name, base_url=base_url, token=token
+                )
+
+    return list(by_name.values())
 
 
-def get_node(name: str) -> Optional[ServingNodeConfig]:
-    for node in parse_serving_nodes():
+def get_node(
+    name: str, *, workspace: Optional["Workspace"] = None
+) -> Optional[ServingNodeConfig]:
+    for node in parse_serving_nodes(workspace=workspace):
         if node.name == name:
             return node
     return None
@@ -267,12 +294,16 @@ async def _fetch_node_snapshot(node: ServingNodeConfig) -> Dict[str, Any]:
     return snapshot
 
 
-async def list_nodes(*, sync_registry: bool = True) -> Dict[str, Any]:
+async def list_nodes(
+    *,
+    sync_registry: bool = True,
+    workspace: Optional["Workspace"] = None,
+) -> Dict[str, Any]:
     """List configured serving nodes with live portal state.
 
     Zero nodes → ``empty: true`` (first-class empty state for the demo VM).
     """
-    configs = parse_serving_nodes()
+    configs = parse_serving_nodes(workspace=workspace)
     if not configs:
         return {
             "nodes": [],
@@ -290,8 +321,13 @@ async def list_nodes(*, sync_registry: bool = True) -> Dict[str, Any]:
     }
 
 
-async def create_instance(node_name: str, body: Dict[str, Any]) -> Any:
-    node = get_node(node_name)
+async def create_instance(
+    node_name: str,
+    body: Dict[str, Any],
+    *,
+    workspace: Optional["Workspace"] = None,
+) -> Any:
+    node = get_node(node_name, workspace=workspace)
     if not node:
         raise PortalClientError(f"Unknown serving node {node_name!r}", status_code=404)
     result = await _portal_request(
@@ -301,12 +337,17 @@ async def create_instance(node_name: str, body: Dict[str, Any]) -> Any:
         json_body=body,
         timeout=_LIFECYCLE_TIMEOUT,
     )
-    await list_nodes(sync_registry=True)
+    await list_nodes(sync_registry=True, workspace=workspace)
     return result
 
 
-async def start_instance(node_name: str, instance_id: str) -> Any:
-    node = get_node(node_name)
+async def start_instance(
+    node_name: str,
+    instance_id: str,
+    *,
+    workspace: Optional["Workspace"] = None,
+) -> Any:
+    node = get_node(node_name, workspace=workspace)
     if not node:
         raise PortalClientError(f"Unknown serving node {node_name!r}", status_code=404)
     result = await _portal_request(
@@ -315,12 +356,17 @@ async def start_instance(node_name: str, instance_id: str) -> Any:
         f"/api/v1/instances/{instance_id}/start",
         timeout=_LIFECYCLE_TIMEOUT,
     )
-    await list_nodes(sync_registry=True)
+    await list_nodes(sync_registry=True, workspace=workspace)
     return result
 
 
-async def stop_instance(node_name: str, instance_id: str) -> Any:
-    node = get_node(node_name)
+async def stop_instance(
+    node_name: str,
+    instance_id: str,
+    *,
+    workspace: Optional["Workspace"] = None,
+) -> Any:
+    node = get_node(node_name, workspace=workspace)
     if not node:
         raise PortalClientError(f"Unknown serving node {node_name!r}", status_code=404)
     result = await _portal_request(
@@ -329,12 +375,17 @@ async def stop_instance(node_name: str, instance_id: str) -> Any:
         f"/api/v1/instances/{instance_id}/stop",
         timeout=_LIFECYCLE_TIMEOUT,
     )
-    await list_nodes(sync_registry=True)
+    await list_nodes(sync_registry=True, workspace=workspace)
     return result
 
 
-async def delete_instance(node_name: str, instance_id: str) -> Any:
-    node = get_node(node_name)
+async def delete_instance(
+    node_name: str,
+    instance_id: str,
+    *,
+    workspace: Optional["Workspace"] = None,
+) -> Any:
+    node = get_node(node_name, workspace=workspace)
     if not node:
         raise PortalClientError(f"Unknown serving node {node_name!r}", status_code=404)
     result = await _portal_request(
@@ -343,5 +394,5 @@ async def delete_instance(node_name: str, instance_id: str) -> Any:
         f"/api/v1/instances/{instance_id}",
         timeout=_LIFECYCLE_TIMEOUT,
     )
-    await list_nodes(sync_registry=True)
+    await list_nodes(sync_registry=True, workspace=workspace)
     return result
