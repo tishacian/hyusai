@@ -1,0 +1,45 @@
+<testsuites id="" name="" tests="5" failures="0" skipped="0" errors="0" time="19.21123">
+<testsuite name="09-live-workspace-contract.spec.ts" timestamp="2026-07-21T09:58:06.524Z" hostname="chromium" tests="5" failures="0" skipped="0" time="17.367" errors="0">
+<testcase name="Lot 0 — live workspace experience contract › Andritz business preview exposes the four entitled apps" classname="09-live-workspace-contract.spec.ts" time="2.432">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|09-live-workspace-contract-82b39-oses-the-four-entitled-apps-chromium/attachments/andritz-business-shell-png-5125978145a4bde74ac2c0141f3748922f55782c.png]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Lot 0 — live workspace experience contract › the four Andritz apps survive deep links, history and reload" classname="09-live-workspace-contract.spec.ts" time="3.594">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|09-live-workspace-contract-e7fc3-ep-links-history-and-reload-chromium/attachments/andritz-recherche-png-a207a20e875bedb87839d82e8f521d3411f3dcfd.png]]
+
+[[ATTACHMENT|09-live-workspace-contract-e7fc3-ep-links-history-and-reload-chromium/attachments/andritz-client360-png-08ab9bd97938b5e975e468738b44a4b3b8e70f42.png]]
+
+[[ATTACHMENT|09-live-workspace-contract-e7fc3-ep-links-history-and-reload-chromium/attachments/andritz-knowledge-capture-png-97ccdebe50b0a4fc369b383334ef714dd61591e0.png]]
+
+[[ATTACHMENT|09-live-workspace-contract-e7fc3-ep-links-history-and-reload-chromium/attachments/andritz-fse-reports-png-244b83dab3d18e34046e100ed21a1536a845aad6.png]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Lot 0 — live workspace experience contract › Showcase keeps the standard Agentium cockpit" classname="09-live-workspace-contract.spec.ts" time="1.684">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|09-live-workspace-contract-519bd-e-standard-Agentium-cockpit-chromium/attachments/showcase-standard-shell-png-32b2011b34169911051cc2bc69d37d4b9638d151.png]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Lot 0 — live workspace experience contract › sentinel-ci keeps its immersive Mission Room shell" classname="09-live-workspace-contract.spec.ts" time="4.341">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|09-live-workspace-contract-9f6ee-mmersive-Mission-Room-shell-chromium/attachments/sentinel-mission-room-png-752d458c421bc615562bafbae29c824ccf666603.png]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Lot 0 — live workspace experience contract › octocity-mission-room keeps its immersive Mission Room shell" classname="09-live-workspace-contract.spec.ts" time="5.316">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|09-live-workspace-contract-a14d0-mmersive-Mission-Room-shell-chromium/attachments/octocity-mission-room-png-38868793294f4bc7a83d53a290d14da24753dc2a.png]]
+]]>
+</system-out>
+</testcase>
+</testsuite>
+</testsuites>
