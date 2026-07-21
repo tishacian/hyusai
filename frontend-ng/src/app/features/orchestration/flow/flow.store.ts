@@ -44,6 +44,9 @@ export interface FlowMeta {
   source: 'form' | 'flow';
   extended: boolean;
   schema_version: number;
+  /** Dropping this on save would silently demote a strict DAG to the
+   *  sequential walker (which ignores `inputs_map`), so it must round-trip. */
+  io_mode?: 'overlay' | 'strict';
   policy?: CanonicalPolicy;
   collections?: string[];
   rag_mode?: string;
@@ -191,6 +194,7 @@ export const FlowStore = signalStore(
             source: normalized.source ?? 'flow',
             extended: normalized.extended ?? false,
             schema_version: normalized.schema_version ?? 3,
+            io_mode: normalized.io_mode,
             policy: normalized.policy,
             collections: normalized.collections,
             rag_mode: normalized.rag_mode,
@@ -210,6 +214,7 @@ export const FlowStore = signalStore(
           source: meta.source,
           extended: meta.extended,
           schema_version: meta.schema_version,
+          io_mode: meta.io_mode,
           policy: meta.policy,
           collections: meta.collections,
           rag_mode: meta.rag_mode,

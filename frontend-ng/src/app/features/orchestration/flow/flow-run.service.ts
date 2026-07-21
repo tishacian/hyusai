@@ -93,6 +93,7 @@ export class FlowRunService {
   private streamSub: Subscription | null = null;
   private pollSub: Subscription | null = null;
   private streamFellBackToPoll = false;
+  private resultLogged = false;
   private logSeq = 0;
   private readonly seenCheckpoints = new Set<string>();
   private readonly seenInvocationIds = new Set<string>();
@@ -229,6 +230,7 @@ export class FlowRunService {
     this.seenInvocationIds.clear();
     this.seenCheckpoints.clear();
     this.streamFellBackToPoll = false;
+    this.resultLogged = false;
     this.terminalOpen.set(true);
     this.executing.set(true);
     this.status.set('running');
@@ -435,6 +437,7 @@ export class FlowRunService {
           if (r) {
             this.currentRun.set(r);
             this.applyTerminalStatus(r);
+            this.logRunOutcome(r, scope);
           }
           this.executing.set(false);
         });
@@ -462,6 +465,7 @@ export class FlowRunService {
           this.currentRun.set(r);
           this.applyTerminalStatus(r);
           if (this.isTerminal(r.status) || this.isPaused(r.status)) {
+            if (this.isTerminal(r.status)) this.logRunOutcome(r, scope);
             this.executing.set(false);
             this.stopPolling();
           }
@@ -486,6 +490,49 @@ export class FlowRunService {
 
   private isPaused(status: Run['status'] | undefined): boolean {
     return status === 'hitl_pending' || status === 'debug_pending';
+  }
+
+  /**
+   * Surface the run's outcome in the terminal once it reaches a terminal
+   * state: replay any node checkpoints the live stream missed (fast runs
+   * often finish before the SSE subscription lands — `seenCheckpoints`
+   * dedupes the overlap), then print the final answer / failed steps so the
+   * result is consumable without leaving the builder.
+   */
+  private logRunOutcome(run: Run, scope: WorkspaceRequestScope | null): void {
+    if (this.resultLogged) return;
+    this.resultLogged = true;
+
+    const checkpoints = (run.checkpoints ?? []) as Array<
+      Record<string, unknown> & { kind?: string }
+    >;
+    for (const cp of checkpoints) {
+      this.emitStreamEvent(run.id, { event: String(cp['kind'] ?? 'event'), data: cp }, scope);
+    }
+
+    if (run.status === 'failed') {
+      this.push({
+        tone: 'neg',
+        tag: 'RESULT',
+        text: `Run failed${run.error ? ` · ${String(run.error).slice(0, 160)}` : ''}`,
+      });
+      return;
+    }
+    if (run.status !== 'completed') return;
+
+    const output = (run.output_ref ?? {}) as Record<string, unknown>;
+    const answer = typeof output['answer'] === 'string' ? (output['answer'] as string) : null;
+    if (answer) {
+      this.push({ tone: 'pos', tag: 'RESULT', text: answer });
+    } else if (Object.keys(output).length > 0) {
+      this.push({ tone: 'pos', tag: 'RESULT', text: JSON.stringify(output).slice(0, 600) });
+    } else {
+      this.push({ tone: 'info', tag: 'RESULT', text: 'Run completed with no output payload.' });
+    }
+    const citations = Array.isArray(output['citations']) ? (output['citations'] as unknown[]) : [];
+    if (citations.length > 0) {
+      this.push({ tone: 'info', tag: 'SOURCES', text: `${citations.length} grounded citation(s).` });
+    }
   }
 
   /** Map a freshly-fetched Run onto the coarse UI status. */
