@@ -44,6 +44,7 @@ from app.models.run_schedule import RunSchedule
 from app.models.webhook_hook import WebhookHook
 from app.models.run_inbox import RunInbox
 from app.models.system_memory import SystemMemory
+from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.impact import Impact
 from app.models.decision import Decision
 
@@ -67,6 +68,6 @@ __all__ = [
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
-    "RunInbox", "SystemMemory",
+    "RunInbox", "SystemMemory", "RunDispatchOutbox",
     "Impact", "Decision",
 ]

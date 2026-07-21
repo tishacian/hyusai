@@ -238,6 +238,27 @@ services:
       agentium-rabbitmq:
         condition: service_healthy
 
+  agentium-p4-maintenance:
+    image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
+    container_name: agentium-p4-maintenance
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
+      CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
+      CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+    command: ["python", "-m", "app.workers.p4_maintenance"]
+
   agentium-sftp:
     image: agentium-backend:${AGENTIUM_IMAGE_TAG:-local}
     container_name: agentium-sftp

@@ -9,7 +9,7 @@ RUNNER_IMAGE="agentium-worker:local"
 MIN_FREE_DISK_MIB=3072
 MIN_AVAILABLE_MEMORY_MIB=6144
 MIN_DOCKER_CPUS=4
-EXPECTED_JUNIT_TESTS=3
+EXPECTED_JUNIT_TESTS=7
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -215,6 +215,14 @@ chmod -R go-rwx "$ARCHIVE_ROOT"
 docker image inspect "$RUNNER_IMAGE" >/dev/null
 docker image inspect postgres:17 >/dev/null
 docker image inspect rabbitmq:4.1-management >/dev/null
+CANDIDATE_RUNNER_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$RUNNER_IMAGE")"
+CANDIDATE_RUNNER_REVISION="$(docker image inspect \
+  --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+  "$CANDIDATE_RUNNER_IMAGE_ID")"
+if [[ "$CANDIDATE_RUNNER_REVISION" != "$TARGET_SHA" ]]; then
+  echo "Runner image revision does not match --sha" >&2
+  exit 2
+fi
 
 # Dependency bootstrap is the only container with outbound access. It sees no
 # candidate source and /app is masked, so image-embedded checkout files cannot
@@ -233,7 +241,7 @@ docker run --rm --pull=never \
   --tmpfs /tmp:rw,exec,nosuid,size=256m,mode=1777 \
   -v "$VENV_DIR:/opt/p4-venv" \
   -w /tmp \
-  "$RUNNER_IMAGE" \
+  "$CANDIDATE_RUNNER_IMAGE_ID" \
   /bin/sh -ec '
     python -m venv --system-site-packages /opt/p4-venv
     /opt/p4-venv/bin/python -m pip install \
@@ -295,7 +303,7 @@ timeout 7200 docker run --pull=never \
   -e PYTEST_ALLOW_DESTRUCTIVE_DATABASE_RESET=1 \
   -e P4_EXPECT_WORKER_CONCURRENCY=2 \
   -e SUBFLOW_CRASH_PROBE_DIR=/tmp \
-  "$RUNNER_IMAGE" \
+  "$CANDIDATE_RUNNER_IMAGE_ID" \
   /bin/sh -ec '
     ulimit -f 262144
     /opt/p4-venv/bin/python - <<"PY"
@@ -319,6 +327,11 @@ PY
     /opt/p4-venv/bin/python -m pytest -p no:cacheprovider -q \
       app/tests/services/test_subflow_celery_contract.py \
       app/tests/services/test_subflow_orchestration_scoping.py \
+      app/tests/services/test_dispatch_outbox.py \
+      app/tests/services/test_hitl_watchdog.py \
+      app/tests/services/test_p4_maintenance.py \
+      app/tests/services/test_run_engine_gate_ttl.py \
+      app/tests/services/test_run_engine_inbox_memory.py \
       app/tests/services/test_run_engine_dag_e2e.py \
       app/tests/services/test_chat_agentic_runtime.py \
       app/tests/api/test_runs_hitl_auth.py

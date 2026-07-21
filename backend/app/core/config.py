@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -508,6 +509,15 @@ class Settings(BaseSettings):
     # and settings.features.run_hitl_celery=true are both present.  Keeping the
     # default off preserves the historical FastAPI BackgroundTask path.
     enable_run_hitl_celery: bool = False
+
+    # Dedicated P4 repair loop.  It remains a process-level no-op until this
+    # switch is explicitly enabled; the execution-plane flags above keep their
+    # separate rollout semantics.  Each pass is bounded so a large backlog can
+    # never monopolise the maintenance process.
+    enable_p4_maintenance: bool = False
+    p4_maintenance_interval_seconds: float = Field(default=5.0, ge=1.0, le=300.0)
+    p4_maintenance_batch_size: int = Field(default=50, ge=1, le=1000)
+    p4_maintenance_lease_seconds: int = Field(default=60, ge=5, le=3600)
 
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"

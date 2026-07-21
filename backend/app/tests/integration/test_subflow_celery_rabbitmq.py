@@ -12,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -161,6 +163,305 @@ def _message_args_and_kwargs(body) -> tuple[list, dict]:
     if isinstance(body, dict):
         return list(body.get("args") or []), dict(body.get("kwargs") or {})
     raise AssertionError(f"Unsupported Celery body: {type(body).__name__}")
+
+
+def test_real_postgresql_outbox_claimers_take_disjoint_batches(db_session):
+    """Two reconcilers must never own the same due row concurrently."""
+
+    from app.db.base import SessionLocal
+    from app.models.run import Run
+    from app.models.run_dispatch_outbox import RunDispatchOutbox
+    from app.models.workspace import Workspace
+    from app.services.run_engine.dispatch_outbox import (
+        RUN_HITL_RESUME,
+        claim_dispatch_batch,
+        enqueue_dispatch,
+    )
+
+    workspace = Workspace(
+        id=str(uuid4()),
+        name="P4 claimers",
+        slug=f"p4-claimers-{uuid4()}",
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    expected_ids = set()
+    for _index in range(6):
+        run = Run(id=str(uuid4()), workspace_id=workspace.id, status="hitl_pending")
+        db_session.add(run)
+        db_session.flush()
+        event = enqueue_dispatch(
+            db_session,
+            event_type=RUN_HITL_RESUME,
+            workspace_id=workspace.id,
+            run_id=run.id,
+            decision_id=str(uuid4()),
+        )
+        expected_ids.add(event.id)
+    db_session.commit()
+
+    barrier = threading.Barrier(2)
+
+    def claim() -> set[str]:
+        with SessionLocal() as db:
+            barrier.wait(timeout=10)
+            return {
+                row.id
+                for row in claim_dispatch_batch(
+                    db,
+                    batch_size=3,
+                    lease_seconds=30,
+                )
+            }
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(claim)
+        second_future = pool.submit(claim)
+        first = first_future.result(timeout=15)
+        second = second_future.result(timeout=15)
+
+    assert len(first) == 3
+    assert len(second) == 3
+    assert first.isdisjoint(second)
+    assert first | second == expected_ids
+    with SessionLocal() as db:
+        rows = db.query(RunDispatchOutbox).filter(RunDispatchOutbox.id.in_(expected_ids)).all()
+        for row in rows:
+            row.state = "cancelled"
+            row.lease_token = None
+            row.lease_expires_at = None
+        db.commit()
+
+
+def test_real_postgresql_gate_ttl_serializes_resolution_and_competing_sweeps(
+    db_session,
+    monkeypatch,
+):
+    """A locked human resolution wins, and competing sweeps apply once."""
+
+    from app.db.base import SessionLocal
+    from app.models.decision import Decision
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+    from app.services.decisions.state_machine import accept
+    from app.services.run_engine import gate_ttl
+
+    workspace = Workspace(
+        id=str(uuid4()),
+        name="P4 gate TTL",
+        slug=f"p4-gate-ttl-{uuid4()}",
+    )
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="P4 gate TTL",
+        objective="Serialize Decision and Run ownership",
+        flow_definition={"schema_version": 3, "nodes": [], "edges": []},
+        settings={},
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    db_session.add(system)
+    db_session.flush()
+
+    def add_expired_gate(index: int) -> tuple[str, str]:
+        decision_id = str(uuid4())
+        run = Run(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            system_id=system.id,
+            status="hitl_pending",
+            checkpoints=[
+                {
+                    "kind": "hitl_pause",
+                    "node_id": f"gate-{index}",
+                    "decision_id": decision_id,
+                }
+            ],
+        )
+        decision = Decision(
+            id=decision_id,
+            workspace_id=workspace.id,
+            scope="run",
+            target_id=run.id,
+            kind="hitl_approval",
+            status="proposed",
+            title=f"Gate {index}",
+            expires_at=datetime.utcnow(),
+            expiry_action="reject",
+        )
+        db_session.add_all([run, decision])
+        return run.id, decision.id
+
+    human_run_id, human_decision_id = add_expired_gate(0)
+    db_session.commit()
+    resume_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gate_ttl,
+        "_resume_paused_run",
+        lambda run_id, decision_id: resume_calls.append((run_id, decision_id)),
+    )
+
+    locked = threading.Event()
+    release = threading.Event()
+
+    def human_resolution() -> None:
+        with SessionLocal() as db:
+            decision = (
+                db.query(Decision)
+                .filter(Decision.id == human_decision_id)
+                .with_for_update()
+                .one()
+            )
+            db.query(Run).filter(Run.id == human_run_id).with_for_update().one()
+            locked.set()
+            assert release.wait(timeout=15)
+            accept(db, decision, actor="integration:human", commit=False)
+            db.commit()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(human_resolution)
+        assert locked.wait(timeout=10)
+        try:
+            skipped = gate_ttl.sweep_expired_gates(limit=10)
+        finally:
+            release.set()
+        future.result(timeout=15)
+
+    assert skipped["swept"] == 0
+    assert skipped["skipped"] == 1
+    assert resume_calls == []
+    with SessionLocal() as db:
+        human_decision = db.query(Decision).filter(
+            Decision.id == human_decision_id
+        ).one()
+        human_run = db.query(Run).filter(Run.id == human_run_id).one()
+        assert human_decision.status == "accepted"
+        assert not any(
+            checkpoint.get("kind") == "gate_ttl_expired"
+            for checkpoint in human_run.checkpoints or []
+        )
+
+    competing = [add_expired_gate(index) for index in range(1, 9)]
+    db_session.commit()
+    barrier = threading.Barrier(2)
+
+    def sweep() -> dict:
+        barrier.wait(timeout=10)
+        return gate_ttl.sweep_expired_gates(limit=20)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(sweep)
+        second_future = pool.submit(sweep)
+        first = first_future.result(timeout=30)
+        second = second_future.result(timeout=30)
+
+    assert first["errors"] == 0
+    assert second["errors"] == 0
+    assert first["swept"] + second["swept"] == len(competing)
+    observed = defaultdict(int)
+    for call in resume_calls:
+        observed[call] += 1
+    assert observed == {(run_id, decision_id): 1 for run_id, decision_id in competing}
+    with SessionLocal() as db:
+        decisions = db.query(Decision).filter(
+            Decision.id.in_([decision_id for _run_id, decision_id in competing])
+        ).all()
+        assert {decision.status for decision in decisions} == {"rejected"}
+
+
+def test_real_postgresql_watchdog_nowait_avoids_bottom_up_deadlock(db_session):
+    """A top-down parent lock makes quarantine retry, never deadlock."""
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.base import SessionLocal
+    from app.models.decision import Decision
+    from app.models.run import Run
+    from app.models.workspace import Workspace
+    from app.services.run_engine.hitl_watchdog import _reconcile_candidate
+
+    workspace = Workspace(
+        id=str(uuid4()),
+        name="P4 watchdog lock order",
+        slug=f"p4-watchdog-lock-{uuid4()}",
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        status="waiting_subflows",
+        waiting_subflows={},
+    )
+    decision_id = str(uuid4())
+    child = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        parent_run_id=parent.id,
+        status="hitl_pending",
+        delegation_key=uuid4().hex * 2,
+        delegation_node_id="delegate",
+        delegation_branch="main",
+        delegation_deadline_at=None,
+        input_ref={
+            "_delegation": {
+                "parent_run_id": parent.id,
+                "execution_plane": "celery",
+            }
+        },
+        checkpoints=[{"kind": "hitl_pause", "decision_id": decision_id}],
+    )
+    decision = Decision(
+        id=decision_id,
+        workspace_id=workspace.id,
+        scope="run",
+        target_id=child.id,
+        kind="hitl_approval",
+        status="proposed",
+        title="Malformed delegated approval",
+    )
+    db_session.add_all([workspace, parent, child, decision])
+    db_session.commit()
+
+    blocker = SessionLocal()
+    try:
+        blocker.query(Run).filter(Run.id == parent.id).with_for_update().one()
+        started = time.monotonic()
+
+        def reconcile_while_parent_is_locked() -> str:
+            with SessionLocal() as db:
+                return _reconcile_candidate(
+                    db,
+                    run_id=child.id,
+                    now=datetime.utcnow(),
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(reconcile_while_parent_is_locked)
+            with pytest.raises(OperationalError):
+                future.result(timeout=10)
+        assert time.monotonic() - started < 5
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+    with SessionLocal() as db:
+        assert (
+            _reconcile_candidate(
+                db,
+                run_id=child.id,
+                now=datetime.utcnow(),
+            )
+            == "quarantined"
+        )
+    with SessionLocal() as db:
+        child_row = db.query(Run).filter(Run.id == child.id).one()
+        parent_row = db.query(Run).filter(Run.id == parent.id).one()
+        decision_row = db.query(Decision).filter(Decision.id == decision.id).one()
+        assert child_row.status == "failed"
+        assert child_row.delegation_quarantined_at is not None
+        assert parent_row.status == "failed"
+        assert decision_row.status == "rejected"
 
 
 @pytest.mark.asyncio
@@ -644,3 +945,215 @@ async def test_acks_late_redelivers_after_dedicated_worker_crash(db_session):
             assert db.query(Run).filter(Run.parent_run_id == parent.id).count() == 1
     finally:
         marker.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_real_outbox_recovers_missing_publish_and_watchdog_expires_hitl(
+    db_session,
+    monkeypatch,
+):
+    """Prove both P4.2 repair loops against the real broker and database."""
+
+    from celery.signals import before_task_publish
+
+    from app.db.base import SessionLocal
+    from app.models.decision import Decision
+    from app.models.run import Run
+    from app.models.run_dispatch_outbox import RunDispatchOutbox
+    from app.services.run_engine import dispatch_outbox
+    from app.services.run_engine.dag import execute_run_dag
+    from app.services.run_engine.dispatch_outbox import (
+        SUBFLOW_PARENT_RESUME,
+        SUBFLOW_RUN,
+    )
+    from app.services.run_engine.hitl_watchdog import (
+        WATCHDOG_ACTOR,
+        WATCHDOG_ERROR,
+        expire_overdue_hitl_waits,
+    )
+
+    # Simulate the exact commit/publish gap: DAG state + outbox commit, then an
+    # API/worker crash before the fast path can touch RabbitMQ.
+    _, _, parent = _build_scenario(
+        db_session,
+        strategy="all",
+        child_hitl=[False],
+    )
+    real_reconcile = dispatch_outbox.reconcile_dispatch_outbox
+    monkeypatch.setattr(
+        dispatch_outbox,
+        "reconcile_dispatch_outbox",
+        lambda **_kwargs: {"claimed": 0, "published": 0},
+    )
+    assert (await execute_run_dag(parent.id))["status"] == "waiting_subflows"
+    monkeypatch.setattr(dispatch_outbox, "reconcile_dispatch_outbox", real_reconcile)
+
+    with SessionLocal() as db:
+        child = db.query(Run).filter(Run.parent_run_id == parent.id).one()
+        child_id = child.id
+        initial = (
+            db.query(RunDispatchOutbox)
+            .filter(
+                RunDispatchOutbox.run_id == child.id,
+                RunDispatchOutbox.event_type == SUBFLOW_RUN,
+            )
+            .one()
+        )
+        initial_task_id = initial.task_id
+        assert child.status == "pending"
+        assert initial.state == "pending"
+
+    published: list[tuple[object, dict]] = []
+
+    def capture(sender=None, body=None, headers=None, **_kwargs):
+        if sender == "agentium.subflow_run":
+            published.append((body, headers or {}))
+
+    before_task_publish.connect(capture, weak=False)
+    try:
+        report = real_reconcile(batch_size=20, lease_seconds=5)
+    finally:
+        before_task_publish.disconnect(capture)
+    assert report["published"] >= 1
+    assert len(published) == 1
+    args, kwargs = _message_args_and_kwargs(published[0][0])
+    assert args == [child_id]
+    assert kwargs == {}
+    assert published[0][1].get("id") == initial_task_id
+    assert await _wait_run(parent.id, {"completed"}, timeout=45) == "completed"
+    with SessionLocal() as db:
+        assert db.query(Run).filter(Run.parent_run_id == parent.id).count() == 1
+        assert (
+            db.query(RunDispatchOutbox)
+            .filter(
+                RunDispatchOutbox.run_id == child_id,
+                RunDispatchOutbox.event_type == SUBFLOW_RUN,
+            )
+            .one()
+            .state
+            == "published"
+        )
+
+    # Conversely, a child-only claim cannot use a normal parent resume when
+    # that parent's waiting envelope is corrupt. The watchdog terminalises
+    # both sides directly so no ancestor is left waiting forever.
+    _, _, broken_parent = _build_scenario(
+        db_session,
+        strategy="all",
+        child_hitl=[True],
+        timeout_seconds=30.0,
+    )
+    assert (await execute_run_dag(broken_parent.id))["status"] == "waiting_subflows"
+    with SessionLocal() as db:
+        broken_child = db.query(Run).filter(Run.parent_run_id == broken_parent.id).one()
+        broken_child_id = broken_child.id
+    assert await _wait_run(broken_child_id, {"hitl_pending"}) == "hitl_pending"
+    with SessionLocal() as db:
+        broken_child = db.query(Run).filter(Run.id == broken_child_id).one()
+        broken_parent_row = db.query(Run).filter(Run.id == broken_parent.id).one()
+        broken_child.delegation_deadline_at = None
+        broken_parent_row.waiting_subflows = {}
+        db.commit()
+
+    broken = expire_overdue_hitl_waits(batch_size=10)
+    assert broken["quarantined"] == 1
+    with SessionLocal() as db:
+        child_row = db.query(Run).filter(Run.id == broken_child_id).one()
+        parent_row = db.query(Run).filter(Run.id == broken_parent.id).one()
+        assert child_row.status == "failed"
+        assert child_row.error == "subflow_hitl_watchdog_invalid_state"
+        assert parent_row.status == "failed"
+        assert parent_row.error == "subflow_hitl_watchdog_invalid_state"
+
+    # A delegated HITL has no live worker after it pauses. Its immutable
+    # deadline must therefore be enforced by the watchdog, which atomically
+    # fails the child and persists the parent wake-up in the same outbox.
+    _, _, timeout_parent = _build_scenario(
+        db_session,
+        strategy="all",
+        child_hitl=[True],
+        timeout_seconds=1.0,
+    )
+    assert (await execute_run_dag(timeout_parent.id))["status"] == "waiting_subflows"
+    with SessionLocal() as db:
+        timeout_child = db.query(Run).filter(Run.parent_run_id == timeout_parent.id).one()
+        timeout_child_id = timeout_child.id
+    assert await _wait_run(timeout_child_id, {"hitl_pending"}) == "hitl_pending"
+    await asyncio.sleep(1.2)
+
+    expired = expire_overdue_hitl_waits(batch_size=10)
+    assert expired["expired"] == 1
+    repeated = expire_overdue_hitl_waits(batch_size=10)
+    assert repeated["expired"] == 0
+    real_reconcile(batch_size=20, lease_seconds=5)
+    assert await _wait_run(timeout_parent.id, {"failed"}, timeout=45) == "failed"
+    with SessionLocal() as db:
+        timed_out = db.query(Run).filter(Run.id == timeout_child_id).one()
+        decision = db.query(Decision).filter(Decision.target_id == timeout_child_id).one()
+        assert timed_out.status == "failed"
+        assert timed_out.error == WATCHDOG_ERROR
+        assert decision.status == "rejected"
+        assert decision.approved_by == WATCHDOG_ACTOR
+        assert (
+            db.query(RunDispatchOutbox)
+            .filter(
+                RunDispatchOutbox.run_id == timeout_parent.id,
+                RunDispatchOutbox.event_type == SUBFLOW_PARENT_RESUME,
+                RunDispatchOutbox.source_id == timeout_child_id,
+            )
+            .count()
+            == 1
+        )
+
+    # A malformed historical row may have lost the indexed deadline and the
+    # child-side execution-plane claim.  The parent envelope still owns the
+    # exact child/key.  The PostgreSQL selector must discover that claim via a
+    # workspace-scoped self join and quarantine it instead of ignoring it.
+    _, _, malformed_parent = _build_scenario(
+        db_session,
+        strategy="all",
+        child_hitl=[True],
+        timeout_seconds=30.0,
+    )
+    assert (await execute_run_dag(malformed_parent.id))["status"] == "waiting_subflows"
+    with SessionLocal() as db:
+        malformed_child = db.query(Run).filter(
+            Run.parent_run_id == malformed_parent.id
+        ).one()
+        malformed_child_id = malformed_child.id
+    assert await _wait_run(malformed_child_id, {"hitl_pending"}) == "hitl_pending"
+    with SessionLocal() as db:
+        malformed_child = db.query(Run).filter(Run.id == malformed_child_id).one()
+        delegation = dict((malformed_child.input_ref or {}).get("_delegation") or {})
+        delegation.pop("execution_plane")
+        malformed_child.input_ref = {"_delegation": delegation}
+        malformed_child.delegation_deadline_at = None
+        db.commit()
+
+    malformed = expire_overdue_hitl_waits(batch_size=10)
+    assert malformed["quarantined"] == 1
+    repeated_malformed = expire_overdue_hitl_waits(batch_size=10)
+    assert repeated_malformed["quarantined"] == 0
+    repair = real_reconcile(batch_size=20, lease_seconds=5)
+    assert repair["published"] >= 1
+    assert await _wait_run(malformed_parent.id, {"failed"}, timeout=45) == "failed"
+    with SessionLocal() as db:
+        quarantined = db.query(Run).filter(Run.id == malformed_child_id).one()
+        malformed_decision = db.query(Decision).filter(
+            Decision.target_id == malformed_child_id
+        ).one()
+        assert quarantined.status == "failed"
+        assert quarantined.error == "subflow_hitl_watchdog_invalid_state"
+        assert quarantined.checkpoints[-2]["reason"] == "missing_delegation_deadline"
+        assert malformed_decision.status == "rejected"
+        assert (
+            db.query(RunDispatchOutbox)
+            .filter(
+                RunDispatchOutbox.run_id == malformed_parent.id,
+                RunDispatchOutbox.event_type == SUBFLOW_PARENT_RESUME,
+                RunDispatchOutbox.source_id == malformed_child_id,
+            )
+            .one()
+            .state
+            == "published"
+        )

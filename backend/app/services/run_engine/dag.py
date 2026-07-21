@@ -1411,6 +1411,22 @@ def _emit_subflow_pause(
     run.checkpoints = [*(run.checkpoints or []), checkpoint]
     run.status = "waiting_subflows"
     db.commit()
+    # Fast path: publish newly committed outbox rows only after the parent
+    # checkpoint/status are visible.  A crash or broker outage here is safe;
+    # the dedicated reconciler owns the durable retry.
+    try:
+        from .dispatch_outbox import reconcile_dispatch_outbox
+
+        reconcile_dispatch_outbox(
+            batch_size=max(50, min(len(run.waiting_subflows or {}), 1000)),
+            lease_seconds=settings.p4_maintenance_lease_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001 - persisted outbox is authoritative.
+        logger.warning(
+            "dag_engine: immediate subflow outbox reconciliation deferred",
+            run_id=run.id,
+            error_type=type(exc).__name__,
+        )
     try:
         event_bus.publish(run.id, checkpoint)
     except Exception:  # noqa: BLE001
@@ -2344,6 +2360,7 @@ async def _run_subflow(
         (upstream or {}).get("_loop_iteration", (upstream or {}).get("iteration", 0)),
     )
     logical_key = delegation_key(run.id, node.id, iteration, branch)
+    celery_plane = parent_system is not None and subflow_celery_enabled(parent_system)
     child = db.query(Run).filter(Run.delegation_key == logical_key).first()
     if child is None:
         child = Run(
@@ -2356,14 +2373,19 @@ async def _run_subflow(
             delegation_key=logical_key,
             delegation_node_id=node.id,
             delegation_branch=branch,
+            delegation_deadline_at=(
+                datetime.fromisoformat(deadline_at) if deadline_at else None
+            ),
         )
-        db.add(child)
         try:
-            db.commit()  # payload and logical key are durable before broker dispatch
+            # A savepoint lets a concurrent redelivery converge on the unique
+            # logical child without rolling back unrelated parent state.  The
+            # outer transaction is committed only after the parent wait
+            # envelope and its outbox event have been persisted as well.
+            with db.begin_nested():
+                db.add(child)
+                db.flush()
         except IntegrityError:
-            # Concurrent redelivery: the unique logical key owns exactly one
-            # child. Recover that row instead of creating a second execution.
-            db.rollback()
             child = db.query(Run).filter(Run.delegation_key == logical_key).one()
     persisted_delegation = (
         ((child.input_ref or {}).get("_delegation") or {})
@@ -2372,14 +2394,25 @@ async def _run_subflow(
     )
     if isinstance(persisted_delegation, dict):
         deadline_at = persisted_delegation.get("deadline_at")
+    if child.delegation_deadline_at is None and deadline_at:
+        try:
+            child.delegation_deadline_at = datetime.fromisoformat(
+                str(deadline_at).replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            # The worker deadline parser already fails malformed persisted
+            # values closed; keep the indexed projection empty rather than
+            # inventing a different deadline.
+            pass
     child_id = child.id
     # Record the mapping BEFORE executing so that if the child pauses for HITL
     # the parent's serialised checkpoint already carries the child run id and a
     # later resume can find it (rather than spawning a duplicate).
     state.subflow_children[node.id] = child_id
 
-    if parent_system is not None and subflow_celery_enabled(parent_system):
-        from .engine import schedule_subflow_run
+    if celery_plane:
+        from .dispatch_outbox import SUBFLOW_RUN, enqueue_dispatch
+        from .subflow_orchestration import _wave_ids_equal
 
         persisted_input = dict(child.input_ref or {})
         persisted_child_delegation = dict(persisted_input.get("_delegation") or {})
@@ -2394,7 +2427,13 @@ async def _run_subflow(
         current_strategy = meta.get("strategy")
         current_state = str(meta.get("state") or "")
         if current_state != "waiting":
-            meta["wave_id"] = int(meta.get("wave_id") or 0) + 1
+            previous_wave = meta.get("wave_id")
+            if previous_wave is not None and not _wave_ids_equal(
+                previous_wave,
+                previous_wave,
+            ):
+                return {"output": {"_error": "invalid_subflow_wave_id"}}
+            meta["wave_id"] = (previous_wave or 0) + 1
             current_strategy = None
         elif meta.get("wave_id") is None:
             # Checkpoints written before wave scoping are still resumable.
@@ -2406,34 +2445,35 @@ async def _run_subflow(
                     legacy_entry.setdefault("wave_id", meta["wave_id"])
         if current_strategy and current_strategy != strategy:
             return {"output": {"_error": "mixed_subflow_join_strategies"}}
+        if not _wave_ids_equal(meta.get("wave_id"), meta.get("wave_id")):
+            return {"output": {"_error": "invalid_subflow_wave_id"}}
         meta.update({"strategy": strategy, "state": "waiting", "execution_plane": "celery"})
         waiting["_meta"] = meta
         entry = dict(waiting.get(logical_key) or {})
         entry.update({"child_run_id": child_id, "node_id": node.id, "branch": branch,
                       "iteration": iteration, "strategy": strategy,
-                      "status": child.status, "dispatch_state": "persisted",
+                      "status": child.status, "dispatch_state": "outbox_pending",
                       "deadline_at": deadline_at, "wave_id": meta["wave_id"]})
         waiting[logical_key] = entry
         run.waiting_subflows = waiting
-        db.commit()
-        if not child.celery_task_id:
-            try:
-                child.celery_task_id = schedule_subflow_run(child_id)
-                entry["celery_task_id"] = child.celery_task_id
-                entry["dispatch_state"] = "dispatched"
-                waiting[logical_key] = entry
-                run.waiting_subflows = waiting
-                db.commit()
-            except RuntimeError:
-                entry["dispatch_state"] = "ambiguous"
-                waiting[logical_key] = entry
-                run.waiting_subflows = waiting
-                db.commit()
+        enqueue_dispatch(
+            db,
+            event_type=SUBFLOW_RUN,
+            workspace_id=str(run.workspace_id),
+            run_id=child_id,
+            source_id=logical_key,
+            wave_id=meta["wave_id"],
+        )
+        # Do not commit here. Every parallel branch shares this Session, and
+        # ``_emit_subflow_pause`` atomically commits all children, parent wait
+        # state/checkpoint and outbox rows before any broker publication.
         return {"pause": True, "wait_subflow": True, "node_id": node.id, "child_run_id": child_id,
                 "prompt": "Subflow dispatched; awaiting durable completion"}
 
     # Execute the child as its own graph (in-process). Celery fan-out is wired
-    # via ``schedule_subflow_run`` but the synchronous path is what merges back.
+    # through the durable outbox; this synchronous path still needs the child
+    # committed before the nested walker opens its own session.
+    db.commit()
     target_workspace = (
         db.query(Workspace).filter(Workspace.id == target.workspace_id).first()
         if target.workspace_id

@@ -40,6 +40,51 @@ def _call_with_deadline(callback: Callable[[], _T], remaining_seconds: float | N
         signal.signal(signal.SIGALRM, previous_handler)
 
 
+def _enqueue_parent_resume_dispatch(parent_run_id: str, *, source_id: str) -> str:
+    """Persist a parent wake-up before attempting its best-effort fast path."""
+
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.models.run import Run
+    from app.services.run_engine.dispatch_outbox import (
+        SUBFLOW_PARENT_RESUME,
+        enqueue_dispatch,
+        reconcile_dispatch_outbox,
+    )
+    from app.services.run_engine.subflow_orchestration import _wave_ids_equal
+
+    with SessionLocal() as db:
+        parent = db.query(Run).filter(Run.id == parent_run_id).first()
+        if parent is None or not parent.workspace_id:
+            raise RuntimeError(f"subflow parent {parent_run_id} is missing")
+        waiting = parent.waiting_subflows if isinstance(parent.waiting_subflows, dict) else {}
+        meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
+        raw_wave_id = meta.get("wave_id")
+        if raw_wave_id is not None and not _wave_ids_equal(
+            raw_wave_id,
+            raw_wave_id,
+        ):
+            raise RuntimeError("subflow parent has a noncanonical wave_id")
+        event = enqueue_dispatch(
+            db,
+            event_type=SUBFLOW_PARENT_RESUME,
+            workspace_id=str(parent.workspace_id),
+            run_id=parent.id,
+            source_id=str(source_id),
+            wave_id=raw_wave_id,
+        )
+        db.commit()
+        task_id = event.task_id
+
+    # The maintenance service is the crash-recovery owner. This immediate pass
+    # keeps normal latency identical when RabbitMQ is healthy.
+    reconcile_dispatch_outbox(
+        batch_size=50,
+        lease_seconds=settings.p4_maintenance_lease_seconds,
+    )
+    return str(task_id)
+
+
 @celery_app.task(name="agentium.document_ingest_index")
 def document_ingest_index(job_id: str) -> dict:
     return run_document_ingest_index(job_id)
@@ -95,9 +140,11 @@ def subflow_run(self, child_run_id: str) -> dict:
     from app.services.run_engine.engine import (
         _subflow_deadline_remaining,
         run_subflow_child,
-        schedule_subflow_parent_resume,
     )
-    from app.services.run_engine.subflow_orchestration import postgres_coordination_lease
+    from app.services.run_engine.subflow_orchestration import (
+        _wave_ids_equal,
+        postgres_coordination_lease,
+    )
 
     with SessionLocal() as db:
         child = db.query(Run).filter(Run.id == child_run_id).first()
@@ -136,7 +183,10 @@ def subflow_run(self, child_run_id: str) -> dict:
             and child.delegation_key
             and isinstance(entry, dict)
             and entry.get("child_run_id") == child.id
-            and (meta.get("wave_id") is None or entry.get("wave_id") == meta.get("wave_id"))
+            and (
+                meta.get("wave_id") is None
+                or _wave_ids_equal(entry.get("wave_id"), meta.get("wave_id"))
+            )
         )
         if not envelope_valid:
             return {"id": child_run_id, "status": "delegation_envelope_invalid"}
@@ -258,7 +308,7 @@ def subflow_run(self, child_run_id: str) -> dict:
         coordination = {"status": "no_parent"}
         if parent_run_id and persisted_status in {"completed", "failed", "cancelled"}:
             try:
-                resume_task_id = schedule_subflow_parent_resume(
+                resume_task_id = _enqueue_parent_resume_dispatch(
                     parent_run_id,
                     source_id=child_run_id,
                 )
@@ -288,7 +338,6 @@ def subflow_parent_resume(self, parent_run_id: str) -> dict:
     from app.services.run_engine.dag import subflow_celery_enabled
     from app.services.run_engine.engine import (
         _subflow_deadline_remaining,
-        schedule_subflow_parent_resume,
     )
     from app.services.run_engine.subflow_orchestration import (
         cancel_waiting_children,
@@ -372,7 +421,7 @@ def subflow_parent_resume(self, parent_run_id: str) -> dict:
         ancestor_id = ancestor_context[0].id if ancestor_context is not None else None
     if ancestor_id and resumed_status in {"completed", "failed", "cancelled"}:
         try:
-            schedule_subflow_parent_resume(ancestor_id, source_id=parent_run_id)
+            _enqueue_parent_resume_dispatch(ancestor_id, source_id=parent_run_id)
         except RuntimeError as exc:
             raise self.retry(exc=exc, countdown=1, max_retries=20)
     return result
@@ -403,9 +452,11 @@ def subflow_hitl_resume(
     )
     from app.services.run_engine.engine import (
         _subflow_deadline_remaining,
-        schedule_subflow_parent_resume,
     )
-    from app.services.run_engine.subflow_orchestration import postgres_coordination_lease
+    from app.services.run_engine.subflow_orchestration import (
+        _wave_ids_equal,
+        postgres_coordination_lease,
+    )
 
     with SessionLocal() as db:
         child = db.query(Run).filter(Run.id == child_run_id).first()
@@ -457,7 +508,13 @@ def subflow_hitl_resume(
             or not isinstance(entry, dict)
             or entry.get("child_run_id") != child.id
             or child.parent_run_id != parent.id
-            or (meta.get("wave_id") is not None and entry.get("wave_id") != meta.get("wave_id"))
+            or (
+                meta.get("wave_id") is not None
+                and not _wave_ids_equal(
+                    entry.get("wave_id"),
+                    meta.get("wave_id"),
+                )
+            )
         ):
             return {"status": "delegation_envelope_invalid", "child_run_id": child_run_id}
 
@@ -535,7 +592,10 @@ def subflow_hitl_resume(
                 parent_run_id = child.parent_run_id if child is not None else parent_run_id
                 status = child.status if child is not None else "missing"
             if parent_run_id and status in {"completed", "failed", "cancelled"}:
-                schedule_subflow_parent_resume(parent_run_id, source_id=str(self.request.id))
+                _enqueue_parent_resume_dispatch(
+                    parent_run_id,
+                    source_id=child_run_id,
+                )
             return summary
     except Retry:
         raise

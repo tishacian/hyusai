@@ -14,6 +14,7 @@ STATE_ROOT="${AGENTIUM_DEPLOY_STATE_DIR:-$HOME/.local/state/agentium/deployments
 COMPOSE_FILE="compose.agentium.yml"
 ENV_FILE="./env/agentium.vm.env"
 WRITERS_STOPPED=0
+WRITER_SERVICES=(agentium-backend agentium-worker-cpu)
 MIGRATION_STARTED=0
 MIGRATION_VERIFIED=0
 PREPARE_ATTEMPTED=0
@@ -24,6 +25,12 @@ EXERCISE_CONTAINER_REPORT=""
 
 say() { printf '%s\n' "==> $*"; }
 die() { printf '%s\n' "XX  $*" >&2; exit 1; }
+writers_all_running() {
+	local writer
+	for writer in "${WRITER_SERVICES[@]}"; do
+		[[ "$(docker inspect --format '{{.State.Running}}' "$writer" 2>/dev/null)" == "true" ]] || return 1
+	done
+}
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -100,22 +107,21 @@ on_error() {
 			printf '%s\n' "XX  Projection/axes/Membrane/DAG/flow ont été remis dans l'ordre sûr." >&2
 		else
 			printf '%s\n' "XX  Rollback applicatif en échec; writers arrêtés pour éviter une exposition partielle." >&2
-			docker stop agentium-backend agentium-worker-cpu >/dev/null 2>&1
+			docker stop "${WRITER_SERVICES[@]}" >/dev/null 2>&1
 			WRITERS_STOPPED=1
 		fi
 	fi
 	if [[ "$WRITERS_STOPPED" -eq 1 ]]; then
 		if [[ "$IMAGE_ACTIVATION_STARTED" -eq 1 ]]; then
-			docker stop agentium-backend agentium-worker-cpu >/dev/null 2>&1
+			docker stop "${WRITER_SERVICES[@]}" >/dev/null 2>&1
 		fi
 		if [[ "$IMAGE_ACTIVATION_STARTED" -eq 0 && "$MIGRATION_STARTED" -eq "$MIGRATION_VERIFIED" && "$rollback_ok" -eq 0 ]]; then
 			(
 				cd "$REPO_DIR/docker"
 				docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" start \
-					agentium-backend agentium-worker-cpu
+					"${WRITER_SERVICES[@]}"
 			) >/dev/null 2>&1
-			if [[ "$(docker inspect --format '{{.State.Running}}' agentium-backend 2>/dev/null)" == "true" \
-				&& "$(docker inspect --format '{{.State.Running}}' agentium-worker-cpu 2>/dev/null)" == "true" ]]; then
+			if writers_all_running; then
 				WRITERS_STOPPED=0
 				printf '%s\n' "XX  Les writers précédents ont été relancés après retour applicatif sûr." >&2
 			fi
@@ -130,6 +136,9 @@ trap cleanup EXIT
 trap 'on_error $? $LINENO' ERR
 
 cd "$REPO_DIR" || die "Dépôt introuvable: $REPO_DIR"
+if docker inspect agentium-p4-maintenance >/dev/null 2>&1; then
+	WRITER_SERVICES+=(agentium-p4-maintenance)
+fi
 
 read_env_value() {
 	local key="$1" path="$REPO_DIR/docker/${ENV_FILE#./}"
@@ -270,10 +279,10 @@ STAGE="writer quiescence"
 (
 	cd "$REPO_DIR/docker"
 	docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop \
-		agentium-backend agentium-worker-cpu
+		"${WRITER_SERVICES[@]}"
 )
 WRITERS_STOPPED=1
-for writer in agentium-backend agentium-worker-cpu; do
+for writer in "${WRITER_SERVICES[@]}"; do
 	[[ "$(docker inspect --format '{{.State.Running}}' "$writer")" == "false" ]] || die "$writer écrit encore"
 done
 

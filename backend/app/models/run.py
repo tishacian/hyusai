@@ -91,6 +91,15 @@ class Run(Base):
     delegation_node_id = Column(String(160), nullable=True)
     delegation_branch = Column(String(160), nullable=True)
     celery_task_id = Column(String(255), nullable=True)
+    # Indexed absolute deadline used by the durable dispatcher/watchdog.  The
+    # immutable delegation envelope remains the audit source; this projection
+    # makes recovery queries bounded without JSON scans.
+    delegation_deadline_at = Column(DateTime, nullable=True, index=True)
+    # Typed, system-owned marker for a malformed delegated wait that the P4
+    # watchdog terminalised.  Checkpoints remain the audit trail; this scalar
+    # lets recovery queries distinguish an authorised weak parent handoff from
+    # arbitrary historical error text without dialect-specific JSON scans.
+    delegation_quarantined_at = Column(DateTime, nullable=True, index=True)
     waiting_subflows = Column(JSON, default=dict, nullable=False)
 
     system = relationship("System", back_populates="runs")

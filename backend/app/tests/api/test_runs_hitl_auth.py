@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -16,6 +17,7 @@ from app.core.iam.roles import (
 )
 from app.models.decision import Decision
 from app.models.run import Run
+from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -28,6 +30,7 @@ from app.services.chat_execution_policy import (
 @pytest.fixture(autouse=True)
 def _stub_durable_ordinary_hitl_resume(monkeypatch):
     from app.services.run_engine import engine
+    from app.services.run_engine import dispatch_outbox
 
     monkeypatch.setattr(
         engine,
@@ -36,6 +39,13 @@ def _stub_durable_ordinary_hitl_resume(monkeypatch):
     )
     monkeypatch.setattr(runs, "_postgres_hitl_coordination_supported", lambda: True)
     monkeypatch.setattr(runs, "_durable_run_hitl_enabled", lambda _system: True)
+    # API tests assert the durable DB handoff. RabbitMQ publication is covered
+    # separately by the outbox unit tests and the real broker gate.
+    monkeypatch.setattr(
+        dispatch_outbox,
+        "reconcile_dispatch_outbox",
+        lambda **_kwargs: {"claimed": 0, "published": 0},
+    )
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -199,16 +209,6 @@ def test_ordinary_hitl_idempotent_retry_republishes_same_durable_task(
     workspace, initiator, _other, _membership, _system, run, decision = _seed_pending_run(
         db_session
     )
-    from app.services.run_engine import engine
-
-    dispatched = []
-    monkeypatch.setattr(
-        engine,
-        "schedule_run_hitl_resume",
-        lambda run_id, *, decision_id: (
-            dispatched.append((run_id, decision_id)) or "same-durable-task"
-        ),
-    )
     client = _client(db_session, workspace, initiator)
 
     first = client.post(f"/runs/{run.id}/hitl", json={"action": "accept"})
@@ -216,9 +216,12 @@ def test_ordinary_hitl_idempotent_retry_republishes_same_durable_task(
 
     assert first.status_code == 200
     assert retry.status_code == 200
-    assert first.json()["resume_task_id"] == "same-durable-task"
-    assert retry.json()["resume_task_id"] == "same-durable-task"
-    assert dispatched == [(run.id, decision.id), (run.id, decision.id)]
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.event_type == "run_hitl_resume"
+    assert (event.run_id, event.decision_id) == (run.id, decision.id)
+    assert first.json()["resume_task_id"] == event.task_id
+    assert retry.json()["resume_task_id"] == event.task_id
+    assert db_session.query(RunDispatchOutbox).count() == 1
 
 
 def test_in_process_child_and_parent_routes_share_outermost_resume_owner(
@@ -252,16 +255,6 @@ def test_in_process_child_and_parent_routes_share_outermost_resume_owner(
     db_session.add_all([outer, parent])
     db_session.commit()
 
-    from app.services.run_engine import engine
-
-    dispatched = []
-    monkeypatch.setattr(
-        engine,
-        "schedule_run_hitl_resume",
-        lambda run_id, *, decision_id: (
-            dispatched.append((run_id, decision_id)) or f"resume-{run_id}-{decision_id}"
-        ),
-    )
     client = _client(db_session, workspace, initiator)
 
     child_response = client.post(f"/runs/{child.id}/hitl", json={"action": "accept"})
@@ -271,8 +264,11 @@ def test_in_process_child_and_parent_routes_share_outermost_resume_owner(
     assert child_response.json()["id"] == child.id
     assert parent_retry.status_code == 200
     assert parent_retry.json()["id"] == parent.id
-    assert dispatched == [(outer.id, decision.id), (outer.id, decision.id)]
     assert child_response.json()["resume_task_id"] == parent_retry.json()["resume_task_id"]
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.event_type == "run_hitl_resume"
+    assert (event.run_id, event.decision_id) == (outer.id, decision.id)
+    assert event.task_id == child_response.json()["resume_task_id"]
     db_session.refresh(outer)
     dispatch_checkpoints = [
         checkpoint
@@ -334,8 +330,6 @@ def test_nested_in_process_descendant_under_celery_child_uses_p4_resume(
     db_session,
     monkeypatch,
 ):
-    from app.services.run_engine import engine
-
     workspace, initiator, _other, _membership, system, leaf, decision = _seed_pending_run(
         db_session
     )
@@ -395,22 +389,6 @@ def test_nested_in_process_descendant_under_celery_child_uses_p4_resume(
     db_session.add_all([broker_parent, outer_child, middle])
     db_session.commit()
 
-    specialized = []
-    monkeypatch.setattr(
-        engine,
-        "schedule_subflow_hitl_resume",
-        lambda child_id, *, decision_id: (
-            specialized.append((child_id, decision_id)) or "p4-hitl-resume"
-        ),
-    )
-    monkeypatch.setattr(
-        engine,
-        "schedule_run_hitl_resume",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("generic HITL task must not cross a Celery delegation boundary")
-        ),
-    )
-
     response = _client(db_session, workspace, initiator).post(
         f"/runs/{leaf.id}/hitl",
         json={"action": "accept"},
@@ -418,8 +396,10 @@ def test_nested_in_process_descendant_under_celery_child_uses_p4_resume(
 
     assert response.status_code == 200
     assert response.json()["id"] == leaf.id
-    assert response.json()["resume_task_id"] == "p4-hitl-resume"
-    assert specialized == [(outer_child.id, decision.id)]
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.event_type == "subflow_hitl_resume"
+    assert (event.run_id, event.decision_id) == (outer_child.id, decision.id)
+    assert response.json()["resume_task_id"] == event.task_id
     db_session.refresh(outer_child)
     assert any(
         checkpoint.get("kind") == "hitl_resume_dispatch"
@@ -430,8 +410,6 @@ def test_nested_in_process_descendant_under_celery_child_uses_p4_resume(
 
 
 def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
-    from app.services.run_engine import engine
-
     workspace, initiator, _other, _membership, system, child, decision = _seed_pending_run(
         db_session
     )
@@ -473,12 +451,6 @@ def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
     }
     db_session.add(parent)
     db_session.commit()
-    published = []
-    monkeypatch.setattr(
-        engine,
-        "schedule_subflow_hitl_resume",
-        lambda child_id, *, decision_id: published.append((child_id, decision_id)) or "resume-task",
-    )
     monkeypatch.setattr(
         runs,
         "_resume_wrapper",
@@ -491,8 +463,10 @@ def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["resume_task_id"] == "resume-task"
-    assert published == [(child.id, decision.id)]
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.event_type == "subflow_hitl_resume"
+    assert (event.run_id, event.decision_id) == (child.id, decision.id)
+    assert response.json()["resume_task_id"] == event.task_id
     db_session.refresh(decision)
     assert decision.status == "accepted"
 
@@ -501,14 +475,15 @@ def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
         json={"action": "accept"},
     )
     assert idempotent_retry.status_code == 200
-    assert published == [(child.id, decision.id), (child.id, decision.id)]
+    assert idempotent_retry.json()["resume_task_id"] == event.task_id
+    assert db_session.query(RunDispatchOutbox).count() == 1
 
     conflicting = _client(db_session, workspace, initiator).post(
         f"/runs/{child.id}/hitl",
         json={"action": "reject"},
     )
     assert conflicting.status_code == 409
-    assert published == [(child.id, decision.id), (child.id, decision.id)]
+    assert db_session.query(RunDispatchOutbox).count() == 1
 
     stale_decision = Decision(
         id=str(uuid4()),
@@ -539,7 +514,135 @@ def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
     assert stale.status_code == 409
     db_session.refresh(stale_decision)
     assert stale_decision.status == "proposed"
-    assert published == [(child.id, decision.id), (child.id, decision.id)]
+    assert db_session.query(RunDispatchOutbox).count() == 1
+
+
+def test_delegated_hitl_rejects_a_first_resolution_after_its_deadline(
+    db_session,
+):
+    workspace, initiator, _other, _membership, system, child, decision = _seed_pending_run(
+        db_session
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="waiting_subflows",
+    )
+    deadline = datetime.utcnow() - timedelta(seconds=1)
+    child.parent_run_id = parent.id
+    child.delegation_key = "c" * 64
+    child.delegation_node_id = "deadline-review"
+    child.delegation_branch = "legal"
+    child.delegation_deadline_at = deadline
+    child.input_ref = {
+        "_delegation": {
+            "parent_run_id": parent.id,
+            "delegation_node_id": child.delegation_node_id,
+            "branch": child.delegation_branch,
+            "execution_plane": "celery",
+            "deadline_at": deadline.isoformat(),
+        }
+    }
+    parent.waiting_subflows = {
+        "_meta": {
+            "strategy": "all",
+            "state": "waiting",
+            "wave_id": 1,
+            "execution_plane": "celery",
+        },
+        child.delegation_key: {
+            "child_run_id": child.id,
+            "node_id": child.delegation_node_id,
+            "branch": child.delegation_branch,
+            "status": "hitl_pending",
+            "deadline_at": deadline.isoformat(),
+            "wave_id": 1,
+        },
+    }
+    db_session.add(parent)
+    db_session.commit()
+
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Delegated HITL deadline has expired"
+    db_session.refresh(decision)
+    assert decision.status == "proposed"
+    assert db_session.query(RunDispatchOutbox).count() == 0
+
+
+def test_delegated_hitl_rolls_back_when_transition_timestamp_crosses_deadline(
+    db_session,
+    monkeypatch,
+):
+    workspace, initiator, _other, _membership, system, child, decision = _seed_pending_run(
+        db_session
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="waiting_subflows",
+    )
+    deadline = datetime.utcnow() + timedelta(minutes=1)
+    child.parent_run_id = parent.id
+    child.delegation_key = "f" * 64
+    child.delegation_node_id = "deadline-lock"
+    child.delegation_branch = "legal"
+    child.delegation_deadline_at = deadline
+    child.input_ref = {
+        "_delegation": {
+            "parent_run_id": parent.id,
+            "delegation_node_id": child.delegation_node_id,
+            "branch": child.delegation_branch,
+            "execution_plane": "celery",
+            "deadline_at": deadline.isoformat(),
+        }
+    }
+    parent.waiting_subflows = {
+        "_meta": {
+            "strategy": "all",
+            "state": "waiting",
+            "wave_id": 1,
+            "execution_plane": "celery",
+        },
+        child.delegation_key: {
+            "child_run_id": child.id,
+            "node_id": child.delegation_node_id,
+            "branch": child.delegation_branch,
+            "status": "hitl_pending",
+            "deadline_at": deadline.isoformat(),
+            "wave_id": 1,
+        },
+    }
+    db_session.add(parent)
+    db_session.commit()
+
+    def transition_after_deadline(db, current, *, actor, note, commit):
+        assert commit is False
+        current.status = "accepted"
+        current.approved_by = actor
+        current.approved_at = deadline + timedelta(microseconds=1)
+        db.flush()
+        return current
+
+    monkeypatch.setattr(runs, "accept_decision", transition_after_deadline)
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Delegated HITL deadline has expired"
+    db_session.expire_all()
+    persisted = db_session.query(Decision).filter(Decision.id == decision.id).one()
+    assert persisted.status == "proposed"
+    assert persisted.approved_at is None
+    assert db_session.query(RunDispatchOutbox).count() == 0
 
 
 def test_managed_agentic_hitl_requires_admin_even_for_run_initiator(

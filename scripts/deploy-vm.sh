@@ -118,6 +118,10 @@ service_is_selected() {
 	return 1
 }
 
+p4_maintenance_container_exists() {
+	docker inspect agentium-p4-maintenance >/dev/null 2>&1
+}
+
 # --- Audit de dérive : manifeste md5 conteneur <-> arbre git (tout backend/app) -------------
 drift_audit() {
 	local expected_sha="$1"
@@ -178,6 +182,19 @@ drift_audit() {
 			fail=1
 		fi
 	done
+	if service_is_selected "agentium-worker-cpu" && p4_maintenance_container_exists; then
+		local maintenance_image_id maintenance_revision
+		maintenance_image_id="$(docker inspect --format '{{.Image}}' agentium-p4-maintenance)"
+		maintenance_revision="$(docker image inspect \
+			--format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+			"$maintenance_image_id" 2>/dev/null || true)"
+		if [[ "$maintenance_revision" == "$expected_sha" ]]; then
+			ok "agentium-p4-maintenance : image OCI alignée sur SHA attendu (${expected_sha:0:12})"
+		else
+			warn "agentium-p4-maintenance : image OCI revision='${maintenance_revision:-absente}', attendu='$expected_sha'"
+			fail=1
+		fi
+	fi
 
 	# 4) Code des conteneurs == arbre git (manifeste md5 sur tout backend/app) ?
 	for svc in agentium-backend agentium-worker-cpu; do
@@ -199,6 +216,23 @@ drift_audit() {
 			fail=1
 		fi
 	done
+	if service_is_selected "agentium-worker-cpu" && p4_maintenance_container_exists; then
+		if ! docker ps --format '{{.Names}}' | grep -qx agentium-p4-maintenance; then
+			warn "agentium-p4-maintenance est arrêté"
+			fail=1
+		else
+			local host_manifest maintenance_manifest maintenance_diff_count
+			host_manifest="$(find backend/app -name '*.py' | sort | xargs md5sum 2>/dev/null | awk '{print $1, $2}')"
+			maintenance_manifest="$(docker exec agentium-p4-maintenance sh -c "cd /app && find backend/app -name '*.py' | sort | xargs md5sum 2>/dev/null | awk '{print \$1, \$2}'")"
+			maintenance_diff_count="$(diff <(printf '%s\n' "$host_manifest") <(printf '%s\n' "$maintenance_manifest") | grep -cE '^[<>]' || true)"
+			if [[ "$maintenance_diff_count" -eq 0 ]]; then
+				ok "agentium-p4-maintenance : code identique à l'arbre git (backend/app/*.py)"
+			else
+				warn "agentium-p4-maintenance : $maintenance_diff_count fichier(s) divergent(s)"
+				fail=1
+			fi
+		fi
+	fi
 
 	return $fail
 }
@@ -479,6 +513,13 @@ rollback_from_state() {
 		expected_image_ids["$svc"]="$image_id"
 	done <"$state_file"
 	[[ "${#SELECTED_SERVICES[@]}" -gt 0 ]] || die "Aucune image dans l'état de rollback"
+	# The maintenance process is a derived consumer of the worker image, not an
+	# independently tagged rollback artifact. Stop the candidate coordinator
+	# before retagging the worker so it can never keep running candidate code
+	# across an image/schema rollback.
+	if p4_maintenance_container_exists; then
+		docker rm -f agentium-p4-maintenance >/dev/null
+	fi
 
 	dirty="$(git status --porcelain | grep -vE 'uvicorn\.log|\.pyc$' || true)"
 	[[ -z "$dirty" || "$FORCE" -eq 1 ]] || die "Arbre VM modifié; rollback refusé sans --force"
@@ -497,6 +538,15 @@ rollback_from_state() {
 	# Keep the candidate script/check-out available until old images are healthy.
 	# A failed Compose/health step can then be replayed with the same state.
 	git reset --hard "$previous_sha"
+	if service_is_selected "agentium-worker-cpu"; then
+		cd "$REPO_DIR/docker"
+		if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --services |
+			grep -qx agentium-p4-maintenance; then
+			docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d \
+				--no-build --force-recreate agentium-p4-maintenance
+		fi
+		cd "$REPO_DIR"
+	fi
 	if drift_audit "$previous_sha" 1; then
 		ok "Rollback de $target_sha vers $previous_sha terminé"
 	else
@@ -596,6 +646,15 @@ verify_database_at_image_head
 cd "$REPO_DIR/docker"
 say "docker compose up -d $SERVICES"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-build "${SELECTED_SERVICES[@]}"
+if service_is_selected "agentium-worker-cpu" && \
+	docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --services |
+	grep -qx agentium-p4-maintenance; then
+	# This process is safe to create during the additive rollout: its own flag
+	# defaults to false. Recreating it with every worker rollout prevents a
+	# stale coordinator image from surviving a later deploy.
+	docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d \
+		--no-build --force-recreate agentium-p4-maintenance
+fi
 cd "$REPO_DIR"
 
 # 4) Backend et frontend sélectionnés doivent tous deux devenir sains.

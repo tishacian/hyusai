@@ -182,6 +182,7 @@ def db_session():
         "evaluation_scores",
         "evaluation_presets",
         "rag_presets",
+        "run_dispatch_outbox",
         "runs",
         "system_versions",
         "systems",

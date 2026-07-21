@@ -42,6 +42,7 @@ def _transition(
     target: DecisionState,
     actor: Optional[str],
     note: Optional[str] = None,
+    commit: bool = True,
 ) -> Decision:
     current = decision.status or DecisionState.proposed.value
     if target.value not in _ALLOWED.get(current, set()):
@@ -54,7 +55,10 @@ def _transition(
         decision.approved_at = datetime.utcnow()
     if note:
         decision.notes = (decision.notes or "") + ("\n" if decision.notes else "") + note
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return decision
 
 
@@ -64,8 +68,16 @@ def accept(
     *,
     actor: Optional[str] = None,
     note: Optional[str] = None,
+    commit: bool = True,
 ) -> Decision:
-    return _transition(db, decision, target=DecisionState.accepted, actor=actor, note=note)
+    return _transition(
+        db,
+        decision,
+        target=DecisionState.accepted,
+        actor=actor,
+        note=note,
+        commit=commit,
+    )
 
 
 def reject(
@@ -74,8 +86,16 @@ def reject(
     *,
     actor: Optional[str] = None,
     note: Optional[str] = None,
+    commit: bool = True,
 ) -> Decision:
-    return _transition(db, decision, target=DecisionState.rejected, actor=actor, note=note)
+    return _transition(
+        db,
+        decision,
+        target=DecisionState.rejected,
+        actor=actor,
+        note=note,
+        commit=commit,
+    )
 
 
 def apply(

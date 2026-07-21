@@ -163,7 +163,7 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
     return asyncio.run(_entry())
 
 
-def schedule_subflow_run(child_run_id: str) -> str:
+def schedule_subflow_run(child_run_id: str, *, task_id: Optional[str] = None) -> str:
     """Dispatch a delegated child run.
 
     Dispatch is deliberately fail-closed.  A broker error is ambiguous (the
@@ -174,9 +174,15 @@ def schedule_subflow_run(child_run_id: str) -> str:
     try:
         from app.workers.tasks import subflow_run as subflow_task  # noqa: WPS433
 
+        task_id = task_id or str(
+            uuid5(NAMESPACE_URL, f"agentium:subflow-run:{child_run_id}")
+        )
         remaining = _subflow_deadline_remaining(child_run_id)
         if remaining is None:
-            async_result = subflow_task.delay(child_run_id)
+            async_result = subflow_task.apply_async(
+                args=[child_run_id],
+                task_id=task_id,
+            )
         else:
             # The absolute deadline is persisted with the child before this
             # publication. Redeliveries therefore consume the same budget
@@ -184,6 +190,7 @@ def schedule_subflow_run(child_run_id: str) -> str:
             soft_limit = max(1, int(math.ceil(remaining)))
             async_result = subflow_task.apply_async(
                 args=[child_run_id],
+                task_id=task_id,
                 soft_time_limit=soft_limit,
                 time_limit=soft_limit + 5,
             )
@@ -223,13 +230,20 @@ def _subflow_deadline_remaining(child_run_id: str) -> Optional[float]:
         return 0.0
 
 
-def schedule_subflow_parent_resume(parent_run_id: str, *, source_id: str) -> str:
+def schedule_subflow_parent_resume(
+    parent_run_id: str,
+    *,
+    source_id: str,
+    task_id: Optional[str] = None,
+) -> str:
     """Publish an idempotent, durable parent-resume task."""
 
     try:
         from app.workers.tasks import subflow_parent_resume  # noqa: WPS433
 
-        task_id = str(uuid5(NAMESPACE_URL, f"agentium:subflow-parent:{parent_run_id}:{source_id}"))
+        task_id = task_id or str(
+            uuid5(NAMESPACE_URL, f"agentium:subflow-parent:{parent_run_id}:{source_id}")
+        )
         result = subflow_parent_resume.apply_async(args=[parent_run_id], task_id=task_id)
         if not getattr(result, "id", None):
             raise RuntimeError("parent resume dispatch returned no task id")
@@ -244,13 +258,20 @@ def schedule_subflow_parent_resume(parent_run_id: str, *, source_id: str) -> str
         raise RuntimeError(f"ambiguous parent resume dispatch for {parent_run_id}") from exc
 
 
-def schedule_subflow_hitl_resume(child_run_id: str, *, decision_id: str) -> str:
+def schedule_subflow_hitl_resume(
+    child_run_id: str,
+    *,
+    decision_id: str,
+    task_id: Optional[str] = None,
+) -> str:
     """Publish a delegated child HITL continuation using identifiers only."""
 
     try:
         from app.workers.tasks import subflow_hitl_resume  # noqa: WPS433
 
-        task_id = str(uuid5(NAMESPACE_URL, f"agentium:subflow-hitl:{child_run_id}:{decision_id}"))
+        task_id = task_id or str(
+            uuid5(NAMESPACE_URL, f"agentium:subflow-hitl:{child_run_id}:{decision_id}")
+        )
         result = subflow_hitl_resume.apply_async(
             args=[child_run_id, decision_id],
             task_id=task_id,
@@ -268,7 +289,12 @@ def schedule_subflow_hitl_resume(child_run_id: str, *, decision_id: str) -> str:
         raise RuntimeError(f"ambiguous subflow HITL dispatch for {child_run_id}") from exc
 
 
-def schedule_run_hitl_resume(run_id: str, *, decision_id: str) -> str:
+def schedule_run_hitl_resume(
+    run_id: str,
+    *,
+    decision_id: str,
+    task_id: Optional[str] = None,
+) -> str:
     """Durably publish an ordinary HITL continuation.
 
     The deterministic task id makes an HTTP retry safe after an ambiguous
@@ -280,7 +306,9 @@ def schedule_run_hitl_resume(run_id: str, *, decision_id: str) -> str:
     try:
         from app.workers.tasks import run_hitl_resume  # noqa: WPS433
 
-        task_id = str(uuid5(NAMESPACE_URL, f"agentium:run-hitl:{run_id}:{decision_id}"))
+        task_id = task_id or str(
+            uuid5(NAMESPACE_URL, f"agentium:run-hitl:{run_id}:{decision_id}")
+        )
         result = run_hitl_resume.apply_async(
             args=[run_id, decision_id],
             task_id=task_id,

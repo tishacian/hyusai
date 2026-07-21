@@ -28,6 +28,20 @@ from app.models.workspace import Workspace
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
+def _wave_ids_equal(left: Any, right: Any) -> bool:
+    """Compare canonical non-negative integer wave ids without coercion."""
+
+    if left is None or right is None:
+        return left is None and right is None
+    return (
+        type(left) is int
+        and type(right) is int
+        and left >= 0
+        and right >= 0
+        and left == right
+    )
+
+
 def _parent_lock_key(parent_run_id: str) -> int:
     """Map a Run id to PostgreSQL's signed 64-bit advisory-lock space."""
 
@@ -221,7 +235,10 @@ def _active_waiting_items(
         for key, value in waiting.items()
         if key != "_meta"
         and isinstance(value, dict)
-        and (active_wave is None or value.get("wave_id") == active_wave)
+        and (
+            active_wave is None
+            or _wave_ids_equal(value.get("wave_id"), active_wave)
+        )
     ]
 
 
@@ -248,35 +265,24 @@ def _scoped_child_query(
     )
 
 
-def delegated_celery_context(
+def delegated_parent_claim_context(
     db: DBSession,
     *,
     child: Run,
     workspace_id: str | None,
 ) -> tuple[Run, dict[str, Any]] | None:
-    """Verify the persisted parent/child envelope for a Celery delegation.
+    """Return the active parent claim for this exact child and workspace.
 
-    A broker task id is delivery metadata, not proof of which execution plane
-    owns a paused child.  The durable proof is the agreement between the child
-    columns, its immutable delegation envelope, and the active parent waiting
-    entry in the same workspace.
+    This deliberately does not trust the child ``input_ref``.  It is the
+    recovery-grade half of the contract used when a malformed child must be
+    failed and its otherwise valid parent woken.  Normal execution must still
+    use :func:`delegated_celery_context`, which validates both durable sides.
     """
 
     if (
         child.workspace_id != workspace_id
         or not child.parent_run_id
         or not child.delegation_key
-    ):
-        return None
-    delegation = (
-        ((child.input_ref or {}).get("_delegation") or {})
-        if isinstance(child.input_ref, dict)
-        else {}
-    )
-    if (
-        not isinstance(delegation, dict)
-        or str(delegation.get("parent_run_id") or "") != child.parent_run_id
-        or str(delegation.get("execution_plane") or "") != "celery"
     ):
         return None
     parent = (
@@ -307,6 +313,42 @@ def delegated_celery_context(
     entry = active.get(child.delegation_key)
     if not isinstance(entry, dict) or str(entry.get("child_run_id") or "") != child.id:
         return None
+    return parent, entry
+
+
+def delegated_celery_context(
+    db: DBSession,
+    *,
+    child: Run,
+    workspace_id: str | None,
+) -> tuple[Run, dict[str, Any]] | None:
+    """Verify the persisted parent/child envelope for a Celery delegation.
+
+    A broker task id is delivery metadata, not proof of which execution plane
+    owns a paused child.  The durable proof is the agreement between the child
+    columns, its immutable delegation envelope, and the active parent waiting
+    entry in the same workspace.
+    """
+
+    delegation = (
+        ((child.input_ref or {}).get("_delegation") or {})
+        if isinstance(child.input_ref, dict)
+        else {}
+    )
+    if (
+        not isinstance(delegation, dict)
+        or str(delegation.get("parent_run_id") or "") != child.parent_run_id
+        or str(delegation.get("execution_plane") or "") != "celery"
+    ):
+        return None
+    parent_context = delegated_parent_claim_context(
+        db,
+        child=child,
+        workspace_id=workspace_id,
+    )
+    if parent_context is None:
+        return None
+    parent, entry = parent_context
     if str(entry.get("node_id") or "") != str(child.delegation_node_id or ""):
         return None
     if str(entry.get("branch") or "") != str(child.delegation_branch or ""):
@@ -947,11 +989,18 @@ def cancel_waiting_children(parent_run_id: str, *, reason: str = "parent_cancell
 
 
 def retry_ambiguous_dispatches(parent_run_id: str) -> dict[str, str]:
-    """Retry broker-ambiguous dispatches without changing logical identity."""
-    from .engine import schedule_subflow_run
+    """Migrate legacy ambiguous entries onto the transactional outbox.
+
+    This compatibility hook is intentionally not a second broker publisher:
+    it persists the same logical dispatch and lets the reconciler remain the
+    single owner of RabbitMQ publication.
+    """
+    from app.models.run_dispatch_outbox import RunDispatchOutbox
+    from .dispatch_outbox import SUBFLOW_RUN, enqueue_dispatch, reconcile_dispatch_outbox
 
     db: DBSession = SessionLocal()
     results: dict[str, str] = {}
+    event_ids: dict[str, str] = {}
     try:
         parent = db.query(Run).filter(Run.id == parent_run_id).with_for_update().first()
         if parent is None:
@@ -973,16 +1022,40 @@ def retry_ambiguous_dispatches(parent_run_id: str) -> dict[str, str]:
             )
             if child is None or child.status in TERMINAL:
                 continue
-            try:
-                task_id = schedule_subflow_run(child.id)
-            except RuntimeError:
-                results[key] = "ambiguous"
-                continue
-            child.celery_task_id = task_id
-            entry.update({"celery_task_id": task_id, "dispatch_state": "dispatched"})
-            results[key] = "dispatched"
+            event = enqueue_dispatch(
+                db,
+                event_type=SUBFLOW_RUN,
+                workspace_id=str(parent.workspace_id),
+                run_id=child.id,
+                source_id=child.delegation_key,
+                wave_id=entry.get("wave_id"),
+            )
+            event_ids[key] = event.id
+            entry.update(
+                {
+                    "celery_task_id": event.task_id,
+                    "dispatch_state": "outbox_pending",
+                }
+            )
+            results[key] = "outbox_pending"
         parent.waiting_subflows = waiting
         db.commit()
-        return results
     finally:
         db.close()
+    if not event_ids:
+        return results
+    try:
+        reconcile_dispatch_outbox(batch_size=max(50, len(event_ids)), lease_seconds=60)
+    except Exception:
+        return results
+    with SessionLocal() as settled_db:
+        states = {
+            row.id: row.state
+            for row in settled_db.query(RunDispatchOutbox)
+            .filter(RunDispatchOutbox.id.in_(event_ids.values()))
+            .all()
+        }
+    for key, event_id in event_ids.items():
+        state = states.get(event_id, "missing")
+        results[key] = "dispatched" if state == "published" else state
+    return results

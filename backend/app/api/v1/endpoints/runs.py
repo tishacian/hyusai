@@ -6,7 +6,7 @@ skill calls.
 """
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from uuid import uuid4
 
@@ -67,6 +67,30 @@ def _durable_run_hitl_enabled(system: Optional[System]) -> bool:
         and isinstance(features, dict)
         and features.get("run_hitl_celery") is True
     )
+
+
+def _utc_naive_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    try:
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _delegated_hitl_deadline(run: Run) -> Optional[datetime]:
+    """Return the immutable delegation deadline as naïve UTC, if configured."""
+
+    value: Any = run.delegation_deadline_at
+    if value is None and isinstance(run.input_ref, dict):
+        delegation = (run.input_ref.get("_delegation") or {})
+        value = delegation.get("deadline_at") if isinstance(delegation, dict) else None
+    return _utc_naive_datetime(value)
 
 
 def _has_private_chat_admin_access(
@@ -816,6 +840,17 @@ async def resolve_run_hitl(
         db.rollback()
         raise HTTPException(409, "Delegated HITL context is no longer active")
     delegated_celery_child = delegated_context is not None
+    if delegated_celery_child:
+        deadline = _delegated_hitl_deadline(r)
+        resolved_before_deadline = bool(
+            deadline is not None
+            and decision.status in {"accepted", "applied", "rejected"}
+            and _utc_naive_datetime(decision.approved_at) is not None
+            and _utc_naive_datetime(decision.approved_at) <= deadline
+        )
+        if deadline is not None and datetime.utcnow() > deadline and not resolved_before_deadline:
+            db.rollback()
+            raise HTTPException(409, "Delegated HITL deadline has expired")
     run_system = (
         db.query(System)
         .filter(
@@ -860,45 +895,64 @@ async def resolve_run_hitl(
 
     expected_final = "accepted" if body.action == "accept" else "rejected"
     already_resolved = decision.status == expected_final
+    dispatch_event = None
     if not already_resolved:
         try:
             if body.action == "accept":
-                accept_decision(db, decision, actor=actor, note=body.note)
+                accept_decision(db, decision, actor=actor, note=body.note, commit=False)
             else:
-                reject_decision(db, decision, actor=actor, note=body.note)
+                reject_decision(db, decision, actor=actor, note=body.note, commit=False)
         except InvalidTransition as exc:
             db.rollback()
             raise HTTPException(409, str(exc)) from exc
-    else:
-        # Release locks and persist any newly introduced dispatch snapshot
-        # before deterministic republish on an idempotent retry.
-        db.commit()
+        if delegated_celery_child and deadline is not None:
+            approved_at = _utc_naive_datetime(decision.approved_at)
+            if approved_at is None or approved_at > deadline:
+                # The state machine timestamps the durable transition. Check
+                # that value as well as the pre-transition clock so a request
+                # waiting on locks cannot cross the deadline unnoticed.
+                db.rollback()
+                raise HTTPException(409, "Delegated HITL deadline has expired")
 
-    resume_task_id: Optional[str] = None
-    if dispatch_plane == "subflow_celery":
-        # A delegated HITL continuation must survive API process loss. The
-        # message carries only the persisted child id; the worker reloads the
-        # accepted Decision from the child's checkpoint.
-        from app.services.run_engine.engine import schedule_subflow_hitl_resume
+    if dispatch_plane in {"subflow_celery", "run_celery"}:
+        from app.services.run_engine.dispatch_outbox import (
+            RUN_HITL_RESUME,
+            SUBFLOW_HITL_RESUME,
+            enqueue_dispatch,
+        )
+
+        dispatch_event = enqueue_dispatch(
+            db,
+            event_type=(
+                SUBFLOW_HITL_RESUME
+                if dispatch_plane == "subflow_celery"
+                else RUN_HITL_RESUME
+            ),
+            workspace_id=str(workspace.id),
+            run_id=r.id,
+            decision_id=decision.id,
+        )
+    # Decision, immutable dispatch-plane checkpoint and outbox event form one
+    # transaction. A lost API process can therefore never leave a durable
+    # approval without a durable continuation request.
+    db.commit()
+
+    resume_task_id: Optional[str] = dispatch_event.task_id if dispatch_event else None
+    if dispatch_event is not None:
+        from app.services.run_engine.dispatch_outbox import reconcile_dispatch_outbox
 
         try:
-            resume_task_id = schedule_subflow_hitl_resume(r.id, decision_id=decision.id)
-        except RuntimeError as exc:
-            # The Decision is already durable. Returning 503 lets the caller
-            # retry the same action, which republishes the deterministic task
-            # id instead of falling back to an in-process continuation.
-            raise HTTPException(503, "Delegated HITL resume dispatch is ambiguous") from exc
-    elif dispatch_plane == "run_celery":
-        # Ordinary HITL uses a durable deterministic Celery task as well. An
-        # idempotent HTTP retry republishes safely after an ambiguous ACK; the
-        # worker's PostgreSQL lease prevents two messages from running two
-        # walkers concurrently.
-        from app.services.run_engine.engine import schedule_run_hitl_resume
-
-        try:
-            resume_task_id = schedule_run_hitl_resume(r.id, decision_id=decision.id)
-        except RuntimeError as exc:
-            raise HTTPException(503, "Run HITL resume dispatch is ambiguous") from exc
+            reconcile_dispatch_outbox(
+                batch_size=50,
+                lease_seconds=settings.p4_maintenance_lease_seconds,
+            )
+        except Exception as exc:  # persisted outbox remains authoritative
+            logger.warning(
+                "runs.hitl: immediate outbox reconciliation deferred",
+                run_id=r.id,
+                decision_id=decision.id,
+                error_type=type(exc).__name__,
+            )
     elif not already_resolved:
         # Preserve the historical in-process path unless the explicit double
         # opt-in selected durable Celery before the Decision commit.

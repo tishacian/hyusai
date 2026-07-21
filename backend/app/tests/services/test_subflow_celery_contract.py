@@ -79,17 +79,19 @@ def test_dispatch_reuses_persisted_absolute_deadline(db_session, monkeypatch):
             raise AssertionError("deadline dispatch must use apply_async")
 
         @staticmethod
-        def apply_async(*, args, soft_time_limit, time_limit):
+        def apply_async(*, args, task_id, soft_time_limit, time_limit):
             published.update(
                 args=args,
+                task_id=task_id,
                 soft_time_limit=soft_time_limit,
                 time_limit=time_limit,
             )
             return Result()
 
     monkeypatch.setitem(sys.modules, "app.workers.tasks", SimpleNamespace(subflow_run=Task()))
-    assert engine.schedule_subflow_run(child.id) == "deadline-task"
+    assert engine.schedule_subflow_run(child.id, task_id="deadline-task") == "deadline-task"
     assert published["args"] == [child.id]
+    assert published["task_id"] == "deadline-task"
     assert 1 <= published["soft_time_limit"] <= 3
     assert published["time_limit"] == published["soft_time_limit"] + 5
 
@@ -106,6 +108,20 @@ def test_join_strategies_are_deterministic():
     assert resolve_waiting(entries) == (False, None)
     entries["_meta"]["strategy"] = "race"
     assert resolve_waiting(entries) == (True, "a")
+
+
+@pytest.mark.parametrize("coerced_wave", [True, 1.0, "1"])
+def test_active_wave_never_uses_python_scalar_coercion(coerced_wave):
+    waiting = {
+        "_meta": {"strategy": "all", "wave_id": 1},
+        "coerced": {
+            "child_run_id": "coerced",
+            "status": "completed",
+            "wave_id": coerced_wave,
+        },
+    }
+
+    assert resolve_waiting(waiting) == (False, None)
 
 
 def test_typed_delegation_acl_enforces_target_branch_and_input_contract():
@@ -188,27 +204,62 @@ def test_invalid_v2_enforce_delegation_is_fail_closed():
 
 def test_ambiguous_retry_reuses_same_child_id(db_session, monkeypatch):
     from app.models.run import Run
+    from app.models.run_dispatch_outbox import RunDispatchOutbox
+    from app.models.workspace import Workspace
 
-    parent = Run(id=str(uuid4()), status="waiting_subflows")
+    workspace = Workspace(id=str(uuid4()), slug=f"retry-{uuid4()}", name="Retry")
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        status="waiting_subflows",
+    )
     child = Run(
-        id=str(uuid4()), parent_run_id=parent.id, status="pending",
+        id=str(uuid4()), workspace_id=workspace.id, parent_run_id=parent.id, status="pending",
         delegation_key="a" * 64,
+        delegation_node_id="delegate",
+        delegation_branch="main",
+        input_ref={
+            "_delegation": {
+                "parent_run_id": parent.id,
+                "execution_plane": "celery",
+            }
+        },
     )
     parent.waiting_subflows = {
-        "_meta": {"strategy": "all"},
+        "_meta": {
+            "strategy": "all",
+            "state": "waiting",
+            "execution_plane": "celery",
+            "wave_id": 1,
+        },
         child.delegation_key: {
             "child_run_id": child.id,
             "dispatch_state": "ambiguous",
             "status": "pending",
+            "node_id": "delegate",
+            "branch": "main",
+            "wave_id": 1,
         },
     }
-    db_session.add_all([parent, child])
+    db_session.add_all([workspace, parent, child])
     db_session.commit()
-    dispatched = []
-    monkeypatch.setattr(engine, "schedule_subflow_run", lambda child_id: dispatched.append(child_id) or "task-1")
+
+    class Result:
+        def __init__(self, task_id):
+            self.id = task_id
+
+    published = []
+
+    def send_task(_name, *, args, kwargs, **options):
+        published.append((args, kwargs, options))
+        return Result(options["task_id"])
+
+    monkeypatch.setattr("app.workers.celery_app.celery_app.send_task", send_task)
     assert retry_ambiguous_dispatches(parent.id) == {child.delegation_key: "dispatched"}
-    assert dispatched == [child.id]
+    assert published[0][0] == [child.id]
+    assert published[0][1] == {}
     assert db_session.query(Run).filter(Run.parent_run_id == parent.id).count() == 1
+    assert db_session.query(RunDispatchOutbox).filter_by(state="published").count() == 1
 
 
 def test_race_cancels_non_terminal_losers(db_session, monkeypatch):
