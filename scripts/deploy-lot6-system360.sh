@@ -20,6 +20,7 @@ PREPARE_ATTEMPTED=0
 IMAGE_ACTIVATION_STARTED=0
 STAGE="initialization"
 TEMP_DEPLOYER=""
+EXERCISE_CONTAINER_REPORT=""
 
 say() { printf '%s\n' "==> $*"; }
 die() { printf '%s\n' "XX  $*" >&2; exit 1; }
@@ -69,6 +70,10 @@ chmod 0700 "$DEPLOY_DIR"
 
 cleanup() {
 	[[ -z "$TEMP_DEPLOYER" ]] || rm -f "$TEMP_DEPLOYER"
+	if [[ -n "$EXERCISE_CONTAINER_REPORT" ]]; then
+		docker exec agentium-backend rm -f -- "$EXERCISE_CONTAINER_REPORT" \
+			>/dev/null 2>&1 || true
+	fi
 }
 
 on_error() {
@@ -333,9 +338,21 @@ run_backend_report rollout-activate-flow.json \
 
 STAGE="real strict-flow exercise"
 EXERCISE_REPORT="$DEPLOY_DIR/.rollout-exercise.json.tmp"
+EXERCISE_CONTAINER_REPORT="/tmp/agentium-lot6-exercise-${EXPECTED_SHA}.json"
+rm -f "$EXERCISE_REPORT"
+docker exec agentium-backend rm -f -- "$EXERCISE_CONTAINER_REPORT"
+set +e
 printf '%s' "$EXERCISE_QUERY" | docker exec -i -w /app/backend agentium-backend \
 	python -m scripts.rollout_system360_canary exercise --apply --exercise-query-stdin \
-	>"$EXERCISE_REPORT"
+	--report "$EXERCISE_CONTAINER_REPORT" >/dev/null
+EXERCISE_CODE=$?
+set -e
+if docker exec agentium-backend test -s "$EXERCISE_CONTAINER_REPORT"; then
+	docker exec agentium-backend cat "$EXERCISE_CONTAINER_REPORT" >"$EXERCISE_REPORT"
+fi
+docker exec agentium-backend rm -f -- "$EXERCISE_CONTAINER_REPORT"
+EXERCISE_CONTAINER_REPORT=""
+[[ "$EXERCISE_CODE" -eq 0 ]] || false
 python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["exercise"]; assert e["status"] == "completed" and e["required_skills_observed"] is True and e["grounded_output_verified"] is True and e["canonical_provenance_verified"] is True' \
 	"$EXERCISE_REPORT"
 mv "$EXERCISE_REPORT" "$DEPLOY_DIR/rollout-exercise.json"

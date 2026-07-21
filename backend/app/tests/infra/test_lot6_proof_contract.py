@@ -325,6 +325,9 @@ def test_lot6_vm_wrapper_enforces_quiesced_order_and_stdin_exercise() -> None:
     assert positions == sorted(positions)
     assert "--exercise-query-stdin est obligatoire" in wrapper
     assert "La requête d'exercice" in wrapper
+    assert '--report "$EXERCISE_CONTAINER_REPORT" >/dev/null' in wrapper
+    assert 'docker exec agentium-backend cat "$EXERCISE_CONTAINER_REPORT"' in wrapper
+    assert 'rm -f "$EXERCISE_REPORT"' in wrapper
     assert 'e["grounded_output_verified"] is True' in wrapper
     assert 'e["canonical_provenance_verified"] is True' in wrapper
     assert "aucune restauration DB/image implicite" in wrapper
