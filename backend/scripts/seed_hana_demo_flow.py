@@ -136,11 +136,18 @@ def flow_hana_maintenance() -> Dict[str, Any]:
                     # empty input_ref, so run.query is unreliable).
                     "params": {
                         "query": DEMO_QUERY,
+                        # The grounded synthesis prompt defaults to French
+                        # output; the PIH audience is English-speaking.
+                        "lang_target": "en",
                     },
                     "inputs_map": {
                         "query": {
                             "node_id": "node",
                             "path": ["config", "params", "query"],
+                        },
+                        "lang_target": {
+                            "node_id": "node",
+                            "path": ["config", "params", "lang_target"],
                         },
                         "context": {"node_id": "task.hana", "path": ["context"]},
                     },
