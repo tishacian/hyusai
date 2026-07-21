@@ -329,6 +329,11 @@ def test_lot6_vm_wrapper_enforces_quiesced_order_and_stdin_exercise() -> None:
     assert 'e["canonical_provenance_verified"] is True' in wrapper
     assert "aucune restauration DB/image implicite" in wrapper
     assert "rollout-failure-rollback.json" in wrapper
+    assert 'local backup="$1"\n\tlocal checksum="$backup.sha256"' in wrapper
+    assert (
+        'local label="$1"\n\tlocal backup="$DEPLOY_DIR/postgres-${label}.dump"'
+        in wrapper
+    )
 
 
 def test_p4_protected_gate_uses_real_postgres_rabbitmq_and_worker() -> None:

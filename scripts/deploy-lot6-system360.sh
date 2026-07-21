@@ -156,7 +156,8 @@ verify_candidate_images() {
 }
 
 verify_backup() {
-	local backup="$1" checksum="$backup.sha256" expected actual
+	local backup="$1"
+	local checksum="$backup.sha256" expected actual
 	[[ -s "$backup" && -s "$checksum" ]] || return 1
 	expected="$(awk 'NR == 1 { print $1 }' "$checksum")"
 	actual="$(sha256sum "$backup" | awk '{ print $1 }')"
@@ -165,7 +166,8 @@ verify_backup() {
 }
 
 create_backup() {
-	local label="$1" backup="$DEPLOY_DIR/postgres-${label}.dump"
+	local label="$1"
+	local backup="$DEPLOY_DIR/postgres-${label}.dump"
 	local temporary checksum_tmp
 	if [[ -e "$backup" || -e "$backup.sha256" ]]; then
 		verify_backup "$backup" || die "Sauvegarde existante invalide: $backup"
