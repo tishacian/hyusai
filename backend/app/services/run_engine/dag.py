@@ -1463,7 +1463,12 @@ async def _execute_node(
             return result
 
         if node.kind == "sink":
-            result = {"output": node_input}
+            # A sink is the run's result collector. In strict mode a sink
+            # without an explicit inputs_map/passthrough resolves to an empty
+            # payload, which made ``_collect_terminal_output`` fall back to an
+            # arbitrary "last done" node (``done`` is a set). Default to the
+            # merged predecessor outputs so Run.output_ref is deterministic.
+            result = {"output": node_input or merged_input}
             return result
 
         if node.kind == "task":
