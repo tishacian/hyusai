@@ -1,13 +1,15 @@
 """Add gate TTL on decisions + run_inbox + system_memory.
 
-Revision ID: 063_gate_ttl_run_inbox_system_memory
+Revision ID: 063_gate_ttl_inbox_memory
 Revises: 062_run_schedules_webhook_hooks
+
+The revision id must stay under alembic_version's varchar(32).
 """
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "063_gate_ttl_run_inbox_system_memory"
+revision = "063_gate_ttl_inbox_memory"
 down_revision = "062_run_schedules_webhook_hooks"
 branch_labels = None
 depends_on = None
