@@ -79,6 +79,27 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 <span>Node</span><code>{{ h.node_id }}</code>
               </div>
             }
+            @if (h.expires_at || (h.inbox_count ?? 0) > 0 || h.memory) {
+              <div class="ck-term__card-meta" data-tone="gate-ttl">
+                @if (h.seconds_remaining != null) {
+                  <span>TTL</span>
+                  <code>{{ formatRemaining(h.seconds_remaining) }}</code>
+                  @if (h.expiry_action) {
+                    <span class="ck-term__pill" data-tone="warn">{{ h.expiry_action }}</span>
+                  }
+                }
+                @if ((h.inbox_count ?? 0) > 0) {
+                  <span>Buffered</span>
+                  <code>{{ h.inbox_count }} txn{{ h.inbox_count === 1 ? '' : 's' }}</code>
+                }
+                @if (h.memory; as mem) {
+                  @if (mem.event_count) {
+                    <span>Memory</span>
+                    <code>v{{ mem.version ?? 1 }} · {{ mem.event_count }} evt</code>
+                  }
+                }
+              </div>
+            }
             <div class="ck-term__actions">
               <button
                 type="button"
@@ -211,5 +232,18 @@ export class FlowTerminalComponent {
     } catch {
       return String(value);
     }
+  }
+
+  /** Compact remaining-time label for gate TTL (e.g. ``2d 4h``, ``45m``). */
+  protected formatRemaining(seconds: number | null | undefined): string {
+    if (seconds == null || !Number.isFinite(seconds)) return '—';
+    const s = Math.max(0, Math.floor(seconds));
+    if (s < 60) return `${s}s`;
+    const days = Math.floor(s / 86400);
+    const hours = Math.floor((s % 86400) / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+    if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    return `${mins}m`;
   }
 }

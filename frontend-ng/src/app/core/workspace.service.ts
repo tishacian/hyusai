@@ -209,6 +209,15 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['sap_hana_connector'] === true,
     );
   });
+  readonly rpaBridgeEnabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['rpa_bridge'] === true,
+    );
+  });
   readonly modelPortalEnabled = computed(() => {
     const features = this.current()?.settings?.['features'];
     return Boolean(

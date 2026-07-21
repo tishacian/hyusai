@@ -727,3 +727,11 @@ def refresh_macro_indicators_task(workspace_slug: str = "sentinel-ci", force: bo
             return {"status": "skipped", "reason": "workspace_not_found", "workspace_slug": workspace_slug}
         result = fetch_civ_indicators(db, workspace, force=bool(force))
     return {"status": "ok", **result}
+
+
+@celery_app.task(name="agentium.scheduler_tick")
+def scheduler_tick_task() -> dict:
+    """Celery beat entrypoint: fire due schedules + sweep expired HITL gates."""
+    from app.services.run_engine.scheduler import scheduler_tick
+
+    return scheduler_tick()

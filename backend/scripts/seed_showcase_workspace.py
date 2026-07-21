@@ -604,10 +604,18 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                     "system_360_projection_v1": False,
                     "flow_v3_dag_authoritative": False,
                     "sap_hana_connector": True,
+                    "rpa_bridge": True,
                     "model_portal_beta": True,
+                    # Orchestration Phase 3 — workspace opt-in for event
+                    # triggers (global enable_event_triggers stays OFF).
+                    "enable_event_triggers": True,
                 },
+                "event_triggers": {"enabled": True, "showcase_seed": True},
                 "catalog": {
-                    "enabled_skills": ["sap_hana_query_v1"],
+                    "enabled_skills": ["sap_hana_query_v1", "rpa_dispatch_v1"],
+                },
+                "apps": {
+                    "enabled": ["rpa_bridge"],
                 },
             },
         )
@@ -625,6 +633,18 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
         enabled_skills = list(current_catalog.get("enabled_skills") or [])
         if "sap_hana_query_v1" not in enabled_skills:
             enabled_skills.append("sap_hana_query_v1")
+        if "rpa_dispatch_v1" not in enabled_skills:
+            enabled_skills.append("rpa_dispatch_v1")
+        current_event_triggers = (
+            dict(current_settings.get("event_triggers"))
+            if isinstance(current_settings.get("event_triggers"), dict)
+            else {}
+        )
+        raw_apps = current_settings.get("apps")
+        current_apps = dict(raw_apps) if isinstance(raw_apps, dict) else {}
+        enabled_apps = list(current_apps.get("enabled") or [])
+        if "rpa_bridge" not in enabled_apps:
+            enabled_apps.append("rpa_bridge")
         ws.settings = {
             **current_settings,
             "showcase_seed": True,
@@ -633,11 +653,22 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                 **current_features,
                 "cockpit_router_axes_v3": True,
                 "sap_hana_connector": True,
+                "rpa_bridge": True,
                 "model_portal_beta": True,
+                "enable_event_triggers": True,
+            },
+            "event_triggers": {
+                **current_event_triggers,
+                "enabled": True,
+                "showcase_seed": True,
             },
             "catalog": {
                 **current_catalog,
                 "enabled_skills": enabled_skills,
+            },
+            "apps": {
+                **current_apps,
+                "enabled": enabled_apps,
             },
         }
         db.commit()
@@ -1922,6 +1953,9 @@ def ensure_systems(
                 "surface": "system",
                 "system_type": "translation_suite" if spec["key"] == "translation" else spec["key"],
                 "brand": "PMI Sovereign Stack" if spec["key"] == "translation" else "Agentium Showcase",
+                # Showcase opt-in: workspace features.enable_event_triggers +
+                # per-System live mode. Global enable_event_triggers stays OFF.
+                "event_trigger": {"mode": "live"},
                 **(
                     {
                         "experience": {"system_360_canary": "v1"},

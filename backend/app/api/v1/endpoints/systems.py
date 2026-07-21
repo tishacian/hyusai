@@ -35,8 +35,10 @@ from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.policy import ControlPolicy
 from app.models.run import Run
+from app.models.run_schedule import RunSchedule
 from app.models.system import System
 from app.models.user import User
+from app.models.webhook_hook import WebhookHook
 from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.canonical import ExecutionMode, SystemStatus
 from app.services.actions.contracts import normalize_system_action_pack_settings
@@ -48,6 +50,8 @@ from app.services.chat_execution_policy import (
 from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import resolve_membrane_spec
 from app.services.run_engine import schedule_run, triggers
+from app.services.run_engine import scheduler as run_scheduler
+from app.services.run_engine.webhooks import generate_hook_secret, serialize_hook
 from app.services.system_perspective import build_system_perspective
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
@@ -248,6 +252,36 @@ class EventTriggerUpdate(BaseModel):
     disabled: Optional[bool] = None
 
 
+class RunScheduleCreate(BaseModel):
+    name: str = Field(default="Schedule", max_length=255)
+    cron_expr: str = Field(..., min_length=1, max_length=120)
+    timezone: str = Field(default="UTC", max_length=64)
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class RunScheduleUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    cron_expr: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    timezone: Optional[str] = Field(default=None, max_length=64)
+    input_payload: Optional[dict[str, Any]] = None
+    enabled: Optional[bool] = None
+
+
+class WebhookHookCreate(BaseModel):
+    name: str = Field(default="Webhook", max_length=255)
+    event_type: str = Field(default="webhook.received", max_length=120)
+    enabled: bool = True
+    secret: Optional[str] = Field(default=None, min_length=8, max_length=256)
+
+
+class WebhookHookUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    event_type: Optional[str] = Field(default=None, max_length=120)
+    enabled: Optional[bool] = None
+    rotate_secret: bool = False
+
+
 class SystemUpdateOptions(BaseModel):
     """Optional controls piggy-backing on the PATCH body.
 
@@ -316,21 +350,23 @@ def _serialize(s: System) -> dict[str, Any]:
     }
 
 
-def _event_trigger_state(s: System) -> dict[str, Any]:
+def _event_trigger_state(s: System, db: Optional[DBSession] = None) -> dict[str, Any]:
     """Read-only projection of a System's event-trigger piloting state.
 
-    Combines the GLOBAL master switch (``settings.enable_event_triggers``)
-    with the per-System mode + circuit-breaker fields stored under
-    ``System.settings['event_trigger']``. ``mode`` is resolved through the same
-    ``triggers.trigger_mode`` the run engine uses, so the UI never drifts from
-    the executor's own reading (anything but the literal ``live`` is ``dry_run``).
+    Combines the GLOBAL master switch / workspace opt-in
+    (``triggers.is_event_triggers_enabled``) with the per-System mode +
+    circuit-breaker fields stored under ``System.settings['event_trigger']``.
+    ``mode`` is resolved through the same ``triggers.trigger_mode`` the run
+    engine uses, so the UI never drifts from the executor's own reading
+    (anything but the literal ``live`` is ``dry_run``).
     """
     blob = getattr(s, "settings", None) or {}
     et = blob.get("event_trigger") if isinstance(blob, dict) else {}
     et = et if isinstance(et, dict) else {}
     return {
         "system_id": s.id,
-        "master_enabled": bool(settings.enable_event_triggers),
+        "master_enabled": triggers.is_event_triggers_enabled(s.workspace_id, db=db),
+        "global_enabled": bool(settings.enable_event_triggers),
         "mode": triggers.trigger_mode(s),
         "disabled": bool(et.get("disabled")),
         "disabled_reason": et.get("disabled_reason"),
@@ -721,7 +757,7 @@ async def get_system_event_trigger(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
-    return _event_trigger_state(s)
+    return _event_trigger_state(s, db=db)
 
 
 @router.patch("/{system_id}/event-trigger")
@@ -783,7 +819,7 @@ async def update_system_event_trigger(
         details={"system_id": s.id, "updates": updates},
         db=db,
     )
-    return _event_trigger_state(s)
+    return _event_trigger_state(s, db=db)
 
 
 @router.delete("/{system_id}", status_code=204)
@@ -1176,3 +1212,253 @@ async def list_system_runs(
             for r in rows
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Run schedules (cron) + webhook hooks — orchestration Phase 3
+# ---------------------------------------------------------------------------
+def _get_system_or_404(db: DBSession, *, system_id: str, workspace_id: str) -> System:
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace_id).first()
+    if not s:
+        raise HTTPException(404, "System not found")
+    return s
+
+
+@router.get("/{system_id}/schedules")
+async def list_system_schedules(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    rows = (
+        db.query(RunSchedule)
+        .filter(RunSchedule.workspace_id == workspace.id, RunSchedule.system_id == system_id)
+        .order_by(RunSchedule.created_at.desc())
+        .all()
+    )
+    return {"schedules": [run_scheduler.serialize_schedule(r) for r in rows]}
+
+
+@router.post("/{system_id}/schedules", status_code=201)
+async def create_system_schedule(
+    system_id: str,
+    body: RunScheduleCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    try:
+        next_fire = run_scheduler.validate_cron_expr(body.cron_expr, body.timezone)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    row = RunSchedule(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system_id,
+        name=(body.name or "Schedule").strip() or "Schedule",
+        cron_expr=body.cron_expr.strip(),
+        timezone=(body.timezone or "UTC").strip() or "UTC",
+        input_payload=body.input_payload or {},
+        enabled=bool(body.enabled),
+        next_fire_at=next_fire if body.enabled else None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="system.schedule.create",
+        actor=_actor_display_name(user),
+        details={"system_id": system_id, "schedule_id": row.id, "cron_expr": row.cron_expr},
+        db=db,
+    )
+    return run_scheduler.serialize_schedule(row)
+
+
+@router.patch("/{system_id}/schedules/{schedule_id}")
+async def update_system_schedule(
+    system_id: str,
+    schedule_id: str,
+    body: RunScheduleUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    row = (
+        db.query(RunSchedule)
+        .filter(
+            RunSchedule.id == schedule_id,
+            RunSchedule.system_id == system_id,
+            RunSchedule.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(404, "Schedule not found")
+
+    if body.name is not None:
+        row.name = body.name.strip() or row.name
+    if body.input_payload is not None:
+        row.input_payload = body.input_payload
+    if body.cron_expr is not None:
+        row.cron_expr = body.cron_expr.strip()
+    if body.timezone is not None:
+        row.timezone = body.timezone.strip() or "UTC"
+    if body.enabled is not None:
+        row.enabled = bool(body.enabled)
+
+    try:
+        next_fire = run_scheduler.validate_cron_expr(row.cron_expr, row.timezone)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    row.next_fire_at = next_fire if row.enabled else None
+    db.commit()
+    db.refresh(row)
+    return run_scheduler.serialize_schedule(row)
+
+
+@router.delete("/{system_id}/schedules/{schedule_id}", status_code=204)
+async def delete_system_schedule(
+    system_id: str,
+    schedule_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    row = (
+        db.query(RunSchedule)
+        .filter(
+            RunSchedule.id == schedule_id,
+            RunSchedule.system_id == system_id,
+            RunSchedule.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(404, "Schedule not found")
+    db.delete(row)
+    db.commit()
+    return None
+
+
+@router.get("/{system_id}/hooks")
+async def list_system_hooks(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    rows = (
+        db.query(WebhookHook)
+        .filter(WebhookHook.workspace_id == workspace.id, WebhookHook.system_id == system_id)
+        .order_by(WebhookHook.created_at.desc())
+        .all()
+    )
+    return {"hooks": [serialize_hook(r) for r in rows]}
+
+
+@router.post("/{system_id}/hooks", status_code=201)
+async def create_system_hook(
+    system_id: str,
+    body: WebhookHookCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    secret = (body.secret or "").strip() or generate_hook_secret()
+    event_type = (body.event_type or triggers.EVENT_WEBHOOK_RECEIVED).strip() or triggers.EVENT_WEBHOOK_RECEIVED
+    row = WebhookHook(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system_id,
+        name=(body.name or "Webhook").strip() or "Webhook",
+        event_type=event_type,
+        secret=secret,
+        enabled=bool(body.enabled),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="system.hook.create",
+        actor=_actor_display_name(user),
+        details={"system_id": system_id, "hook_id": row.id, "event_type": row.event_type},
+        db=db,
+    )
+    # Secret is returned once at creation so the operator can copy it.
+    return serialize_hook(row, include_secret=True)
+
+
+@router.patch("/{system_id}/hooks/{hook_id}")
+async def update_system_hook(
+    system_id: str,
+    hook_id: str,
+    body: WebhookHookUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    row = (
+        db.query(WebhookHook)
+        .filter(
+            WebhookHook.id == hook_id,
+            WebhookHook.system_id == system_id,
+            WebhookHook.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(404, "Hook not found")
+
+    if body.name is not None:
+        row.name = body.name.strip() or row.name
+    if body.event_type is not None:
+        row.event_type = body.event_type.strip() or triggers.EVENT_WEBHOOK_RECEIVED
+    if body.enabled is not None:
+        row.enabled = bool(body.enabled)
+    include_secret = False
+    if body.rotate_secret:
+        row.secret = generate_hook_secret()
+        include_secret = True
+    db.commit()
+    db.refresh(row)
+    return serialize_hook(row, include_secret=include_secret)
+
+
+@router.delete("/{system_id}/hooks/{hook_id}", status_code=204)
+async def delete_system_hook(
+    system_id: str,
+    hook_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    row = (
+        db.query(WebhookHook)
+        .filter(
+            WebhookHook.id == hook_id,
+            WebhookHook.system_id == system_id,
+            WebhookHook.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(404, "Hook not found")
+    db.delete(row)
+    db.commit()
+    return None

@@ -21,6 +21,8 @@ from app.api.v1.endpoints import (
     intelligence,
     sharepoint,
     hana,
+    rpa,
+    apps,
     model_portal,
     # Canonical (mental-model) layer.
     systems,
@@ -54,6 +56,7 @@ from app.api.v1.endpoints import (
     webcam_proxy,
     client360,
     build_info,
+    hooks,  # public HMAC webhook ingress
 )
 
 api_router = APIRouter()
@@ -83,6 +86,8 @@ api_router.include_router(observability.router, prefix="/observability", tags=["
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
 api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])
 api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
+api_router.include_router(rpa.router, prefix="/rpa", tags=["rpa"])
+api_router.include_router(apps.router, prefix="/workspaces", tags=["apps"])
 api_router.include_router(model_portal.router, prefix="/models", tags=["model-portal"])
 
 # Canonical mental-model layer.
@@ -102,6 +107,8 @@ api_router.include_router(knowledge_capture.router, prefix="/knowledge-capture",
 api_router.include_router(iam.router, prefix="/iam", tags=["iam"])
 api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=["secure-deposit"])
 api_router.include_router(secure_deposit.public_router, prefix="/deposit-links", tags=["deposit-links"])
+# Public HMAC webhook ingress (no workspace JWT).
+api_router.include_router(hooks.router, prefix="/hooks", tags=["hooks"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])
 api_router.include_router(mission_room.router, prefix="/mission-room", tags=["mission-room"])

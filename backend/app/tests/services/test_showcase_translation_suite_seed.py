@@ -26,7 +26,14 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
             "cockpit_router_axes_v4": False,
             "system_360_projection_v1": False,
             "flow_v3_dag_authoritative": False,
+            "sap_hana_connector": True,
+            "rpa_bridge": True,
+            "model_portal_beta": True,
+            "enable_event_triggers": True,
         },
+        "event_triggers": {"enabled": True, "showcase_seed": True},
+        "catalog": {"enabled_skills": ["sap_hana_query_v1", "rpa_dispatch_v1"]},
+        "apps": {"enabled": ["rpa_bridge"]},
     }
 
     workspace_id = created.id
@@ -59,7 +66,14 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
             "cockpit_router_axes_v4": True,
             "system_360_projection_v1": True,
             "flow_v3_dag_authoritative": True,
+            "sap_hana_connector": True,
+            "rpa_bridge": True,
+            "model_portal_beta": True,
+            "enable_event_triggers": True,
         },
+        "event_triggers": {"enabled": True, "showcase_seed": True},
+        "catalog": {"enabled_skills": ["sap_hana_query_v1", "rpa_dispatch_v1"]},
+        "apps": {"enabled": ["rpa_bridge"]},
         "operator_preferences": {"density": "compact"},
         "custom_flag": "preserve-me",
     }
@@ -81,7 +95,14 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
         "persona_nav": "full",
         "features": {
             "cockpit_router_axes_v3": True,
+            "sap_hana_connector": True,
+            "rpa_bridge": True,
+            "model_portal_beta": True,
+            "enable_event_triggers": True,
         },
+        "event_triggers": {"enabled": True, "showcase_seed": True},
+        "catalog": {"enabled_skills": ["sap_hana_query_v1", "rpa_dispatch_v1"]},
+        "apps": {"enabled": ["rpa_bridge"]},
         "custom_flag": "keep",
     }
 

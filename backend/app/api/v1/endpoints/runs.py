@@ -409,12 +409,64 @@ async def get_run(
                 workspace_id=workspace.id,
             ):
                 decision = candidate
+        expires_at = None
+        expiry_action = None
+        if decision is not None:
+            expires_at = decision.expires_at.isoformat() if decision.expires_at else None
+            expiry_action = decision.expiry_action
+        if expires_at is None:
+            expires_at = pending_cp.get("expires_at")
+        if expiry_action is None:
+            expiry_action = pending_cp.get("expiry_action")
+
+        seconds_remaining = None
+        if expires_at:
+            try:
+                from datetime import datetime as _dt
+
+                exp = _dt.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                if exp.tzinfo is not None:
+                    exp = exp.replace(tzinfo=None)
+                seconds_remaining = max(0, int((exp - _dt.utcnow()).total_seconds()))
+            except (TypeError, ValueError):
+                seconds_remaining = None
+
+        inbox_count = 0
+        memory_hint = None
+        try:
+            from app.services.run_engine.inbox import (  # noqa: WPS433
+                inbox_count_for_run,
+                load_memory_for_run,
+                memory_pool_payload,
+            )
+
+            inbox_count = inbox_count_for_run(db, r.id)
+            mem = load_memory_for_run(db, r)
+            mem_payload = memory_pool_payload(mem)
+            if mem_payload:
+                memory_hint = {
+                    "correlation_key": mem_payload.get("correlation_key"),
+                    "version": mem_payload.get("version"),
+                    "event_count": mem_payload.get("event_count"),
+                    "last_event_kind": mem_payload.get("last_event_kind"),
+                    "updated_at": mem_payload.get("updated_at"),
+                }
+        except Exception:  # noqa: BLE001 — cockpit enrichment must not break get_run
+            pass
+
         payload["hitl"] = {
             "node_id": pending_cp.get("node_id"),
             "prompt": pending_cp.get("prompt"),
             "decision_id": decision_id,
             "decision_status": decision.status if decision else None,
             "decision_title": decision.title if decision else None,
+            "expires_at": expires_at,
+            "expiry_action": expiry_action,
+            "seconds_remaining": seconds_remaining,
+            "inbox_count": inbox_count,
+            "memory": memory_hint,
+            "correlation_key": pending_cp.get("correlation_key")
+            or ((decision.rationale or {}).get("correlation_key") if decision else None),
         }
     debug_cp = _pending_debug_checkpoint(r)
     if debug_cp:

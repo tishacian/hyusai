@@ -1,13 +1,16 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
+import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
@@ -17,11 +20,24 @@ import {
 import {
   APPS,
   AppDef,
+  appById,
   readAppToggles,
-  writeAppToggle,
+  writeAppToggles,
 } from '../resources/resources.catalog';
 
-type Filter = 'all' | 'enabled' | 'ready' | 'beta';
+type Filter = 'all' | 'enabled' | 'ready' | 'beta' | 'wired';
+
+interface WorkspaceAppsResponse {
+  enabled?: string[];
+  apps?: Array<{
+    id: string;
+    wiring?: 'wired' | 'catalog';
+    enabled?: boolean;
+    connector_route?: string | null;
+  }>;
+  wired_enabled_count?: number;
+  has_wired_apps?: boolean;
+}
 
 @Component({
   selector: 'app-apps-page',
@@ -30,6 +46,7 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
   imports: [
     NgClass,
     FormsModule,
+    RouterLink,
     IconComponent,
     CkObjectHeaderComponent,
   ],
@@ -49,20 +66,41 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
       </a>
     </ck-object-header>
 
-    <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
-      <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
-      <div class="flex-1">
-        <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
-          Catalog only · no runtime wiring yet
+    @if (showCatalogBanner()) {
+      <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
+        <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
+        <div class="flex-1">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
+            Catalog only · no runtime wiring yet
+          </div>
+          <p class="text-[11px] text-amber-200/80 leading-relaxed">
+            These apps advertise orchestrator integrations but are not yet bound to a backend runtime.
+            Toggling them surfaces them in the Builder wizard but does not connect to a live service.
+            Use <span class="font-semibold">Request wiring</span> to prioritise one. For atomic
+            skill primitives, head to <span class="font-mono">/skills</span>.
+          </p>
         </div>
-        <p class="text-[11px] text-amber-200/80 leading-relaxed">
-          These apps advertise orchestrator integrations but are not yet bound to a backend runtime.
-          Toggling them surfaces them in the Builder wizard but does not connect to a live service.
-          Use <span class="font-semibold">Request wiring</span> to prioritise one. For atomic
-          skill primitives, head to <span class="font-mono">/skills</span>.
-        </p>
       </div>
-    </div>
+    } @else if (wiredEnabledCount() > 0) {
+      <div class="mb-5 rounded-md p-3 bg-cyan-500/5 ring-1 ring-cyan-500/25 flex items-start gap-3">
+        <app-icon name="plug" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
+        <div class="flex-1">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-cyan-300 mb-0.5">
+            Runtime wiring active
+          </div>
+          <p class="text-[11px] text-cyan-200/80 leading-relaxed">
+            {{ wiredEnabledCount() }} wired app{{ wiredEnabledCount() === 1 ? '' : 's' }} enabled —
+            skills and connectors are synced server-side. Catalog-only cards remain intent flags until wired.
+          </p>
+        </div>
+      </div>
+    }
+
+    @if (loadError(); as err) {
+      <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
+        {{ err }}
+      </div>
+    }
 
     <div class="flex items-center gap-1 mb-5 p-1 bg-white/5 ring-1 ring-white/10 rounded-md w-fit">
       @for (f of filters; track f.id) {
@@ -104,18 +142,28 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
               <app-icon [name]="a.icon" [size]="20" />
             </div>
             <div class="flex items-center gap-2">
-              <span
-                class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
-                title="Listed in the catalog but not yet bound to a runtime"
-              >
-                catalog only
-              </span>
+              @if (a.wiring === 'wired') {
+                <span
+                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-cyan-500/10 text-cyan-300 ring-cyan-500/30"
+                  title="Bound to a backend skill and connector"
+                >
+                  wired
+                </span>
+              } @else {
+                <span
+                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
+                  title="Listed in the catalog but not yet bound to a runtime"
+                >
+                  catalog only
+                </span>
+              }
               <button
                 type="button"
                 (click)="toggle(a.id)"
                 role="switch"
                 [attr.aria-checked]="isEnabled(a.id)"
-                class="w-10 h-5 rounded-full relative transition-colors"
+                [disabled]="saving() || loading()"
+                class="w-10 h-5 rounded-full relative transition-colors disabled:opacity-50"
                 [ngClass]="isEnabled(a.id) ? 'bg-cyan-500' : 'bg-white/10'"
               >
                 <span
@@ -131,8 +179,18 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
               {{ a.description }}
             </p>
           </div>
-          <div class="text-[10px] font-mono text-gray-500 mt-auto pt-2 border-t border-white/5">
-            ID: {{ a.id }}
+          <div class="flex items-center justify-between gap-2 mt-auto pt-2 border-t border-white/5">
+            <div class="text-[10px] font-mono text-gray-500">
+              ID: {{ a.id }}
+            </div>
+            @if (a.wiring === 'wired' && a.connectorRoute) {
+              <a
+                [routerLink]="a.connectorRoute"
+                class="text-[10px] text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1"
+              >
+                Configure <app-icon name="arrow-right" [size]="10" />
+              </a>
+            }
           </div>
         </div>
       }
@@ -141,34 +199,43 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
     <div class="mt-6 rounded-md p-4 bg-cyan-500/5 ring-1 ring-cyan-500/20 flex items-start gap-3 max-w-2xl">
       <app-icon name="lightbulb" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
       <p class="text-[11px] text-cyan-200/90 leading-relaxed">
-        Enabling an app exposes it in the Builder wizard per system. Runtime
-        wiring is still on the roadmap — until a backend connector ships,
-        toggles act as catalog intent only.
+        Enabling a <span class="font-semibold">wired</span> app syncs its skills into the workspace
+        catalog and exposes the connector in the Builder. Catalog-only toggles remain intent flags
+        until a backend connector ships.
       </p>
     </div>
   `,
 })
-export class AppsPageComponent {
+export class AppsPageComponent implements OnInit {
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly api = inject(ApiService);
 
   readonly APPS = APPS;
   readonly filter = signal<Filter>('all');
   private readonly version = signal(0);
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  readonly loadError = signal<string | null>(null);
+  /** Server-authoritative enabled ids. */
+  private readonly enabledIds = signal<Set<string>>(new Set());
 
   readonly filters = [
     { id: 'all' as Filter, label: 'All', count: () => APPS.length },
     { id: 'enabled' as Filter, label: 'Enabled', count: () => this.enabledCount() },
+    { id: 'wired' as Filter, label: 'Wired', count: () => this.wiredCount() },
     { id: 'ready' as Filter, label: 'Ready', count: () => this.readyCount() },
     { id: 'beta' as Filter, label: 'Beta', count: () => this.betaCount() },
   ];
 
   readonly filtered = computed<AppDef[]>(() => {
     this.version();
-    const toggles = readAppToggles(this.workspace.currentSlug());
+    const enabled = this.enabledIds();
     switch (this.filter()) {
       case 'enabled':
-        return APPS.filter((a) => !!toggles[a.id]);
+        return APPS.filter((a) => enabled.has(a.id));
+      case 'wired':
+        return APPS.filter((a) => a.wiring === 'wired');
       case 'ready':
         return APPS.filter((a) => a.status === 'ready');
       case 'beta':
@@ -180,11 +247,18 @@ export class AppsPageComponent {
 
   readonly enabledCount = computed(() => {
     this.version();
-    const t = readAppToggles(this.workspace.currentSlug());
-    return Object.values(t).filter(Boolean).length;
+    return this.enabledIds().size;
+  });
+  readonly wiredCount = computed(() => APPS.filter((a) => a.wiring === 'wired').length);
+  readonly wiredEnabledCount = computed(() => {
+    this.version();
+    const enabled = this.enabledIds();
+    return APPS.filter((a) => a.wiring === 'wired' && enabled.has(a.id)).length;
   });
   readonly readyCount = computed(() => APPS.filter((a) => a.status === 'ready').length);
   readonly betaCount = computed(() => APPS.filter((a) => a.status === 'beta').length);
+  /** Banner only when there are no wired apps in the catalog at all. */
+  readonly showCatalogBanner = computed(() => this.wiredCount() === 0);
 
   readonly headerKpis = computed<CkObjectKpi[]>(() => [
     { label: 'Total apps', value: String(APPS.length) },
@@ -194,7 +268,12 @@ export class AppsPageComponent {
       hint: this.enabledCount() > 0 ? 'Ready to be used' : 'Turn some on',
       tone: this.enabledCount() > 0 ? 'pos' : 'neutral',
     },
-    { label: 'Ready', value: String(this.readyCount()), tone: 'cool' },
+    {
+      label: 'Wired',
+      value: String(this.wiredEnabledCount()),
+      hint: `${this.wiredCount()} available`,
+      tone: this.wiredEnabledCount() > 0 ? 'cool' : 'neutral',
+    },
     {
       label: 'In beta',
       value: String(this.betaCount()),
@@ -202,23 +281,91 @@ export class AppsPageComponent {
     },
   ]);
 
+  ngOnInit(): void {
+    this.loadFromApi();
+  }
+
   isEnabled(id: string): boolean {
     this.version();
-    return !!readAppToggles(this.workspace.currentSlug())[id];
+    return this.enabledIds().has(id);
   }
 
   toggle(id: string): void {
     const slug = this.workspace.currentSlug();
-    const current = !!readAppToggles(slug)[id];
-    writeAppToggle(slug, id, !current);
-    this.version.update((v) => v + 1);
-    const app = APPS.find((a) => a.id === id);
-    if (app) {
-      this.toast.success(
-        current ? `${app.name} disabled` : `${app.name} enabled`,
-        'Apps',
-      );
-    }
+    if (!slug || this.saving()) return;
+    const next = new Set(this.enabledIds());
+    const wasEnabled = next.has(id);
+    if (wasEnabled) next.delete(id);
+    else next.add(id);
+    const enabledList = Array.from(next).sort();
+    this.saving.set(true);
+    this.api
+      .put<WorkspaceAppsResponse>(`/workspaces/${encodeURIComponent(slug)}/apps`, {
+        enabled: enabledList,
+      })
+      .subscribe({
+        next: (res) => {
+          this.applyServerState(res);
+          this.saving.set(false);
+          const app = appById(id);
+          if (app) {
+            this.toast.success(
+              wasEnabled ? `${app.name} disabled` : `${app.name} enabled`,
+              'Apps',
+            );
+          }
+        },
+        error: (err) => {
+          this.saving.set(false);
+          const detail = err?.error?.detail;
+          this.toast.error(
+            typeof detail === 'string' ? detail : 'Could not update apps',
+            'Apps',
+          );
+        },
+      });
   }
 
+  private loadFromApi(): void {
+    const slug = this.workspace.currentSlug();
+    if (!slug) {
+      // Fall back to local cache when no workspace is selected.
+      this.applyEnabledList(
+        Object.entries(readAppToggles(null))
+          .filter(([, on]) => on)
+          .map(([id]) => id),
+      );
+      return;
+    }
+    this.loading.set(true);
+    this.loadError.set(null);
+    this.api.get<WorkspaceAppsResponse>(`/workspaces/${encodeURIComponent(slug)}/apps`).subscribe({
+      next: (res) => {
+        this.applyServerState(res);
+        this.loading.set(false);
+      },
+      error: () => {
+        // API wins when available; on failure keep local cache so the page stays usable.
+        const cached = readAppToggles(slug);
+        this.applyEnabledList(
+          Object.entries(cached)
+            .filter(([, on]) => on)
+            .map(([id]) => id),
+        );
+        this.loadError.set('Could not load workspace apps from server — showing local cache.');
+        this.loading.set(false);
+      },
+    });
+  }
+
+  private applyServerState(res: WorkspaceAppsResponse): void {
+    const enabled = Array.isArray(res?.enabled) ? res.enabled : [];
+    this.applyEnabledList(enabled);
+    writeAppToggles(this.workspace.currentSlug(), enabled);
+  }
+
+  private applyEnabledList(enabled: string[]): void {
+    this.enabledIds.set(new Set(enabled));
+    this.version.update((v) => v + 1);
+  }
 }

@@ -26,6 +26,11 @@ export const connectorsRoutes: Routes = [
       import('./hana/hana-connector.component').then((m) => m.HanaConnectorComponent),
   },
   {
+    path: 'rpa-bridge',
+    loadComponent: () =>
+      import('./rpa/rpa-connector.component').then((m) => m.RpaConnectorComponent),
+  },
+  {
     path: 'models',
     pathMatch: 'full',
     // RedirectFunction must return string | UrlTree (not RedirectCommand).

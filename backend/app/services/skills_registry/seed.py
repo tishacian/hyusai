@@ -728,6 +728,46 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "rpa_dispatch_v1",
+        "version": "1",
+        "name": "RPA Dispatch",
+        "description": (
+            "Dispatches a job to the workspace RPA Bridge connector "
+            "(generic REST orchestrator) and polls to completion within a bounded timeout."
+        ),
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_job", "unit_price": 0.05, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["job_key"],
+            "properties": {
+                "job_key": {
+                    "type": "string",
+                    "description": "Logical job key (resolved via connector job_mapping when configured).",
+                },
+                "input": {"type": "object"},
+                "callback_url": {"type": "string"},
+                "timeout_s": {"type": "number"},
+                "poll_interval_s": {"type": "number"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "job_key": {"type": "string"},
+                "status": {"type": "string"},
+                "result": {"type": "object"},
+                "error": {},
+                "polls": {"type": "integer"},
+                "duration_ms": {"type": "integer"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",

@@ -1720,7 +1720,55 @@ def record_staged_file_from_path(
             "transport": transport,
         },
     )
+    # Live SFTP path: emit on staging close (not only reconciliation).
+    if transport == "sftp":
+        _emit_sftp_file_arrived_on_staging(
+            db,
+            workspace_id=link.workspace_id,
+            file_id=file.id,
+            filename=safe_name,
+            access_id=link.access_id,
+            size_bytes=int(file.size_bytes or 0),
+            sha256=sha256,
+        )
     return file
+
+
+def _emit_sftp_file_arrived_on_staging(
+    db: DBSession,
+    *,
+    workspace_id: str | None,
+    file_id: str,
+    filename: str,
+    access_id: str,
+    size_bytes: int,
+    sha256: str,
+) -> None:
+    """Fire ``sftp.file_arrived`` when an SFTP upload is staged (flag-gated).
+
+    Complements the reconciliation emission path so showcase live mode can
+    react at connection close. Exception-safe: never breaks staging.
+    """
+    try:
+        from app.services.run_engine import triggers
+
+        if not triggers.is_event_triggers_enabled(workspace_id, db=db):
+            return
+        triggers.emit_sftp_file_arrived(
+            db,
+            workspace_id=workspace_id,
+            payload={
+                "workspace_id": workspace_id,
+                "file_id": file_id,
+                "filename": filename,
+                "access_id": access_id,
+                "size_bytes": size_bytes,
+                "sha256": sha256,
+                "source": "sftp_staging",
+            },
+        )
+    except Exception:  # noqa: BLE001 — never break staging.
+        pass
 
 
 def _emit_deposit_promoted_event(
@@ -1732,17 +1780,17 @@ def _emit_deposit_promoted_event(
 ) -> None:
     """Fire the Phase 3 ``deposit.promoted`` event trigger (flag-gated, safe).
 
-    Inert unless ``settings.enable_event_triggers`` is ON (master switch). Any
+    Inert unless the global master switch OR the workspace opt-in is ON. Any
     failure — import, registry, dispatch — is swallowed so an event-trigger
     problem can NEVER break a Knowledge promotion. ``deposit.promoted`` is the
     only governance-permitted event that may feed a side-effecting downstream
     run (still HITL-gated); see docs/adr-flow-source-nodes.md §6.
     """
-    if not settings.enable_event_triggers:
-        return
     try:
         from app.services.run_engine import triggers
 
+        if not triggers.is_event_triggers_enabled(workspace_id, db=db):
+            return
         triggers.emit_deposit_promoted(
             db,
             workspace_id=workspace_id,

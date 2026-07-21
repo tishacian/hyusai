@@ -698,6 +698,12 @@ async def resume_run_dag(
             # node namespace and outputs_map exactly like a normal completion.
             _settle_node(graph, state, hitl_node_id, {"output": hitl_output})
 
+        # Durable SystemMemory → variable pool ``memory.*`` so the delivered
+        # node sees transactions collected while the gate was waiting.
+        from app.services.run_engine.inbox import reinject_memory_into_state  # noqa: WPS433
+
+        memory_payload = reinject_memory_into_state(db, run, state)
+
         run.status = "running"
         db.commit()
         _append_checkpoint(
@@ -707,6 +713,14 @@ async def resume_run_dag(
                 "kind": "hitl_resume",
                 "node_id": hitl_node_id,
                 "decision_status": dec.status if dec else None,
+                **(
+                    {
+                        "memory_version": memory_payload.get("version"),
+                        "memory_event_count": memory_payload.get("event_count"),
+                    }
+                    if memory_payload
+                    else {}
+                ),
             },
         )
 
@@ -975,6 +989,26 @@ def _enforce_terminal_membrane(
             status="proposed",
             title="Membrane egress approval",
         )
+        if approval is not None:
+            from app.services.run_engine.gate_ttl import stamp_decision_ttl  # noqa: WPS433
+            from app.services.run_engine.inbox import extract_correlation_key  # noqa: WPS433
+
+            # Membrane HOLD reuses the same TTL machinery as explicit hitl nodes.
+            # Optional override via ControlPolicy.extra["membrane_gate_ttl"].
+            ttl_cfg: Dict[str, Any] = {}
+            if control is not None and isinstance(getattr(control, "extra", None), dict):
+                raw_ttl = control.extra.get("membrane_gate_ttl")
+                if isinstance(raw_ttl, dict):
+                    ttl_cfg = raw_ttl
+            stamp_decision_ttl(approval, ttl_cfg)
+            corr = extract_correlation_key(
+                run.input_ref if isinstance(run.input_ref, dict) else {}
+            )
+            if corr:
+                rationale = dict(approval.rationale or {})
+                rationale["correlation_key"] = corr
+                approval.rationale = rationale
+            db.commit()
         run.output_ref = {}
         db.commit()
         return _emit_hitl_pause(
@@ -987,6 +1021,9 @@ def _enforce_terminal_membrane(
                 "node_id": "__membrane_egress__",
                 "decision_id": approval.id if approval else None,
                 "prompt": "Approval required before this result can be published",
+                "expires_at": approval.expires_at.isoformat() if approval and approval.expires_at else None,
+                "expiry_action": approval.expiry_action if approval else None,
+                "correlation_key": (approval.rationale or {}).get("correlation_key") if approval else None,
             },
         )
 
@@ -1306,6 +1343,9 @@ def _emit_hitl_pause(
         "prompt": outcome.get("prompt"),
         "state": state.to_payload(),
         "membrane_egress": bool(outcome.get("membrane_egress")),
+        "expires_at": outcome.get("expires_at"),
+        "expiry_action": outcome.get("expiry_action"),
+        "correlation_key": outcome.get("correlation_key"),
     }
     if checkpoint["membrane_egress"]:
         # The full walker state is durable resume data and may contain the
@@ -2090,11 +2130,30 @@ def _run_hitl(
         status="proposed",
         title=f"HITL approval — {node.label or node.id}",
     )
+    if decision is not None:
+        from app.services.run_engine.gate_ttl import stamp_decision_ttl  # noqa: WPS433
+        from app.services.run_engine.inbox import extract_correlation_key  # noqa: WPS433
+
+        stamp_decision_ttl(decision, config)
+        # Prefer explicit node config, then upstream / run input correlation.
+        corr = (
+            config.get("correlation_key")
+            or extract_correlation_key(merged)
+            or extract_correlation_key(run.input_ref if isinstance(run.input_ref, dict) else {})
+        )
+        if corr:
+            rationale = dict(decision.rationale or {})
+            rationale["correlation_key"] = corr
+            decision.rationale = rationale
+        db.commit()
     return {
         "pause": True,
         "node_id": node.id,
         "decision_id": decision.id if decision else None,
         "prompt": prompt,
+        "expires_at": decision.expires_at.isoformat() if decision and decision.expires_at else None,
+        "expiry_action": decision.expiry_action if decision else None,
+        "correlation_key": (decision.rationale or {}).get("correlation_key") if decision else None,
     }
 
 

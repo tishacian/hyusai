@@ -1399,6 +1399,10 @@ export class ResourcesPageComponent implements OnInit {
       this.router.navigate(['/connectors', 'sap-hana']);
       return;
     }
+    if (c.id === 'rpa_bridge') {
+      this.router.navigate(['/connectors', 'rpa-bridge']);
+      return;
+    }
     this.active.set(c);
     this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), c.id) };
     this.drawerOpen.set(true);
@@ -1407,6 +1411,9 @@ export class ResourcesPageComponent implements OnInit {
   private isConnectorVisible(c: ConnectorDef): boolean {
     if (c.id === 'sap_hana') {
       return this.workspace.sapHanaConnectorEnabled();
+    }
+    if (c.id === 'rpa_bridge') {
+      return this.workspace.rpaBridgeEnabled();
     }
     return true;
   }
@@ -1440,7 +1447,7 @@ export class ResourcesPageComponent implements OnInit {
       });
       return;
     }
-    if (c.backendPrefix === 'hana') {
+    if (c.backendPrefix === 'hana' || c.backendPrefix === 'rpa') {
       this.api.post(`/${c.backendPrefix}/test`, {}).subscribe({
         next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
         error: () =>

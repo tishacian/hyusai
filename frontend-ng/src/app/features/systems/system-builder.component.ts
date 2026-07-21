@@ -37,6 +37,12 @@ import {
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
 import { SystemsStore } from './systems.store';
+import {
+  type AppDef,
+  appById,
+  readAppToggles,
+  writeAppToggles,
+} from '../resources/resources.catalog';
 
 type CanvasSectionKey =
   | 'objective'
@@ -45,6 +51,10 @@ type CanvasSectionKey =
   | 'context'
   | 'policy'
   | 'launch';
+
+interface WorkspaceAppsResponse {
+  enabled?: string[];
+}
 
 interface CanvasSection {
   key: CanvasSectionKey;
@@ -367,7 +377,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 <ck-help id="builder.steps.skills" />
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Capability bundles a validated skill set. Runtime badges surface stubs or unbound wrappers before launch.
+                Capability bundles a validated skill set. Enabled workspace apps (tools &amp; integrations) appear below.
               </p>
             </header>
 
@@ -420,6 +430,59 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 }
               </div>
             }
+
+            <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
+              <div class="ck-mono flex items-center gap-2 mb-3" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+                <ck-glyph name="cube" [size]="12" />
+                WORKSPACE APPS · {{ enabledApps().length }}
+              </div>
+              @if (enabledApps().length === 0) {
+                <p class="text-xs" style="color:var(--ck-fg-4);">
+                  No apps enabled for this workspace.
+                  <a routerLink="/apps" class="text-cyan-400 hover:text-cyan-300">Manage apps</a>
+                </p>
+              } @else {
+                <ul style="display:flex; flex-direction:column; gap:4px;">
+                  @for (app of enabledApps(); track app.id) {
+                    <li style="display:grid; grid-template-columns: 70px 1fr auto; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
+                      <ck-tag [tone]="app.wiring === 'wired' ? 'cool' : 'warn'" variant="outline">
+                        {{ app.wiring === 'wired' ? 'WIRED' : 'CATALOG' }}
+                      </ck-tag>
+                      <div style="min-width:0;">
+                        <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                          {{ app.name }}
+                        </div>
+                        <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+                          {{ app.id }}
+                          @if (app.skillSlugs; as slugs) {
+                            @if (slugs.length) {
+                              · {{ slugs.join(', ') }}
+                            }
+                          }
+                        </div>
+                      </div>
+                      @if (app.wiring === 'wired' && app.connectorRoute) {
+                        <a
+                          [routerLink]="app.connectorRoute"
+                          class="ck-mono text-cyan-400 hover:text-cyan-300"
+                          style="font-size:10px; white-space:nowrap;"
+                        >
+                          Configure connector
+                        </a>
+                      } @else {
+                        <a
+                          routerLink="/apps"
+                          class="ck-mono"
+                          style="font-size:10px; color:var(--ck-fg-4); white-space:nowrap;"
+                        >
+                          Catalog
+                        </a>
+                      }
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
           </div>
         }
 
@@ -887,7 +950,7 @@ export class SystemBuilderComponent implements OnInit {
   readonly sections: CanvasSection[] = [
     { key: 'objective', title: 'Objective', description: 'Name & outcome', glyph: 'focus' },
     { key: 'capability', title: 'Capability', description: 'Value-producing unit', glyph: 'cube' },
-    { key: 'skills', title: 'Skills', description: 'Bundled + custom runtime', glyph: 'cube' },
+    { key: 'skills', title: 'Skills', description: 'Bundled skills + apps', glyph: 'cube' },
     { key: 'context', title: 'Context', description: 'Knowledge + retrieval', glyph: 'ledger' },
     { key: 'policy', title: 'Policy', description: 'Guardrails + levers', glyph: 'sliders' },
     { key: 'launch', title: 'Launch', description: 'Review & create', glyph: 'bolt' },
@@ -911,6 +974,21 @@ export class SystemBuilderComponent implements OnInit {
   readonly skills = signal<Skill[]>([]);
   readonly collections = signal<string[]>([]);
   readonly loadingCollections = signal(false);
+  /** Enabled workspace app ids (API-authoritative, localStorage as cache). */
+  readonly enabledAppIds = signal<string[]>([]);
+  readonly enabledApps = computed<AppDef[]>(() => {
+    const ids = this.enabledAppIds();
+    return ids
+      .map((id) => appById(id) ?? {
+        id,
+        name: id.replace(/_/g, ' '),
+        description: '',
+        icon: 'plug',
+        status: 'ready' as const,
+        wiring: 'catalog' as const,
+      })
+      .filter(Boolean);
+  });
 
   draft = {
     name: '',
@@ -1004,6 +1082,7 @@ export class SystemBuilderComponent implements OnInit {
 
     this.settings.refresh();
     this.health.load().subscribe();
+    this.loadEnabledApps();
     this.loadingCaps.set(true);
     this.loadingCollections.set(true);
     this.api
@@ -1058,6 +1137,34 @@ export class SystemBuilderComponent implements OnInit {
 
   isCollectionChecked(name: string): boolean {
     return this.draft.collections.includes(name);
+  }
+
+  private loadEnabledApps(): void {
+    const slug = this.workspace.currentSlug();
+    if (!slug) {
+      const cached = readAppToggles(null);
+      this.enabledAppIds.set(
+        Object.entries(cached)
+          .filter(([, on]) => on)
+          .map(([id]) => id),
+      );
+      return;
+    }
+    this.api.get<WorkspaceAppsResponse>(`/workspaces/${encodeURIComponent(slug)}/apps`).subscribe({
+      next: (res) => {
+        const enabled = Array.isArray(res?.enabled) ? res.enabled : [];
+        this.enabledAppIds.set(enabled);
+        writeAppToggles(slug, enabled);
+      },
+      error: () => {
+        const cached = readAppToggles(slug);
+        this.enabledAppIds.set(
+          Object.entries(cached)
+            .filter(([, on]) => on)
+            .map(([id]) => id),
+        );
+      },
+    });
   }
 
   pickExistingContext(id: string): void {

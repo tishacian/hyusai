@@ -109,6 +109,20 @@ export interface RunHitlPayload {
   decision_id?: string;
   decision_status?: string | null;
   decision_title?: string | null;
+  /** ISO timestamp when the gate auto-resolves (TTL). */
+  expires_at?: string | null;
+  expiry_action?: 'reject' | 'approve' | 'escalate' | string | null;
+  seconds_remaining?: number | null;
+  /** Transactions buffered into run_inbox while paused. */
+  inbox_count?: number;
+  correlation_key?: string | null;
+  memory?: {
+    correlation_key?: string;
+    version?: number;
+    event_count?: number;
+    last_event_kind?: string | null;
+    updated_at?: string | null;
+  } | null;
 }
 
 export interface RunDebugPayload {

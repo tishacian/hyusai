@@ -1019,6 +1019,39 @@ async def _sap_hana_query_v1(
             db.close()
 
 
+async def _rpa_dispatch_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    from app.services.connectors.rpa import service as rpa_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not rpa_service.is_workspace_enabled(workspace):
+            raise ValueError("RPA Bridge connector is not enabled for this workspace")
+        config = rpa_service.get_config(workspace, include_secrets=True)
+        if not config.get("configured"):
+            raise ValueError("RPA Bridge connector is not configured (base_url / auth token)")
+        timeout_s = payload.get("timeout_s")
+        poll_interval_s = payload.get("poll_interval_s")
+        input_payload = payload.get("input")
+        if input_payload is not None and not isinstance(input_payload, dict):
+            raise ValueError("input must be an object")
+        return rpa_service.dispatch_and_poll(
+            config,
+            job_key=str(payload.get("job_key") or ""),
+            input_payload=input_payload,
+            callback_url=(
+                str(payload["callback_url"]) if payload.get("callback_url") else None
+            ),
+            timeout_s=float(timeout_s) if timeout_s is not None else 30.0,
+            poll_interval_s=float(poll_interval_s) if poll_interval_s is not None else 0.5,
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -4666,6 +4699,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "sap_hana_query_v1": (
         _sap_hana_query_v1,
         "app.services.connectors.hana.service",
+        "bound",
+    ),
+    "rpa_dispatch_v1": (
+        _rpa_dispatch_v1,
+        "app.services.connectors.rpa.service",
         "bound",
     ),
     "calendar_create_event_v1": (

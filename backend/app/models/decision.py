@@ -32,6 +32,12 @@ class Decision(Base):
     approved_by = Column(String(255), nullable=True)
     approved_at = Column(DateTime, nullable=True)
 
+    # Gate TTL (HITL / membrane HOLD). When ``expires_at`` elapses while still
+    # ``proposed``, ``scheduler_tick`` applies ``expiry_action``.
+    # expiry_action: reject | approve | escalate
+    expires_at = Column(DateTime, nullable=True, index=True)
+    expiry_action = Column(String(20), nullable=True)
+
     # Enactment trace — filled when a decision transitions to `applied`.
     applied_at = Column(DateTime, nullable=True)
     applied_patch = Column(JSON, nullable=True)

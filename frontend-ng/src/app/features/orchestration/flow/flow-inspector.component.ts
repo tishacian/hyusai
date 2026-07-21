@@ -35,6 +35,7 @@ import { FlowStore } from './flow.store';
 import { ManifestFieldsComponent } from './manifest-fields.component';
 import { FlowCollectionsService } from './flow-collections.service';
 import { FlowTriggerControlsComponent } from './flow-trigger-controls.component';
+import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
 
 @Component({
   selector: 'app-flow-inspector',
@@ -46,6 +47,7 @@ import { FlowTriggerControlsComponent } from './flow-trigger-controls.component'
     GlyphComponent,
     ManifestFieldsComponent,
     FlowTriggerControlsComponent,
+    FlowTriggersPanelComponent,
   ],
   styleUrl: './flow-inspector.component.scss',
   template: `
@@ -215,6 +217,7 @@ import { FlowTriggerControlsComponent } from './flow-trigger-controls.component'
               }
               @if (systemId(); as sid) {
                 <app-flow-trigger-controls [systemId]="sid" />
+                <app-flow-triggers-panel [systemId]="sid" />
               } @else {
                 <p class="ck-flow-hint">
                   Le pilotage des déclencheurs est disponible une fois le flux enregistré
@@ -249,6 +252,8 @@ export class FlowInspectorComponent {
   private static readonly TRIGGER_TYPES = new Set<string>([
     'source.sftp_arrival',
     'source.deposit_promoted',
+    'source.schedule',
+    'source.webhook',
   ]);
 
   /** The System this inspector's flow is bound to (null on the scratchpad).

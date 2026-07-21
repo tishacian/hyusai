@@ -50,14 +50,20 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 EVENT_SFTP_FILE_ARRIVED = "sftp.file_arrived"
 EVENT_DEPOSIT_PROMOTED = "deposit.promoted"
+EVENT_WEBHOOK_RECEIVED = "webhook.received"
+EVENT_SCHEDULE_FIRED = "schedule.fired"
 
 # A ``kind == 'source'`` node is an ACTIVE trigger when its ``type`` is one of
 # these; the value is the ``event_kind`` it listens for. ``source.chat_request``
 # / ``input`` sources are NOT triggers (they are reasoning-plane entry points),
 # so they never appear here and are ignored by the registry.
+# ``source.schedule`` is registered for graph/visibility parity; cron firing is
+# table-driven via ``run_schedules`` + ``scheduler_tick`` (not ``emit_event``).
 TRIGGER_TYPE_TO_EVENT: Dict[str, str] = {
     "source.sftp_arrival": EVENT_SFTP_FILE_ARRIVED,
     "source.deposit_promoted": EVENT_DEPOSIT_PROMOTED,
+    "source.webhook": EVENT_WEBHOOK_RECEIVED,
+    "source.schedule": EVENT_SCHEDULE_FIRED,
 }
 
 
@@ -98,6 +104,19 @@ _GOVERNANCE: Dict[str, EventGovernance] = {
     # ``hitl`` node (pause + proposed Decision) before the effect is applied.
     EVENT_DEPOSIT_PROMOTED: EventGovernance(
         event_kind=EVENT_DEPOSIT_PROMOTED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
+        require_hitl_for_side_effects=True,
+    ),
+    # Generic inbound webhook (incl. RPA job callbacks). Side effects remain
+    # HITL-gated — same posture as a human-validated deposit promotion.
+    EVENT_WEBHOOK_RECEIVED: EventGovernance(
+        event_kind=EVENT_WEBHOOK_RECEIVED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
+        require_hitl_for_side_effects=True,
+    ),
+    # Declared for registry completeness; cron uses ``scheduler_tick`` directly.
+    EVENT_SCHEDULE_FIRED: EventGovernance(
+        event_kind=EVENT_SCHEDULE_FIRED,
         permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
         require_hitl_for_side_effects=True,
     ),
@@ -618,6 +637,47 @@ def _process_live(
 
 
 # ---------------------------------------------------------------------------
+# Master switch (global OR per-workspace opt-in)
+# ---------------------------------------------------------------------------
+def is_event_triggers_enabled(
+    workspace_id: Optional[str] = None,
+    *,
+    db: Optional[DBSession] = None,
+) -> bool:
+    """True when the global flag is ON, or the workspace opted in.
+
+    Global ``settings.enable_event_triggers`` stays OFF by default so other
+    workspaces are untouched. Showcase (and any workspace) can opt in via
+    ``workspace.settings.features.enable_event_triggers = true`` or
+    ``workspace.settings.event_triggers.enabled = true`` without flipping the
+    deployment-wide switch.
+    """
+    if settings.enable_event_triggers:
+        return True
+    if not workspace_id:
+        return False
+
+    owns_session = db is None
+    if owns_session:
+        db = SessionLocal()
+    try:
+        from app.models.workspace import Workspace  # noqa: WPS433
+        from app.services.workspace_features import feature_enabled  # noqa: WPS433
+
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace is None:
+            return False
+        if feature_enabled(workspace, "enable_event_triggers"):
+            return True
+        blob = workspace.settings if isinstance(workspace.settings, dict) else {}
+        et = blob.get("event_triggers")
+        return isinstance(et, dict) and et.get("enabled") is True
+    finally:
+        if owns_session:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 def emit_event(
@@ -626,38 +686,53 @@ def emit_event(
     payload: Dict[str, Any],
     *,
     db: Optional[DBSession] = None,
+    system_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Emit ``event_kind`` for ``workspace_id`` and process every target System.
 
     Returns a list of per-target result dicts. ``status`` is one of:
     ``simulated`` (dry-run journal), ``dispatched`` (live run scheduled),
-    ``duplicate`` (dedup hit), ``rejected`` (governance), ``rate_limited``,
+    ``buffered`` (correlated ``hitl_pending`` run inbox), ``duplicate``
+    (dedup hit), ``rejected`` (governance), ``rate_limited``,
     ``circuit_open``, ``dispatch_failed`` or ``no_target``. No-op returning
-    ``[]`` when ``settings.enable_event_triggers`` is OFF — the master switch.
+    ``[]`` when neither the global master switch nor the workspace opt-in is
+    enabled.
 
     Per-System mode decides dry-run vs live: only a System whose
-    ``settings.event_trigger.mode == 'live'`` (and only while the flag is ON and
-    the event is governance-eligible) dispatches a real run; the default
-    ``dry_run`` merely journals a ``simulated`` run.
+    ``settings.event_trigger.mode == 'live'`` (and only while triggers are
+    enabled and the event is governance-eligible) dispatches a real run; the
+    default ``dry_run`` merely journals a ``simulated`` run.
 
+    ``system_id`` — when set (webhook hooks), only that System is considered.
     ``db`` — reuse the caller's session when provided (dry-run journals flush
     into the caller's transaction; a live dispatch commits it so the engine's
     own session can read the run); otherwise a private session is opened here.
     """
-    if not settings.enable_event_triggers:
-        return []
-
     owns_session = db is None
     if owns_session:
         db = SessionLocal()
     try:
+        if not is_event_triggers_enabled(workspace_id, db=db):
+            return []
+
         registry = build_registry(db, workspace_id=workspace_id)
-        system_ids = registry.get((event_kind, workspace_id), [])
+        system_ids = list(registry.get((event_kind, workspace_id), []))
+        if system_id is not None:
+            if system_id not in system_ids:
+                return [
+                    {
+                        "status": "no_target",
+                        "event_kind": event_kind,
+                        "workspace_id": workspace_id,
+                        "system_id": system_id,
+                    }
+                ]
+            system_ids = [system_id]
         if not system_ids:
             return [{"status": "no_target", "event_kind": event_kind, "workspace_id": workspace_id}]
         results: List[Dict[str, Any]] = []
-        for system_id in system_ids:
-            system = db.query(System).filter(System.id == system_id).first()
+        for target_id in system_ids:
+            system = db.query(System).filter(System.id == target_id).first()
             if not system:
                 continue
             results.append(
@@ -712,6 +787,29 @@ def _process_target(
             "dedup_key": dedup_key,
         }
 
+    # Phase 4 — while a correlated Run is ``hitl_pending``, buffer inbound
+    # transactions into ``run_inbox`` (+ SystemMemory) instead of starting a
+    # parallel run. Applies in both dry-run and live modes.
+    try:
+        from app.services.run_engine.inbox import try_buffer_event  # noqa: WPS433
+
+        buffered = try_buffer_event(
+            db,
+            system_id=system.id,
+            event_kind=event_kind,
+            payload=payload if isinstance(payload, dict) else {},
+        )
+        if buffered is not None:
+            buffered["dedup_key"] = dedup_key
+            return buffered
+    except Exception as exc:  # noqa: BLE001 — never break trigger dispatch.
+        logger.warning(
+            "triggers: inbox buffer failed",
+            system_id=system.id,
+            event_kind=event_kind,
+            error=str(exc),
+        )
+
     # Live execution is opt-in per System AND still gated by the master flag
     # (already asserted in ``emit_event``). Everything else stays dry-run.
     if trigger_mode(system) == TRIGGER_MODE_LIVE:
@@ -744,7 +842,7 @@ def emit_deposit_promoted(
     downstream run (still HITL-gated). Flag-guarded and exception-safe: a
     trigger failure never breaks the promotion.
     """
-    if not settings.enable_event_triggers:
+    if not is_event_triggers_enabled(workspace_id, db=db):
         return []
     file_ids = [fid for fid in (file_ids or []) if fid]
     payload = {
@@ -771,16 +869,16 @@ def emit_sftp_file_arrived(
     workspace_id: Optional[str],
     payload: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """Hook fired when the SFTP reconciliation path observes a file arrival.
+    """Hook fired on SFTP staging close and/or reconciliation file arrival.
 
     Governance-restricted to analysis / notification runs only (NEVER
-    ingestion). Flag-guarded and exception-safe.
+    ingestion). Flag/workspace-opt-in gated and exception-safe.
     """
-    if not settings.enable_event_triggers:
+    if not is_event_triggers_enabled(workspace_id, db=db):
         return []
     try:
         return emit_event(EVENT_SFTP_FILE_ARRIVED, workspace_id, payload or {}, db=db)
-    except Exception as exc:  # noqa: BLE001 — never break reconciliation.
+    except Exception as exc:  # noqa: BLE001 — never break staging/reconciliation.
         logger.warning(
             "triggers: emit sftp.file_arrived failed",
             workspace_id=workspace_id,

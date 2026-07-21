@@ -38,17 +38,22 @@ class Settings(BaseSettings):
     flow_asset_binding_authoritative: bool = False
 
     # Flow Builder sources DAG, Phase 3. Global master switch for EXECUTABLE
-    # event triggers (``source.sftp_arrival`` / ``deposit.promoted`` source
-    # nodes). When OFF (default) NO trigger is ever registered or fired: the
-    # emission hooks in ``secure_deposit`` and the SFTP reconciliation path are
-    # inert and ``triggers.emit_event`` short-circuits to a no-op, so deploy is
-    # byte-identical to Phase 2. When ON, each System with a trigger source node
-    # is still governed per-System by ``settings.event_trigger.mode`` which
-    # defaults to ``dry_run`` (a run is only JOURNALED as ``simulated``, never
-    # executed); ``live`` execution is opt-in per System. The governance
+    # event triggers (``source.sftp_arrival`` / ``deposit.promoted`` /
+    # ``source.webhook``). When OFF (default) triggers stay inert UNLESS a
+    # workspace opts in via ``settings.features.enable_event_triggers`` (or
+    # ``settings.event_triggers.enabled``) — showcase seed does this without
+    # flipping the deployment-wide switch. When enabled (global or workspace),
+    # each System is still governed by ``settings.event_trigger.mode`` which
+    # defaults to ``dry_run``; ``live`` is opt-in per System. The governance
     # invariant (docs/adr-flow-source-nodes.md §6) is enforced in code
     # regardless of this flag. Off by default: no behavior change on deploy.
     enable_event_triggers: bool = False
+
+    # HITL / membrane HOLD gate TTL. Used when a hitl node (or membrane egress
+    # HOLD) does not set ``config.expires_in_days`` / ``config.expiry_action``.
+    # scheduler_tick sweeps expired ``proposed`` decisions and applies the action.
+    hitl_gate_ttl_days: int = 3
+    hitl_gate_default_expiry_action: str = "reject"  # reject | approve | escalate
 
     # Ollama fallback
     ollama_base_url: str = "http://localhost:11434"

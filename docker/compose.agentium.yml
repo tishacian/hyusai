@@ -228,6 +228,8 @@ services:
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
+      # Single cpu worker owns the embedded beat (scheduler_tick, macro refresh).
+      CELERY_BEAT: ${AGENTIUM_CELERY_BEAT:-1}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro

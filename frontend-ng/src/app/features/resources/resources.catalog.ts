@@ -7,15 +7,14 @@
  *   - `/skills` = atomic, typed, versioned **operations** (the registry
  *                 orchestrated by Systems). Lives under the `Build` verb.
  *
- * Only `sharepoint` has a real backend today; every other app is a vitrine
- * card — matches the legacy HTML frontend behaviour in a typed, reusable
- * shape.
+ * App enablement is persisted server-side (`GET/PUT /workspaces/{slug}/apps`).
+ * Cards with ``wiring: 'wired'`` map to skills + connectors; ``catalog`` cards
+ * remain intent flags until a backend runtime ships.
  *
  * Both lists are pure data so they can be imported by:
  *   - the Resources page (Models + Connectors + Apps overview tabs),
- *   - the dedicated `/apps` route with persisted toggles,
- *   - the System Builder wizard ("Skills" step, which resolves references
- *     against `/skills` — not this file).
+ *   - the dedicated `/apps` route (API toggles + localStorage cache),
+ *   - the System Builder wizard Skills step (enabled workspace apps).
  */
 
 export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta';
@@ -251,6 +250,33 @@ export const CONNECTORS: ConnectorDef[] = [
     ],
   },
   {
+    id: 'rpa_bridge',
+    category: 'data-storage',
+    icon: 'bot',
+    name: 'RPA Bridge',
+    description:
+      'Dispatch jobs to an external RPA orchestrator via generic REST (UiPath, Power Automate, or custom runner).',
+    version: 'REST v1',
+    status: 'beta',
+    backendPrefix: 'rpa',
+    fields: [
+      {
+        key: 'base_url',
+        label: 'Base URL',
+        type: 'url',
+        placeholder: 'http://127.0.0.1:8099',
+        required: true,
+      },
+      { key: 'auth_token', label: 'Auth token', type: 'password', required: true },
+      {
+        key: 'callback_webhook_url',
+        label: 'Callback webhook URL',
+        type: 'url',
+        placeholder: 'https://…/api/v1/hooks/…',
+      },
+    ],
+  },
+  {
     id: 's3',
     category: 'data-storage',
     icon: 'cloud-upload',
@@ -294,6 +320,8 @@ export const CONNECTORS: ConnectorDef[] = [
 // ─── Apps / Skills / Tools ───────────────────────────────────────────────────
 
 export type AppStatus = 'ready' | 'beta';
+/** `wired` = backend runtime + skill/connector mapping; `catalog` = intent only. */
+export type AppWiring = 'wired' | 'catalog';
 
 export interface AppDef {
   id: string;
@@ -301,18 +329,39 @@ export interface AppDef {
   description: string;
   icon: string;
   status: AppStatus;
+  wiring: AppWiring;
+  /** Skill slugs synced into ``catalog.enabled_skills`` when this wired app is on. */
+  skillSlugs?: string[];
+  connectorId?: string;
+  connectorRoute?: string;
 }
 
 export const APPS: AppDef[] = [
-  { id: 'web_search',      name: 'Web Search',        description: 'Search the internet for real-time information and news.', icon: 'globe',        status: 'beta'  },
-  { id: 'code_interpreter', name: 'Code Interpreter', description: 'Execute Python and analyze data programmatically.',       icon: 'terminal',     status: 'beta'  },
-  { id: 'sql_query',       name: 'SQL Query',         description: 'Query structured databases and export results.',          icon: 'database',     status: 'ready' },
-  { id: 'api_connector',   name: 'API Connector',     description: 'Call external REST APIs with custom authentication.',     icon: 'plug',         status: 'ready' },
-  { id: 'email_sender',    name: 'Email Sender',      description: 'Draft and send emails from agent workflows.',             icon: 'mail',         status: 'ready' },
-  { id: 'file_generator',  name: 'File Generator',    description: 'Export agent output as PDF, Excel, or CSV.',              icon: 'file-text',    status: 'beta'  },
-  { id: 'calendar_access', name: 'Calendar Access',   description: 'Read and write calendar events and schedules.',           icon: 'calendar',     status: 'beta'  },
-  { id: 'memory',          name: 'Persistent Memory', description: 'Store and retrieve context across sessions.',             icon: 'brain',        status: 'ready' },
+  {
+    id: 'rpa_bridge',
+    name: 'RPA Bridge',
+    description:
+      'Dispatch jobs to an external RPA orchestrator via generic REST (UiPath, Power Automate, or custom runner).',
+    icon: 'bot',
+    status: 'beta',
+    wiring: 'wired',
+    skillSlugs: ['rpa_dispatch_v1'],
+    connectorId: 'rpa_bridge',
+    connectorRoute: '/connectors/rpa-bridge',
+  },
+  { id: 'web_search',      name: 'Web Search',        description: 'Search the internet for real-time information and news.', icon: 'globe',        status: 'beta',  wiring: 'catalog' },
+  { id: 'code_interpreter', name: 'Code Interpreter', description: 'Execute Python and analyze data programmatically.',       icon: 'terminal',     status: 'beta',  wiring: 'catalog' },
+  { id: 'sql_query',       name: 'SQL Query',         description: 'Query structured databases and export results.',          icon: 'database',     status: 'ready', wiring: 'catalog' },
+  { id: 'api_connector',   name: 'API Connector',     description: 'Call external REST APIs with custom authentication.',     icon: 'plug',         status: 'ready', wiring: 'catalog' },
+  { id: 'email_sender',    name: 'Email Sender',      description: 'Draft and send emails from agent workflows.',             icon: 'mail',         status: 'ready', wiring: 'catalog' },
+  { id: 'file_generator',  name: 'File Generator',    description: 'Export agent output as PDF, Excel, or CSV.',              icon: 'file-text',    status: 'beta',  wiring: 'catalog' },
+  { id: 'calendar_access', name: 'Calendar Access',   description: 'Read and write calendar events and schedules.',           icon: 'calendar',     status: 'beta',  wiring: 'catalog' },
+  { id: 'memory',          name: 'Persistent Memory', description: 'Store and retrieve context across sessions.',             icon: 'brain',        status: 'ready', wiring: 'catalog' },
 ];
+
+export function appById(id: string): AppDef | undefined {
+  return APPS.find((a) => a.id === id);
+}
 
 // ─── Local persistence helpers ───────────────────────────────────────────────
 
@@ -402,6 +451,23 @@ export function writeAppToggle(
     const all = readAppToggles(workspaceSlug);
     all[id] = enabled;
     localStorage.setItem(key, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Replace the whole toggle map (used when syncing from the workspace apps API). */
+export function writeAppToggles(
+  workspaceSlug: string | null,
+  enabled: Record<string, boolean> | string[],
+): void {
+  try {
+    const key = scopedLocalStorageKey(APPS_LS_KEY, workspaceSlug);
+    if (!key) return;
+    const map: Record<string, boolean> = Array.isArray(enabled)
+      ? Object.fromEntries(enabled.map((id) => [id, true]))
+      : { ...enabled };
+    localStorage.setItem(key, JSON.stringify(map));
   } catch {
     /* ignore */
   }

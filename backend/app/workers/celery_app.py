@@ -30,4 +30,9 @@ celery_app.conf.beat_schedule = {
         "schedule": 24 * 60 * 60,
         "args": ("sentinel-ci", False),
     },
+    # Orchestration Phase 3 — fire due ``run_schedules`` every minute.
+    "scheduler-tick-60s": {
+        "task": "agentium.scheduler_tick",
+        "schedule": 60.0,
+    },
 }

@@ -115,6 +115,14 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                     <app-icon name="arrow-right" [size]="14" />
                     Open SAP HANA setup
                   </a>
+                } @else if (connector.id === 'rpa_bridge') {
+                  <a
+                    routerLink="/connectors/rpa-bridge"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
+                  >
+                    <app-icon name="arrow-right" [size]="14" />
+                    Open RPA Bridge setup
+                  </a>
                 } @else if (connector.id === 'institutional_calendar') {
                   <a
                     routerLink="/hypervisor/mission-room/agenda"
@@ -316,6 +324,10 @@ export class ConnectorsPageComponent {
       this.router.navigate(['/connectors', 'sap-hana']);
       return;
     }
+    if (connector.id === 'rpa_bridge') {
+      this.router.navigate(['/connectors', 'rpa-bridge']);
+      return;
+    }
     this.activeConnector.set(connector);
     this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), connector.id) };
     this.drawerOpen.set(true);
@@ -368,6 +380,9 @@ export class ConnectorsPageComponent {
     if (connector.id === 'sap_hana') {
       return this.workspace.sapHanaConnectorEnabled();
     }
+    if (connector.id === 'rpa_bridge') {
+      return this.workspace.rpaBridgeEnabled();
+    }
     return true;
   }
 
@@ -387,6 +402,12 @@ export class ConnectorsPageComponent {
     }
     if (id === 'sap_hana') {
       return connectorSettings['sap_hana']?.enabled === true || !!connectorSettings['sap_hana']?.host;
+    }
+    if (id === 'rpa_bridge') {
+      return (
+        connectorSettings['rpa_bridge']?.enabled === true ||
+        !!connectorSettings['rpa_bridge']?.base_url
+      );
     }
     return connectorSettings[id]?.enabled === true;
   }

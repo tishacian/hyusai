@@ -12,6 +12,7 @@ alembic>=1.13.0
 
 # Async workers
 celery[amqp]>=5.5.0
+croniter>=2.0.0
 
 # LLM (OpenAI-first, others optional)
 openai>=2.0.0

@@ -177,16 +177,16 @@ def _emit_sftp_file_arrived_event(
 ) -> None:
     """Fire the Phase 3 ``sftp.file_arrived`` event trigger (flag-gated, safe).
 
-    Inert unless ``settings.enable_event_triggers`` is ON. Governance restricts
-    this event to analysis / notification runs ONLY — it can NEVER trigger
-    ingestion (that stays an explicit operator promotion). Any failure is
-    swallowed so a trigger problem never breaks reconciliation.
+    Inert unless the global master switch OR workspace opt-in is ON. Governance
+    restricts this event to analysis / notification runs ONLY — it can NEVER
+    trigger ingestion (that stays an explicit operator promotion). Any failure
+    is swallowed so a trigger problem never breaks reconciliation.
     """
-    if not settings.enable_event_triggers:
-        return
     try:
         from app.services.run_engine import triggers
 
+        if not triggers.is_event_triggers_enabled(workspace.id, db=db):
+            return
         summary = _compact_reconciliation_summary(result) if isinstance(result, dict) else {}
         triggers.emit_sftp_file_arrived(
             db,
@@ -196,6 +196,7 @@ def _emit_sftp_file_arrived_event(
                 "job_id": job.id,
                 "mode": mode,
                 "reconciled_at": summary.get("generated_at"),
+                "source": "sftp_reconciliation",
             },
         )
     except Exception:  # noqa: BLE001 — never break reconciliation.
