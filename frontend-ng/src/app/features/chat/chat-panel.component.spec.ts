@@ -27,6 +27,7 @@ import {
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService } from '@app/core/i18n.service';
+import { REGISTERED_LUCIDE_ICONS } from '@app/shared/ui/icon-registry';
 import { ChatPanelComponent } from './chat-panel.component';
 
 class WorkspaceStub {
@@ -196,6 +197,24 @@ function makeHarness() {
   const component = injector.get(ChatPanelComponent);
   return { injector, component, workspace, api, canonical, warnings };
 }
+
+test('voice oracle timeline only uses registered Lucide icons', () => {
+  const { injector, component } = makeHarness();
+  try {
+    for (const step of component.voiceOracleTimeline()) {
+      const providerKey = step.icon.replace(
+        /(\w)([a-z0-9]*)(_|-|\s*)/g,
+        (_match, first: string, rest: string) => first.toUpperCase() + rest.toLowerCase(),
+      );
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(REGISTERED_LUCIDE_ICONS, providerKey),
+        `missing Lucide provider for ${step.icon}`,
+      );
+    }
+  } finally {
+    injector.destroy();
+  }
+});
 
 test('a late session create from A cannot select, store or render the A session in B', async () => {
   const { injector, component, workspace, api } = makeHarness();

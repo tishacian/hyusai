@@ -23,6 +23,7 @@ import {
   TagComponent,
   HelpTooltipComponent,
 } from '@app/shared/cockpit';
+import { formatHypervisorImpact } from './hypervisor-impact';
 
 type PeriodKey = 'wtd' | 'mtd' | 'qtd' | 'rolling_30d' | 'rolling_90d';
 
@@ -1021,9 +1022,8 @@ export class HypervisorComponent implements OnInit {
     this.selectedDecision.set(null);
   }
 
-  decisionImpactValue(d: DecisionDetail, key: string): number {
-    const v = (d.impact_estimate || {})[key];
-    return typeof v === 'number' ? v : Number(v ?? 0);
+  decisionImpactValue(d: DecisionDetail, key: string): unknown {
+    return d.impact_estimate?.[key];
   }
 
   jsonText(v: unknown): string {
@@ -1107,10 +1107,8 @@ export class HypervisorComponent implements OnInit {
     return v.toFixed(2);
   }
 
-  protected formatImpact(v: number): string {
-    if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
-    if (Math.abs(v) < 1 && v !== 0) return `${(v * 100).toFixed(0)}%`;
-    return v.toFixed(2);
+  protected formatImpact(value: unknown): string {
+    return formatHypervisorImpact(value);
   }
 
   protected formatTime(ts: string | null | undefined): string {

@@ -538,7 +538,7 @@ export interface Recommendation {
   target_id?: string | null;
   title: string;
   rationale: Record<string, unknown>;
-  impact_estimate: Record<string, number>;
+  impact_estimate: Record<string, unknown>;
   status?: 'pending' | 'approved' | 'rejected' | 'applied';
   created_at?: string;
 }
@@ -1558,7 +1558,7 @@ export interface DecisionRow {
 
 export interface DecisionDetail extends DecisionRow {
   rationale?: Record<string, unknown>;
-  impact_estimate?: Record<string, number>;
+  impact_estimate?: Record<string, unknown>;
   notes?: string;
   approved_at?: string | null;
   applied_by?: string | null;

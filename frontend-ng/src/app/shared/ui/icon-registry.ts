@@ -204,6 +204,7 @@ import {
   BarChart2,
   FileSearch,
   Compass,
+  Route,
   Cloud,
   Phone,
   MapPin,
@@ -212,7 +213,7 @@ import {
   Camera,
 } from 'lucide-angular';
 
-const ICONS = {
+export const REGISTERED_LUCIDE_ICONS = {
   Layers,
   Database,
   Workflow,
@@ -409,6 +410,7 @@ const ICONS = {
   BarChart2,
   FileSearch,
   Compass,
+  Route,
   Cloud,
   Phone,
   MapPin,
@@ -450,7 +452,7 @@ export function provideLucideIcons() {
     {
       provide: LUCIDE_ICONS,
       multi: true,
-      useValue: new LucideIconProvider(ICONS),
+      useValue: new LucideIconProvider(REGISTERED_LUCIDE_ICONS),
     },
   ]);
 }
