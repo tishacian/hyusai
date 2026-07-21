@@ -99,19 +99,29 @@ def flow_hana_maintenance() -> Dict[str, Any]:
                 "label": "Open maintenance orders (HANA)",
                 "config": {
                     "skill_slug": "sap_hana_query_v1",
+                    # Literal values live in config.params so the Node
+                    # Inspector (manifest source skill.input_schema, path
+                    # nodes.<id>.config.params.<key>) displays AND edits the
+                    # exact values the engine consumes: the inputs_map below
+                    # reads them back through the walker's own `node`
+                    # namespace, so an inspector edit + Save changes the run.
+                    "params": {
+                        "sql": DEMO_OPEN_ORDERS_SQL,
+                        "max_rows": 50,
+                    },
                     "inputs_map": {
-                        "sql": {"node_id": "system", "path": ["hana_demo", "sql"]},
+                        "sql": {"node_id": "node", "path": ["config", "params", "sql"]},
                         "max_rows": {
-                            "node_id": "system",
-                            "path": ["hana_demo", "max_rows"],
+                            "node_id": "node",
+                            "path": ["config", "params", "max_rows"],
                         },
                     },
                 },
                 "data": {
                     "description": (
-                        "sap_hana_query_v1 against workspace connector. "
-                        "SQL baked in system.settings.hana_demo (params are not "
-                        "engine-authoritative)."
+                        "sap_hana_query_v1 against the workspace SAP HANA "
+                        "connector. Edit the SQL in Runtime parameters, Save, "
+                        "then Execute."
                     ),
                 },
             },
@@ -121,13 +131,16 @@ def flow_hana_maintenance() -> Dict[str, Any]:
                 "label": "Synthèse ordres ouverts",
                 "config": {
                     "skill_slug": "llm_rag_answer_v1",
+                    # Same inspector-editable pattern: the question is a
+                    # literal in config.params (Flow Builder Execute sends an
+                    # empty input_ref, so run.query is unreliable).
+                    "params": {
+                        "query": DEMO_QUERY,
+                    },
                     "inputs_map": {
-                        # Flow Builder Execute dispatches an empty input_ref,
-                        # so run.query is unreliable; the demo question is
-                        # seeded in system.settings.hana_demo.question.
                         "query": {
-                            "node_id": "system",
-                            "path": ["hana_demo", "question"],
+                            "node_id": "node",
+                            "path": ["config", "params", "query"],
                         },
                         "context": {"node_id": "task.hana", "path": ["context"]},
                     },
@@ -135,7 +148,8 @@ def flow_hana_maintenance() -> Dict[str, Any]:
                 "data": {
                     "description": (
                         "llm_rag_answer_v1 grounded on HANA row passages "
-                        "(task.hana.context)."
+                        "(task.hana.context). Edit the question in Runtime "
+                        "parameters to reshape the synthesis."
                     ),
                 },
             },
