@@ -1,5 +1,5 @@
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -54,6 +54,46 @@ def test_ambiguous_dispatch_never_falls_back_in_process(monkeypatch):
     assert called is False
 
 
+def test_dispatch_reuses_persisted_absolute_deadline(db_session, monkeypatch):
+    from app.models.run import Run
+
+    child = Run(
+        id=str(uuid4()),
+        status="pending",
+        input_ref={
+            "_delegation": {
+                "deadline_at": (datetime.utcnow() + timedelta(seconds=3)).isoformat(),
+            }
+        },
+    )
+    db_session.add(child)
+    db_session.commit()
+    published = {}
+
+    class Result:
+        id = "deadline-task"
+
+    class Task:
+        @staticmethod
+        def delay(_child_id):
+            raise AssertionError("deadline dispatch must use apply_async")
+
+        @staticmethod
+        def apply_async(*, args, soft_time_limit, time_limit):
+            published.update(
+                args=args,
+                soft_time_limit=soft_time_limit,
+                time_limit=time_limit,
+            )
+            return Result()
+
+    monkeypatch.setitem(sys.modules, "app.workers.tasks", SimpleNamespace(subflow_run=Task()))
+    assert engine.schedule_subflow_run(child.id) == "deadline-task"
+    assert published["args"] == [child.id]
+    assert 1 <= published["soft_time_limit"] <= 3
+    assert published["time_limit"] == published["soft_time_limit"] + 5
+
+
 def test_join_strategies_are_deterministic():
     entries = {
         "_meta": {"strategy": "any"},
@@ -105,6 +145,14 @@ def test_typed_delegation_acl_enforces_target_branch_and_input_contract():
     assert validate_contract({"answer": "ok"}, {"answer": "string"}) is True
     assert validate_contract({"answer": 4}, {"answer": "string"}) is False
     assert validate_contract({"answer": "ok"}, {"answer": "strng"}) is False
+    assert validate_contract(
+        {"answer": "ok"},
+        {"type": "object", "properties": {"answer": 7}},
+    ) is False
+    assert validate_contract(
+        {"answer": "ok"},
+        {"type": "object", "properties": {"answer": {"typ": "string"}}},
+    ) is False
     empty = MembraneSpec.from_dict(
         {"version": 2, "enforcement_mode": "enforce", "capabilities": {"allowed_delegations": []}}
     )
@@ -166,16 +214,23 @@ def test_ambiguous_retry_reuses_same_child_id(db_session, monkeypatch):
 def test_race_cancels_non_terminal_losers(db_session, monkeypatch):
     from app.models.run import Run
 
-    winner = Run(id=str(uuid4()), status="completed", completed_at=datetime.utcnow())
-    loser = Run(id=str(uuid4()), status="running", celery_task_id="task-loser")
-    db_session.add_all([winner, loser])
+    parent = Run(id=str(uuid4()), status="waiting_subflows")
+    winner = Run(
+        id=str(uuid4()), parent_run_id=parent.id, delegation_key="1" * 64,
+        status="completed", completed_at=datetime.utcnow(),
+    )
+    loser = Run(
+        id=str(uuid4()), parent_run_id=parent.id, delegation_key="2" * 64,
+        status="running", celery_task_id="task-loser",
+    )
+    db_session.add_all([parent, winner, loser])
     db_session.commit()
     waiting = {
         "_meta": {"strategy": "race"},
-        "winner": {"child_run_id": winner.id, "status": "completed"},
-        "loser": {"child_run_id": loser.id, "status": "running"},
+        winner.delegation_key: {"child_run_id": winner.id, "status": "completed"},
+        loser.delegation_key: {"child_run_id": loser.id, "status": "running"},
     }
-    _cancel_losers(db_session, waiting, winner.id)
+    _cancel_losers(db_session, parent, waiting, winner.id)
     db_session.commit()
     db_session.refresh(loser)
     assert loser.status == "cancelled"
@@ -231,6 +286,164 @@ def test_late_worker_completion_cannot_overwrite_coordinator_cancellation(db_ses
     assert run.output_ref == {}
 
 
+def test_late_hitl_pause_cannot_resurrect_coordinator_cancellation(db_session):
+    from app.db.base import SessionLocal
+    from app.models.run import Run
+
+    run = Run(id=str(uuid4()), status="running")
+    db_session.add(run)
+    db_session.commit()
+    with SessionLocal() as other:
+        cancelled = other.query(Run).filter(Run.id == run.id).one()
+        cancelled.status = "cancelled"
+        cancelled.error = "subflow_any_join_satisfied"
+        cancelled.completed_at = datetime.utcnow()
+        other.commit()
+
+    result = dag._emit_hitl_pause(
+        db_session,
+        run,
+        dag.WalkerState(start_monotonic=0.0),
+        {
+            "node_id": "approval",
+            "decision_id": str(uuid4()),
+            "prompt": "must not be published",
+        },
+    )
+
+    db_session.refresh(run)
+    assert result == {
+        "id": run.id,
+        "status": "cancelled",
+        "error": "subflow_any_join_satisfied",
+    }
+    assert run.status == "cancelled"
+    assert not any(cp.get("kind") == "hitl_pause" for cp in run.checkpoints or [])
+
+
+@pytest.mark.parametrize("pause_kind", ["hitl", "debug"])
+def test_pause_checkpoint_and_status_use_one_commit(db_session, monkeypatch, pause_kind):
+    from app.models.run import Run
+
+    run = Run(id=str(uuid4()), status="running", checkpoints=[])
+    db_session.add(run)
+    db_session.commit()
+    commits = 0
+    original_commit = db_session.commit
+
+    def counted_commit():
+        nonlocal commits
+        commits += 1
+        return original_commit()
+
+    monkeypatch.setattr(db_session, "commit", counted_commit)
+    state = dag.WalkerState(start_monotonic=0.0)
+    if pause_kind == "hitl":
+        result = dag._emit_hitl_pause(
+            db_session,
+            run,
+            state,
+            {
+                "node_id": "approval",
+                "decision_id": str(uuid4()),
+                "prompt": "approve",
+            },
+        )
+        expected_status = "hitl_pending"
+        checkpoint_kind = "hitl_pause"
+    else:
+        result = dag._emit_debug_pause(db_session, run, state, "inspect")
+        expected_status = "debug_pending"
+        checkpoint_kind = "debug_pause"
+
+    db_session.refresh(run)
+    assert commits == 1
+    assert result["status"] == expected_status
+    assert run.status == expected_status
+    assert (run.checkpoints or [])[-1]["kind"] == checkpoint_kind
+
+
+@pytest.mark.asyncio
+async def test_debug_stop_persists_canonical_cancellation(db_session):
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(id=str(uuid4()), name="Debug stop", slug=f"debug-stop-{uuid4()}")
+    db_session.add(workspace)
+    db_session.flush()
+    flow = {
+        "schema_version": 3,
+        "nodes": [{"id": "task", "kind": "task", "config": {}}],
+        "edges": [],
+    }
+    system = System(
+        id=str(uuid4()), workspace_id=workspace.id, name="Debug", objective="test",
+        flow_definition=flow,
+    )
+    db_session.add(system)
+    db_session.flush()
+    run = Run(
+        id=str(uuid4()), workspace_id=workspace.id, system_id=system.id,
+        status="debug_pending", flow_snapshot=flow,
+        checkpoints=[{
+            "kind": "debug_pause",
+            "node_id": "task",
+            "state": {"pending_counts": {"task": 0}},
+        }],
+    )
+    db_session.add(run)
+    db_session.commit()
+
+    result = await dag.resume_run_dag_debug(run.id, action="stop")
+
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert result == {
+        "id": run.id,
+        "status": "cancelled",
+        "error": "debugger_stopped",
+    }
+    assert persisted.status == "cancelled"
+    assert persisted.error == "debugger_stopped"
+    assert (persisted.checkpoints or [])[-1]["kind"] == "run_end"
+
+
+def test_subflow_child_fails_closed_on_cross_workspace_system(db_session):
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+
+    left = Workspace(id=str(uuid4()), name="Left", slug=f"left-{uuid4()}")
+    right = Workspace(id=str(uuid4()), name="Right", slug=f"right-{uuid4()}")
+    db_session.add_all([left, right])
+    db_session.flush()
+    foreign_system = System(
+        id=str(uuid4()), workspace_id=right.id, name="Foreign", objective="test",
+        flow_definition={"schema_version": 3, "nodes": [], "edges": []},
+    )
+    db_session.add(foreign_system)
+    db_session.flush()
+    child = Run(
+        id=str(uuid4()), workspace_id=left.id, system_id=foreign_system.id,
+        status="pending",
+    )
+    db_session.add(child)
+    db_session.commit()
+
+    result = engine.run_subflow_child(child.id)
+
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == child.id).one()
+    assert result == {
+        "id": child.id,
+        "status": "failed",
+        "error": "delegated_system_scope_mismatch",
+    }
+    assert persisted.status == "failed"
+    assert persisted.error == "delegated_system_scope_mismatch"
+
+
 def test_completed_child_payload_is_republished_through_normal_settlement(db_session):
     from app.models.run import Run
 
@@ -257,23 +470,132 @@ def test_completed_child_payload_is_republished_through_normal_settlement(db_ses
     assert state.pool.get({"node_id": "delegate-a", "path": ["answer"]}) == "branch-a"
 
 
+def test_enforced_output_contract_quarantines_nonconforming_payload(db_session):
+    from app.models.run import Run
+
+    child = Run(
+        id=str(uuid4()),
+        status="completed",
+        output_ref={"secret": "must-not-publish"},
+        input_ref={
+            "_delegation": {
+                "output_contract": {"answer": "string"},
+                "contract_enforced": True,
+            }
+        },
+    )
+    db_session.add(child)
+    db_session.commit()
+
+    outcome = dag._settle_subflow_output(
+        db_session,
+        dag.WalkerState(),
+        child.id,
+        "target",
+    )
+
+    db_session.refresh(child)
+    assert child.status == "failed"
+    assert child.output_ref == {}
+    assert "secret" not in outcome["output"]
+    assert outcome["output"]["_error"] == "delegation_output_contract_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_resume_never_crosses_a_proposed_hitl_boundary(db_session):
+    from app.models.decision import Decision
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(
+        id=str(uuid4()),
+        name="P4 HITL boundary",
+        slug=f"p4-hitl-{uuid4()}",
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    flow = {
+        "schema_version": 3,
+        "nodes": [{"id": "approval", "kind": "hitl", "config": {}}],
+        "edges": [],
+    }
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="HITL",
+        objective="test",
+        flow_definition=flow,
+    )
+    db_session.add(system)
+    db_session.flush()
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="hitl_pending",
+        flow_snapshot=flow,
+    )
+    decision = Decision(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        scope="run",
+        target_id=run.id,
+        kind="hitl_approval",
+        status="proposed",
+        title="Approval",
+    )
+    run.checkpoints = [
+        {
+            "kind": "hitl_pause",
+            "node_id": "approval",
+            "decision_id": decision.id,
+            "state": {},
+        }
+    ]
+    db_session.add_all([run, decision])
+    db_session.commit()
+
+    summary = await dag.resume_run_dag(run.id)
+
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert summary == {
+        "id": run.id,
+        "status": "hitl_pending",
+        "awaiting_decision": decision.id,
+    }
+    assert persisted.status == "hitl_pending"
+    assert not any(
+        checkpoint.get("kind") == "hitl_resume"
+        for checkpoint in persisted.checkpoints or []
+        if isinstance(checkpoint, dict)
+    )
+
+
 def test_output_contract_mismatch_is_failed_before_parent_claim(db_session):
     from app.models.run import Run
     from app.services.run_engine.subflow_orchestration import _refresh_entries
 
+    parent = Run(id=str(uuid4()), status="waiting_subflows")
     child = Run(
-        id=str(uuid4()), status="completed", output_ref={"answer": 7},
+        id=str(uuid4()), parent_run_id=parent.id, delegation_key="e" * 64,
+        status="completed", output_ref={"answer": 7},
         input_ref={"_delegation": {"output_contract": {"answer": "string"}, "contract_enforced": True}},
     )
-    db_session.add(child)
+    db_session.add_all([parent, child])
     db_session.commit()
-    waiting = {"_meta": {"strategy": "all"}, "edge": {"child_run_id": child.id}}
-    refreshed = _refresh_entries(db_session, waiting)
+    waiting = {
+        "_meta": {"strategy": "all"},
+        child.delegation_key: {"child_run_id": child.id},
+    }
+    refreshed = _refresh_entries(db_session, parent, waiting)
     db_session.commit()
     db_session.refresh(child)
-    assert refreshed["edge"]["status"] == "failed"
+    assert refreshed[child.delegation_key]["status"] == "failed"
     assert child.status == "failed"
     assert child.error == "delegation_output_contract_mismatch"
+    assert child.output_ref == {}
 
 
 @pytest.mark.asyncio
@@ -286,10 +608,14 @@ async def test_parent_resume_claim_is_idempotent_and_child_hitl_does_not_duplica
     from app.services.run_engine import dag as dag_module
 
     workspace = Workspace(id=str(uuid4()), name="P4", slug=f"p4-{uuid4()}")
+    db_session.add(workspace)
+    db_session.flush()
     system = System(
         id=str(uuid4()), workspace_id=workspace.id, name="Parent", objective="test",
         flow_definition={"schema_version": 3, "nodes": [], "edges": []},
     )
+    db_session.add(system)
+    db_session.flush()
     parent = Run(
         id=str(uuid4()), workspace_id=workspace.id, system_id=system.id,
         status="waiting_subflows",
@@ -307,9 +633,12 @@ async def test_parent_resume_claim_is_idempotent_and_child_hitl_does_not_duplica
     db_session.commit()
 
     calls = 0
-    async def fake_walk(*args, **kwargs):
+    async def fake_walk(db, resumed_parent, *args, **kwargs):
         nonlocal calls
         calls += 1
+        resumed_parent.status = "completed"
+        resumed_parent.completed_at = datetime.utcnow()
+        db.commit()
         return {"id": parent.id, "status": "completed"}
     monkeypatch.setattr(dag_module, "_walk", fake_walk)
 
@@ -322,8 +651,101 @@ async def test_parent_resume_claim_is_idempotent_and_child_hitl_does_not_duplica
     first = await resume_parent_for_child(child.id)
     second = await resume_parent_for_child(child.id)
     assert first["status"] == "completed"
-    assert second["status"] == "already_claimed"
+    assert second["status"] == "completed"
     assert calls == 1
+
+
+@pytest.mark.parametrize("strategy", ["any", "race"])
+@pytest.mark.asyncio
+async def test_resolved_join_materializes_winner_without_replaying_hitl_loser(
+    db_session, monkeypatch, strategy
+):
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+    from app.services.run_engine import dag as dag_module
+
+    workspace = Workspace(id=str(uuid4()), name="P4 join", slug=f"p4-join-{uuid4()}")
+    winner_system = System(
+        id=str(uuid4()), workspace_id=workspace.id, name="Winner", objective="test",
+        flow_definition={"schema_version": 3, "nodes": [], "edges": []},
+    )
+    loser_system = System(
+        id=str(uuid4()), workspace_id=workspace.id, name="Loser", objective="test",
+        flow_definition={"schema_version": 3, "nodes": [], "edges": []},
+    )
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "winner", "kind": "subflow", "config": {"system_id": winner_system.id}},
+            {"id": "loser", "kind": "subflow", "config": {"system_id": loser_system.id}},
+        ],
+        "edges": [],
+    }
+    parent_system = System(
+        id=str(uuid4()), workspace_id=workspace.id, name="Parent", objective="test",
+        flow_definition=flow,
+    )
+    parent = Run(
+        id=str(uuid4()), workspace_id=workspace.id, system_id=parent_system.id,
+        status="waiting_subflows", flow_snapshot=flow,
+        checkpoints=[{
+            "kind": "subflow_wait",
+            "state": {"pending_counts": {"winner": 0, "loser": 0}},
+        }],
+    )
+    winner = Run(
+        id=str(uuid4()), workspace_id=workspace.id, system_id=winner_system.id,
+        parent_run_id=parent.id, delegation_key="a" * 64,
+        delegation_node_id="winner", status="completed",
+        completed_at=datetime.utcnow(), output_ref={"answer": "winner"},
+    )
+    loser = Run(
+        id=str(uuid4()), workspace_id=workspace.id, system_id=loser_system.id,
+        parent_run_id=parent.id, delegation_key="b" * 64,
+        delegation_node_id="loser", status="hitl_pending",
+    )
+    parent.waiting_subflows = {
+        "_meta": {"strategy": strategy, "state": "waiting", "wave_id": 1},
+        winner.delegation_key: {
+            "child_run_id": winner.id, "node_id": "winner",
+            "status": "completed", "wave_id": 1,
+        },
+        loser.delegation_key: {
+            "child_run_id": loser.id, "node_id": "loser",
+            "status": "hitl_pending", "wave_id": 1,
+        },
+    }
+    db_session.add(workspace)
+    db_session.flush()
+    db_session.add_all([winner_system, loser_system, parent_system])
+    db_session.flush()
+    db_session.add_all([parent, winner, loser])
+    db_session.commit()
+
+    captured = {}
+
+    async def fake_walk(_db, _parent, _graph, state, **_kwargs):
+        captured["done"] = set(state.done)
+        captured["winner"] = dict(state.node_outputs.get("winner") or {})
+        captured["loser"] = dict(state.node_outputs.get("loser") or {})
+        _parent.status = "completed"
+        _db.commit()
+        return {"id": _parent.id, "status": "completed"}
+
+    monkeypatch.setattr(dag_module, "_walk", fake_walk)
+    result = await resume_parent_for_child(winner.id)
+
+    db_session.expire_all()
+    persisted_loser = db_session.query(Run).filter(Run.id == loser.id).one()
+    assert result["status"] == "completed"
+    assert captured["done"] == {"winner", "loser"}
+    assert captured["winner"]["answer"] == "winner"
+    assert captured["loser"] == {}
+    assert persisted_loser.status == "cancelled"
+    assert persisted_loser.error == (
+        "subflow_race_lost" if strategy == "race" else "subflow_any_join_satisfied"
+    )
 
 
 @pytest.mark.asyncio

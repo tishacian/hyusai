@@ -659,6 +659,13 @@ def finalize_resumed_agentic_chat(run_id: str) -> Optional[AgenticChatOutcome]:
         run = db.query(Run).filter(Run.id == run_id, Run.trigger == "chat_agentic").first()
         if run is None or run.status not in {"completed", "failed"}:
             return None
+        if (
+            _as_dict(run.output_ref).get("chat_adapter_finalized") is True
+            and _as_dict(run.output_ref).get("resumed_after_hitl") is True
+        ):
+            # Acks-late redelivery may replay the durable post-resume hook.
+            # The first successful finalization is authoritative.
+            return None
         system = db.query(System).filter(System.id == run.system_id).first()
         if system is None:
             return None

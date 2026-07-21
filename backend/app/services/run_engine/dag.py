@@ -30,9 +30,10 @@ import asyncio
 import hashlib
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
@@ -83,6 +84,73 @@ from .variable_pool import (
 )
 
 logger = get_logger(__name__)
+
+
+def _system_for_run(db: DBSession, run: Run) -> Optional[System]:
+    """Resolve a Run's System without ever crossing its workspace boundary."""
+
+    return (
+        db.query(System)
+        .filter(
+            System.id == run.system_id,
+            System.workspace_id == run.workspace_id,
+        )
+        .first()
+    )
+
+
+def resolve_hitl_decision_for_run(
+    db: DBSession,
+    *,
+    run: Run,
+    decision_id: str,
+    lock: bool = False,
+) -> Optional[Decision]:
+    """Resolve a Decision owned by this Run or any scoped descendant.
+
+    Nested in-process subflows propagate the deepest child's Decision to each
+    ancestor.  Requiring only the immediate child breaks A -> B -> C, while a
+    lineage walk remains fail-closed on workspace drift, missing parents and
+    cycles.
+    """
+
+    decision_query = db.query(Decision).filter(
+        Decision.id == decision_id,
+        Decision.scope == "run",
+        or_(
+            Decision.workspace_id == run.workspace_id,
+            Decision.workspace_id.is_(None),
+        ),
+    )
+    if lock:
+        decision_query = decision_query.with_for_update()
+    decision = decision_query.first()
+    if decision is None or not decision.target_id:
+        return None
+    current = (
+        db.query(Run)
+        .filter(
+            Run.id == decision.target_id,
+            Run.workspace_id == run.workspace_id,
+        )
+        .first()
+    )
+    visited: Set[str] = set()
+    while current is not None and current.id not in visited:
+        if current.id == run.id:
+            return decision
+        visited.add(current.id)
+        if not current.parent_run_id:
+            return None
+        current = (
+            db.query(Run)
+            .filter(
+                Run.id == current.parent_run_id,
+                Run.workspace_id == run.workspace_id,
+            )
+            .first()
+        )
+    return None
 
 
 def subflow_celery_enabled(system: System) -> bool:
@@ -359,7 +427,7 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             logger.warning("dag_engine: unknown run_id", run_id=run_id)
             return {"error": "run_not_found"}
 
-        system = db.query(System).filter(System.id == run.system_id).first()
+        system = _system_for_run(db, run)
         if not system:
             return _fail(db, run, "system_not_found")
 
@@ -483,7 +551,11 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         db.close()
 
 
-async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> Dict[str, Any]:
+async def resume_run_dag(
+    run_id: str,
+    *,
+    decision_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Resume a run paused at a ``hitl`` node.
 
     The frontend is expected to have called
@@ -508,7 +580,7 @@ async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> D
         if not pause_cp:
             return _fail(db, run, "no_hitl_checkpoint")
 
-        system = db.query(System).filter(System.id == run.system_id).first()
+        system = _system_for_run(db, run)
         if not system:
             return _fail(db, run, "system_not_found")
 
@@ -565,11 +637,33 @@ async def resume_run_dag(run_id: str, *, decision_id: Optional[str] = None) -> D
         is_subflow_pause = paused_node is not None and paused_node.kind == "subflow"
 
         dec = None
-        target_decision_id = decision_id or pause_cp.get("decision_id")
+        checkpoint_decision_id = pause_cp.get("decision_id")
+        target_decision_id = checkpoint_decision_id
+        if decision_id and decision_id != checkpoint_decision_id:
+            return {
+                "id": run.id,
+                "status": "hitl_pending",
+                "awaiting_decision": checkpoint_decision_id,
+                "error": "hitl_decision_mismatch",
+            }
         if target_decision_id:
-            dec = db.query(Decision).filter(Decision.id == target_decision_id).first()
+            dec = resolve_hitl_decision_for_run(
+                db,
+                run=run,
+                decision_id=target_decision_id,
+            )
         approved = bool(dec and dec.status in ("accepted", "applied"))
         rejected = bool(dec and dec.status == "rejected")
+
+        # A durable pause is an authority boundary. Internal re-entry (for
+        # example while resolving an any/race subflow join) must never settle
+        # the HITL node while its Decision is still proposed or missing.
+        if not approved and not rejected:
+            return {
+                "id": run.id,
+                "status": "hitl_pending",
+                "awaiting_decision": target_decision_id,
+            }
 
         is_membrane_egress = bool(pause_cp.get("membrane_egress"))
         if is_membrane_egress:
@@ -702,6 +796,7 @@ async def _walk(
         if adaptive and adaptive.enabled and _dag_should_stop(adaptive, state):
             _log_decision(
                 db,
+                workspace_id=run.workspace_id,
                 scope="system",
                 target_id=system.id,
                 kind="adaptive_stop",
@@ -845,6 +940,7 @@ def _enforce_terminal_membrane(
     if decision.disposition is EgressDisposition.BLOCK:
         _log_decision(
             db,
+            workspace_id=run.workspace_id,
             scope="run",
             target_id=run.id,
             kind="policy_block",
@@ -865,6 +961,7 @@ def _enforce_terminal_membrane(
     ):
         approval = _log_decision(
             db,
+            workspace_id=run.workspace_id,
             scope="run",
             target_id=run.id,
             kind="hitl_approval",
@@ -1041,6 +1138,9 @@ def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str)
     dedicated ``resume_run_dag_debug`` which understands step vs
     continue semantics.
     """
+    terminal = _terminal_run_before_pause(db, run)
+    if terminal is not None:
+        return terminal
     state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
     # Per-node ctx snapshot — only the fields that changed since the
     # last pause would be ideal, but walker ctx is small enough (RAG
@@ -1056,9 +1156,16 @@ def _emit_debug_pause(db: DBSession, run: Run, state: WalkerState, node_id: str)
         "last_output": state.node_outputs.get(node_id) or {},
         "state": state.to_payload(),
     }
-    _append_checkpoint(db, run, checkpoint)
+    # Status and resume checkpoint are one authoritative transition.  A
+    # coordinator cancellation cannot land between two commits and then be
+    # resurrected as a debugger pause.
+    run.checkpoints = [*(run.checkpoints or []), checkpoint]
     run.status = "debug_pending"
     db.commit()
+    try:
+        event_bus.publish(run.id, checkpoint)
+    except Exception:  # noqa: BLE001 - persisted state is authoritative.
+        pass
     try:
         event_bus.close(run.id)
     except Exception:  # noqa: BLE001
@@ -1107,7 +1214,7 @@ async def resume_run_dag_debug(
         if not pause_cp:
             return _fail(db, run, "no_debug_checkpoint")
 
-        system = db.query(System).filter(System.id == run.system_id).first()
+        system = _system_for_run(db, run)
         if not system:
             return _fail(db, run, "system_not_found")
 
@@ -1134,8 +1241,17 @@ async def resume_run_dag_debug(
         elif action == "step":
             state.debug_mode = "step"
         elif action == "stop":
-            _fail(db, run, reason="debugger_stopped")
-            return {"id": run.id, "status": "cancelled"}
+            _terminate_interrupted_run(
+                db,
+                run,
+                status="cancelled",
+                error="debugger_stopped",
+            )
+            return {
+                "id": run.id,
+                "status": run.status,
+                "error": run.error,
+            }
         else:
             return {"error": "invalid_action", "action": action}
 
@@ -1178,6 +1294,9 @@ def _emit_hitl_pause(
     db: DBSession, run: Run, state: WalkerState, outcome: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Persist the walker state as a HITL checkpoint and flip Run status."""
+    terminal = _terminal_run_before_pause(db, run)
+    if terminal is not None:
+        return terminal
     state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
     checkpoint = {
         "kind": "hitl_pause",
@@ -1203,9 +1322,15 @@ def _emit_hitl_pause(
         except Exception:  # noqa: BLE001 - persisted state is authoritative.
             pass
     else:
-        _append_checkpoint(db, run, checkpoint)
+        # The checkpoint and status form one transaction. Publishing happens
+        # only after that durable state is visible.
+        run.checkpoints = [*(run.checkpoints or []), checkpoint]
         run.status = "hitl_pending"
         db.commit()
+        try:
+            event_bus.publish(run.id, checkpoint)
+        except Exception:  # noqa: BLE001 - persisted state is authoritative.
+            pass
     # Close the current live stream — resume will spin up a fresh run
     # that SSE clients can re-subscribe to on reconnect.
     try:
@@ -1230,6 +1355,9 @@ def _emit_subflow_pause(
     db: DBSession, run: Run, state: WalkerState, outcome: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Persist a broker wait separately from a human approval pause."""
+    terminal = _terminal_run_before_pause(db, run)
+    if terminal is not None:
+        return terminal
     state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
     checkpoint = {
         "kind": "subflow_wait",
@@ -1255,6 +1383,30 @@ def _emit_subflow_pause(
         "id": run.id,
         "status": "waiting_subflows",
         "child_run_id": outcome.get("child_run_id"),
+    }
+
+
+def _terminal_run_before_pause(db: DBSession, run: Run) -> Optional[Dict[str, Any]]:
+    """Serialize durable pauses with coordinator-owned terminal states.
+
+    A race/any coordinator can cancel a branch while that branch is still
+    unwinding into HITL, debugger or nested-subflow pause.  Re-read the Run
+    under a row lock before publishing the pause so a late worker can never
+    resurrect an authoritative terminal state.
+    """
+    locked = (
+        db.query(Run)
+        .filter(Run.id == run.id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if locked is None or locked.status not in {"completed", "failed", "cancelled"}:
+        return None
+    return {
+        "id": locked.id,
+        "status": locked.status,
+        "error": locked.error,
     }
 
 
@@ -1930,6 +2082,7 @@ def _run_hitl(
     }
     decision = _log_decision(
         db,
+        workspace_id=run.workspace_id,
         scope="run",
         target_id=run.id,
         kind="hitl_approval",
@@ -2038,7 +2191,42 @@ async def _run_subflow(
         )
         return {"output": {"_error": "subflow_system_not_found"}}
 
+    parent_system = (
+        db.query(System)
+        .filter(System.id == run.system_id, System.workspace_id == run.workspace_id)
+        .first()
+    )
+    target_nodes = (
+        (target.flow_definition or {}).get("nodes")
+        if isinstance(target.flow_definition, dict)
+        else []
+    )
+    target_has_delegation = any(
+        isinstance(candidate, dict) and candidate.get("kind") == "subflow"
+        for candidate in (target_nodes or [])
+    )
+    if (
+        target_has_delegation
+        and subflow_celery_enabled(target)
+        and (parent_system is None or not subflow_celery_enabled(parent_system))
+    ):
+        # A child cannot silently switch its descendants to the durable plane
+        # while its own parent remains in-process: no persisted parent wait
+        # envelope would exist to wake that outer run. Require an explicit
+        # opt-in at every ancestor and fail before creating an orphan child.
+        raise RuntimeError("mixed_subflow_execution_plane_requires_parent_opt_in")
+
     child_input = _build_subflow_input(config, upstream or {}, state.pool)
+    timeout_seconds = config.get("timeout_seconds")
+    deadline_at: Optional[str] = None
+    if timeout_seconds is not None:
+        try:
+            timeout_seconds = float(timeout_seconds)
+        except (TypeError, ValueError):
+            return {"output": {"_error": "invalid_subflow_timeout"}}
+        if timeout_seconds <= 0 or timeout_seconds > 86400:
+            return {"output": {"_error": "invalid_subflow_timeout"}}
+        deadline_at = (datetime.utcnow() + timedelta(seconds=timeout_seconds)).isoformat()
     branch = str(
         config.get("branch")
         or (upstream or {}).get("_delegation_branch")
@@ -2050,6 +2238,7 @@ async def _run_subflow(
     if not allowed:
         _log_decision(
             db,
+            workspace_id=run.workspace_id,
             scope="run",
             target_id=run.id,
             kind="policy_block",
@@ -2064,6 +2253,7 @@ async def _run_subflow(
     if acl_reason:
         _log_decision(
             db,
+            workspace_id=run.workspace_id,
             scope="run",
             target_id=run.id,
             kind="policy_shadow",
@@ -2086,6 +2276,8 @@ async def _run_subflow(
         "output_contract": output_contract,
         "target_output_contract": target_contract if isinstance(target_contract, dict) else None,
         "contract_enforced": contract_enforced,
+        "timeout_seconds": timeout_seconds,
+        "deadline_at": deadline_at,
     }
 
     iteration = config.get(
@@ -2114,30 +2306,54 @@ async def _run_subflow(
             # child. Recover that row instead of creating a second execution.
             db.rollback()
             child = db.query(Run).filter(Run.delegation_key == logical_key).one()
+    persisted_delegation = (
+        ((child.input_ref or {}).get("_delegation") or {})
+        if isinstance(child.input_ref, dict)
+        else {}
+    )
+    if isinstance(persisted_delegation, dict):
+        deadline_at = persisted_delegation.get("deadline_at")
     child_id = child.id
     # Record the mapping BEFORE executing so that if the child pauses for HITL
     # the parent's serialised checkpoint already carries the child run id and a
     # later resume can find it (rather than spawning a duplicate).
     state.subflow_children[node.id] = child_id
 
-    parent_system = db.query(System).filter(System.id == run.system_id).first()
     if parent_system is not None and subflow_celery_enabled(parent_system):
         from .engine import schedule_subflow_run
 
+        persisted_input = dict(child.input_ref or {})
+        persisted_child_delegation = dict(persisted_input.get("_delegation") or {})
+        persisted_child_delegation["execution_plane"] = "celery"
+        persisted_input["_delegation"] = persisted_child_delegation
+        child.input_ref = persisted_input
         waiting = dict(run.waiting_subflows or {})
         strategy = str(config.get("join_strategy") or config.get("strategy") or "all").lower()
         if strategy not in {"all", "any", "race"}:
             return {"output": {"_error": "invalid_subflow_join_strategy", "strategy": strategy}}
         meta = dict(waiting.get("_meta") or {})
         current_strategy = meta.get("strategy")
+        current_state = str(meta.get("state") or "")
+        if current_state != "waiting":
+            meta["wave_id"] = int(meta.get("wave_id") or 0) + 1
+            current_strategy = None
+        elif meta.get("wave_id") is None:
+            # Checkpoints written before wave scoping are still resumable.
+            # Adopt their active entries into the first explicit wave rather
+            # than raising on ``meta[\"wave_id\"]`` or silently ignoring them.
+            meta["wave_id"] = 1
+            for legacy_key, legacy_entry in waiting.items():
+                if legacy_key != "_meta" and isinstance(legacy_entry, dict):
+                    legacy_entry.setdefault("wave_id", meta["wave_id"])
         if current_strategy and current_strategy != strategy:
             return {"output": {"_error": "mixed_subflow_join_strategies"}}
-        meta.update({"strategy": strategy, "state": "waiting"})
+        meta.update({"strategy": strategy, "state": "waiting", "execution_plane": "celery"})
         waiting["_meta"] = meta
         entry = dict(waiting.get(logical_key) or {})
         entry.update({"child_run_id": child_id, "node_id": node.id, "branch": branch,
                       "iteration": iteration, "strategy": strategy,
-                      "status": child.status, "dispatch_state": "persisted"})
+                      "status": child.status, "dispatch_state": "persisted",
+                      "deadline_at": deadline_at, "wave_id": meta["wave_id"]})
         waiting[logical_key] = entry
         run.waiting_subflows = waiting
         db.commit()
@@ -2206,7 +2422,14 @@ async def _continue_subflow_child(
         # Defensive: a synchronous in-process child should already be terminal
         # or paused. If we somehow re-enter while it is mid-flight, continue it
         # rather than creating a duplicate.
-        target = db.query(System).filter(System.id == child.system_id).first()
+        target = (
+            db.query(System)
+            .filter(
+                System.id == child.system_id,
+                System.workspace_id == child.workspace_id,
+            )
+            .first()
+        )
         target_workspace = (
             db.query(Workspace).filter(Workspace.id == target.workspace_id).first()
             if target is not None and target.workspace_id
@@ -2281,6 +2504,8 @@ def _settle_subflow_output(
             if delegation.get("contract_enforced") and fresh is not None:
                 fresh.status = "failed"
                 fresh.error = fresh.error or contract_warning
+                fresh.output_ref = {}
+                child_output = {}
                 db.commit()
     state.total_cost += float(fresh.cost_internal or 0.0) if fresh else 0.0
     return {
@@ -2510,6 +2735,17 @@ def _terminate_interrupted_run(
 ) -> None:
     """Make cancellation/engine failure terminal and close live subscribers."""
 
+    locked = (
+        db.query(Run)
+        .filter(Run.id == run.id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if locked is not None:
+        run = locked
+    if run.status in {"completed", "failed", "cancelled"}:
+        return
     now = datetime.utcnow()
     for invocation in (
         db.query(SkillInvocation)

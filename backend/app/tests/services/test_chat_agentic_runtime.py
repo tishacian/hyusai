@@ -31,6 +31,10 @@ def _seed_agentic_system(db_session, *, retrieval_contract: dict[str, Any]) -> S
         name="Andritz runtime test",
         slug=f"andritz-runtime-{uuid.uuid4().hex[:8]}",
     )
+    # PostgreSQL enforces the FK immediately; flush the tenant before the
+    # System rather than relying on SQLite's permissive insert ordering.
+    db_session.add(workspace)
+    db_session.flush()
     system = System(
         id=str(uuid.uuid4()),
         workspace_id=workspace.id,
@@ -43,7 +47,7 @@ def _seed_agentic_system(db_session, *, retrieval_contract: dict[str, Any]) -> S
         },
         flow_definition={"variant": "chat_agentic_thinking_v1", "nodes": [], "edges": []},
     )
-    db_session.add_all([workspace, system])
+    db_session.add(system)
     db_session.commit()
     return system
 
@@ -395,6 +399,9 @@ def test_resumed_hitl_replaces_placeholder_and_schedules_eval(
     assert refreshed_message.content == "BCX200 comporte la pompe P-101 [1]."
     assert refreshed_message.meta_data["resumed_after_hitl"] is True
     assert refreshed_run.output_ref["resumed_after_hitl"] is True
+    assert scheduled == [run.id]
+
+    assert finalize_resumed_agentic_chat(run.id) is None
     assert scheduled == [run.id]
 
 

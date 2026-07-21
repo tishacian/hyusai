@@ -765,3 +765,115 @@ async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, mo
     )
     assert [i.skill_slug for i in child_invocations] == ["child_tail_v1"]
     assert all(i.status == "completed" for i in child_invocations)
+
+
+async def test_nested_subflow_hitl_resumes_entire_lineage_once(db_session, monkeypatch):
+    """A → B → C propagates one HITL Decision and resumes without replay.
+
+    Each delegating run persists the same child identity and the same Decision
+    in its pause checkpoint. Resuming only the root recursively drives the
+    existing lineage to completion; no level may create a replacement child or
+    append more than one resume checkpoint.
+    """
+
+    async def child_tail(inp, ctx):
+        return {"leaf_done": True, "approved": ctx.get("hitl_approved")}
+
+    _install_fake_registry(monkeypatch, {"nested_child_tail_v1": child_tail})
+    _mk_skill(db_session, "nested_child_tail_v1")
+
+    leaf_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "csrc", "kind": "source"},
+            {"id": "ch", "kind": "hitl", "config": {"prompt": "leaf approve?"}},
+            {
+                "id": "ct",
+                "kind": "task",
+                "config": {"skill_slug": "nested_child_tail_v1"},
+            },
+            {"id": "csink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "csrc", "to": "ch"},
+            {"from": "ch", "to": "ct"},
+            {"from": "ct", "to": "csink"},
+        ],
+    }
+    system_c = _mk_system(db_session, flow=leaf_flow)
+
+    def _subflow_flow(node_id: str, target_id: str) -> Dict[str, Any]:
+        return {
+            "schema_version": 2,
+            "nodes": [
+                {"id": f"{node_id}_src", "kind": "source"},
+                {
+                    "id": node_id,
+                    "kind": "subflow",
+                    "config": {"system_id": target_id},
+                },
+                {"id": f"{node_id}_sink", "kind": "sink"},
+            ],
+            "edges": [
+                {"from": f"{node_id}_src", "to": node_id},
+                {"from": node_id, "to": f"{node_id}_sink"},
+            ],
+        }
+
+    system_b = _mk_system(db_session, flow=_subflow_flow("b_to_c", system_c.id))
+    system_a = _mk_system(db_session, flow=_subflow_flow("a_to_b", system_b.id))
+    run_a = _mk_run(db_session, system_a)
+
+    paused = await execute_run_dag(run_a.id)
+    assert paused["status"] == "hitl_pending"
+    decision_id = paused.get("awaiting_decision")
+    assert decision_id
+
+    db_session.expire_all()
+    run_a = db_session.query(Run).filter(Run.id == run_a.id).one()
+    runs_b = db_session.query(Run).filter(Run.parent_run_id == run_a.id).all()
+    assert len(runs_b) == 1, "A must persist exactly one B child"
+    run_b = runs_b[0]
+    runs_c = db_session.query(Run).filter(Run.parent_run_id == run_b.id).all()
+    assert len(runs_c) == 1, "B must persist exactly one C child"
+    run_c = runs_c[0]
+
+    for lineage_run in (run_a, run_b, run_c):
+        assert lineage_run.status == "hitl_pending"
+        pauses = [
+            cp
+            for cp in (lineage_run.checkpoints or [])
+            if cp.get("kind") == "hitl_pause"
+        ]
+        assert len(pauses) == 1
+        assert pauses[0].get("decision_id") == decision_id
+
+    decision = db_session.query(Decision).filter(Decision.id == decision_id).one()
+    assert decision.target_id == run_c.id
+    decision.status = "accepted"
+    db_session.commit()
+
+    resumed = await resume_run_dag(run_a.id, decision_id=decision_id)
+    assert resumed["status"] == "completed"
+
+    db_session.expire_all()
+    run_a = db_session.query(Run).filter(Run.id == run_a.id).one()
+    run_b = db_session.query(Run).filter(Run.id == run_b.id).one()
+    run_c = db_session.query(Run).filter(Run.id == run_c.id).one()
+    assert [run_a.status, run_b.status, run_c.status] == ["completed"] * 3
+    assert run_a.output_ref.get("leaf_done") is True
+    assert run_b.output_ref.get("leaf_done") is True
+    assert run_c.output_ref.get("leaf_done") is True
+    assert run_c.output_ref.get("approved") is True
+
+    assert db_session.query(Run).filter(Run.parent_run_id == run_a.id).count() == 1
+    assert db_session.query(Run).filter(Run.parent_run_id == run_b.id).count() == 1
+    assert db_session.query(Run).filter(Run.parent_run_id == run_c.id).count() == 0
+
+    for lineage_run in (run_a, run_b, run_c):
+        assert _checkpoint_kinds(lineage_run).count("hitl_resume") == 1
+
+    leaf_invocations = (
+        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run_c.id).all()
+    )
+    assert [item.skill_slug for item in leaf_invocations] == ["nested_child_tail_v1"]

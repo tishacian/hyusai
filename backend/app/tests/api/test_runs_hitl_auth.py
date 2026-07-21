@@ -25,6 +25,19 @@ from app.services.chat_execution_policy import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_durable_ordinary_hitl_resume(monkeypatch):
+    from app.services.run_engine import engine
+
+    monkeypatch.setattr(
+        engine,
+        "schedule_run_hitl_resume",
+        lambda _run_id, *, decision_id: f"ordinary-resume-{decision_id}",
+    )
+    monkeypatch.setattr(runs, "_postgres_hitl_coordination_supported", lambda: True)
+    monkeypatch.setattr(runs, "_durable_run_hitl_enabled", lambda _system: True)
+
+
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     app = FastAPI()
     app.include_router(runs.router, prefix="/runs")
@@ -58,6 +71,8 @@ def _seed_pending_run(
         slug=f"hitl-auth-{uuid4().hex[:8]}",
         settings={"family": "andritz" if managed else "generic"},
     )
+    db_session.add(workspace)
+    db_session.flush()
     initiator = _user(db_session, "initiator")
     other_member = _user(db_session, "other")
     initiator_membership = WorkspaceMember(
@@ -90,6 +105,8 @@ def _seed_pending_run(
                 "system_id": system.id,
             },
         }
+    db_session.add(system)
+    db_session.flush()
     run = Run(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -173,6 +190,356 @@ def test_ordinary_hitl_owner_uses_authenticated_actor_not_body(db_session, monke
     assert decision.approved_by == initiator.email
     assert decision.approved_by != "spoofed-admin@example.invalid"
     assert decision.notes == "reviewed"
+
+
+def test_ordinary_hitl_idempotent_retry_republishes_same_durable_task(
+    db_session,
+    monkeypatch,
+):
+    workspace, initiator, _other, _membership, _system, run, decision = _seed_pending_run(
+        db_session
+    )
+    from app.services.run_engine import engine
+
+    dispatched = []
+    monkeypatch.setattr(
+        engine,
+        "schedule_run_hitl_resume",
+        lambda run_id, *, decision_id: (
+            dispatched.append((run_id, decision_id)) or "same-durable-task"
+        ),
+    )
+    client = _client(db_session, workspace, initiator)
+
+    first = client.post(f"/runs/{run.id}/hitl", json={"action": "accept"})
+    retry = client.post(f"/runs/{run.id}/hitl", json={"action": "accept"})
+
+    assert first.status_code == 200
+    assert retry.status_code == 200
+    assert first.json()["resume_task_id"] == "same-durable-task"
+    assert retry.json()["resume_task_id"] == "same-durable-task"
+    assert dispatched == [(run.id, decision.id), (run.id, decision.id)]
+
+
+def test_in_process_child_and_parent_routes_share_outermost_resume_owner(
+    db_session,
+    monkeypatch,
+):
+    workspace, initiator, _other, _membership, system, child, decision = _seed_pending_run(
+        db_session
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        parent_run_id=None,
+        status="hitl_pending",
+    )
+    outer = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="hitl_pending",
+    )
+    parent.parent_run_id = outer.id
+    child.parent_run_id = parent.id
+    parent.checkpoints = [
+        {"kind": "hitl_pause", "node_id": "parent-subflow", "decision_id": decision.id}
+    ]
+    outer.checkpoints = [
+        {"kind": "hitl_pause", "node_id": "outer-subflow", "decision_id": decision.id}
+    ]
+    db_session.add_all([outer, parent])
+    db_session.commit()
+
+    from app.services.run_engine import engine
+
+    dispatched = []
+    monkeypatch.setattr(
+        engine,
+        "schedule_run_hitl_resume",
+        lambda run_id, *, decision_id: (
+            dispatched.append((run_id, decision_id)) or f"resume-{run_id}-{decision_id}"
+        ),
+    )
+    client = _client(db_session, workspace, initiator)
+
+    child_response = client.post(f"/runs/{child.id}/hitl", json={"action": "accept"})
+    parent_retry = client.post(f"/runs/{parent.id}/hitl", json={"action": "accept"})
+
+    assert child_response.status_code == 200
+    assert child_response.json()["id"] == child.id
+    assert parent_retry.status_code == 200
+    assert parent_retry.json()["id"] == parent.id
+    assert dispatched == [(outer.id, decision.id), (outer.id, decision.id)]
+    assert child_response.json()["resume_task_id"] == parent_retry.json()["resume_task_id"]
+    db_session.refresh(outer)
+    dispatch_checkpoints = [
+        checkpoint
+        for checkpoint in outer.checkpoints or []
+        if checkpoint.get("kind") == "hitl_resume_dispatch"
+    ]
+    assert dispatch_checkpoints == [
+        {
+            "kind": "hitl_resume_dispatch",
+            "t": dispatch_checkpoints[0]["t"],
+            "decision_id": decision.id,
+            "plane": "run_celery",
+        }
+    ]
+
+
+def test_run_hitl_celery_flag_off_keeps_inline_background_path(
+    db_session,
+    monkeypatch,
+):
+    workspace, initiator, _other, _membership, _system, run, decision = _seed_pending_run(
+        db_session
+    )
+    from app.services.run_engine import engine
+
+    inline_calls = []
+    monkeypatch.setattr(runs, "_durable_run_hitl_enabled", lambda _system: False)
+    monkeypatch.setattr(
+        engine,
+        "schedule_run_hitl_resume",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Celery dispatch must stay off")
+        ),
+    )
+    monkeypatch.setattr(
+        runs,
+        "_resume_wrapper",
+        lambda run_id, decision_id: inline_calls.append((run_id, decision_id)),
+    )
+
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{run.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["resume_task_id"] is None
+    assert inline_calls == [(run.id, decision.id)]
+    db_session.refresh(run)
+    assert any(
+        checkpoint.get("kind") == "hitl_resume_dispatch"
+        and checkpoint.get("decision_id") == decision.id
+        and checkpoint.get("plane") == "inline"
+        for checkpoint in run.checkpoints or []
+    )
+
+
+def test_nested_in_process_descendant_under_celery_child_uses_p4_resume(
+    db_session,
+    monkeypatch,
+):
+    from app.services.run_engine import engine
+
+    workspace, initiator, _other, _membership, system, leaf, decision = _seed_pending_run(
+        db_session
+    )
+    broker_parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="waiting_subflows",
+    )
+    outer_child = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        parent_run_id=broker_parent.id,
+        status="hitl_pending",
+        delegation_key="b" * 64,
+        delegation_node_id="broker-node",
+        delegation_branch="legal",
+        input_ref={
+            "_delegation": {
+                "parent_run_id": broker_parent.id,
+                "delegation_node_id": "broker-node",
+                "branch": "legal",
+                "execution_plane": "celery",
+            }
+        },
+        checkpoints=[
+            {"kind": "hitl_pause", "node_id": "outer-subflow", "decision_id": decision.id}
+        ],
+    )
+    middle = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        parent_run_id=outer_child.id,
+        status="hitl_pending",
+        checkpoints=[
+            {"kind": "hitl_pause", "node_id": "middle-subflow", "decision_id": decision.id}
+        ],
+    )
+    leaf.parent_run_id = middle.id
+    broker_parent.waiting_subflows = {
+        "_meta": {
+            "strategy": "all",
+            "state": "waiting",
+            "wave_id": 1,
+            "execution_plane": "celery",
+        },
+        outer_child.delegation_key: {
+            "child_run_id": outer_child.id,
+            "node_id": outer_child.delegation_node_id,
+            "branch": outer_child.delegation_branch,
+            "status": "hitl_pending",
+            "wave_id": 1,
+        },
+    }
+    db_session.add_all([broker_parent, outer_child, middle])
+    db_session.commit()
+
+    specialized = []
+    monkeypatch.setattr(
+        engine,
+        "schedule_subflow_hitl_resume",
+        lambda child_id, *, decision_id: (
+            specialized.append((child_id, decision_id)) or "p4-hitl-resume"
+        ),
+    )
+    monkeypatch.setattr(
+        engine,
+        "schedule_run_hitl_resume",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("generic HITL task must not cross a Celery delegation boundary")
+        ),
+    )
+
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{leaf.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == leaf.id
+    assert response.json()["resume_task_id"] == "p4-hitl-resume"
+    assert specialized == [(outer_child.id, decision.id)]
+    db_session.refresh(outer_child)
+    assert any(
+        checkpoint.get("kind") == "hitl_resume_dispatch"
+        and checkpoint.get("decision_id") == decision.id
+        and checkpoint.get("plane") == "subflow_celery"
+        for checkpoint in outer_child.checkpoints or []
+    )
+
+
+def test_delegated_hitl_queues_durable_child_resume(db_session, monkeypatch):
+    from app.services.run_engine import engine
+
+    workspace, initiator, _other, _membership, system, child, decision = _seed_pending_run(
+        db_session
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="waiting_subflows",
+    )
+    node_id = "delegate-review"
+    branch = "legal"
+    child.parent_run_id = parent.id
+    child.delegation_key = "a" * 64
+    child.delegation_node_id = node_id
+    child.delegation_branch = branch
+    child.celery_task_id = None  # delivery metadata is not execution-plane identity
+    child.input_ref = {
+        "_delegation": {
+            "parent_run_id": parent.id,
+            "delegation_node_id": node_id,
+            "branch": branch,
+            "execution_plane": "celery",
+        }
+    }
+    parent.waiting_subflows = {
+        "_meta": {
+            "strategy": "all",
+            "state": "waiting",
+            "wave_id": 1,
+            "execution_plane": "celery",
+        },
+        child.delegation_key: {
+            "child_run_id": child.id,
+            "node_id": node_id,
+            "branch": branch,
+            "status": "hitl_pending",
+            "wave_id": 1,
+        },
+    }
+    db_session.add(parent)
+    db_session.commit()
+    published = []
+    monkeypatch.setattr(
+        engine,
+        "schedule_subflow_hitl_resume",
+        lambda child_id, *, decision_id: published.append((child_id, decision_id)) or "resume-task",
+    )
+    monkeypatch.setattr(
+        runs,
+        "_resume_wrapper",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("inline resume is forbidden")),
+    )
+
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["resume_task_id"] == "resume-task"
+    assert published == [(child.id, decision.id)]
+    db_session.refresh(decision)
+    assert decision.status == "accepted"
+
+    idempotent_retry = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "accept"},
+    )
+    assert idempotent_retry.status_code == 200
+    assert published == [(child.id, decision.id), (child.id, decision.id)]
+
+    conflicting = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "reject"},
+    )
+    assert conflicting.status_code == 409
+    assert published == [(child.id, decision.id), (child.id, decision.id)]
+
+    stale_decision = Decision(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        scope="run",
+        target_id=child.id,
+        kind="hitl_approval",
+        status="proposed",
+        title="Stale wave approval",
+    )
+    child.checkpoints = [
+        {
+            "kind": "hitl_pause",
+            "node_id": "approve-stale",
+            "decision_id": stale_decision.id,
+        }
+    ]
+    waiting = dict(parent.waiting_subflows)
+    waiting["_meta"] = {**waiting["_meta"], "wave_id": 2}
+    parent.waiting_subflows = waiting
+    db_session.add(stale_decision)
+    db_session.commit()
+
+    stale = _client(db_session, workspace, initiator).post(
+        f"/runs/{child.id}/hitl",
+        json={"action": "accept"},
+    )
+    assert stale.status_code == 409
+    db_session.refresh(stale_decision)
+    assert stale_decision.status == "proposed"
+    assert published == [(child.id, decision.id), (child.id, decision.id)]
 
 
 def test_managed_agentic_hitl_requires_admin_even_for_run_initiator(

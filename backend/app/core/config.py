@@ -498,6 +498,12 @@ class Settings(BaseSettings):
     # settings.features.subflow_celery=true opt-in must both be present.
     enable_subflow_celery: bool = False
 
+    # Durable Celery continuation for ordinary/in-process HITL is a separate
+    # rollout from delegated P4.  It is enabled only when this deployment flag
+    # and settings.features.run_hitl_celery=true are both present.  Keeping the
+    # default off preserves the historical FastAPI BackgroundTask path.
+    enable_run_hitl_celery: bool = False
+
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"
     secure_deposit_public_base_url: Optional[str] = None

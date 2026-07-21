@@ -21,12 +21,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import time
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -115,11 +116,23 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
 
     async def _entry() -> Dict[str, Any]:
         use_dag = False
+        scoped_error: Optional[str] = None
         db = SessionLocal()
         try:
             run = db.query(Run).filter(Run.id == child_run_id).first()
+            if run is None:
+                return {"id": child_run_id, "status": "missing", "error": "run_not_found"}
             if run:
-                system = db.query(System).filter(System.id == run.system_id).first()
+                system = (
+                    db.query(System)
+                    .filter(
+                        System.id == run.system_id,
+                        System.workspace_id == run.workspace_id,
+                    )
+                    .first()
+                )
+                if system is None:
+                    scoped_error = "delegated_system_scope_mismatch"
                 workspace = (
                     db.query(Workspace)
                     .filter(Workspace.id == (system.workspace_id or run.workspace_id))
@@ -127,9 +140,22 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
                     if system and (system.workspace_id or run.workspace_id)
                     else None
                 )
+                if system is not None and run.workspace_id and workspace is None:
+                    scoped_error = "delegated_workspace_missing"
                 use_dag = bool(system and should_use_dag(system, workspace))
+                if scoped_error:
+                    run.status = "failed"
+                    run.error = scoped_error
+                    run.completed_at = datetime.utcnow()
+                    db.commit()
         finally:
             db.close()
+        if scoped_error:
+            return {
+                "id": child_run_id,
+                "status": "failed",
+                "error": scoped_error,
+            }
         if use_dag:
             return await execute_run_dag(child_run_id)
         return await execute_run(child_run_id)
@@ -148,7 +174,19 @@ def schedule_subflow_run(child_run_id: str) -> str:
     try:
         from app.workers.tasks import subflow_run as subflow_task  # noqa: WPS433
 
-        async_result = subflow_task.delay(child_run_id)
+        remaining = _subflow_deadline_remaining(child_run_id)
+        if remaining is None:
+            async_result = subflow_task.delay(child_run_id)
+        else:
+            # The absolute deadline is persisted with the child before this
+            # publication. Redeliveries therefore consume the same budget
+            # instead of receiving a fresh timeout window.
+            soft_limit = max(1, int(math.ceil(remaining)))
+            async_result = subflow_task.apply_async(
+                args=[child_run_id],
+                soft_time_limit=soft_limit,
+                time_limit=soft_limit + 5,
+            )
         task_id = getattr(async_result, "id", None)
         if not task_id:
             raise RuntimeError("subflow dispatch returned no task id")
@@ -160,6 +198,104 @@ def schedule_subflow_run(child_run_id: str) -> str:
             error=str(exc),
         )
         raise RuntimeError(f"ambiguous subflow dispatch for {child_run_id}") from exc
+
+
+def _subflow_deadline_remaining(child_run_id: str) -> Optional[float]:
+    """Return seconds left on the child's persisted delegation deadline."""
+
+    with SessionLocal() as db:
+        child = db.query(Run).filter(Run.id == child_run_id).first()
+        delegation = (
+            ((child.input_ref or {}).get("_delegation") or {})
+            if child is not None and isinstance(child.input_ref, dict)
+            else {}
+        )
+        raw_deadline = delegation.get("deadline_at") if isinstance(delegation, dict) else None
+    if not raw_deadline:
+        return None
+    try:
+        deadline = datetime.fromisoformat(str(raw_deadline).replace("Z", "+00:00"))
+        now = datetime.now(deadline.tzinfo) if deadline.tzinfo else datetime.utcnow()
+        return max(0.0, (deadline - now).total_seconds())
+    except (TypeError, ValueError):
+        # A malformed persisted deadline must fail in the worker rather than
+        # silently granting an unlimited execution window.
+        return 0.0
+
+
+def schedule_subflow_parent_resume(parent_run_id: str, *, source_id: str) -> str:
+    """Publish an idempotent, durable parent-resume task."""
+
+    try:
+        from app.workers.tasks import subflow_parent_resume  # noqa: WPS433
+
+        task_id = str(uuid5(NAMESPACE_URL, f"agentium:subflow-parent:{parent_run_id}:{source_id}"))
+        result = subflow_parent_resume.apply_async(args=[parent_run_id], task_id=task_id)
+        if not getattr(result, "id", None):
+            raise RuntimeError("parent resume dispatch returned no task id")
+        return str(result.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "run_engine.schedule_subflow_parent_resume: celery dispatch is ambiguous",
+            parent_run_id=parent_run_id,
+            source_id=source_id,
+            error=str(exc),
+        )
+        raise RuntimeError(f"ambiguous parent resume dispatch for {parent_run_id}") from exc
+
+
+def schedule_subflow_hitl_resume(child_run_id: str, *, decision_id: str) -> str:
+    """Publish a delegated child HITL continuation using identifiers only."""
+
+    try:
+        from app.workers.tasks import subflow_hitl_resume  # noqa: WPS433
+
+        task_id = str(uuid5(NAMESPACE_URL, f"agentium:subflow-hitl:{child_run_id}:{decision_id}"))
+        result = subflow_hitl_resume.apply_async(
+            args=[child_run_id, decision_id],
+            task_id=task_id,
+        )
+        if not getattr(result, "id", None):
+            raise RuntimeError("subflow HITL dispatch returned no task id")
+        return str(result.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "run_engine.schedule_subflow_hitl_resume: celery dispatch is ambiguous",
+            child_run_id=child_run_id,
+            decision_id=decision_id,
+            error=str(exc),
+        )
+        raise RuntimeError(f"ambiguous subflow HITL dispatch for {child_run_id}") from exc
+
+
+def schedule_run_hitl_resume(run_id: str, *, decision_id: str) -> str:
+    """Durably publish an ordinary HITL continuation.
+
+    The deterministic task id makes an HTTP retry safe after an ambiguous
+    broker acknowledgement. The worker's PostgreSQL lease, not the task id,
+    is the execution mutex because brokers may carry duplicate messages with
+    the same identifier.
+    """
+
+    try:
+        from app.workers.tasks import run_hitl_resume  # noqa: WPS433
+
+        task_id = str(uuid5(NAMESPACE_URL, f"agentium:run-hitl:{run_id}:{decision_id}"))
+        result = run_hitl_resume.apply_async(
+            args=[run_id, decision_id],
+            task_id=task_id,
+        )
+        if not getattr(result, "id", None):
+            raise RuntimeError("Run HITL dispatch returned no task id")
+        return str(result.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "run_engine.schedule_run_hitl_resume: celery dispatch is ambiguous",
+            run_id=run_id,
+            decision_id=decision_id,
+            error=str(exc),
+        )
+        raise RuntimeError(f"ambiguous Run HITL dispatch for {run_id}") from exc
 
 
 async def execute_run(run_id: str) -> Dict[str, Any]:
@@ -255,6 +391,7 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
             ):
                 _log_decision(
                     db,
+                    workspace_id=run.workspace_id,
                     scope="system",
                     target_id=system.id,
                     kind="adaptive_stop",
@@ -454,6 +591,7 @@ async def _execute_task_node(
             # legacy decision/error contract.
             _log_decision(
                 db,
+                workspace_id=run.workspace_id,
                 scope="system",
                 target_id=ctx.get("system_id"),
                 kind="policy_block",
@@ -593,11 +731,19 @@ def _finalize_run(
     # different worker while its final node is still unwinding. Refresh before
     # publish so a late completion can never overwrite the authoritative
     # cancellation persisted by the coordinator.
-    db.refresh(run)
-    if run.status == "cancelled":
+    locked = (
+        db.query(Run)
+        .filter(Run.id == run.id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if locked is not None:
+        run = locked
+    if run.status in {"cancelled", "failed"}:
         return {
             "id": run.id,
-            "status": "cancelled",
+            "status": run.status,
             "outcome": {
                 "decision": run.decision,
                 "confidence": run.confidence,
@@ -853,6 +999,7 @@ def _record_capability_block(
 ) -> None:
     _log_decision(
         db,
+        workspace_id=run.workspace_id,
         scope="system",
         target_id=system_id,
         kind="policy_block",
@@ -879,6 +1026,7 @@ def _record_capability_shadow(
 ) -> None:
     _log_decision(
         db,
+        workspace_id=run.workspace_id,
         scope="system",
         target_id=system_id,
         kind="policy_shadow",
@@ -924,6 +1072,7 @@ def _runtime_valves_blocked(
     ):
         _log_decision(
             db,
+            workspace_id=run.workspace_id,
             scope="system",
             target_id=run.system_id,
             kind="policy_breach",
@@ -995,6 +1144,7 @@ def _apply_control_postchecks(
     hard_abort = not decision.allowed
     _log_decision(
         db,
+        workspace_id=system.workspace_id,
         scope="system",
         target_id=system.id,
         kind="policy_breach",
@@ -1024,6 +1174,7 @@ def _apply_control_postchecks(
 def _log_decision(
     db: DBSession,
     *,
+    workspace_id: Optional[str],
     scope: str,
     target_id: Optional[str],
     kind: str,
@@ -1043,6 +1194,7 @@ def _log_decision(
         }
         row = Decision(
             id=str(uuid4()),
+            workspace_id=workspace_id,
             scope=scope,
             target_id=target_id,
             kind=kind,
@@ -1061,6 +1213,17 @@ def _log_decision(
 
 
 def _fail(db: DBSession, run: Run, error: str) -> Dict[str, Any]:
+    locked = (
+        db.query(Run)
+        .filter(Run.id == run.id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if locked is not None:
+        run = locked
+    if run.status in {"completed", "cancelled"}:
+        return {"id": run.id, "status": run.status, "error": run.error}
     run.status = "failed"
     run.error = error
     run.completed_at = datetime.utcnow()

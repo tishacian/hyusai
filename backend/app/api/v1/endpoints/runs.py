@@ -17,6 +17,7 @@ from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.core.iam.roles import WORKSPACE_REVIEWER, is_admin_template, normalize_role_template
 from app.core.logging import get_logger
 from app.db.base import SessionLocal, get_db
@@ -47,6 +48,25 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 _PRIVATE_CHAT_TRIGGER = "chat_agentic"
+
+
+def _postgres_hitl_coordination_supported() -> bool:
+    """Durable HITL coordination requires PostgreSQL advisory leases."""
+
+    return settings.database_url.startswith("postgresql")
+
+
+def _durable_run_hitl_enabled(system: Optional[System]) -> bool:
+    """Gate ordinary HITL Celery without changing the default experience."""
+
+    raw_settings = system.settings if system is not None else None
+    features = raw_settings.get("features") if isinstance(raw_settings, dict) else None
+    return bool(
+        _postgres_hitl_coordination_supported()
+        and settings.enable_run_hitl_celery
+        and isinstance(features, dict)
+        and features.get("run_hitl_celery") is True
+    )
 
 
 def _has_private_chat_admin_access(
@@ -487,6 +507,58 @@ def _decision_target_run(
     return target
 
 
+def _canonical_in_process_hitl_run(
+    db: DBSession,
+    *,
+    decision_target: Run,
+    decision_id: str,
+    workspace_id: str,
+) -> Run:
+    """Return the outermost paused ancestor carrying the same Decision.
+
+    An in-process subflow copies its child's HITL pause through every parent.
+    Resuming the deepest child alone leaves those parents paused, so all API
+    routes converge on the outermost matching checkpoint instead.
+    """
+
+    lineage = _run_lineage(db, run=decision_target, workspace_id=workspace_id) or []
+    matching = []
+    for candidate in lineage:
+        checkpoint = _pending_hitl_checkpoint(candidate)
+        if checkpoint is not None and str(checkpoint.get("decision_id") or "") == str(decision_id):
+            matching.append(candidate)
+    return matching[-1] if matching else decision_target
+
+
+def _persisted_hitl_dispatch_plane(run: Run, decision_id: str) -> Optional[str]:
+    for checkpoint in reversed(list(run.checkpoints or [])):
+        if not isinstance(checkpoint, dict) or checkpoint.get("kind") != "hitl_resume_dispatch":
+            continue
+        if str(checkpoint.get("decision_id") or "") != str(decision_id):
+            continue
+        plane = str(checkpoint.get("plane") or "")
+        if plane in {"inline", "run_celery", "subflow_celery"}:
+            return plane
+        return "invalid"
+    return None
+
+
+def _record_hitl_dispatch_plane(run: Run, *, decision_id: str, plane: str) -> None:
+    """Snapshot the execution plane in the Decision transition transaction."""
+
+    if _persisted_hitl_dispatch_plane(run, decision_id) is not None:
+        return
+    run.checkpoints = [
+        *(run.checkpoints or []),
+        {
+            "kind": "hitl_resume_dispatch",
+            "t": datetime.utcnow().isoformat(),
+            "decision_id": decision_id,
+            "plane": plane,
+        },
+    ]
+
+
 def _require_hitl_authorization(
     db: DBSession,
     *,
@@ -574,9 +646,48 @@ async def resolve_run_hitl(
     decision_id = pending_cp.get("decision_id")
     if not decision_id:
         raise HTTPException(500, "HITL checkpoint is missing its decision_id")
-    decision = db.query(Decision).filter(Decision.id == decision_id).first()
+    # Serialize accept/reject on the canonical Decision row. ``populate_existing``
+    # is required because the identity map may already hold the unlocked object
+    # loaded while rendering the Run.
+    decision = (
+        db.query(Decision)
+        .filter(
+            Decision.id == decision_id,
+            or_(
+                Decision.workspace_id == workspace.id,
+                Decision.workspace_id.is_(None),
+            ),
+        )
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if not decision:
         raise HTTPException(404, "HITL decision not found")
+    # The Decision and paused Run are the same authority boundary. Lock and
+    # revalidate the Run after acquiring the Decision lock so an any/race
+    # coordinator that cancelled the child first wins cleanly.
+    locked_run = (
+        db.query(Run)
+        .filter(
+            Run.id == r.id,
+            Run.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    locked_checkpoint = _pending_hitl_checkpoint(locked_run) if locked_run is not None else None
+    if (
+        locked_run is None
+        or locked_checkpoint is None
+        or str(locked_checkpoint.get("decision_id") or "") != str(decision.id)
+    ):
+        db.rollback()
+        raise HTTPException(409, "Run is no longer awaiting this HITL decision")
+    r = locked_run
+    requested_run_id = r.id
+    requested_run_status = r.status
     decision_target = _decision_target_run(
         db,
         decision=decision,
@@ -584,6 +695,46 @@ async def resolve_run_hitl(
         workspace_id=workspace.id,
     )
     if decision_target is None:
+        raise HTTPException(404, "HITL decision not found")
+
+    # A child Decision can be surfaced by every in-process ancestor. All such
+    # routes converge on the outermost live pause, then lock and revalidate it
+    # while the canonical Decision row is still held.
+    canonical_candidate = _canonical_in_process_hitl_run(
+        db,
+        decision_target=decision_target,
+        decision_id=decision.id,
+        workspace_id=workspace.id,
+    )
+    canonical_run = (
+        db.query(Run)
+        .filter(
+            Run.id == canonical_candidate.id,
+            Run.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    canonical_checkpoint = (
+        _pending_hitl_checkpoint(canonical_run) if canonical_run is not None else None
+    )
+    if (
+        canonical_run is None
+        or canonical_checkpoint is None
+        or str(canonical_checkpoint.get("decision_id") or "") != str(decision.id)
+    ):
+        db.rollback()
+        raise HTTPException(409, "Canonical Run is no longer awaiting this HITL decision")
+    r = canonical_run
+    decision_target = _decision_target_run(
+        db,
+        decision=decision,
+        paused_run=r,
+        workspace_id=workspace.id,
+    )
+    if decision_target is None:
+        db.rollback()
         raise HTTPException(404, "HITL decision not found")
     _require_hitl_authorization(
         db,
@@ -594,29 +745,129 @@ async def resolve_run_hitl(
     )
 
     actor = _actor_label(user)
+    from app.services.run_engine.subflow_orchestration import (
+        delegated_celery_claimed,
+        delegated_celery_context,
+    )
 
-    try:
-        if body.action == "accept":
-            accept_decision(db, decision, actor=actor, note=body.note)
+    celery_owned = delegated_celery_claimed(
+        db,
+        child=r,
+        workspace_id=workspace.id,
+    )
+    delegated_context = delegated_celery_context(
+        db,
+        child=r,
+        workspace_id=workspace.id,
+    )
+    if celery_owned and delegated_context is None:
+        db.rollback()
+        raise HTTPException(409, "Delegated HITL context is no longer active")
+    delegated_celery_child = delegated_context is not None
+    run_system = (
+        db.query(System)
+        .filter(
+            System.id == r.system_id,
+            System.workspace_id == workspace.id,
+        )
+        .first()
+        if r.system_id
+        else None
+    )
+    if r.system_id and run_system is None:
+        db.rollback()
+        raise HTTPException(403, "Run System is outside the current workspace")
+
+    # The first resolution snapshots its execution plane in the same commit as
+    # the Decision transition. A retry therefore cannot switch from inline to
+    # Celery (or vice versa) after a flag change or ambiguous broker ACK.
+    dispatch_plane = _persisted_hitl_dispatch_plane(r, decision.id)
+    if dispatch_plane == "invalid":
+        db.rollback()
+        raise HTTPException(409, "Persisted HITL execution plane is invalid")
+    if dispatch_plane is None:
+        if delegated_celery_child:
+            if not _postgres_hitl_coordination_supported():
+                db.rollback()
+                raise HTTPException(503, "Durable delegated HITL requires PostgreSQL")
+            dispatch_plane = "subflow_celery"
+        elif _durable_run_hitl_enabled(run_system):
+            dispatch_plane = "run_celery"
         else:
-            reject_decision(db, decision, actor=actor, note=body.note)
-    except InvalidTransition as exc:
-        raise HTTPException(409, str(exc)) from exc
+            dispatch_plane = "inline"
+        _record_hitl_dispatch_plane(r, decision_id=decision.id, plane=dispatch_plane)
+    elif delegated_celery_child and dispatch_plane != "subflow_celery":
+        db.rollback()
+        raise HTTPException(409, "Persisted HITL execution plane conflicts with delegation")
+    elif not delegated_celery_child and dispatch_plane == "subflow_celery":
+        db.rollback()
+        raise HTTPException(409, "Persisted delegated HITL context is no longer active")
+    elif dispatch_plane == "run_celery" and not _postgres_hitl_coordination_supported():
+        db.rollback()
+        raise HTTPException(503, "Durable Run HITL requires PostgreSQL")
 
-    background_tasks.add_task(_resume_wrapper, r.id, decision.id)
+    expected_final = "accepted" if body.action == "accept" else "rejected"
+    already_resolved = decision.status == expected_final
+    if not already_resolved:
+        try:
+            if body.action == "accept":
+                accept_decision(db, decision, actor=actor, note=body.note)
+            else:
+                reject_decision(db, decision, actor=actor, note=body.note)
+        except InvalidTransition as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc)) from exc
+    else:
+        # Release locks and persist any newly introduced dispatch snapshot
+        # before deterministic republish on an idempotent retry.
+        db.commit()
+
+    resume_task_id: Optional[str] = None
+    if dispatch_plane == "subflow_celery":
+        # A delegated HITL continuation must survive API process loss. The
+        # message carries only the persisted child id; the worker reloads the
+        # accepted Decision from the child's checkpoint.
+        from app.services.run_engine.engine import schedule_subflow_hitl_resume
+
+        try:
+            resume_task_id = schedule_subflow_hitl_resume(r.id, decision_id=decision.id)
+        except RuntimeError as exc:
+            # The Decision is already durable. Returning 503 lets the caller
+            # retry the same action, which republishes the deterministic task
+            # id instead of falling back to an in-process continuation.
+            raise HTTPException(503, "Delegated HITL resume dispatch is ambiguous") from exc
+    elif dispatch_plane == "run_celery":
+        # Ordinary HITL uses a durable deterministic Celery task as well. An
+        # idempotent HTTP retry republishes safely after an ambiguous ACK; the
+        # worker's PostgreSQL lease prevents two messages from running two
+        # walkers concurrently.
+        from app.services.run_engine.engine import schedule_run_hitl_resume
+
+        try:
+            resume_task_id = schedule_run_hitl_resume(r.id, decision_id=decision.id)
+        except RuntimeError as exc:
+            raise HTTPException(503, "Run HITL resume dispatch is ambiguous") from exc
+    elif not already_resolved:
+        # Preserve the historical in-process path unless the explicit double
+        # opt-in selected durable Celery before the Decision commit.
+        background_tasks.add_task(_resume_wrapper, r.id, decision.id)
     logger.info(
         "runs.hitl: dispatched resume",
         run_id=r.id,
         decision_id=decision.id,
         action=body.action,
+        canonical_run_id=r.id,
+        dispatch_plane=dispatch_plane,
+        celery_task_id=resume_task_id,
     )
     return {
-        "id": r.id,
-        "status": r.status,
+        "id": requested_run_id,
+        "status": requested_run_status,
         "decision": {
             "id": decision.id,
             "status": decision.status,
         },
+        "resume_task_id": resume_task_id,
     }
 
 
@@ -1039,6 +1290,8 @@ async def list_run_replays(
         .filter(
             Run.parent_run_id == run_id,
             Run.workspace_id == workspace.id,
+            Run.delegation_key.is_(None),
+            Run.trigger.in_(("replay", "rerun")),
         )
         .order_by(Run.started_at.desc())
         .all()

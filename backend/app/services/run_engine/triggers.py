@@ -509,6 +509,7 @@ def _trip_circuit_breaker(db: DBSession, system: System) -> None:
 
         _log_decision(
             db,
+            workspace_id=system.workspace_id,
             scope="system",
             target_id=system.id,
             kind="trigger_circuit_open",

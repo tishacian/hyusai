@@ -7,12 +7,19 @@ under database locks.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
+from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 
-from app.db.base import SessionLocal
+from app.db.base import SessionLocal, engine as db_engine
 from app.models.capability import Capability
 from app.models.run import Run
 from app.models.system import System
@@ -21,17 +28,93 @@ from app.models.workspace import Workspace
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
+def _parent_lock_key(parent_run_id: str) -> int:
+    """Map a Run id to PostgreSQL's signed 64-bit advisory-lock space."""
+
+    return int.from_bytes(
+        hashlib.sha256(f"agentium:subflow-parent:{parent_run_id}".encode()).digest()[:8],
+        byteorder="big",
+        signed=True,
+    )
+
+
+@contextmanager
+def postgres_coordination_lease(scope: str, run_id: str):
+    """Yield whether this process owns a crash-released session lease."""
+
+    connection = db_engine.connect()
+    lock_key = int.from_bytes(
+        hashlib.sha256(f"agentium:{scope}:{run_id}".encode()).digest()[:8],
+        byteorder="big",
+        signed=True,
+    )
+    acquired = False
+    try:
+        if connection.dialect.name != "postgresql":
+            yield False
+            return
+        acquired = bool(
+            connection.execute(
+                text("SELECT pg_try_advisory_lock(:lock_key)"),
+                {"lock_key": lock_key},
+            ).scalar()
+        )
+        connection.commit()
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                if connection.in_transaction():
+                    connection.rollback()
+                released = bool(
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_key)"),
+                        {"lock_key": lock_key},
+                    ).scalar()
+                )
+                connection.commit()
+                if not released:
+                    connection.invalidate()
+            except Exception:
+                # Never return a connection whose session lock state is
+                # uncertain to the pool.
+                connection.invalidate()
+        connection.close()
+
+
+def _maybe_crash_after_claim(parent: Run, *, resume_owner: str) -> None:
+    """Integration-only crash point for the real parent resume path."""
+
+    if os.getenv("RUN_RABBITMQ_INTEGRATION") != "1":
+        return
+    marker_token = (
+        (parent.input_ref or {}).get("_p4_crash_after_parent_claim")
+        if isinstance(parent.input_ref, dict)
+        else None
+    )
+    if not marker_token:
+        return
+    safe_token = str(UUID(str(marker_token)))
+    root = Path(os.getenv("SUBFLOW_CRASH_PROBE_DIR", "/tmp"))
+    marker = root / f"agentium-p4-parent-claim-{safe_token}.first"
+    if marker.exists():
+        return
+    marker.write_text(resume_owner, encoding="utf-8")
+    os._exit(92)  # dedicated P4 worker process; PostgreSQL releases the lease
+
+
 def validate_contract(payload: Any, contract: dict[str, Any]) -> bool:
     """Validate the JSON-schema subset used by delegation ACLs.
 
     Supported keywords are ``type``, ``required``, ``properties`` and nested
     objects/arrays. A compact ``{field: type}`` map is accepted as shorthand.
-    Unknown schema keywords are ignored, keeping validation deterministic and
-    dependency-free inside workers.
+    Unknown keywords and malformed nested schemas fail closed so a typo in an
+    enforce ACL can never broaden delegation.
     """
     if not contract:
         return True
-    if not any(key in contract for key in ("type", "required", "properties", "items")):
+    schema_keywords = {"type", "required", "properties", "items"}
+    if not any(key in contract for key in schema_keywords):
         contract = {
             "type": "object",
             "required": list(contract),
@@ -40,6 +123,8 @@ def validate_contract(payload: Any, contract: dict[str, Any]) -> bool:
                 for key, value in contract.items()
             },
         }
+    elif any(key not in schema_keywords for key in contract):
+        return False
     expected = contract.get("type")
     types = {
         "object": dict,
@@ -73,9 +158,13 @@ def validate_contract(payload: Any, contract: dict[str, Any]) -> bool:
             return False
         properties = properties_value
         for key, child_contract in properties.items():
-            if key in payload and isinstance(child_contract, dict):
-                if not validate_contract(payload[key], child_contract):
+            if not isinstance(child_contract, dict):
+                if isinstance(child_contract, str):
+                    child_contract = {"type": child_contract}
+                else:
                     return False
+            if key in payload and not validate_contract(payload[key], child_contract):
+                return False
     if isinstance(payload, list) and isinstance(contract.get("items"), dict):
         return all(validate_contract(item, contract["items"]) for item in payload)
     return True
@@ -115,9 +204,165 @@ def delegation_acl_result(
     return reason is None or not enforced, reason, output_contract, enforced
 
 
+def _active_waiting_items(
+    waiting: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return the logical delegation key and entry for the active wave only.
+
+    Pre-wave rows remain readable for compatibility, but as soon as the
+    parent declares a ``wave_id`` an entry without that exact id is historical
+    and must never be refreshed, cancelled or redispatched.
+    """
+
+    meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
+    active_wave = meta.get("wave_id")
+    return [
+        (str(key), value)
+        for key, value in waiting.items()
+        if key != "_meta"
+        and isinstance(value, dict)
+        and (active_wave is None or value.get("wave_id") == active_wave)
+    ]
+
+
+def _active_waiting_entries(waiting: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only entries belonging to the current durable fan-out wave."""
+
+    return [entry for _key, entry in _active_waiting_items(waiting)]
+
+
+def _scoped_child_query(
+    db: DBSession,
+    *,
+    parent: Run,
+    delegation_key: str,
+    child_run_id: str,
+):
+    """Build the only permitted lookup for a persisted delegation child."""
+
+    return db.query(Run).filter(
+        Run.id == child_run_id,
+        Run.workspace_id == parent.workspace_id,
+        Run.parent_run_id == parent.id,
+        Run.delegation_key == delegation_key,
+    )
+
+
+def delegated_celery_context(
+    db: DBSession,
+    *,
+    child: Run,
+    workspace_id: str | None,
+) -> tuple[Run, dict[str, Any]] | None:
+    """Verify the persisted parent/child envelope for a Celery delegation.
+
+    A broker task id is delivery metadata, not proof of which execution plane
+    owns a paused child.  The durable proof is the agreement between the child
+    columns, its immutable delegation envelope, and the active parent waiting
+    entry in the same workspace.
+    """
+
+    if (
+        child.workspace_id != workspace_id
+        or not child.parent_run_id
+        or not child.delegation_key
+    ):
+        return None
+    delegation = (
+        ((child.input_ref or {}).get("_delegation") or {})
+        if isinstance(child.input_ref, dict)
+        else {}
+    )
+    if (
+        not isinstance(delegation, dict)
+        or str(delegation.get("parent_run_id") or "") != child.parent_run_id
+        or str(delegation.get("execution_plane") or "") != "celery"
+    ):
+        return None
+    parent = (
+        db.query(Run)
+        .filter(
+            Run.id == child.parent_run_id,
+            Run.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if parent is None:
+        return None
+    if (
+        _scoped_child_query(
+            db,
+            parent=parent,
+            delegation_key=child.delegation_key,
+            child_run_id=child.id,
+        ).first()
+        is None
+    ):
+        return None
+    waiting = dict(parent.waiting_subflows or {})
+    meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
+    if str(meta.get("execution_plane") or "") != "celery":
+        return None
+    active = dict(_active_waiting_items(waiting))
+    entry = active.get(child.delegation_key)
+    if not isinstance(entry, dict) or str(entry.get("child_run_id") or "") != child.id:
+        return None
+    if str(entry.get("node_id") or "") != str(child.delegation_node_id or ""):
+        return None
+    if str(entry.get("branch") or "") != str(child.delegation_branch or ""):
+        return None
+    return parent, entry
+
+
+def delegated_celery_claimed(
+    db: DBSession,
+    *,
+    child: Run,
+    workspace_id: str | None,
+) -> bool:
+    """Return whether either durable side claims Celery owns this child.
+
+    This is intentionally broader than :func:`delegated_celery_context`: a
+    malformed or historical Celery envelope must fail closed at the API rather
+    than silently falling back to an in-process continuation.
+    """
+
+    if (
+        child.workspace_id != workspace_id
+        or not child.parent_run_id
+        or not child.delegation_key
+    ):
+        return False
+    delegation = (
+        ((child.input_ref or {}).get("_delegation") or {})
+        if isinstance(child.input_ref, dict)
+        else {}
+    )
+    if isinstance(delegation, dict) and delegation.get("execution_plane") == "celery":
+        return True
+    parent = (
+        db.query(Run)
+        .filter(
+            Run.id == child.parent_run_id,
+            Run.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if parent is None:
+        return False
+    waiting = dict(parent.waiting_subflows or {})
+    meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
+    entry = waiting.get(child.delegation_key)
+    return bool(
+        meta.get("execution_plane") == "celery"
+        and isinstance(entry, dict)
+        and str(entry.get("child_run_id") or "") == child.id
+    )
+
+
 def resolve_waiting(waiting: dict[str, Any]) -> tuple[bool, str | None]:
-    """Resolve all/any/race deterministically from persisted child states."""
-    entries = [v for k, v in waiting.items() if k != "_meta" and isinstance(v, dict)]
+    """Resolve all/any/race deterministically from the active fan-out wave."""
+    entries = _active_waiting_entries(waiting)
     if not entries:
         return False, None
     strategy = str((waiting.get("_meta") or {}).get("strategy") or "all")
@@ -139,13 +384,24 @@ def resolve_waiting(waiting: dict[str, Any]) -> tuple[bool, str | None]:
     raise ValueError(f"unsupported subflow join strategy: {strategy}")
 
 
-def _refresh_entries(db: DBSession, waiting: dict[str, Any]) -> dict[str, Any]:
+def _refresh_entries(
+    db: DBSession,
+    parent: Run,
+    waiting: dict[str, Any],
+) -> dict[str, Any]:
     result = {k: dict(v) if isinstance(v, dict) else v for k, v in waiting.items()}
-    for key, entry in list(result.items()):
-        if key == "_meta" or not isinstance(entry, dict):
-            continue
+    for key, entry in _active_waiting_items(result):
         child_id = entry.get("child_run_id")
-        child = db.query(Run).filter(Run.id == child_id).first() if child_id else None
+        child = (
+            _scoped_child_query(
+                db,
+                parent=parent,
+                delegation_key=key,
+                child_run_id=str(child_id),
+            ).first()
+            if child_id
+            else None
+        )
         if child is None:
             entry.update({"status": "failed", "error": "delegated_child_missing"})
         else:
@@ -170,6 +426,7 @@ def _refresh_entries(db: DBSession, waiting: dict[str, Any]) -> dict[str, Any]:
                 ):
                     child.status = "failed"
                     child.error = child.error or "delegation_output_contract_mismatch"
+                    child.output_ref = {}
             entry.update(
                 {
                     "status": child.status,
@@ -197,6 +454,7 @@ def _revoke_tasks(task_ids: list[str]) -> None:
 
 def _cancel_losers(
     db: DBSession,
+    parent: Run,
     waiting: dict[str, Any],
     winner_id: str,
     *,
@@ -204,73 +462,154 @@ def _cancel_losers(
 ) -> list[str]:
     """Persist cancellation before best-effort broker revoke for race losers."""
     task_ids = []
-    for key, entry in waiting.items():
-        if key == "_meta" or not isinstance(entry, dict):
-            continue
+    for key, entry in _active_waiting_items(waiting):
         child_id = str(entry.get("child_run_id") or "")
         if not child_id or child_id == winner_id:
             continue
-        child = db.query(Run).filter(Run.id == child_id).with_for_update().first()
+        child = (
+            _scoped_child_query(
+                db,
+                parent=parent,
+                delegation_key=key,
+                child_run_id=child_id,
+            )
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
         if child is None or child.status in TERMINAL:
             continue
-        child.status = "cancelled"
-        child.completed_at = datetime.utcnow()
-        child.error = child.error or reason
-        entry.update({"status": "cancelled", "completed_at": child.completed_at.isoformat()})
-        if child.celery_task_id:
-            task_ids.append(child.celery_task_id)
+        completed_at = datetime.utcnow()
+        celery_task_id = child.celery_task_id
+        # SessionLocal has autoflush disabled. Use an immediate guarded UPDATE
+        # instead of a deferred attribute mutation so the cancellation cannot
+        # be lost behind a concurrent HITL transition or an identity-map
+        # refresh before the caller commits the parent claim.
+        updated = (
+            _scoped_child_query(
+                db,
+                parent=parent,
+                delegation_key=key,
+                child_run_id=child_id,
+            )
+            .filter(~Run.status.in_(TERMINAL))
+            .update(
+                {
+                    Run.status: "cancelled",
+                    Run.completed_at: completed_at,
+                    Run.error: child.error or reason,
+                },
+                synchronize_session=False,
+            )
+        )
+        if not updated:
+            continue
+        db.expire(child)
+        entry.update({"status": "cancelled", "completed_at": completed_at.isoformat()})
+        if celery_task_id:
+            task_ids.append(celery_task_id)
     # Caller commits this together with the parent's claimed state while the
     # parent row lock is still held; otherwise two child callbacks could both
     # observe an unclaimed parent between cancellation and claim.
     return task_ids
 
 
-async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
-    """Atomically claim and resume a ready parent after a child transition."""
+async def resume_subflow_parent(
+    parent_run_id: str,
+    *,
+    resume_owner: str | None = None,
+    redelivered: bool = False,
+) -> dict[str, Any]:
+    """Claim and resume a parent under a crash-released PostgreSQL lease.
+
+    A session-level advisory lock remains held by an explicitly pinned
+    connection across every commit performed by ``_walk``.  If the worker is
+    killed, PostgreSQL releases that lock with the connection; an acks-late
+    redelivery can then recover a persisted ``running/claimed`` parent without
+    allowing two live walkers to execute concurrently.
+    """
     from .dag import (
         DagGraph,
         WalkerState,
         _load_adaptive_policy,
         _load_control_policy,
+        _settle_node,
+        _settle_subflow_output,
         _walk,
         _workspace_strict_dag_enabled,
     )
 
-    db: DBSession = SessionLocal()
+    owner = str(resume_owner or f"inline:{parent_run_id}")
+    connection = db_engine.connect()
+    db: DBSession = SessionLocal(bind=connection)
+    lock_key = _parent_lock_key(parent_run_id)
+    postgres_lease = connection.dialect.name == "postgresql"
+    lease_acquired = False
     try:
-        child = db.query(Run).filter(Run.id == child_run_id).first()
-        if child is None or not child.parent_run_id:
-            return {"status": "no_parent"}
+        if postgres_lease:
+            lease_acquired = bool(
+                db.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_key)"),
+                    {"lock_key": lock_key},
+                ).scalar()
+            )
+            if not lease_acquired:
+                db.rollback()
+                return {"status": "resume_busy", "parent_run_id": parent_run_id}
+
         parent = (
             db.query(Run)
-            .filter(Run.id == child.parent_run_id, Run.workspace_id == child.workspace_id)
+            .filter(Run.id == parent_run_id)
             .with_for_update()
             .first()
         )
         if parent is None:
             return {"status": "parent_missing"}
+        if parent.status in TERMINAL:
+            db.commit()
+            return {"status": parent.status, "parent_run_id": parent.id}
 
-        waiting = _refresh_entries(db, dict(parent.waiting_subflows or {}))
+        waiting = _refresh_entries(db, parent, dict(parent.waiting_subflows or {}))
         parent.waiting_subflows = waiting
         # HITL is propagated as durable child state; only the child Decision
         # may unblock it, and redelivery continues to reference this same Run.
-        if child.status == "hitl_pending":
-            db.commit()
-            return {"status": "waiting_hitl", "parent_run_id": parent.id, "child_run_id": child.id}
-
+        active_entries = _active_waiting_entries(waiting)
+        hitl_entry = next(
+            (
+                entry
+                for entry in active_entries
+                if entry.get("status") == "hitl_pending"
+            ),
+            None,
+        )
         ready, winner_id = resolve_waiting(waiting)
         if not ready:
             db.commit()
+            if hitl_entry is not None:
+                return {
+                    "status": "waiting_hitl",
+                    "parent_run_id": parent.id,
+                    "child_run_id": hitl_entry.get("child_run_id"),
+                }
             return {"status": "waiting", "parent_run_id": parent.id}
         checkpoints = list(parent.checkpoints or [])
         pause_cp = next((cp for cp in reversed(checkpoints) if cp.get("kind") == "subflow_wait"), None)
+        meta = dict(waiting.get("_meta") or {})
+        meta_state = str(meta.get("state") or "waiting")
+        recovering_claim = bool(
+            postgres_lease
+            and lease_acquired
+            and parent.status == "running"
+            and meta_state == "claimed"
+            and pause_cp is not None
+        )
         if parent.status != "waiting_subflows":
-            meta_state = str((waiting.get("_meta") or {}).get("state") or "waiting")
             if parent.status == "running" and meta_state == "waiting" and pause_cp is None:
                 db.commit()
                 return {"status": "checkpoint_pending", "parent_run_id": parent.id}
-            db.commit()
-            return {"status": "already_claimed", "parent_run_id": parent.id}
+            if not recovering_claim:
+                db.commit()
+                return {"status": "already_claimed", "parent_run_id": parent.id}
         if pause_cp is None:
             db.commit()
             return {"status": "checkpoint_pending", "parent_run_id": parent.id}
@@ -279,12 +618,10 @@ async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
         revoke_ids: list[str] = []
         if strategy in {"any", "race"} and winner_id:
             reason = "subflow_race_lost" if strategy == "race" else "subflow_any_join_satisfied"
-            revoke_ids = _cancel_losers(db, waiting, winner_id, reason=reason)
-            waiting = _refresh_entries(db, waiting)
+            revoke_ids = _cancel_losers(db, parent, waiting, winner_id, reason=reason)
+            waiting = _refresh_entries(db, parent, waiting)
 
-        child_entries = [
-            value for key, value in waiting.items() if key != "_meta" and isinstance(value, dict)
-        ]
+        child_entries = _active_waiting_entries(waiting)
         winner = next(
             (value for value in child_entries if str(value.get("child_run_id")) == winner_id),
             None,
@@ -298,7 +635,6 @@ async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
         )
         if propagated_failure:
             now = datetime.utcnow()
-            meta = dict(waiting.get("_meta") or {})
             meta.update({"state": "failed", "winner_child_id": winner_id, "claimed_at": now.isoformat()})
             waiting["_meta"] = meta
             parent.waiting_subflows = waiting
@@ -329,25 +665,42 @@ async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
             _revoke_tasks(revoke_ids)
             return {"id": parent.id, "status": "failed", "error": parent.error}
 
-        meta = dict(waiting.get("_meta") or {})
         claimed_at = datetime.utcnow().isoformat()
-        meta.update({"state": "claimed", "winner_child_id": winner_id, "claimed_at": claimed_at})
+        generation = int(meta.get("resume_generation") or 0) + 1
+        meta.update(
+            {
+                "state": "claimed",
+                "winner_child_id": winner_id,
+                "claimed_at": claimed_at,
+                "resume_owner": owner,
+                "resume_generation": generation,
+                "last_delivery_redelivered": bool(redelivered),
+            }
+        )
         waiting["_meta"] = meta
         parent.waiting_subflows = waiting
         parent.status = "running"
         parent.checkpoints = [
             *(parent.checkpoints or []),
             {
-                "kind": "subflow_resume",
+                "kind": "subflow_resume_recovered" if recovering_claim else "subflow_resume",
                 "t": claimed_at,
                 "strategy": strategy,
                 "winner_child_id": winner_id,
+                "resume_owner": owner,
+                "resume_generation": generation,
+                "redelivered": bool(redelivered),
             },
         ]
-        db.commit()  # releases the row lock; duplicate callbacks now observe claimed
+        db.commit()  # row lock releases; advisory lease remains on this connection
         _revoke_tasks(revoke_ids)
+        _maybe_crash_after_claim(parent, resume_owner=owner)
 
-        system = db.query(System).filter(System.id == parent.system_id).first()
+        system = (
+            db.query(System)
+            .filter(System.id == parent.system_id, System.workspace_id == parent.workspace_id)
+            .first()
+        )
         if system is None:
             parent.status = "failed"
             parent.error = "system_not_found"
@@ -362,6 +715,33 @@ async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
         graph.strict_authoritative = graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = asyncio.get_running_loop().time()
+        # The coordinator has already resolved this fan-out wave under the
+        # parent lease. Materialise that durable result directly into the
+        # checkpointed walker instead of asking every subflow node to inspect
+        # its child again. In particular, a cancelled any/race loser must
+        # never surface a concurrently-created HITL Decision on the parent.
+        for _key, entry in _active_waiting_items(waiting):
+            node_id = str(entry.get("node_id") or "")
+            child_id = str(entry.get("child_run_id") or "")
+            node = graph.nodes.get(node_id)
+            if (
+                not child_id
+                or node is None
+                or node.kind != "subflow"
+                or node_id in state.done
+            ):
+                continue
+            if strategy in {"any", "race"} and child_id != winner_id:
+                outcome = {"output": {}}
+            else:
+                target_id = str((node.config or {}).get("system_id") or "")
+                outcome = _settle_subflow_output(
+                    db,
+                    state,
+                    child_id,
+                    target_id,
+                )
+            _settle_node(graph, state, node_id, outcome)
         capability = (
             db.query(Capability).filter(Capability.id == system.capability_id).first()
             if system.capability_id
@@ -378,36 +758,187 @@ async def resume_parent_for_child(child_run_id: str) -> dict[str, Any]:
             adaptive=_load_adaptive_policy(db, system),
         )
     finally:
-        db.close()
+        try:
+            db.close()
+        finally:
+            if lease_acquired:
+                try:
+                    if connection.in_transaction():
+                        connection.rollback()
+                    released = bool(
+                        connection.execute(
+                            text("SELECT pg_advisory_unlock(:lock_key)"),
+                            {"lock_key": lock_key},
+                        ).scalar()
+                    )
+                    connection.commit()
+                    if not released:
+                        connection.invalidate()
+                except Exception:
+                    # Closing the pinned connection is the final fail-safe and
+                    # always releases a session advisory lock. Invalidate first
+                    # so an uncertain session can never re-enter the pool.
+                    connection.invalidate()
+            connection.close()
 
 
-def resume_parent_for_child_sync(child_run_id: str) -> dict[str, Any]:
-    return asyncio.run(resume_parent_for_child(child_run_id))
+async def resume_parent_for_child(
+    child_run_id: str,
+    *,
+    resume_owner: str | None = None,
+    redelivered: bool = False,
+) -> dict[str, Any]:
+    """Resolve a child's parent and delegate to the durable coordinator."""
+
+    with SessionLocal() as lookup:
+        child = lookup.query(Run).filter(Run.id == child_run_id).first()
+        if (
+            child is None
+            or not child.parent_run_id
+            or not child.delegation_key
+        ):
+            return {"status": "no_parent"}
+        parent = (
+            lookup.query(Run)
+            .filter(
+                Run.id == child.parent_run_id,
+                Run.workspace_id == child.workspace_id,
+            )
+            .first()
+        )
+        if parent is None:
+            return {"status": "invalid_delegation_context"}
+        scoped_child = _scoped_child_query(
+            lookup,
+            parent=parent,
+            delegation_key=child.delegation_key,
+            child_run_id=child.id,
+        ).first()
+        if scoped_child is None:
+            return {"status": "invalid_delegation_context"}
+        delegation = (
+            ((child.input_ref or {}).get("_delegation") or {})
+            if isinstance(child.input_ref, dict)
+            else {}
+        )
+        if (
+            isinstance(delegation, dict)
+            and delegation.get("execution_plane") == "celery"
+            and delegated_celery_context(
+                lookup,
+                child=child,
+                workspace_id=child.workspace_id,
+            )
+            is None
+        ):
+            return {"status": "invalid_delegation_context"}
+        parent_run_id = parent.id
+    return await resume_subflow_parent(
+        parent_run_id,
+        resume_owner=resume_owner,
+        redelivered=redelivered,
+    )
+
+
+def resume_parent_for_child_sync(
+    child_run_id: str,
+    *,
+    resume_owner: str | None = None,
+    redelivered: bool = False,
+) -> dict[str, Any]:
+    return asyncio.run(
+        resume_parent_for_child(
+            child_run_id,
+            resume_owner=resume_owner,
+            redelivered=redelivered,
+        )
+    )
+
+
+def resume_subflow_parent_sync(
+    parent_run_id: str,
+    *,
+    resume_owner: str | None = None,
+    redelivered: bool = False,
+) -> dict[str, Any]:
+    return asyncio.run(
+        resume_subflow_parent(
+            parent_run_id,
+            resume_owner=resume_owner,
+            redelivered=redelivered,
+        )
+    )
+
+
+def _cancel_waiting_descendants(
+    db: DBSession,
+    parent: Run,
+    *,
+    reason: str,
+    visited: set[str],
+) -> tuple[int, list[str]]:
+    """Cancel the active delegated subtree using one locked transaction."""
+
+    if parent.id in visited:
+        return 0, []
+    visited.add(parent.id)
+    waiting = deepcopy(parent.waiting_subflows or {})
+    count = 0
+    task_ids: list[str] = []
+    for key, entry in _active_waiting_items(waiting):
+        child_id = str(entry.get("child_run_id") or "")
+        child = (
+            _scoped_child_query(
+                db,
+                parent=parent,
+                delegation_key=key,
+                child_run_id=child_id,
+            )
+            .with_for_update()
+            .first()
+            if child_id
+            else None
+        )
+        if child is None:
+            continue
+        if child.status not in TERMINAL:
+            child.status = "cancelled"
+            child.completed_at = datetime.utcnow()
+            child.error = child.error or reason
+            entry.update(
+                {
+                    "status": "cancelled",
+                    "completed_at": child.completed_at.isoformat(),
+                }
+            )
+            if child.celery_task_id:
+                task_ids.append(child.celery_task_id)
+            count += 1
+        descendant_count, descendant_tasks = _cancel_waiting_descendants(
+            db,
+            child,
+            reason=reason,
+            visited=visited,
+        )
+        count += descendant_count
+        task_ids.extend(descendant_tasks)
+    parent.waiting_subflows = waiting
+    return count, task_ids
 
 
 def cancel_waiting_children(parent_run_id: str, *, reason: str = "parent_cancelled") -> int:
-    """Propagate parent cancellation without creating or redispatching children."""
+    """Recursively cancel the active delegated subtree without redispatch."""
     db: DBSession = SessionLocal()
     try:
         parent = db.query(Run).filter(Run.id == parent_run_id).with_for_update().first()
         if parent is None:
             return 0
-        waiting = dict(parent.waiting_subflows or {})
-        count = 0
-        task_ids: list[str] = []
-        for key, entry in waiting.items():
-            if key == "_meta" or not isinstance(entry, dict):
-                continue
-            child = db.query(Run).filter(Run.id == entry.get("child_run_id")).with_for_update().first()
-            if child is not None and child.status not in TERMINAL:
-                child.status = "cancelled"
-                child.completed_at = datetime.utcnow()
-                child.error = child.error or reason
-                entry["status"] = "cancelled"
-                if child.celery_task_id:
-                    task_ids.append(child.celery_task_id)
-                count += 1
-        parent.waiting_subflows = waiting
+        count, task_ids = _cancel_waiting_descendants(
+            db,
+            parent,
+            reason=reason,
+            visited=set(),
+        )
         db.commit()
         _revoke_tasks(task_ids)
         return count
@@ -426,12 +957,20 @@ def retry_ambiguous_dispatches(parent_run_id: str) -> dict[str, str]:
         if parent is None:
             return results
         waiting = dict(parent.waiting_subflows or {})
-        for key, entry in waiting.items():
-            if key == "_meta" or not isinstance(entry, dict):
-                continue
+        for key, entry in _active_waiting_items(waiting):
             if entry.get("dispatch_state") != "ambiguous":
                 continue
-            child = db.query(Run).filter(Run.id == entry.get("child_run_id")).first()
+            child_id = str(entry.get("child_run_id") or "")
+            child = (
+                _scoped_child_query(
+                    db,
+                    parent=parent,
+                    delegation_key=key,
+                    child_run_id=child_id,
+                ).first()
+                if child_id
+                else None
+            )
             if child is None or child.status in TERMINAL:
                 continue
             try:
