@@ -76,6 +76,7 @@ from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
 
 SHOWCASE_SOURCE = "showcase_seed"
+SYSTEM360_AUDIT_EVENT_TYPE = "system.contract_risk.claims_audited"
 
 
 # --- Workstream 5: universal orchestration baseline + Knowledge Capture -------
@@ -1963,7 +1964,7 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
         "environment_state": {
             "industry": "enterprise services",
             "region": "EU",
-            "audit_event_type": "system.contract_risk.claims_audited",
+            "audit_event_type": SYSTEM360_AUDIT_EVENT_TYPE,
         },
         "business_constraints": {"no_unverified_claims": True, "hitl_for_compliance": True},
         "permissions": {"personas": ["executive", "builder", "operator", "quality_owner", "admin"]},

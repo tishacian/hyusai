@@ -105,6 +105,7 @@ def _seed_target(db):
         workspace_id=workspace.id,
         system_id=system.id,
         name="Opaque linked context",
+        environment_state={"industry": "test", "region": "EU"},
     )
     policy = ControlPolicy(
         id=str(uuid4()),
@@ -134,7 +135,10 @@ def test_rollout_is_ordered_idempotent_append_only_and_reversible(db_session, mo
     bootstrap_preview = rollout.bootstrap(db_session, apply=False, actor="test")
     assert bootstrap_preview["mode"] == "dry_run"
     assert bootstrap_preview["changed"] is True
+    assert "context.environment_state.audit_event_type" in bootstrap_preview["changed_fields"]
     assert rollout._experience(system).get("system_360_canary") is None
+    preview_context = db_session.query(Context).filter_by(system_id=system.id).one()
+    assert preview_context.environment_state == {"industry": "test", "region": "EU"}
 
     bootstrapped = rollout.bootstrap(db_session, apply=True, actor="test")
     assert bootstrapped["changed"] is True
@@ -143,6 +147,16 @@ def test_rollout_is_ordered_idempotent_append_only_and_reversible(db_session, mo
     db_session.refresh(policy)
     assert rollout._experience(system).get("system_360_canary") == rollout.CANARY_MARKER
     assert system.context_id is not None
+    context = db_session.query(Context).filter_by(id=system.context_id).one()
+    assert context.environment_state == {
+        "industry": "test",
+        "region": "EU",
+        "audit_event_type": "system.contract_risk.claims_audited",
+    }
+    assert (
+        "context.environment_state.audit_event_type"
+        in bootstrapped["changed_fields"]
+    )
     required_skill_ids = {
         row.id
         for row in db_session.query(Skill)
@@ -390,6 +404,7 @@ def test_rollout_is_ordered_idempotent_append_only_and_reversible(db_session, mo
         ("flow", "canonical strict flow"),
         ("feature", "feature contract diverged"),
         ("membrane", "requires MembraneSpec mode shadow"),
+        ("context", "lost its Context audit event binding"),
     ),
 )
 def test_prepare_revalidates_existing_phase_contract(db_session, drift, message):
@@ -405,6 +420,9 @@ def test_prepare_revalidates_existing_phase_contract(db_session, drift, message)
         rollout._set_feature(workspace, rollout.FEATURE_FLOW, True)
     elif drift == "membrane":
         rollout._set_membrane_mode(policy, rollout.EnforcementMode.ENFORCE)
+    elif drift == "context":
+        context = db_session.query(Context).filter_by(id=system.context_id).one()
+        context.environment_state = {"industry": "test", "region": "EU"}
     db_session.commit()
 
     with pytest.raises(rollout.RolloutError, match=message):
@@ -498,3 +516,19 @@ def test_bootstrap_creates_policy_and_is_idempotent(db_session):
     assert repeated["changed"] is False
     assert repeated["changed_fields"] == []
     assert audit_query.count() == audit_count
+
+
+def test_bootstrap_preserves_explicit_context_audit_event_type(db_session):
+    _, system, _, _, _ = _seed_target(db_session)
+    context = db_session.query(Context).filter_by(system_id=system.id).one()
+    context.environment_state = {
+        "industry": "test",
+        "audit_event_type": "system.custom.audit",
+    }
+    db_session.commit()
+
+    applied = rollout.bootstrap(db_session, apply=True, actor="test")
+
+    db_session.refresh(context)
+    assert context.environment_state["audit_event_type"] == "system.custom.audit"
+    assert "context.environment_state.audit_event_type" not in applied["changed_fields"]

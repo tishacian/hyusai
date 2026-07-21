@@ -403,6 +403,21 @@ def _context_for_system(
     return contexts[0]
 
 
+def _desired_context_environment_state(context: Context) -> dict[str, Any]:
+    """Preserve the existing Context while installing the strict-flow binding."""
+
+    from scripts.seed_showcase_workspace import SYSTEM360_AUDIT_EVENT_TYPE
+
+    current = context.environment_state
+    if current is not None and not isinstance(current, Mapping):
+        raise RolloutError("the canary Context environment_state is not an object")
+    desired = copy.deepcopy(dict(current or {}))
+    configured = desired.get("audit_event_type")
+    if not isinstance(configured, str) or not configured.strip():
+        desired["audit_event_type"] = SYSTEM360_AUDIT_EVENT_TYPE
+    return desired
+
+
 def _bootstrap_policy_candidate(
     db: DBSession,
     workspace: Workspace,
@@ -520,6 +535,7 @@ def bootstrap(db: DBSession, *, apply: bool, actor: str) -> dict[str, Any]:
     capability = _capability_for_system(db, workspace, system, lock=apply)
     skills = _required_skill_rows(db, workspace, lock=apply)
     context = _context_for_system(db, workspace, system, lock=apply)
+    desired_context_environment = _desired_context_environment_state(context)
     policy = _bootstrap_policy_candidate(db, workspace, system, lock=apply)
     rollout_state = _rollout_state(system, required=False)
     rollout_phase = str(rollout_state.get("phase") or "")
@@ -543,6 +559,10 @@ def bootstrap(db: DBSession, *, apply: bool, actor: str) -> dict[str, Any]:
             raise RolloutError("an active rollout lost required Capability Skill links")
         if system.context_id != context.id:
             raise RolloutError("an active rollout lost its Context link")
+        if not _same_json(context.environment_state, desired_context_environment):
+            raise RolloutError(
+                "an active rollout lost its Context audit event binding"
+            )
         report = _base_report(
             command="bootstrap",
             apply=apply,
@@ -572,6 +592,8 @@ def bootstrap(db: DBSession, *, apply: bool, actor: str) -> dict[str, Any]:
         changed_fields.append("capability.skill_ids")
     if system.context_id != context.id:
         changed_fields.append("system.context_id")
+    if not _same_json(context.environment_state, desired_context_environment):
+        changed_fields.append("context.environment_state.audit_event_type")
     if _experience(system).get("system_360_canary") != CANARY_MARKER:
         changed_fields.append("system.settings.experience.system_360_canary")
     for key in ROLLOUT_FEATURES:
@@ -635,6 +657,7 @@ def bootstrap(db: DBSession, *, apply: bool, actor: str) -> dict[str, Any]:
     system.skill_ids = desired_system_skill_ids
     capability.skill_ids = desired_capability_skill_ids
     system.context_id = context.id
+    context.environment_state = desired_context_environment
     for key in ROLLOUT_FEATURES:
         _set_feature(workspace, key, False)
     _set_marker(system, CANARY_MARKER)
@@ -952,6 +975,14 @@ def _require_prepared_contract(
         raise RolloutError("the structural target does not carry the canonical strict flow")
     if policy.scope != "system" or policy.target_id != system.id:
         raise RolloutError("the ControlPolicy is not bound to the target System")
+    context = _context_for_system(db, workspace, system)
+    if system.context_id != context.id:
+        raise RolloutError("an active rollout lost its Context link")
+    if not _same_json(
+        context.environment_state,
+        _desired_context_environment_state(context),
+    ):
+        raise RolloutError("an active rollout lost its Context audit event binding")
     return state
 
 

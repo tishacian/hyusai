@@ -10,11 +10,13 @@ from __future__ import annotations
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
+from app.models.context import Context
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
 from app.services.run_engine import engine as engine_module
-from app.services.run_engine.dag import execute_run_dag
+from app.services.run_engine.dag import _seed_pool, execute_run_dag
+from app.services.run_engine.variable_pool import VariablePool, apply_inputs_map
 
 SkillFn = Callable[[Dict[str, Any], Dict[str, Any]], "Any"]
 
@@ -166,6 +168,50 @@ async def test_inputs_map_reads_reserved_run_namespace(db_session, monkeypatch):
     summary = await execute_run_dag(run.id)
     assert summary["status"] == "completed"
     assert seen["input"].get("q") == "hello world"
+
+
+def test_context_namespace_reads_bound_context_environment_state(db_session):
+    context = Context(
+        id=str(uuid.uuid4()),
+        name="bound context",
+        environment_state={"audit_event_type": "system.test.audited"},
+    )
+    system = System(
+        id=str(uuid.uuid4()),
+        name="context namespace system",
+        objective="test",
+        context_id=context.id,
+        flow_definition={},
+    )
+    run = Run(
+        id=str(uuid.uuid4()),
+        system_id=system.id,
+        input_ref={},
+        status="pending",
+    )
+    db_session.add_all([context, system, run])
+    db_session.commit()
+
+    pool = VariablePool()
+    _seed_pool(db_session, pool, run, system)
+
+    assert (
+        pool.get("context.environment_state.audit_event_type")
+        == "system.test.audited"
+    )
+    assert apply_inputs_map(
+        {
+            "inputs_map": {
+                "event_type": {
+                    "node_id": "context",
+                    "path": ["environment_state", "audit_event_type"],
+                }
+            }
+        },
+        pool,
+        {},
+        io_mode="strict",
+    ) == {"event_type": "system.test.audited"}
 
 
 async def test_no_maps_is_byte_identical_to_flat_merge(db_session, monkeypatch):
