@@ -131,6 +131,10 @@ def _extract_models(response: httpx.Response) -> List[str]:
                 names.append(str(item["name"]).removeprefix("models/"))
         return names[:50]
 
+    # Azure AI Model Inference /info: {"model_name": "...", ...}
+    if isinstance(data, dict) and data.get("model_name"):
+        return [str(data["model_name"])]
+
     return []
 
 
@@ -179,6 +183,37 @@ async def _health_azure(
     if result["status"] == "active" and not result["models"] and dep:
         result["models"] = [dep]
     elif result["status"] != "active" and dep:
+        result["models"] = [dep]
+    _cache_set(cache_key, result)
+    return result
+
+
+async def _health_foundry(
+    *,
+    api_key: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    api_version: Optional[str] = None,
+    deployment: Optional[str] = None,
+) -> Dict[str, Any]:
+    resolved_key = api_key or os.getenv("AZURE_FOUNDRY_API_KEY")
+    resolved_endpoint = (endpoint or os.getenv("AZURE_FOUNDRY_ENDPOINT") or "").rstrip("/")
+    if not resolved_key or not resolved_endpoint:
+        return {"status": "available", "latency_ms": None, "models": [], "error": None}
+    cache_key = f"azure_foundry:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+    version = api_version or os.getenv("AZURE_FOUNDRY_API_VERSION", "2024-05-01-preview")
+    # Foundry serverless / Models-as-a-Service endpoints expose the Azure AI
+    # Model Inference API; /info returns the deployed model's metadata.
+    result = await _probe(
+        method="GET",
+        url=f"{resolved_endpoint}/info",
+        headers={"api-key": resolved_key, "Authorization": f"Bearer {resolved_key}"},
+        params={"api-version": version},
+    )
+    dep = deployment or os.getenv("AZURE_FOUNDRY_MODEL")
+    if not result["models"] and dep:
         result["models"] = [dep]
     _cache_set(cache_key, result)
     return result
@@ -270,13 +305,18 @@ def _base_catalog(
 ) -> List[Dict[str, Any]]:
     keys = ws_keys if ws_keys is not None else _workspace_keys(workspace)
     azure_meta: Dict[str, str] = {}
+    foundry_meta: Dict[str, str] = {}
     if workspace is not None:
         from app.services.model_plane import workspace_config as ws_cfg
 
-        azure_meta = ws_cfg.get_azure_meta(workspace)
+        azure_meta = ws_cfg.get_provider_meta(workspace, "azure_openai")
+        foundry_meta = ws_cfg.get_provider_meta(workspace, "azure_foundry")
     azure_deployment = azure_meta.get("deployment") or os.getenv("AZURE_OPENAI_DEPLOYMENT")
     azure_endpoint = azure_meta.get("endpoint") or os.getenv("AZURE_OPENAI_ENDPOINT")
     azure_key = keys.get("azure_openai") or os.getenv("AZURE_OPENAI_API_KEY")
+    foundry_model = foundry_meta.get("deployment") or os.getenv("AZURE_FOUNDRY_MODEL")
+    foundry_endpoint = foundry_meta.get("endpoint") or os.getenv("AZURE_FOUNDRY_ENDPOINT")
+    foundry_key = keys.get("azure_foundry") or os.getenv("AZURE_FOUNDRY_API_KEY")
 
     return [
         {
@@ -303,11 +343,11 @@ def _base_catalog(
         },
         {
             "key": "azure_openai",
-            "label": "Azure OpenAI / AI Foundry",
+            "label": "Azure OpenAI",
             "kind": "cloud",
             "configured": bool(azure_key and azure_endpoint),
             "fallback_models": [azure_deployment] if azure_deployment else [],
-            "notes": "Azure-hosted OpenAI deployments, incl. AI Foundry endpoints",
+            "notes": "Azure-hosted OpenAI deployments (*.openai.azure.com)",
             "health": lambda: _health_azure(
                 api_key=keys.get("azure_openai"),
                 endpoint=azure_meta.get("endpoint"),
@@ -316,6 +356,22 @@ def _base_catalog(
             ),
             "api_key_set": bool(azure_key),
             "credential_source": "workspace" if keys.get("azure_openai") else ("env" if azure_key else None),
+        },
+        {
+            "key": "azure_foundry",
+            "label": "Azure AI Foundry",
+            "kind": "cloud",
+            "configured": bool(foundry_key and foundry_endpoint),
+            "fallback_models": [foundry_model] if foundry_model else [],
+            "notes": "Foundry model catalog — Llama, Mistral, Phi, ... (*.services.ai.azure.com)",
+            "health": lambda: _health_foundry(
+                api_key=keys.get("azure_foundry"),
+                endpoint=foundry_meta.get("endpoint"),
+                api_version=foundry_meta.get("api_version"),
+                deployment=foundry_meta.get("deployment"),
+            ),
+            "api_key_set": bool(foundry_key),
+            "credential_source": "workspace" if keys.get("azure_foundry") else ("env" if foundry_key else None),
         },
         {
             "key": "openrouter",

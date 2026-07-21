@@ -28,6 +28,7 @@ ENVELOPE_VERSION = 1
 CLOUD_PROVIDERS = (
     "openai",
     "azure_openai",
+    "azure_foundry",
     "openrouter",
     "anthropic",
     "gemini",
@@ -35,6 +36,9 @@ CLOUD_PROVIDERS = (
 
 # Non-secret fields allowed per cloud provider (stored in clear).
 _AZURE_META = ("endpoint", "api_version", "deployment")
+
+# Providers whose non-secret endpoint metadata is stored alongside the key.
+_ENDPOINT_PROVIDERS = ("azure_openai", "azure_foundry")
 
 
 class EncryptionNotConfigured(RuntimeError):
@@ -171,7 +175,7 @@ def get_cloud_credentials_public(workspace: "Workspace") -> List[Dict[str, Any]]
     for key in CLOUD_PROVIDERS:
         entry = stored.get(key) if isinstance(stored.get(key), Mapping) else {}
         meta: Dict[str, Any] = {"key": key, "api_key_set": bool(entry.get("api_key_encrypted"))}
-        if key == "azure_openai":
+        if key in _ENDPOINT_PROVIDERS:
             for field in _AZURE_META:
                 if entry.get(field):
                     meta[field] = entry[field]
@@ -197,19 +201,24 @@ def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str
         return None
 
 
-def get_azure_meta(workspace: "Workspace") -> Dict[str, str]:
+def get_provider_meta(workspace: "Workspace", provider: str = "azure_openai") -> Dict[str, str]:
+    """Non-secret endpoint metadata (endpoint / api_version / deployment)."""
     blob = _portal_blob(workspace)
     stored = (
         blob.get("cloud_credentials")
         if isinstance(blob.get("cloud_credentials"), Mapping)
         else {}
     )
-    entry = stored.get("azure_openai") if isinstance(stored.get("azure_openai"), Mapping) else {}
+    entry = stored.get(provider) if isinstance(stored.get(provider), Mapping) else {}
     out: Dict[str, str] = {}
     for field in _AZURE_META:
         if entry.get(field):
             out[field] = str(entry[field])
     return out
+
+
+def get_azure_meta(workspace: "Workspace") -> Dict[str, str]:
+    return get_provider_meta(workspace, "azure_openai")
 
 
 def list_serving_node_configs(workspace: "Workspace") -> List[Dict[str, Any]]:
@@ -323,7 +332,7 @@ def set_cloud_credential(
     elif api_key is not None and str(api_key).strip():
         entry["api_key_encrypted"] = encrypt_secret(str(api_key).strip())
 
-    if key == "azure_openai":
+    if key in _ENDPOINT_PROVIDERS:
         if endpoint is not None:
             entry["endpoint"] = endpoint.strip().rstrip("/")
         if api_version is not None:

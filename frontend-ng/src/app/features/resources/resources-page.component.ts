@@ -394,13 +394,13 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     [placeholder]="p.api_key_set ? '••••••••' : 'sk-…'"
                   />
                 </label>
-                @if (p.key === 'azure_openai') {
+                @if (hasEndpointFields(p.key)) {
                   <input
                     type="text"
                     [ngModel]="credentialDrafts[p.key]?.endpoint || ''"
                     (ngModelChange)="setCredentialField(p.key, 'endpoint', $event)"
                     [name]="'endpoint-' + p.key"
-                    placeholder="https://….openai.azure.com"
+                    [placeholder]="p.key === 'azure_foundry' ? 'https://….services.ai.azure.com' : 'https://….openai.azure.com'"
                     class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                   />
                   <div class="grid grid-cols-2 gap-2">
@@ -982,6 +982,7 @@ export class ResourcesPageComponent implements OnInit {
   readonly routingProviderOptions = [
     'openai',
     'azure_openai',
+    'azure_foundry',
     'ollama',
     'openrouter',
     'anthropic',
@@ -1175,7 +1176,11 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   isConfigurableCloud(key: string): boolean {
-    return ['openai', 'azure_openai', 'openrouter', 'anthropic', 'gemini'].includes(key);
+    return ['openai', 'azure_openai', 'azure_foundry', 'openrouter', 'anthropic', 'gemini'].includes(key);
+  }
+
+  hasEndpointFields(key: string): boolean {
+    return key === 'azure_openai' || key === 'azure_foundry';
   }
 
   setCredentialField(
@@ -1234,7 +1239,7 @@ export class ResourcesPageComponent implements OnInit {
     const draft = this.credentialDrafts[provider] || {};
     const body: Record<string, unknown> = {};
     if (draft.api_key?.trim()) body['api_key'] = draft.api_key.trim();
-    if (provider === 'azure_openai') {
+    if (this.hasEndpointFields(provider)) {
       if (draft.endpoint?.trim()) body['endpoint'] = draft.endpoint.trim();
       if (draft.deployment?.trim()) body['deployment'] = draft.deployment.trim();
       if (draft.api_version?.trim()) body['api_version'] = draft.api_version.trim();
