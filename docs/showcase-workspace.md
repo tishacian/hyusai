@@ -1,7 +1,7 @@
 # Agentium Showcase Workspace
 
 The showcase workspace turns the shipped Agentium features into a coherent
-demo tenant. It is synthetic, idempotent, and safe to reset.
+demo tenant. It is synthetic, idempotent, and reconciled append-only.
 
 ## Seed Command
 
@@ -9,8 +9,7 @@ Run from the backend directory:
 
 ```bash
 python -m scripts.seed_showcase_workspace \
-  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" \
-  --reset
+  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}"
 ```
 
 `AGENTIUM_EMAIL` must identify the existing operator account that should own
@@ -22,8 +21,7 @@ Useful options:
 python -m scripts.seed_showcase_workspace \
   --workspace-slug agentium-showcase \
   --workspace-name "Agentium Showcase" \
-  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" \
-  --reset
+  --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}"
 ```
 
 `--skip-ingest` skips FAISS/Qdrant document ingestion and still seeds the
@@ -222,8 +220,8 @@ What to show:
 
 The script creates:
 
-- 4 showcase capabilities.
-- 4 showcase systems.
+- 5 showcase capabilities.
+- 5 showcase systems.
 - 14 runs, including replay, canonical-answer and Translation Suite run types.
 - 12 evaluation scores with question types, failed RAG components and translation quality gates.
 - Review decisions with active suggestions.
@@ -235,24 +233,32 @@ The script creates:
 - The synthetic `agentium-showcase-notices` collection (NorthForge notices), its published Knowledge Guide, a `showcase_advisor` profile + knowledge scope, and the Knowledge Capture System/Context with the `agentium-showcase-expert-fiche` destination.
 - Audit events via `emit_audit_event`.
 
-## Reset Safety
+## Repeat-run safety
 
-`--reset` deletes only the target showcase workspace and rows scoped to it.
-It does not touch other workspaces.
+The seed exposes no reset option. Repeated runs reconcile current configuration
+through append-only `SystemVersion` transitions and preserve Runs, Decisions,
+audits and prior versions. Rebuilding a workspace destructively is deliberately
+outside this operational command.
 
 The script also uses unique showcase capability slugs:
 
-- `showcase_contract_risk`
+- `video_contract_risk`
 - `showcase_tender_response`
 - `showcase_compliance_loop`
 - `showcase_translation_suite`
+- `showcase_hana_maintenance`
 
 ## VM Validation Snapshot
 
-On the VM after `--reset`:
+On the VM after an idempotent reconciliation:
 
 ```text
-Showcase workspace ready: slug=agentium-showcase systems=4 runs=14 evals=12
+Showcase workspace ready: slug=agentium-showcase systems=5 runs=14 evals=12
 smoke_showcase_workspace.py: 13 passed / 0 failed
 Playwright E2E: 7 passed
 ```
+
+This append-only guarantee applies to the authoritative Agentium workspace seed
+above. The separately operated video fixture refresh and external SAP HANA demo
+dataset are disposable demo-data tools; they cannot produce or promote Lot 8
+runtime evidence.

@@ -19,7 +19,7 @@ _This block is generated from `config/agentium/product-compliance.v1.json`. Run 
 | 4 | `LOT4-BUSINESS-SHELL-MISSION-EXTENSION` — Andritz shell and Mission Room are resolver-owned extensions | 🟠 Static verified |
 | 4 | `LOT4-SENTINEL-OCTOCITY-ISOLATION` — Sentinel and Octocity keep isolated branding and action packs | 🟠 Static verified |
 | 4 | `LOT4-ANDRITZ-APP-ENTITLEMENTS` — Andritz app entitlements are explicit and fully backfilled | 🟠 Static verified |
-| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | 🟠 Static verified |
+| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | 🟡 Partial |
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | 🟠 Static verified |
@@ -4248,6 +4248,12 @@ sans fabriquer de valeur. Son activation dépend à la fois d’un flag et d’u
 gate serveur ordonné, lié au System canari découvert par marqueur. Un flag seul
 n’est jamais une autorité suffisante.
 
+Pour une activation finalisée, le runtime recalcule le digest du reçu, recharge
+l'`AuditLog` exact et exige l'égalité de son type, acteur et détails. Il
+reconfronte aussi l'identité runner persistée aux ancres OIDC courantes et au
+SHA servi. Un audit altéré, une preuve transplantée ou une rotation d'ancres
+qui ne reconnaît plus le producteur ferme la projection.
+
 La composition exécutable d’un System passe par un resolver tenant unique. Il
 valide Capability, Skills et AdaptivePolicy à la création, à l’import Blueprint,
 au déclenchement API ou événementiel, au scheduler et dans les moteurs
@@ -4283,6 +4289,17 @@ persistée dans l’audit du workspace. Elle couvre l’intégralité des observ
 en écart d’un manifeste exhaustif, avec action et motif. Le collecteur et le
 promoteur rechargent la review et reconstruisent chaque ligne depuis
 `AuditLog` ; une agrégation libre ou une review partielle n’a aucune autorité.
+
+Une configuration `enforce` n'est pas non plus une autorité autoportée. Sa
+promotion écrit un reçu serveur `lot7.authorization.enforce_promoted` dont le
+document content-addressé lie la promotion exacte, le groupe d'actions et la
+source shadow. L'attestation conserve seulement `audit_id` et `artifact_ref`.
+Le decision plane recharge ce reçu dans le même workspace, reconstruit les
+observations et la review éventuelle depuis le ledger, puis reconfronte le
+runner aux ancres OIDC courantes. Toute absence, transplantation ou dérive
+rend le mode `invalid_enforce` et ferme la frontière.
+La promotion rejoue cette validation avant commit ; un reçu que le ledger ne
+peut pas relire annule atomiquement la policy et son attestation.
 
 ### 43.3 Une absence de télémétrie n’est pas un zéro
 
@@ -4355,18 +4372,67 @@ créée qu’après l’action et depuis un Run postérieur appartenant au même
 Le Run observé doit porter le snapshot serveur exact du ControlPolicy exécuté ;
 la dérive de policy, de Membrane ou d'actuator échoue fermée. Une valeur
 opérateur écrite par le canari lui-même n'est jamais une provenance de mesure.
+La baseline exige elle aussi un Run frais et indépendant, dont la provenance
+serveur est exactement `runtime_auto` ; seed, canari et opérateur sont refusés.
+Le collecteur recharge le Run et vérifie que son exécution appartient à la
+fenêtre de preuve. Cette provenance est écrite par engine, DAG/agentic ou chat
+classique à la complétion avec l'audit exact
+`run.outcome.runtime_auto.recorded`. Le reçu lie Run, tenant, System,
+ControlPolicy exécuté, flow, révision runtime, acteur, instant et hash de la
+valeur ; le JSON embarqué seul, un Run legacy ou un audit transplanté n'a aucune
+autorité. Un échec d'audit annule la complétion.
+
+L'approbation persiste également le snapshot canonique complet de la simulation
+et son SHA-256. Act recalcule modèle, hypothèses, projection, recommandation,
+provenance et confiance avant tout effet ; une mutation post-approbation ou un
+reçu legacy sans pin échoue fermé. Le frontend ne propose une baseline que si
+le backend la déclare explicitement éligible.
+
+Une valeur opérateur peut compter comme mesure post-action seulement si son
+reçu v2 `{audit_id, artifact_ref}` est lié à l'`AuditLog` exact
+`run.outcome.operator_override.recorded` du même workspace. Valeur précédente,
+valeur courante et note restent absentes de l'audit : leurs hashes incluent
+`audit_id`, `run_id` et le champ. Le runtime recharge l'audit en base et
+reconfronte son acteur, son horodatage, ses détails, le digest du reçu et les
+hashes du Run courant. Toute absence, altération ou transplantation ferme la
+provenance. L'override, son reçu et l'audit sont atomiques ; un échec d'audit
+rollback l'ensemble. Cette mécanique ne rend jamais un Outcome opérateur
+éligible comme baseline.
 
 Le backend expose la lifecycle System-scopée, Hypervisor agrège sans confondre
 portfolio et System, et Steer porte la projection locale. Les mutations
 reprennent le verrou tenant et rafraîchissent le membership avant tout verrou
 métier afin qu’une révocation concurrente ne puisse pas utiliser une autorité
 ORM périmée.
+Le service conserve ensuite un ordre global
+`Workspace → System → ControlPolicy → ValueScenario`, rafraîchit chaque ligne
+autoritaire et revalide gate, Membrane, actuator et policy avant tout reçu ou
+effet. Un rejeu idempotent déjà terminé peut relire son reçu après une dérive ;
+il ne rejoue jamais l'action. La transition append-only du ControlPolicy lie
+désormais l'`audit_id` et le `request_sha256` de l'ActionExecution et revalide
+audit, acteur, scénario, Decision, instant et états avant/après : une transition
+JSON plausible ne peut pas prolonger le gate.
 
-L’affichage et les APIs ne dépendent pas du booléen brut. L’activation exige le
-marqueur structurel du System canari, une attestation réduite liée au
-`system_id`, aux références SHA-256 et au SHA runtime exact. Un changement de
-runtime sans nouvelle preuve rend le gate faux. Le rollout reste explicite,
-réversible et limité à un workspace ; Andritz n’est pas inclus implicitement.
+Steer n'ouvre l'actuator que depuis le contrat backend complet
+`value_loop_enabled`, affiche la raison lorsque cette autorité n'est plus
+valide et conserve le parcours à six étapes. Hypervisor compte les Capabilities
+depuis leur agrégat propre, jamais depuis `runs_count`.
+
+L’affichage et les APIs ne dépendent pas du booléen brut. Le marqueur
+structurel désigne uniquement l'unique cible temporaire de préparation et de
+preuve du workspace. L’activation durable appartient ensuite au System : elle
+est liée à son `system_id`, aux références SHA-256, à son audit exact et au SHA
+runtime courant. Le marqueur peut alors être déplacé vers le prochain System
+sans révoquer les activations déjà attestées. Un changement de runtime sans
+nouvelle preuve rend chaque gate concerné faux. Le rollout reste explicite,
+réversible, ciblable par `--system-id` et limité à un workspace ; Andritz n’est
+pas inclus implicitement.
+À chaque accès, le runtime recharge les cinq records de la boucle, le reçu
+`AuditLog` exact de l'activation et les ancres OIDC courantes. La fenêtre de
+canari possède elle aussi son reçu serveur exact et une seule fenêtre peut être
+ouverte par workspace ; aucune forme JSON valide ne remplace ces autorités
+persistées. La désactivation d'un System conserve le flag du workspace tant
+qu'un autre System possède encore une activation ou une preuve valide.
 La fenêtre de canari et l’activation exigent aussi le mode Authorization v2
 exact `enforce`, avec attestations valides pour les lectures System, Run et
 Decision, l’exécution System, l’administration ControlPolicy et toutes les
@@ -4380,6 +4446,24 @@ post-action pour fabriquer le contrat d’activation. L'apply exige le même job
 GitLab OIDC protégé que le producteur de la preuve, lié à l'issuer, au projet,
 à la ref, au SHA, au pipeline et au job. Un JSON conforme rejoué localement n'a
 aucune autorité. `not_measured` reste toujours non promotable.
+
+La migration `074_relational_integrity` preflight tout drift avant DDL, puis
+ferme par clés composites le lignage tenant/System/scénario entre simulations,
+actions, mesures, Runs et ControlPolicies ; le lien cyclique vers la simulation
+approuvée est différé au commit. La révision `075_simulation_approval_pin`
+ajoute le snapshot et son digest sans fabriquer de preuve legacy ; la révision
+`076_decision_scenario_lineage` lie Decision au triplet exact
+workspace/scénario/System, interdit le contournement NULL et refuse un downgrade
+qui retirerait une autorité active. Le seed Showcase ne réécrit aucune version :
+chaque réconciliation effective crée une nouvelle `SystemVersion`
+`showcase_seed_reconcile`, un audit limité aux noms de champs, conserve les
+faits existants et reste idempotent. Il n'active aucun gate et préserve les
+autorités de rollout déjà présentes.
+
+Le présent état du dépôt n'apporte que des preuves statiques. L'exécution
+PostgreSQL réelle de 074–076, le job GitLab protégé avec artefacts OCI et preuve
+d'environnement, le canari Playwright authentifié et la validation utilisateur
+restent absents.
 
 ---
 
@@ -4398,6 +4482,17 @@ audit obligatoire dans la même transaction. Elle refuse les conflits de
 famille, profil, groupe exclusif, route ou shell. Blueprint v2 transporte les
 installations exactes et évalue leur compatibilité contre l’expérience
 prospective ; expérience et apps sont annulées ensemble en cas d’échec.
+Après commit, la compensation n'est plus une simple indication du plan : une
+route dédiée dérive l'unique opération inverse depuis le reçu source, exige son
+digest exact, verrouille l'installation, refuse tout drift et écrit le reçu
+inverse et son audit atomiquement. Le client ne peut fournir ni version, ni
+configuration, ni manifeste de remplacement.
+
+Les préfixes API sont aussi des frontières d'autorité. La lifecycle refuse au
+plan comme au replan verrouillé toute égalité ou relation parent/enfant sur une
+frontière `/`, et le runtime revalide l'ensemble installé. Les siblings
+seulement lexicaux, comme `/chat` et `/chatbot`, restent distincts. Un conflit
+échoue avec `api_prefix_conflict` avant mutation ou reçu.
 
 Andritz conserve exactement trois applications : Chat, Client360 et Knowledge
 Capture. FSE Reports est une surface de Knowledge Capture avec sa route, son
@@ -4415,6 +4510,21 @@ GitLab OIDC protégé que la preuve consommée, et l'attestation lie le digest d
 JUnit Playwright original, le SHA runtime, le workspace, la probation et la
 liste exacte des installations/configurations.
 
+Le marqueur `settings.experience.workspace_app_platform_canary = "v1"` est
+server-owned : le PATCH générique ne peut ni le forger, ni le remplacer, ni le
+supprimer et son omission le préserve. Chaque probation et activation recharge
+son `AuditLog` exact et revalide le runner persisté contre les ancres OIDC
+courantes ; une preuve seulement plausible ou devenue non fiable échoue
+fermée.
+
+Les canaris preflight et post-activation dérivent désormais le shell installé
+`standard|business|immersive` et sa frontière d'entrée, sans slug, app ou
+entitlement métier fixé. Le collecteur puis le rollout re-dérivent
+`runtime_shell`, `entry_policy` et `declared_entitlement_count` depuis le
+runtime. Business exige un entitlement primaire réellement exercé ; standard
+et immersive rendent cette vérification non applicable et refusent tout
+entitlement qu'ils ne sauraient enforce.
+
 Une fois l’autorité active, bootstrap, portes d’entrée, shell, Mission Room et
 action packs viennent uniquement des installations dont le digest est reconnu.
 Un état invalide échoue fermé sans retour aux settings legacy : le frontend
@@ -4431,11 +4541,36 @@ mais la lifecycle générique n'orchestrera une future migration métier d'upgra
 qu'après ajout d'étapes ordonnées, de receipts et de compensation. Ce point
 reste explicitement hors du claim courant.
 
+La migration `074_relational_integrity` lie chaque opération Workspace App à
+l'installation exacte du même workspace et de la même app, puis chaque reçu
+d'étape à cette lignée. Son preflight refuse tout DDL en présence de drift et
+elle impose aussi l'unicité des clés Blueprint globales de Systems et Contexts.
+La lifecycle et le runtime introspectent ces contraintes exactes avant de
+prendre autorité ; publier une garde uniquement déclarative dans un manifeste
+ne suffit pas. Blueprint peut restaurer une version plus ancienne dans un autre
+workspace seulement à partir du manifeste verrouillé et de la configuration
+canonique contenus dans son contrat v2, sans relâcher le rollback public.
+
 La supply chain cible trois images backend/frontend/worker construites une fois,
-testées et sélectionnées par digest, avec SBOM, provenance SLSA et résultat de
-vérification Cosign liés au même sujet. Tant que le runner protégé et
-l’environnement cible n’ont pas produit ces artefacts, ce contrat reste une
-preuve statique.
+testées et sélectionnées par digest. Son schéma v2 exige, pour chaque image, une
+signature Cosign et deux attestations DSSE Cosign : SBOM CycloneDX/SPDX et
+provenance SLSA v1. Leur unique sujet OCI, predicate type, payload
+content-addressé, issuer et identité doivent tous correspondre exactement.
+Les SBOM doivent être peuplés et liés au composant ; la provenance lie le dépôt
+HTTPS, la ref, la révision résolue, le builder, l'invocation et le byproduct
+SBOM. Un reçu de déploiement est obligatoire et reconfronte les trois images
+aux build-info réellement servis, au SHA, à l'environnement et à l'identité de
+déploiement ; un compteur de builds auto-déclaré n'est jamais une preuve.
+Le mode offline est seulement structurel et sémantique : il ne prétend pas
+vérifier cryptographiquement les signatures enregistrées. Le mode live doit
+être demandé explicitement et lance neuf commandes Cosign, trois signatures et
+six attestations, toutes sur les digests et ancres attendus.
+
+L'audit courant ne contient encore ni exécution PostgreSQL réelle de 074, ni
+interrogation registry ou vérification Cosign réelle, ni artefacts GitLab/OCI et
+preuve d'environnement, ni Playwright authentifié, ni validation utilisateur.
+Aucun claim des Lots 7 à 9 ne dépasse donc la preuve statique calculée par la
+matrice.
 
 ---
 

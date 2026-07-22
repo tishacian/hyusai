@@ -30,6 +30,14 @@ Chaque étape produit un reçu transactionnel. Le système ne prétend pas lance
 un runner arbitraire ni une migration métier opaque : un nouvel exécuteur doit
 être codé, enregistré et testé avant qu'un manifeste puisse le référencer.
 
+La migration transversale `074_relational_integrity` est en outre une
+précondition globale vérifiée par introspection exacte avant tout plan, apply
+ou démarrage de l'autorité runtime. Cette garde est volontairement extérieure
+aux manifestes déjà publiés : leur ajouter rétroactivement une étape changerait
+leur digest sans nouvelle version SemVer. Une contrainte, un nom ou un jeu de
+colonnes absent ferme donc la lifecycle avec `lifecycle_schema_unsatisfied` et
+le runtime avec `runtime_schema_unsatisfied`.
+
 Le backend n’accepte jamais un manifeste arbitraire envoyé par un workspace.
 Une configuration inconnue, incomplète, non canonique ou croisant les profils
 Sentinel/Octocity échoue fermé.
@@ -105,9 +113,14 @@ Un install normal contient uniquement les étapes du manifeste cible. Upgrade
 et rollback ordonnent les étapes `source` puis `target`; uninstall consomme les
 étapes `source`. Le plan et l'opération lient le `steps_sha256`. Chaque
 transition déclare une compensation déterministe : rollback transactionnel
-avant commit, puis opération inverse exacte après commit. Les migrations
-additives persistantes déclarent explicitement qu'elles ne sont pas compensées
-par une suppression de schéma.
+avant commit, puis opération inverse dérivée exclusivement du reçu serveur
+après commit. `compensate_workspace_app_lifecycle` et l'API `/compensate`
+verrouillent le tenant, exigent l'identifiant et le `plan_sha256` du reçu
+source, refusent tout drift de l'état courant et exécutent la lifecycle inverse
+avec une nouvelle clé d'idempotence. Le reçu inverse et un audit dédié lient
+les deux opérations sans exposer la configuration ; la révision reste
+monotone. Les migrations additives persistantes déclarent explicitement
+qu'elles ne sont pas compensées par une suppression de schéma.
 
 Un rollback n’accepte qu’une version et une configuration déjà observées dans
 l’historique de cette installation. Un uninstall doit reconnaître le digest
@@ -118,6 +131,16 @@ La lifecycle vérifie également la famille et le profil structurels, les groupe
 exclusifs, le chevauchement des routes et la compatibilité du shell. Mission
 Room générique, Sentinel et Octocity se partagent le groupe exclusif
 `mission-room.primary` et ne peuvent donc jamais coexister dans un workspace.
+
+Les `api_prefixes` sont des frontières d'autorité hiérarchiques, pas de simples
+labels. Deux apps ne peuvent revendiquer ni le même préfixe, ni une relation
+parent/enfant sur une frontière `/` : `/api/v1/chat` entre donc en conflit avec
+`/api/v1/chat/history`. Les siblings seulement lexicaux restent indépendants :
+`/api/v1/chat` et `/api/v1/chatbot` peuvent coexister. La règle partagée
+`slash_boundary_paths_overlap` est appliquée au plan, au replan verrouillé de
+l'apply, aux upgrades et rollbacks, puis à nouveau par le runtime sur l'ensemble
+installé. Un conflit tardif échoue avec `api_prefix_conflict` avant tout reçu,
+audit ou mutation.
 
 Cette lifecycle ne modifie ni `workspace.settings`, ni les entitlements des
 membres. Ces deux contrats restent des frontières séparées.
@@ -143,6 +166,7 @@ Les routes sont séparées de l’ancien endpoint `/workspaces/{slug}/apps` :
 | `GET` | `/api/v1/governance/workspace-apps/installations` | État du workspace courant |
 | `POST` | `/api/v1/governance/workspace-apps/plan` | Plan déterministe en lecture seule |
 | `POST` | `/api/v1/governance/workspace-apps/apply` | Application du plan exact |
+| `POST` | `/api/v1/governance/workspace-apps/compensate` | Inverse serveur d'un reçu commité exact |
 
 Elles sont réservées aux admins/owners du workspace. L’apply reprend le verrou
 workspace avant de relire le membership, dérive l’acteur du sujet authentifié
@@ -155,6 +179,10 @@ workspace est rejetée. Le plan expose la phase, la chaîne et son digest ; la
 réponse apply expose des reçus d'étapes expurgés de leurs identifiants internes.
 L'API publique reste volontairement en phase `normal` : `legacy_adoption` est
 réservée au CLI de backfill avec sélection explicite.
+
+Le client de compensation ne choisit ni opération, ni version, ni manifeste,
+ni configuration. Une compensation est rejouable avec la même clé, mais ne
+peut pas être chaînée ni appliquée après une autre mutation de l'installation.
 
 ## Blueprint v2
 
@@ -171,6 +199,12 @@ Les reçus d’opération et les entitlements sont exclus. L’import confronte 
 entrée au registry compilé, planifie les install/upgrade/rollback/uninstall et
 applique toutes les transitions dans la transaction globale du Blueprint. Un
 conflit sur une application annule l’import entier.
+
+Lors d'une restauration cross-workspace vers une version plus ancienne, le
+Blueprint peut fournir l'unique historique autoritaire manquant : le manifeste
+verrouillé exact et sa configuration canonique exportée. Cette exception reste
+interne à l'apply Blueprint, liée à son digest, et ne rend pas le rollback
+public permissif ni n'invente un reçu d'installation antérieur.
 
 La compatibilité des apps est calculée contre l’expérience prospective du
 Blueprint, pas contre un état intermédiaire de la cible. À l’apply, la famille
@@ -195,6 +229,14 @@ La migration additive `073_workspace_app_steps`, chaînée exactement après
 `072_value_measurement_eval`, ajoute la chaîne de reçus. Les opérations
 antérieures sont étiquetées `legacy_unorchestrated` : aucune preuve d'étape
 n'est reconstruite a posteriori.
+
+La migration `074_relational_integrity`, chaînée après `073`, exécute un
+preflight sans DDL tant que le moindre drift est présent. Elle lie ensuite par
+foreign keys composites une opération à l'installation exacte
+`workspace_id + app_id + installation_id`, puis chaque reçu d'étape à cette
+même lignée d'opération. Elle ajoute aussi l'unicité partielle des clés
+Blueprint globales pour Systems et Contexts. Aucun tenant, app ou objet
+historique n'est inféré ou réparé automatiquement.
 
 Le fichier de migration additif `070_workspace_app_entitlement_registry`
 (révision Alembic `070_app_entitlement_registry`) remplace l’ancienne
@@ -269,6 +311,12 @@ python -m scripts.rollout_workspace_app_platform bootstrap \
   --apply --actor "$OPERATOR"
 ```
 
+Le marqueur
+`settings.experience.workspace_app_platform_canary = "v1"` est server-owned.
+Le PATCH générique d'un workspace ne peut ni le créer, ni le remplacer, ni le
+supprimer ; son omission le préserve. Seul le bootstrap Lot 9 peut le faire
+évoluer dans les invariants ci-dessus.
+
 L'activation directe est interdite. Le protocole comporte deux preuves
 distinctes et une probation bornée :
 
@@ -282,6 +330,22 @@ distinctes et une probation bornée :
    probation ;
 5. un second collecteur protégé produit la preuve finale, puis `finalize`
    transforme la probation en activation durable.
+
+Les canaris 14 et 15 ne supposent plus un shell business ni une clé
+d'entitlement particulière. Ils résolvent depuis les manifestes installés le
+shell effectif `standard|business|immersive` et une politique d'entrée
+`standard_route|business_entitlement|immersive_extension`. Le preflight vérifie
+que l'ensemble restauré restera testable par le même principal ; le post-canari
+entre réellement par la route propriétaire et contrôle le shell rendu. Un shell
+business doit exercer un entitlement primaire déclaré et accordé. Les shells
+standard et immersive déclarent explicitement `entitlement_gate=not_applicable`
+et échouent si un entitlement non enforceable est présent.
+
+Le browser n'est pas l'autorité de cette classification. Le collecteur puis le
+rollout re-dérivent `runtime_shell`, `entry_policy` et
+`declared_entitlement_count` depuis le runtime installé et refusent toute
+divergence. Le canari reste découvert par marqueur et ne contient aucun slug,
+nom d'app, ID ou entitlement métier fixé dans sa source.
 
 Les preuves v2 contiennent `trusted_runner`, `source_junit`, `validated_by` et
 un `observation_ref` adressé par contenu. Les writes `stage` et `finalize`
@@ -321,13 +385,22 @@ python -m scripts.rollout_workspace_app_platform finalize \
 Le flag, l'attestation réduite et l'audit sont écrits transactionnellement.
 À chaque résolution autoritaire, le runtime reconfronte cette attestation au
 SHA Git complet actuellement servi, à la configuration canonique et au hash de
-l'ensemble trié `{app_id, version, manifest_digest}`. Une attestation absente,
+l'ensemble trié
+`{app_id, version, manifest_digest, configuration_sha256}`. Une attestation absente,
 une probation expirée, un historique incohérent, un nouveau SHA ou la moindre
 dérive ferme le shell, le bootstrap, les entrées d'app et les action packs. Le
 frontend affiche alors un shell `workspace_app_unavailable` sans cockpit,
 Mission Room ni application ; seule la console de réparation est accessible
 aux admins. Le statut signale un code stable sans publier le contenu des lignes
 invalides.
+
+Cette résolution revalide également, pour chaque probation ou activation,
+l'événement `AuditLog` exact référencé par `audit_id` et l'intégralité de ses
+détails non sensibles. L'identité runner persistée doit encore correspondre
+aux ancres OIDC courantes (issuer, projet et ref protégée) et au SHA ; pipeline
+et job restent liés comme valeurs exactes du reçu. Un JSON au bon format, même
+content-addressé, n'a aucune autorité si son reçu serveur manque, diffère ou
+provient d'une identité qui n'est plus fiable.
 
 Si la preuve post-activation ne peut pas être finalisée, la probation est
 annulée explicitement :
@@ -354,27 +427,53 @@ références complètes `@sha256` : backend, frontend et worker. Le migrate et l
 service SFTP réutilisent exactement le digest backend ; les workers réutilisent
 exactement le digest worker.
 
+Le contrat de release est en schéma v2. Pour chacun des trois composants,
 `scripts/agentium_release_contract.py` vérifie hors ligne :
 
-- le SHA Git complet ;
-- une occurrence de build CI par composant ;
+- le SHA Git complet, l'URI HTTPS du dépôt et la ref source ;
+- l'invocation SLSA exacte du build CI par composant, liée au pipeline, au job,
+  au builder, aux horodatages ordonnés et à la révision Git résolue ;
 - les références registry immuables ;
-- les checksums des SBOM et provenances ;
-- la vérification de signature Cosign ;
+- les checksums et le contenu réellement peuplé des SBOM CycloneDX/SPDX
+  (identité du document, composants/packages et graphe de dépendances) ;
+- la provenance SLSA v1 et son unique byproduct SBOM exact ;
+- le résultat Cosign de signature de l'image ;
+- les enveloppes DSSE Cosign des attestations SBOM et provenance, leur signature
+  présente, leur predicate type et leur unique sujet OCI exact ;
+- l'égalité du payload attesté avec l'artefact content-addressé ;
 - l’issuer OIDC et l’identité certificat Cosign contre deux trust anchors
   fournis par le job, jamais contre des valeurs auto-déclarées par la release ;
-- l’identité exacte entre images publiées, testées et activées.
+- l’identité exacte entre images publiées et testées ;
+- un reçu de déploiement obligatoire liant environnement, acteur, instant,
+  identifiant de déploiement, trois digests activés et les trois
+  `served_build_info` réellement servis au même SHA et aux mêmes digests.
 
-Le script ne construit ni ne signe lui-même : le job protégé produit ces
-artefacts, puis le vérificateur les confronte avant l’activation de l’overlay.
-Tant que ce job n’a pas tourné sur l’environnement cible, cette partie reste
-une preuve statique et ne vaut pas preuve de comportement.
+Une propriété auto-déclarée telle que `build_occurrences` est rejetée : seule
+la provenance SLSA content-addressée fait autorité pour l'invocation de build.
+
+Le mode par défaut `recorded_offline` ne lance aucun processus ni accès réseau.
+Il valide structure, digests et sémantique des sorties Cosign enregistrées, mais
+ne vérifie pas cryptographiquement leurs signatures : ce reçu n'a d'autorité
+que si le job protégé qui a réellement exécuté Cosign atteste ces artefacts.
+
+Le mode explicite `--execute-cosign` injecte le runner live et exécute exactement
+neuf commandes contre les références OCI par digest : trois `cosign verify` et
+six `cosign verify-attestation` (SBOM et provenance pour chacun des trois
+composants). Chaque commande fixe issuer, identité, claims et predicate type ;
+un échec, un sujet différent ou une sortie ambiguë ferme le contrat. Le script
+ne construit et ne signe toujours rien lui-même.
+
+Tant que le runner protégé n'a pas produit les artefacts et que le mode live
+n'a pas interrogé la registry cible, cette partie reste une preuve statique et
+ne vaut ni vérification cryptographique ni preuve d'environnement.
 
 ## Rollback et hors portée
 
-Le rollback applicatif utilise une version réellement enregistrée par la
-lifecycle. Le rollback d’environnement réactive ensemble les trois digests de
-la release précédente, puis revérifie le contrat.
+Le rollback applicatif public utilise une version réellement enregistrée par
+la lifecycle ; la compensation post-commit utilise exclusivement le reçu exact
+qu'elle inverse. Le rollback d’environnement réactive ensemble les trois
+digests de la release précédente, puis exige un nouveau reçu de déploiement et
+revérifie le contrat complet, y compris les build-info servis.
 
 Restent hors portée tant que cette lifecycle n’a pas sa preuve complète :
 
@@ -384,3 +483,10 @@ Restent hors portée tant que cette lifecycle n’a pas sa preuve complète :
 - activation implicite selon un slug ;
 - mutation automatique des entitlements ;
 - réouverture de P4.
+
+État du présent audit du dépôt : `static_verified` au maximum. Aucune exécution
+PostgreSQL réelle de 074, aucune interrogation de registry ni exécution
+cryptographique Cosign réelle, aucun job GitLab protégé avec chaîne
+OCI/environnement, aucun Playwright authentifié et aucune validation utilisateur
+ne sont joints à ce constat. Le vérificateur de supply chain et les contrats de
+canari présents dans le repo ne remplacent pas ces artefacts externes.

@@ -94,6 +94,16 @@ probation ne peut exister qu'en queue du préfixe ordonné. Le rollout refuse :
 - une preuve vieille de plus de 24 heures ou datée dans le futur ;
 - une divergence entre le flag, le gate Workspace et l’historique d’attestation.
 
+Une activation finalisée n'est pas seulement relue comme un JSON bien formé.
+À chaque résolution, `authoritative_projection_enabled` recalcule son
+`activation_sha256`, recharge l'événement `AuditLog` désigné par `audit_id` et
+exige l'égalité exacte de son type, acteur et contenu non sensible. L'identité
+du runner persistée est ensuite reconfrontée aux ancres OIDC courantes
+(issuer, projet et ref protégée) et au SHA servi ; pipeline et job restent liés
+comme valeurs exactes du reçu. Une preuve transplantée, un audit supprimé ou
+modifié, ou une rotation des ancres qui ne reconnaît plus le producteur ferme
+donc immédiatement la projection.
+
 Le rollback désactive les gates dans l’ordre inverse : SkillInvocation, Run,
 puis Capability. Les données et versions restent en place.
 
@@ -332,7 +342,25 @@ confiance serveur. Le projet GitLab numérique et la ref doivent également
 correspondre aux ancres de déploiement ; un identifiant de projet vide bloque
 volontairement tout `enforce`. Un déploiement direct depuis la VM peut activer le shadow,
 mais ne peut donc pas produire un `enforce` valide. Une clé qui n’appartient
-pas au contrat de rollout est refusée. Le retour `enforce → shadow` doit
+pas au contrat de rollout est refusée.
+
+Le JSON d'attestation ne suffit jamais à reconstruire une autorité `enforce`.
+L'apply écrit un événement exact `lot7.authorization.enforce_promoted` dont les
+détails fermés sont `{artifact_ref, document}`. L'attestation ne conserve que
+le `promotion_receipt={audit_id, artifact_ref}`. Le document
+`authorization_v2_enforcement_promotion` lie le workspace, le groupe d'actions,
+la promotion exacte et son `shadow_source` exhaustif. À chaque décision, le
+runtime recharge ce reçu dans l'`AuditLog` du même workspace, recalcule son
+digest, reconstruit les observations `iam.shadow.evaluation`, recharge la
+review `iam.shadow.mismatch_reviewed` lorsqu'elle est requise, puis revalide les
+ancres OIDC courantes. Un reçu absent, transplanté, recomposé côté client ou
+dont le ledger a dérivé transforme le mode effectif en `invalid_enforce` et
+échoue fermé.
+Le rollout exécute cette même revalidation après le `flush` et avant le
+`commit` ; même un faux ID retourné par l'écriture d'audit annule donc policy et
+attestation dans la transaction.
+
+Le retour `enforce → shadow` doit
 reprendre le groupe d’attestation complet ; il est atomique, exige un acteur et
 un motif, retire l’attestation active et conserve un historique ainsi qu’un
 audit. Une réparation restrictive explicite reste disponible si l’état
@@ -608,3 +636,10 @@ Le Lot 7 n’est déclarable terminé qu’après :
   retrieval et shell à trois applications rejoués avant de poursuivre ;
 - non-régression Sentinel et Octocity vérifiée séparément, branding et action
   packs compris.
+
+État du présent audit du dépôt : seules les preuves statiques sont établies.
+Restent absents une exécution PostgreSQL réelle des contraintes et tests de
+concurrence, le job GitLab protégé avec ses artefacts OCI et sa preuve
+d'environnement, le canari Playwright authentifié, ainsi que la campagne de
+validation utilisateur. Aucun de ces gates n'est déduit des tests locaux ni du
+contenu du manifeste.

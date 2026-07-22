@@ -44,7 +44,7 @@ avec traçabilité audit là où prévu.
 ### 3.1 Parcours scripté vitrine
 
 Suivre [`showcase-demo-walkthrough.md`](./showcase-demo-walkthrough.md) sur le workspace
-`agentium-showcase` (seed avec `--reset` si besoin).
+`agentium-showcase` (seed idempotent, sans reset destructif).
 
 ### 3.2 Parcours automatisés
 
