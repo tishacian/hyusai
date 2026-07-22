@@ -187,3 +187,71 @@ def test_upgrade_backfills_ids_and_enforces_workspace_scoped_key_uniqueness(
                     "blueprint_key": f"{table_name}-1",
                 },
             )
+
+
+def test_downgrade_round_trips_only_reconstructible_backfilled_keys(
+    monkeypatch,
+) -> None:
+    engine = _legacy_engine()
+    with engine.begin() as bind:
+        for table_name in MIG.TABLE_CONSTRAINTS:
+            bind.execute(
+                sa.text(
+                    f'INSERT INTO "{table_name}" (id, workspace_id, name) '
+                    "VALUES (:id, :workspace_id, :name)"
+                ),
+                {
+                    "id": f"{table_name}-legacy",
+                    "workspace_id": "ws-a",
+                    "name": "Legacy",
+                },
+            )
+        monkeypatch.setattr(MIG, "op", _SQLiteOps(bind))
+
+        MIG.upgrade()
+        MIG.downgrade()
+
+        inspector = sa.inspect(bind)
+        for table_name in MIG.TABLE_CONSTRAINTS:
+            assert "blueprint_key" not in {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+
+
+def test_downgrade_refuses_stable_keys_distinct_from_ids_without_partial_ddl(
+    monkeypatch,
+) -> None:
+    engine = _legacy_engine()
+    with engine.begin() as bind:
+        for table_name in MIG.TABLE_CONSTRAINTS:
+            bind.execute(
+                sa.text(
+                    f'INSERT INTO "{table_name}" (id, workspace_id, name) '
+                    "VALUES (:id, :workspace_id, :name)"
+                ),
+                {
+                    "id": f"{table_name}-1",
+                    "workspace_id": "ws-a",
+                    "name": "Stable",
+                },
+            )
+        monkeypatch.setattr(MIG, "op", _SQLiteOps(bind))
+        MIG.upgrade()
+        bind.execute(
+            sa.text(
+                "UPDATE contexts SET blueprint_key = 'portable-context-key' "
+                "WHERE id = 'contexts-1'"
+            )
+        )
+
+        with pytest.raises(RuntimeError, match="not reconstructible"):
+            MIG.downgrade()
+
+        inspector = sa.inspect(bind)
+        for table_name, constraint_name in MIG.TABLE_CONSTRAINTS.items():
+            assert "blueprint_key" in {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+            assert constraint_name in {
+                index["name"] for index in inspector.get_indexes(table_name)
+            }

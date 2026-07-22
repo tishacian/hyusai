@@ -11,7 +11,17 @@ and by the drop-and-ask flow itself — no background worker required.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 
 from app.db.base import Base
 
@@ -51,5 +61,12 @@ class Context(Base):
             "workspace_id",
             "blueprint_key",
             name="uq_contexts_workspace_blueprint_key",
+        ),
+        Index(
+            "uq_contexts_global_blueprint_key",
+            "blueprint_key",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+            sqlite_where=text("workspace_id IS NULL"),
         ),
     )

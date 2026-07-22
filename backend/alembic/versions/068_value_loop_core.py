@@ -17,9 +17,59 @@ down_revision = "067_system_version_uniqueness"
 branch_labels = None
 depends_on = None
 
+VALUE_LOOP_TABLES = (
+    "value_measurements",
+    "value_action_executions",
+    "value_simulations",
+    "value_scenarios",
+    "value_loop_operations",
+)
+
 
 def _enum_check(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(value) for value in values)})"
+
+
+def _assert_downgrade_safe() -> None:
+    """Refuse to erase any authoritative Lot-8 evidence."""
+
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+    populated: dict[str, int] = {}
+    for table_name in VALUE_LOOP_TABLES:
+        if table_name not in tables:
+            continue
+        count = int(
+            bind.execute(
+                sa.text(f'SELECT COUNT(*) FROM "{table_name}"')
+            ).scalar_one()
+        )
+        if count:
+            populated[table_name] = count
+
+    if "decisions" in tables and "scenario_id" in {
+        column["name"] for column in inspector.get_columns("decisions")
+    }:
+        linked = int(
+            bind.execute(
+                sa.text(
+                    'SELECT COUNT(*) FROM "decisions" '
+                    'WHERE "scenario_id" IS NOT NULL'
+                )
+            ).scalar_one()
+        )
+        if linked:
+            populated["decisions.scenario_id"] = linked
+
+    if populated:
+        details = ", ".join(
+            f"{name}={count}" for name, count in sorted(populated.items())
+        )
+        raise RuntimeError(
+            "refusing destructive downgrade of authoritative value-loop "
+            f"evidence ({details})"
+        )
 
 
 def upgrade() -> None:
@@ -263,6 +313,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _assert_downgrade_safe()
+
     with op.batch_alter_table("decisions") as batch:
         batch.drop_index("ix_decisions_scenario_id")
         batch.drop_constraint("uq_decisions_scenario_id", type_="unique")
@@ -272,11 +324,5 @@ def downgrade() -> None:
         )
         batch.drop_column("scenario_id")
 
-    for table in (
-        "value_measurements",
-        "value_action_executions",
-        "value_simulations",
-        "value_scenarios",
-        "value_loop_operations",
-    ):
+    for table in VALUE_LOOP_TABLES:
         op.drop_table(table)

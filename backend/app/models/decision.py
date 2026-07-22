@@ -4,7 +4,16 @@ acted upon. Mirrors the "decision trail" of the executive cockpit.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKeyConstraint,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from app.db.base import Base
 
@@ -17,12 +26,7 @@ class Decision(Base):
 
     # Nullable for every pre-Lot-8 and non-value-loop Decision.  A non-null
     # value binds exactly one authoritative Decision to its ValueScenario.
-    scenario_id = Column(
-        String(36),
-        ForeignKey("value_scenarios.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
+    scenario_id = Column(String(36), nullable=True)
 
     scope = Column(String(20), default="capability")  # capability | system | run | portfolio
     target_id = Column(String(36), nullable=True, index=True)
@@ -52,4 +56,25 @@ class Decision(Base):
     applied_patch = Column(JSON, nullable=True)
     applied_by = Column(String(255), nullable=True)
 
-    __table_args__ = (UniqueConstraint("scenario_id", name="uq_decisions_scenario_id"),)
+    __table_args__ = (
+        UniqueConstraint("scenario_id", name="uq_decisions_scenario_id"),
+        ForeignKeyConstraint(
+            ["workspace_id", "scenario_id", "target_id"],
+            [
+                "value_scenarios.workspace_id",
+                "value_scenarios.id",
+                "value_scenarios.system_id",
+            ],
+            name="fk_decisions_scenario_lineage",
+            ondelete="RESTRICT",
+        ),
+        # Composite foreign keys use MATCH SIMPLE by default, so any NULL
+        # component would otherwise bypass lineage enforcement.  Legacy and
+        # non-value-loop Decisions may keep scenario_id NULL; a scenario-linked
+        # Decision must carry the complete tenant/System identity.
+        CheckConstraint(
+            "scenario_id IS NULL OR "
+            "(workspace_id IS NOT NULL AND target_id IS NOT NULL)",
+            name="ck_decisions_scenario_lineage_complete",
+        ),
+    )

@@ -14,7 +14,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql.expression import ColumnElement
 
 from app.db.base import Base
 from app.schemas.canonical import WorkspaceFamily, WorkspaceMode
@@ -26,6 +28,40 @@ def _enum_check(column: str, values: list[str]) -> str:
 
 def _default_workspace_settings() -> dict[str, str]:
     return {"family": WorkspaceFamily.generic.value}
+
+
+def _app_key_common_check() -> str:
+    return (
+        "length(app_key) BETWEEN 1 AND 80 "
+        "AND app_key = lower(trim(app_key)) "
+        "AND app_key NOT LIKE '% %'"
+    )
+
+
+class _AppKeyFormatCheck(ColumnElement):
+    """One named CHECK whose charset operator follows the SQL dialect."""
+
+    inherit_cache = True
+    type = Boolean()
+
+
+@compiles(_AppKeyFormatCheck)
+def _compile_app_key_check_default(_element, _compiler, **_kw) -> str:
+    return _app_key_common_check()
+
+
+@compiles(_AppKeyFormatCheck, "postgresql")
+def _compile_app_key_check_postgresql(_element, _compiler, **_kw) -> str:
+    return _app_key_common_check() + " AND app_key ~ '^[a-z0-9][a-z0-9.-]{0,79}$'"
+
+
+@compiles(_AppKeyFormatCheck, "sqlite")
+def _compile_app_key_check_sqlite(_element, _compiler, **_kw) -> str:
+    return (
+        _app_key_common_check()
+        + " AND app_key NOT GLOB '*[^a-z0-9.-]*'"
+        + " AND substr(app_key, 1, 1) GLOB '[a-z0-9]'"
+    )
 
 
 class Workspace(Base):
@@ -116,9 +152,7 @@ class WorkspaceMemberAppEntitlement(Base):
             name="uq_workspace_member_app_entitlement",
         ),
         CheckConstraint(
-            "length(app_key) BETWEEN 1 AND 80 "
-            "AND app_key = lower(trim(app_key)) "
-            "AND app_key NOT LIKE '% %'",
+            _AppKeyFormatCheck(),
             name="ck_workspace_member_app_entitlements_app_key",
         ),
     )

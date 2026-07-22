@@ -19,9 +19,83 @@ down_revision = "071_blueprint_object_keys"
 branch_labels = None
 depends_on = None
 
+LEGACY_ASSUMPTION_EVALUATION = {
+    "schema_version": 1,
+    "method": "legacy_backfill",
+    "verdict": "not_evaluable",
+    "causality": "not_established",
+    "declared_assumptions": {},
+    "criteria": [],
+    "reason": "forecast_comparison_not_persisted_at_measurement_time",
+}
+
 
 def _enum_check(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(value) for value in values)})"
+
+
+def _assert_downgrade_safe() -> None:
+    """Preserve every post-migration forecast comparison and verdict."""
+
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "value_measurements" not in inspector.get_table_names():
+        return
+    required = {
+        "id",
+        "action_execution_id",
+        "simulation_id",
+        "forecast_delta",
+        "assumption_verdict",
+        "assumption_evaluation",
+    }
+    if not required.issubset(
+        {column["name"] for column in inspector.get_columns("value_measurements")}
+    ):
+        return
+
+    measurements = sa.table(
+        "value_measurements",
+        sa.column("id", sa.String(length=36)),
+        sa.column("action_execution_id", sa.String(length=36)),
+        sa.column("simulation_id", sa.String(length=36)),
+        sa.column("forecast_delta", sa.JSON()),
+        sa.column("assumption_verdict", sa.String(length=32)),
+        sa.column("assumption_evaluation", sa.JSON()),
+    )
+    actions = sa.table(
+        "value_action_executions",
+        sa.column("id", sa.String(length=36)),
+        sa.column("simulation_id", sa.String(length=36)),
+    )
+    rows = bind.execute(
+        sa.select(
+            measurements.c.id,
+            measurements.c.simulation_id,
+            measurements.c.forecast_delta,
+            measurements.c.assumption_verdict,
+            measurements.c.assumption_evaluation,
+            actions.c.simulation_id.label("action_simulation_id"),
+        ).select_from(
+            measurements.outerjoin(
+                actions,
+                actions.c.id == measurements.c.action_execution_id,
+            )
+        )
+    ).mappings()
+    unsafe = [
+        str(row["id"])
+        for row in rows
+        if row["simulation_id"] != row["action_simulation_id"]
+        or row["forecast_delta"] is not None
+        or row["assumption_verdict"] != "not_evaluable"
+        or row["assumption_evaluation"] != LEGACY_ASSUMPTION_EVALUATION
+    ]
+    if unsafe:
+        raise RuntimeError(
+            "refusing downgrade because value measurement evaluation evidence "
+            f"is not a reconstructible legacy backfill (rows={len(unsafe)})"
+        )
 
 
 def upgrade() -> None:
@@ -65,15 +139,7 @@ def upgrade() -> None:
         measurements.update().values(
             simulation_id=simulation_id,
             assumption_verdict="not_evaluable",
-            assumption_evaluation={
-                "schema_version": 1,
-                "method": "legacy_backfill",
-                "verdict": "not_evaluable",
-                "causality": "not_established",
-                "declared_assumptions": {},
-                "criteria": [],
-                "reason": "forecast_comparison_not_persisted_at_measurement_time",
-            },
+            assumption_evaluation=LEGACY_ASSUMPTION_EVALUATION,
         )
     )
     missing = connection.execute(
@@ -130,6 +196,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _assert_downgrade_safe()
+
     op.drop_index(
         "ix_value_measurements_simulation_id",
         table_name="value_measurements",

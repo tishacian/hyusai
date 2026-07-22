@@ -55,6 +55,12 @@ class WorkspaceAppInstallation(Base):
             "workspace_id",
             name="uq_workspace_app_installations_id_workspace",
         ),
+        UniqueConstraint(
+            "workspace_id",
+            "app_id",
+            "id",
+            name="uq_workspace_app_installations_lineage",
+        ),
         CheckConstraint(
             _enum_check("state", ("installed", "uninstalled")),
             name="ck_workspace_app_installations_state",
@@ -109,6 +115,16 @@ class WorkspaceAppOperation(Base):
             name="fk_workspace_app_operations_installation_tenant",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["workspace_id", "app_id", "installation_id"],
+            [
+                "workspace_app_installations.workspace_id",
+                "workspace_app_installations.app_id",
+                "workspace_app_installations.id",
+            ],
+            name="fk_workspace_app_operations_installation_lineage",
+            ondelete="CASCADE",
+        ),
         UniqueConstraint(
             "workspace_id",
             "idempotency_key",
@@ -118,6 +134,13 @@ class WorkspaceAppOperation(Base):
             "id",
             "workspace_id",
             name="uq_workspace_app_operations_id_workspace",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "app_id",
+            "installation_id",
+            "id",
+            name="uq_workspace_app_operations_lineage",
         ),
         CheckConstraint(
             _enum_check("operation", ("install", "upgrade", "rollback", "uninstall")),
@@ -166,6 +189,17 @@ class WorkspaceAppLifecycleStepReceipt(Base):
             ["operation_id", "workspace_id"],
             ["workspace_app_operations.id", "workspace_app_operations.workspace_id"],
             name="fk_workspace_app_step_receipts_operation_tenant",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "app_id", "installation_id", "operation_id"],
+            [
+                "workspace_app_operations.workspace_id",
+                "workspace_app_operations.app_id",
+                "workspace_app_operations.installation_id",
+                "workspace_app_operations.id",
+            ],
+            name="fk_workspace_app_step_receipts_operation_lineage",
             ondelete="CASCADE",
         ),
         ForeignKeyConstraint(

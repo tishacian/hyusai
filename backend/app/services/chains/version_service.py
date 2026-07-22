@@ -61,7 +61,9 @@ _CONFIGURATION_TRANSITION_KEYS = frozenset(
         "target_contract_sha256",
     }
 )
-_CONFIGURATION_TRANSITION_KINDS = frozenset({"control_policy_rebind"})
+_CONFIGURATION_TRANSITION_KINDS = frozenset(
+    {"control_policy_rebind", "showcase_seed_reconcile"}
+)
 _MEMBRANE_ENFORCEMENT_MODES = frozenset({"compat", "shadow", "enforce"})
 
 

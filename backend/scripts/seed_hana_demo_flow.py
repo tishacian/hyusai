@@ -29,10 +29,13 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
 import app.models  # noqa: F401 — register models
 from app.db.base import Base, SessionLocal, engine
@@ -43,16 +46,14 @@ from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
 from app.services.connectors.hana import service as hana_service
-from app.services.seed_catalog_safety import owned_capability_for_seed
+from app.services.seed_catalog_safety import (
+    owned_capability_for_seed,
+    require_showcase_workspace_for_seed,
+)
 from app.services.skills_registry import seed_skills_and_capabilities
-from sqlalchemy.orm import Session as DBSession
-from sqlalchemy.orm.attributes import flag_modified
 
 DEFAULT_WORKSPACE_SLUG = "agentium-showcase"
-DEFAULT_HOST = (
-    "535f81d3-5d3d-4313-92c6-187da6dd50a6"
-    ".hna1.prod-us10.hanacloud.ondemand.com"
-)
+DEFAULT_HOST = "535f81d3-5d3d-4313-92c6-187da6dd50a6" ".hna1.prod-us10.hanacloud.ondemand.com"
 DEFAULT_PORT = 443
 DEFAULT_USER = "DBADMIN"
 
@@ -74,7 +75,7 @@ DEMO_QUERY = (
 )
 
 
-def flow_hana_maintenance() -> Dict[str, Any]:
+def flow_hana_maintenance() -> dict[str, Any]:
     """source → HANA query → grounded LLM synthesis → sink.
 
     ``schema_version: 3`` + ``io_mode: strict`` are required so
@@ -185,6 +186,7 @@ def _resolve_password(cli_password: Optional[str] = None) -> str:
 
 def ensure_showcase_hana_flags(db: DBSession, workspace: Workspace) -> None:
     """Ensure feature + catalog gating for the HANA connector/skill."""
+    require_showcase_workspace_for_seed(workspace)
     settings = dict(workspace.settings or {})
     features = dict(settings.get("features") or {})
     catalog = dict(settings.get("catalog") or {})
@@ -214,9 +216,7 @@ def configure_hana_connector(
 ) -> dict[str, Any]:
     """Persist connector host/user; password encrypted or plaintext envelope."""
     if not password:
-        raise ValueError(
-            "HANA password missing. Set HANA_PASSWORD or HANA_CONNECTOR_PASSWORD."
-        )
+        raise ValueError("HANA password missing. Set HANA_PASSWORD or HANA_CONNECTOR_PASSWORD.")
     ensure_showcase_hana_flags(db, workspace)
     return hana_service.set_config(
         db,
@@ -236,9 +236,7 @@ def _skill_ids(db: DBSession, slugs: list[str]) -> list[str]:
     by_slug = {r.slug: r.id for r in rows}
     missing = [s for s in slugs if s not in by_slug]
     if missing:
-        raise RuntimeError(
-            f"Skills not seeded: {missing}. Run seed_skills_and_capabilities first."
-        )
+        raise RuntimeError(f"Skills not seeded: {missing}. Run seed_skills_and_capabilities first.")
     return [by_slug[s] for s in slugs]
 
 
@@ -279,9 +277,7 @@ def ensure_hana_capability(db: DBSession, workspace: Workspace) -> Capability:
     return cap
 
 
-def ensure_hana_system(
-    db: DBSession, workspace: Workspace, capability: Capability
-) -> System:
+def ensure_hana_system(db: DBSession, workspace: Workspace, capability: Capability) -> System:
     flow = flow_hana_maintenance()
     settings = {
         "showcase_seed": True,
@@ -373,8 +369,9 @@ def ensure_hana_demo(
     user: str = DEFAULT_USER,
     password: Optional[str] = None,
     configure_connector: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Upsert capability + system; optionally persist connector credentials."""
+    require_showcase_workspace_for_seed(workspace)
     seed_skills_and_capabilities(db)
     pwd = _resolve_password(password)
     config_summary: dict[str, Any] = {}
@@ -471,9 +468,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace-slug", default=DEFAULT_WORKSPACE_SLUG)
     parser.add_argument("--host", default=os.environ.get("HANA_HOST", DEFAULT_HOST))
-    parser.add_argument(
-        "--port", type=int, default=int(os.environ.get("HANA_PORT", DEFAULT_PORT))
-    )
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HANA_PORT", DEFAULT_PORT)))
     parser.add_argument("--user", default=os.environ.get("HANA_USER", DEFAULT_USER))
     parser.add_argument(
         "--password",
@@ -508,9 +503,7 @@ def main() -> int:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        workspace = (
-            db.query(Workspace).filter(Workspace.slug == args.workspace_slug).first()
-        )
+        workspace = db.query(Workspace).filter(Workspace.slug == args.workspace_slug).first()
         if not workspace:
             raise SystemExit(
                 f"Workspace {args.workspace_slug!r} not found. "
@@ -557,9 +550,7 @@ def main() -> int:
         if args.run:
             system = db.query(System).filter(System.id == seeded["system_id"]).first()
             assert system is not None
-            evidence = asyncio.run(
-                run_demo_flow(db, workspace, system, query=args.query)
-            )
+            evidence = asyncio.run(run_demo_flow(db, workspace, system, query=args.query))
             print(
                 f"Run {evidence['run_id']}: status={evidence['status']} "
                 f"error={evidence['error']!r}"
@@ -584,13 +575,9 @@ def main() -> int:
             )
             llm_ran = "llm_rag_answer_v1" in slugs
             if not hana_ok:
-                raise SystemExit(
-                    "Validation failed: sap_hana_query_v1 did not return rows"
-                )
+                raise SystemExit("Validation failed: sap_hana_query_v1 did not return rows")
             if not llm_ran:
-                raise SystemExit(
-                    "Validation failed: llm_rag_answer_v1 was not invoked"
-                )
+                raise SystemExit("Validation failed: llm_rag_answer_v1 was not invoked")
             print("Flow chain validated: sap_hana_query_v1 → llm_rag_answer_v1")
 
         return 0

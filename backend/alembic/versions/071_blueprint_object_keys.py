@@ -40,6 +40,47 @@ def _backfill_key(table_name: str) -> None:
     )
 
 
+def _assert_downgrade_safe() -> None:
+    """Only remove keys that the upgrade can deterministically reconstruct."""
+
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+    unsafe: dict[str, int] = {}
+    for table_name in TABLE_CONSTRAINTS:
+        if table_name not in existing_tables or KEY_COLUMN not in {
+            column["name"] for column in inspector.get_columns(table_name)
+        }:
+            continue
+        table = sa.table(
+            table_name,
+            sa.column("id", sa.String(length=36)),
+            sa.column(KEY_COLUMN, sa.String(length=120)),
+        )
+        count = int(
+            bind.execute(
+                sa.select(sa.func.count())
+                .select_from(table)
+                .where(
+                    sa.or_(
+                        table.c.blueprint_key.is_(None),
+                        table.c.blueprint_key != table.c.id,
+                    )
+                )
+            ).scalar_one()
+        )
+        if count:
+            unsafe[table_name] = count
+    if unsafe:
+        details = ", ".join(
+            f"{table}={count}" for table, count in sorted(unsafe.items())
+        )
+        raise RuntimeError(
+            "refusing downgrade because stable Blueprint identities are not "
+            f"reconstructible from object IDs ({details})"
+        )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     existing_tables = set(sa.inspect(bind).get_table_names())
@@ -64,6 +105,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _assert_downgrade_safe()
+
     bind = op.get_bind()
     existing_tables = set(sa.inspect(bind).get_table_names())
     for table_name, constraint_name in reversed(tuple(TABLE_CONSTRAINTS.items())):

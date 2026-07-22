@@ -6,6 +6,7 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 
 
@@ -135,6 +136,9 @@ class _SQLiteOps:
         self.metadata.reflect(connection)
         self.calls = []
 
+    def get_bind(self):
+        return self.connection
+
     def create_table(self, name, *elements):
         table = sa.Table(name, self.metadata, *elements)
         table.create(self.connection)
@@ -241,3 +245,36 @@ def test_upgrade_and_downgrade_round_trip(monkeypatch):
         assert "scenario_id" not in {
             column["name"] for column in inspector.get_columns("decisions")
         }
+
+
+def test_downgrade_refuses_to_erase_nonempty_value_ledger_before_any_ddl(
+    monkeypatch,
+):
+    engine = sa.create_engine("sqlite://")
+    _legacy_schema(engine)
+    with engine.begin() as connection:
+        operations = _SQLiteOps(connection)
+        monkeypatch.setattr(MIG, "op", operations)
+        MIG.upgrade()
+        connection.execute(
+            sa.text("INSERT INTO workspaces (id) VALUES ('workspace-1')")
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO value_loop_operations "
+                "(id, workspace_id, idempotency_key, request_sha256, operation, created_at) "
+                "VALUES ('operation-1', 'workspace-1', 'key-1', :digest, "
+                "'scenario.create', CURRENT_TIMESTAMP)"
+            ),
+            {"digest": "a" * 64},
+        )
+
+        with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+            MIG.downgrade()
+
+        inspector = sa.inspect(connection)
+        assert set(MIG.VALUE_LOOP_TABLES).issubset(inspector.get_table_names())
+        assert "scenario_id" in {
+            column["name"] for column in inspector.get_columns("decisions")
+        }
+        assert not any(call[0].startswith("drop") for call in operations.calls)

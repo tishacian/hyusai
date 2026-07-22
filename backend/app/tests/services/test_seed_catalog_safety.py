@@ -8,6 +8,7 @@ from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.seed_catalog_safety import (
     SeedCatalogCollisionError,
+    SeedWorkspaceBoundaryError,
     owned_capability_for_seed,
     visible_capability_for_seed,
 )
@@ -101,6 +102,79 @@ def test_showcase_seed_refuses_global_collision_before_overwrite(db_session):
     assert collision.name == "Global capability"
 
 
+def test_showcase_seed_refuses_to_adopt_an_existing_unmarked_workspace(db_session):
+    target = Workspace(
+        id="workspace-showcase-boundary",
+        slug="operator-controlled-slug",
+        name="Andritz must remain untouched",
+        mode="builder",
+        settings={"family": "andritz", "features": {"value_loop_v1": True}},
+    )
+    db_session.add(target)
+    db_session.commit()
+
+    with pytest.raises(SeedWorkspaceBoundaryError, match="not structurally owned"):
+        showcase_seed.ensure_workspace(
+            db_session,
+            target.slug,
+            "Attacker-selected Showcase name",
+        )
+
+    db_session.refresh(target)
+    assert target.name == "Andritz must remain untouched"
+    assert target.mode == "builder"
+    assert target.settings == {
+        "family": "andritz",
+        "features": {"value_loop_v1": True},
+    }
+
+
+def test_showcase_seed_cli_exposes_no_destructive_reset(monkeypatch):
+    monkeypatch.setattr(
+        showcase_seed.sys,
+        "argv",
+        ["seed_showcase_workspace", "--owner-email", "owner@example.test", "--reset"],
+    )
+    with pytest.raises(SystemExit) as rejected:
+        showcase_seed.parse_args()
+    assert rejected.value.code == 2
+
+
+def test_hana_seed_requires_preexisting_showcase_marker_before_any_mutation(
+    db_session,
+    monkeypatch,
+):
+    target = Workspace(
+        id="workspace-hana-boundary",
+        slug="andritz-selected-by-operator",
+        name="Andritz",
+        mode="builder",
+        settings={"family": "andritz"},
+    )
+    db_session.add(target)
+    db_session.commit()
+    seeded_registry = False
+
+    def forbidden_registry_seed(_db):
+        nonlocal seeded_registry
+        seeded_registry = True
+
+    monkeypatch.setattr(hana_seed, "seed_skills_and_capabilities", forbidden_registry_seed)
+
+    with pytest.raises(SeedWorkspaceBoundaryError, match="not structurally owned"):
+        hana_seed.ensure_hana_demo(
+            db_session,
+            target,
+            configure_connector=False,
+        )
+
+    db_session.refresh(target)
+    assert seeded_registry is False
+    assert target.settings == {"family": "andritz"}
+    assert db_session.query(Capability).count() == 0
+    assert db_session.query(System).count() == 0
+
+
 def test_hana_seed_refuses_foreign_collision_without_reparenting(db_session, monkeypatch):
     target = _workspace("workspace-hana-target")
     foreign = _workspace("workspace-hana-foreign")
@@ -136,11 +210,14 @@ def test_visible_seed_binding_allows_unhidden_universal_and_rejects_foreign(db_s
     db_session.add_all([target, foreign, universal])
     db_session.commit()
 
-    assert visible_capability_for_seed(
-        db_session,
-        workspace=target,
-        slug=universal.slug,
-    ) is universal
+    assert (
+        visible_capability_for_seed(
+            db_session,
+            workspace=target,
+            slug=universal.slug,
+        )
+        is universal
+    )
 
     universal.workspace_id = foreign.id
     db_session.commit()

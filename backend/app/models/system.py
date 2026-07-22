@@ -14,9 +14,11 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -78,6 +80,11 @@ class System(Base):
     runs = relationship("Run", back_populates="system", cascade="all, delete-orphan")
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_systems_workspace_id",
+        ),
         CheckConstraint(
             _enum_check("status", [item.value for item in SystemStatus]),
             name="ck_systems_status",
@@ -90,5 +97,12 @@ class System(Base):
             "workspace_id",
             "blueprint_key",
             name="uq_systems_workspace_blueprint_key",
+        ),
+        Index(
+            "uq_systems_global_blueprint_key",
+            "blueprint_key",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+            sqlite_where=text("workspace_id IS NULL"),
         ),
     )

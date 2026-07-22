@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -47,6 +48,11 @@ class ValueLoopOperation(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_value_loop_operations_ws_id",
+        ),
         UniqueConstraint(
             "workspace_id",
             "idempotency_key",
@@ -97,10 +103,13 @@ class ValueScenario(Base):
     objective = Column(Text, nullable=False)
     baseline_outcome = Column(JSON, nullable=False)
 
-    # Integrity is checked under the scenario row lock by the service.  This is
-    # intentionally not an FK: simulations point back to scenarios and keeping
-    # one direction avoids a DDL cycle on additive installs.
     approved_simulation_id = Column(String(36), nullable=True, index=True)
+    # Approval pins the complete canonical simulation contract outside the
+    # mutable ValueSimulation row.  These columns remain nullable only so
+    # pre-migration approvals are represented honestly; actuation refuses an
+    # approved scenario that has no pin.
+    approved_simulation_content_sha256 = Column(String(64), nullable=True)
+    approved_simulation_snapshot = Column(JSON, nullable=True)
     approval_operation_id = Column(
         String(36),
         ForeignKey("value_loop_operations.id", ondelete="RESTRICT"),
@@ -116,6 +125,58 @@ class ValueScenario(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "system_id",
+            "id",
+            name="uq_value_scenarios_ws_system_id",
+        ),
+        # Decision lineage uses the human-readable identity order
+        # workspace -> scenario -> System.  Keep an exact candidate key for
+        # that composite reference even though ``id`` is also the primary key.
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            "system_id",
+            name="uq_value_scenarios_ws_id_system",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id"],
+            ["systems.workspace_id", "systems.id"],
+            name="fk_value_scenarios_system_tenant",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "source_run_id"],
+            ["runs.workspace_id", "runs.system_id", "runs.id"],
+            name="fk_value_scenarios_source_run_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "operation_id"],
+            ["value_loop_operations.workspace_id", "value_loop_operations.id"],
+            name="fk_value_scenarios_operation_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "approval_operation_id"],
+            ["value_loop_operations.workspace_id", "value_loop_operations.id"],
+            name="fk_value_scenarios_approval_operation_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "id", "approved_simulation_id"],
+            [
+                "value_simulations.workspace_id",
+                "value_simulations.system_id",
+                "value_simulations.scenario_id",
+                "value_simulations.id",
+            ],
+            name="fk_value_scenarios_approved_simulation_lineage",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
         CheckConstraint(
             _enum_check(
                 "status",
@@ -167,6 +228,29 @@ class ValueSimulation(Base):
     generated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "system_id",
+            "scenario_id",
+            "id",
+            name="uq_value_simulations_lineage_id",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "scenario_id"],
+            [
+                "value_scenarios.workspace_id",
+                "value_scenarios.system_id",
+                "value_scenarios.id",
+            ],
+            name="fk_value_simulations_scenario_lineage",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "operation_id"],
+            ["value_loop_operations.workspace_id", "value_loop_operations.id"],
+            name="fk_value_simulations_operation_tenant",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             _enum_check("status", ("available",)),
             name="ck_value_simulations_status",
@@ -231,6 +315,51 @@ class ValueActionExecution(Base):
     executed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "system_id",
+            "scenario_id",
+            "simulation_id",
+            "id",
+            name="uq_value_actions_lineage_id",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "scenario_id"],
+            [
+                "value_scenarios.workspace_id",
+                "value_scenarios.system_id",
+                "value_scenarios.id",
+            ],
+            name="fk_value_action_executions_scenario_lineage",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "scenario_id", "simulation_id"],
+            [
+                "value_simulations.workspace_id",
+                "value_simulations.system_id",
+                "value_simulations.scenario_id",
+                "value_simulations.id",
+            ],
+            name="fk_value_action_executions_simulation_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "control_policy_id"],
+            [
+                "control_policies.workspace_id",
+                "control_policies.target_id",
+                "control_policies.id",
+            ],
+            name="fk_value_action_executions_control_policy_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "operation_id"],
+            ["value_loop_operations.workspace_id", "value_loop_operations.id"],
+            name="fk_value_action_executions_operation_tenant",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             _enum_check("status", ("succeeded",)),
             name="ck_value_action_executions_status",
@@ -298,6 +427,57 @@ class ValueMeasurement(Base):
     measured_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "scenario_id"],
+            [
+                "value_scenarios.workspace_id",
+                "value_scenarios.system_id",
+                "value_scenarios.id",
+            ],
+            name="fk_value_measurements_scenario_lineage",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "scenario_id", "simulation_id"],
+            [
+                "value_simulations.workspace_id",
+                "value_simulations.system_id",
+                "value_simulations.scenario_id",
+                "value_simulations.id",
+            ],
+            name="fk_value_measurements_simulation_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "workspace_id",
+                "system_id",
+                "scenario_id",
+                "simulation_id",
+                "action_execution_id",
+            ],
+            [
+                "value_action_executions.workspace_id",
+                "value_action_executions.system_id",
+                "value_action_executions.scenario_id",
+                "value_action_executions.simulation_id",
+                "value_action_executions.id",
+            ],
+            name="fk_value_measurements_action_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "system_id", "source_run_id"],
+            ["runs.workspace_id", "runs.system_id", "runs.id"],
+            name="fk_value_measurements_source_run_lineage",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "operation_id"],
+            ["value_loop_operations.workspace_id", "value_loop_operations.id"],
+            name="fk_value_measurements_operation_tenant",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             _enum_check("status", ("measured", "not_measured")),
             name="ck_value_measurements_status",

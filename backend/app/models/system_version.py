@@ -59,7 +59,6 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
@@ -110,13 +109,5 @@ class SystemVersion(Base):
             "system_id",
             "version_number",
             name="uq_system_versions_system_version_number",
-        ),
-        # Query pattern: "give me the versions of system X, latest first"
-        # hits (system_id, version_number DESC). Composite index pays
-        # for itself immediately and avoids a sort when paginating.
-        Index(
-            "ix_system_versions_system_version",
-            "system_id",
-            "version_number",
         ),
     )

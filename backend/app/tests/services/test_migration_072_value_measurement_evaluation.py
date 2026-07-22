@@ -420,3 +420,65 @@ def test_real_sqlite_upgrade_backfills_enforces_and_downgrades(monkeypatch) -> N
             "action_execution_id": "action-legacy",
             "legacy_note": "preserve me",
         }
+
+
+def test_downgrade_refuses_post_migration_measurement_evidence_before_any_ddl(
+    monkeypatch,
+) -> None:
+    engine, simulations, actions, measurements = _legacy_engine()
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        connection.execute(simulations.insert().values(id="simulation-live"))
+        connection.execute(
+            actions.insert().values(
+                id="action-live",
+                simulation_id="simulation-live",
+            )
+        )
+        connection.execute(
+            measurements.insert().values(
+                id="measurement-live",
+                action_execution_id="action-live",
+                legacy_note="keep directional evidence",
+            )
+        )
+        operations = _RealSQLiteOperations(connection)
+        monkeypatch.setattr(MIG, "op", operations)
+        MIG.upgrade()
+        upgraded = sa.Table(
+            "value_measurements",
+            sa.MetaData(),
+            autoload_with=connection,
+        )
+        connection.execute(
+            upgraded.update()
+            .where(upgraded.c.id == "measurement-live")
+            .values(
+                forecast_delta={"value": 5.0},
+                assumption_verdict="confirmed",
+                assumption_evaluation={
+                    "schema_version": 1,
+                    "method": "directional_forecast_v1",
+                    "verdict": "confirmed",
+                    "causality": "not_established",
+                    "declared_assumptions": {"window_days": 30},
+                    "criteria": [],
+                },
+            )
+        )
+
+        with pytest.raises(RuntimeError, match="not a reconstructible legacy backfill"):
+            MIG.downgrade()
+
+        inspector = sa.inspect(connection)
+        assert {
+            "simulation_id",
+            "forecast_delta",
+            "assumption_verdict",
+            "assumption_evaluation",
+        }.issubset(
+            {column["name"] for column in inspector.get_columns("value_measurements")}
+        )
+        assert "ix_value_measurements_simulation_id" in {
+            index["name"] for index in inspector.get_indexes("value_measurements")
+        }

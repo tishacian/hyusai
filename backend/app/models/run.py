@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -82,7 +83,9 @@ class Run(Base):
     # preset + capability.eval_enabled) and pre-E1 runs never produced one.
     evaluation_scores = Column(JSON, nullable=True)
 
-    trigger = Column(String(40), default="manual")  # manual | scheduler | webhook | adaptive | hitl | replay
+    trigger = Column(
+        String(40), default="manual"
+    )  # manual | scheduler | webhook | adaptive | hitl | replay
 
     # Vague E / E1.5.2 — replay lineage. ``parent_run_id`` points to the
     # run that was the source for a "Re-run with override" replay
@@ -114,7 +117,19 @@ class Run(Base):
 
     system = relationship("System", back_populates="runs")
     invocations = relationship(
-        "SkillInvocation", back_populates="run", cascade="all, delete-orphan", order_by="SkillInvocation.started_at"
+        "SkillInvocation",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="SkillInvocation.started_at",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "system_id",
+            "id",
+            name="uq_runs_workspace_system_id",
+        ),
     )
 
 

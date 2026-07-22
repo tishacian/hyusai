@@ -223,9 +223,19 @@ def attest_authorization_v2(monkeypatch):
 
     import copy
     from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    from sqlalchemy.orm import object_session
 
     from app.core.config import settings
-    from app.services.iam.decision_plane import candidate_config_sha256
+    from app.models.audit import AuditLog
+    from app.services.iam.decision_plane import (
+        PROMOTION_EVENT_TYPE,
+        PROMOTION_RECEIPT_KEY,
+        build_promotion_receipt_document,
+        candidate_config_sha256,
+    )
+    from app.services.iam.shadow_review import build_source_manifest_row, sha256_ref
 
     revision = "a" * 40
     monkeypatch.setattr(settings, "agentium_image_revision", revision)
@@ -243,9 +253,13 @@ def attest_authorization_v2(monkeypatch):
         policy["policy_version"] = 2
         modes = policy.setdefault("modes", {})
         group = sorted(actions)
-        validated_at = datetime.now(UTC) - timedelta(minutes=1)
-        started_at = validated_at - timedelta(hours=1)
-        ended_at = validated_at - timedelta(minutes=1)
+        session = object_session(config)
+        if session is None:
+            raise RuntimeError("authorization-v2 test attestation requires a persisted config")
+        observed_at = datetime.now(UTC)
+        started_at = observed_at - timedelta(microseconds=1)
+        ended_at = observed_at + timedelta(microseconds=max(1, len(group)))
+        validated_at = ended_at + timedelta(microseconds=1)
         counters = {
             action: {
                 "evaluations": 5,
@@ -311,7 +325,7 @@ def attest_authorization_v2(monkeypatch):
             "candidate_config_version": int(config.version or 1),
             "shadow_observation": {
                 "source": "pytest",
-                "source_ref": "sha256:" + "c" * 64,
+                "source_ref": "",
                 "window_started_at": started_at.isoformat(),
                 "window_ended_at": ended_at.isoformat(),
                 "runtime_revision": attested_revision,
@@ -329,13 +343,97 @@ def attest_authorization_v2(monkeypatch):
                 "ref_protected": True,
             },
             "promoted_by": "pytest-operator",
-            "promoted_at": datetime.now(UTC).isoformat(),
+            "promoted_at": validated_at.isoformat(),
+        }
+        source_rows = []
+        for index, action in enumerate(group):
+            row_id = str(uuid4())
+            timestamp = observed_at + timedelta(microseconds=index)
+            source_row = build_source_manifest_row(
+                row_id=row_id,
+                timestamp=timestamp,
+                action=action,
+                evaluation_count=5,
+                runtime_revision=attested_revision,
+                candidate_config_sha256=attestation["candidate_config_sha256"],
+                candidate_config_version=attestation["candidate_config_version"],
+                counters={
+                    "legacy_allowed": 4,
+                    "legacy_denied": 1,
+                    "candidate_allowed": 4,
+                    "candidate_denied": 1,
+                    "matches": 5,
+                    "mismatches": 0,
+                },
+            )
+            source_rows.append(source_row)
+            session.add(
+                AuditLog(
+                    id=row_id,
+                    workspace_id=str(config.workspace_id),
+                    timestamp=timestamp.astimezone(UTC).replace(tzinfo=None),
+                    event_type="iam.shadow.evaluation",
+                    actor="pytest-shadow-runner",
+                    details={
+                        "origin": "server",
+                        "resource": {"kind": action.split(".", maxsplit=1)[0]},
+                        "action": action,
+                        "evaluation_count": 5,
+                        "legacy_allowed": 4,
+                        "legacy_denied": 1,
+                        "candidate_allowed": 4,
+                        "candidate_denied": 1,
+                        "matches": 5,
+                        "mismatches": 0,
+                        "policy_id": "pytest-policy-v2",
+                        "policy_version": 2,
+                        "configured_mode": "shadow",
+                        "runtime_revision": attested_revision,
+                        "candidate_config_sha256": attestation["candidate_config_sha256"],
+                        "candidate_config_version": attestation["candidate_config_version"],
+                    },
+                )
+            )
+        source_manifest = {
+            "schema_version": 1,
+            "workspace_id": str(config.workspace_id),
+            "actions": group,
+            "window_started_at": started_at.isoformat(),
+            "window_ended_at": ended_at.isoformat(),
+            "event_type": "iam.shadow.evaluation",
+            "runtime_revision": attested_revision,
+            "candidate_config_sha256": attestation["candidate_config_sha256"],
+            "candidate_config_version": attestation["candidate_config_version"],
+            "rows": source_rows,
+        }
+        attestation["shadow_observation"]["source_ref"] = sha256_ref(source_manifest)
+        receipt_document = build_promotion_receipt_document(
+            workspace_id=str(config.workspace_id),
+            promotion=attestation,
+            source_manifest=source_manifest,
+        )
+        receipt_ref = sha256_ref(receipt_document)
+        receipt_id = str(uuid4())
+        session.add(
+            AuditLog(
+                id=receipt_id,
+                workspace_id=str(config.workspace_id),
+                timestamp=validated_at.astimezone(UTC).replace(tzinfo=None),
+                event_type=PROMOTION_EVENT_TYPE,
+                actor=attestation["promoted_by"],
+                details={"artifact_ref": receipt_ref, "document": receipt_document},
+            )
+        )
+        attestation[PROMOTION_RECEIPT_KEY] = {
+            "audit_id": receipt_id,
+            "artifact_ref": receipt_ref,
         }
         attestations = policy.setdefault("enforcement_attestations", {})
         for action in group:
             modes[action] = "enforce"
             attestations[action] = copy.deepcopy(attestation)
         config.capability_overrides = payload
+        session.flush()
         return attestation
 
     return _attest

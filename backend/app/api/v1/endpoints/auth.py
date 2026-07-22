@@ -51,6 +51,7 @@ from app.services.projection_gate import (
 )
 from app.services.value_loop_gate import FEATURE_KEY as VALUE_LOOP_FEATURE_KEY
 from app.services.workspace_app_runtime import (
+    WORKSPACE_APP_CANARY_MARKER,
     WORKSPACE_APP_PLATFORM_FEATURE,
     WORKSPACE_APP_ROLLOUT_STATE_KEY,
     safe_workspace_app_runtime_payload,
@@ -949,6 +950,7 @@ def _settings_with_managed_workspace_fields_preserved(
     next_settings = dict(requested)
     managed_top_level_fields = (
         ("family", "WORKSPACE_EXPERIENCE_SETTING_MANAGED"),
+        ("showcase_seed", "SHOWCASE_SEED_MARKER_MANAGED"),
         ("chat_execution", "CHAT_EXECUTION_POLICY_MANAGED"),
         (
             "_migration_058_canonical_contracts_state",
@@ -976,6 +978,57 @@ def _settings_with_managed_workspace_fields_preserved(
             )
         if current_has_field:
             next_settings[field] = current_settings[field]
+
+    current_experience_raw = current_settings.get("experience")
+    current_experience = (
+        dict(current_experience_raw)
+        if isinstance(current_experience_raw, Mapping)
+        else {}
+    )
+    requested_has_experience = "experience" in next_settings
+    requested_experience_raw = next_settings.get("experience")
+    requested_experience = (
+        dict(requested_experience_raw)
+        if isinstance(requested_experience_raw, Mapping)
+        else {}
+    )
+    current_has_app_canary = WORKSPACE_APP_CANARY_MARKER in current_experience
+    requested_has_app_canary = WORKSPACE_APP_CANARY_MARKER in requested_experience
+    if requested_has_app_canary and (
+        not current_has_app_canary
+        or requested_experience[WORKSPACE_APP_CANARY_MARKER]
+        != current_experience[WORKSPACE_APP_CANARY_MARKER]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOT9_WORKSPACE_APP_CANARY_MANAGED",
+                "message": (
+                    f"workspace.settings.experience.{WORKSPACE_APP_CANARY_MARKER} "
+                    "is managed by the Lot 9 rollout service"
+                ),
+            },
+        )
+    if (
+        requested_has_experience
+        and not isinstance(requested_experience_raw, Mapping)
+        and current_has_app_canary
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOT9_WORKSPACE_APP_CANARY_MANAGED",
+                "message": (
+                    f"workspace.settings.experience.{WORKSPACE_APP_CANARY_MARKER} "
+                    "cannot be removed by replacing workspace experience"
+                ),
+            },
+        )
+    if current_has_app_canary:
+        requested_experience[WORKSPACE_APP_CANARY_MARKER] = current_experience[
+            WORKSPACE_APP_CANARY_MARKER
+        ]
+        next_settings["experience"] = requested_experience
 
     current_features = current_settings.get("features")
     requested_features = next_settings.get("features")
