@@ -39,6 +39,8 @@ from app.db.base import SessionLocal  # noqa: E402
 from app.models.audit import AuditLog  # noqa: E402
 from app.models.workspace import Workspace  # noqa: E402
 from app.services.workspace_app_runtime import (  # noqa: E402
+    WORKSPACE_APP_CANARY_MARKER,
+    WORKSPACE_APP_CANARY_MARKER_VALUE,
     WORKSPACE_APP_PLATFORM_FEATURE,
     WORKSPACE_APP_POSTACTIVATION_CHECK_COUNT,
     WORKSPACE_APP_PREFLIGHT_CHECK_COUNT,
@@ -47,6 +49,8 @@ from app.services.workspace_app_runtime import (  # noqa: E402
     WorkspaceAppRuntime,
     WorkspaceAppRuntimeError,
     _probation_digest,
+    _workspace_app_activation_audit_details,
+    _workspace_app_probation_audit_details,
     inspect_authoritative_workspace_app_runtime,
     resolve_workspace_app_runtime,
     validate_workspace_app_inactive_rollout_history,
@@ -61,8 +65,8 @@ from scripts.rollout_authorization_v2 import (  # noqa: E402
 
 ROLLOUT_SCHEMA_VERSION = 1
 ROLLOUT_STATE_KEY = WORKSPACE_APP_ROLLOUT_STATE_KEY
-CANARY_MARKER = "workspace_app_platform_canary"
-CANARY_MARKER_VALUE = "v1"
+CANARY_MARKER = WORKSPACE_APP_CANARY_MARKER
+CANARY_MARKER_VALUE = WORKSPACE_APP_CANARY_MARKER_VALUE
 EVIDENCE_SCHEMA_VERSION = 2
 PREFLIGHT_EVIDENCE_KIND = "lot9_workspace_app_preflight"
 POSTACTIVATION_EVIDENCE_KIND = "lot9_workspace_app_postactivation"
@@ -113,6 +117,49 @@ def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def workspace_app_canary_entry_policy(runtime: WorkspaceAppRuntime) -> tuple[str, int]:
+    """Derive the enforceable entry proof from trusted installed manifests."""
+
+    entitlement_keys = {
+        str(key)
+        for installation in runtime.installations
+        for key in installation.payload.get("entitlement_keys", [])
+    }
+    if runtime.shell == "business":
+        gated_entries = [
+            installation
+            for installation in runtime.installations
+            if str(installation.payload["experience"]["primary_surface_id"])
+            in installation.payload.get("entitlement_keys", [])
+        ]
+        if not entitlement_keys or not gated_entries:
+            raise WorkspaceAppRolloutError(
+                "business runtime has no manifest-backed primary entry entitlement"
+            )
+        return "business_entitlement", len(entitlement_keys)
+    if runtime.shell == "immersive":
+        mission = runtime.mission_room
+        owner = mission.get("app_id") if isinstance(mission, Mapping) else None
+        if not owner or owner not in runtime.app_ids:
+            raise WorkspaceAppRolloutError(
+                "immersive runtime has no installed Mission Room owner"
+            )
+        if entitlement_keys:
+            raise WorkspaceAppRolloutError(
+                "immersive runtime declares an entry entitlement that its resolver cannot enforce"
+            )
+        return "immersive_extension", 0
+    if runtime.shell == "standard":
+        if entitlement_keys:
+            raise WorkspaceAppRolloutError(
+                "standard runtime declares an entry entitlement that its resolver cannot enforce"
+            )
+        return "standard_route", 0
+    raise WorkspaceAppRolloutError(
+        "installed runtime declares an unsupported shell entry contract"
+    )
+
+
 def _utc_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
@@ -142,10 +189,14 @@ def _workspace(db: DBSession, workspace_id: str, *, lock: bool) -> Workspace:
     scoped_id = str(workspace_id or "").strip()
     if not scoped_id:
         raise WorkspaceAppRolloutError("workspace_id is required")
-    query = db.query(Workspace).populate_existing().filter(
-        Workspace.id == scoped_id,
-        Workspace.is_active.is_(True),
-        Workspace.deleted_at.is_(None),
+    query = (
+        db.query(Workspace)
+        .populate_existing()
+        .filter(
+            Workspace.id == scoped_id,
+            Workspace.is_active.is_(True),
+            Workspace.deleted_at.is_(None),
+        )
     )
     if lock:
         query = query.with_for_update(of=Workspace)
@@ -158,10 +209,7 @@ def _workspace(db: DBSession, workspace_id: str, *, lock: bool) -> Workspace:
 def _feature_enabled(workspace: Workspace) -> bool:
     settings_payload = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     features = settings_payload.get("features")
-    return (
-        isinstance(features, Mapping)
-        and features.get(WORKSPACE_APP_PLATFORM_FEATURE) is True
-    )
+    return isinstance(features, Mapping) and features.get(WORKSPACE_APP_PLATFORM_FEATURE) is True
 
 
 def _set_feature(workspace: Workspace, enabled: bool) -> None:
@@ -178,10 +226,7 @@ def _set_feature(workspace: Workspace, enabled: bool) -> None:
 def _is_canary(workspace: Workspace) -> bool:
     workspace_settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     experience = workspace_settings.get("experience")
-    return (
-        isinstance(experience, Mapping)
-        and experience.get(CANARY_MARKER) == CANARY_MARKER_VALUE
-    )
+    return isinstance(experience, Mapping) and experience.get(CANARY_MARKER) == CANARY_MARKER_VALUE
 
 
 def _require_unique_canary(db: DBSession, workspace: Workspace) -> None:
@@ -190,10 +235,16 @@ def _require_unique_canary(db: DBSession, workspace: Workspace) -> None:
             f"target Workspace must declare settings.experience.{CANARY_MARKER}="
             f"{CANARY_MARKER_VALUE!r}"
         )
-    marked = [row.id for row in db.query(Workspace).filter(
-        Workspace.is_active.is_(True),
-        Workspace.deleted_at.is_(None),
-    ).all() if _is_canary(row)]
+    marked = [
+        row.id
+        for row in db.query(Workspace)
+        .filter(
+            Workspace.is_active.is_(True),
+            Workspace.deleted_at.is_(None),
+        )
+        .all()
+        if _is_canary(row)
+    ]
     if marked != [workspace.id]:
         raise WorkspaceAppRolloutError(
             "exactly one active Workspace must carry the Workspace App canary marker"
@@ -291,9 +342,7 @@ def _source_junit(payload: Mapping[str, Any]) -> dict[str, str]:
         or _SHA256_RE.fullmatch(digest) is None
         or artifact_ref != f"sha256:{digest}"
     ):
-        raise WorkspaceAppRolloutError(
-            "source_junit must be a content-addressed JUnit artifact"
-        )
+        raise WorkspaceAppRolloutError("source_junit must be a content-addressed JUnit artifact")
     return {
         "media_type": "application/junit+xml",
         "sha256": digest,
@@ -442,9 +491,10 @@ def _validate_evidence(
     if not validated_by:
         raise WorkspaceAppRolloutError("evidence validated_by is required")
     observation_ref = str(payload.get("observation_ref") or "").strip().lower()
-    if not observation_ref.startswith("sha256:") or _SHA256_RE.fullmatch(
-        observation_ref.removeprefix("sha256:")
-    ) is None:
+    if (
+        not observation_ref.startswith("sha256:")
+        or _SHA256_RE.fullmatch(observation_ref.removeprefix("sha256:")) is None
+    ):
         raise WorkspaceAppRolloutError("evidence observation_ref must be content-addressed")
     generated_at = _parse_utc(payload.get("generated_at"), field="generated_at")
     current_time = (now or datetime.now(UTC)).astimezone(UTC)
@@ -463,12 +513,36 @@ def _validate_evidence(
     if not installed:
         raise WorkspaceAppRolloutError("at least one trusted Workspace App must be installed")
     installation_sha = workspace_app_installations_sha256(runtime)
+    expected_subject_keys = {"workspace_id", "installations", "installations_sha256"}
+    if probation_ref is not None:
+        expected_subject_keys.update(
+            {
+                "probation_ref",
+                "runtime_shell",
+                "entry_policy",
+                "declared_entitlement_count",
+            }
+        )
+    _exact_keys(subject, expected_subject_keys, field="evidence.subject")
     if subject.get("installations") != installed:
         raise WorkspaceAppRolloutError("evidence installation set differs from the database")
     if subject.get("installations_sha256") != installation_sha:
         raise WorkspaceAppRolloutError("evidence installation digest differs from the database")
     if probation_ref is not None and subject.get("probation_ref") != probation_ref:
         raise WorkspaceAppRolloutError("evidence belongs to a different probation")
+    if probation_ref is not None:
+        entry_policy, declared_count = workspace_app_canary_entry_policy(runtime)
+        observed_count = subject.get("declared_entitlement_count")
+        if (
+            subject.get("runtime_shell") != runtime.shell
+            or subject.get("entry_policy") != entry_policy
+            or isinstance(observed_count, bool)
+            or not isinstance(observed_count, int)
+            or observed_count != declared_count
+        ):
+            raise WorkspaceAppRolloutError(
+                "evidence entry policy differs from the installed runtime shell"
+            )
     evidence_checks = payload.get("checks")
     if (
         not isinstance(evidence_checks, Mapping)
@@ -526,10 +600,11 @@ def _mandatory_audit(
     event_type: str,
     actor: str,
     details: Mapping[str, Any],
-) -> None:
+) -> str:
+    audit_id = str(uuid4())
     db.add(
         AuditLog(
-            id=str(uuid4()),
+            id=audit_id,
             workspace_id=workspace.id,
             timestamp=datetime.now(UTC).replace(tzinfo=None),
             event_type=event_type,
@@ -539,6 +614,7 @@ def _mandatory_audit(
         )
     )
     db.flush()
+    return audit_id
 
 
 def _authoritative_runtime(
@@ -548,9 +624,7 @@ def _authoritative_runtime(
     try:
         return inspect_authoritative_workspace_app_runtime(workspace, db=db)
     except WorkspaceAppRuntimeError as exc:
-        raise WorkspaceAppRolloutError(
-            f"authoritative runtime is invalid: {exc.code}"
-        ) from exc
+        raise WorkspaceAppRolloutError(f"authoritative runtime is invalid: {exc.code}") from exc
 
 
 def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
@@ -564,7 +638,7 @@ def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
             runtime = resolve_workspace_app_runtime(workspace, db=db)
             phase = runtime.rollout_phase
         else:
-            validate_workspace_app_inactive_rollout_history(workspace)
+            validate_workspace_app_inactive_rollout_history(workspace, db=db)
             runtime = inspect_authoritative_workspace_app_runtime(workspace, db=db)
     except WorkspaceAppRuntimeError as exc:
         blocker = exc.code
@@ -642,11 +716,9 @@ def bootstrap(
             "another active Workspace already carries the Workspace App canary marker"
         )
     if _feature_enabled(workspace):
-        raise WorkspaceAppRolloutError(
-            "runtime authority must be disabled before canary bootstrap"
-        )
+        raise WorkspaceAppRolloutError("runtime authority must be disabled before canary bootstrap")
     try:
-        validate_workspace_app_inactive_rollout_history(workspace)
+        validate_workspace_app_inactive_rollout_history(workspace, db=db)
     except WorkspaceAppRuntimeError as exc:
         raise WorkspaceAppRolloutError(f"rollout history is invalid: {exc.code}") from exc
     runtime = _authoritative_runtime(workspace, db)
@@ -720,7 +792,7 @@ def stage(
     if _feature_enabled(workspace):
         raise WorkspaceAppRolloutError("runtime authority is already enabled; abort first")
     try:
-        validate_workspace_app_inactive_rollout_history(workspace)
+        validate_workspace_app_inactive_rollout_history(workspace, db=db)
     except WorkspaceAppRuntimeError as exc:
         raise WorkspaceAppRolloutError(f"rollout history is invalid: {exc.code}") from exc
     state = _state(workspace)
@@ -780,31 +852,25 @@ def stage(
     probation["probation_ref"] = f"sha256:{probation_sha}"
     result["probation_ref"] = probation["probation_ref"]
     try:
-        state["probation"] = probation
-        _save_state(workspace, state)
-        _set_feature(workspace, True)
-        _mandatory_audit(
+        audit_id = _mandatory_audit(
             db,
             workspace=workspace,
             event_type="lot9.workspace_app_platform.staged",
             actor=actor_key,
-            details={
-                "revision": validation["revision"],
-                "probation_ref": probation["probation_ref"],
-                "expires_at": probation["expires_at"],
-                "preflight_evidence_ref": validation["evidence_ref"],
-                "preflight_artifact_ref": validation["artifact_ref"],
-                "preflight_source_junit_ref": validation["source_junit_ref"],
-                "pipeline_id": validation["trusted_runner"]["pipeline_id"],
-                "job_id": validation["trusted_runner"]["job_id"],
-                "installations_sha256": validation["installations_sha256"],
-                "installation_count": validation["installation_count"],
-            },
+            details=_workspace_app_probation_audit_details(
+                probation,
+                trusted_runner=validation["trusted_runner"],
+            ),
         )
+        probation["audit_id"] = audit_id
+        state["probation"] = probation
+        _save_state(workspace, state)
+        _set_feature(workspace, True)
         db.commit()
     except Exception:
         db.rollback()
         raise
+    result["audit_id"] = audit_id
     return result
 
 
@@ -851,10 +917,13 @@ def finalize(
             trusted_runner,
             revision=validation["revision"],
         )
-        if _validated_trusted_runner(
-            probation.get("trusted_runner"),
-            revision=validation["revision"],
-        ) != current_runner:
+        if (
+            _validated_trusted_runner(
+                probation.get("trusted_runner"),
+                revision=validation["revision"],
+            )
+            != current_runner
+        ):
             raise WorkspaceAppRolloutError(
                 "finalize must run in the same protected GitLab job as preflight staging"
             )
@@ -893,32 +962,26 @@ def finalize(
         "actor": actor_key,
     }
     try:
-        state["probation"] = None
-        state["activations"].append(activation)
-        _save_state(workspace, state)
-        _set_feature(workspace, True)
-        _mandatory_audit(
+        audit_id = _mandatory_audit(
             db,
             workspace=workspace,
             event_type="lot9.workspace_app_platform.activated",
             actor=actor_key,
-            details={
-                "revision": validation["revision"],
-                "probation_ref": runtime.rollout_ref,
-                "preflight_evidence_ref": probation["preflight_evidence_ref"],
-                "evidence_ref": validation["evidence_ref"],
-                "artifact_ref": validation["artifact_ref"],
-                "source_junit_ref": validation["source_junit_ref"],
-                "pipeline_id": validation["trusted_runner"]["pipeline_id"],
-                "job_id": validation["trusted_runner"]["job_id"],
-                "installations_sha256": validation["installations_sha256"],
-                "installation_count": validation["installation_count"],
-            },
+            details=_workspace_app_activation_audit_details(
+                activation,
+                trusted_runner=validation["trusted_runner"],
+            ),
         )
+        activation["audit_id"] = audit_id
+        state["probation"] = None
+        state["activations"].append(activation)
+        _save_state(workspace, state)
+        _set_feature(workspace, True)
         db.commit()
     except Exception:
         db.rollback()
         raise
+    result["audit_id"] = audit_id
     return result
 
 
@@ -1080,9 +1143,7 @@ def main() -> int:
                 )
             elif args.operation in {"stage", "finalize"}:
                 if args.evidence is None:
-                    raise WorkspaceAppRolloutError(
-                        f"{args.operation} requires --evidence"
-                    )
+                    raise WorkspaceAppRolloutError(f"{args.operation} requires --evidence")
                 evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
                 trusted_runner = (
                     _current_trusted_runner(

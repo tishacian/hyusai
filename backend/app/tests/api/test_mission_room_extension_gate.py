@@ -35,6 +35,7 @@ from app.services.workspace_app_runtime import (
     WORKSPACE_APP_PROBATION_MAX_AGE,
     WORKSPACE_APP_ROLLOUT_STATE_KEY,
     _probation_digest,
+    _workspace_app_probation_audit_details,
     inspect_authoritative_workspace_app_runtime,
     workspace_app_installation_subject,
     workspace_app_installations_sha256,
@@ -46,6 +47,13 @@ REVISION = "9" * 40
 @pytest.fixture(autouse=True)
 def _runtime_revision(monkeypatch):
     monkeypatch.setattr(app_settings, "agentium_image_revision", REVISION)
+    monkeypatch.setattr(
+        app_settings,
+        "authorization_v2_trusted_oidc_issuer",
+        "https://gitlab.com",
+    )
+    monkeypatch.setattr(app_settings, "authorization_v2_trusted_project_id", "42")
+    monkeypatch.setattr(app_settings, "authorization_v2_trusted_ref", "demo/agentic")
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -109,12 +117,12 @@ def _attest_workspace_apps(db_session, workspace: Workspace) -> None:
         "preflight_artifact_tests": WORKSPACE_APP_PREFLIGHT_CHECK_COUNT,
         "preflight_source_junit_ref": f"sha256:{source_junit}",
         "trusted_runner": {
-            "issuer": "https://gitlab.com",
-            "project_id": "42",
+            "issuer": str(app_settings.authorization_v2_trusted_oidc_issuer),
+            "project_id": str(app_settings.authorization_v2_trusted_project_id),
             "pipeline_id": "mission-room-runtime-pipeline",
             "job_id": "mission-room-runtime-job",
             "commit_sha": REVISION,
-            "ref": "demo/agentic",
+            "ref": str(app_settings.authorization_v2_trusted_ref),
             "ref_protected": True,
         },
         "staged_at": staged_at.isoformat(),
@@ -124,6 +132,22 @@ def _attest_workspace_apps(db_session, workspace: Workspace) -> None:
     probation_sha = _probation_digest(probation)
     probation["probation_sha256"] = probation_sha
     probation["probation_ref"] = f"sha256:{probation_sha}"
+    audit_id = str(uuid4())
+    db_session.add(
+        AuditLog(
+            id=audit_id,
+            workspace_id=workspace.id,
+            event_type="lot9.workspace_app_platform.staged",
+            actor="mission-room-runtime-test",
+            severity="info",
+            details=_workspace_app_probation_audit_details(
+                probation,
+                trusted_runner=probation["trusted_runner"],
+            ),
+        )
+    )
+    db_session.flush()
+    probation["audit_id"] = audit_id
     workspace.settings = {
         **workspace.settings,
         WORKSPACE_APP_ROLLOUT_STATE_KEY: {
@@ -152,9 +176,7 @@ def _platform_workspace(
     if profile is not None:
         mission_room_settings = settings.get("mission_room")
         mission_room_settings = (
-            dict(mission_room_settings)
-            if isinstance(mission_room_settings, dict)
-            else {}
+            dict(mission_room_settings) if isinstance(mission_room_settings, dict) else {}
         )
         mission_room_settings["profile"] = profile
         settings["mission_room"] = mission_room_settings
@@ -490,9 +512,7 @@ def test_generic_or_invalid_authoritative_runtime_never_reaches_sentinel_provide
     )
     for generic_response in generic_responses:
         assert generic_response.status_code == 404
-        assert generic_response.json() == {
-            "detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}
-        }
+        assert generic_response.json() == {"detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}}
     assert generic_head.status_code == 404
     assert generic_head.content == b""
 
@@ -513,9 +533,7 @@ def test_generic_or_invalid_authoritative_runtime_never_reaches_sentinel_provide
         "/api/v1/mission-room/overview"
     )
     assert invalid_response.status_code == 404
-    assert invalid_response.json() == {
-        "detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}
-    }
+    assert invalid_response.json() == {"detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}}
 
 
 def test_customs_pdf_is_owned_by_the_installed_sentinel_app_and_workspace(
@@ -580,9 +598,7 @@ def test_customs_pdf_is_owned_by_the_installed_sentinel_app_and_workspace(
         f"/api/v1/mission-room/customs-records/{document_id}.pdf"
     )
     assert denied_generic.status_code == 404
-    assert denied_generic.json() == {
-        "detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}
-    }
+    assert denied_generic.json() == {"detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}}
     assert (
         db_session.query(AuditLog)
         .filter(
@@ -734,9 +750,7 @@ def test_generic_provider_serves_only_real_workspace_objects(
         "brand": {"label": "Mission Room", "style": "agentium"},
     }
     assert responses["map"].json()["state"] == "not_configured"
-    assert responses["map"].json()["empty_state"]["code"] == (
-        "geospatial_data_not_configured"
-    )
+    assert responses["map"].json()["empty_state"]["code"] == ("geospatial_data_not_configured")
     assert responses["news"].json()["state"] == "not_configured"
     assert responses["draft"].json()["sent"] is False
     assert responses["draft"].json()["requires_validation"] is True
@@ -1134,9 +1148,7 @@ def test_generic_system_read_invalid_enforce_hides_every_projection(
     assert responses["projects"].json()["summary"]["total"] == 0
     assert responses["projects"].json()["projects"] == []
     assert "Systems" not in responses["library"].json()["collections"]
-    assert all(
-        item["kind"] != "system" for item in responses["search"].json()["results"]
-    )
+    assert all(item["kind"] != "system" for item in responses["search"].json()["results"])
     serialized = json.dumps(
         {key: response.json() for key, response in responses.items()},
         ensure_ascii=False,
@@ -1173,9 +1185,7 @@ def test_generic_system_read_shadow_emits_collection_summary(db_session):
         {"system.read": "shadow"},
     )
 
-    response = _client(db_session, workspace, user).get(
-        "/api/v1/mission-room/projects"
-    )
+    response = _client(db_session, workspace, user).get("/api/v1/mission-room/projects")
 
     assert response.status_code == 200
     assert response.json()["projects"][0]["id"] == system.id
@@ -1230,9 +1240,7 @@ def test_generic_provider_blocks_every_specialized_shared_prefix_route(
     response = _client(db_session, workspace, user).get(path, params=params)
 
     assert response.status_code == 404
-    assert response.json() == {
-        "detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}
-    }
+    assert response.json() == {"detail": {"code": WORKSPACE_EXTENSION_NOT_FOUND_CODE}}
 
 
 def test_get_and_both_draft_providers_commit_audits_visible_to_a_fresh_session(

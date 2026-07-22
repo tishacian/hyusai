@@ -79,6 +79,19 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Apply an exact, content-addressed Workspace App lifecycle plan with an idempotency key.",
     ),
     SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/compensate",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes=(
+            "Apply the server-derived inverse of an exact committed Workspace App "
+            "lifecycle receipt."
+        ),
+    ),
+    SurfaceMetadata(
         "/api/v1/governance/workspace-apps/installations",
         "Governance",
         "Workspace App",

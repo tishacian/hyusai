@@ -3,6 +3,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
+import {
+  resolveWorkspaceAppCanaryEntryPolicy,
+  type WorkspaceAppCanaryEntryPolicy,
+  type WorkspaceAppCanaryShell,
+} from '../fixtures/workspace-app-canary';
+
 /**
  * Lot 9 — authenticated Workspace App lifecycle canary.
  *
@@ -35,6 +41,7 @@ interface WorkspaceSummary {
 
 interface WorkspaceBootstrap {
   settings?: Record<string, unknown>;
+  app_entitlements?: string[];
   workspace_app_runtime?: {
     enabled?: boolean;
     valid?: boolean;
@@ -57,6 +64,12 @@ interface ManifestEntry {
     branding: { namespace: string };
     action_packs: string[];
     entitlement_keys: string[];
+    experience: {
+      shell: WorkspaceAppCanaryShell;
+      primary_surface_id: string;
+      default_route: string;
+      mission_room?: Record<string, unknown> | null;
+    };
   };
 }
 
@@ -105,6 +118,9 @@ interface Candidate {
   initialInstallations: Installation[];
   initialInstallationsSha256: string;
   initialLedgerSha256: string;
+  runtimeShell: WorkspaceAppCanaryShell;
+  entryPolicy: WorkspaceAppCanaryEntryPolicy;
+  declaredEntitlementCount: number;
 }
 
 function isAdmin(workspace: WorkspaceSummary): boolean {
@@ -172,6 +188,15 @@ function ledgerSubject(rows: Installation[]): Array<Record<string, unknown>> {
 
 function ledgerDigest(rows: Installation[]): string {
   return hash(canonical(ledgerSubject(rows)));
+}
+
+function lifecycleOperationProof(receipt: LifecycleReceipt): Record<string, string> {
+  return {
+    operation: receipt.operation,
+    operation_id_sha256: hash(receipt.operation_id),
+    plan_sha256: receipt.plan_sha256,
+    manifest_digest: receipt.manifest_digest,
+  };
 }
 
 function canaryMarker(settings: Record<string, unknown> | undefined): unknown {
@@ -314,6 +339,50 @@ async function discover(page: Page, workspaces: WorkspaceSummary[]): Promise<Can
       values.push(entry);
       grouped.set(entry.app_id, values);
     }
+    const manifestByInstallation = new Map(
+      registry.body.manifests.map((entry) => [
+        `${entry.app_id}\u0000${entry.version}\u0000${entry.manifest_digest}`,
+        entry,
+      ]),
+    );
+    const runtimeInstallations = ledger.body.installations
+      .filter((row) => row.state === 'installed')
+      .map((row) => manifestByInstallation.get(
+        `${row.app_id}\u0000${row.version ?? ''}\u0000${row.manifest_digest ?? ''}`,
+      ));
+    expect(
+      runtimeInstallations.every((entry): entry is ManifestEntry => entry !== undefined),
+      'every installed row must resolve to an exact compatible registry manifest',
+    ).toBe(true);
+    const resolvedInstallations = runtimeInstallations.filter(
+      (entry): entry is ManifestEntry => entry !== undefined,
+    );
+    const nonStandardShells = [...new Set(
+      resolvedInstallations
+        .map((entry) => entry.manifest.experience.shell)
+        .filter((shell) => shell !== 'standard'),
+    )];
+    expect(nonStandardShells.length, 'the installed set must declare one coherent shell')
+      .toBeLessThanOrEqual(1);
+    const runtimeShell = nonStandardShells[0] ?? 'standard';
+    const missionOwner = resolvedInstallations.find((entry) => (
+      entry.manifest.experience.mission_room !== null
+      && entry.manifest.experience.mission_room !== undefined
+    ));
+    const entryResolution = resolveWorkspaceAppCanaryEntryPolicy(
+      runtimeShell,
+      resolvedInstallations.map((entry) => ({
+        app_id: entry.app_id,
+        primary_surface_id: entry.manifest.experience.primary_surface_id,
+        entitlement_keys: entry.manifest.entitlement_keys,
+      })),
+      new Set(bootstrap.app_entitlements ?? []),
+      { immersiveAppId: missionOwner?.app_id },
+    );
+    expect(
+      entryResolution.issues,
+      'the restored installed set must support the post-canary entry proof for the same principal',
+    ).toEqual([]);
     for (const versions of grouped.values()) {
       versions.sort((left, right) => compareVersion(left.version, right.version));
       const row = installed.get(versions[0].app_id);
@@ -333,6 +402,9 @@ async function discover(page: Page, workspaces: WorkspaceSummary[]): Promise<Can
           initialInstallations: ledger.body.installations,
           initialInstallationsSha256,
           initialLedgerSha256: ledgerDigest(ledger.body.installations),
+          runtimeShell,
+          entryPolicy: entryResolution.mode,
+          declaredEntitlementCount: entryResolution.declaredEntitlements.length,
         });
       }
     }
@@ -623,12 +695,27 @@ test.describe.serial('Lot 9 — Workspace App preflight canary', () => {
         diagnostics: {
           exact_initial_ledger_restored: true,
           exact_initial_reinstalled: true,
+          restored_runtime_shell: candidate.runtimeShell,
+          restored_entry_policy: candidate.entryPolicy,
+          restored_declared_entitlement_count: candidate.declaredEntitlementCount,
           ledger_sha256: candidate.initialLedgerSha256,
           exercised_manifest_digests: [
             candidate.oldest.manifest_digest,
             candidate.newest.manifest_digest,
             candidate.initial.manifest_digest,
           ],
+          lifecycle_operation_proofs: [
+            normalized.receipt,
+            upgrade,
+            rollback,
+            uninstalled,
+            restored.receipt,
+          ].map(lifecycleOperationProof),
+          idempotent_replay_proof: {
+            operation_id_sha256: hash(restored.receipt.operation_id),
+            replayed_operation_id_sha256: hash(replayResult.body.operation_id),
+            idempotent_replay: replayResult.body.idempotent_replay,
+          },
           restored_manifest_digest: candidate.initial.manifest_digest,
           final_installed_count: installationSubject(finalLedger.body.installations).length,
         },

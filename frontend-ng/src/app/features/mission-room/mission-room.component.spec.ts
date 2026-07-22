@@ -38,6 +38,14 @@ class WorkspaceStub {
 
   currentSlug = () => this.slug;
   current = () => this.workspaceContext;
+  workspaces = () => [
+    { id: 'workspace-sentinel-ci', slug: 'sentinel-ci', name: 'Sentinel CI' },
+    {
+      id: 'workspace-octocity-mission-room',
+      slug: 'octocity-mission-room',
+      name: 'Octocity Mission Room',
+    },
+  ];
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
@@ -52,16 +60,20 @@ class WorkspaceStub {
     return () => this.resetters.delete(resetter);
   }
 
-  switchWorkspace(): void {
+  switchWorkspace(nextSlug = 'octocity-mission-room'): boolean {
+    if (nextSlug === this.slug || !this.workspaces().some((workspace) => workspace.slug === nextSlug)) {
+      return false;
+    }
     const transition: WorkspaceContextTransition = {
       previousSlug: this.slug,
-      nextSlug: 'octocity-mission-room',
+      nextSlug,
       previousEpoch: this.epoch,
       nextEpoch: this.epoch + 1,
     };
     for (const resetter of [...this.resetters]) resetter(transition);
     this.slug = transition.nextSlug;
     this.epoch = transition.nextEpoch;
+    return true;
   }
 }
 
@@ -74,6 +86,7 @@ function createHarness(options: {
   const getCalls: ApiCall[] = [];
   const opens: unknown[] = [];
   const navigations: unknown[][] = [];
+  const urlNavigations: string[] = [];
   const missionShadowCalls: Array<{
     navigation: unknown;
     scope: WorkspaceRequestScope;
@@ -104,7 +117,10 @@ function createHarness(options: {
             navigations.push(args);
             return Promise.resolve(true);
           },
-          navigateByUrl: () => Promise.resolve(true),
+          navigateByUrl: (url: string) => {
+            urlNavigations.push(url);
+            return Promise.resolve(true);
+          },
         },
       },
       { provide: ChatOverlayService, useValue: { open: (options: unknown) => opens.push(options) } },
@@ -151,6 +167,7 @@ function createHarness(options: {
     getCalls,
     opens,
     navigations,
+    urlNavigations,
     missionShadowCalls,
   };
 }
@@ -421,6 +438,59 @@ test('MissionRoom neither installs nor observes a navigation response invalidate
 
     assert.equal(component.navigation(), null);
     assert.deepEqual(missionShadowCalls, []);
+  } finally {
+    component.ngOnDestroy();
+    if (previousWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: previousWindow,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+});
+
+test('MissionRoom direct rail switch purges tenant state before publishing the next epoch', () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: new EventTarget(),
+  });
+  const harness = createHarness();
+  const { component, workspace, urlNavigations } = harness;
+  const resetSnapshots: Array<{
+    scope: WorkspaceRequestScope;
+    navigation: unknown;
+    draft: unknown;
+  }> = [];
+
+  try {
+    component.navigation.set({ items: [{ key: 'tenant-a' }] } as never);
+    component.draft.set({ id: 'tenant-a-draft' } as never);
+    const before = workspace.captureRequestScope();
+    const unregisterObservation = workspace.registerContextReset(() => {
+      resetSnapshots.push({
+        scope: workspace.captureRequestScope(),
+        navigation: component.navigation(),
+        draft: component.draft(),
+      });
+    });
+
+    component.selectWorkspace('octocity-mission-room');
+    unregisterObservation();
+
+    assert.deepEqual(resetSnapshots, [{
+      scope: before,
+      navigation: null,
+      draft: null,
+    }], 'MissionRoom state is purged while the old workspace identity is still authoritative');
+    assert.deepEqual(workspace.captureRequestScope(), {
+      workspaceSlug: 'octocity-mission-room',
+      workspaceId: 'workspace-octocity-mission-room',
+      epoch: before.epoch + 1,
+    });
+    assert.deepEqual(urlNavigations, ['/'], 'the root resolver remains the destination owner');
   } finally {
     component.ngOnDestroy();
     if (previousWindow) {

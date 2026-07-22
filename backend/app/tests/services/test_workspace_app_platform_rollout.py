@@ -58,9 +58,7 @@ def _workspace(db, *, marked: bool = True, family: str = "andritz") -> Workspace
         settings={
             "family": family,
             "features": {rollout.WORKSPACE_APP_PLATFORM_FEATURE: False},
-            "experience": (
-                {rollout.CANARY_MARKER: rollout.CANARY_MARKER_VALUE} if marked else {}
-            ),
+            "experience": ({rollout.CANARY_MARKER: rollout.CANARY_MARKER_VALUE} if marked else {}),
         },
     )
     db.add(workspace)
@@ -115,9 +113,10 @@ def _evidence(
     source_junit = f"<testsuite name='{phase}-source'/>".encode()
     source_junit_sha256 = hashlib.sha256(source_junit).hexdigest()
     source_junit_ref = f"sha256:{source_junit_sha256}"
-    observation_ref = "sha256:" + hashlib.sha256(
-        f"{workspace.id}:{phase}:{probation_ref or ''}".encode()
-    ).hexdigest()
+    observation_ref = (
+        "sha256:"
+        + hashlib.sha256(f"{workspace.id}:{phase}:{probation_ref or ''}".encode()).hexdigest()
+    )
     properties = (
         f'<property name="revision" value="{REVISION}"/>'
         f'<property name="workspace_id" value="{workspace.id}"/>'
@@ -127,9 +126,7 @@ def _evidence(
     )
     if probation_ref is not None:
         properties += f'<property name="probation_ref" value="{probation_ref}"/>'
-    testcases = "".join(
-        f'<testcase name="{name}" classname="{suite}"/>' for name in checks
-    )
+    testcases = "".join(f'<testcase name="{name}" classname="{suite}"/>' for name in checks)
     raw = (
         f'<testsuite name="{suite}" tests="{len(checks)}" failures="0" '
         f'errors="0" skipped="0"><properties>{properties}</properties>'
@@ -143,6 +140,10 @@ def _evidence(
     }
     if probation_ref is not None:
         subject["probation_ref"] = probation_ref
+        entry_policy, declared_count = rollout.workspace_app_canary_entry_policy(runtime)
+        subject["runtime_shell"] = runtime.shell
+        subject["entry_policy"] = entry_policy
+        subject["declared_entitlement_count"] = declared_count
     return {
         "schema_version": rollout.EVIDENCE_SCHEMA_VERSION,
         "kind": kind,
@@ -329,6 +330,7 @@ def test_stage_opens_bounded_probation_and_finalize_binds_both_proofs(db_session
     state = rollout._state(workspace)
     assert state["activations"] == []
     assert "content_base64" not in str(state)
+    assert state["probation"]["audit_id"] == staged["audit_id"]
 
     finalized = _finalize(db_session, workspace)
     db_session.refresh(workspace)
@@ -340,6 +342,7 @@ def test_stage_opens_bounded_probation_and_finalize_binds_both_proofs(db_session
     assert state["probation"] is None
     assert len(state["activations"]) == 1
     activation = state["activations"][0]
+    assert activation["audit_id"] == finalized["audit_id"]
     assert activation["workspace_id"] == workspace.id
     assert activation["probation_ref"] == staged["probation_ref"]
     assert activation["preflight_artifact_tests"] == 3
@@ -357,6 +360,84 @@ def test_stage_opens_bounded_probation_and_finalize_binds_both_proofs(db_session
         .count()
         == 1
     )
+
+
+@pytest.mark.parametrize("active", (False, True), ids=("probation", "active"))
+def test_sha_shaped_rollout_without_its_server_audit_fails_closed(
+    db_session,
+    active: bool,
+) -> None:
+    workspace = _workspace(db_session)
+    _install(db_session, workspace)
+    staged = _stage(db_session, workspace)
+    audit_id = staged["audit_id"]
+    if active:
+        audit_id = _finalize(db_session, workspace)["audit_id"]
+    db_session.query(AuditLog).filter(AuditLog.id == audit_id).delete()
+    db_session.commit()
+
+    with pytest.raises(WorkspaceAppRuntimeError) as rejected:
+        resolve_workspace_app_runtime(workspace, db=db_session)
+    assert rejected.value.code == "rollout_audit_invalid"
+
+
+@pytest.mark.parametrize("active", (False, True), ids=("probation", "active"))
+def test_persisted_runner_is_revalidated_against_current_trust_anchors(
+    db_session,
+    monkeypatch,
+    active: bool,
+) -> None:
+    workspace = _workspace(db_session)
+    _install(db_session, workspace)
+    _stage(db_session, workspace)
+    if active:
+        _finalize(db_session, workspace)
+
+    monkeypatch.setattr(settings, "authorization_v2_trusted_project_id", "rotated-project")
+    with pytest.raises(WorkspaceAppRuntimeError) as rejected:
+        resolve_workspace_app_runtime(workspace, db=db_session)
+    assert rejected.value.code == "rollout_runner_untrusted"
+
+
+@pytest.mark.parametrize("active", (False, True), ids=("probation", "active"))
+def test_rollout_with_wrong_server_audit_id_fails_closed(
+    db_session,
+    active: bool,
+) -> None:
+    workspace = _workspace(db_session)
+    _install(db_session, workspace)
+    _stage(db_session, workspace)
+    if active:
+        _finalize(db_session, workspace)
+    state = rollout._state(workspace)
+    row = state["activations"][-1] if active else state["probation"]
+    row["audit_id"] = str(uuid4())
+    rollout._save_state(workspace, state)
+    db_session.commit()
+
+    with pytest.raises(WorkspaceAppRuntimeError) as rejected:
+        resolve_workspace_app_runtime(workspace, db=db_session)
+    assert rejected.value.code == "rollout_audit_invalid"
+
+
+@pytest.mark.parametrize("active", (False, True), ids=("probation", "active"))
+def test_rollout_rejects_tampered_server_audit_details(
+    db_session,
+    active: bool,
+) -> None:
+    workspace = _workspace(db_session)
+    _install(db_session, workspace)
+    staged = _stage(db_session, workspace)
+    audit_id = staged["audit_id"]
+    if active:
+        audit_id = _finalize(db_session, workspace)["audit_id"]
+    audit = db_session.query(AuditLog).filter(AuditLog.id == audit_id).one()
+    audit.details = {**audit.details, "forged": True}
+    db_session.commit()
+
+    with pytest.raises(WorkspaceAppRuntimeError) as rejected:
+        resolve_workspace_app_runtime(workspace, db=db_session)
+    assert rejected.value.code == "rollout_audit_invalid"
 
 
 def test_probation_expiry_fails_closed_but_abort_is_always_safe(db_session) -> None:
@@ -471,6 +552,26 @@ def test_finalize_rejects_another_probation_or_subject(db_session) -> None:
             actor="",
         )
 
+    for field, forged in (
+        ("runtime_shell", "immersive"),
+        ("entry_policy", "immersive_extension"),
+        ("declared_entitlement_count", 0),
+        ("declared_entitlement_count", True),
+    ):
+        wrong_entry_policy = copy.deepcopy(evidence)
+        wrong_entry_policy["subject"][field] = forged
+        with pytest.raises(
+            rollout.WorkspaceAppRolloutError,
+            match="entry policy differs from the installed runtime shell",
+        ):
+            rollout.finalize(
+                db_session,
+                workspace_id=workspace.id,
+                evidence=wrong_entry_policy,
+                apply=False,
+                actor="",
+            )
+
 
 def test_deactivate_closes_final_activation_and_allows_fresh_stage(db_session) -> None:
     workspace = _workspace(db_session)
@@ -555,7 +656,9 @@ def test_finalize_is_bound_to_the_preflight_and_postactivation_job(db_session) -
         trusted_runner=_trusted_runner(job_id="job-2"),
     )
 
-    with pytest.raises(rollout.WorkspaceAppRolloutError, match="same protected GitLab job as preflight"):
+    with pytest.raises(
+        rollout.WorkspaceAppRolloutError, match="same protected GitLab job as preflight"
+    ):
         rollout.finalize(
             db_session,
             workspace_id=workspace.id,

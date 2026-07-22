@@ -1152,6 +1152,22 @@ export class MissionSourcePillComponent {
 
       <div class="rail-spacer"></div>
 
+      @if (workspaces.length > 1) {
+        <label class="rail-workspace">
+          <span>Workspace</span>
+          <select
+            data-testid="mission-workspace-switch"
+            [value]="currentWorkspaceSlug || ''"
+            (change)="requestWorkspaceChange($event)"
+            aria-label="Changer de workspace"
+          >
+            @for (workspace of workspaces; track workspace.id) {
+              <option [value]="workspace.slug">{{ workspace.name }}</option>
+            }
+          </select>
+        </label>
+      }
+
       <div class="rail-clock">
         <strong>{{ abidjanClockTime() }}</strong>
         <span>{{ abidjanClockDate() }} · {{ timezoneLabel }}</span>
@@ -1350,6 +1366,28 @@ export class MissionSourcePillComponent {
         font-weight: 700;
       }
       .rail-spacer { flex: 1 1 auto; min-height: 4px; }
+      .rail-workspace {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+      .rail-workspace span {
+        color: var(--mission-text-faint, var(--ck-fg-4));
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+      .rail-workspace select {
+        width: 100%;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        border-radius: var(--mission-radius-sm, 7px);
+        color: var(--mission-text, var(--ck-fg-1));
+        background: var(--mission-inset, var(--ck-bg-inset));
+        font: inherit;
+        font-size: 10.5px;
+      }
       .rail-summary {
         padding: 9px 10px;
         border: 1px solid var(--mission-border, var(--ck-stroke-2));
@@ -1431,7 +1469,10 @@ export class MissionRailComponent {
   @Input() ayaState: 'listening' | 'ready' = 'ready';
   @Input() ayaStateLabel = 'Briefing pret';
   @Input() alertBadges: Partial<Record<MissionView, number>> = {};
+  @Input() workspaces: readonly WorkspaceMeta[] = [];
+  @Input() currentWorkspaceSlug: string | null = null;
   @Output() assistantRequest = new EventEmitter<void>();
+  @Output() workspaceChange = new EventEmitter<string>();
 
   private readonly clockTimeZone = 'Africa/Abidjan';
   private readonly clockNow = signal(new Date());
@@ -1537,6 +1578,11 @@ export class MissionRailComponent {
     return count && count > 0 ? count : null;
   }
 
+  requestWorkspaceChange(event: Event): void {
+    const slug = (event.target as HTMLSelectElement | null)?.value;
+    if (slug && slug !== this.currentWorkspaceSlug) this.workspaceChange.emit(slug);
+  }
+
   private isOctocityPresentation(): boolean {
     return this.missionProfile === OCTOCITY_MISSION_ROOM_PROFILE;
   }
@@ -1581,7 +1627,10 @@ export class MissionRailComponent {
         [ayaState]="ayaRailState()"
         [ayaStateLabel]="ayaRailStateLabel()"
         [alertBadges]="railAlertBadges()"
+        [workspaces]="workspace.workspaces()"
+        [currentWorkspaceSlug]="workspace.currentSlug()"
         (assistantRequest)="openAssistant()"
+        (workspaceChange)="selectWorkspace($event)"
       />
 
       <main class="mission-main ck-scroll">
@@ -5411,6 +5460,15 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const slug = this.workspace.currentSlug();
     return slug ? `/workspace/${encodeURIComponent(slug)}` : '/workspace';
   });
+
+  selectWorkspace(slug: string): void {
+    if (!slug || slug === this.workspace.currentSlug()) return;
+    if (!this.workspace.switchWorkspace(slug)) return;
+    // The WorkspaceService atomically clears tenant context and advances its
+    // epoch. NavigationResolver remains the sole owner of the destination.
+    void this.router.navigateByUrl('/');
+  }
+
   readonly assistantName = computed(() => {
     const extension = this.missionExtension();
     if (extension.authority !== 'legacy') {

@@ -17,14 +17,22 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import object_session
 
 from app.core.config import settings
+from app.models.audit import AuditLog
 from app.models.workspace import Workspace
 from app.models.workspace_app import WorkspaceAppInstallation
 from app.schemas.canonical import WorkspaceFamily
+from app.services.workspace_app_boundaries import (
+    WorkspaceAppBoundaryContractError,
+    manifest_api_prefixes,
+    slash_boundary_paths_overlap,
+    workspace_app_relational_integrity_errors,
+)
 from app.services.workspace_app_manifests import (
     GENERIC_MISSION_ROOM_PROVIDER_ENDPOINTS,
     GENERIC_MISSION_ROOM_PROVIDER_KIND,
@@ -37,6 +45,8 @@ from app.services.workspace_app_manifests import (
 
 WORKSPACE_APP_PLATFORM_FEATURE = "workspace_app_platform_v1"
 WORKSPACE_APP_ROLLOUT_STATE_KEY = "_workspace_app_platform_rollout_v1"
+WORKSPACE_APP_CANARY_MARKER = "workspace_app_platform_canary"
+WORKSPACE_APP_CANARY_MARKER_VALUE = "v1"
 MISSION_ROOM_APP_IDS = frozenset(
     {
         "mission-room.extension",
@@ -46,6 +56,17 @@ MISSION_ROOM_APP_IDS = frozenset(
 )
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+_TRUSTED_RUNNER_FIELDS = frozenset(
+    {
+        "issuer",
+        "project_id",
+        "pipeline_id",
+        "job_id",
+        "commit_sha",
+        "ref",
+        "ref_protected",
+    }
+)
 WORKSPACE_APP_PROBATION_MAX_AGE = timedelta(minutes=30)
 WORKSPACE_APP_PREFLIGHT_CHECK_COUNT = 3
 WORKSPACE_APP_POSTACTIVATION_CHECK_COUNT = 4
@@ -137,10 +158,7 @@ class WorkspaceAppRuntime:
 def workspace_app_platform_enabled(workspace: Workspace | None) -> bool:
     settings = workspace.settings if workspace is not None else None
     features = settings.get("features") if isinstance(settings, Mapping) else None
-    return (
-        isinstance(features, Mapping)
-        and features.get(WORKSPACE_APP_PLATFORM_FEATURE) is True
-    )
+    return isinstance(features, Mapping) and features.get(WORKSPACE_APP_PLATFORM_FEATURE) is True
 
 
 def _session(workspace: Workspace, db: DBSession | None) -> DBSession:
@@ -157,6 +175,12 @@ def _trusted_installations(
     db: DBSession,
     workspace: Workspace,
 ) -> tuple[ResolvedWorkspaceApp, ...]:
+    integrity_errors = workspace_app_relational_integrity_errors(db)
+    if integrity_errors:
+        raise WorkspaceAppRuntimeError(
+            "Workspace App relational integrity migration is not applied",
+            code="runtime_schema_unsatisfied",
+        )
     rows = (
         db.query(WorkspaceAppInstallation)
         .filter(
@@ -254,24 +278,25 @@ def _validate_workspace_compatibility(
             )
 
 
-def _routes_overlap(left: str, right: str) -> bool:
-    left_route = left.rstrip("/") or "/"
-    right_route = right.rstrip("/") or "/"
-    return (
-        left_route == right_route
-        or left_route.startswith(f"{right_route}/")
-        or right_route.startswith(f"{left_route}/")
-    )
-
-
 def _validate_coinstallation_contracts(
     applications: Sequence[ResolvedWorkspaceApp],
 ) -> None:
+    api_boundaries: list[tuple[str, ...]] = []
+    for application in applications:
+        try:
+            api_boundaries.append(manifest_api_prefixes(application.payload))
+        except WorkspaceAppBoundaryContractError as exc:
+            raise WorkspaceAppRuntimeError(
+                "installed app API authority contract is invalid",
+                code="manifest_untrusted",
+            ) from exc
+
     for index, left in enumerate(applications):
         left_group = left.payload.get("conflict_group")
         left_routes = left.payload.get("routes")
         left_exclusive = left.payload.get("exclusive_routes") is True
-        for right in applications[index + 1 :]:
+        left_api_prefixes = api_boundaries[index]
+        for right_index, right in enumerate(applications[index + 1 :], start=index + 1):
             if left_group is not None and left_group == right.payload.get("conflict_group"):
                 raise WorkspaceAppRuntimeError(
                     "installed apps share an exclusive conflict group",
@@ -284,7 +309,7 @@ def _validate_coinstallation_contracts(
                 and isinstance(left_routes, list)
                 and isinstance(right_routes, list)
                 and any(
-                    _routes_overlap(left_route, right_route)
+                    slash_boundary_paths_overlap(left_route, right_route)
                     for left_route in left_routes
                     for right_route in right_routes
                 )
@@ -292,6 +317,15 @@ def _validate_coinstallation_contracts(
                 raise WorkspaceAppRuntimeError(
                     "installed apps claim overlapping exclusive routes",
                     code="route_conflict",
+                )
+            if any(
+                slash_boundary_paths_overlap(left_prefix, right_prefix)
+                for left_prefix in left_api_prefixes
+                for right_prefix in api_boundaries[right_index]
+            ):
+                raise WorkspaceAppRuntimeError(
+                    "installed apps claim overlapping API authority prefixes",
+                    code="api_prefix_conflict",
                 )
 
 
@@ -348,8 +382,10 @@ def _mission_room_projection(
                 code="experience_contract_invalid",
             )
     navigation = projected.get("navigation_keys")
-    if not isinstance(navigation, list) or not navigation or any(
-        not isinstance(key, str) or not key.strip() for key in navigation
+    if (
+        not isinstance(navigation, list)
+        or not navigation
+        or any(not isinstance(key, str) or not key.strip() for key in navigation)
     ):
         raise WorkspaceAppRuntimeError(
             "Mission Room navigation contract is invalid",
@@ -375,20 +411,13 @@ def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:
 def _application_api_prefixes(payload: Mapping[str, Any]) -> tuple[str, ...]:
     """Return the compiled manifest's complete API authority boundary."""
 
-    declared = payload.get("api_prefixes")
-    if isinstance(declared, list):
-        return _ordered_unique([str(value) for value in declared])
-    surfaces = payload.get("surfaces")
-    if not isinstance(surfaces, list) or any(
-        not isinstance(surface, Mapping) for surface in surfaces
-    ):
+    try:
+        return manifest_api_prefixes(payload)
+    except WorkspaceAppBoundaryContractError as exc:
         raise WorkspaceAppRuntimeError(
-            "installed app surface contract is invalid",
+            "installed app API authority contract is invalid",
             code="experience_contract_invalid",
-        )
-    return _ordered_unique(
-        [str(surface.get("api_prefix") or "") for surface in surfaces]
-    )
+        ) from exc
 
 
 def _build_authoritative_runtime(
@@ -429,11 +458,7 @@ def _build_authoritative_runtime(
         ]
     )
     action_packs = _ordered_unique(
-        [
-            pack
-            for application in applications
-            for pack in application.payload["action_packs"]
-        ]
+        [pack for application in applications for pack in application.payload["action_packs"]]
     )
     return WorkspaceAppRuntime(
         mode="authoritative",
@@ -526,6 +551,158 @@ def _rollout_timestamp(value: Any, *, field: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _rollout_text(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise WorkspaceAppRuntimeError(
+            f"Workspace App rollout {field} is invalid",
+            code="rollout_runner_untrusted",
+        )
+    return value
+
+
+def _validated_persisted_trusted_runner(row: Mapping[str, Any]) -> dict[str, Any]:
+    raw = row.get("trusted_runner")
+    if not isinstance(raw, Mapping) or set(raw) != _TRUSTED_RUNNER_FIELDS:
+        raise WorkspaceAppRuntimeError(
+            "Workspace App rollout runner metadata is incomplete",
+            code="rollout_runner_untrusted",
+        )
+    revision = _rollout_text(row.get("revision"), field="revision").lower()
+    if _REVISION_RE.fullmatch(revision) is None:
+        raise WorkspaceAppRuntimeError(
+            "Workspace App rollout runner revision is invalid",
+            code="rollout_runner_untrusted",
+        )
+    issuer = _rollout_text(raw.get("issuer"), field="trusted_runner.issuer").rstrip("/")
+    project_id = _rollout_text(
+        raw.get("project_id"),
+        field="trusted_runner.project_id",
+    )
+    pipeline_id = _rollout_text(
+        raw.get("pipeline_id"),
+        field="trusted_runner.pipeline_id",
+    )
+    job_id = _rollout_text(raw.get("job_id"), field="trusted_runner.job_id")
+    commit_sha = _rollout_text(
+        raw.get("commit_sha"),
+        field="trusted_runner.commit_sha",
+    ).lower()
+    ref = _rollout_text(raw.get("ref"), field="trusted_runner.ref")
+    trusted_issuer = str(settings.authorization_v2_trusted_oidc_issuer or "").rstrip("/")
+    trusted_project_id = str(settings.authorization_v2_trusted_project_id or "").strip()
+    trusted_ref = str(settings.authorization_v2_trusted_ref or "").strip()
+    if (
+        not issuer.startswith("https://")
+        or not trusted_issuer.startswith("https://")
+        or issuer != trusted_issuer
+        or not trusted_project_id
+        or project_id != trusted_project_id
+        or not trusted_ref
+        or ref != trusted_ref
+        or raw.get("ref_protected") is not True
+        or commit_sha != revision
+    ):
+        raise WorkspaceAppRuntimeError(
+            "Workspace App rollout runner no longer matches current trust anchors",
+            code="rollout_runner_untrusted",
+        )
+    return {
+        "issuer": issuer,
+        "project_id": project_id,
+        "pipeline_id": pipeline_id,
+        "job_id": job_id,
+        "commit_sha": revision,
+        "ref": ref,
+        "ref_protected": True,
+    }
+
+
+def _workspace_app_probation_audit_details(
+    probation: Mapping[str, Any],
+    *,
+    trusted_runner: Mapping[str, Any],
+) -> dict[str, Any]:
+    runner = deepcopy(dict(trusted_runner))
+    return {
+        "revision": probation.get("revision"),
+        "probation_ref": probation.get("probation_ref"),
+        "staged_at": probation.get("staged_at"),
+        "expires_at": probation.get("expires_at"),
+        "preflight_evidence_ref": probation.get("preflight_evidence_ref"),
+        "preflight_artifact_ref": probation.get("preflight_artifact_ref"),
+        "preflight_source_junit_ref": probation.get("preflight_source_junit_ref"),
+        "preflight_artifact_tests": probation.get("preflight_artifact_tests"),
+        "trusted_runner": runner,
+        "pipeline_id": runner.get("pipeline_id"),
+        "job_id": runner.get("job_id"),
+        "installations_sha256": probation.get("installations_sha256"),
+        "installation_count": probation.get("installation_count"),
+    }
+
+
+def _workspace_app_activation_audit_details(
+    activation: Mapping[str, Any],
+    *,
+    trusted_runner: Mapping[str, Any],
+) -> dict[str, Any]:
+    runner = deepcopy(dict(trusted_runner))
+    return {
+        "revision": activation.get("revision"),
+        "probation_ref": activation.get("probation_ref"),
+        "activated_at": activation.get("activated_at"),
+        "preflight_evidence_ref": activation.get("preflight_evidence_ref"),
+        "preflight_artifact_ref": activation.get("preflight_artifact_ref"),
+        "preflight_source_junit_ref": activation.get("preflight_source_junit_ref"),
+        "evidence_ref": activation.get("evidence_ref"),
+        "artifact_ref": activation.get("artifact_ref"),
+        "source_junit_ref": activation.get("source_junit_ref"),
+        "preflight_artifact_tests": activation.get("preflight_artifact_tests"),
+        "postactivation_artifact_tests": activation.get("postactivation_artifact_tests"),
+        "artifact_tests": activation.get("artifact_tests"),
+        "trusted_runner": runner,
+        "pipeline_id": runner.get("pipeline_id"),
+        "job_id": runner.get("job_id"),
+        "installations_sha256": activation.get("installations_sha256"),
+        "installation_count": activation.get("installation_count"),
+    }
+
+
+def _require_workspace_app_rollout_audit(
+    workspace: Workspace,
+    row: Mapping[str, Any],
+    *,
+    db: DBSession | None,
+    event_type: str,
+    actor_field: str,
+    details: Mapping[str, Any],
+) -> None:
+    audit_id = str(row.get("audit_id") or "").strip().lower()
+    try:
+        canonical_audit_id = str(UUID(audit_id))
+    except (ValueError, AttributeError):
+        canonical_audit_id = ""
+    session = db or object_session(workspace)
+    if canonical_audit_id != audit_id or session is None:
+        raise WorkspaceAppRuntimeError(
+            "Workspace App rollout has no exact server audit",
+            code="rollout_audit_invalid",
+        )
+    audit = session.query(AuditLog).filter(AuditLog.id == audit_id).one_or_none()
+    expected_actor = str(row.get(actor_field) or "").strip()
+    if (
+        audit is None
+        or audit.workspace_id != workspace.id
+        or audit.event_type != event_type
+        or audit.actor != expected_actor
+        or audit.severity != "info"
+        or audit.details != dict(details)
+    ):
+        raise WorkspaceAppRuntimeError(
+            "Workspace App rollout server audit differs from persisted authority",
+            code="rollout_audit_invalid",
+        )
+
+
 def _attested_digest(row: Mapping[str, Any], field: str) -> str:
     digest = str(row.get(field) or "").strip().lower()
     if _SHA256_RE.fullmatch(digest) is None:
@@ -565,6 +742,7 @@ def _validated_rollout_history(
     raw_state: Mapping[str, Any],
     *,
     active: bool,
+    db: DBSession | None = None,
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     activations = raw_state.get("activations")
     deactivations = raw_state.get("deactivations")
@@ -593,6 +771,18 @@ def _validated_rollout_history(
         )
         evidence_digest = _attested_digest(activation, "evidence_sha256")
         _attested_digest(activation, "artifact_sha256")
+        trusted_runner = _validated_persisted_trusted_runner(activation)
+        _require_workspace_app_rollout_audit(
+            workspace,
+            activation,
+            db=db,
+            event_type="lot9.workspace_app_platform.activated",
+            actor_field="actor",
+            details=_workspace_app_activation_audit_details(
+                activation,
+                trusted_runner=trusted_runner,
+            ),
+        )
         if index < len(deactivations):
             deactivation = deactivations[index]
             if deactivation.get("workspace_id") != workspace.id:
@@ -627,7 +817,11 @@ def _validated_rollout_history(
     return activations, deactivations
 
 
-def validate_workspace_app_inactive_rollout_history(workspace: Workspace) -> None:
+def validate_workspace_app_inactive_rollout_history(
+    workspace: Workspace,
+    *,
+    db: DBSession | None = None,
+) -> None:
     """Validate the disabled phase before a new probation is staged."""
 
     raw_state = _rollout_state(workspace, required=False)
@@ -638,7 +832,7 @@ def validate_workspace_app_inactive_rollout_history(workspace: Workspace) -> Non
             "Workspace App rollout already contains a probation",
             code="rollout_probation_conflict",
         )
-    _validated_rollout_history(workspace, raw_state, active=False)
+    _validated_rollout_history(workspace, raw_state, active=False, db=db)
 
 
 def _validate_runtime_binding(
@@ -683,7 +877,7 @@ def _probation_digest(probation: Mapping[str, Any]) -> str:
     payload = {
         key: deepcopy(value)
         for key, value in probation.items()
-        if key not in {"probation_sha256", "probation_ref"}
+        if key not in {"audit_id", "probation_sha256", "probation_ref"}
     }
     canonical = json.dumps(
         payload,
@@ -699,8 +893,10 @@ def _validate_probation(
     workspace: Workspace,
     runtime: WorkspaceAppRuntime,
     raw_state: Mapping[str, Any],
+    *,
+    db: DBSession | None = None,
 ) -> str:
-    _validated_rollout_history(workspace, raw_state, active=False)
+    _validated_rollout_history(workspace, raw_state, active=False, db=db)
     probation = raw_state.get("probation")
     if not isinstance(probation, Mapping):
         raise WorkspaceAppRuntimeError(
@@ -735,12 +931,26 @@ def _validate_probation(
             "Workspace App probation has expired",
             code="rollout_probation_expired",
         )
+    trusted_runner = _validated_persisted_trusted_runner(probation)
+    _require_workspace_app_rollout_audit(
+        workspace,
+        probation,
+        db=db,
+        event_type="lot9.workspace_app_platform.staged",
+        actor_field="staged_by",
+        details=_workspace_app_probation_audit_details(
+            probation,
+            trusted_runner=trusted_runner,
+        ),
+    )
     return f"sha256:{probation_digest}"
 
 
 def validate_workspace_app_runtime_activation(
     workspace: Workspace,
     runtime: WorkspaceAppRuntime,
+    *,
+    db: DBSession | None = None,
 ) -> tuple[str, str]:
     """Return the explicit rollout phase and proof ref, or fail closed.
 
@@ -754,13 +964,14 @@ def validate_workspace_app_runtime_activation(
     raw_state = _rollout_state(workspace, required=True)
     assert raw_state is not None
     if raw_state.get("probation") is not None:
-        probation_ref = _validate_probation(workspace, runtime, raw_state)
+        probation_ref = _validate_probation(workspace, runtime, raw_state, db=db)
         return "probation", probation_ref
 
     activations, _deactivations = _validated_rollout_history(
         workspace,
         raw_state,
         active=True,
+        db=db,
     )
     if not activations:
         raise WorkspaceAppRuntimeError(
@@ -777,17 +988,17 @@ def validate_workspace_app_runtime_activation(
         or artifact_tests
         != WORKSPACE_APP_PREFLIGHT_CHECK_COUNT + WORKSPACE_APP_POSTACTIVATION_CHECK_COUNT
         or latest.get("preflight_artifact_tests") != WORKSPACE_APP_PREFLIGHT_CHECK_COUNT
-        or latest.get("postactivation_artifact_tests")
-        != WORKSPACE_APP_POSTACTIVATION_CHECK_COUNT
+        or latest.get("postactivation_artifact_tests") != WORKSPACE_APP_POSTACTIVATION_CHECK_COUNT
     ):
         raise WorkspaceAppRuntimeError(
             "Workspace App activation has no valid runner proof",
             code="rollout_attestation_invalid",
         )
     probation_ref = str(latest.get("probation_ref") or "").strip()
-    if not probation_ref.startswith("sha256:") or _SHA256_RE.fullmatch(
-        probation_ref.removeprefix("sha256:")
-    ) is None:
+    if (
+        not probation_ref.startswith("sha256:")
+        or _SHA256_RE.fullmatch(probation_ref.removeprefix("sha256:")) is None
+    ):
         raise WorkspaceAppRuntimeError(
             "Workspace App activation has no probation lineage",
             code="rollout_attestation_invalid",
@@ -823,7 +1034,11 @@ def resolve_workspace_app_runtime(
         workspace,
         db=db,
     )
-    rollout_phase, rollout_ref = validate_workspace_app_runtime_activation(workspace, runtime)
+    rollout_phase, rollout_ref = validate_workspace_app_runtime_activation(
+        workspace,
+        runtime,
+        db=db,
+    )
     return replace(runtime, rollout_phase=rollout_phase, rollout_ref=rollout_ref)
 
 
@@ -850,12 +1065,15 @@ def resolve_mission_room_provider_runtime(
     projection = runtime.mission_room
     app_id = projection.get("app_id") if isinstance(projection, Mapping) else None
     is_generic_provider = (
-        app_id == "mission-room.extension"
-        and projection.get("provider_kind")
-        == GENERIC_MISSION_ROOM_PROVIDER_KIND
-        and projection.get("provider_endpoints")
-        == list(GENERIC_MISSION_ROOM_PROVIDER_ENDPOINTS)
-    ) if isinstance(projection, Mapping) else False
+        (
+            app_id == "mission-room.extension"
+            and projection.get("provider_kind") == GENERIC_MISSION_ROOM_PROVIDER_KIND
+            and projection.get("provider_endpoints")
+            == list(GENERIC_MISSION_ROOM_PROVIDER_ENDPOINTS)
+        )
+        if isinstance(projection, Mapping)
+        else False
+    )
     if app_id not in MISSION_ROOM_PROVIDER_APP_IDS and not is_generic_provider:
         raise WorkspaceAppRuntimeError(
             "installed Mission Room application has no runtime provider",
@@ -891,8 +1109,7 @@ def mission_room_provider_request_allowed(
     if (
         app_id != "mission-room.extension"
         or projection.get("provider_kind") != GENERIC_MISSION_ROOM_PROVIDER_KIND
-        or projection.get("provider_endpoints")
-        != list(GENERIC_MISSION_ROOM_PROVIDER_ENDPOINTS)
+        or projection.get("provider_endpoints") != list(GENERIC_MISSION_ROOM_PROVIDER_ENDPOINTS)
     ):
         return False
     relative_path = path.removeprefix(prefix)
@@ -978,27 +1195,17 @@ def installed_api_prefixes(
     """
 
     runtime = resolve_workspace_app_runtime(workspace, db=db)
-    selected_apps = {
-        str(value).strip()
-        for value in (app_ids or ())
-        if str(value).strip()
-    }
+    selected_apps = {str(value).strip() for value in (app_ids or ()) if str(value).strip()}
     selected_entitlements = {
-        str(value).strip()
-        for value in (entitlement_keys or ())
-        if str(value).strip()
+        str(value).strip() for value in (entitlement_keys or ()) if str(value).strip()
     }
     prefixes: set[str] = set()
     for application in runtime.installations:
         payload = application.payload
         if selected_apps and application.manifest.app_id not in selected_apps:
             continue
-        declared_entitlements = {
-            str(value) for value in payload.get("entitlement_keys", ())
-        }
-        if selected_entitlements and not selected_entitlements.intersection(
-            declared_entitlements
-        ):
+        declared_entitlements = {str(value) for value in payload.get("entitlement_keys", ())}
+        if selected_entitlements and not selected_entitlements.intersection(declared_entitlements):
             continue
         for declared_prefix in _application_api_prefixes(payload):
             prefix = declared_prefix.rstrip("/")

@@ -82,6 +82,7 @@ def test_workspace_app_governance_routes_are_admin_catalog_surfaces():
     body = build_endpoint_catalog(app.openapi())
     expected_paths = {
         "/api/v1/governance/workspace-apps/apply",
+        "/api/v1/governance/workspace-apps/compensate",
         "/api/v1/governance/workspace-apps/installations",
         "/api/v1/governance/workspace-apps/manifests",
         "/api/v1/governance/workspace-apps/plan",

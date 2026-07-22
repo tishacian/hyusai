@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import workspace_app_governance
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER
+from app.models.audit import AuditLog
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.models.workspace_app import WorkspaceAppInstallation, WorkspaceAppOperation
-from app.services.workspace_app_manifests import BUILTIN_WORKSPACE_APP_MANIFESTS
+from app.models.workspace_app import (
+    WorkspaceAppInstallation,
+    WorkspaceAppLifecycleStepReceipt,
+    WorkspaceAppOperation,
+)
+from app.services import workspace_app_lifecycle
+from app.services.workspace_app_manifests import (
+    BUILTIN_WORKSPACE_APP_MANIFESTS,
+    _compile_manifest,
+    validate_manifest_configuration,
+)
 
 
 def _seed(db_session):
@@ -82,6 +94,37 @@ def _install_request(app_id: str, version: str) -> dict:
     }
 
 
+def _api_conflict_manifest():
+    payload = deepcopy(
+        BUILTIN_WORKSPACE_APP_MANIFESTS[("andritz.client360-pdr", "1.0.0")].as_dict()
+    )
+    app_id = "andritz.authority-probe"
+    route = "/authority-probe"
+    api_prefix = "/api/v1/chat/history"
+    payload.update(
+        {
+            "app_id": app_id,
+            "display_name": "Authority Probe",
+            "routes": [route],
+            "api_prefixes": [api_prefix],
+            "conflict_group": None,
+        }
+    )
+    payload["surfaces"] = [
+        {
+            "id": f"{app_id}.surface.1",
+            "route": route,
+            "api_prefix": api_prefix,
+        }
+    ]
+    payload["experience"] = {
+        **payload["experience"],
+        "primary_surface_id": f"{app_id}.surface.1",
+        "default_route": route,
+    }
+    return _compile_manifest(payload)
+
+
 def test_manifest_registry_and_installations_are_admin_only_and_workspace_scoped(
     db_session,
 ):
@@ -136,9 +179,7 @@ def test_manifest_registry_is_structurally_filtered_without_cross_workspace_term
         "andritz.knowledge-capture",
     }
     knowledge = next(
-        row
-        for row in andritz.json()["manifests"]
-        if row["app_id"] == "andritz.knowledge-capture"
+        row for row in andritz.json()["manifests"] if row["app_id"] == "andritz.knowledge-capture"
     )
     assert knowledge["manifest"]["routes"] == [
         "/knowledge/capture",
@@ -160,9 +201,7 @@ def test_manifest_registry_is_structurally_filtered_without_cross_workspace_term
     db_session.commit()
     sentinel = client.get("/api/v1/governance/workspace-apps/manifests")
     assert sentinel.status_code == 200
-    assert [row["app_id"] for row in sentinel.json()["manifests"]] == [
-        "sentinel.mission-room"
-    ]
+    assert [row["app_id"] for row in sentinel.json()["manifests"]] == ["sentinel.mission-room"]
     sentinel_text = sentinel.text.lower()
     assert "octocity" not in sentinel_text
     assert "octave" not in sentinel_text
@@ -176,9 +215,7 @@ def test_manifest_registry_is_structurally_filtered_without_cross_workspace_term
     db_session.commit()
     octocity = client.get("/api/v1/governance/workspace-apps/manifests")
     assert octocity.status_code == 200
-    assert [row["app_id"] for row in octocity.json()["manifests"]] == [
-        "octocity.mission-room"
-    ]
+    assert [row["app_id"] for row in octocity.json()["manifests"]] == ["octocity.mission-room"]
     octocity_text = octocity.text.lower()
     for forbidden in ("sentinel", "aya", "vigie"):
         assert forbidden not in octocity_text
@@ -260,6 +297,55 @@ def test_plan_then_apply_requires_exact_digest_plan_and_idempotency_key(db_sessi
     assert receipt.actor == owner.id
 
 
+def test_committed_operation_compensation_is_server_derived_and_idempotent(db_session):
+    workspace, _, owner, _ = _seed(db_session)
+    client = _client(db_session, workspace, owner)
+    request = _install_request("andritz.chat", "1.0.0")
+    plan = client.post(
+        "/api/v1/governance/workspace-apps/plan",
+        json=request,
+    ).json()
+    installed = client.post(
+        "/api/v1/governance/workspace-apps/apply",
+        headers={"Idempotency-Key": "api-compensation-source"},
+        json={**request, "expected_plan_sha256": plan["plan_sha256"]},
+    )
+    assert installed.status_code == 200
+
+    compensation_request = {
+        "source_operation_id": installed.json()["operation_id"],
+        "expected_source_plan_sha256": installed.json()["plan_sha256"],
+    }
+    compensated = client.post(
+        "/api/v1/governance/workspace-apps/compensate",
+        headers={"Idempotency-Key": "api-compensation-inverse"},
+        json=compensation_request,
+    )
+    replay = client.post(
+        "/api/v1/governance/workspace-apps/compensate",
+        headers={"Idempotency-Key": "api-compensation-inverse"},
+        json=compensation_request,
+    )
+
+    assert compensated.status_code == replay.status_code == 200
+    assert compensated.json()["compensates_operation_id"] == installed.json()["operation_id"]
+    assert compensated.json()["operation"] == "uninstall"
+    assert compensated.json()["installation"]["state"] == "uninstalled"
+    assert compensated.json()["idempotent_replay"] is False
+    assert replay.json()["idempotent_replay"] is True
+    assert replay.json()["operation_id"] == compensated.json()["operation_id"]
+    assert db_session.query(WorkspaceAppOperation).count() == 2
+
+    forged = client.post(
+        "/api/v1/governance/workspace-apps/compensate",
+        headers={"Idempotency-Key": "api-compensation-forged"},
+        json={**compensation_request, "expected_source_plan_sha256": "f" * 64},
+    )
+    assert forged.status_code == 409
+    assert forged.json()["detail"]["code"] == "compensation_source_drift"
+    assert db_session.query(WorkspaceAppOperation).count() == 2
+
+
 def test_unknown_manifest_and_stale_plan_have_stable_safe_errors(db_session):
     workspace, _, owner, _ = _seed(db_session)
     client = _client(db_session, workspace, owner)
@@ -292,6 +378,75 @@ def test_unknown_manifest_and_stale_plan_have_stable_safe_errors(db_session):
     assert db_session.query(WorkspaceAppInstallation).count() == 0
     assert db_session.query(WorkspaceAppOperation).count() == 0
     assert planned["plan_sha256"] != "f" * 64
+
+
+def test_api_prefix_conflict_is_safe_at_plan_and_locked_apply_boundary(
+    db_session,
+    monkeypatch,
+):
+    workspace, _, owner, _ = _seed(db_session)
+    client = _client(db_session, workspace, owner)
+    target = _api_conflict_manifest()
+    original_resolver = workspace_app_lifecycle._resolve_manifest
+
+    def resolve(app_id, version, expected_digest):
+        if (app_id, version) == (target.app_id, target.version):
+            assert expected_digest == target.digest
+            return target
+        return original_resolver(app_id, version, expected_digest)
+
+    monkeypatch.setattr(workspace_app_lifecycle, "_resolve_manifest", resolve)
+    request = {
+        "operation": "install",
+        "app_id": target.app_id,
+        "target_version": target.version,
+        "expected_manifest_digest": target.digest,
+    }
+    initial_plan = client.post(
+        "/api/v1/governance/workspace-apps/plan",
+        json=request,
+    )
+    assert initial_plan.status_code == 200
+
+    owner_manifest = BUILTIN_WORKSPACE_APP_MANIFESTS[("andritz.chat", "1.0.0")]
+    db_session.add(
+        WorkspaceAppInstallation(
+            id="governance-api-prefix-owner",
+            workspace_id=workspace.id,
+            app_id=owner_manifest.app_id,
+            version=owner_manifest.version,
+            manifest_digest=owner_manifest.digest,
+            state="installed",
+            configuration=validate_manifest_configuration(owner_manifest, None),
+            revision=1,
+            updated_by=owner.id,
+        )
+    )
+    db_session.commit()
+
+    rejected_plan = client.post(
+        "/api/v1/governance/workspace-apps/plan",
+        json=request,
+    )
+    rejected_apply = client.post(
+        "/api/v1/governance/workspace-apps/apply",
+        headers={"Idempotency-Key": "api-prefix-conflict"},
+        json={
+            **request,
+            "expected_plan_sha256": initial_plan.json()["plan_sha256"],
+        },
+    )
+
+    assert rejected_plan.status_code == rejected_apply.status_code == 409
+    assert rejected_plan.json()["detail"]["code"] == "api_prefix_conflict"
+    assert rejected_apply.json()["detail"]["code"] == "api_prefix_conflict"
+    rows = db_session.query(WorkspaceAppInstallation).all()
+    assert [(row.app_id, row.revision) for row in rows] == [("andritz.chat", 1)]
+    assert db_session.query(WorkspaceAppOperation).count() == 0
+    assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 0
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    )
 
 
 def test_apply_rechecks_admin_after_tenant_lock(db_session):

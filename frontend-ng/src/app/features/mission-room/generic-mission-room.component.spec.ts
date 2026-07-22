@@ -94,6 +94,10 @@ class WorkspaceStub {
 
   current = () => this.currentWorkspace;
   currentSlug = () => this.slug;
+  workspaces = () => [
+    { id: 'id-workspace-a', slug: 'workspace-a', name: 'Board workspace' },
+    { id: 'id-workspace-b', slug: 'workspace-b', name: 'Second workspace' },
+  ];
   captureRequestScope(): WorkspaceRequestScope {
     return { workspaceId: `id-${this.slug}`, workspaceSlug: this.slug, epoch: this.epoch };
   }
@@ -104,10 +108,13 @@ class WorkspaceStub {
     this.resetters.add(resetter);
     return () => this.resetters.delete(resetter);
   }
-  switchWorkspace(): void {
+  switchWorkspace(nextSlug = 'workspace-b'): boolean {
+    if (nextSlug === this.slug || !this.workspaces().some((workspace) => workspace.slug === nextSlug)) {
+      return false;
+    }
     const transition: WorkspaceContextTransition = {
       previousSlug: this.slug,
-      nextSlug: 'workspace-b',
+      nextSlug,
       previousEpoch: this.epoch,
       nextEpoch: this.epoch + 1,
     };
@@ -115,12 +122,14 @@ class WorkspaceStub {
     this.slug = transition.nextSlug;
     this.epoch = transition.nextEpoch;
     this.currentWorkspace = { id: 'workspace-b', slug: 'workspace-b', name: 'Second workspace', settings: {} };
+    return true;
   }
 }
 
 function createHarness(view = 'cockpit') {
   const calls: ApiCall[] = [];
   const navigations: unknown[][] = [];
+  const urlNavigations: string[] = [];
   const workspace = new WorkspaceStub(genericWorkspace());
   const api = {
     get: (path: string, _params?: unknown, options?: { workspaceSlug?: string | null }) => {
@@ -134,11 +143,20 @@ function createHarness(view = 'cockpit') {
     { provide: WorkspaceService, useValue: workspace },
     { provide: ApiService, useValue: api },
     { provide: ActivatedRoute, useValue: { paramMap: of({ get: (key: string) => key === 'view' ? view : null }) } },
-    { provide: Router, useValue: { navigate: (...args: unknown[]) => { navigations.push(args); return Promise.resolve(true); } } },
+    { provide: Router, useValue: {
+      navigate: (...args: unknown[]) => { navigations.push(args); return Promise.resolve(true); },
+      navigateByUrl: (url: string) => { urlNavigations.push(url); return Promise.resolve(true); },
+    } },
     { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
     { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
   ] });
-  return { component: injector.get(GenericMissionRoomComponent), calls, navigations, workspace };
+  return {
+    component: injector.get(GenericMissionRoomComponent),
+    calls,
+    navigations,
+    urlNavigations,
+    workspace,
+  };
 }
 
 test('generic provider renders only neutral copy and calls the exact core contracts', () => {
@@ -194,6 +212,31 @@ test('generic provider purges atomically and rejects every late previous-workspa
     call.response.complete();
   });
   assert.equal(component.payload(), null);
+  component.ngOnDestroy();
+});
+
+test('generic provider direct switch delegates only after its old epoch is purged', () => {
+  const { component, workspace, urlNavigations } = createHarness();
+  component.navigation.set({
+    items: [{ key: 'cockpit', label: 'Tenant A', route: '/hypervisor/mission-room/cockpit' }],
+  });
+  component.overview.set({ tenant: 'workspace-a' });
+  const before = workspace.captureRequestScope();
+  const resetSnapshots: Array<{ scope: WorkspaceRequestScope; overview: unknown }> = [];
+  const unregister = workspace.registerContextReset(() => {
+    resetSnapshots.push({
+      scope: workspace.captureRequestScope(),
+      overview: component.overview(),
+    });
+  });
+
+  component.selectWorkspace('workspace-b');
+  unregister();
+
+  assert.deepEqual(resetSnapshots, [{ scope: before, overview: null }]);
+  assert.equal(workspace.captureRequestScope().epoch, before.epoch + 1);
+  assert.equal(workspace.currentSlug(), 'workspace-b');
+  assert.deepEqual(urlNavigations, ['/']);
   component.ngOnDestroy();
 });
 

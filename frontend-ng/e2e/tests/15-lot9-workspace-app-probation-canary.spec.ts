@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
+
+import { resolveWorkspaceAppCanaryEntryPolicy } from '../fixtures/workspace-app-canary';
 
 /**
  * Lot 9 — post-activation canary executed only during a bounded probation.
@@ -10,8 +12,8 @@ import { expect, test, type Page } from '@playwright/test';
  * Workspace.  The browser additionally binds the exact probation ref and the
  * canonical installation/configuration digest.  It never contains a tenant,
  * application or provider name.  The canary is server-read-only; it may enter
- * the admin's local business preview and switch to a second Workspace to prove
- * that the previous runtime context is purged.
+ * the shell that the installed manifests actually declare and switches to a
+ * second Workspace to prove that the previous runtime context is purged.
  */
 
 const enabled = process.env['E2E_LOT9_POST_CANARY'] === '1';
@@ -39,11 +41,15 @@ interface RuntimeInstallation {
   primary_surface_id: string;
   default_route: string;
   branding_namespace: string;
+  api_prefixes?: string[];
   action_packs: string[];
   entitlement_keys: string[];
 }
 
 interface RuntimeMissionRoom {
+  app_id: string;
+  version?: string;
+  manifest_digest?: string;
   profile: string;
   label: string;
   brand_style: string;
@@ -57,6 +63,7 @@ interface WorkspaceBootstrap {
   effective_features?: Record<string, boolean>;
   app_entitlements?: string[];
   workspace_app_runtime?: {
+    mode?: string;
     enabled?: boolean;
     valid?: boolean;
     rollout_phase?: string;
@@ -92,6 +99,26 @@ interface ActionManifest {
   action_id?: string;
   pack?: string;
   visible?: boolean;
+  requires_confirmation?: boolean;
+  direct_safe?: boolean;
+  handler?: { kind?: string; name?: string };
+}
+
+interface ActionExecution {
+  matched?: boolean;
+  action_id?: string;
+  requires_confirmation?: boolean;
+  result?: { action?: string; applied?: boolean } | null;
+  audit_id?: string;
+  reason?: string;
+}
+
+interface AppWorkspaceCandidate {
+  summary: WorkspaceSummary;
+  bootstrap: WorkspaceBootstrap;
+  runtime: NonNullable<WorkspaceBootstrap['workspace_app_runtime']>;
+  experience: NonNullable<NonNullable<WorkspaceBootstrap['workspace_app_runtime']>['experience']>;
+  routeTarget: RuntimeInstallation;
 }
 
 function hash(value: string): string {
@@ -127,6 +154,10 @@ function pathOnly(value: string): string {
   }
 }
 
+function canonicalPath(value: string): string {
+  return pathOnly(value).replace(/\/$/, '') || '/';
+}
+
 function routeWithinScope(path: string, scope: string): boolean {
   const normalized = pathOnly(path).replace(/\/$/, '') || '/';
   const normalizedScope = pathOnly(scope).replace(/\/$/, '') || '/';
@@ -135,6 +166,59 @@ function routeWithinScope(path: string, scope: string): boolean {
 
 function sortedStrings(values: Iterable<string>): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function runtimeIdentitySubject(
+  workspaceId: string,
+  runtime: NonNullable<WorkspaceBootstrap['workspace_app_runtime']>,
+): Record<string, unknown> {
+  const experience = runtime.experience;
+  const mission = experience?.mission_room;
+  return {
+    workspace_id: workspaceId,
+    mode: runtime.mode ?? null,
+    enabled: runtime.enabled ?? false,
+    rollout_phase: runtime.rollout_phase ?? null,
+    rollout_ref: runtime.rollout_ref ?? null,
+    installations: [...(runtime.installations ?? [])]
+      .sort((left, right) => left.app_id.localeCompare(right.app_id))
+      .map((item) => ({
+        app_id: item.app_id,
+        version: item.version,
+        manifest_digest: item.manifest_digest,
+        category: item.category,
+        routes: sortedStrings(item.routes),
+        primary_surface_id: item.primary_surface_id,
+        default_route: item.default_route,
+        branding_namespace: item.branding_namespace,
+        action_packs: sortedStrings(item.action_packs),
+        entitlement_keys: sortedStrings(item.entitlement_keys),
+      })),
+    experience: {
+      shell: experience?.shell ?? null,
+      routes: sortedStrings(experience?.routes ?? []),
+      primary_surface_ids: sortedStrings(experience?.primary_surface_ids ?? []),
+      default_routes: experience?.default_routes ?? {},
+      branding_namespaces: sortedStrings(experience?.branding_namespaces ?? []),
+      action_packs: sortedStrings(experience?.action_packs ?? []),
+      mission_room: mission ? {
+        app_id: mission.app_id ?? null,
+        version: mission.version ?? null,
+        manifest_digest: mission.manifest_digest ?? null,
+        profile: mission.profile ?? null,
+        brand_style: mission.brand_style ?? null,
+        default_route: mission.default_route ?? null,
+        primary_surface_id: mission.primary_surface_id ?? null,
+      } : null,
+    },
+  };
+}
+
+function runtimeIdentitySha256(
+  workspaceId: string,
+  runtime: NonNullable<WorkspaceBootstrap['workspace_app_runtime']>,
+): string {
+  return hash(canonical(runtimeIdentitySubject(workspaceId, runtime)));
 }
 
 function marker(settings: Record<string, unknown> | undefined): unknown {
@@ -203,18 +287,23 @@ async function api<T>(
   page: Page,
   workspaceSlug: string,
   path: string,
-  options: { method?: 'GET' | 'POST'; body?: unknown } = {},
+  options: { method?: 'GET' | 'POST'; body?: unknown; noStore?: boolean } = {},
 ): Promise<ApiResult<T>> {
-  return page.evaluate(async ({ slug, apiPath, method, body }) => {
+  return page.evaluate(async ({ slug, apiPath, method, body, noStore }) => {
     const headers: Record<string, string> = {
       Authorization: localStorage.getItem('agentium_token') || '',
       'X-Workspace-Slug': slug,
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (noStore) {
+      headers['Cache-Control'] = 'no-cache, no-store';
+      headers.Pragma = 'no-cache';
+    }
     const response = await fetch(`/api/v1${apiPath}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      cache: noStore ? 'no-store' : 'default',
     });
     const text = await response.text();
     let parsed: unknown = null;
@@ -227,24 +316,143 @@ async function api<T>(
     apiPath: path,
     method: options.method ?? 'GET',
     body: options.body,
+    noStore: options.noStore ?? false,
   }) as Promise<ApiResult<T>>;
 }
 
-async function switchWorkspace(
+async function directSwitchWorkspace(
   page: Page,
   from: WorkspaceSummary,
   to: WorkspaceSummary,
-): Promise<void> {
-  const nextRequest = page.waitForRequest((request) => {
+  shell: 'standard' | 'business' | 'immersive',
+): Promise<{
+  requests: Array<{ path: string; workspaceHeader: string }>;
+  stop: () => void;
+}> {
+  const requests: Array<{ path: string; workspaceHeader: string }> = [];
+  const observe = (request: Request): void => {
     const url = new URL(request.url());
-    return url.pathname.startsWith('/api/v1/')
-      && request.headers()['x-workspace-slug'] === to.slug;
-  });
-  await page.getByTitle(from.name, { exact: true }).click();
-  await page.locator('app-title-bar button').filter({ hasText: to.name }).first().click();
-  await nextRequest;
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('agentium_workspace_slug')))
-    .toBe(to.slug);
+    if (!url.pathname.startsWith('/api/v1/')) return;
+    requests.push({
+      path: url.pathname,
+      workspaceHeader: request.headers()['x-workspace-slug'] ?? '',
+    });
+  };
+  page.on('request', observe);
+  let observerTransferred = false;
+  const nextRequest = page.waitForRequest((request) => (
+    new URL(request.url()).pathname.startsWith('/api/v1/')
+    && request.headers()['x-workspace-slug'] === to.slug
+  ));
+  try {
+    if (shell === 'business') {
+      const select = page.locator(
+        'app-business-shell-header select[title="Changer de workspace"]',
+      );
+      await expect(
+        select,
+        'the business app shell must switch Workspace without leaving its application route first',
+      ).toBeVisible();
+      await select.selectOption(to.slug);
+    } else if (shell === 'standard') {
+      await page.getByTitle(from.name, { exact: true }).click();
+      await page.locator('app-title-bar button').filter({ hasText: to.name }).first().click();
+    } else {
+      const select = page.getByTestId('mission-workspace-switch');
+      await expect(
+        select,
+        'the immersive app shell must switch Workspace directly from MissionRail',
+      ).toBeVisible();
+      await select.selectOption(to.slug);
+    }
+    await nextRequest;
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('agentium_workspace_slug')))
+      .toBe(to.slug);
+    observerTransferred = true;
+  } finally {
+    if (!observerTransferred) page.off('request', observe);
+  }
+  return {
+    requests,
+    stop: () => page.off('request', observe),
+  };
+}
+
+async function discoverAlternateAppWorkspace(
+  page: Page,
+  memberships: WorkspaceSummary[],
+  selected: WorkspaceSummary,
+  selectedRuntime: NonNullable<WorkspaceBootstrap['workspace_app_runtime']>,
+  selectedRoute: RuntimeInstallation,
+): Promise<{ candidate: AppWorkspaceCandidate; foreignAction: Required<Pick<ActionManifest, 'action_id' | 'pack'>> }> {
+  const selectedPacks = new Set(selectedRuntime.experience?.action_packs ?? []);
+  const candidates: Array<{
+    candidate: AppWorkspaceCandidate;
+    foreignAction: Required<Pick<ActionManifest, 'action_id' | 'pack'>>;
+  }> = [];
+  for (const summary of memberships.filter((workspace) => workspace.id !== selected.id)) {
+    const response = await api<WorkspaceBootstrap>(
+      page,
+      summary.slug,
+      `/auth/workspaces/${encodeURIComponent(summary.slug)}`,
+      { noStore: true },
+    );
+    const runtime = response.body.workspace_app_runtime;
+    const experience = runtime?.experience;
+    const installations = runtime?.installations ?? [];
+    if (!response.ok || runtime?.valid !== true || !experience || installations.length === 0) continue;
+    const entry = resolveWorkspaceAppCanaryEntryPolicy(
+      experience.shell!,
+      installations,
+      new Set(response.body.app_entitlements ?? []),
+      { immersiveAppId: experience.mission_room?.app_id },
+    );
+    if (entry.issues.length > 0 || !entry.routeTarget) continue;
+    if (
+      canonicalPath(entry.routeTarget.default_route) === canonicalPath(selectedRoute.default_route)
+      || entry.routeTarget.primary_surface_id === selectedRoute.primary_surface_id
+      || canonical(sortedStrings(experience.branding_namespaces ?? []))
+        === canonical(sortedStrings(selectedRuntime.experience?.branding_namespaces ?? []))
+      || runtimeIdentitySha256(summary.id, runtime)
+        === runtimeIdentitySha256(selected.id, selectedRuntime)
+    ) continue;
+    const actions = await api<{ actions: ActionManifest[] }>(
+      page,
+      summary.slug,
+      '/actions/effective?surface=chat',
+      { noStore: true },
+    );
+    if (!actions.ok) continue;
+    const foreign = actions.body.actions
+      .filter((manifest): manifest is Required<Pick<ActionManifest, 'action_id' | 'pack'>> & ActionManifest => (
+        typeof manifest.action_id === 'string'
+        && typeof manifest.pack === 'string'
+        && !selectedPacks.has(manifest.pack)
+        && manifest.requires_confirmation === false
+        && manifest.direct_safe === true
+      ))
+      .sort((left, right) => left.action_id.localeCompare(right.action_id))[0];
+    if (!foreign) continue;
+    candidates.push({
+      candidate: {
+        summary,
+        bootstrap: response.body,
+        runtime,
+        experience,
+        routeTarget: entry.routeTarget,
+      },
+      foreignAction: { action_id: foreign.action_id, pack: foreign.pack },
+    });
+  }
+  expect(
+    candidates.length,
+    'a second Workspace App with a distinct route, surface and action pack is required for purge proof',
+  ).toBeGreaterThan(0);
+  candidates.sort((left, right) => (
+    runtimeIdentitySha256(left.candidate.summary.id, left.candidate.runtime)
+      .localeCompare(runtimeIdentitySha256(right.candidate.summary.id, right.candidate.runtime))
+  ));
+  return candidates[0]!;
 }
 
 test.describe.serial('Lot 9 — Workspace App probation canary', () => {
@@ -346,7 +554,7 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
     const actions = await api<{ manifests: ActionManifest[] }>(
       page,
       selected.summary.slug,
-      '/actions/manifests',
+      '/actions/manifests?surface=chat',
     );
     expect(actions.ok).toBe(true);
     const declaredPacks = new Set(runtimeExperience?.action_packs ?? []);
@@ -367,7 +575,7 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
     const effectiveActions = await api<{ actions: ActionManifest[] }>(
       page,
       selected.summary.slug,
-      '/actions/effective',
+      '/actions/effective?surface=chat',
     );
     expect(effectiveActions.ok).toBe(true);
     expect(effectiveActions.body.actions.length, 'at least one installed-pack action must be effective')
@@ -380,35 +588,121 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
     )), 'effective actions must not leak a pack outside the runtime boundary').toBe(true);
     const effectivePacks = new Set(effectiveActions.body.actions.map((manifest) => manifest.pack as string));
     expect(sortedStrings(effectivePacks)).toEqual(sortedStrings(declaredPacks));
+    const actionPackExecutions: Array<Record<string, unknown>> = [];
+    for (const pack of sortedStrings(declaredPacks)) {
+      const action = effectiveActions.body.actions
+        .filter((manifest) => (
+          manifest.pack === pack
+          && typeof manifest.action_id === 'string'
+          && manifest.handler?.kind !== 'legacy_adapter'
+          && manifest.requires_confirmation === false
+          && manifest.direct_safe === true
+        ))
+        .sort((left, right) => left.action_id!.localeCompare(right.action_id!))[0];
+      expect(
+        action,
+        `installed action pack ${pack} must expose a direct-safe chat action for semantic probing`,
+      ).toBeTruthy();
+      const execution = await api<ActionExecution>(
+        page,
+        selected.summary.slug,
+        '/actions/execute',
+        {
+          method: 'POST',
+          body: {
+            action_id: action!.action_id,
+            surface: 'chat',
+            confirm: false,
+            payload: {
+              canary_probe_ref: `sha256:${hash(`${expectedSha}:${selected.summary.id}:${pack}`)}`,
+            },
+          },
+        },
+      );
+      expect(execution.ok, `direct-safe action probe failed for ${pack} (${execution.status})`)
+        .toBe(true);
+      expect(execution.body).toMatchObject({
+        matched: true,
+        action_id: action!.action_id,
+        requires_confirmation: false,
+        reason: 'proposed',
+        result: { action: action!.action_id, applied: false },
+      });
+      expect(execution.body.audit_id).toMatch(/^[0-9a-f-]{36}$/i);
+      actionPackExecutions.push({
+        pack,
+        action_id: action!.action_id,
+        audit_id: execution.body.audit_id,
+        http_status: execution.status,
+        matched: execution.body.matched,
+        reason: execution.body.reason,
+        response_action_id: execution.body.action_id,
+        result_action: execution.body.result?.action ?? null,
+        applied: execution.body.result?.applied ?? null,
+        requires_confirmation: execution.body.requires_confirmation,
+      });
+    }
 
-    const declaredEntitlements = new Set(
-      runtimeInstallations.flatMap((installation) => installation.entitlement_keys),
-    );
-    expect(
-      declaredEntitlements.size,
-      'a post-activation canary must declare at least one real entry entitlement',
-    ).toBeGreaterThan(0);
     const appEntitlements = new Set(selected.bootstrap.app_entitlements ?? []);
-    let entryGateChecked = false;
-    let routeTarget = runtimeInstallations[0]!;
     expect(
       selected.bootstrap.effective_features?.['workspace_app_platform_v1'],
-      'runtime authority itself must keep manifest entry entitlements fail closed',
+      'runtime authority must be the source of the shell entry contract',
     ).toBe(true);
-    expect(runtimeExperience?.shell, 'entitlement UI proof currently requires the business shell')
-      .toBe('business');
-    const gateTargets = runtimeInstallations.filter((installation) => (
-      installation.entitlement_keys.includes(installation.primary_surface_id)
-    ));
-    expect(gateTargets.length, 'no declared entitlement can be confronted with a primary entry route')
-      .toBeGreaterThan(0);
-    const grantedTarget = gateTargets.find((installation) => (
-      appEntitlements.has(installation.primary_surface_id)
-    ));
-    expect(grantedTarget, 'the canary principal needs one granted declared entry for an honest UI proof')
-      .toBeTruthy();
-    routeTarget = grantedTarget!;
-    entryGateChecked = true;
+    const entryPolicy = resolveWorkspaceAppCanaryEntryPolicy(
+      runtimeExperience!.shell!,
+      runtimeInstallations,
+      appEntitlements,
+      { immersiveAppId: runtimeExperience?.mission_room?.app_id },
+    );
+    expect(
+      entryPolicy.issues,
+      'the installed shell has no honestly enforceable entry proof',
+    ).toEqual([]);
+    expect(entryPolicy.routeTarget, 'the installed set must expose an entry route').toBeTruthy();
+    const routeTarget = entryPolicy.routeTarget!;
+    const declaredEntitlements = new Set(entryPolicy.declaredEntitlements);
+    const entryGateChecked = true;
+    const alternateSelection = await discoverAlternateAppWorkspace(
+      page,
+      memberships,
+      selected.summary,
+      runtime!,
+      routeTarget,
+    );
+    const alternate = alternateSelection.candidate;
+    const deniedExecution = await api<ActionExecution>(
+      page,
+      selected.summary.slug,
+      '/actions/execute',
+      {
+        method: 'POST',
+        body: {
+          action_id: alternateSelection.foreignAction.action_id,
+          surface: 'chat',
+          confirm: false,
+          payload: {
+            canary_probe_ref: `sha256:${hash(
+              `${expectedSha}:${selected.summary.id}:${alternateSelection.foreignAction.pack}:denied`,
+            )}`,
+          },
+        },
+      },
+    );
+    expect(deniedExecution.ok).toBe(true);
+    expect(deniedExecution.body).toMatchObject({
+      matched: false,
+      action_id: alternateSelection.foreignAction.action_id,
+      reason: 'not_visible',
+    });
+    expect(deniedExecution.body.audit_id).toMatch(/^[0-9a-f-]{36}$/i);
+    const foreignActionDenial = {
+      pack: alternateSelection.foreignAction.pack,
+      action_id: alternateSelection.foreignAction.action_id,
+      audit_id: deniedExecution.body.audit_id,
+      http_status: deniedExecution.status,
+      matched: deniedExecution.body.matched,
+      reason: deniedExecution.body.reason,
+    };
 
     expect(
       runtimeExperience?.routes?.some((scope) => routeWithinScope(routeTarget.default_route, scope)),
@@ -439,6 +733,8 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
     await expect(page.locator('app-shell main router-outlet + *').first()).toBeAttached();
 
     if (runtimeExperience?.shell === 'business') {
+      expect(entryPolicy.mode).toBe('business_entitlement');
+      expect(entryPolicy.entitlementGate).toBe(true);
       await expect(page.locator('app-business-shell-header')).toBeVisible();
       await expect(page.locator('app-title-bar')).toHaveCount(0);
       if (declaredEntitlements.size > 0) {
@@ -460,6 +756,9 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
         );
       }
     } else if (runtimeExperience?.shell === 'immersive') {
+      expect(entryPolicy.mode).toBe('immersive_extension');
+      expect(entryPolicy.entitlementGate).toBe('not_applicable');
+      expect(declaredEntitlements.size).toBe(0);
       await expect(page.locator('app-business-shell-header')).toHaveCount(0);
       await expect(page.locator('app-title-bar')).toHaveCount(0);
       await expect(page.locator('app-mission-room-extension-host')).toBeAttached();
@@ -481,30 +780,93 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
       );
     } else {
       expect(runtimeExperience?.shell).toBe('standard');
+      expect(entryPolicy.mode).toBe('standard_route');
+      expect(entryPolicy.entitlementGate).toBe('not_applicable');
+      expect(declaredEntitlements.size).toBe(0);
       await expect(page.locator('app-title-bar')).toBeVisible();
       await expect(page.locator('app-business-shell-header')).toHaveCount(0);
     }
 
-    const alternate = memberships.find((workspace) => workspace.id !== selected.summary.id);
-    expect(alternate, 'a second Workspace is required to prove context purge').toBeTruthy();
-    if (runtimeExperience?.shell === 'business') {
-      const exitPreview = page.locator('app-business-shell-header button.business-action');
-      await expect(exitPreview, 'the local business preview must expose its reversible admin exit')
-        .toBeVisible();
-      await exitPreview.click();
-      await expect(page.locator('app-title-bar')).toBeVisible();
-    }
-    await page.goto(`/workspace/${encodeURIComponent(selected.summary.slug)}/settings`);
-    await expect(page.locator('app-title-bar')).toBeVisible();
-    await switchWorkspace(page, selected.summary, alternate!);
-    const alternateBootstrap = await api<WorkspaceBootstrap>(
+    const previousBrand = await shellRoot.getAttribute('data-workspace-app-brand');
+    const switchNetwork = await directSwitchWorkspace(
       page,
-      alternate!.slug,
-      `/auth/workspaces/${encodeURIComponent(alternate!.slug)}`,
+      selected.summary,
+      alternate.summary,
+      runtimeExperience!.shell!,
     );
-    expect(alternateBootstrap.ok).toBe(true);
-    expect(alternateBootstrap.body.workspace_app_runtime?.rollout_ref)
-      .not.toBe(runtime?.rollout_ref);
+    let alternateBootstrap: ApiResult<WorkspaceBootstrap>;
+    try {
+      await expect.poll(
+        () => routeWithinScope(canonicalPath(page.url()), alternate.routeTarget.default_route),
+        { message: 'the direct switch must land on the alternate Workspace App route' },
+      ).toBe(true);
+      expect(
+        routeWithinScope(canonicalPath(page.url()), routeTarget.default_route),
+        'the previous Workspace App route must not survive the committed switch',
+      ).toBe(false);
+      await expect(page.getByTestId('workspace-app-unavailable')).toHaveCount(0);
+      await expect(shellRoot).not.toHaveAttribute(
+        'data-workspace-app-brand',
+        previousBrand ?? (runtimeExperience?.branding_namespaces ?? []).join(','),
+      );
+      await expect(
+        page.locator(`[data-mission-room-extension="${routeTarget.primary_surface_id}"]`),
+        'the previous Workspace App object marker must be absent after the switch',
+      ).toHaveCount(0);
+      alternateBootstrap = await api<WorkspaceBootstrap>(
+        page,
+        alternate.summary.slug,
+        `/auth/workspaces/${encodeURIComponent(alternate.summary.slug)}`,
+        { noStore: true },
+      );
+      expect(alternateBootstrap.ok).toBe(true);
+      expect(alternateBootstrap.body.id).toBe(alternate.summary.id);
+      expect(
+        runtimeIdentitySha256(alternate.summary.id, alternateBootstrap.body.workspace_app_runtime!),
+      ).toBe(runtimeIdentitySha256(alternate.summary.id, alternate.runtime));
+      await page.waitForTimeout(250);
+    } finally {
+      switchNetwork.stop();
+    }
+    const firstNewHeader = switchNetwork.requests.findIndex(
+      (request) => request.workspaceHeader === alternate.summary.slug,
+    );
+    expect(firstNewHeader, 'the switch must issue at least one request for the new Workspace')
+      .toBeGreaterThanOrEqual(0);
+    const postCommitRequests = switchNetwork.requests.slice(firstNewHeader);
+    const oldHeaderAfterNew = postCommitRequests.filter(
+      (request) => request.workspaceHeader === selected.summary.slug,
+    );
+    const newHeaderRequests = postCommitRequests.filter(
+      (request) => request.workspaceHeader === alternate.summary.slug,
+    );
+    expect(
+      oldHeaderAfterNew,
+      'no request may reuse the previous X-Workspace-Slug after the new context is observable',
+    ).toEqual([]);
+    expect(newHeaderRequests.length).toBeGreaterThan(0);
+    const workspaceSwitch = {
+      from_workspace_sha256: hash(selected.summary.id),
+      to_workspace_sha256: hash(alternate.summary.id),
+      from_runtime_identity_sha256: runtimeIdentitySha256(selected.summary.id, runtime!),
+      to_runtime_identity_sha256: runtimeIdentitySha256(alternate.summary.id, alternate.runtime),
+      from_route_sha256: hash(canonicalPath(routeTarget.default_route)),
+      to_route_sha256: hash(canonicalPath(alternate.routeTarget.default_route)),
+      from_primary_surface_sha256: hash(routeTarget.primary_surface_id),
+      to_primary_surface_sha256: hash(alternate.routeTarget.primary_surface_id),
+      from_header_sha256: hash(selected.summary.slug),
+      to_header_sha256: hash(alternate.summary.slug),
+      observed_request_paths_sha256: hash(canonical(
+        postCommitRequests.map((request) => request.path),
+      )),
+      cache_revalidation_path_sha256: hash(
+        `/api/v1/auth/workspaces/${alternate.summary.slug}`,
+      ),
+      observed_request_count: postCommitRequests.length,
+      new_header_request_count: newHeaderRequests.length,
+      old_header_after_new_count: oldHeaderAfterNew.length,
+      cache_revalidation: 'network_no_store',
+    };
 
     writeEvidence(evidencePath, {
       schema_version: 1,
@@ -525,20 +887,29 @@ test.describe.serial('Lot 9 — Workspace App probation canary', () => {
       checks: {
         runtime_bootstrap: true,
         entry_gate: entryGateChecked,
-        action_pack_isolation: true,
-        workspace_epoch_purge: true,
+        action_pack_isolation: actionPackExecutions.length === declaredPacks.size
+          && foreignActionDenial.matched === false,
+        workspace_epoch_purge: workspaceSwitch.old_header_after_new_count === 0
+          && workspaceSwitch.from_runtime_identity_sha256
+            !== workspaceSwitch.to_runtime_identity_sha256,
       },
       diagnostics: {
         installed_count: subject.length,
         declared_route_and_shell: true,
         branding_runtime_to_ui: true,
-        entitlement_gate: entryGateChecked,
+        runtime_shell: runtimeExperience?.shell,
+        entry_policy: entryPolicy.mode,
+        shell_entry_boundary: entryGateChecked,
+        entitlement_gate: entryPolicy.entitlementGate,
         action_count: actions.body.manifests.length,
         effective_action_count: effectiveActions.body.actions.length,
         declared_action_pack_count: declaredPacks.size,
         declared_entitlement_count: declaredEntitlements.size,
         rendered_route_sha256: hash(pathOnly(routeTarget.default_route)),
-        switched_workspace_sha256: hash(alternate!.id),
+        switched_workspace_sha256: hash(alternate.summary.id),
+        action_pack_executions: actionPackExecutions,
+        foreign_action_denial: foreignActionDenial,
+        workspace_switch: workspaceSwitch,
       },
     });
   });

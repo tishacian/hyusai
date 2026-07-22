@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, update
 
 from app.api.v1.endpoints import auth, iam
+from app.core.config import settings
 from app.core.iam import dependencies as iam_dependencies
 from app.core.iam.dependencies import require_app_entitlement
-from app.core.config import settings
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER
+from app.models.audit import AuditLog
 from app.models.capability import Capability
 from app.models.system import System
 from app.models.user import User
@@ -29,7 +32,13 @@ from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
     replace_member_app_entitlements,
 )
-from app.services.projection_gate import WORKSPACE_GATE_KEY, with_projection_activation
+from app.services.projection_gate import (
+    PROJECTION_FINALIZATION_AUDIT_EVENT,
+    WORKSPACE_GATE_KEY,
+    projection_activation_audit_details,
+    projection_activation_sha256,
+    with_projection_activation,
+)
 from app.services.value_loop_gate import FEATURE_KEY as VALUE_LOOP_FEATURE_KEY
 
 
@@ -331,6 +340,41 @@ def test_workspace_response_exposes_only_sha_bound_effective_projection_flags(
         capability_id="capability-canary",
     )
     gate_rows = workspace.settings[WORKSPACE_GATE_KEY]["activations"]
+    trusted_runner = {
+        "issuer": "https://gitlab.example.test",
+        "project_id": "42",
+        "pipeline_id": "314",
+        "job_id": "159",
+        "commit_sha": "b" * 40,
+        "ref": "demo/agentic",
+        "ref_protected": True,
+    }
+    activation = {
+        **dict(gate_rows[0]),
+        "trusted_runner": trusted_runner,
+        "pilot_observation": {
+            "audit_id": str(uuid4()),
+            "observation_ref": f"sha256:{'b' * 64}",
+            "participant_ref": f"sha256:{'c' * 64}",
+            "profile": "operator",
+        },
+        "activated_by": "lot7-api-test-runner",
+        "activated_at": "2026-01-01T00:00:00+00:00",
+        "probation_lease_id": str(uuid4()),
+    }
+    activation["activation_sha256"] = projection_activation_sha256(activation)
+    activation_audit_id = str(uuid4())
+    db_session.add(
+        AuditLog(
+            id=activation_audit_id,
+            workspace_id=workspace.id,
+            event_type=PROJECTION_FINALIZATION_AUDIT_EVENT,
+            actor=activation["activated_by"],
+            agent_id="system-canary",
+            details=projection_activation_audit_details(activation),
+        )
+    )
+    activation["audit_id"] = activation_audit_id
     db_session.add_all(
         [
             Capability(
@@ -349,7 +393,7 @@ def test_workspace_response_exposes_only_sha_bound_effective_projection_flags(
                     "experience": {"system_360_canary": "v1"},
                     "_lot7_projection_rollout_v1": {
                         "schema_version": 1,
-                        "activations": [dict(row) for row in gate_rows],
+                        "activations": [activation],
                         "probations": [],
                         "deactivations": [],
                     },
@@ -360,6 +404,21 @@ def test_workspace_response_exposes_only_sha_bound_effective_projection_flags(
     db_session.commit()
     client = _auth_client(db_session, owner)
 
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_oidc_issuer",
+        trusted_runner["issuer"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_project_id",
+        trusted_runner["project_id"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_ref",
+        trusted_runner["ref"],
+    )
     monkeypatch.setattr(settings, "agentium_image_revision", "b" * 40)
     current = client.get(f"/auth/workspaces/{workspace.slug}")
     assert current.status_code == 200

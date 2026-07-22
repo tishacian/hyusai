@@ -35,6 +35,14 @@ from app.models.workspace_app import (
     WorkspaceAppOperation,
 )
 from app.schemas.canonical import WorkspaceFamily
+from app.services.workspace_app_boundaries import (
+    WORKSPACE_APP_REQUIRED_FOREIGN_KEYS,
+    WORKSPACE_APP_REQUIRED_UNIQUE_CONSTRAINTS,
+    WorkspaceAppBoundaryContractError,
+    manifest_api_prefixes,
+    slash_boundary_paths_overlap,
+    workspace_app_relational_integrity_errors,
+)
 from app.services.workspace_app_manifests import (
     CompiledWorkspaceAppManifest,
     WorkspaceAppManifestError,
@@ -156,6 +164,14 @@ class WorkspaceAppLifecycleResult:
     idempotent_replay: bool
 
 
+@dataclass(frozen=True)
+class WorkspaceAppLifecycleCompensationResult:
+    """One exact, idempotent inverse of a committed lifecycle operation."""
+
+    source_operation: WorkspaceAppOperation
+    inverse: WorkspaceAppLifecycleResult
+
+
 def _required_text(value: Any, name: str, *, maximum: int) -> str:
     text = str(value or "").strip()
     if not text:
@@ -205,9 +221,7 @@ def _normalize_prerequisite_evidence(
     if evidence is None:
         return None
     if not isinstance(evidence, Mapping):
-        raise WorkspaceAppLifecycleValidationError(
-            "prerequisite_evidence must be an object"
-        )
+        raise WorkspaceAppLifecycleValidationError("prerequisite_evidence must be an object")
     normalized = deepcopy(dict(evidence))
     _canonical_json(normalized)
     return normalized
@@ -262,6 +276,50 @@ def _snapshot(installation: WorkspaceAppInstallation | None) -> dict[str, Any]:
         ),
         "revision": int(installation.revision or 0),
     }
+
+
+def _compensation_request(
+    source: WorkspaceAppOperation,
+) -> tuple[str, str | None, str, dict[str, Any] | None, bool]:
+    """Derive the only valid semantic inverse from an immutable receipt."""
+
+    before = source.before_state if isinstance(source.before_state, Mapping) else {}
+    after = source.after_state if isinstance(source.after_state, Mapping) else {}
+    before_version = before.get("version")
+    before_digest = before.get("manifest_digest")
+    before_configuration = before.get("configuration")
+    after_digest = after.get("manifest_digest")
+
+    if source.operation == "install":
+        return "uninstall", None, _sha256(after_digest, "after manifest digest"), None, False
+    if source.operation == "upgrade":
+        return (
+            "rollback",
+            _required_text(before_version, "before version", maximum=40),
+            _sha256(before_digest, "before manifest digest"),
+            _normalize_configuration(before_configuration),
+            True,
+        )
+    if source.operation == "rollback":
+        return (
+            "upgrade",
+            _required_text(before_version, "before version", maximum=40),
+            _sha256(before_digest, "before manifest digest"),
+            _normalize_configuration(before_configuration),
+            False,
+        )
+    if source.operation == "uninstall":
+        return (
+            "install",
+            _required_text(before_version, "before version", maximum=40),
+            _sha256(before_digest, "before manifest digest"),
+            _normalize_configuration(before_configuration),
+            False,
+        )
+    raise WorkspaceAppLifecycleConflict(
+        "source receipt has no supported inverse operation",
+        code="compensation_source_invalid",
+    )
 
 
 def _resolve_manifest(
@@ -375,16 +433,6 @@ def workspace_app_is_compatible(
     return True
 
 
-def _routes_overlap(left: str, right: str) -> bool:
-    left_route = left.rstrip("/") or "/"
-    right_route = right.rstrip("/") or "/"
-    return (
-        left_route == right_route
-        or left_route.startswith(f"{right_route}/")
-        or right_route.startswith(f"{left_route}/")
-    )
-
-
 def _validate_coinstallation_contracts(
     db: DBSession,
     *,
@@ -401,6 +449,13 @@ def _validate_coinstallation_contracts(
     target_shell = (
         target_experience.get("shell") if isinstance(target_experience, Mapping) else None
     )
+    try:
+        target_api_prefixes = manifest_api_prefixes(target)
+    except WorkspaceAppBoundaryContractError as exc:
+        raise WorkspaceAppLifecycleValidationError(
+            "trusted Workspace App API authority contract is invalid",
+            code="manifest_contract_invalid",
+        ) from exc
 
     query = db.query(WorkspaceAppInstallation).filter(
         WorkspaceAppInstallation.workspace_id == workspace_id,
@@ -427,6 +482,13 @@ def _validate_coinstallation_contracts(
                 code="installed_manifest_invalid",
             ) from exc
         other_payload = other_manifest.as_dict()
+        try:
+            other_api_prefixes = manifest_api_prefixes(other_payload)
+        except WorkspaceAppBoundaryContractError as exc:
+            raise WorkspaceAppLifecycleConflict(
+                "An installed Workspace App has an invalid API authority contract",
+                code="installed_manifest_invalid",
+            ) from exc
         other_group = other_payload.get("conflict_group")
         if target_group is not None and target_group == other_group:
             raise WorkspaceAppLifecycleConflict(
@@ -440,7 +502,7 @@ def _validate_coinstallation_contracts(
             and isinstance(target_routes, list)
             and isinstance(other_routes, list)
             and any(
-                _routes_overlap(target_route, other_route)
+                slash_boundary_paths_overlap(target_route, other_route)
                 for target_route in target_routes
                 for other_route in other_routes
             )
@@ -449,11 +511,18 @@ def _validate_coinstallation_contracts(
                 "Workspace Apps claim overlapping exclusive routes",
                 code="route_conflict",
             )
+        if any(
+            slash_boundary_paths_overlap(target_prefix, other_prefix)
+            for target_prefix in target_api_prefixes
+            for other_prefix in other_api_prefixes
+        ):
+            raise WorkspaceAppLifecycleConflict(
+                "Workspace Apps claim overlapping API authority prefixes",
+                code="api_prefix_conflict",
+            )
         other_experience = other_payload.get("experience")
         other_shell = (
-            other_experience.get("shell")
-            if isinstance(other_experience, Mapping)
-            else None
+            other_experience.get("shell") if isinstance(other_experience, Mapping) else None
         )
         if (
             target_shell in {"business", "immersive"}
@@ -469,9 +538,7 @@ def _validate_coinstallation_contracts(
 def _lifecycle_phase(value: Any) -> str:
     phase = _required_text(value, "lifecycle_phase", maximum=32).lower()
     if phase not in LIFECYCLE_PHASES:
-        raise WorkspaceAppLifecycleValidationError(
-            "unsupported Workspace App lifecycle phase"
-        )
+        raise WorkspaceAppLifecycleValidationError("unsupported Workspace App lifecycle phase")
     return phase
 
 
@@ -499,9 +566,7 @@ def _compile_lifecycle_steps(
     source_manifest: CompiledWorkspaceAppManifest | None,
     target_manifest: CompiledWorkspaceAppManifest | None,
 ) -> tuple[WorkspaceAppLifecycleStep, ...]:
-    if lifecycle_phase == "legacy_adoption" and (
-        operation != "install" or target_manifest is None
-    ):
+    if lifecycle_phase == "legacy_adoption" and (operation != "install" or target_manifest is None):
         raise WorkspaceAppLifecycleValidationError(
             "legacy_adoption is only valid for an explicit install"
         )
@@ -630,9 +695,7 @@ def _require_schema_contract(
     tables = set(inspector.get_table_names())
     for table, columns in required.items():
         observed = (
-            {item["name"] for item in inspector.get_columns(table)}
-            if table in tables
-            else set()
+            {item["name"] for item in inspector.get_columns(table)} if table in tables else set()
         )
         absent = sorted(columns - observed)
         if absent:
@@ -647,9 +710,7 @@ def _require_schema_contract(
         "evidence_sha256": _hash_payload(
             {
                 "step_id": step.step_id,
-                "tables": {
-                    table: sorted(columns) for table, columns in sorted(required.items())
-                },
+                "tables": {table: sorted(columns) for table, columns in sorted(required.items())},
             }
         ),
         "compensation": {
@@ -733,10 +794,49 @@ def _require_explicit_legacy_backfill(
     }
 
 
-LIFECYCLE_STEP_EXECUTORS = MappingProxyType({
-    "platform_schema_contract_v1": _require_schema_contract,
-    "explicit_legacy_backfill_v1": _require_explicit_legacy_backfill,
-})
+def _require_relational_integrity_contract(
+    db: DBSession,
+    *,
+    step: WorkspaceAppLifecycleStep,
+    **_context: Any,
+) -> dict[str, Any]:
+    """Verify the tenant/installation lineage constraints added by 074.
+
+    Merely observing columns from migrations 069/073 is insufficient: a
+    runtime without the composite keys can still accept a cross-workspace app
+    operation. The lifecycle receipt therefore binds the exact relational
+    constraints before an installation becomes activatable.
+    """
+
+    missing = workspace_app_relational_integrity_errors(db)
+    if missing:
+        raise WorkspaceAppLifecycleConflict(
+            "required relational integrity schema is not applied: " + ", ".join(missing),
+            code="lifecycle_schema_unsatisfied",
+        )
+    return {
+        "outcome": "verified",
+        "evidence_sha256": _hash_payload(
+            {
+                "step_id": step.step_id,
+                "unique_constraints": sorted(WORKSPACE_APP_REQUIRED_UNIQUE_CONSTRAINTS),
+                "foreign_keys": sorted(WORKSPACE_APP_REQUIRED_FOREIGN_KEYS),
+            }
+        ),
+        "compensation": {
+            "failure": "database_transaction_rollback",
+            "post_commit": "none_required_persistent_additive_schema",
+        },
+    }
+
+
+LIFECYCLE_STEP_EXECUTORS = MappingProxyType(
+    {
+        "platform_schema_contract_v1": _require_schema_contract,
+        "relational_integrity_contract_v1": _require_relational_integrity_contract,
+        "explicit_legacy_backfill_v1": _require_explicit_legacy_backfill,
+    }
+)
 
 
 def _execute_lifecycle_steps(
@@ -784,6 +884,7 @@ def _build_plan(
     expected_manifest_digest: str,
     configuration: Mapping[str, Any] | None,
     lifecycle_phase: str,
+    allow_unrecorded_rollback: bool,
     lock: bool,
 ) -> tuple[WorkspaceAppLifecyclePlan, WorkspaceAppInstallation | None]:
     workspace_key = _required_text(workspace_id, "workspace_id", maximum=36)
@@ -795,6 +896,12 @@ def _build_plan(
     expected_digest = _sha256(expected_manifest_digest, "expected_manifest_digest")
     normalized_config = _normalize_configuration(configuration)
     workspace = _workspace(db, workspace_key, lock=lock)
+    integrity_errors = workspace_app_relational_integrity_errors(db)
+    if integrity_errors:
+        raise WorkspaceAppLifecycleConflict(
+            "required relational integrity schema is not applied: " + ", ".join(integrity_errors),
+            code="lifecycle_schema_unsatisfied",
+        )
     if workspace_app_platform_enabled(workspace):
         raise WorkspaceAppLifecycleConflict(
             "Deactivate Workspace App runtime authority before changing installations",
@@ -845,9 +952,7 @@ def _build_plan(
                 "rollback target must be older than the installed version"
             )
         current_config = (
-            installation.configuration
-            if isinstance(installation.configuration, Mapping)
-            else {}
+            installation.configuration if isinstance(installation.configuration, Mapping) else {}
         )
         if operation_key == "rollback":
             historical = (
@@ -868,22 +973,32 @@ def _build_plan(
                 if isinstance(historical_after, Mapping)
                 else None
             )
-            if not isinstance(historical_config, Mapping):
+            if not isinstance(historical_config, Mapping) and not allow_unrecorded_rollback:
                 raise WorkspaceAppLifecycleConflict(
                     "rollback target was never installed with this exact manifest",
                     code="rollback_target_not_recorded",
                 )
-            if normalized_config is not None and dict(normalized_config) != dict(
+            if allow_unrecorded_rollback:
+                if normalized_config is None:
+                    raise WorkspaceAppLifecycleValidationError(
+                        "an authoritative Blueprint restore requires exact configuration"
+                    )
+                target_config = _validated_configuration(
+                    target_manifest,
+                    normalized_config,
+                )
+            elif normalized_config is not None and dict(normalized_config) != dict(
                 historical_config
             ):
                 raise WorkspaceAppLifecycleConflict(
                     "rollback configuration differs from the recorded target state",
                     code="rollback_configuration_mismatch",
                 )
-            target_config = _validated_configuration(
-                target_manifest,
-                historical_config,
-            )
+            else:
+                target_config = _validated_configuration(
+                    target_manifest,
+                    historical_config,
+                )
         else:
             target_config = _validated_configuration(
                 target_manifest,
@@ -892,13 +1007,9 @@ def _build_plan(
             )
     else:
         if target_version is not None:
-            raise WorkspaceAppLifecycleValidationError(
-                "uninstall does not accept a target version"
-            )
+            raise WorkspaceAppLifecycleValidationError("uninstall does not accept a target version")
         if normalized_config is not None:
-            raise WorkspaceAppLifecycleValidationError(
-                "uninstall does not accept configuration"
-            )
+            raise WorkspaceAppLifecycleValidationError("uninstall does not accept configuration")
         if installation is None or installation.state != "installed":
             raise WorkspaceAppLifecycleConflict("Workspace App is not installed")
         if not installation.version or not installation.manifest_digest:
@@ -987,6 +1098,7 @@ def plan_workspace_app_lifecycle(
     expected_manifest_digest: str,
     configuration: Mapping[str, Any] | None = None,
     lifecycle_phase: str = "normal",
+    allow_unrecorded_rollback: bool = False,
 ) -> WorkspaceAppLifecyclePlan:
     """Return a deterministic, read-only plan for one lifecycle transition."""
 
@@ -999,6 +1111,7 @@ def plan_workspace_app_lifecycle(
         expected_manifest_digest=expected_manifest_digest,
         configuration=configuration,
         lifecycle_phase=lifecycle_phase,
+        allow_unrecorded_rollback=allow_unrecorded_rollback,
         lock=False,
     )
     return plan
@@ -1014,6 +1127,7 @@ def _request_sha256(
     configuration: Mapping[str, Any] | None,
     expected_plan_sha256: str,
     lifecycle_phase: str,
+    allow_unrecorded_rollback: bool,
     prerequisite_evidence_sha256: str | None,
     actor: str,
 ) -> str:
@@ -1027,6 +1141,7 @@ def _request_sha256(
             "configuration": configuration,
             "expected_plan_sha256": expected_plan_sha256,
             "lifecycle_phase": lifecycle_phase,
+            "allow_unrecorded_rollback": allow_unrecorded_rollback,
             "prerequisite_evidence_sha256": prerequisite_evidence_sha256,
             "actor": actor,
         }
@@ -1084,8 +1199,7 @@ def _mandatory_audit(
                 "from_version": plan.from_version,
                 "to_state": plan.to_state,
                 "to_version": plan.to_version,
-                "manifest_digest": plan.to_manifest_digest
-                or plan.from_manifest_digest,
+                "manifest_digest": plan.to_manifest_digest or plan.from_manifest_digest,
                 "plan_sha256": plan.plan_sha256,
                 "lifecycle_phase": plan.lifecycle_phase,
                 "steps_sha256": plan.steps_sha256,
@@ -1143,9 +1257,7 @@ def _idempotent_result(
         .order_by(WorkspaceAppLifecycleStepReceipt.position.asc())
         .all()
     )
-    observed_steps_sha256 = _hash_payload(
-        {"steps": [row.step_sha256 for row in step_receipts]}
-    )
+    observed_steps_sha256 = _hash_payload({"steps": [row.step_sha256 for row in step_receipts]})
     if observed_steps_sha256 != receipt.steps_sha256:
         raise WorkspaceAppLifecycleConflict(
             "idempotency receipt lifecycle steps are incomplete",
@@ -1181,6 +1293,7 @@ def apply_workspace_app_lifecycle(
     idempotency_key: str,
     configuration: Mapping[str, Any] | None = None,
     lifecycle_phase: str = "normal",
+    allow_unrecorded_rollback: bool = False,
     prerequisite_evidence: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> WorkspaceAppLifecycleResult:
@@ -1216,6 +1329,7 @@ def apply_workspace_app_lifecycle(
         configuration=normalized_config,
         expected_plan_sha256=plan_digest,
         lifecycle_phase=phase_key,
+        allow_unrecorded_rollback=allow_unrecorded_rollback,
         prerequisite_evidence_sha256=prerequisite_digest,
         actor=actor_key,
     )
@@ -1267,6 +1381,7 @@ def apply_workspace_app_lifecycle(
             expected_manifest_digest=digest,
             configuration=normalized_config,
             lifecycle_phase=phase_key,
+            allow_unrecorded_rollback=allow_unrecorded_rollback,
             lock=True,
         )
         if plan.plan_sha256 != plan_digest:
@@ -1384,6 +1499,177 @@ def apply_workspace_app_lifecycle(
             step_receipts=step_receipts,
             result_snapshot=deepcopy(receipt.after_state),
             idempotent_replay=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - transaction boundary
+        _rollback_and_raise(db, exc)
+
+
+def compensate_workspace_app_lifecycle(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    source_operation_id: str,
+    expected_source_plan_sha256: str,
+    actor: str,
+    idempotency_key: str,
+    commit: bool = True,
+) -> WorkspaceAppLifecycleCompensationResult:
+    """Apply the server-derived inverse of one exact committed operation.
+
+    The caller cannot choose the inverse version, manifest, configuration, or
+    operation.  They acknowledge the immutable source receipt and its plan
+    digest; this function locks the tenant, rejects state drift, applies the
+    derived inverse through the regular lifecycle authority, and binds both
+    receipts in the same transaction.
+    """
+
+    workspace_key = _required_text(workspace_id, "workspace_id", maximum=36)
+    source_key = _required_text(source_operation_id, "source_operation_id", maximum=36)
+    source_plan = _sha256(
+        expected_source_plan_sha256,
+        "expected_source_plan_sha256",
+    )
+    actor_key = _required_text(actor, "actor", maximum=255)
+    idempotency = _required_text(idempotency_key, "idempotency_key", maximum=160)
+
+    try:
+        _workspace(db, workspace_key, lock=True)
+        source = (
+            db.query(WorkspaceAppOperation)
+            .filter(
+                WorkspaceAppOperation.workspace_id == workspace_key,
+                WorkspaceAppOperation.id == source_key,
+            )
+            .one_or_none()
+        )
+        if source is None:
+            raise WorkspaceAppLifecycleNotFound(
+                "source Workspace App operation was not found",
+                code="compensation_source_not_found",
+            )
+        if source.plan_sha256 != source_plan:
+            raise WorkspaceAppLifecycleConflict(
+                "source lifecycle plan digest changed",
+                code="compensation_source_drift",
+            )
+        source_compensation = (
+            source.compensation if isinstance(source.compensation, Mapping) else {}
+        )
+        if source_compensation.get("compensates_operation_id") is not None:
+            raise WorkspaceAppLifecycleConflict(
+                "a compensation receipt cannot itself be compensated",
+                code="compensation_chain_forbidden",
+            )
+
+        existing = (
+            db.query(WorkspaceAppOperation)
+            .filter(
+                WorkspaceAppOperation.workspace_id == workspace_key,
+                WorkspaceAppOperation.idempotency_key == idempotency,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            existing_contract = (
+                existing.compensation if isinstance(existing.compensation, Mapping) else {}
+            )
+            if (
+                existing.actor != actor_key
+                or existing.app_id != source.app_id
+                or existing_contract.get("compensates_operation_id") != source.id
+                or existing_contract.get("compensates_plan_sha256") != source.plan_sha256
+            ):
+                raise WorkspaceAppLifecycleConflict(
+                    "idempotency key was already used for another lifecycle request",
+                    code="idempotency_conflict",
+                )
+            inverse = _idempotent_result(
+                db,
+                existing,
+                app_id=source.app_id,
+                commit=commit,
+            )
+            return WorkspaceAppLifecycleCompensationResult(
+                source_operation=source,
+                inverse=inverse,
+            )
+
+        installation = _installation(
+            db,
+            workspace_id=workspace_key,
+            app_id=source.app_id,
+            lock=True,
+        )
+        if installation is None or _snapshot(installation) != source.after_state:
+            raise WorkspaceAppLifecycleConflict(
+                "installation no longer matches the source operation result",
+                code="compensation_state_drift",
+            )
+
+        (
+            inverse_operation,
+            target_version,
+            manifest_digest,
+            configuration,
+            allow_unrecorded_rollback,
+        ) = _compensation_request(source)
+        inverse_plan = plan_workspace_app_lifecycle(
+            db,
+            workspace_id=workspace_key,
+            operation=inverse_operation,
+            app_id=source.app_id,
+            target_version=target_version,
+            expected_manifest_digest=manifest_digest,
+            configuration=configuration,
+            allow_unrecorded_rollback=allow_unrecorded_rollback,
+        )
+        inverse = apply_workspace_app_lifecycle(
+            db,
+            workspace_id=workspace_key,
+            operation=inverse_operation,
+            app_id=source.app_id,
+            target_version=target_version,
+            expected_manifest_digest=manifest_digest,
+            expected_plan_sha256=inverse_plan.plan_sha256,
+            actor=actor_key,
+            idempotency_key=idempotency,
+            configuration=configuration,
+            allow_unrecorded_rollback=allow_unrecorded_rollback,
+            commit=False,
+        )
+        inverse.operation.compensation = {
+            **deepcopy(inverse.operation.compensation or {}),
+            "compensates_operation_id": source.id,
+            "compensates_plan_sha256": source.plan_sha256,
+        }
+        db.add(
+            AuditLog(
+                id=str(uuid4()),
+                workspace_id=workspace_key,
+                timestamp=datetime.utcnow(),
+                event_type="workspace_app.compensation.applied",
+                actor=actor_key,
+                severity="warning",
+                details={
+                    "source_operation_id": source.id,
+                    "source_plan_sha256": source.plan_sha256,
+                    "inverse_operation_id": inverse.operation.id,
+                    "inverse_plan_sha256": inverse.operation.plan_sha256,
+                    "app_id": source.app_id,
+                    "source_operation": source.operation,
+                    "inverse_operation": inverse.operation.operation,
+                    "configuration_fields": sorted((configuration or {}).keys()),
+                },
+            )
+        )
+        db.flush()
+        if commit:
+            db.commit()
+            db.refresh(inverse.installation)
+            db.refresh(inverse.operation)
+        return WorkspaceAppLifecycleCompensationResult(
+            source_operation=source,
+            inverse=inverse,
         )
     except Exception as exc:  # noqa: BLE001 - transaction boundary
         _rollback_and_raise(db, exc)

@@ -984,11 +984,7 @@ def _object_reference(
         # A null legacy name historically meant "no portable binding", not
         # an authoritative request to erase a target relation. Only the new
         # key contract can express an explicit unbind.
-        return (
-            (_legacy_name_token(name), True, False)
-            if name
-            else (None, False, False)
-        )
+        return (_legacy_name_token(name), True, False) if name else (None, False, False)
     return None, False, False
 
 
@@ -1023,9 +1019,7 @@ def _validate_blueprint_object_identities(blueprint: Mapping[str, Any]) -> None:
                 effective_keys.add(stable_key)
 
         for index, item in enumerate(items):
-            for field in (
-                ("system_key",) if kind == "context" else ("context_key",)
-            ):
+            for field in ("system_key",) if kind == "context" else ("context_key",):
                 if field in item and item.get(field) is not None:
                     _canonical_blueprint_key(
                         item.get(field),
@@ -1465,8 +1459,7 @@ def _serialize_workspace_apps(
     return {
         "mode": "authoritative",
         "installations": [
-            _workspace_app_installation_payload(installation)
-            for installation in installations
+            _workspace_app_installation_payload(installation) for installation in installations
         ],
         "operation_receipts": "excluded",
     }
@@ -1550,9 +1543,7 @@ def _serialize_workspace_experience(
     # Blueprint v2 transports the exact application access surface backed by
     # its content-addressed installations.  Navigation declarations and the
     # global registry must never manufacture grants for an absent app.
-    required_apps = _workspace_app_entitlement_keys(
-        workspace_apps.get("installations") or []
-    )
+    required_apps = _workspace_app_entitlement_keys(workspace_apps.get("installations") or [])
     app_access = {
         "enforcement_requested": raw_features.get(APP_ENTITLEMENTS_FEATURE) is True,
         "required_apps": required_apps,
@@ -2180,9 +2171,7 @@ def _validate_workspace_apps_contract(value: Any) -> None:
     if value.get("mode") != "authoritative":
         raise WorkspaceBlueprintError(f"{path}/mode must be authoritative.")
     if value.get("operation_receipts") != "excluded":
-        raise WorkspaceBlueprintError(
-            f"{path}/operation_receipts must remain excluded."
-        )
+        raise WorkspaceBlueprintError(f"{path}/operation_receipts must remain excluded.")
     installations = value.get("installations")
     if not isinstance(installations, list):
         raise WorkspaceBlueprintError(f"{path}/installations must be an array.")
@@ -2226,9 +2215,7 @@ def _validate_workspace_apps_contract(value: Any) -> None:
     if len(identities) != len(set(identities)):
         raise WorkspaceBlueprintError(f"{path}/installations contains duplicate app_id values.")
     if identities != sorted(identities):
-        raise WorkspaceBlueprintError(
-            f"{path}/installations must be ordered by app_id."
-        )
+        raise WorkspaceBlueprintError(f"{path}/installations must be ordered by app_id.")
 
 
 def _validate_v2_experience(blueprint: Mapping[str, Any]) -> None:
@@ -2766,9 +2753,7 @@ def _workspace_app_entitlement_keys(
             ) from exc
         entitlement_keys = manifest.as_dict().get("entitlement_keys")
         if not isinstance(entitlement_keys, list):
-            raise WorkspaceBlueprintError(
-                "Workspace App entitlement manifest contract is invalid."
-            )
+            raise WorkspaceBlueprintError("Workspace App entitlement manifest contract is invalid.")
         declared.extend(entitlement_keys)
     try:
         return normalize_app_entitlements(declared)
@@ -2823,10 +2808,7 @@ def _build_app_access_plan(
             "Blueprint app_access requests an entitlement not provided by its "
             "prospective Workspace App installations."
         ) from exc
-    if (
-        prospective_entitlement_keys is not None
-        and required_apps != prospective_entitlement_keys
-    ):
+    if prospective_entitlement_keys is not None and required_apps != prospective_entitlement_keys:
         raise WorkspaceBlueprintError(
             "Blueprint app_access.required_apps must exactly match the entitlement_keys "
             "of its prospective Workspace App installations."
@@ -2934,9 +2916,7 @@ def _workspace_app_context_conflicts(
         elif not isinstance(allowed_families, list) or family not in allowed_families:
             reason = "workspace_family_incompatible"
             message = "Workspace App is incompatible with the prospective workspace family."
-        elif not isinstance(allowed_profiles, list) or not isinstance(
-            forbidden_profiles, list
-        ):
+        elif not isinstance(allowed_profiles, list) or not isinstance(forbidden_profiles, list):
             reason = "manifest_contract_invalid"
             message = "Trusted Workspace App profile compatibility is invalid."
         elif allowed_profiles and profile not in allowed_profiles:
@@ -2997,6 +2977,7 @@ def _build_workspace_apps_plan(
                 target_version=request.get("target_version"),
                 expected_manifest_digest=str(request["expected_manifest_digest"]),
                 configuration=request.get("configuration"),
+                allow_unrecorded_rollback=bool(request.get("allow_unrecorded_rollback")),
             )
         except WorkspaceAppLifecycleError as exc:
             conflicts.append(
@@ -3068,6 +3049,7 @@ def _build_workspace_apps_plan(
                 "target_version": target["version"],
                 "expected_manifest_digest": target["manifest_digest"],
                 "configuration": deepcopy(target["config"]),
+                **({"allow_unrecorded_rollback": True} if operation == "rollback" else {}),
             }
         )
 
@@ -3409,13 +3391,12 @@ def _apply_workspace_apps_plan(
                 operation=str(request.get("operation") or ""),
                 app_id=str(request.get("app_id") or ""),
                 target_version=request.get("target_version"),
-                expected_manifest_digest=str(
-                    request.get("expected_manifest_digest") or ""
-                ),
+                expected_manifest_digest=str(request.get("expected_manifest_digest") or ""),
                 expected_plan_sha256=plan_sha256,
                 actor=actor_key,
                 idempotency_key=idempotency_key,
                 configuration=request.get("configuration"),
+                allow_unrecorded_rollback=bool(request.get("allow_unrecorded_rollback")),
                 commit=False,
             )
         except WorkspaceAppLifecycleConflict as exc:
@@ -4285,9 +4266,7 @@ def _bind_context_systems(
             kind="context",
             name=name,
         )
-        context_token = (
-            _legacy_name_token(name) if legacy else _stable_identity_token(stable_key)
-        )
+        context_token = _legacy_name_token(name) if legacy else _stable_identity_token(stable_key)
         context_id = _mapped_object_id(
             context_map,
             token=context_token,
@@ -4367,9 +4346,7 @@ def _apply_presets(
             if scope == "capability":
                 scope_key_authority = "scope_key" in item
                 scope_ref = str(
-                    item.get("scope_key")
-                    if scope_key_authority
-                    else item.get("scope_ref") or ""
+                    item.get("scope_key") if scope_key_authority else item.get("scope_ref") or ""
                 )
                 scope_id = capability_map.get(scope_ref)
             elif scope == "system":

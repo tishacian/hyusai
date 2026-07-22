@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from fastapi import HTTPException, Request
 from app.core.config import settings
 from app.core.iam.dependencies import require_app_entitlement
 from app.extensions.registry import MISSION_ROOM_EXTENSION_ID, require_workspace_extension
+from app.models.audit import AuditLog
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -31,6 +33,7 @@ from app.services.workspace_app_runtime import (
     WORKSPACE_APP_PLATFORM_FEATURE,
     WORKSPACE_APP_ROLLOUT_STATE_KEY,
     WorkspaceAppRuntimeError,
+    _workspace_app_activation_audit_details,
     inspect_authoritative_workspace_app_runtime,
     installed_app_ids,
     installed_entitlement_keys,
@@ -64,6 +67,25 @@ def _request(path: str) -> Request:
 @pytest.fixture(autouse=True)
 def _runtime_revision(monkeypatch):
     monkeypatch.setattr(settings, "agentium_image_revision", REVISION)
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_oidc_issuer",
+        "https://gitlab.com",
+    )
+    monkeypatch.setattr(settings, "authorization_v2_trusted_project_id", "42")
+    monkeypatch.setattr(settings, "authorization_v2_trusted_ref", "demo/agentic")
+
+
+def _trusted_runner() -> dict[str, object]:
+    return {
+        "issuer": "https://gitlab.com",
+        "project_id": "42",
+        "pipeline_id": "runtime-pipeline",
+        "job_id": "runtime-job",
+        "commit_sha": REVISION,
+        "ref": "demo/agentic",
+        "ref_protected": True,
+    }
 
 
 def _workspace(
@@ -90,6 +112,25 @@ def _workspace(
     return workspace
 
 
+def test_runtime_fails_closed_without_relational_integrity_schema(
+    db_session,
+    monkeypatch,
+) -> None:
+    workspace = _workspace(db_session, enabled=False)
+    monkeypatch.setattr(
+        workspace_app_runtime,
+        "workspace_app_relational_integrity_errors",
+        lambda _db: [
+            "foreign_key:workspace_app_operations."
+            "fk_workspace_app_operations_installation_lineage"
+        ],
+    )
+
+    with pytest.raises(WorkspaceAppRuntimeError) as exc:
+        inspect_authoritative_workspace_app_runtime(workspace, db=db_session)
+    assert exc.value.code == "runtime_schema_unsatisfied"
+
+
 def _attest(db, workspace: Workspace) -> None:
     runtime = inspect_authoritative_workspace_app_runtime(workspace, db=db)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -98,31 +139,54 @@ def _attest(db, workspace: Workspace) -> None:
     preflight_evidence = "3" * 64
     preflight_artifact = "4" * 64
     probation = "5" * 64
+    source_junit = "6" * 64
+    preflight_source_junit = "7" * 64
+    runner = _trusted_runner()
+    actor = "runtime-test"
+    activation = {
+        "workspace_id": workspace.id,
+        "evidence_sha256": evidence,
+        "evidence_ref": f"sha256:{evidence}",
+        "artifact_sha256": artifact,
+        "artifact_ref": f"sha256:{artifact}",
+        "artifact_tests": 7,
+        "preflight_evidence_sha256": preflight_evidence,
+        "preflight_evidence_ref": f"sha256:{preflight_evidence}",
+        "preflight_artifact_sha256": preflight_artifact,
+        "preflight_artifact_ref": f"sha256:{preflight_artifact}",
+        "preflight_artifact_tests": 3,
+        "preflight_source_junit_ref": f"sha256:{preflight_source_junit}",
+        "postactivation_artifact_tests": 4,
+        "source_junit_ref": f"sha256:{source_junit}",
+        "trusted_runner": runner,
+        "probation_ref": f"sha256:{probation}",
+        "revision": REVISION,
+        "installations_sha256": workspace_app_installations_sha256(runtime),
+        "installation_count": len(runtime.installations),
+        "activated_at": now,
+        "actor": actor,
+    }
+    audit_id = str(uuid4())
+    db.add(
+        AuditLog(
+            id=audit_id,
+            workspace_id=workspace.id,
+            event_type="lot9.workspace_app_platform.activated",
+            actor=actor,
+            severity="info",
+            details=_workspace_app_activation_audit_details(
+                activation,
+                trusted_runner=runner,
+            ),
+        )
+    )
+    db.flush()
+    activation["audit_id"] = audit_id
     workspace.settings = {
         **workspace.settings,
         WORKSPACE_APP_ROLLOUT_STATE_KEY: {
             "schema_version": 1,
-            "activations": [
-                {
-                    "workspace_id": workspace.id,
-                    "evidence_sha256": evidence,
-                    "evidence_ref": f"sha256:{evidence}",
-                    "artifact_sha256": artifact,
-                    "artifact_ref": f"sha256:{artifact}",
-                    "artifact_tests": 7,
-                    "preflight_evidence_sha256": preflight_evidence,
-                    "preflight_evidence_ref": f"sha256:{preflight_evidence}",
-                    "preflight_artifact_sha256": preflight_artifact,
-                    "preflight_artifact_ref": f"sha256:{preflight_artifact}",
-                    "preflight_artifact_tests": 3,
-                    "postactivation_artifact_tests": 4,
-                    "probation_ref": f"sha256:{probation}",
-                    "revision": REVISION,
-                    "installations_sha256": workspace_app_installations_sha256(runtime),
-                    "installation_count": len(runtime.installations),
-                    "activated_at": now,
-                }
-            ],
+            "activations": [activation],
             "deactivations": [],
         },
     }
@@ -155,6 +219,35 @@ def _install(
     if attest and workspace_app_runtime.workspace_app_platform_enabled(workspace):
         _attest(db, workspace)
     return installation
+
+
+def _boundary_manifest(*, app_id: str, api_prefix: str):
+    payload = deepcopy(
+        BUILTIN_WORKSPACE_APP_MANIFESTS[("andritz.client360-pdr", "1.0.0")].as_dict()
+    )
+    route = "/authority-probe"
+    payload.update(
+        {
+            "app_id": app_id,
+            "display_name": "Authority Probe",
+            "routes": [route],
+            "api_prefixes": [api_prefix],
+            "conflict_group": None,
+        }
+    )
+    payload["surfaces"] = [
+        {
+            "id": f"{app_id}.surface.1",
+            "route": route,
+            "api_prefix": api_prefix,
+        }
+    ]
+    payload["experience"] = {
+        **payload["experience"],
+        "primary_surface_id": f"{app_id}.surface.1",
+        "default_route": route,
+    }
+    return _compile_manifest(payload)
 
 
 def test_gate_off_does_not_query_or_change_the_historical_runtime() -> None:
@@ -295,6 +388,87 @@ def test_tampered_manifest_digest_fails_closed_without_row_disclosure(db_session
     }
 
 
+def test_overlapping_installed_api_authorities_fail_closed_without_mutation(
+    db_session,
+    monkeypatch,
+) -> None:
+    workspace = _workspace(db_session, family="andritz")
+    chat = _install(
+        db_session,
+        workspace,
+        "andritz.chat",
+        "1.0.0",
+        attest=False,
+    )
+    child = _boundary_manifest(
+        app_id="andritz.chat-authority-child",
+        api_prefix="/api/v1/chat/admin",
+    )
+    child_row = WorkspaceAppInstallation(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        app_id=child.app_id,
+        version=child.version,
+        manifest_digest=child.digest,
+        state="installed",
+        configuration=validate_manifest_configuration(child, None),
+        revision=1,
+        installed_at=datetime.utcnow(),
+        updated_by="runtime-test",
+    )
+    db_session.add(child_row)
+    db_session.commit()
+    monkeypatch.setattr(
+        workspace_app_manifests,
+        "BUILTIN_WORKSPACE_APP_MANIFESTS",
+        {
+            **BUILTIN_WORKSPACE_APP_MANIFESTS,
+            (child.app_id, child.version): child,
+        },
+    )
+    monkeypatch.setattr(
+        workspace_app_runtime,
+        "get_builtin_workspace_app_manifest",
+        workspace_app_manifests.get_builtin_workspace_app_manifest,
+    )
+    before = {
+        "rows": [
+            (row.id, row.app_id, row.version, row.revision)
+            for row in db_session.query(WorkspaceAppInstallation)
+            .filter(WorkspaceAppInstallation.workspace_id == workspace.id)
+            .order_by(WorkspaceAppInstallation.app_id.asc())
+            .all()
+        ],
+        "audits": db_session.query(AuditLog).count(),
+    }
+
+    with pytest.raises(WorkspaceAppRuntimeError) as caught:
+        inspect_authoritative_workspace_app_runtime(workspace, db=db_session)
+    assert caught.value.code == "api_prefix_conflict"
+    assert safe_workspace_app_runtime_payload(workspace, db=db_session) == {
+        "schema_version": 1,
+        "mode": "authoritative",
+        "enabled": True,
+        "rollout_phase": "invalid",
+        "rollout_ref": None,
+        "valid": False,
+        "error_code": "api_prefix_conflict",
+        "installations": [],
+        "experience": None,
+    }
+    assert {
+        "rows": [
+            (row.id, row.app_id, row.version, row.revision)
+            for row in db_session.query(WorkspaceAppInstallation)
+            .filter(WorkspaceAppInstallation.workspace_id == workspace.id)
+            .order_by(WorkspaceAppInstallation.app_id.asc())
+            .all()
+        ],
+        "audits": db_session.query(AuditLog).count(),
+    } == before
+    assert chat.state == child_row.state == "installed"
+
+
 def test_installed_action_packs_ignore_legacy_cross_profile_overrides(db_session) -> None:
     workspace = _workspace(
         db_session,
@@ -316,9 +490,7 @@ def test_installed_action_packs_ignore_legacy_cross_profile_overrides(db_session
         workspace_id=workspace.id,
         name="Cross-profile legacy override",
         execution_profile={
-            "actions": {
-                "enabled_packs": ["octave_mission_room_v1", "octave_security_v1"]
-            }
+            "actions": {"enabled_packs": ["octave_mission_room_v1", "octave_security_v1"]}
         },
     )
 
@@ -347,12 +519,14 @@ def test_business_and_extension_entry_gates_require_an_installed_app(db_session)
     )
 
     with pytest.raises(HTTPException) as missing_business:
-        asyncio.run(business_gate(
-            request=_request("/api/v1/chat"),
-            user=user,
-            workspace=business,
-            db=db_session,
-        ))
+        asyncio.run(
+            business_gate(
+                request=_request("/api/v1/chat"),
+                user=user,
+                workspace=business,
+                db=db_session,
+            )
+        )
     assert missing_business.value.status_code == 404
     assert missing_business.value.detail == {"code": "WORKSPACE_APP_NOT_FOUND"}
 
@@ -373,20 +547,24 @@ def test_business_and_extension_entry_gates_require_an_installed_app(db_session)
         granted_by_user_id=None,
     )
     db_session.commit()
-    allowed = asyncio.run(business_gate(
-        request=_request("/api/v1/chat/completions"),
-        user=user,
-        workspace=business,
-        db=db_session,
-    ))
+    allowed = asyncio.run(
+        business_gate(
+            request=_request("/api/v1/chat/completions"),
+            user=user,
+            workspace=business,
+            db=db_session,
+        )
+    )
     assert allowed.granted is True
     assert allowed.enforced is True
-    sessions_allowed = asyncio.run(business_gate(
-        request=_request("/api/v1/sessions"),
-        user=user,
-        workspace=business,
-        db=db_session,
-    ))
+    sessions_allowed = asyncio.run(
+        business_gate(
+            request=_request("/api/v1/sessions"),
+            user=user,
+            workspace=business,
+            db=db_session,
+        )
+    )
     assert sessions_allowed.granted is True
     runtime = resolve_workspace_app_runtime(business, db=db_session)
     assert runtime.as_public_payload()["installations"][0]["api_prefixes"] == [
@@ -394,12 +572,14 @@ def test_business_and_extension_entry_gates_require_an_installed_app(db_session)
         "/api/v1/sessions",
     ]
     with pytest.raises(HTTPException) as wrong_business_prefix:
-        asyncio.run(business_gate(
-            request=_request("/api/v1/client360"),
-            user=user,
-            workspace=business,
-            db=db_session,
-        ))
+        asyncio.run(
+            business_gate(
+                request=_request("/api/v1/client360"),
+                user=user,
+                workspace=business,
+                db=db_session,
+            )
+        )
     assert wrong_business_prefix.value.status_code == 404
 
     mission = _workspace(
@@ -417,11 +597,14 @@ def test_business_and_extension_entry_gates_require_an_installed_app(db_session)
     assert missing_extension.value.status_code == 404
 
     _install(db_session, mission, "sentinel.mission-room", "1.0.0")
-    assert extension_gate(
-        request=_request("/api/v1/mission-room/overview"),
-        workspace=mission,
-        db=db_session,
-    ) is mission
+    assert (
+        extension_gate(
+            request=_request("/api/v1/mission-room/overview"),
+            workspace=mission,
+            db=db_session,
+        )
+        is mission
+    )
 
     with pytest.raises(HTTPException) as wrong_prefix:
         extension_gate(
@@ -506,20 +689,26 @@ def test_entry_entitlements_are_derived_from_the_installed_manifest(
         ["future-surface"],
         granted_by_user_id=None,
     ) == ["future-surface"]
-    allowed = asyncio.run(gate(
-        request=_request("/api/v1/chat/future"),
-        user=user,
-        workspace=workspace,
-        db=db_session,
-    ))
+    allowed = asyncio.run(
+        gate(
+            request=_request("/api/v1/chat/future"),
+            user=user,
+            workspace=workspace,
+            db=db_session,
+        )
+    )
     assert allowed.granted is True
     assert allowed.enforced is True
     assert list_member_app_entitlements(db_session, membership) == ["future-surface"]
 
-    installation = db_session.query(WorkspaceAppInstallation).filter_by(
-        workspace_id=workspace.id,
-        app_id=future.app_id,
-    ).one()
+    installation = (
+        db_session.query(WorkspaceAppInstallation)
+        .filter_by(
+            workspace_id=workspace.id,
+            app_id=future.app_id,
+        )
+        .one()
+    )
     installation.state = "uninstalled"
     installation.version = None
     installation.manifest_digest = None

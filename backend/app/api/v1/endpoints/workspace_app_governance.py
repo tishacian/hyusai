@@ -30,6 +30,7 @@ from app.services.workspace_app_lifecycle import (
     WorkspaceAppLifecycleNotFound,
     WorkspaceAppLifecycleValidationError,
     apply_workspace_app_lifecycle,
+    compensate_workspace_app_lifecycle,
     plan_workspace_app_lifecycle,
     workspace_app_is_compatible,
 )
@@ -63,6 +64,17 @@ class WorkspaceAppLifecycleRequest(BaseModel):
 
 class WorkspaceAppLifecycleApplyRequest(WorkspaceAppLifecycleRequest):
     expected_plan_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+
+
+class WorkspaceAppLifecycleCompensationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_operation_id: str = Field(min_length=1, max_length=36)
+    expected_source_plan_sha256: str = Field(
         min_length=64,
         max_length=64,
         pattern=r"^[0-9a-f]{64}$",
@@ -310,12 +322,73 @@ async def apply_workspace_app_operation(
             "manifest_digest": result.operation.manifest_digest,
             "lifecycle_phase": result.operation.lifecycle_phase,
             "steps_sha256": result.operation.steps_sha256,
-            "step_receipts": [
-                _step_receipt_payload(receipt)
-                for receipt in result.step_receipts
-            ],
+            "step_receipts": [_step_receipt_payload(receipt) for receipt in result.step_receipts],
             "idempotent_replay": result.idempotent_replay,
             "installation": deepcopy(result.result_snapshot),
+        }
+    except WorkspaceAppLifecycleError as exc:
+        db.rollback()
+        _raise_lifecycle_http(exc)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/compensate")
+async def compensate_workspace_app_operation(
+    body: WorkspaceAppLifecycleCompensationRequest,
+    idempotency_key: str = Header(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=160,
+    ),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        locked_workspace = (
+            db.query(Workspace)
+            .filter(Workspace.id == workspace.id)
+            .with_for_update(of=Workspace)
+            .populate_existing()
+            .one_or_none()
+        )
+        if locked_workspace is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "WORKSPACE_NOT_FOUND"},
+            )
+        _require_workspace_admin(
+            db,
+            user=user,
+            workspace=locked_workspace,
+            refresh=True,
+        )
+        result = compensate_workspace_app_lifecycle(
+            db,
+            workspace_id=locked_workspace.id,
+            source_operation_id=body.source_operation_id,
+            expected_source_plan_sha256=body.expected_source_plan_sha256,
+            actor=user.id,
+            idempotency_key=idempotency_key,
+        )
+        inverse = result.inverse
+        return {
+            "workspace_id": locked_workspace.id,
+            "compensates_operation_id": result.source_operation.id,
+            "operation_id": inverse.operation.id,
+            "operation": inverse.operation.operation,
+            "app_id": inverse.operation.app_id,
+            "plan_sha256": inverse.operation.plan_sha256,
+            "manifest_digest": inverse.operation.manifest_digest,
+            "steps_sha256": inverse.operation.steps_sha256,
+            "step_receipts": [_step_receipt_payload(receipt) for receipt in inverse.step_receipts],
+            "idempotent_replay": inverse.idempotent_replay,
+            "installation": deepcopy(inverse.result_snapshot),
         }
     except WorkspaceAppLifecycleError as exc:
         db.rollback()

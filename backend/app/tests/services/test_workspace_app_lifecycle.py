@@ -17,11 +17,13 @@ from app.models.workspace_app import (
     WorkspaceAppOperation,
 )
 from app.services import workspace_app_lifecycle as lifecycle_service
+from app.services.workspace_app_boundaries import slash_boundary_paths_overlap
 from app.services.workspace_app_lifecycle import (
     WorkspaceAppLifecycleConflict,
     WorkspaceAppLifecycleNotFound,
     WorkspaceAppLifecycleValidationError,
     apply_workspace_app_lifecycle,
+    compensate_workspace_app_lifecycle,
     plan_workspace_app_lifecycle,
     validate_workspace_app_compatibility,
     workspace_app_is_compatible,
@@ -57,6 +59,94 @@ def _workspace(
 
 def _manifest(app_id: str, version: str):
     return BUILTIN_WORKSPACE_APP_MANIFESTS[(app_id, version)]
+
+
+def test_lifecycle_fails_closed_without_relational_integrity_schema(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "missing-relational-integrity")
+    manifest = _manifest("mission-room.extension", "1.0.0")
+    monkeypatch.setattr(
+        lifecycle_service,
+        "workspace_app_relational_integrity_errors",
+        lambda _db: [
+            "foreign_key:workspace_app_operations."
+            "fk_workspace_app_operations_installation_lineage"
+        ],
+    )
+
+    with pytest.raises(
+        WorkspaceAppLifecycleConflict,
+        match="relational integrity schema is not applied",
+    ):
+        plan_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="install",
+            app_id=manifest.app_id,
+            target_version=manifest.version,
+            expected_manifest_digest=manifest.digest,
+        )
+
+
+def _manifest_variant(
+    *,
+    app_id: str,
+    version: str,
+    api_prefixes: list[str],
+    route: str = "/authority-probe",
+) -> CompiledWorkspaceAppManifest:
+    payload = deepcopy(_manifest("andritz.client360-pdr", "1.0.0").as_dict())
+    payload.update(
+        {
+            "app_id": app_id,
+            "version": version,
+            "display_name": "Authority Probe",
+            "routes": [route],
+            "api_prefixes": api_prefixes,
+            "conflict_group": None,
+        }
+    )
+    payload["surfaces"] = [
+        {
+            "id": f"{app_id}.surface.1",
+            "route": route,
+            "api_prefix": api_prefixes[0],
+        }
+    ]
+    payload["experience"] = {
+        **payload["experience"],
+        "primary_surface_id": f"{app_id}.surface.1",
+        "default_route": route,
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return CompiledWorkspaceAppManifest(
+        app_id=app_id,
+        version=version,
+        digest=hashlib.sha256(canonical.encode()).hexdigest(),
+        canonical_json=canonical,
+    )
+
+
+def _resolve_variants(monkeypatch, *manifests: CompiledWorkspaceAppManifest) -> None:
+    variants = {(manifest.app_id, manifest.version): manifest for manifest in manifests}
+    original = lifecycle_service._resolve_manifest
+
+    def resolve(app_id, version, expected_digest):
+        manifest = variants.get((app_id, version))
+        if manifest is None:
+            return original(app_id, version, expected_digest)
+        assert expected_digest == manifest.digest
+        return manifest
+
+    monkeypatch.setattr(lifecycle_service, "_resolve_manifest", resolve)
 
 
 def _legacy_prerequisite(
@@ -174,12 +264,12 @@ def test_install_is_content_addressed_audited_and_does_not_mutate_entitlements(d
     assert receipt.lifecycle_phase == "normal"
     assert receipt.steps_sha256 == plan.steps_sha256
     assert receipt.compensation == plan.compensation
-    step_receipts = db_session.query(WorkspaceAppLifecycleStepReceipt).order_by(
-        WorkspaceAppLifecycleStepReceipt.position
-    ).all()
-    assert [row.step_sha256 for row in step_receipts] == [
-        step.step_sha256 for step in plan.steps
-    ]
+    step_receipts = (
+        db_session.query(WorkspaceAppLifecycleStepReceipt)
+        .order_by(WorkspaceAppLifecycleStepReceipt.position)
+        .all()
+    )
+    assert [row.step_sha256 for row in step_receipts] == [step.step_sha256 for step in plan.steps]
     assert [row.outcome for row in step_receipts] == ["verified", "verified"]
     assert result.step_receipts == tuple(step_receipts)
     audit = db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).one()
@@ -329,13 +419,13 @@ def test_exact_retry_is_idempotent_and_conflicting_reuse_is_rejected(db_session)
     )
     assert replay.idempotent_replay is True
     assert replay.operation.id == first.operation.id
-    assert [row.id for row in replay.step_receipts] == [
-        row.id for row in first.step_receipts
-    ]
+    assert [row.id for row in replay.step_receipts] == [row.id for row in first.step_receipts]
     assert replay.result_snapshot["revision"] == 1
     assert db_session.query(WorkspaceAppOperation).count() == 1
     assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 2
-    assert db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 1
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 1
+    )
 
     with pytest.raises(WorkspaceAppLifecycleConflict) as caught:
         apply_workspace_app_lifecycle(
@@ -595,6 +685,213 @@ def test_upgrade_rollback_and_uninstall_are_explicit_ordered_transitions(db_sess
     assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 12
 
 
+def test_committed_install_has_an_executable_idempotent_compensation(db_session):
+    workspace = _workspace(db_session, "compensate-install", family="andritz")
+    manifest = _manifest("andritz.chat", "1.0.0")
+    _, installed = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=manifest.app_id,
+        version=manifest.version,
+        digest=manifest.digest,
+        key="compensate-install-source",
+    )
+
+    compensated = compensate_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        source_operation_id=installed.operation.id,
+        expected_source_plan_sha256=installed.operation.plan_sha256,
+        actor="lot9-test",
+        idempotency_key="compensate-install-inverse",
+    )
+    replay = compensate_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        source_operation_id=installed.operation.id,
+        expected_source_plan_sha256=installed.operation.plan_sha256,
+        actor="lot9-test",
+        idempotency_key="compensate-install-inverse",
+    )
+
+    assert compensated.inverse.operation.operation == "uninstall"
+    assert compensated.inverse.installation.state == "uninstalled"
+    assert compensated.inverse.installation.revision == 2
+    assert compensated.inverse.operation.compensation["compensates_operation_id"] == (
+        installed.operation.id
+    )
+    assert compensated.inverse.operation.compensation["compensates_plan_sha256"] == (
+        installed.operation.plan_sha256
+    )
+    assert replay.inverse.idempotent_replay is True
+    assert replay.inverse.operation.id == compensated.inverse.operation.id
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "workspace_app.compensation.applied")
+        .one()
+    )
+    assert audit.details["source_operation_id"] == installed.operation.id
+    assert audit.details["inverse_operation_id"] == compensated.inverse.operation.id
+    assert "configuration" not in audit.details
+
+
+def test_upgrade_compensation_restores_exact_version_and_configuration(db_session):
+    workspace = _workspace(db_session, "compensate-upgrade")
+    v1 = _manifest("mission-room.extension", "1.0.0")
+    v11 = _manifest("mission-room.extension", "1.1.0")
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=v1.app_id,
+        version=v1.version,
+        digest=v1.digest,
+        key="compensate-upgrade-install",
+        configuration={"profile": "generic", "assistant_profile": "default"},
+    )
+    _, upgraded = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="upgrade",
+        app_id=v11.app_id,
+        version=v11.version,
+        digest=v11.digest,
+        key="compensate-upgrade-source",
+    )
+
+    compensated = compensate_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        source_operation_id=upgraded.operation.id,
+        expected_source_plan_sha256=upgraded.operation.plan_sha256,
+        actor="lot9-test",
+        idempotency_key="compensate-upgrade-inverse",
+    )
+
+    assert compensated.inverse.operation.operation == "rollback"
+    assert compensated.inverse.installation.version == "1.0.0"
+    assert compensated.inverse.installation.manifest_digest == v1.digest
+    assert (
+        compensated.inverse.installation.configuration
+        == (upgraded.operation.before_state["configuration"])
+    )
+
+
+def test_rollback_and_uninstall_compensations_restore_their_receipt_state(db_session):
+    workspace = _workspace(db_session, "compensate-remaining-inverses")
+    v1 = _manifest("mission-room.extension", "1.0.0")
+    v11 = _manifest("mission-room.extension", "1.1.0")
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=v1.app_id,
+        version=v1.version,
+        digest=v1.digest,
+        key="remaining-install",
+        configuration={"profile": "generic", "assistant_profile": "default"},
+    )
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="upgrade",
+        app_id=v11.app_id,
+        version=v11.version,
+        digest=v11.digest,
+        key="remaining-upgrade",
+    )
+    _, rolled_back = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="rollback",
+        app_id=v1.app_id,
+        version=v1.version,
+        digest=v1.digest,
+        key="remaining-rollback",
+        configuration={"profile": "generic", "assistant_profile": "default"},
+    )
+
+    rollback_inverse = compensate_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        source_operation_id=rolled_back.operation.id,
+        expected_source_plan_sha256=rolled_back.operation.plan_sha256,
+        actor="lot9-test",
+        idempotency_key="remaining-rollback-inverse",
+    )
+    assert rollback_inverse.inverse.operation.operation == "upgrade"
+    assert rollback_inverse.inverse.installation.version == v11.version
+    assert (
+        rollback_inverse.inverse.installation.configuration
+        == rolled_back.operation.before_state["configuration"]
+    )
+
+    _, uninstalled = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="uninstall",
+        app_id=v11.app_id,
+        version=None,
+        digest=v11.digest,
+        key="remaining-uninstall",
+    )
+    uninstall_inverse = compensate_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        source_operation_id=uninstalled.operation.id,
+        expected_source_plan_sha256=uninstalled.operation.plan_sha256,
+        actor="lot9-test",
+        idempotency_key="remaining-uninstall-inverse",
+    )
+    assert uninstall_inverse.inverse.operation.operation == "install"
+    assert uninstall_inverse.inverse.installation.version == v11.version
+    assert (
+        uninstall_inverse.inverse.installation.configuration
+        == uninstalled.operation.before_state["configuration"]
+    )
+
+
+def test_compensation_rejects_receipt_or_runtime_drift_without_mutation(db_session):
+    workspace = _workspace(db_session, "compensate-drift", family="andritz")
+    manifest = _manifest("andritz.chat", "1.0.0")
+    _, installed = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=manifest.app_id,
+        version=manifest.version,
+        digest=manifest.digest,
+        key="compensate-drift-source",
+    )
+
+    with pytest.raises(WorkspaceAppLifecycleConflict) as stale_receipt:
+        compensate_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            source_operation_id=installed.operation.id,
+            expected_source_plan_sha256="f" * 64,
+            actor="lot9-test",
+            idempotency_key="compensate-stale-receipt",
+        )
+    assert stale_receipt.value.code == "compensation_source_drift"
+
+    installation = db_session.query(WorkspaceAppInstallation).one()
+    installation.configuration = {"api_contract": "tampered"}
+    db_session.commit()
+    with pytest.raises(WorkspaceAppLifecycleConflict) as state_drift:
+        compensate_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            source_operation_id=installed.operation.id,
+            expected_source_plan_sha256=installed.operation.plan_sha256,
+            actor="lot9-test",
+            idempotency_key="compensate-state-drift",
+        )
+    assert state_drift.value.code == "compensation_state_drift"
+    assert db_session.query(WorkspaceAppOperation).count() == 1
+
+
 def test_rollback_requires_the_exact_previously_installed_state(db_session):
     workspace = _workspace(db_session, "rollback-history")
     v1 = _manifest("mission-room.extension", "1.0.0")
@@ -669,9 +966,11 @@ def test_workspace_tenant_isolation_allows_same_app_and_key_per_tenant(db_sessio
             digest=manifest.digest,
             key="same-tenant-local-key",
         )
-    rows = db_session.query(WorkspaceAppInstallation).order_by(
-        WorkspaceAppInstallation.workspace_id
-    ).all()
+    rows = (
+        db_session.query(WorkspaceAppInstallation)
+        .order_by(WorkspaceAppInstallation.workspace_id)
+        .all()
+    )
     assert {row.workspace_id for row in rows} == {
         first_workspace.id,
         second_workspace.id,
@@ -800,7 +1099,9 @@ def test_audit_failure_rolls_back_installation_and_receipt(db_session):
     assert db_session.query(WorkspaceAppInstallation).count() == 0
     assert db_session.query(WorkspaceAppOperation).count() == 0
     assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 0
-    assert db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    )
 
 
 def test_step_executor_failure_rolls_back_installation_receipts_and_audit(
@@ -817,9 +1118,7 @@ def test_step_executor_failure_rolls_back_installation_receipts_and_audit(
         target_version=manifest.version,
         expected_manifest_digest=manifest.digest,
     )
-    original = lifecycle_service.LIFECYCLE_STEP_EXECUTORS[
-        "platform_schema_contract_v1"
-    ]
+    original = lifecycle_service.LIFECYCLE_STEP_EXECUTORS["platform_schema_contract_v1"]
 
     def fail_second_step(db, *, step, **context):
         if step.step_id == "workspace_app_platform.lifecycle_steps.073":
@@ -852,7 +1151,9 @@ def test_step_executor_failure_rolls_back_installation_receipts_and_audit(
     assert db_session.query(WorkspaceAppInstallation).count() == 0
     assert db_session.query(WorkspaceAppOperation).count() == 0
     assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 0
-    assert db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    )
 
 
 def test_family_and_profile_compatibility_use_structural_settings_only(db_session):
@@ -1003,10 +1304,14 @@ def test_sentinel_and_octocity_cannot_coexist_in_either_direction(
         )
 
     assert caught.value.code == "conflict_group"
-    installed = db_session.query(WorkspaceAppInstallation).filter(
-        WorkspaceAppInstallation.workspace_id == workspace.id,
-        WorkspaceAppInstallation.state == "installed",
-    ).all()
+    installed = (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(
+            WorkspaceAppInstallation.workspace_id == workspace.id,
+            WorkspaceAppInstallation.state == "installed",
+        )
+        .all()
+    )
     assert [row.app_id for row in installed] == [first.app_id]
 
 
@@ -1097,6 +1402,323 @@ def test_nested_exclusive_routes_are_rejected_even_without_a_shared_group(
     assert caught.value.code == "route_conflict"
 
 
+@pytest.mark.parametrize(
+    ("left", "right", "expected"),
+    [
+        ("/api/v1/chat", "/api/v1/chat", True),
+        ("/api/v1/chat", "/api/v1/chat/history", True),
+        ("/api/v1/chat/history", "/api/v1/chat", True),
+        ("/api/v1/chat", "/api/v1/chatbot", False),
+        ("/api/v1/chat-v2", "/api/v1/chat", False),
+    ],
+)
+def test_authority_overlap_is_segment_aware(left, right, expected):
+    assert slash_boundary_paths_overlap(left, right) is expected
+
+
+def test_api_prefix_conflict_blocks_install_plan_and_locked_apply_without_mutation(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "api-install-conflict", family="andritz")
+    target = _manifest_variant(
+        app_id="andritz.authority-probe",
+        version="1.0.0",
+        api_prefixes=["/api/v1/chat/history"],
+    )
+    _resolve_variants(monkeypatch, target)
+
+    # The initial plan is valid. A competing installation that appears before
+    # apply must be caught by the locked replan, before any target-side write.
+    stale_plan = plan_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        operation="install",
+        app_id=target.app_id,
+        target_version=target.version,
+        expected_manifest_digest=target.digest,
+    )
+    chat = _manifest("andritz.chat", "1.0.0")
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=chat.app_id,
+        version=chat.version,
+        digest=chat.digest,
+        key="install-api-owner",
+    )
+    before = {
+        "installations": db_session.query(WorkspaceAppInstallation).count(),
+        "operations": db_session.query(WorkspaceAppOperation).count(),
+        "steps": db_session.query(WorkspaceAppLifecycleStepReceipt).count(),
+        "audits": db_session.query(AuditLog)
+        .filter(AuditLog.event_type.like("workspace_app.%"))
+        .count(),
+    }
+
+    with pytest.raises(WorkspaceAppLifecycleConflict) as plan_conflict:
+        plan_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="install",
+            app_id=target.app_id,
+            target_version=target.version,
+            expected_manifest_digest=target.digest,
+        )
+    assert plan_conflict.value.code == "api_prefix_conflict"
+
+    with pytest.raises(WorkspaceAppLifecycleConflict) as apply_conflict:
+        apply_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="install",
+            app_id=target.app_id,
+            target_version=target.version,
+            expected_manifest_digest=target.digest,
+            expected_plan_sha256=stale_plan.plan_sha256,
+            actor="lot9-test",
+            idempotency_key="conflicting-api-install",
+        )
+    assert apply_conflict.value.code == "api_prefix_conflict"
+    assert {
+        "installations": db_session.query(WorkspaceAppInstallation).count(),
+        "operations": db_session.query(WorkspaceAppOperation).count(),
+        "steps": db_session.query(WorkspaceAppLifecycleStepReceipt).count(),
+        "audits": db_session.query(AuditLog)
+        .filter(AuditLog.event_type.like("workspace_app.%"))
+        .count(),
+    } == before
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.app_id == target.app_id)
+        .count()
+        == 0
+    )
+
+
+def test_api_prefix_conflict_blocks_upgrade_before_receipts_or_audit(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "api-upgrade-conflict", family="andritz")
+    v1 = _manifest_variant(
+        app_id="andritz.authority-probe",
+        version="1.0.0",
+        api_prefixes=["/api/v1/authority-probe"],
+    )
+    v2 = _manifest_variant(
+        app_id=v1.app_id,
+        version="2.0.0",
+        api_prefixes=["/api/v1/chat/admin"],
+    )
+    _resolve_variants(monkeypatch, v1, v2)
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=v1.app_id,
+        version=v1.version,
+        digest=v1.digest,
+        key="install-upgrade-probe",
+    )
+    stale_plan = plan_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        operation="upgrade",
+        app_id=v2.app_id,
+        target_version=v2.version,
+        expected_manifest_digest=v2.digest,
+    )
+    chat = _manifest("andritz.chat", "1.0.0")
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=chat.app_id,
+        version=chat.version,
+        digest=chat.digest,
+        key="install-upgrade-api-owner",
+    )
+    before_operations = db_session.query(WorkspaceAppOperation).count()
+    before_steps = db_session.query(WorkspaceAppLifecycleStepReceipt).count()
+    before_audits = (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count()
+    )
+
+    with pytest.raises(WorkspaceAppLifecycleConflict) as caught:
+        plan_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="upgrade",
+            app_id=v2.app_id,
+            target_version=v2.version,
+            expected_manifest_digest=v2.digest,
+        )
+    assert caught.value.code == "api_prefix_conflict"
+    with pytest.raises(WorkspaceAppLifecycleConflict) as apply_conflict:
+        apply_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="upgrade",
+            app_id=v2.app_id,
+            target_version=v2.version,
+            expected_manifest_digest=v2.digest,
+            expected_plan_sha256=stale_plan.plan_sha256,
+            actor="lot9-test",
+            idempotency_key="conflicting-api-upgrade",
+        )
+    assert apply_conflict.value.code == "api_prefix_conflict"
+    installation = (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.app_id == v1.app_id)
+        .one()
+    )
+    assert (installation.version, installation.revision) == ("1.0.0", 1)
+    assert db_session.query(WorkspaceAppOperation).count() == before_operations
+    assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == before_steps
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count()
+        == before_audits
+    )
+
+
+def test_api_prefix_conflict_blocks_rollback_to_historical_authority(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "api-rollback-conflict", family="andritz")
+    v1 = _manifest_variant(
+        app_id="andritz.authority-probe",
+        version="1.0.0",
+        api_prefixes=["/api/v1/chat/history"],
+    )
+    v2 = _manifest_variant(
+        app_id=v1.app_id,
+        version="2.0.0",
+        api_prefixes=["/api/v1/authority-probe"],
+    )
+    _resolve_variants(monkeypatch, v1, v2)
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=v1.app_id,
+        version=v1.version,
+        digest=v1.digest,
+        key="install-rollback-probe",
+    )
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="upgrade",
+        app_id=v2.app_id,
+        version=v2.version,
+        digest=v2.digest,
+        key="upgrade-rollback-probe",
+    )
+    stale_plan = plan_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        operation="rollback",
+        app_id=v1.app_id,
+        target_version=v1.version,
+        expected_manifest_digest=v1.digest,
+    )
+    chat = _manifest("andritz.chat", "1.0.0")
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=chat.app_id,
+        version=chat.version,
+        digest=chat.digest,
+        key="install-rollback-api-owner",
+    )
+    before_operations = db_session.query(WorkspaceAppOperation).count()
+    before_steps = db_session.query(WorkspaceAppLifecycleStepReceipt).count()
+    before_audits = (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count()
+    )
+
+    with pytest.raises(WorkspaceAppLifecycleConflict) as caught:
+        plan_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="rollback",
+            app_id=v1.app_id,
+            target_version=v1.version,
+            expected_manifest_digest=v1.digest,
+        )
+    assert caught.value.code == "api_prefix_conflict"
+    with pytest.raises(WorkspaceAppLifecycleConflict) as apply_conflict:
+        apply_workspace_app_lifecycle(
+            db_session,
+            workspace_id=workspace.id,
+            operation="rollback",
+            app_id=v1.app_id,
+            target_version=v1.version,
+            expected_manifest_digest=v1.digest,
+            expected_plan_sha256=stale_plan.plan_sha256,
+            actor="lot9-test",
+            idempotency_key="conflicting-api-rollback",
+        )
+    assert apply_conflict.value.code == "api_prefix_conflict"
+    installation = (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.app_id == v1.app_id)
+        .one()
+    )
+    assert (installation.version, installation.revision) == ("2.0.0", 2)
+    assert db_session.query(WorkspaceAppOperation).count() == before_operations
+    assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == before_steps
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count()
+        == before_audits
+    )
+
+
+def test_lexically_similar_api_prefixes_can_coexist(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "api-prefix-siblings", family="andritz")
+    chat = _manifest("andritz.chat", "1.0.0")
+    sibling = _manifest_variant(
+        app_id="andritz.chatbot",
+        version="1.0.0",
+        api_prefixes=["/api/v1/chatbot"],
+        route="/chatbot",
+    )
+    _resolve_variants(monkeypatch, sibling)
+    _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=chat.app_id,
+        version=chat.version,
+        digest=chat.digest,
+        key="install-chat-sibling-owner",
+    )
+    _, result = _plan_and_apply(
+        db_session,
+        workspace,
+        operation="install",
+        app_id=sibling.app_id,
+        version=sibling.version,
+        digest=sibling.digest,
+        key="install-chatbot-sibling",
+    )
+
+    assert result.installation.state == "installed"
+    assert {
+        row.app_id
+        for row in db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.state == "installed")
+        .all()
+    } == {chat.app_id, sibling.app_id}
+
+
 def test_second_composed_apply_failure_rolls_back_the_wider_transaction(db_session):
     workspace = _workspace(db_session, "composed-failure", family="andritz")
     first = _manifest("andritz.chat", "1.0.0")
@@ -1147,4 +1769,6 @@ def test_second_composed_apply_failure_rolls_back_the_wider_transaction(db_sessi
     assert db_session.query(WorkspaceAppInstallation).count() == 0
     assert db_session.query(WorkspaceAppOperation).count() == 0
     assert db_session.query(WorkspaceAppLifecycleStepReceipt).count() == 0
-    assert db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    assert (
+        db_session.query(AuditLog).filter(AuditLog.event_type.like("workspace_app.%")).count() == 0
+    )

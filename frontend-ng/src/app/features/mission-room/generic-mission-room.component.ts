@@ -97,6 +97,21 @@ export const GENERIC_MISSION_ROOM_COPY = Object.freeze({
             >{{ item.label }}</a>
           }
         </nav>
+        @if (workspace.workspaces().length > 1) {
+          <label class="generic-workspace">
+            <span>Workspace</span>
+            <select
+              data-testid="mission-workspace-switch"
+              [value]="workspace.currentSlug() || ''"
+              (change)="selectWorkspace(($any($event.target)).value)"
+              aria-label="Changer de workspace"
+            >
+              @for (candidate of workspace.workspaces(); track candidate.id) {
+                <option [value]="candidate.slug">{{ candidate.name }}</option>
+              }
+            </select>
+          </label>
+        }
       </aside>
 
       <main class="generic-content">
@@ -126,13 +141,16 @@ export const GENERIC_MISSION_ROOM_COPY = Object.freeze({
   styles: [`
     :host { display: block; min-height: 100%; background: #071018; color: #e9f0f4; }
     .generic-mission-room { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
-    .generic-rail { padding: 28px 18px; border-right: 1px solid rgba(255,255,255,.1); background: #0a151f; }
+    .generic-rail { display: flex; flex-direction: column; padding: 28px 18px; border-right: 1px solid rgba(255,255,255,.1); background: #0a151f; }
     .generic-brand { display: grid; gap: 6px; margin-bottom: 28px; }
     .generic-brand span, header span { color: #80c9c5; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
     .generic-brand strong { font-size: 18px; }
     nav { display: grid; gap: 6px; }
     nav a { padding: 10px 12px; border-radius: 8px; color: #a9bac5; text-decoration: none; }
     nav a:hover, nav a.active { color: #fff; background: rgba(128,201,197,.12); }
+    .generic-workspace { display: grid; gap: 5px; margin-top: auto; padding-top: 24px; }
+    .generic-workspace span { color: #80c9c5; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .generic-workspace select { width: 100%; min-width: 0; padding: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #e9f0f4; background: #071018; }
     .generic-content { padding: 36px; }
     header h1 { margin: 7px 0; font-size: 32px; }
     header p { margin: 0 0 28px; color: #8fa2ae; }
@@ -146,7 +164,7 @@ export const GENERIC_MISSION_ROOM_COPY = Object.freeze({
 })
 export class GenericMissionRoomComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
-  private readonly workspace = inject(WorkspaceService);
+  protected readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private requests = new Subscription();
@@ -226,6 +244,14 @@ export class GenericMissionRoomComponent implements OnInit, OnDestroy {
     this.initialized = false;
     this.unregisterReset();
     this.requests.unsubscribe();
+  }
+
+  selectWorkspace(slug: string): void {
+    if (!slug || slug === this.workspace.currentSlug()) return;
+    if (!this.workspace.switchWorkspace(slug)) return;
+    // The root resolver owns the destination after WorkspaceService has
+    // synchronously purged tenant state and published the next epoch.
+    void this.router.navigateByUrl('/');
   }
 
   private load(): void {

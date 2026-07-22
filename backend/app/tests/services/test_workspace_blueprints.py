@@ -628,8 +628,7 @@ def test_contract_v2_workspace_apps_round_trip_exact_manifests_and_configuration
 
     assert blueprint["experience"]["contract_version"] == 2
     assert [
-        item["app_id"]
-        for item in blueprint["experience"]["workspace_apps"]["installations"]
+        item["app_id"] for item in blueprint["experience"]["workspace_apps"]["installations"]
     ] == ["andritz.chat", "andritz.knowledge-capture"]
     assert set(blueprint["experience"]["workspace_apps"]["installations"][0]) == {
         "app_id",
@@ -638,9 +637,10 @@ def test_contract_v2_workspace_apps_round_trip_exact_manifests_and_configuration
         "config",
     }
     assert "settings" not in blueprint["experience"]["workspace_apps"]
-    assert [
-        item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]
-    ] == ["install", "install"]
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "install",
+        "install",
+    ]
     assert (
         db_session.query(WorkspaceAppInstallation)
         .filter(WorkspaceAppInstallation.workspace_id == target.id)
@@ -733,10 +733,10 @@ def test_contract_v2_replace_portable_plans_apps_against_prospective_family(
 
     assert dry_run["can_apply"] is True
     assert dry_run["experience"]["workspace_apps"]["conflicts"] == []
-    assert [
-        item["action"]
-        for item in dry_run["experience"]["workspace_apps"]["operations"]
-    ] == ["install", "install"]
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "install",
+        "install",
+    ]
     assert target.settings == original_settings
     assert db_session.is_modified(target, include_collections=True) is False
     assert (
@@ -826,8 +826,7 @@ def test_contract_v2_reused_app_cannot_end_in_incompatible_experience(db_session
     assert dry_run["can_apply"] is False
     assert any(
         item.get("reason") == "workspace_family_incompatible"
-        and item.get("path")
-        == "/experience/workspace_apps/installations/andritz.chat"
+        and item.get("path") == "/experience/workspace_apps/installations/andritz.chat"
         for item in dry_run["experience"]["workspace_apps"]["conflicts"]
     )
     with pytest.raises(
@@ -1186,9 +1185,9 @@ def test_contract_v2_authoritative_dry_run_plans_removal_without_mutation(db_ses
         dry_run=True,
     )
 
-    assert [
-        item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]
-    ] == ["uninstall"]
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "uninstall"
+    ]
     db_session.refresh(installation)
     assert installation.state == "installed"
 
@@ -1202,6 +1201,77 @@ def test_contract_v2_authoritative_dry_run_plans_removal_without_mutation(db_ses
     )
     db_session.refresh(installation)
     assert installation.state == "uninstalled"
+
+
+def test_contract_v2_cross_workspace_restore_converges_to_older_manifest(db_session):
+    source = _workspace(
+        db_session,
+        id_="ws-blueprint-restore-source",
+        slug="blueprint-restore-source",
+        settings={"family": "generic"},
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-blueprint-restore-target",
+        slug="blueprint-restore-target",
+        settings={"family": "generic"},
+    )
+    user = _user(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="mission-room.extension",
+        version="1.0.0",
+    )
+    target_installation = _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="mission-room.extension",
+        version="1.1.0",
+    )
+    db_session.commit()
+
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+    )
+
+    [operation] = dry_run["experience"]["workspace_apps"]["operations"]
+    assert operation["action"] == "rollback"
+    assert operation["request"]["allow_unrecorded_rollback"] is True
+
+    workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=False,
+        expected_plan_token=dry_run["plan_token"],
+    )
+
+    db_session.refresh(target_installation)
+    assert target_installation.version == "1.0.0"
+    assert target_installation.configuration == {
+        "assistant_profile": "default",
+        "profile": "generic",
+    }
+    restore = (
+        db_session.query(WorkspaceAppOperation)
+        .filter(
+            WorkspaceAppOperation.workspace_id == target.id,
+            WorkspaceAppOperation.operation == "rollback",
+        )
+        .one()
+    )
+    assert restore.lifecycle_phase == "normal"
 
 
 @pytest.mark.parametrize(
@@ -1900,15 +1970,11 @@ def test_blueprint_v2_round_trip_preserves_homonyms_bidirectional_edges_and_pres
     )
     target_contexts = {
         row.blueprint_key: row
-        for row in db_session.query(Context)
-        .filter(Context.workspace_id == target.id)
-        .all()
+        for row in db_session.query(Context).filter(Context.workspace_id == target.id).all()
     }
     target_systems = {
         row.blueprint_key: row
-        for row in db_session.query(System)
-        .filter(System.workspace_id == target.id)
-        .all()
+        for row in db_session.query(System).filter(System.workspace_id == target.id).all()
     }
     assert [row.name for row in target_contexts.values()] == [
         primary_context.name,
