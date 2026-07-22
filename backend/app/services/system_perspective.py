@@ -8,6 +8,7 @@ identity while retaining explicit ``not_measured``/``not_configured`` states.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -16,7 +17,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.iam.dependencies import current_membership, evaluate_permission
-from app.core.iam.roles import is_admin_template
 from app.models.audit import AuditLog
 from app.models.capability import Capability
 from app.models.context import Context
@@ -29,11 +29,38 @@ from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.task import Task
 from app.models.user import User
+from app.models.value_loop import (
+    ValueActionExecution,
+    ValueMeasurement,
+    ValueScenario,
+    ValueSimulation,
+)
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from app.services.audit_access import readable_audit_logs
+from app.services.chat_execution_policy import migration_059_system_id
+from app.services.decision_access import readable_decisions
 from app.services.iam.config_service import is_iam_enforced_for_workspace
+from app.services.iam.decision_plane import resolve_action
+from app.services.iam.legacy_authority import legacy_object_action_allowed
 from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
+from app.services.projection_integrity import (
+    canonical_run_provenance,
+    measured_costs_by_run,
+    measured_roi_cohort,
+    scrub_projection_mapping,
+)
+from app.services.run_access import (
+    readable_runs,
+    readable_skill_invocations_for_runs,
+)
+from app.services.value_loop_contract import (
+    CONTROL_POLICY_GUARDRAILS_PATCH_V1,
+    validate_value_loop_runtime_contract,
+)
+from app.services.value_loop_gate import value_loop_requested
+from app.services.value_scenario_access import readable_value_scenarios
 
 OBJECT_LENSES = ("build", "operate", "steer", "govern")
 FACETS = ("overview", "runs", "design", "context")
@@ -73,6 +100,12 @@ def build_system_perspective(
         .order_by(Run.started_at.desc())
         .all()
     )
+    runs = readable_runs(
+        db,
+        runs=runs,
+        user=user,
+        workspace=workspace,
+    )
     run_ids = [run.id for run in runs]
     invocations = (
         db.query(SkillInvocation)
@@ -80,6 +113,13 @@ def build_system_perspective(
         .all()
         if run_ids
         else []
+    )
+    invocations = readable_skill_invocations_for_runs(
+        db,
+        invocations=invocations,
+        runs=runs,
+        user=user,
+        workspace=workspace,
     )
     evaluations = (
         db.query(EvaluationScore)
@@ -130,7 +170,15 @@ def build_system_perspective(
     control = _control_policy(db, workspace.id, system)
     adaptive = _adaptive_policy(db, workspace.id, system)
     membrane = resolve_membrane_spec(control=control)
-    decisions = _decisions(db, workspace.id, system.id, run_ids, since)
+    decisions = _decisions(
+        db,
+        workspace=workspace,
+        user=user,
+        system_id=system.id,
+        run_ids=run_ids,
+        since=since,
+        visible_runs=runs,
+    )
     versions = (
         db.query(SystemVersion)
         .filter(
@@ -170,11 +218,22 @@ def build_system_perspective(
         .all()
     )
     tasks = [item for item in tasks if item.created_by != "showcase-seed"]
-    audits = _system_audits(db, workspace.id, system.id, run_ids, since)
+    raw_audits = _system_audits(db, workspace.id, system.id, run_ids, since)
+    audits, audits_restricted = readable_audit_logs(
+        db,
+        logs=raw_audits,
+        user=user,
+        workspace=workspace,
+    )
+    value_loop = _value_loop_projection(
+        db,
+        workspace=workspace,
+        user=user,
+        system=system,
+        since=since,
+    )
 
     latest_version = versions[0] if versions else None
-    latest_run = runs[0] if runs else None
-    snapshot_id = _snapshot_id(system, latest_version, latest_run, window)
     generated_at = _iso(datetime.utcnow())
     header = _header(system, runs)
     common = {
@@ -192,10 +251,12 @@ def build_system_perspective(
         "jobs": jobs,
         "tasks": tasks,
         "audits": audits,
+        "audits_restricted": audits_restricted,
         "since": since,
         "generated_at": generated_at,
+        "value_loop": value_loop,
     }
-    facets = {
+    all_facets = {
         "build": _build_projection(system, **common),
         "operate": _operate_projection(system, **common),
         "steer": _steer_projection(system, **common),
@@ -206,23 +267,33 @@ def build_system_perspective(
             system=system,
             **common,
         ),
-    }[lens]
+    }
+    identity = {
+        "workspace_id": workspace.id,
+        "capability_id": system.capability_id,
+        "system_id": system.id,
+        "version_id": latest_version.id if latest_version else None,
+        "name": system.name,
+    }
+    snapshot_id = _snapshot_id(
+        workspace_id=workspace.id,
+        system_id=system.id,
+        window=window,
+        identity=identity,
+        header=header,
+        all_facets=all_facets,
+        generated_at=generated_at,
+    )
 
     return {
         "schema_version": 1,
         "snapshot_id": snapshot_id,
         "generated_at": generated_at,
         "window": window,
-        "identity": {
-            "workspace_id": workspace.id,
-            "capability_id": system.capability_id,
-            "system_id": system.id,
-            "version_id": latest_version.id if latest_version else None,
-            "name": system.name,
-        },
+        "identity": identity,
         "header": header,
         "lens": lens,
-        "facets": facets,
+        "facets": all_facets[lens],
     }
 
 
@@ -285,7 +356,11 @@ def _operate_projection(system: System, **data: Any) -> dict[str, Any]:
     completed = [run for run in terminal if run.status == "completed"]
     failed = [run for run in runs if run.status == "failed" or bool(run.error)]
     durations = sorted(float(run.duration_ms) for run in completed if run.duration_ms is not None)
-    costs = [float(run.cost_internal) for run in completed if run.cost_internal is not None]
+    cost_evidence = measured_costs_by_run(invocations)
+    costs = [cost_evidence[run.id][0] for run in completed if run.id in cost_evidence]
+    cost_sample_count = sum(
+        cost_evidence[run.id][1] for run in completed if run.id in cost_evidence
+    )
     success_rate = (len(completed) / len(terminal) * 100.0) if terminal else None
     sla = capability.sla if capability and isinstance(capability.sla, Mapping) else {}
     success_target = _sla_success_target(sla)
@@ -308,7 +383,7 @@ def _operate_projection(system: System, **data: Any) -> dict[str, Any]:
             _block("runs", "Runs", [
                 _fact("recent_runs", "Recent Runs", [_run_value(run) for run in runs[:10]], measured=bool(runs), source="runs", sample_count=len(runs) if runs else None),
                 _fact("p50_latency", "p50 latency", _percentile(durations, 0.5), measured=bool(durations), unit="ms", source="runs.duration_ms", sample_count=len(durations) if durations else None),
-                _fact("cost", "Measured cost", sum(costs) if costs else None, measured=bool(costs), source="runs.cost_internal", sample_count=len(costs) if costs else None),
+                _fact("cost", "Measured cost", sum(costs) if costs else None, measured=bool(costs), source="skill_invocations.cost,cost_measured", sample_count=cost_sample_count or None),
             ]),
             _block("errors", "Errors", [
                 _fact("failed_runs", "Failed Runs", len(failed) if runs else None, measured=bool(runs), source="runs.status,error", sample_count=len(runs) if runs else None),
@@ -337,54 +412,115 @@ def _operate_projection(system: System, **data: Any) -> dict[str, Any]:
 
 def _steer_projection(system: System, **data: Any) -> dict[str, Any]:
     runs: list[Run] = data["runs"]
+    invocations: list[SkillInvocation] = data["invocations"]
     decisions: list[Decision] = data["decisions"]
     control: Optional[ControlPolicy] = data["control"]
     adaptive: Optional[AdaptivePolicy] = data["adaptive"]
     completed = [run for run in runs if run.status == "completed"]
-    costs = [float(run.cost_internal) for run in completed if run.cost_internal is not None]
-    values = [float(run.value_estimated) for run in completed if run.value_estimated is not None]
+    cost_evidence = measured_costs_by_run(invocations)
+    costs = [cost_evidence[run.id][0] for run in completed if run.id in cost_evidence]
+    cost_sample_count = sum(
+        cost_evidence[run.id][1] for run in completed if run.id in cost_evidence
+    )
+    values = [
+        float(run.value_estimated)
+        for run in completed
+        if run.value_estimated is not None
+        and str(run.value_source or "unset") in {"auto", "operator"}
+    ]
     total_cost = sum(costs) if costs else None
     total_value = sum(values) if values else None
-    roi = (
-        ((total_value - total_cost) / total_cost) * 100.0
-        if total_cost and total_value is not None
-        else None
-    )
+    roi_cohort = measured_roi_cohort(completed, cost_evidence)
     model = _steering_model(system)
-    simulation = _simulation_preview(
-        system.id,
-        total_cost,
-        total_value,
-        model,
-        as_of=data["generated_at"],
-    )
+    value_loop = data.get("value_loop")
+    simulation = _simulation_preview(value_loop)
+    overview_blocks = [
+        _block("outcomes", "Measured outcomes", [
+            _fact("value", "Estimated value", total_value, measured=bool(values), source="runs.value_estimated", sample_count=len(values) if values else None),
+            _fact("cost", "Internal cost", total_cost, measured=bool(costs), source="skill_invocations.cost,cost_measured", sample_count=cost_sample_count or None),
+            _fact("roi", "ROI", roi_cohort.roi_percent, measured=roi_cohort.roi_percent is not None, unit="%", source="derived:runs.value_estimated,skill_invocations.cost,cost_measured", sample_count=roi_cohort.run_count if roi_cohort.roi_percent is not None else None),
+        ]),
+        _block("recommendations", "Recommendations", [
+            _fact("decisions", "Open decisions", [_decision_value(item) for item in decisions if item.status in {"proposed", "accepted"}], measured=bool(decisions), source="decisions", sample_count=len(decisions) if decisions else None),
+        ]),
+    ]
+    design_blocks = [
+        _block("policies", "Steering policies", [
+            _fact("control", "Control policy", _policy_value(control), configured=control is not None, source="control_policies"),
+            _fact("adaptive", "Adaptive policy", _adaptive_value(adaptive), configured=adaptive is not None, source="adaptive_policies"),
+        ]),
+        _block("simulation", "Impact preview", [
+            _fact("model", "Model", model, configured=model is not None, source="systems.settings.steering_model"),
+            _fact("preview", "Modelled preview", simulation, configured=simulation is not None, source="value_simulations:simulation:not_measurement", sample_count=1 if simulation is not None else None),
+        ]),
+    ]
+    if isinstance(value_loop, Mapping):
+        scenarios = value_loop.get("scenarios")
+        scenario_rows = scenarios if isinstance(scenarios, list) else []
+        value_loop_restricted = value_loop.get("state") == "restricted"
+        actuator_configured = value_loop.get("actuator_configured") is True
+        overview_blocks.append(
+            _block("value-loop", "Outcome → Decision → Act → Measure", [
+                _fact(
+                    "lifecycle",
+                    "Authoritative lifecycle",
+                    value_loop.get("latest_status"),
+                    restricted=value_loop_restricted,
+                    configured=True,
+                    source="value_scenarios.status",
+                    as_of=value_loop.get("as_of"),
+                ),
+                _fact(
+                    "scenarios",
+                    "Governed scenarios",
+                    scenario_rows,
+                    restricted=value_loop_restricted,
+                    measured=True,
+                    source="value_scenarios,value_simulations,value_action_executions,value_measurements",
+                    as_of=value_loop.get("as_of"),
+                    sample_count=len(scenario_rows),
+                ),
+                _fact(
+                    "observed_measurements",
+                    "Observed measurements",
+                    value_loop.get("measured_count"),
+                    restricted=value_loop_restricted,
+                    measured=True,
+                    source="value_measurements.status",
+                    as_of=value_loop.get("as_of"),
+                    sample_count=value_loop.get("measurement_count"),
+                ),
+            ]),
+        )
+        design_blocks.append(
+            _block("value-actuator", "Configured value actuator", [
+                _fact(
+                    "actuator",
+                    "Actuator",
+                    value_loop.get("actuator"),
+                    restricted=value_loop_restricted,
+                    configured=actuator_configured,
+                    source="systems.settings.value_loop.actuators",
+                ),
+                _fact(
+                    "fields",
+                    "Allowed fields",
+                    value_loop.get("actuator_fields"),
+                    restricted=value_loop_restricted,
+                    configured=actuator_configured,
+                    source="systems.settings.value_loop.actuators.fields",
+                ),
+            ]),
+        )
     return _facets(
-        overview=[
-            _block("outcomes", "Measured outcomes", [
-                _fact("value", "Estimated value", total_value, measured=bool(values), source="runs.value_estimated", sample_count=len(values) if values else None),
-                _fact("cost", "Internal cost", total_cost, measured=bool(costs), source="runs.cost_internal", sample_count=len(costs) if costs else None),
-                _fact("roi", "ROI", roi, measured=roi is not None, unit="%", source="derived:runs.value_estimated,cost_internal", sample_count=len(completed) if roi is not None else None),
-            ]),
-            _block("recommendations", "Recommendations", [
-                _fact("decisions", "Open decisions", [_decision_value(item) for item in decisions if item.status in {"proposed", "accepted"}], measured=bool(decisions), source="decisions", sample_count=len(decisions) if decisions else None),
-            ]),
-        ],
+        overview=overview_blocks,
         runs=[
             _block("outcome-distribution", "Outcome distribution", [
                 _fact("confidence", "Average confidence", _average([run.confidence for run in completed]), measured=any(run.confidence is not None for run in completed), source="runs.confidence", sample_count=len([run for run in completed if run.confidence is not None]) or None),
                 _fact("efficiency", "Average efficiency", _average([run.efficiency for run in completed]), measured=any(run.efficiency is not None for run in completed), source="runs.efficiency", sample_count=len([run for run in completed if run.efficiency is not None]) or None),
             ]),
         ],
-        design=[
-            _block("policies", "Steering policies", [
-                _fact("control", "Control policy", _policy_value(control), configured=control is not None, source="control_policies"),
-                _fact("adaptive", "Adaptive policy", _adaptive_value(adaptive), configured=adaptive is not None, source="adaptive_policies"),
-            ]),
-            _block("simulation", "Impact preview", [
-                _fact("model", "Model", model, configured=model is not None, source="systems.settings.steering_model"),
-                _fact("preview", "Modelled preview", simulation, measured=simulation is not None, source="simulation:not_measurement", sample_count=len(completed) if simulation is not None else None),
-            ]),
-        ],
+        design=design_blocks,
         context=[
             _block("assumptions", "Decision assumptions", [
                 _fact("window", "Evidence window", "current perspective window", source="request.window"),
@@ -410,10 +546,6 @@ def _govern_projection(
     runs: list[Run] = data["runs"]
     membership = current_membership(db, user, workspace)
     role = getattr(membership, "role_template", None) or getattr(membership, "role", None)
-    privileged = bool(
-        getattr(user, "role", None) == "admin"
-        or (membership and is_admin_template(membership.role_template, membership.role))
-    )
     resource_attrs = {
         "iam_manifest": "system_engine",
         "system_id": system.id,
@@ -448,27 +580,79 @@ def _govern_projection(
         model=system.default_model,
         action="system.engine.run",
     )
-    engine_allowed = (iam_decision.allowed or not iam_enforced) and membrane_decision.allowed
+    legacy_read_allowed = bool(membership) and (
+        read_decision.allowed or not iam_enforced
+    )
+    legacy_engine_allowed = bool(membership) and (
+        iam_decision.allowed or not iam_enforced
+    )
+    read_resolution = resolve_action(
+        db,
+        user=user,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=legacy_read_allowed,
+        resource_attrs=resource_attrs,
+        audit_shadow_diff=False,
+    )
+    engine_resolution = resolve_action(
+        db,
+        user=user,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=legacy_engine_allowed,
+        resource_attrs=resource_attrs,
+        audit_shadow_diff=False,
+    )
+    admin_resolution = resolve_action(
+        db,
+        user=user,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="admin",
+            resource_attrs={
+                "managed_system": migration_059_system_id(workspace) == system.id,
+            },
+        ),
+        resource_attrs=resource_attrs,
+        audit_shadow_diff=False,
+    )
+    engine_allowed = (
+        engine_resolution.effective_allowed and membrane_decision.allowed
+    )
     access = {
         "system.read": {
-            "allowed": bool(membership) and (read_decision.allowed or not iam_enforced),
-            "iam_enforced": iam_enforced,
-            "iam_reason": read_decision.reason,
-            "iam_policy_id": read_decision.policy_id,
+            **read_resolution.to_dict(),
+            "allowed": read_resolution.effective_allowed,
         },
         "system.engine.run": {
+            **engine_resolution.to_dict(),
             "allowed": engine_allowed,
-            "iam_enforced": iam_enforced,
-            "iam_reason": iam_decision.reason,
-            "iam_policy_id": iam_decision.policy_id,
             "membrane_mode": membrane.effective_mode.value,
             "membrane_violations": list(membrane_decision.violations),
         },
+        "system.admin": {
+            **admin_resolution.to_dict(),
+            "allowed": admin_resolution.effective_allowed,
+        },
     }
     facet_states = _membrane_states(membrane, data["decisions"])
-    version_value = [_version_value(item) for item in versions] if privileged else None
-    audit_value = [_audit_value(item) for item in audits] if privileged else None
-    provenance_rows = _provenance_rows(runs)
+    admin_allowed = admin_resolution.effective_allowed
+    audits_restricted = bool(data.get("audits_restricted"))
+    version_value = [_version_value(item) for item in versions] if admin_allowed else None
+    audit_value = [_audit_value(item) for item in audits]
+    provenance_rows = _provenance_rows(runs, data["invocations"])
     return _facets(
         overview=[
             _block("effective-access", "Effective access", [
@@ -482,15 +666,15 @@ def _govern_projection(
         ],
         runs=[
             _block("execution-audit", "Execution audit", [
-                _fact("events", "System events", audit_value, restricted=not privileged, measured=bool(audits), source="audit_logs", sample_count=len(audits) if audits and privileged else None),
+                _fact("events", "System events", audit_value, restricted=audits_restricted, measured=bool(audits), source="audit_logs", sample_count=len(audits) if audits else None),
             ]),
         ],
         design=[
             _block("versions", "Versions", [
-                _fact("history", "Version history", version_value, restricted=not privileged, measured=bool(versions), source="system_versions", sample_count=len(versions) if versions and privileged else None),
+                _fact("history", "Version history", version_value, restricted=not admin_allowed, measured=bool(versions), source="system_versions", sample_count=len(versions) if versions and admin_allowed else None),
             ]),
             _block("change-history", "Change history", [
-                _fact("changes", "Audited changes", audit_value, restricted=not privileged, measured=bool(audits), source="audit_logs", sample_count=len(audits) if audits and privileged else None),
+                _fact("changes", "Audited changes", audit_value, restricted=audits_restricted, measured=bool(audits), source="audit_logs", sample_count=len(audits) if audits else None),
                 _fact(
                     "sensitive_values",
                     "Sensitive field values",
@@ -506,7 +690,7 @@ def _govern_projection(
             ]),
             _block("provenance", "Provenance", [
                 _fact("policy", "Provenance state", facet_states.get("provenance"), configured="provenance" in membrane.configured_facets(), source="membrane.provenance"),
-                _fact("artifacts", "Persisted artifacts", provenance_rows, measured=bool(provenance_rows), source="runs.output_ref/checkpoints", sample_count=len(provenance_rows) if provenance_rows else None),
+                _fact("artifacts", "Corroborated artifact references", provenance_rows, measured=bool(provenance_rows), source="runs.output_ref._membrane_provenance + runs.checkpoints[kind=membrane_provenance] + skill_invocations.trace.membrane_provenance", sample_count=len(provenance_rows) if provenance_rows else None),
             ]),
         ],
     )
@@ -659,16 +843,19 @@ def _adaptive_policy(db: DBSession, workspace_id: str, system: System) -> Option
 
 def _decisions(
     db: DBSession,
-    workspace_id: str,
+    *,
+    workspace: Workspace,
+    user: User,
     system_id: str,
     run_ids: list[str],
     since: datetime,
+    visible_runs: Iterable[Run],
 ) -> list[Decision]:
     targets = [system_id, *run_ids]
     rows = (
         db.query(Decision)
         .filter(
-            Decision.workspace_id == workspace_id,
+            Decision.workspace_id == workspace.id,
             Decision.target_id.in_(targets),
             Decision.created_at >= since,
         )
@@ -676,7 +863,14 @@ def _decisions(
         .limit(50)
         .all()
     )
-    return [item for item in rows if not _is_showcase_seed_payload(item.rationale)]
+    rows = [item for item in rows if not _is_showcase_seed_payload(item.rationale)]
+    return readable_decisions(
+        db,
+        decisions=rows,
+        user=user,
+        workspace=workspace,
+        visible_runs=visible_runs,
+    )
 
 
 def _system_audits(
@@ -711,6 +905,180 @@ def _system_audits(
     return rows
 
 
+def _value_loop_projection(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    system: System,
+    since: datetime,
+) -> Optional[dict[str, Any]]:
+    """Return a secret-free value-loop read model only behind the Lot 8 gate."""
+
+    if not value_loop_requested(db, workspace=workspace, system=system):
+        return None
+    actuator_contract = validate_value_loop_runtime_contract(
+        db,
+        workspace_id=workspace.id,
+        system=system,
+    )
+    raw_scenarios = (
+        db.query(ValueScenario)
+        .filter(
+            ValueScenario.workspace_id == workspace.id,
+            ValueScenario.system_id == system.id,
+            ValueScenario.created_at >= since,
+        )
+        .order_by(ValueScenario.created_at.desc(), ValueScenario.id.desc())
+        .limit(20)
+        .all()
+    )
+    scenarios = readable_value_scenarios(
+        db,
+        scenarios=raw_scenarios,
+        user=user,
+        workspace=workspace,
+    )
+    if raw_scenarios and not scenarios:
+        return {
+            "state": "restricted",
+            "latest_status": None,
+            "scenarios": [],
+            "measurement_count": None,
+            "measured_count": None,
+            "actuator": None,
+            "actuator_fields": [],
+            "actuator_configured": False,
+            "actuator_reason": "value_scenario_read_denied",
+            "as_of": _iso(datetime.utcnow()),
+        }
+    scenario_ids = [row.id for row in scenarios]
+    simulations = (
+        db.query(ValueSimulation)
+        .filter(
+            ValueSimulation.workspace_id == workspace.id,
+            ValueSimulation.system_id == system.id,
+            ValueSimulation.scenario_id.in_(scenario_ids),
+        )
+        .order_by(ValueSimulation.generated_at.desc(), ValueSimulation.id.desc())
+        .all()
+        if scenario_ids
+        else []
+    )
+    actions = (
+        db.query(ValueActionExecution)
+        .filter(
+            ValueActionExecution.workspace_id == workspace.id,
+            ValueActionExecution.system_id == system.id,
+            ValueActionExecution.scenario_id.in_(scenario_ids),
+        )
+        .all()
+        if scenario_ids
+        else []
+    )
+    measurements = (
+        db.query(ValueMeasurement)
+        .filter(
+            ValueMeasurement.workspace_id == workspace.id,
+            ValueMeasurement.system_id == system.id,
+            ValueMeasurement.scenario_id.in_(scenario_ids),
+        )
+        .order_by(ValueMeasurement.measured_at.desc(), ValueMeasurement.id.desc())
+        .all()
+        if scenario_ids
+        else []
+    )
+    simulation_by_scenario: dict[str, ValueSimulation] = {}
+    for row in simulations:
+        simulation_by_scenario.setdefault(row.scenario_id, row)
+    action_by_scenario = {row.scenario_id: row for row in actions}
+    measurement_by_scenario: dict[str, ValueMeasurement] = {}
+    for row in measurements:
+        measurement_by_scenario.setdefault(row.scenario_id, row)
+
+    scenario_values: list[dict[str, Any]] = []
+    for row in scenarios:
+        simulation = simulation_by_scenario.get(row.id)
+        action = action_by_scenario.get(row.id)
+        measurement = measurement_by_scenario.get(row.id)
+        scenario_values.append(
+            {
+                "id": row.id,
+                "status": row.status,
+                "source_run_id": row.source_run_id,
+                "created_at": _iso(row.created_at),
+                "simulation": (
+                    {
+                        "id": simulation.id,
+                        "evidence_type": "simulation",
+                        "model": simulation.model,
+                        "confidence": simulation.confidence,
+                        "assumptions": _safe_mapping(simulation.assumptions or {}),
+                        "projected_outcome": _safe_mapping(
+                            simulation.projected_outcome or {}
+                        ),
+                        "recommended_action": _safe_mapping(
+                            simulation.recommended_action or {}
+                        ),
+                        "provenance": _safe_mapping(simulation.provenance or {}),
+                    }
+                    if simulation is not None
+                    else None
+                ),
+                "action": (
+                    {
+                        "id": action.id,
+                        "actuator": action.actuator,
+                        "status": action.status,
+                        "changed_fields": sorted((action.patch or {}).keys()),
+                        "executed_at": _iso(action.executed_at),
+                    }
+                    if action is not None
+                    else None
+                ),
+                "measurement": (
+                    {
+                        "id": measurement.id,
+                        "status": measurement.status,
+                        "reason": measurement.reason,
+                        "simulation_id": measurement.simulation_id,
+                        "source_run_id": measurement.source_run_id,
+                        "evidence_type": "run" if measurement.source_run_id else None,
+                        "forecast_delta": _safe_mapping(
+                            measurement.forecast_delta or {}
+                        ) if measurement.forecast_delta is not None else None,
+                        "assumption_verdict": measurement.assumption_verdict,
+                        "assumption_evaluation": _safe_mapping(
+                            measurement.assumption_evaluation or {}
+                        ),
+                        "measured_at": _iso(measurement.measured_at),
+                    }
+                    if measurement is not None
+                    else None
+                ),
+            }
+        )
+
+    settings = system.settings if isinstance(system.settings, Mapping) else {}
+    value_settings = settings.get("value_loop")
+    actuators = value_settings.get("actuators") if isinstance(value_settings, Mapping) else {}
+    actuator = CONTROL_POLICY_GUARDRAILS_PATCH_V1
+    actuator_config = actuators.get(actuator) if isinstance(actuators, Mapping) else {}
+    fields = actuator_config.get("fields") if isinstance(actuator_config, Mapping) else {}
+    return {
+        "state": "available" if scenarios else "not_configured",
+        "latest_status": scenarios[0].status if scenarios else "not_started",
+        "scenarios": scenario_values,
+        "measurement_count": len(measurements),
+        "measured_count": len([row for row in measurements if row.status == "measured"]),
+        "actuator": actuator,
+        "actuator_fields": sorted(fields) if isinstance(fields, Mapping) else [],
+        "actuator_configured": actuator_contract.valid,
+        "actuator_reason": actuator_contract.reason,
+        "as_of": _iso(datetime.utcnow()),
+    }
+
+
 def _membrane_states(spec: MembraneSpec, decisions: list[Decision]) -> dict[str, str]:
     configured = spec.configured_facets()
     breached = {
@@ -738,43 +1106,52 @@ def _steering_model(system: System) -> Optional[dict[str, Any]]:
     raw = settings.get("steering_model")
     if not isinstance(raw, Mapping):
         return None
-    allowed = {"version", "cost_multiplier", "value_multiplier", "confidence", "assumptions"}
-    return {key: _jsonable(value) for key, value in raw.items() if key in allowed}
+    allowed = {"version", "confidence", "assumptions", "forecasts"}
+    return scrub_projection_mapping(
+        {key: value for key, value in raw.items() if key in allowed}
+    )
 
 
 def _simulation_preview(
-    system_id: str,
-    total_cost: Optional[float],
-    total_value: Optional[float],
-    model: Optional[Mapping[str, Any]],
-    *,
-    as_of: str,
+    value_loop: Any,
 ) -> Optional[dict[str, Any]]:
-    if total_cost is None or total_value is None or not model:
+    if not isinstance(value_loop, Mapping):
         return None
-    try:
-        cost_multiplier = float(model["cost_multiplier"])
-        value_multiplier = float(model["value_multiplier"])
-    except (KeyError, TypeError, ValueError):
+    scenarios = value_loop.get("scenarios")
+    if not isinstance(scenarios, list):
         return None
-    projected_cost = total_cost * cost_multiplier
-    projected_value = total_value * value_multiplier
-    return {
-        "kind": "simulation",
-        "measured": False,
-        "model_version": model.get("version"),
-        "baseline": {"cost": total_cost, "value": total_value},
-        "projected": {"cost": projected_cost, "value": projected_value},
-        "delta": {"cost": projected_cost - total_cost, "value": projected_value - total_value},
-        "confidence": model.get("confidence"),
-        "assumptions": model.get("assumptions") or [],
-        "provenance": {
-            "scope": "system",
-            "system_id": system_id,
-            "source": "runs.value_estimated,cost_internal",
-            "as_of": as_of,
-        },
-    }
+    for scenario in scenarios:
+        if not isinstance(scenario, Mapping):
+            continue
+        simulation = scenario.get("simulation")
+        if not isinstance(simulation, Mapping):
+            continue
+        projected_outcome = simulation.get("projected_outcome")
+        recommended_action = simulation.get("recommended_action")
+        provenance = simulation.get("provenance")
+        if not isinstance(projected_outcome, Mapping):
+            continue
+        if projected_outcome.get("evidence_type") != "simulation":
+            continue
+        return {
+            "kind": "simulation",
+            "measured": False,
+            "model": simulation.get("model"),
+            "projected_outcome": _safe_mapping(projected_outcome),
+            "recommended_action": (
+                _safe_mapping(recommended_action)
+                if isinstance(recommended_action, Mapping)
+                else None
+            ),
+            "confidence": simulation.get("confidence"),
+            "assumptions": _safe_mapping(simulation.get("assumptions") or {}),
+            "provenance": (
+                _safe_mapping(provenance)
+                if isinstance(provenance, Mapping)
+                else {}
+            ),
+        }
+    return None
 
 
 def _is_showcase_seed_payload(value: Any) -> bool:
@@ -785,43 +1162,55 @@ def _is_showcase_seed_payload(value: Any) -> bool:
     return value.get("showcase_seed") is True or value.get("source") == "showcase_seed"
 
 
-def _provenance_rows(runs: Iterable[Run]) -> list[dict[str, Any]]:
+def _provenance_rows(
+    runs: Iterable[Run],
+    invocations: Iterable[SkillInvocation],
+) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
+    invocation_rows = list(invocations)
     for run in runs:
-        for value in _walk_values({"output_ref": run.output_ref, "checkpoints": run.checkpoints}):
-            if isinstance(value, Mapping) and value.get("uri") and value.get("sha256"):
-                found.append({
-                    "run_id": run.id,
-                    "uri": value.get("uri"),
-                    "sha256": value.get("sha256"),
-                })
+        found.extend(
+            {"run_id": run.id, **row}
+            for row in canonical_run_provenance(run, invocation_rows)
+        )
     return found[:20]
 
 
-def _walk_values(value: Any) -> Iterable[Any]:
-    yield value
-    if isinstance(value, Mapping):
-        for item in value.values():
-            yield from _walk_values(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _walk_values(item)
-
-
 def _snapshot_id(
-    system: System,
-    version: Optional[SystemVersion],
-    run: Optional[Run],
+    *,
+    workspace_id: str,
+    system_id: str,
     window: str,
+    identity: Mapping[str, Any],
+    header: Mapping[str, Any],
+    all_facets: Mapping[str, Any],
+    generated_at: str,
 ) -> str:
-    raw = "|".join([
-        str(system.workspace_id or ""),
-        system.id,
-        str(version.id if version else ""),
-        str(run.id if run else ""),
-        window,
-        _iso(system.updated_at) or "",
-    ])
+    """Fingerprint all four projections while ignoring request-clock noise."""
+
+    def stable(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {str(key): stable(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [stable(item) for item in value]
+        if value == generated_at:
+            return "<generated_at>"
+        return value
+
+    raw = json.dumps(
+        {
+            "workspace_id": workspace_id,
+            "system_id": system_id,
+            "window": window,
+            "identity": stable(identity),
+            "header": stable(header),
+            "facets": stable(all_facets),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -838,14 +1227,16 @@ def _average(values: Iterable[Optional[float]]) -> Optional[float]:
 
 
 def _safe_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
-    return {str(key): _jsonable(item) for key, item in value.items() if "secret" not in str(key).lower() and "token" not in str(key).lower()}
+    return _jsonable(scrub_projection_mapping(value))
 
 
 def _safe_execution_profile(value: Any) -> Optional[dict[str, Any]]:
     if not isinstance(value, Mapping):
         return None
     allowed = {"latency_target_ms", "max_runtime_ms", "durable", "pricing_profile", "timeout_ms"}
-    result = {key: _jsonable(item) for key, item in value.items() if key in allowed}
+    result = scrub_projection_mapping(
+        {key: item for key, item in value.items() if key in allowed}
+    )
     return result or None
 
 
@@ -895,7 +1286,13 @@ def _version_value(value: SystemVersion) -> dict[str, Any]:
 
 def _audit_value(value: AuditLog) -> dict[str, Any]:
     details = value.details if isinstance(value.details, Mapping) else {}
-    safe_details = {key: _jsonable(item) for key, item in details.items() if key in {"system_id", "run_id", "fields", "outcome", "reason", "policy_id"}}
+    safe_details = scrub_projection_mapping(
+        {
+            key: item
+            for key, item in details.items()
+            if key in {"system_id", "run_id", "fields", "outcome", "reason", "policy_id"}
+        }
+    )
     return {"id": value.id, "event_type": value.event_type, "actor": value.actor, "timestamp": _iso(value.timestamp), "severity": value.severity, "details": safe_details}
 
 

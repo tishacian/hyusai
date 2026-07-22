@@ -7,7 +7,6 @@ workspace and fixtures.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -19,7 +18,13 @@ from app.db.base import get_db
 from app.extensions.registry import MISSION_ROOM_EXTENSION_ID, require_workspace_extension
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services import generic_mission_room
 from app.services.audit_logger import emit_audit_event
+from app.services.intelligence.satellite_imagery import (
+    get_scene_asset_bytes,
+    resolve_satellite_scenes,
+)
+from app.services.macro_indicators import macro_indicators_payload
 from app.services.mission_room import (
     briefing_payload,
     cedeao_index_payload_for_workspace,
@@ -40,22 +45,28 @@ from app.services.mission_room import (
     security_monitor_payload,
     timeline_payload,
 )
-from app.services.intelligence.satellite_imagery import (
-    get_scene_asset_bytes,
-    resolve_satellite_scenes,
+from app.services.workspace_app_manifests import GENERIC_MISSION_ROOM_PROVIDER_KIND
+from app.services.workspace_app_runtime import (
+    SENTINEL_MISSION_ROOM_APP_ID,
+    resolve_mission_room_provider_runtime,
+    workspace_app_platform_enabled,
 )
-from app.services.macro_indicators import macro_indicators_payload
 
 router = APIRouter(
     dependencies=[Depends(require_workspace_extension(MISSION_ROOM_EXTENSION_ID))]
 )
+
+_SENTINEL_CUSTOMS_RECORD_FILES = frozenset(
+    {"proces-verbal-douanes-non-conformite-2026-05-18"}
+)
+_MISSION_ROOM_AUDIT_UNAVAILABLE = {"code": "mission_room_audit_unavailable"}
 
 
 class DraftInstructionRequest(BaseModel):
     target_id: str
     target_type: str = "project"
     instruction_type: str = "dircab_instruction"
-    tone: Optional[str] = "ministerial"
+    tone: str | None = "ministerial"
 
 
 def _actor(user: User) -> str:
@@ -70,17 +81,51 @@ def _audit(
     event_type: str,
     details: dict,
 ) -> None:
-    emit_audit_event(
+    audit_id = emit_audit_event(
         db=db,
         workspace_id=workspace.id,
         event_type=event_type,
         actor=_actor(user),
         details=details,
     )
+    if audit_id is None:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail=_MISSION_ROOM_AUDIT_UNAVAILABLE,
+        )
+    _commit_request_audit(db)
+
+
+def _commit_request_audit(db: DBSession) -> None:
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail=_MISSION_ROOM_AUDIT_UNAVAILABLE,
+        ) from exc
 
 
 def _present(workspace: Workspace, payload):
     return present_payload_for_workspace(workspace, payload)
+
+
+def _generic_provider_projection(
+    workspace: Workspace,
+    db: DBSession,
+) -> dict | None:
+    if not workspace_app_platform_enabled(workspace):
+        return None
+    runtime = resolve_mission_room_provider_runtime(workspace, db=db)
+    projection = runtime.mission_room
+    if (
+        isinstance(projection, dict)
+        and projection.get("provider_kind") == GENERIC_MISSION_ROOM_PROVIDER_KIND
+    ):
+        return projection
+    return None
 
 
 @router.get("/overview")
@@ -89,7 +134,12 @@ def overview(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = overview_payload(workspace)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.overview_payload(db, workspace, user)
+        if projection is not None
+        else overview_payload(workspace)
+    )
     _audit(db=db, workspace=workspace, user=user, event_type="mission_room.overview.viewed", details={"surface": "overview"})
     return _present(workspace, payload)
 
@@ -100,7 +150,12 @@ def navigation(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = navigation_payload(db, workspace)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.navigation_payload(db, workspace, user, projection)
+        if projection is not None
+        else navigation_payload(db, workspace)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -117,7 +172,12 @@ def cockpit(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = cockpit_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.cockpit_payload(db, workspace, user)
+        if projection is not None
+        else cockpit_payload(workspace, db=db)
+    )
     press = payload.get("press_intelligence") or {}
     _audit(
         db=db,
@@ -140,7 +200,12 @@ def briefing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = briefing_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.briefing_payload(db, workspace, user)
+        if projection is not None
+        else briefing_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -157,7 +222,12 @@ def timeline(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = timeline_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.timeline_payload(db, workspace, user)
+        if projection is not None
+        else timeline_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -179,7 +249,12 @@ def projects(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = projects_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.projects_payload(db, workspace, user)
+        if projection is not None
+        else projects_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -196,7 +271,12 @@ def decisions(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = decisions_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.decisions_payload(db, workspace, user)
+        if projection is not None
+        else decisions_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -217,7 +297,12 @@ def library(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = library_payload(workspace)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.library_payload(db, workspace, user)
+        if projection is not None
+        else library_payload(workspace)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -235,7 +320,12 @@ def search(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = search_payload(workspace, q)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.search_payload(db, workspace, user, q)
+        if projection is not None
+        else search_payload(workspace, q)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -252,7 +342,12 @@ def strategic_map(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = map_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.map_payload(db, workspace, user)
+        if projection is not None
+        else map_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -269,7 +364,12 @@ def situation_monitor(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = monitor_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.monitor_payload(db, workspace, user)
+        if projection is not None
+        else monitor_payload(workspace, db=db)
+    )
     _audit(
         db=db,
         workspace=workspace,
@@ -407,6 +507,18 @@ def customs_record_pdf(
     db: DBSession = Depends(get_db),
 ):
     """Serve a customs PV PDF (Phase D). Workspace-scoped + audit-logged."""
+    owner_app_id: str | None = None
+    if workspace_app_platform_enabled(workspace):
+        runtime = resolve_mission_room_provider_runtime(workspace, db=db)
+        mission_room_runtime = runtime.mission_room or {}
+        owner_app_id = str(mission_room_runtime.get("app_id") or "")
+        if (
+            owner_app_id != SENTINEL_MISSION_ROOM_APP_ID
+            or document_id not in _SENTINEL_CUSTOMS_RECORD_FILES
+        ):
+            # Resource absence and app mismatch intentionally share one result;
+            # Octocity/generic callers cannot probe the Sentinel document set.
+            raise HTTPException(status_code=404, detail="customs_record_not_found")
     if "/" in document_id or "\\" in document_id or ".." in document_id:
         raise HTTPException(status_code=400, detail="invalid_document_id")
     pdf_root = Path(__file__).resolve().parents[3] / "resources" / "sentinel_ci_customs"
@@ -418,7 +530,19 @@ def customs_record_pdf(
         workspace=workspace,
         user=user,
         event_type="mission_room.customs_record.downloaded",
-        details={"document_id": document_id, "size_bytes": pdf_path.stat().st_size},
+        details={
+            "document_id": document_id,
+            "size_bytes": pdf_path.stat().st_size,
+            **(
+                {
+                    "owner_workspace_id": workspace.id,
+                    "owner_app_id": owner_app_id,
+                    "resource_scope": "workspace_app",
+                }
+                if owner_app_id
+                else {}
+            ),
+        },
     )
     return Response(
         content=pdf_path.read_bytes(),
@@ -515,7 +639,12 @@ def news(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = news_payload(workspace, db=db)
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.news_payload(db, workspace, user)
+        if projection is not None
+        else news_payload(workspace, db=db)
+    )
     source_health = payload.get("source_health") or {}
     _audit(
         db=db,
@@ -540,12 +669,26 @@ def draft_action(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = draft_instruction_payload(
-        workspace=workspace,
-        actor=_actor(user),
-        target_id=body.target_id,
-        target_type=body.target_type,
-        instruction_type=body.instruction_type,
-        db=db,
+    projection = _generic_provider_projection(workspace, db)
+    payload = (
+        generic_mission_room.draft_instruction_payload(
+            workspace=workspace,
+            user=user,
+            target_id=body.target_id,
+            target_type=body.target_type,
+            instruction_type=body.instruction_type,
+            db=db,
+        )
+        if projection is not None
+        else draft_instruction_payload(
+            workspace=workspace,
+            actor=_actor(user),
+            target_id=body.target_id,
+            target_type=body.target_type,
+            instruction_type=body.instruction_type,
+            db=db,
+            require_audit=True,
+        )
     )
+    _commit_request_audit(db)
     return _present(workspace, payload)

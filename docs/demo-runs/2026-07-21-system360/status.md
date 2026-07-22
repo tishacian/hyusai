@@ -18,7 +18,7 @@ Backend et frontend ont tous deux annoncé cette révision avec
   workspace, états manquants/restreints explicites.
 - Smoke fonctionnel : **5/5 passé** pour Andritz, Showcase, Sentinel et Octocity.
   Andritz expose désormais quatre apps intentionnelles : les trois historiques
-  plus FSE.
+  avec FSE comme surface de Knowledge Capture.
 - Captures de secours : quatre lenses System 360, quatre apps Andritz, Showcase,
   Sentinel et Octocity.
 

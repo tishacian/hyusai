@@ -15,6 +15,7 @@ import { AuthRefreshCoordinator } from './auth-refresh-coordinator.service';
 import { TokenStorageService } from './token-storage.service';
 import { WorkspaceFetchService } from './workspace-fetch.service';
 import { WorkspaceService } from './workspace.service';
+import { AuthStore } from '../store/auth.store';
 
 class TokenStorageStub {
   token = 'Bearer expired-token';
@@ -58,6 +59,7 @@ function createService(options: {
     providers: [
       WorkspaceFetchService,
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: { clear: () => undefined } },
       { provide: TokenStorageService, useValue: options.tokenStorage ?? new TokenStorageStub() },
       { provide: AuthApiService, useValue: { refresh: options.refresh } },
       {

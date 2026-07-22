@@ -1,4 +1,4 @@
-"""SystemVersion — immutable history for ``System.flow_definition``.
+"""SystemVersion — immutable history for a System's executable definition.
 
 Before E3.1 the canonical flow editor stored chains as
 ``systems.flow_definition`` (JSON) mutated in place by
@@ -31,6 +31,16 @@ window.
       equals an older one". We never rewrite history — ``version_number``
       is strictly monotonic and old rows are never edited.
 
+**Configuration evidence** (decision 2026-07-22):
+    - ``configuration_snapshot`` is nullable so every historical row and every
+      flow-only caller keeps its original semantics.
+    - An explicit snapshot contains only allowlisted binding references and
+      contract digests.  It never stores policy bodies, workspace settings,
+      credentials, prompts, or other secret-bearing values.
+    - A configuration-only transition appends a row even when the flow is
+      unchanged.  This is evidence of the transition, not a claim that the DAG
+      changed, and no historical row is rewritten to manufacture that proof.
+
 **Cascade**: ``ondelete=CASCADE`` — if a ``System`` is deleted, its
 versions go with it. The system itself already cascades its runs, and
 there is no use case for retaining orphan versions of a deleted chain.
@@ -44,7 +54,17 @@ on ``system_id`` is structurally impossible.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from app.db.base import Base
 
@@ -67,6 +87,10 @@ class SystemVersion(Base):
     )
     version_number = Column(Integer, nullable=False)
     flow_definition = Column(JSON, nullable=False)
+    # Optional, positive-allowlisted evidence for a configuration-only
+    # transition. Validation lives in ``chains.version_service``; nullable is
+    # intentional for backward compatibility with all pre-065 rows.
+    configuration_snapshot = Column(JSON, nullable=True)
     # Free-form changelog-style note ("rollback to v34", "add retry on
     # LLM node"). Optional — empty when auto-saved by the editor.
     message = Column(Text, nullable=True)
@@ -79,6 +103,14 @@ class SystemVersion(Base):
     created_by = Column(String(255), default="demo-user", nullable=False)
 
     __table_args__ = (
+        # Allocation is serialized by locking the parent System row.  This
+        # constraint is the final invariant for imports, legacy callers, or a
+        # future writer that bypasses the shared version service.
+        UniqueConstraint(
+            "system_id",
+            "version_number",
+            name="uq_system_versions_system_version_number",
+        ),
         # Query pattern: "give me the versions of system X, latest first"
         # hits (system_id, version_number DESC). Composite index pays
         # for itself immediately and avoids a sort when paginating.

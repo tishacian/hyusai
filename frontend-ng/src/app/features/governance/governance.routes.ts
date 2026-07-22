@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { workspaceAppAdminGuard } from './workspace-app-admin.guard';
 
 export const governanceRoutes: Routes = [
   {
@@ -31,6 +32,12 @@ export const governanceRoutes: Routes = [
         path: 'blueprints',
         loadComponent: () =>
           import('./workspace-blueprints.component').then((m) => m.WorkspaceBlueprintsComponent),
+      },
+      {
+        path: 'workspace-apps',
+        canActivate: [workspaceAppAdminGuard],
+        loadComponent: () =>
+          import('./workspace-app-lifecycle.component').then((m) => m.WorkspaceAppLifecycleComponent),
       },
       {
         path: 'canonical-answers',

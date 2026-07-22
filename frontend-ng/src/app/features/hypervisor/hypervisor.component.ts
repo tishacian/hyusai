@@ -6,10 +6,11 @@ import {
   CanonicalApiService,
   type HypervisorBalance,
   type HypervisorSignal,
+  type PortfolioEvidenceState,
+  type PortfolioValueLoop,
   type Recommendation,
   type CapabilityRow,
   type ImpactAggregate,
-  type WhatIfResult,
   type DecisionRow,
   type DecisionDetail,
 } from '@app/core/canonical-api.service';
@@ -23,7 +24,8 @@ import {
   TagComponent,
   HelpTooltipComponent,
 } from '@app/shared/cockpit';
-import { formatHypervisorImpact } from './hypervisor-impact';
+import { formatHypervisorImpact, measuredImpactDelta } from './hypervisor-impact';
+import { summarizePortfolioValueLoop } from './hypervisor-value-loop';
 
 type PeriodKey = 'wtd' | 'mtd' | 'qtd' | 'rolling_30d' | 'rolling_90d';
 
@@ -103,13 +105,13 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                   [style.fontSize.px]="56"
                   [style.fontWeight]="300"
                   [style.letterSpacing]="'-0.02em'"
-                  [style.color]="netValue() >= 0 ? 'var(--ck-signal-pos)' : 'var(--ck-signal-neg)'"
+                  [style.color]="netValueColor()"
                   [style.lineHeight]="'1'"
                 >
                   {{ formatCurrencyLarge(netValue()) }}
                 </span>
                 <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); letter-spacing:0.08em;">
-                  {{ netValue() >= 0 ? 'surplus' : 'deficit' }}
+                  {{ netValueLabel() }}
                 </span>
               </div>
               <div class="ck-mono" style="font-size:10px; letter-spacing:0.08em; color:var(--ck-fg-4); margin-top:8px; line-height:1.7;">
@@ -149,6 +151,123 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               />
             </div>
           </div>
+        </section>
+
+        <!-- Authoritative Portfolio value loop -->
+        <section class="ck-surface rounded-md" style="padding:18px 22px;" data-testid="portfolio-value-loop">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <ck-glyph name="sliders" [size]="14" />
+              <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
+                VALUE LOOP · PORTFOLIO
+              </h3>
+              <span class="ck-mono" style="font-size:9px; letter-spacing:.12em; text-transform:uppercase;" [style.color]="evidenceColor(valueLoopSummary().state)">
+                {{ evidenceLabel(valueLoopSummary().state) }}
+              </span>
+            </div>
+            <span class="ck-mono" style="font-size:9px; color:var(--ck-fg-4);">
+              Simulation ≠ measurement
+            </span>
+          </div>
+
+          @if (loading()) {
+            <div class="ck-mono" style="padding:20px 0; text-align:center; font-size:11px; color:var(--ck-fg-4);">
+              Loading governed Portfolio evidence…
+            </div>
+          } @else if (valueLoopSummary().state === 'unavailable') {
+            <div class="ck-mono" style="padding:20px 0; text-align:center; font-size:11px; color:var(--ck-signal-neg);">
+              Portfolio value evidence unavailable
+            </div>
+          } @else if (valueLoopSummary().state === 'not_configured') {
+            <div class="ck-mono" style="padding:20px 0; text-align:center; font-size:11px; color:var(--ck-fg-4);">
+              No governed System value loop is configured for this Portfolio
+            </div>
+          } @else {
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+              <ck-stat-readout
+                label="OBSERVED Δ"
+                [value]="valueLoopSummary().observedValueDelta == null ? 'NOT MEASURED' : formatCurrency(valueLoopSummary().observedValueDelta)"
+                [tone]="valueLoopSummary().observedValueDelta == null ? 'neutral' : valueLoopSummary().observedValueDelta! >= 0 ? 'pos' : 'neg'"
+                [size]="16"
+              />
+              <ck-stat-readout
+                label="RISKS"
+                [value]="explicitCount(valueLoopSummary().riskCount, valueLoopSummary().riskState)"
+                [tone]="valueLoopSummary().riskCount ? 'warn' : 'neutral'"
+                [size]="16"
+              />
+              <ck-stat-readout
+                label="ARBITRATIONS"
+                [value]="explicitCount(valueLoopSummary().arbitrationCount, valueLoopSummary().arbitrationState)"
+                tone="cool"
+                [size]="16"
+              />
+              <ck-stat-readout
+                label="SCENARIOS"
+                [value]="explicitCount(valueLoopSummary().scenarioCount, valueLoopSummary().scenarioState)"
+                tone="violet"
+                [size]="16"
+              />
+              <ck-stat-readout
+                label="ACTUATOR DRIFT"
+                [value]="explicitCount(valueLoopSummary().unconfiguredActuators, valueLoopSummary().state)"
+                [tone]="valueLoopSummary().unconfiguredActuators ? 'warn' : 'neutral'"
+                [size]="16"
+              />
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div class="ck-surface rounded" style="padding:12px; background:var(--ck-bg-inset);">
+                <div class="ck-mono mb-2" style="font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--ck-fg-4);">Governed scenarios</div>
+                @if (valueLoop()?.scenarios?.state === 'restricted') {
+                  <div class="ck-mono" style="font-size:10px; color:var(--ck-signal-neg);">RESTRICTED</div>
+                } @else if (!valueLoop()?.scenarios?.items?.length) {
+                  <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">NOT MEASURED</div>
+                } @else {
+                  @for (scenario of valueLoop()!.scenarios.items.slice(0, 4); track scenario.id) {
+                    <a
+                      [routerLink]="['/systems', scenario.system_id]"
+                      [queryParams]="{ lens: 'steer', capabilityId: scenario.capability_id, facet: 'overview' }"
+                      class="ck-mono"
+                      style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-fg-2);"
+                    >
+                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ scenario.objective }}</span>
+                      <span style="color:var(--ck-signal-cool);">{{ scenario.status }}</span>
+                    </a>
+                  }
+                }
+              </div>
+              <div class="ck-surface rounded" style="padding:12px; background:var(--ck-bg-inset);">
+                <div class="ck-mono mb-2" style="font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--ck-fg-4);">Evidence-backed risks</div>
+                @if (!valueLoop()?.risks?.items?.length) {
+                  <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+                    {{ valueLoop()?.risks?.state === 'available' ? '0 OBSERVED RISK' : evidenceLabel(valueLoop()?.risks?.state || 'not_measured').toUpperCase() }}
+                  </div>
+                } @else {
+                  @for (risk of valueLoop()!.risks.items.slice(0, 4); track risk.kind + ':' + risk.scenario_id) {
+                    <div class="ck-mono" style="padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-signal-warn);">
+                      {{ risk.kind }} · {{ risk.detail || 'persisted evidence' }}
+                    </div>
+                  }
+                }
+              </div>
+              <div class="ck-surface rounded" style="padding:12px; background:var(--ck-bg-inset);">
+                <div class="ck-mono mb-2" style="font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--ck-fg-4);">Arbitrations</div>
+                @if (valueLoop()?.arbitrations?.state === 'restricted') {
+                  <div class="ck-mono" style="font-size:10px; color:var(--ck-signal-neg);">RESTRICTED</div>
+                } @else if (!valueLoop()?.arbitrations?.items?.length) {
+                  <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">NOT MEASURED</div>
+                } @else {
+                  @for (decision of valueLoop()!.arbitrations.items.slice(0, 4); track decision.id) {
+                    <div class="ck-mono" style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-fg-2);">
+                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ decision.title }}</span>
+                      <span style="color:var(--ck-signal-cool);">{{ decision.status }}</span>
+                    </div>
+                  }
+                }
+              </div>
+            </div>
+          }
         </section>
 
         <!-- Capabilities portfolio -->
@@ -282,28 +401,6 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                         >
                           RUNS
                         </button>
-                        <button
-                          type="button"
-                          (click)="proposeScale(c)"
-                          [disabled]="proposingFor() === c.capability_id"
-                          title="Propose a scale decision for this capability"
-                          class="ck-mono"
-                          style="padding:4px 8px; border-radius:3px; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); background:var(--ck-bg-inset);"
-                          [style.color]="proposingFor() === c.capability_id ? 'var(--ck-fg-4)' : 'var(--ck-signal-pos)'"
-                        >
-                          {{ proposingFor() === c.capability_id ? '…' : 'SCALE' }}
-                        </button>
-                        <button
-                          type="button"
-                          (click)="proposeAdjust(c)"
-                          [disabled]="proposingFor() === c.capability_id"
-                          title="Propose an adjust decision (tighten/relax policies)"
-                          class="ck-mono"
-                          style="padding:4px 8px; border-radius:3px; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); background:var(--ck-bg-inset);"
-                          [style.color]="proposingFor() === c.capability_id ? 'var(--ck-fg-4)' : 'var(--ck-signal-cool)'"
-                        >
-                          ADJUST
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -401,104 +498,6 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
           </section>
         </div>
 
-        <!-- Portfolio what-if: 4 global levers -->
-        <section class="ck-surface rounded-md" style="padding:20px 24px;">
-          <div class="flex items-center justify-between mb-5">
-            <div class="flex items-center gap-2">
-              <ck-glyph name="crosshair" [size]="14" />
-              <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
-                PORTFOLIO WHAT-IF
-              </h3>
-              <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-                4 global levers · live projection
-              </span>
-              <ck-help id="hypervisor.what-if.run" />
-            </div>
-            <button
-              type="button"
-              (click)="resetLevers()"
-              class="ck-mono"
-              style="padding:5px 10px; border-radius:3px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); background:var(--ck-bg-inset);"
-            >
-              RESET
-            </button>
-          </div>
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Levers -->
-            <div class="flex flex-col gap-5">
-              @for (l of leverList; track l.key) {
-                <div>
-                  <div class="flex items-center justify-between mb-1">
-                    <div class="flex items-center gap-2">
-                      <ck-tag [tone]="l.tone" variant="outline">{{ l.label }}</ck-tag>
-                      <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ l.hint }}</span>
-                    </div>
-                    <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
-                      {{ (leverValue(l.key) * 100).toFixed(0) }}%
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    [value]="leverValue(l.key)"
-                    (input)="onLeverInput(l.key, $event)"
-                    class="w-full accent-cyan-400"
-                  />
-                </div>
-              }
-            </div>
-            <!-- Projection -->
-            <div class="ck-surface rounded" style="padding:16px 18px; background:var(--ck-bg-inset); min-height:200px;">
-              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:12px;">
-                PROJECTED PORTFOLIO
-              </div>
-              @if (!whatIf()) {
-                <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); text-align:center; padding:18px 0;">
-                  MOVE A LEVER TO PROJECT
-                </div>
-              } @else {
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">COST</div>
-                    <div class="ck-mono ck-tnum" style="font-size:16px; color:var(--ck-fg-1); margin-top:2px;">
-                      {{ formatCurrencyLarge(whatIf()!.projected.total_cost) }}
-                    </div>
-                    <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(-(whatIf()!.projected.total_cost - (whatIf()!.base.total_cost ?? 0)))">
-                      {{ formatSigned(whatIf()!.projected.total_cost - (whatIf()!.base.total_cost ?? 0)) }}
-                    </div>
-                  </div>
-                  <div>
-                    <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">VALUE</div>
-                    <div class="ck-mono ck-tnum" style="font-size:16px; color:var(--ck-fg-1); margin-top:2px;">
-                      {{ formatCurrencyLarge(whatIf()!.projected.estimated_value) }}
-                    </div>
-                    <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(whatIf()!.projected.estimated_value - (whatIf()!.base.estimated_value ?? 0))">
-                      {{ formatSigned(whatIf()!.projected.estimated_value - (whatIf()!.base.estimated_value ?? 0)) }}
-                    </div>
-                  </div>
-                  <div>
-                    <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">ROI</div>
-                    <div class="ck-mono ck-tnum" style="font-size:16px; margin-top:2px;" [style.color]="roiColor(whatIf()!.projected.roi)">
-                      {{ formatRoi(whatIf()!.projected.roi) }}
-                    </div>
-                  </div>
-                  <div>
-                    <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">LATENCY</div>
-                    <div class="ck-mono ck-tnum" style="font-size:16px; color:var(--ck-fg-1); margin-top:2px;">
-                      {{ formatIndex(whatIf()!.projected.latency_index) }}x
-                    </div>
-                    <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(-(whatIf()!.projected.latency_index - 1))">
-                      {{ formatSigned((whatIf()!.projected.latency_index - 1) * 100) }}%
-                    </div>
-                  </div>
-                </div>
-              }
-            </div>
-          </div>
-        </section>
-
         <!-- Decisions feed -->
         <section class="ck-surface rounded-md" style="padding:18px 22px;">
           <div class="flex items-center justify-between mb-4">
@@ -569,13 +568,9 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                         style="padding:4px 10px; border-radius:3px; font-size:9px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
                       >REJECT</button>
                     } @else if (d.status === 'accepted') {
-                      <button
-                        type="button"
-                        (click)="apply(d.id)"
-                        [disabled]="busyDecisionId() === d.id"
-                        class="ck-mono"
-                        style="padding:4px 10px; border-radius:3px; font-size:9px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:var(--ck-bg-raised);"
-                      >APPLY</button>
+                      <span class="ck-mono" style="font-size:9px; color:var(--ck-signal-warn); letter-spacing:0.12em;">
+                        ACTUATOR NOT CONFIGURED
+                      </span>
                     } @else if (d.status === 'applied' && d.applied_at) {
                       <span class="ck-mono" style="font-size:9px; color:var(--ck-fg-4); letter-spacing:0.12em;">
                         APPLIED {{ formatRelative(d.applied_at) }}
@@ -682,14 +677,9 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                   >REJECT</button>
                   <ck-help id="hypervisor.decisions.reject" />
                 } @else if (d.status === 'accepted') {
-                  <button
-                    type="button"
-                    (click)="apply(d.id, true)"
-                    [disabled]="busyDecisionId() === d.id"
-                    class="ck-mono"
-                    style="padding:6px 14px; border-radius:3px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:var(--ck-bg-raised);"
-                  >APPLY — enact</button>
-                  <ck-help id="hypervisor.decisions.apply" />
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.12em;">
+                    ACTUATOR NOT CONFIGURED — USE VALUE LOOP
+                  </span>
                 }
               </div>
               @if (d.applied_patch && objectKeys(d.applied_patch).length > 0) {
@@ -726,24 +716,9 @@ export class HypervisorComponent implements OnInit {
   readonly period = signal<PeriodKey>('qtd');
   readonly loading = signal(true);
   readonly balance = signal<HypervisorBalance | null>(null);
+  readonly valueLoop = signal<PortfolioValueLoop | null>(null);
   readonly recommendations = signal<Recommendation[]>([]);
   readonly generatingRecommendations = signal(false);
-
-  // ---- Portfolio What-If ---------------------------------------------------
-  readonly leverList = [
-    { key: 'resource',  label: 'RESOURCE',  tone: 'cool'   as const, hint: 'lean → deep' },
-    { key: 'velocity',  label: 'VELOCITY',  tone: 'violet' as const, hint: 'thorough → rapid' },
-    { key: 'autonomy',  label: 'AUTONOMY',  tone: 'pos'    as const, hint: 'HITL → full' },
-    { key: 'risk_tolerance', label: 'RISK', tone: 'warn'   as const, hint: 'cautious → bold' },
-  ];
-  readonly levers = signal<Record<string, number>>({
-    resource: 0.5,
-    velocity: 0.5,
-    autonomy: 0.3,
-    risk_tolerance: 0.4,
-  });
-  readonly whatIf = signal<WhatIfResult | null>(null);
-  private whatIfTimer: number | null = null;
 
   // ---- Decisions feed ------------------------------------------------------
   readonly statusFilters: Array<{ id: 'all' | 'proposed' | 'accepted' | 'rejected' | 'applied'; label: string }> = [
@@ -764,7 +739,6 @@ export class HypervisorComponent implements OnInit {
     { id: 'runs', label: 'RUNS' },
   ];
   readonly rankBy = signal<'efficiency' | 'roi' | 'value' | 'runs'>('efficiency');
-  readonly proposingFor = signal<string | null>(null);
   readonly decisions = signal<DecisionRow[]>([]);
   readonly decisionsTotal = signal(0);
   readonly decisionsLoading = signal(false);
@@ -776,16 +750,28 @@ export class HypervisorComponent implements OnInit {
   readonly portfolio = computed<ImpactAggregate | null>(() => this.balance()?.portfolio ?? null);
   readonly capabilities = computed<CapabilityRow[]>(() => this.balance()?.capabilities ?? []);
   readonly signals = computed<HypervisorSignal[]>(() => this.balance()?.signals ?? []);
+  readonly valueLoopSummary = computed(() => summarizePortfolioValueLoop(this.valueLoop()));
   readonly capabilityCount = computed(() => Math.max(
     this.capabilities().length,
     this.portfolio()?.capabilities_count || 0,
     this.portfolio()?.runs_count || 0,
   ));
 
-  readonly netValue = computed(() => {
+  readonly netValue = computed<number | null>(() => {
     const p = this.portfolio();
-    if (!p) return 0;
-    return (p.estimated_value ?? 0) - (p.total_cost ?? 0);
+    return measuredImpactDelta(p?.estimated_value, p?.total_cost);
+  });
+
+  readonly netValueColor = computed(() => {
+    const value = this.netValue();
+    if (value == null) return 'var(--ck-fg-3)';
+    return value >= 0 ? 'var(--ck-signal-pos)' : 'var(--ck-signal-neg)';
+  });
+
+  readonly netValueLabel = computed(() => {
+    const value = this.netValue();
+    if (value == null) return 'unmeasured';
+    return value >= 0 ? 'surplus' : 'deficit';
   });
 
   readonly periodLabel = computed(() => PERIOD_LABELS[this.period()]);
@@ -803,7 +789,6 @@ export class HypervisorComponent implements OnInit {
   ngOnInit(): void {
     this.loadAll();
     this.refreshDecisions();
-    this.runWhatIf();
   }
 
   setPeriod(p: PeriodKey): void {
@@ -815,12 +800,28 @@ export class HypervisorComponent implements OnInit {
     this.loading.set(true);
     forkJoin({
       balance: this.canonical.hypervisorBalanceSheet(this.period()).pipe(catchError(() => of(null))),
+      valueLoop: this.canonical.hypervisorValueLoop().pipe(catchError(() => of(null))),
       recos: this.canonical.hypervisorRecommendations().pipe(catchError(() => of([] as Recommendation[]))),
-    }).subscribe(({ balance, recos }) => {
+    }).subscribe(({ balance, valueLoop, recos }) => {
       this.balance.set(balance);
+      this.valueLoop.set(valueLoop);
       this.recommendations.set(recos);
       this.loading.set(false);
     });
+  }
+
+  evidenceLabel(state: PortfolioEvidenceState): string {
+    return state.replaceAll('_', ' ');
+  }
+
+  evidenceColor(state: PortfolioEvidenceState): string {
+    if (state === 'available') return 'var(--ck-signal-pos)';
+    if (state === 'not_measured' || state === 'not_configured') return 'var(--ck-signal-warn)';
+    return 'var(--ck-signal-neg)';
+  }
+
+  explicitCount(value: number | null, state: PortfolioEvidenceState): string {
+    return state === 'available' && value != null ? value.toString() : state.replaceAll('_', ' ').toUpperCase();
   }
 
   generateRecommendations(): void {
@@ -831,7 +832,6 @@ export class HypervisorComponent implements OnInit {
       min_evaluations: 3,
       min_breaches: 2,
       min_breach_rate: 0.5,
-      actor: 'hypervisor',
     }).subscribe({
       next: () => {
         this.generatingRecommendations.set(false);
@@ -840,32 +840,6 @@ export class HypervisorComponent implements OnInit {
       },
       error: () => this.generatingRecommendations.set(false),
     });
-  }
-
-  // ---- What-If -------------------------------------------------------------
-  leverValue(key: string): number {
-    return this.levers()[key] ?? 0.5;
-  }
-
-  onLeverInput(key: string, ev: Event): void {
-    const target = ev.target as HTMLInputElement | null;
-    if (!target) return;
-    const value = Number(target.value);
-    this.levers.update((l) => ({ ...l, [key]: value }));
-    // Debounce so quick drags don't hammer the endpoint.
-    if (this.whatIfTimer) window.clearTimeout(this.whatIfTimer);
-    this.whatIfTimer = window.setTimeout(() => this.runWhatIf(), 200);
-  }
-
-  resetLevers(): void {
-    this.levers.set({ resource: 0.5, velocity: 0.5, autonomy: 0.3, risk_tolerance: 0.4 });
-    this.runWhatIf();
-  }
-
-  private runWhatIf(): void {
-    this.canonical
-      .hypervisorWhatIf({ scope: 'portfolio', target_id: null, levers: this.levers() })
-      .subscribe((r) => this.whatIf.set(r));
   }
 
   // ---- Decisions feed ------------------------------------------------------
@@ -888,7 +862,7 @@ export class HypervisorComponent implements OnInit {
     const get = (row: CapabilityRow): number => {
       switch (key) {
         case 'roi': return row.roi ?? -Infinity;
-        case 'value': return row.estimated_value ?? 0;
+        case 'value': return row.estimated_value ?? -Infinity;
         case 'runs': return row.runs_count ?? 0;
         case 'efficiency':
         default: return row.avg_efficiency ?? -Infinity;
@@ -900,58 +874,6 @@ export class HypervisorComponent implements OnInit {
 
   openRuns(c: CapabilityRow): void {
     this.router.navigate(['/runs'], { queryParams: { capability_id: c.capability_id } });
-  }
-
-  proposeScale(c: CapabilityRow): void {
-    this.proposingFor.set(c.capability_id);
-    const factor = 1.15;
-    this.canonical
-      .hypervisorWhatIf({ scope: 'capability', target_id: c.capability_id, levers: { resource: 0.7, velocity: 0.5, autonomy: 0.4, risk_tolerance: 0.5 } })
-      .subscribe((sim) => {
-        const impact = sim?.projected
-          ? {
-              cost_delta: (sim.projected.total_cost ?? 0) - (sim.base.total_cost ?? 0),
-              value_delta: (sim.projected.estimated_value ?? 0) - (sim.base.estimated_value ?? 0),
-              roi: sim.projected.roi,
-            }
-          : {};
-        this.canonical
-          .createDecision({
-            scope: 'capability',
-            target_id: c.capability_id,
-            kind: 'recommendation',
-            title: `Scale ${c.name} (+${Math.round((factor - 1) * 100)}%)`,
-            status: 'proposed',
-            rationale: { action: 'scale', capability_id: c.capability_id, factor, source: 'hypervisor-cta' },
-            impact_estimate: impact,
-          })
-          .subscribe(() => {
-            this.proposingFor.set(null);
-            this.refreshDecisions();
-          });
-      });
-  }
-
-  proposeAdjust(c: CapabilityRow): void {
-    this.proposingFor.set(c.capability_id);
-    this.canonical
-      .createDecision({
-        scope: 'capability',
-        target_id: c.capability_id,
-        kind: 'recommendation',
-        title: `Tighten guardrails on ${c.name}`,
-        status: 'proposed',
-        rationale: {
-          action: 'adjust',
-          policy_updates: { mandatory_hitl_if_confidence_below: 0.7 },
-          source: 'hypervisor-cta',
-        },
-        impact_estimate: { risk: -0.2 },
-      })
-      .subscribe(() => {
-        this.proposingFor.set(null);
-        this.refreshDecisions();
-      });
   }
 
   efficiencyColor(v: number | null | undefined): string {
@@ -973,15 +895,6 @@ export class HypervisorComponent implements OnInit {
   reject(id: string, refreshDrawer = false): void {
     this.busyDecisionId.set(id);
     this.canonical.rejectDecision(id).subscribe((detail) => {
-      this.busyDecisionId.set(null);
-      if (detail && refreshDrawer) this.selectedDecision.set(detail);
-      this.refreshDecisions();
-    });
-  }
-
-  apply(id: string, refreshDrawer = false): void {
-    this.busyDecisionId.set(id);
-    this.canonical.applyDecision(id, { enact: true }).subscribe((detail) => {
       this.busyDecisionId.set(null);
       if (detail && refreshDrawer) this.selectedDecision.set(detail);
       this.refreshDecisions();
@@ -1057,19 +970,6 @@ export class HypervisorComponent implements OnInit {
     return `${Math.round(diffSec / 86400)}d ago`;
   }
 
-  formatSigned(v: number): string {
-    const sign = v > 0 ? '+' : v < 0 ? '-' : '';
-    const abs = Math.abs(v);
-    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
-    return `${sign}$${abs.toFixed(2)}`;
-  }
-
-  deltaColor(v: number): string {
-    if (v > 0) return 'var(--ck-signal-pos)';
-    if (v < 0) return 'var(--ck-signal-neg)';
-    return 'var(--ck-fg-2)';
-  }
-
   protected confidenceToneFor(v: number | null | undefined): 'pos' | 'cool' | 'warn' | 'neg' | 'neutral' {
     if (v == null) return 'neutral';
     if (v >= 0.8) return 'pos';
@@ -1084,7 +984,8 @@ export class HypervisorComponent implements OnInit {
     return `$${v.toFixed(2)}`;
   }
 
-  protected formatCurrencyLarge(v: number): string {
+  protected formatCurrencyLarge(v: number | null | undefined): string {
+    if (v == null) return '—';
     const sign = v < 0 ? '-' : '';
     const abs = Math.abs(v);
     if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;

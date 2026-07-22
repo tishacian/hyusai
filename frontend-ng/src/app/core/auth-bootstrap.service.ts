@@ -26,6 +26,7 @@ export class AuthBootstrapService {
 
   async bootstrap(): Promise<void> {
     if (!this.tokenStorage.isAuthenticated) {
+      if (this.authStore.isAuthenticated()) this.authStore.clear();
       this._valid.set(false);
       this._ready.set(true);
       return;
@@ -53,6 +54,7 @@ export class AuthBootstrapService {
   }
 
   markInvalid(): void {
+    if (this.authStore.isAuthenticated()) this.authStore.clear();
     this._valid.set(false);
     this._ready.set(true);
   }

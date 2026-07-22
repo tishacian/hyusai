@@ -1,10 +1,10 @@
 """Expert knowledge capture planning, session runtime and review output."""
 from __future__ import annotations
 
-import re
 import asyncio
 import json
 import logging
+import re
 import tempfile
 import time
 import unicodedata
@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
-from sqlalchemy.orm.attributes import flag_modified, set_committed_value
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified, set_committed_value
 
 from app.models.capability import Capability
 from app.models.context import Context
@@ -29,26 +29,30 @@ from app.models.expert_capture import (
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.services.audit_logger import emit_audit_event
-from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.capture_knowledge_oracle import (
     CaptureSessionContext,
+    _model_chat_kwargs,
+    _resolve_llm_config,
     analyze_plan_oracle_async,
+    broad_presentation_prompt,
     compose_plan_oracle,
-    plan_structure_llm_async,
     dedupe_statements,
     derive_thematic_blocks_async,
     evaluate_capture_partial,
     generate_question_bank_entry_async,
-    broad_presentation_prompt,
     merge_topic_proposals,
     normalize_outline_points,
     plan_dialogue_probe,
+    plan_structure_llm_async,
     presentation_prompt,
     score_gaps_with_rag,
     session_context_from_capture,
     sparse_exact_match_evidence,
-    _model_chat_kwargs,
-    _resolve_llm_config,
+)
+from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
+from app.services.skill_invocation_snapshot import (
+    capture_skill_execution_evidence,
+    resolve_skill_invocation_cost,
 )
 
 # Async callback receiving FINAL-phase progress payloads
@@ -3074,12 +3078,15 @@ async def publish_proposal_to_knowledge(
     if content and not bool(publication_meta.get("include_unresolved_questions", True)):
         content = _strip_open_questions_section(content)
 
-    from app.services.knowledge_collections import create_or_get_collection
-    from app.services.object_store import get_object_store
-    from app.services.knowledge_collections import ingested_key, original_key
     from app.core.settings_manager import get_resolved_settings
-    from app.services.rag.vector_store_config import resolve_vector_db_type
+    from app.services.knowledge_collections import (
+        create_or_get_collection,
+        ingested_key,
+        original_key,
+    )
+    from app.services.object_store import get_object_store
     from app.services.rag.document_service import DocumentService
+    from app.services.rag.vector_store_config import resolve_vector_db_type
 
     slug = (publication_destination or collection_name).replace("_", "-")[:80] or "expert-capture"
     collection = create_or_get_collection(
@@ -10987,19 +10994,36 @@ def _record_capture_run(
     db.add(run)
     db.flush()
     for slug in skill_slugs:
+        execution_evidence = capture_skill_execution_evidence(
+            db,
+            workspace_id=workspace_id,
+            skill_slug=slug,
+        )
+        cost_evidence = resolve_skill_invocation_cost(
+            db,
+            workspace_id=workspace_id,
+            skill_id=execution_evidence.skill_id,
+            skill_slug=execution_evidence.skill_slug,
+        )
         db.add(
             SkillInvocation(
                 id=str(uuid.uuid4()),
                 run_id=run.id,
-                skill_slug=slug,
+                skill_id=execution_evidence.skill_id,
+                skill_slug=execution_evidence.skill_slug,
+                execution_snapshot=execution_evidence.execution_snapshot,
                 input_ref=input_ref,
                 output_ref=output_ref,
                 status="completed",
                 started_at=now,
                 completed_at=now,
                 latency_ms=0.0,
-                cost=0.0,
-                metrics={"phase": trigger},
+                cost=cost_evidence.cost,
+                cost_measured=cost_evidence.cost_measured,
+                metrics={
+                    "phase": trigger,
+                    "cost_evidence": cost_evidence.evidence,
+                },
             )
         )
     return run.id

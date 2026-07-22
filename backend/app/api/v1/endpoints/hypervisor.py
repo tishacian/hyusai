@@ -3,29 +3,33 @@
 Composes data from `impact`, `runs`, `capabilities` and `decisions` to feed
 the executive cockpit. Designed to be a single roundtrip per surface.
 """
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
-from fastapi import HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
-from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.impact import _aggregate, _aggregate_for_scope
-from app.core.auth import get_current_workspace
+from app.api.v1.endpoints.impact import _period_start
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import FEEDBACK_LABELS
 from app.models.run import Run
+from app.models.system import System
+from app.models.user import User
+from app.models.value_loop import ValueMeasurement, ValueScenario
 from app.models.workspace import Workspace
+from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
+from app.services.decision_access import readable_decisions
+from app.services.decisions import InvalidTransition
 from app.services.decisions import (
-    InvalidTransition,
     accept as sm_accept,
-    apply_decision as sm_apply,
-    enact_decision,
+)
+from app.services.decisions import (
     reject as sm_reject,
 )
 from app.services.evaluation.feedback_service import (
@@ -33,10 +37,13 @@ from app.services.evaluation.feedback_service import (
     record_feedback,
     serialize_feedback,
 )
-from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
+from app.services.iam.decision_plane import enforce_action
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
+from app.services.run_access import readable_runs
+from app.services.value_loop_gate import value_loop_enabled, value_loop_requested
+from app.services.value_scenario_access import readable_value_scenarios
 
 router = APIRouter()
 
@@ -45,9 +52,23 @@ router = APIRouter()
 async def balance_sheet(
     period: str = Query("qtd"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    portfolio = _aggregate(db, workspace.id, period=period)
+    run_query = db.query(Run).filter(
+        Run.workspace_id == workspace.id,
+        Run.status == "completed",
+    )
+    start = _period_start(period)
+    if start is not None:
+        run_query = run_query.filter(Run.completed_at >= start)
+    completed_runs = readable_runs(
+        db,
+        runs=run_query.order_by(Run.completed_at.desc(), Run.id.asc()).all(),
+        user=user,
+        workspace=workspace,
+    )
+    portfolio = _aggregate_visible_runs(completed_runs)
 
     caps: List[Capability] = (
         db.query(Capability)
@@ -59,7 +80,9 @@ async def balance_sheet(
     caps = visible_capabilities(caps, workspace, policy)
     capability_rows = []
     for c in caps:
-        agg = _aggregate(db, workspace.id, capability_id=c.id, period=period)
+        agg = _aggregate_visible_runs(
+            [run for run in completed_runs if run.capability_id == c.id]
+        )
         if agg["runs_count"] == 0:
             continue
         capability_rows.append({
@@ -75,18 +98,397 @@ async def balance_sheet(
         "period": period,
         "portfolio": portfolio,
         "capabilities": capability_rows,
-        "signals": _signals(db, workspace.id),
+        "signals": _signals(
+            readable_runs(
+                db,
+                runs=(
+                    db.query(Run)
+                    .filter(Run.workspace_id == workspace.id)
+                    .order_by(Run.started_at.desc(), Run.id.asc())
+                    .limit(100)
+                    .all()
+                ),
+                user=user,
+                workspace=workspace,
+            )[:20]
+        ),
+        "authorization_scope": {
+            "resource": "run",
+            "action": "read",
+            "aggregation": "post_authorization_filter",
+            "counts_include_only_readable_runs": True,
+        },
     }
 
 
-def _signals(db: DBSession, workspace_id: str) -> List[Dict[str, Any]]:
-    recent_runs = (
-        db.query(Run)
-        .filter(Run.workspace_id == workspace_id)
-        .order_by(Run.started_at.desc())
-        .limit(20)
+@router.get("/value-loop")
+async def portfolio_value_loop(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Aggregate only persisted System value loops at Portfolio scope."""
+
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .order_by(System.name.asc(), System.id.asc())
         .all()
     )
+    selected_systems = [
+        system
+        for system in systems
+        if value_loop_requested(db, workspace=workspace, system=system)
+    ]
+    for system in selected_systems:
+        enforce_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="read",
+            legacy_allowed=True,
+            resource_attrs={
+                "system_id": system.id,
+                "capability_id": system.capability_id,
+                "scope": "portfolio_value_loop",
+            },
+        )
+    system_ids = [system.id for system in selected_systems]
+    raw_scenarios = (
+        db.query(ValueScenario)
+        .filter(
+            ValueScenario.workspace_id == workspace.id,
+            ValueScenario.system_id.in_(system_ids),
+        )
+        .order_by(ValueScenario.created_at.desc(), ValueScenario.id.desc())
+        .all()
+        if system_ids
+        else []
+    )
+    scenarios = readable_value_scenarios(
+        db,
+        scenarios=raw_scenarios,
+        user=user,
+        workspace=workspace,
+    )
+    scenario_projection_state = (
+        "available"
+        if scenarios
+        else "restricted"
+        if raw_scenarios
+        else "not_measured"
+    )
+    raw_scenario_system_ids = {row.system_id for row in raw_scenarios}
+    scenario_ids = [scenario.id for scenario in scenarios]
+    measurements = (
+        db.query(ValueMeasurement)
+        .filter(
+            ValueMeasurement.workspace_id == workspace.id,
+            ValueMeasurement.system_id.in_(system_ids),
+            ValueMeasurement.scenario_id.in_(scenario_ids),
+        )
+        .order_by(ValueMeasurement.measured_at.desc(), ValueMeasurement.id.desc())
+        .all()
+        if scenario_ids
+        else []
+    )
+    decisions = (
+        db.query(Decision)
+        .filter(
+            Decision.workspace_id == workspace.id,
+            Decision.kind == "value_loop",
+            Decision.scope == "system",
+            Decision.target_id.in_(system_ids),
+            Decision.scenario_id.in_(scenario_ids),
+        )
+        .order_by(Decision.created_at.desc(), Decision.id.desc())
+        .all()
+        if scenario_ids
+        else []
+    )
+    raw_decisions = decisions
+    decisions = readable_decisions(
+        db,
+        decisions=decisions,
+        user=user,
+        workspace=workspace,
+    )
+    measured = [row for row in measurements if row.status == "measured"]
+    measured_value_deltas = [
+        float(row.delta["value"])
+        for row in measured
+        if isinstance(row.delta, dict)
+        and isinstance(row.delta.get("value"), (int, float))
+        and not isinstance(row.delta.get("value"), bool)
+    ]
+    scenario_by_system: dict[str, list[ValueScenario]] = {}
+    measurement_by_system: dict[str, list[ValueMeasurement]] = {}
+    measurement_by_scenario: dict[str, ValueMeasurement] = {}
+    decision_by_scenario: dict[str, Decision] = {}
+    raw_decision_scenario_ids = {
+        row.scenario_id for row in raw_decisions if row.scenario_id
+    }
+    for row in scenarios:
+        scenario_by_system.setdefault(row.system_id, []).append(row)
+    for row in measurements:
+        measurement_by_system.setdefault(row.system_id, []).append(row)
+        measurement_by_scenario.setdefault(row.scenario_id, row)
+    for row in decisions:
+        if row.scenario_id:
+            decision_by_scenario[row.scenario_id] = row
+
+    forecast_verdict_counts = {
+        verdict: len(
+            [row for row in measured if row.assumption_verdict == verdict]
+        )
+        for verdict in ("confirmed", "partially_confirmed", "not_confirmed")
+    }
+    risk_items: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        measurement = measurement_by_scenario.get(scenario.id)
+        if scenario.status in {"approved", "acted"}:
+            risk_items.append(
+                {
+                    "kind": "open_governed_change",
+                    "system_id": scenario.system_id,
+                    "scenario_id": scenario.id,
+                    "state": "available",
+                    "source": "value_scenarios.status",
+                    "detail": scenario.status,
+                }
+            )
+        if measurement is not None and measurement.status == "not_measured":
+            risk_items.append(
+                {
+                    "kind": "outcome_not_measured",
+                    "system_id": scenario.system_id,
+                    "scenario_id": scenario.id,
+                    "state": "available",
+                    "source": "value_measurements.status,reason",
+                    "detail": measurement.reason,
+                }
+            )
+        if measurement is not None and measurement.assumption_verdict in {
+            "partially_confirmed",
+            "not_confirmed",
+        }:
+            risk_items.append(
+                {
+                    "kind": "forecast_assumption_gap",
+                    "system_id": scenario.system_id,
+                    "scenario_id": scenario.id,
+                    "state": "available",
+                    "source": "value_measurements.assumption_verdict",
+                    "detail": measurement.assumption_verdict,
+                }
+            )
+    system_by_id = {system.id: system for system in selected_systems}
+    scenario_items = []
+    for scenario in scenarios:
+        measurement = measurement_by_scenario.get(scenario.id)
+        decision = decision_by_scenario.get(scenario.id)
+        scenario_items.append(
+            {
+                "id": scenario.id,
+                "system_id": scenario.system_id,
+                "capability_id": getattr(
+                    system_by_id.get(scenario.system_id),
+                    "capability_id",
+                    None,
+                ),
+                "status": scenario.status,
+                "objective": scenario.objective,
+                "created_at": (
+                    scenario.created_at.isoformat() if scenario.created_at else None
+                ),
+                "decision": (
+                    {
+                        "id": decision.id,
+                        "status": decision.status,
+                        "title": decision.title,
+                    }
+                    if decision is not None
+                    else None
+                ),
+                "decision_state": (
+                    "available"
+                    if decision is not None
+                    else "restricted"
+                    if scenario.id in raw_decision_scenario_ids
+                    else "not_configured"
+                ),
+                "outcome": {
+                    "state": (
+                        "available"
+                        if measurement is not None and measurement.status == "measured"
+                        else "not_measured"
+                    ),
+                    "measurement_id": measurement.id if measurement is not None else None,
+                    "delta": (
+                        dict(measurement.delta)
+                        if measurement is not None
+                        and isinstance(measurement.delta, Mapping)
+                        else None
+                    ),
+                    "forecast_delta": (
+                        dict(measurement.forecast_delta)
+                        if measurement is not None
+                        and isinstance(measurement.forecast_delta, Mapping)
+                        else None
+                    ),
+                    "assumption_verdict": (
+                        measurement.assumption_verdict
+                        if measurement is not None
+                        else "not_evaluable"
+                    ),
+                },
+            }
+        )
+    return {
+        "schema_version": 1,
+        "scope": "portfolio",
+        "state": "available" if selected_systems else "not_configured",
+        "systems": [
+            {
+                "system_id": system.id,
+                "capability_id": system.capability_id,
+                "name": system.name,
+                "scenario_count": len(scenario_by_system.get(system.id, [])),
+                "open_count": len(
+                    [
+                        row
+                        for row in scenario_by_system.get(system.id, [])
+                        if row.status != "measured"
+                    ]
+                ),
+                "measured_count": len(
+                    [
+                        row
+                        for row in measurement_by_system.get(system.id, [])
+                        if row.status == "measured"
+                    ]
+                ),
+                "scenario_state": (
+                    "available"
+                    if scenario_by_system.get(system.id)
+                    else "restricted"
+                    if system.id in raw_scenario_system_ids
+                    else "not_measured"
+                ),
+                "actuator_state": (
+                    "available"
+                    if value_loop_enabled(
+                        db,
+                        workspace=workspace,
+                        system=system,
+                    )
+                    else "not_configured"
+                ),
+            }
+            for system in selected_systems
+        ],
+        "status_counts": {
+            status: len([row for row in scenarios if row.status == status])
+            for status in (
+                "decision_proposed",
+                "simulated",
+                "approved",
+                "acted",
+                "measured",
+            )
+        },
+        "observed_value_delta": {
+            "state": (
+                "available"
+                if measured_value_deltas
+                else "restricted"
+                if scenario_projection_state == "restricted"
+                else "not_measured"
+            ),
+            "value": sum(measured_value_deltas) if measured_value_deltas else None,
+            "source": "value_measurements.delta.value",
+            "sample_count": len(measured_value_deltas),
+        },
+        "outcomes": {
+            "state": (
+                "available"
+                if measured
+                else "restricted"
+                if scenario_projection_state == "restricted"
+                else "not_measured"
+            ),
+            "observed_value_delta": {
+                "state": (
+                    "available"
+                    if measured_value_deltas
+                    else "restricted"
+                    if scenario_projection_state == "restricted"
+                    else "not_measured"
+                ),
+                "value": sum(measured_value_deltas) if measured_value_deltas else None,
+                "source": "value_measurements.delta.value",
+                "sample_count": len(measured_value_deltas),
+            },
+            "measured_scenarios": {
+                "state": scenario_projection_state,
+                "value": len(measured) if scenarios else None,
+                "source": "value_measurements.status",
+                "sample_count": len(scenarios),
+            },
+            "forecast_verdict_counts": {
+                "state": (
+                    "available"
+                    if measured
+                    else "restricted"
+                    if scenario_projection_state == "restricted"
+                    else "not_measured"
+                ),
+                "value": forecast_verdict_counts if measured else None,
+                "source": "value_measurements.assumption_verdict",
+                "sample_count": len(measured),
+            },
+        },
+        "risks": {
+            "state": scenario_projection_state,
+            "count": len(risk_items) if scenarios else None,
+            "items": risk_items,
+            "source": (
+                "value_scenarios.status,value_measurements.status,reason,"
+                "assumption_verdict"
+            ),
+        },
+        "arbitrations": {
+            "state": (
+                "available"
+                if decisions
+                else "restricted"
+                if raw_decisions or scenario_projection_state == "restricted"
+                else "not_measured"
+            ),
+            "items": [
+                {
+                    "id": row.id,
+                    "scenario_id": row.scenario_id,
+                    "system_id": row.target_id,
+                    "status": row.status,
+                    "title": row.title,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in decisions
+            ],
+            "source": "decisions.kind=value_loop,scope=system",
+        },
+        "scenarios": {
+            "state": scenario_projection_state,
+            "items": scenario_items,
+            "source": "value_scenarios",
+        },
+        "simulation_is_measurement": False,
+    }
+
+
+def _signals(recent_runs: List[Run]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in recent_runs:
         tone = "neutral"
@@ -105,6 +507,58 @@ def _signals(db: DBSession, workspace_id: str) -> List[Dict[str, Any]]:
             "label": _signal_label(r),
         })
     return out
+
+
+def _aggregate_visible_runs(runs: List[Run]) -> Dict[str, Any]:
+    def _sum(values: List[float]) -> float | None:
+        return float(sum(values)) if values else None
+
+    def _average(values: List[float]) -> float | None:
+        return float(sum(values) / len(values)) if values else None
+
+    costs = [float(run.cost_internal) for run in runs if run.cost_internal is not None]
+    values = [
+        float(run.value_estimated)
+        for run in runs
+        if run.value_estimated is not None
+        and str(run.value_source or "unset") in {"auto", "operator"}
+    ]
+    revenues = [
+        float(run.revenue_allocated)
+        for run in runs
+        if run.revenue_allocated is not None
+    ]
+    confidences = [float(run.confidence) for run in runs if run.confidence is not None]
+    efficiencies = [float(run.efficiency) for run in runs if run.efficiency is not None]
+    total_cost = _sum(costs)
+    estimated_value = _sum(values)
+    total_revenue = _sum(revenues)
+    roi = (
+        (estimated_value - total_cost) / total_cost
+        if total_cost not in {None, 0.0} and estimated_value is not None
+        else None
+    )
+    return {
+        "runs_count": len(runs),
+        "capabilities_count": len(
+            {run.capability_id for run in runs if run.capability_id is not None}
+        ),
+        "total_cost": total_cost,
+        "estimated_value": estimated_value,
+        "total_revenue": total_revenue,
+        "roi": roi,
+        "avg_confidence": _average(confidences),
+        "avg_efficiency": _average(efficiencies),
+        "measurement_states": {
+            "total_cost": "available" if total_cost is not None else "not_measured",
+            "estimated_value": (
+                "available" if estimated_value is not None else "not_measured"
+            ),
+            "total_revenue": (
+                "available" if total_revenue is not None else "not_measured"
+            ),
+        },
+    }
 
 
 def _signal_label(r: Run) -> str:
@@ -138,21 +592,26 @@ class ProactiveRecommendationRequest(BaseModel):
     min_breaches: int = 2
     min_breach_rate: float = 0.5
     dry_run: bool = False
-    actor: Optional[str] = None
 
 
 @router.get("/recommendations")
 async def list_recommendations(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     rows = (
         db.query(Decision)
         .filter(Decision.workspace_id == workspace.id, Decision.kind == "recommendation")
-        .order_by(Decision.created_at.desc())
-        .limit(50)
+        .order_by(Decision.created_at.desc(), Decision.id.desc())
         .all()
     )
+    rows = readable_decisions(
+        db,
+        decisions=rows,
+        user=user,
+        workspace=workspace,
+    )[:50]
     return {"items": [{
         "id": d.id,
         "scope": d.scope,
@@ -169,10 +628,20 @@ async def list_recommendations(
 async def generate_recommendations(
     body: Optional[ProactiveRecommendationRequest] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """E5 — Generate proactive Decisions from aggregated E1 eval signals."""
     body = body or ProactiveRecommendationRequest()
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="admin",
+        legacy_allowed=True,
+        resource_attrs={"scope": "proactive_recommendation_generation"},
+    )
     return generate_proactive_recommendations(
         db,
         workspace_id=workspace.id,
@@ -180,7 +649,7 @@ async def generate_recommendations(
         min_evaluations=body.min_evaluations,
         min_breaches=body.min_breaches,
         min_breach_rate=body.min_breach_rate,
-        actor=body.actor or "system",
+        actor=_actor_label(user),
         dry_run=body.dry_run,
     )
 
@@ -189,102 +658,35 @@ async def generate_recommendations(
 async def simulate_what_if(
     body: WhatIfRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Deterministic client-side feel: we compute a delta-projection from the
-    current aggregates without touching the runtime. Phase 4 will route the
-    same payload through the real adaptive policy simulator."""
-    period = "qtd"
-    base = _aggregate_for_scope(
+    """Retired decorative preview; authoritative simulation lives in Lot 8."""
+
+    enforce_action(
         db,
-        workspace.id,
-        scope=body.scope,
-        target_id=body.target_id,
-        period=period,
-    )
-    levers = body.levers or {}
-
-    # Accept both the canonical 4-lever mental model (resource/velocity/autonomy/risk_tolerance)
-    # and the raw factor shortcuts (cost_factor/value_factor/latency_factor) so
-    # downstream tools can call this endpoint without knowing the cockpit's
-    # lever semantics.
-    resource = _as_float(levers.get("resource"), default=None)
-    velocity = _as_float(levers.get("velocity"), default=None)
-    autonomy = _as_float(levers.get("autonomy"), default=None)
-    risk_tol = _as_float(levers.get("risk_tolerance"), default=None)
-
-    cost_mult = _as_float(levers.get("cost_factor"), default=None)
-    value_mult = _as_float(levers.get("value_factor"), default=None)
-    latency_mult = _as_float(levers.get("latency_factor"), default=None)
-
-    # Derive factors from the canonical levers when no explicit factor is sent.
-    # Deep resources add cost but deliver more value; rapid velocity cuts latency
-    # at a slight quality cost; high autonomy trims cost (fewer HITL loops) but
-    # only when risk tolerance allows for it.
-    if cost_mult is None:
-        base_cost = 1.0
-        if resource is not None:
-            base_cost *= 0.65 + 0.75 * resource        # lean -40% → deep +40%
-        if autonomy is not None:
-            base_cost *= 1.05 - 0.20 * autonomy        # HITL +5% → full −15%
-        cost_mult = base_cost
-
-    if value_mult is None:
-        base_value = 1.0
-        if resource is not None:
-            base_value *= 0.85 + 0.35 * resource       # deep +35%
-        if risk_tol is not None:
-            base_value *= 0.95 + 0.15 * risk_tol       # bolder +15%
-        value_mult = base_value
-
-    if latency_mult is None:
-        base_latency = 1.0
-        if velocity is not None:
-            base_latency = 1.55 - 1.10 * velocity      # thorough 1.55× → rapid 0.45×
-        value_mult *= 0.95 + 0.05 * (velocity or 0.5) if velocity is not None else 1.0
-        latency_mult = max(0.1, base_latency)
-
-    projected_cost = base["total_cost"] * cost_mult
-    projected_value = base["estimated_value"] * value_mult
-    projected_roi = (
-        ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+        user=user,
+        workspace=workspace,
+        resource_kind="value_scenario",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"scope": body.scope, "target_id": body.target_id},
     )
     return {
         "kind": "simulation",
+        "state": "not_configured",
         "measured": False,
         "scope": body.scope,
         "target_id": body.target_id,
-        "model": {"id": "hypervisor-what-if-levers", "version": 1},
-        "assumptions": {
-            "resource": "controls cost and estimated-value multipliers",
-            "velocity": "controls latency and a bounded value adjustment",
-            "autonomy": "controls the cost multiplier",
-            "risk_tolerance": "controls the estimated-value multiplier",
-        },
-        "provenance": {
-            "source": "runs",
-            "period": period,
-            "scope": body.scope,
-            "target_id": body.target_id,
-        },
+        "model": None,
+        "assumptions": None,
+        "provenance": None,
         "confidence": None,
-        "base": base,
-        "projected": {
-            "total_cost": projected_cost,
-            "estimated_value": projected_value,
-            "roi": projected_roi,
-            "latency_index": latency_mult,
-        },
+        "base": None,
+        "projected": None,
+        "reason": "authoritative_value_loop_required",
+        "replacement": "/systems/{system_id}/value-loop",
     }
-
-
-def _as_float(v: Any, default: Optional[float] = None) -> Optional[float]:
-    try:
-        if v is None:
-            return default
-        return float(v)
-    except (TypeError, ValueError):
-        return default
 
 
 def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
@@ -334,14 +736,26 @@ class ActiveSuggestionApplyRequest(BaseModel):
 
 
 class DecisionCreate(BaseModel):
-    scope: str = "capability"
+    scope: Literal["portfolio", "capability", "system", "run"] = "capability"
     target_id: Optional[str] = None
     kind: str = "recommendation"
     title: str
-    status: str = "proposed"
+    status: Literal["proposed"] = "proposed"
     rationale: Dict[str, Any] = {}
     impact_estimate: Dict[str, Any] = {}
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_target(self):
+        if self.scope == "portfolio" and self.target_id is not None:
+            raise ValueError("target_id must be null for a portfolio Decision")
+        if self.scope != "portfolio" and not self.target_id:
+            raise ValueError(f"target_id is required for scope={self.scope}")
+        return self
+
+
+def _actor_label(user: User) -> str:
+    return user.email or user.username or user.id
 
 
 @router.get("/decisions")
@@ -352,6 +766,7 @@ async def list_decisions(
     limit: int = 50,
     offset: int = 0,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Paginated feed of decisions, newest first.
@@ -368,10 +783,17 @@ async def list_decisions(
         q = q.filter(Decision.scope == scope)
     if kind:
         q = q.filter(Decision.kind == kind)
-    total = q.count()
-    rows = q.order_by(Decision.created_at.desc()).offset(offset).limit(limit).all()
+    rows = q.order_by(Decision.created_at.desc(), Decision.id.desc()).all()
+    rows = readable_decisions(
+        db,
+        decisions=rows,
+        user=user,
+        workspace=workspace,
+    )
+    total = len(rows)
+    page = rows[offset : offset + limit]
     return {
-        "items": [_serialize_decision(d) for d in rows],
+        "items": [_serialize_decision(d) for d in page],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -382,11 +804,21 @@ async def list_decisions(
 async def create_decision(
     body: DecisionCreate,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Create a Decision record — used by cockpit CTAs (Scale, Adjust, …)
     to surface a proposal that an operator can then Accept/Reject/Apply.
     """
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="admin",
+        legacy_allowed=True,
+        resource_attrs={"target_id": body.target_id},
+    )
     row = Decision(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -409,6 +841,7 @@ async def create_decision(
 async def get_decision(
     decision_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     d = (
@@ -416,10 +849,19 @@ async def get_decision(
         .filter(Decision.id == decision_id, Decision.workspace_id == workspace.id)
         .first()
     )
-    if not d:
-        from fastapi import HTTPException
+    visible = (
+        readable_decisions(
+            db,
+            decisions=[d],
+            user=user,
+            workspace=workspace,
+        )
+        if d is not None
+        else []
+    )
+    if not visible:
         raise HTTPException(404, "Decision not found")
-    return _serialize_decision(d, full=True)
+    return _serialize_decision(visible[0], full=True)
 
 
 def _get_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> Decision:
@@ -434,12 +876,25 @@ def _get_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> 
     return d
 
 
+def _lock_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> Decision:
+    d = (
+        db.query(Decision)
+        .filter(Decision.id == decision_id, Decision.workspace_id == workspace_id)
+        .with_for_update(of=Decision)
+        .one_or_none()
+    )
+    if not d:
+        raise HTTPException(404, "Decision not found")
+    return d
+
+
 def _maybe_record_eval_feedback(
     db: DBSession,
     *,
     decision: Decision,
     body: Optional[DecisionTransition],
     default_label: str,
+    actor: str,
 ) -> Optional[Dict[str, Any]]:
     """Persist an `EvaluationFeedback` row when the Decision is a
     review-queue triage item.
@@ -490,7 +945,7 @@ def _maybe_record_eval_feedback(
             evaluation_score_id=score.id if score else None,
             notes=(body.note if body else None),
             corrected_output=(body.feedback_corrected_output if body else None),
-            actor=(body.actor if body else None),
+            actor=actor,
         )
     except InvalidFeedback as exc:
         from fastapi import HTTPException
@@ -503,16 +958,32 @@ async def accept_decision(
     decision_id: str,
     body: Optional[DecisionTransition] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
-    d = _get_decision_or_404(db, workspace.id, decision_id)
+    d = _lock_decision_or_404(db, workspace.id, decision_id)
+    if getattr(d, "scenario_id", None):
+        raise HTTPException(
+            409,
+            "Value-loop Decisions must be approved through the value-loop orchestrator",
+        )
+    actor = _actor_label(user)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="approve",
+        legacy_allowed=True,
+        resource_attrs={"decision_id": d.id, "owner_user_id": None},
+    )
     try:
-        sm_accept(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
+        sm_accept(db, d, actor=actor, note=(body.note if body else None))
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
     feedback = _maybe_record_eval_feedback(
-        db, decision=d, body=body, default_label="false_positive"
+        db, decision=d, body=body, default_label="false_positive", actor=actor
     )
     db.commit()
     payload = _serialize_decision(d, full=True)
@@ -526,16 +997,32 @@ async def reject_decision(
     decision_id: str,
     body: Optional[DecisionTransition] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
-    d = _get_decision_or_404(db, workspace.id, decision_id)
+    d = _lock_decision_or_404(db, workspace.id, decision_id)
+    if getattr(d, "scenario_id", None):
+        raise HTTPException(
+            409,
+            "Value-loop Decisions must be rejected through the value-loop orchestrator",
+        )
+    actor = _actor_label(user)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="approve",
+        legacy_allowed=True,
+        resource_attrs={"decision_id": d.id, "owner_user_id": None},
+    )
     try:
-        sm_reject(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
+        sm_reject(db, d, actor=actor, note=(body.note if body else None))
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
     feedback = _maybe_record_eval_feedback(
-        db, decision=d, body=body, default_label="true_breach"
+        db, decision=d, body=body, default_label="true_breach", actor=actor
     )
     db.commit()
     payload = _serialize_decision(d, full=True)
@@ -549,21 +1036,42 @@ async def apply_decision_endpoint(
     decision_id: str,
     body: Optional[DecisionApplyRequest] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     from fastapi import HTTPException
-    d = _get_decision_or_404(db, workspace.id, decision_id)
-    actor = body.actor if body else None
-    patch: Dict[str, Any] = {}
-    if body and body.patch:
-        patch = body.patch
-    elif body is None or body.enact:
-        patch = enact_decision(db, d)
-    try:
-        sm_apply(db, d, actor=actor, patch=patch)
-    except InvalidTransition as exc:
-        raise HTTPException(409, str(exc))
-    return _serialize_decision(d, full=True)
+    d = _lock_decision_or_404(db, workspace.id, decision_id)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="approve",
+        legacy_allowed=True,
+        resource_attrs={"decision_id": d.id},
+    )
+    if getattr(d, "scenario_id", None):
+        raise HTTPException(
+            409,
+            "Value-loop Decisions must be acted through the value-loop orchestrator",
+        )
+    if (d.status or "proposed") != "accepted":
+        raise HTTPException(409, "Decision must be accepted before it can be applied")
+    if body and body.patch is not None:
+        raise HTTPException(400, "Client-supplied applied patches are not authoritative")
+    if body and not body.enact:
+        raise HTTPException(400, "A Decision cannot be applied without a real enactment")
+    raise HTTPException(
+        409,
+        detail={
+            "code": "LEGACY_DECISION_ACTUATOR_DISABLED",
+            "state": "not_configured",
+            "message": (
+                "Generic Decision enactment is disabled; use the authoritative "
+                "Value Scenario → Simulate → Approve → Act workflow"
+            ),
+        },
+    )
 
 
 @router.post("/decisions/{decision_id}/apply-active-suggestion")
@@ -571,74 +1079,28 @@ async def apply_active_suggestion(
     decision_id: str,
     body: Optional[ActiveSuggestionApplyRequest] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Apply the concrete E1.5.5 suggestion stored on a review Decision.
-
-    MVP action: ``rerun_with_overrides``. Applying it creates a replay run
-    from the breached parent run, then records the Decision as applied with
-    the replay lineage in ``applied_patch``.
-    """
+    """Retired non-idempotent replay shortcut; manual replay remains available."""
     d = _get_decision_or_404(db, workspace.id, decision_id)
-    if d.kind != "review_required" or d.scope != "run" or not d.target_id:
-        raise HTTPException(400, "active suggestions are only available for run review decisions")
-    rationale = d.rationale or {}
-    suggestion = rationale.get("active_suggestion") or {}
-    if not isinstance(suggestion, dict) or not suggestion:
-        raise HTTPException(400, "decision has no active_suggestion")
-    action_type = suggestion.get("action_type")
-    if action_type != "rerun_with_overrides":
-        raise HTTPException(400, f"unsupported active suggestion action {action_type!r}")
-
-    parent = (
-        db.query(Run)
-        .filter(Run.id == d.target_id, Run.workspace_id == workspace.id)
-        .first()
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="decision",
+        action="approve",
+        legacy_allowed=True,
+        resource_attrs={"decision_id": d.id},
     )
-    if not parent:
-        raise HTTPException(404, "Parent run not found")
-
-    from app.services.runs.replay_service import ReplayError, replay_run_async
-
-    try:
-        new_run, response_text = await replay_run_async(
-            db=db,
-            parent=parent,
-            workspace_slug=workspace.slug,
-            overrides=suggestion.get("overrides") or {},
-            actor=(body.actor if body else None),
-            source_decision_id=d.id,
-        )
-    except ReplayError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-    actor = body.actor if body else None
-    try:
-        if (d.status or "proposed") == "proposed":
-            sm_accept(db, d, actor=actor, note="Accepted by applying active suggestion.")
-        if (d.status or "") == "accepted":
-            sm_apply(
-                db,
-                d,
-                actor=actor,
-                patch={
-                    "action_type": action_type,
-                    "suggestion": suggestion,
-                    "new_run_id": new_run.id,
-                    "parent_run_id": parent.id,
-                    "status": new_run.status,
-                },
-            )
-    except InvalidTransition as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-    payload = _serialize_decision(d, full=True)
-    payload["replay"] = {
-        "run_id": new_run.id,
-        "parent_run_id": parent.id,
-        "status": new_run.status,
-        "duration_ms": new_run.duration_ms,
-        "response_preview": (response_text[:500] if response_text else ""),
-        "eval_pending": new_run.status == "completed",
-    }
-    return payload
+    raise HTTPException(
+        409,
+        detail={
+            "code": "ACTIVE_SUGGESTION_ACTUATOR_DISABLED",
+            "state": "not_configured",
+            "message": (
+                "Use the authorized Run replay workflow; automatic suggestion "
+                "actuation is not idempotent and remains disabled"
+            ),
+        },
+    )

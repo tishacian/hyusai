@@ -7,6 +7,9 @@ import os
 from app.services.rag.document_service import DocumentService
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.fixture
 def performance_documents():
     """Create documents for performance testing"""
@@ -187,4 +190,3 @@ async def test_memory_usage():
         for doc_path in docs:
             if os.path.exists(doc_path):
                 os.unlink(doc_path)
-

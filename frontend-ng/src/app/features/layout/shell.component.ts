@@ -41,48 +41,54 @@ import { missionRoomUsesImmersiveShell } from '@app/features/mission-room/missio
   template: `
     <div
       [attr.data-theme]="businessShell() ? theme.businessResolved() : null"
+      [attr.data-workspace-app-state]="workspaceAppUnavailable() ? 'unavailable' : null"
+      [attr.data-workspace-app-brand]="workspaceAppBranding()"
       [style.position]="'fixed'"
       [style.inset]="'0'"
       [style.height]="'100dvh'"
       [style.overflow]="'hidden'"
       [style.display]="'grid'"
-      [style.gridTemplateRows]="immersiveWorkspaceApp() ? '1fr' : (businessShell() ? '52px 1fr' : '48px 1fr 28px')"
+      [style.gridTemplateRows]="workspaceAppUnavailable() || immersiveWorkspaceApp() ? '1fr' : (businessShell() ? '52px 1fr' : '48px 1fr 28px')"
       [style.background]="'var(--ck-bg-base)'"
       [style.color]="'var(--ck-fg-1)'"
     >
-      @if (businessShell()) {
-        <app-business-shell-header></app-business-shell-header>
-      } @else if (!immersiveWorkspaceApp()) {
-        <app-title-bar></app-title-bar>
-      }
-
-      <div [style.display]="'flex'" [style.minHeight]="'0'" [style.position]="'relative'">
-        @if (!immersiveWorkspaceApp() && !businessShell()) {
-          <app-side-rail></app-side-rail>
-          <app-mini-rail></app-mini-rail>
-        }
-        <main
-          [style.flex]="'1 1 auto'"
-          [style.minWidth]="'0'"
-          [style.overflow]="immersiveWorkspaceApp() ? 'hidden' : 'auto'"
-          [style.background]="'var(--ck-bg-base)'"
-          class="ck-scroll"
-        >
+      @if (workspaceAppUnavailable()) {
+        <main [style.minHeight]="'0'" [style.overflow]="'auto'" class="ck-scroll">
           <router-outlet />
         </main>
-      </div>
+      } @else {
+        @if (businessShell()) {
+          <app-business-shell-header></app-business-shell-header>
+        } @else if (!immersiveWorkspaceApp()) {
+          <app-title-bar></app-title-bar>
+        }
 
-      @if (!immersiveWorkspaceApp()) {
-        @if (!businessShell()) {
+        <div [style.display]="'flex'" [style.minHeight]="'0'" [style.position]="'relative'">
+          @if (!immersiveWorkspaceApp() && !businessShell()) {
+            <app-side-rail></app-side-rail>
+            <app-mini-rail></app-mini-rail>
+          }
+          <main
+            [style.flex]="'1 1 auto'"
+            [style.minWidth]="'0'"
+            [style.overflow]="immersiveWorkspaceApp() ? 'hidden' : 'auto'"
+            [style.background]="'var(--ck-bg-base)'"
+            class="ck-scroll"
+          >
+            <router-outlet />
+          </main>
+        </div>
+
+        @if (!immersiveWorkspaceApp() && !businessShell()) {
           <app-command-bar></app-command-bar>
         }
+        @if (!businessShell()) {
+          <app-command-palette></app-command-palette>
+        }
+        <app-panel-host></app-panel-host>
+        <app-chat-overlay></app-chat-overlay>
+        <app-assistant-draft-drawer></app-assistant-draft-drawer>
       }
-      @if (!businessShell()) {
-        <app-command-palette></app-command-palette>
-      }
-      <app-panel-host></app-panel-host>
-      <app-chat-overlay></app-chat-overlay>
-      <app-assistant-draft-drawer></app-assistant-draft-drawer>
     </div>
   `,
 })
@@ -102,6 +108,16 @@ export class ShellComponent {
   );
 
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
+  readonly workspaceAppUnavailable = this.navigationProfile.workspaceAppUnavailable;
+  readonly workspaceAppBranding = computed(() => {
+    const runtime = this.workspaceService.current()?.workspace_app_runtime;
+    if (runtime?.enabled !== true || runtime.valid !== true || !runtime.experience) {
+      return null;
+    }
+    const namespaces = runtime.experience.branding_namespaces
+      .filter((value) => typeof value === 'string' && value.trim().length > 0);
+    return namespaces.length > 0 ? [...new Set(namespaces)].join(',') : null;
+  });
   readonly businessShell = computed(() =>
     this.navigationProfile.businessShellActive() && !this.immersiveWorkspaceApp(),
   );

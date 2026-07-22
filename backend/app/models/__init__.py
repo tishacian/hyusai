@@ -47,6 +47,18 @@ from app.models.system_memory import SystemMemory
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.impact import Impact
 from app.models.decision import Decision
+from app.models.value_loop import (
+    ValueActionExecution,
+    ValueLoopOperation,
+    ValueMeasurement,
+    ValueScenario,
+    ValueSimulation,
+)
+from app.models.workspace_app import (
+    WorkspaceAppInstallation,
+    WorkspaceAppLifecycleStepReceipt,
+    WorkspaceAppOperation,
+)
 
 __all__ = [
     "User", "Session", "Message",
@@ -70,4 +82,8 @@ __all__ = [
     "System", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
     "RunInbox", "SystemMemory", "RunDispatchOutbox",
     "Impact", "Decision",
+    "ValueLoopOperation", "ValueScenario", "ValueSimulation",
+    "ValueActionExecution", "ValueMeasurement",
+    "WorkspaceAppInstallation", "WorkspaceAppOperation",
+    "WorkspaceAppLifecycleStepReceipt",
 ]

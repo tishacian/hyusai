@@ -112,11 +112,37 @@ def _seed_prereqs(db) -> str:
     return ws.id
 
 
+def _bind_historical_migration_to_current_schema(db_session, monkeypatch) -> None:
+    """Replay 048 while honouring required columns added by later revisions.
+
+    Migration 048 intentionally describes the schema that existed at revision
+    048 and must remain immutable.  The test suite, however, provisions the
+    final ORM metadata where migration 071 made ``System.blueprint_key``
+    required.  Replacing only the migration's lightweight ``systems`` table
+    with the current model table lets SQLAlchemy apply that column's UUID
+    default without changing 048 or weakening the final-schema constraint.
+    """
+
+    historical_tables = MIG._tables
+
+    def tables_with_current_system_defaults():
+        tables = list(historical_tables())
+        tables[3] = System.__table__
+        return tuple(tables)
+
+    monkeypatch.setattr(MIG, "_tables", tables_with_current_system_defaults)
+    # Resolve the session's current connection each call so it survives commits
+    # issued between the upgrade, replay and downgrade phases.
+    monkeypatch.setattr(
+        MIG,
+        "op",
+        types.SimpleNamespace(get_bind=lambda: db_session.connection()),
+    )
+
+
 def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch):
     ws_id = _seed_prereqs(db_session)
-    # Resolve the session's *current* connection each call so it survives the
-    # commits the test issues between migration phases.
-    monkeypatch.setattr(MIG, "op", types.SimpleNamespace(get_bind=lambda: db_session.connection()))
+    _bind_historical_migration_to_current_schema(db_session, monkeypatch)
 
     # --- upgrade -----------------------------------------------------------
     MIG.upgrade()
@@ -129,6 +155,7 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     assert len(systems) == 1
     system = systems[0]
     system_id = system.id  # capture PK before any delete so post-downgrade asserts stay detached-safe
+    assert system.blueprint_key
     assert system.default_model == "gpt-4o-mini"
     assert system.status == "active"
     assert (system.settings or {}).get("seed_origin") == "048_andritz_chat_agentic"
@@ -201,7 +228,7 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
 
 def test_downgrade_removes_seeded_runs(db_session, monkeypatch):
     ws_id = _seed_prereqs(db_session)
-    monkeypatch.setattr(MIG, "op", types.SimpleNamespace(get_bind=lambda: db_session.connection()))
+    _bind_historical_migration_to_current_schema(db_session, monkeypatch)
 
     MIG.upgrade()
     db_session.expire_all()

@@ -8,7 +8,17 @@ into Impact (per System / per Capability / portfolio).
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -116,6 +126,11 @@ class SkillInvocation(Base):
     skill_id = Column(String(36), nullable=True, index=True)
     skill_slug = Column(String(160), nullable=True, index=True)
 
+    # Immutable, positive-allowlisted identity/contract evidence captured when
+    # the invocation is created.  Historical rows intentionally remain NULL:
+    # resolving their Skill from the mutable catalogue would rewrite history.
+    execution_snapshot = Column(JSON, nullable=True)
+
     input_ref = Column(JSON, default=dict)
     output_ref = Column(JSON, default=dict)
 
@@ -125,6 +140,12 @@ class SkillInvocation(Base):
     latency_ms = Column(Float, nullable=True)
 
     cost = Column(Float, default=0.0)
+    # NULL means "unknown / historical".  New producers explicitly write
+    # False while a cost is pending or synthetic.  True is reserved for a
+    # provider measurement or a calculation backed by an identifiable,
+    # explicitly configured tariff (including a genuine zero-cost tariff).
+    # This prevents a legacy/default 0.0 from masquerading as evidence.
+    cost_measured = Column(Boolean, nullable=True)
     metrics = Column(JSON, default=dict)
     trace = Column(JSON, default=dict)
 

@@ -106,7 +106,7 @@ class WorkspaceStub {
   current = () => this.listState().find((item) => item.slug === this.slugState()) || null;
 
   captureRequestScope(): WorkspaceRequestScope {
-    return Object.freeze({ workspaceSlug: this.slugState(), epoch: this.epochState() });
+    return Object.freeze({ workspaceSlug: this.slugState(), workspaceId: `workspace-${this.slugState()}`, epoch: this.epochState() });
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {

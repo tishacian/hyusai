@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of } from 'rxjs';
 import { ApiService } from './api.service';
+import type { ObjectLens } from './navigation.catalog';
+import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 
 /** Canonical mental-model types — kept flat and permissive so the UI can
  *  degrade gracefully when any field is missing (e.g. before a run
@@ -66,6 +68,9 @@ export interface Outcome {
 
 export interface SkillInvocation {
   id?: string;
+  run_id?: string;
+  system_id?: string | null;
+  capability_id?: string | null;
   skill_slug?: string;
   skill_id?: string;
   status?: 'completed' | 'failed' | 'pending' | 'running' | 'cancelled';
@@ -514,12 +519,16 @@ export interface ImpactAggregate {
   period?: string;
   runs_count?: number;
   capabilities_count?: number;
-  total_cost?: number;
-  estimated_value?: number;
-  total_revenue?: number;
+  total_cost?: number | null;
+  estimated_value?: number | null;
+  total_revenue?: number | null;
   roi?: number | null;
   avg_confidence?: number | null;
   avg_efficiency?: number | null;
+  measurement_states?: Partial<Record<
+    'total_cost' | 'estimated_value' | 'total_revenue',
+    'available' | 'not_measured'
+  >>;
 }
 
 export interface CapabilityRow extends ImpactAggregate {
@@ -544,6 +553,91 @@ export interface HypervisorBalance {
   portfolio: ImpactAggregate;
   capabilities: CapabilityRow[];
   signals: HypervisorSignal[];
+}
+
+export type PortfolioEvidenceState =
+  | 'available'
+  | 'not_measured'
+  | 'not_configured'
+  | 'restricted'
+  | 'unavailable';
+
+export interface PortfolioValueLoopFact<T> {
+  state: PortfolioEvidenceState;
+  value: T | null;
+  source: string;
+  sample_count: number;
+}
+
+export interface PortfolioValueLoop {
+  schema_version: 1;
+  scope: 'portfolio';
+  state: PortfolioEvidenceState;
+  systems: Array<{
+    system_id: string;
+    capability_id: string | null;
+    name: string;
+    scenario_count: number;
+    open_count: number;
+    measured_count: number;
+    scenario_state: PortfolioEvidenceState;
+    actuator_state: 'available' | 'not_configured';
+  }>;
+  status_counts: Record<string, number>;
+  observed_value_delta: PortfolioValueLoopFact<number>;
+  outcomes: {
+    state: PortfolioEvidenceState;
+    observed_value_delta: PortfolioValueLoopFact<number>;
+    measured_scenarios: PortfolioValueLoopFact<number>;
+    forecast_verdict_counts: PortfolioValueLoopFact<Record<string, number>>;
+  };
+  risks: {
+    state: PortfolioEvidenceState;
+    count: number | null;
+    source: string;
+    items: Array<{
+      kind: string;
+      system_id: string;
+      scenario_id: string;
+      state: 'available';
+      source: string;
+      detail: string | null;
+    }>;
+  };
+  arbitrations: {
+    state: PortfolioEvidenceState;
+    source: string;
+    items: Array<{
+      id: string;
+      scenario_id: string;
+      system_id: string;
+      status: string;
+      title: string;
+      created_at: string | null;
+    }>;
+  };
+  scenarios: {
+    state: PortfolioEvidenceState;
+    source: string;
+    items: Array<{
+      id: string;
+      system_id: string;
+      capability_id: string | null;
+      status: string;
+      objective: string;
+      created_at: string | null;
+      decision: { id: string; status: string; title: string } | null;
+      decision_state: 'available' | 'not_configured' | 'restricted';
+      outcome: {
+        state: 'available' | 'not_measured';
+        measurement_id: string | null;
+        delta: Record<string, number> | null;
+        forecast_delta: Record<string, number> | null;
+        assumption_verdict: string;
+      };
+    }>;
+  };
+  simulation_is_measurement: false;
 }
 
 export interface Recommendation {
@@ -575,11 +669,94 @@ export interface WhatIfResult {
   target_id?: string | null;
   base: ImpactAggregate;
   projected: {
-    total_cost: number;
-    estimated_value: number;
+    total_cost: number | null;
+    estimated_value: number | null;
     roi: number | null;
     latency_index: number;
   };
+}
+
+export interface ValueLoopSimulation {
+  id: string;
+  scenario_id: string;
+  system_id: string;
+  status: 'available';
+  evidence_type: 'simulation';
+  model: string;
+  assumptions: Record<string, unknown>;
+  projected_outcome: Record<string, unknown>;
+  recommended_action: {
+    actuator?: string;
+    patch?: Record<string, unknown>;
+  };
+  provenance: Record<string, unknown>;
+  confidence: number;
+  generated_at: string | null;
+}
+
+export interface ValueLoopActionExecution {
+  id: string;
+  scenario_id: string;
+  system_id: string;
+  simulation_id: string;
+  actuator: string;
+  status: 'succeeded';
+  changed_fields: string[];
+  executed_by: string;
+  executed_at: string | null;
+}
+
+export interface ValueLoopMeasurement {
+  id: string;
+  scenario_id: string;
+  system_id: string;
+  action_execution_id: string;
+  simulation_id: string;
+  source_run_id: string | null;
+  status: 'measured' | 'not_measured';
+  reason: string | null;
+  evidence_type: 'run' | null;
+  baseline_outcome: Record<string, unknown>;
+  observed_outcome: Record<string, unknown> | null;
+  delta: Record<string, number> | null;
+  forecast_delta: Record<string, number> | null;
+  assumption_verdict: 'confirmed' | 'partially_confirmed' | 'not_confirmed' | 'not_evaluable';
+  assumption_evaluation: Record<string, unknown>;
+  measured_at: string | null;
+}
+
+export interface ValueScenario {
+  id: string;
+  workspace_id: string;
+  system_id: string;
+  source_run_id: string;
+  status: 'decision_proposed' | 'simulated' | 'approved' | 'acted' | 'measured';
+  objective: string;
+  baseline_outcome: Record<string, unknown>;
+  approved_simulation_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  acted_at: string | null;
+  measured_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  decision: {
+    id: string;
+    status: string;
+    title: string;
+    rationale: Record<string, unknown>;
+  } | null;
+  decision_state?: 'available' | 'not_configured' | 'restricted';
+  simulations: ValueLoopSimulation[];
+  action: ValueLoopActionExecution | null;
+  measurements: ValueLoopMeasurement[];
+}
+
+export interface SystemValueLoop {
+  schema_version: 1;
+  system_id: string;
+  actuator: 'control_policy.guardrails.patch.v1';
+  items: ValueScenario[];
 }
 
 // ---- Evaluation loop (Vague E / E1) ---------------------------------------
@@ -799,6 +976,18 @@ export class CanonicalApiService {
     return this.api.get<Capability>(`/capabilities/${id}`).pipe(catchError(() => of(null)));
   }
 
+  getCapabilityPerspective(
+    id: string,
+    lens: ObjectLens,
+    window = '30d',
+  ): Observable<ObjectPerspectiveResponse> {
+    return this.api
+      .get<ObjectPerspectiveResponse>(
+        `/capabilities/${encodeURIComponent(id)}/perspective`,
+        { lens, window },
+      );
+  }
+
   // ---- Skills --------------------------------------------------------------
   listSkills(): Observable<Skill[]> {
     return this.api
@@ -828,6 +1017,81 @@ export class CanonicalApiService {
 
   getSystem(id: string): Observable<System | null> {
     return this.api.get<System>(`/systems/${id}`).pipe(catchError(() => of(null)));
+  }
+
+  getSystemValueLoop(id: string): Observable<SystemValueLoop> {
+    return this.api
+      .get<SystemValueLoop>(`/systems/${encodeURIComponent(id)}/value-loop`);
+  }
+
+  createValueScenario(
+    systemId: string,
+    body: {
+      source_run_id: string;
+      objective: string;
+      title: string;
+      rationale?: Record<string, unknown>;
+    },
+    idempotencyKey: string,
+  ): Observable<ValueScenario> {
+    return this.api.post<ValueScenario>(
+      `/systems/${encodeURIComponent(systemId)}/value-loop/scenarios`,
+      body,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+  }
+
+  simulateValueScenario(
+    systemId: string,
+    scenarioId: string,
+    recommendedPatch: Record<string, number>,
+    idempotencyKey: string,
+  ): Observable<ValueLoopSimulation> {
+    return this.api.post<ValueLoopSimulation>(
+      `/systems/${encodeURIComponent(systemId)}/value-loop/scenarios/${encodeURIComponent(scenarioId)}/simulate`,
+      { recommended_patch: recommendedPatch },
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+  }
+
+  approveValueScenario(
+    systemId: string,
+    scenarioId: string,
+    simulationId: string,
+    idempotencyKey: string,
+  ): Observable<ValueScenario> {
+    return this.api.post<ValueScenario>(
+      `/systems/${encodeURIComponent(systemId)}/value-loop/scenarios/${encodeURIComponent(scenarioId)}/approve`,
+      { simulation_id: simulationId },
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+  }
+
+  actOnValueScenario(
+    systemId: string,
+    scenarioId: string,
+    actuator: string,
+    patch: Record<string, number>,
+    idempotencyKey: string,
+  ): Observable<ValueLoopActionExecution> {
+    return this.api.post<ValueLoopActionExecution>(
+      `/systems/${encodeURIComponent(systemId)}/value-loop/scenarios/${encodeURIComponent(scenarioId)}/act`,
+      { actuator, patch },
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+  }
+
+  measureValueScenario(
+    systemId: string,
+    scenarioId: string,
+    sourceRunId: string | null,
+    idempotencyKey: string,
+  ): Observable<ValueLoopMeasurement> {
+    return this.api.post<ValueLoopMeasurement>(
+      `/systems/${encodeURIComponent(systemId)}/value-loop/scenarios/${encodeURIComponent(scenarioId)}/measure`,
+      { source_run_id: sourceRunId },
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    );
   }
 
   getSystemFlowManifest(id: string): Observable<FlowRuntimeManifest | null> {
@@ -1100,6 +1364,39 @@ export class CanonicalApiService {
     );
   }
 
+  getRunPerspective(
+    id: string,
+    lens: ObjectLens,
+    window = '30d',
+  ): Observable<ObjectPerspectiveResponse> {
+    return this.api
+      .get<ObjectPerspectiveResponse>(
+        `/runs/${encodeURIComponent(id)}/perspective`,
+        { lens, window },
+      );
+  }
+
+  getSkillInvocation(runId: string, invocationId: string): Observable<SkillInvocation | null> {
+    return this.api
+      .get<SkillInvocation>(
+        `/runs/${encodeURIComponent(runId)}/invocations/${encodeURIComponent(invocationId)}`,
+      )
+      .pipe(catchError(() => of(null)));
+  }
+
+  getSkillInvocationPerspective(
+    runId: string,
+    invocationId: string,
+    lens: ObjectLens,
+    window = '30d',
+  ): Observable<ObjectPerspectiveResponse> {
+    return this.api
+      .get<ObjectPerspectiveResponse>(
+        `/runs/${encodeURIComponent(runId)}/invocations/${encodeURIComponent(invocationId)}/perspective`,
+        { lens, window },
+      );
+  }
+
   workspaceOverview(window = '24h'): Observable<WorkspaceOverview | null> {
     return this.api
       .get<WorkspaceOverview>('/observability/workspace-overview', { window })
@@ -1195,6 +1492,10 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
+  hypervisorValueLoop(): Observable<PortfolioValueLoop> {
+    return this.api.get<PortfolioValueLoop>('/hypervisor/value-loop');
+  }
+
   hypervisorRecommendations(): Observable<Recommendation[]> {
     return this.api
       .get<{ items: Recommendation[] }>('/hypervisor/recommendations')
@@ -1211,7 +1512,6 @@ export class CanonicalApiService {
       min_breaches?: number;
       min_breach_rate?: number;
       dry_run?: boolean;
-      actor?: string;
     } = {},
   ): Observable<ProactiveRecommendationGenerateResponse | null> {
     return this.api
@@ -1610,8 +1910,8 @@ export interface SimulateResult {
   target_id?: string | null;
   base: ImpactAggregate;
   projected: {
-    total_cost: number;
-    estimated_value: number;
+    total_cost: number | null;
+    estimated_value: number | null;
     roi: number | null;
     latency_index: number;
     risk_index: number;

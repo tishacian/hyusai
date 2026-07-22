@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.config import settings
 from app.core.settings_manager import get_resolved_settings
 from app.models.action_plan import WorkspaceActionItem
+from app.models.capability import Capability
 from app.models.client360 import (
     CLIENT360_ATTRIBUTIONS,
     CLIENT360_CAMPAIGN_ACTIVE_STATUSES,
@@ -54,6 +55,7 @@ from app.services.action_plans import create_action_item, update_action_item
 from app.services.client360_contract import (
     CLIENT360_ADDRESSABLE_WEIGHTS,
     CLIENT360_AGENT_ROUTING_CONTRACT,
+    CLIENT360_CAPABILITY_SLUG,
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
 )
@@ -287,6 +289,47 @@ def _find_client360_system(db: DBSession, workspace: Workspace) -> System | None
         ):
             return row
     return next((row for row in rows if row.name == "Client360 PDR"), None)
+
+
+def resolve_client360_authority(
+    db: DBSession,
+    workspace: Workspace,
+) -> tuple[System, Capability]:
+    """Resolve the unique marker-backed System and Capability for IAM checks.
+
+    Authorization never falls back to a mutable display name.  A missing,
+    ambiguous or cross-workspace binding is an installation error and must
+    fail closed at the API boundary.
+    """
+
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .order_by(System.created_at.asc())
+        .all()
+    )
+    matches = []
+    for system in systems:
+        flow = _as_dict(system.flow_definition)
+        system_settings = _as_dict(system.settings)
+        if (
+            flow.get("variant") == CLIENT360_SYSTEM_VARIANT
+            or system_settings.get("system_type") == CLIENT360_SYSTEM_VARIANT
+        ):
+            matches.append(system)
+    if len(matches) != 1:
+        raise LookupError(
+            f"Client360 authority requires exactly one active marker-backed System; found {len(matches)}"
+        )
+    system = matches[0]
+    if not system.capability_id:
+        raise LookupError("Client360 authority System has no Capability")
+    capability = db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
+    if capability is None or capability.workspace_id not in {None, workspace.id}:
+        raise LookupError("Client360 authority Capability is missing or crosses workspace scope")
+    if capability.slug != CLIENT360_CAPABILITY_SLUG:
+        raise LookupError("Client360 authority Capability contract does not match")
+    return system, capability
 
 
 def _pick_config_value(*candidates: tuple[str, Any]) -> tuple[Any, str | None]:

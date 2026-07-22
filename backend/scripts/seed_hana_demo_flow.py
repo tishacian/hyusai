@@ -43,6 +43,7 @@ from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
 from app.services.connectors.hana import service as hana_service
+from app.services.seed_catalog_safety import owned_capability_for_seed
 from app.services.skills_registry import seed_skills_and_capabilities
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -262,7 +263,11 @@ def ensure_hana_capability(db: DBSession, workspace: Workspace) -> Capability:
         "roi_model": {"seed": "showcase_seed", "value_driver": "maintenance_triage"},
         "is_seeded": "Y",
     }
-    cap = db.query(Capability).filter(Capability.slug == HANA_CAPABILITY_SLUG).first()
+    cap = owned_capability_for_seed(
+        db,
+        workspace=workspace,
+        slug=HANA_CAPABILITY_SLUG,
+    )
     if cap:
         for key, value in payload.items():
             setattr(cap, key, value)

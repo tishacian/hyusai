@@ -74,14 +74,14 @@ import { TagComponent } from './tag.component';
           />
         </div>
         <div class="grid grid-cols-4 gap-3 mt-2">
-          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(-(result()!.projected.total_cost - (result()!.base.total_cost ?? 0)))">
-            {{ signed(result()!.projected.total_cost - (result()!.base.total_cost ?? 0)) }}
+          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(invertDelta(measurementDelta(result()!.projected.total_cost, result()!.base.total_cost)))">
+            {{ signed(measurementDelta(result()!.projected.total_cost, result()!.base.total_cost)) }}
           </div>
-          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(result()!.projected.estimated_value - (result()!.base.estimated_value ?? 0))">
-            {{ signed(result()!.projected.estimated_value - (result()!.base.estimated_value ?? 0)) }}
+          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(measurementDelta(result()!.projected.estimated_value, result()!.base.estimated_value))">
+            {{ signed(measurementDelta(result()!.projected.estimated_value, result()!.base.estimated_value)) }}
           </div>
-          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor((result()!.projected.roi ?? 0) - (result()!.base.roi ?? 0))">
-            {{ signedPct((result()!.projected.roi ?? 0) - (result()!.base.roi ?? 0)) }}
+          <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(measurementDelta(result()!.projected.roi, result()!.base.roi))">
+            {{ signedPct(measurementDelta(result()!.projected.roi, result()!.base.roi)) }}
           </div>
           <div class="ck-mono ck-tnum" style="font-size:10px; text-align:center;" [style.color]="deltaColor(-(result()!.projected.latency_index - 1))">
             {{ signedPct(result()!.projected.latency_index - 1) }}
@@ -112,7 +112,8 @@ export class ImpactPreviewComponent {
   readonly previewTone = computed<'pos' | 'cool' | 'warn' | 'neg' | 'neutral'>(() => {
     const r = this.result();
     if (!r) return 'neutral';
-    const roi = r.projected.roi ?? 0;
+    const roi = r.projected.roi;
+    if (roi == null) return 'neutral';
     if (roi >= 1) return 'pos';
     if (roi >= 0) return 'cool';
     return 'neg';
@@ -121,8 +122,16 @@ export class ImpactPreviewComponent {
   readonly previewBadge = computed(() => {
     const r = this.result();
     if (!r) return 'IDLE';
-    const delta = (r.projected.estimated_value - (r.base.estimated_value ?? 0))
-      - (r.projected.total_cost - (r.base.total_cost ?? 0));
+    const valueDelta = this.measurementDelta(
+      r.projected.estimated_value,
+      r.base.estimated_value,
+    );
+    const costDelta = this.measurementDelta(
+      r.projected.total_cost,
+      r.base.total_cost,
+    );
+    if (valueDelta == null || costDelta == null) return 'UNMEASURED';
+    const delta = valueDelta - costDelta;
     if (delta > 0) return 'NET +';
     if (delta < 0) return 'NET -';
     return 'NEUTRAL';
@@ -156,17 +165,20 @@ export class ImpactPreviewComponent {
     });
   }
 
-  money(v: number): string {
+  money(v: number | null | undefined): string {
+    if (v == null) return '—';
     if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
     return `$${v.toFixed(2)}`;
   }
-  signed(v: number): string {
+  signed(v: number | null | undefined): string {
+    if (v == null) return '—';
     const sign = v > 0 ? '+' : v < 0 ? '-' : '';
     const abs = Math.abs(v);
     if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
     return `${sign}$${abs.toFixed(2)}`;
   }
-  signedPct(v: number): string {
+  signedPct(v: number | null | undefined): string {
+    if (v == null) return '—';
     const sign = v > 0 ? '+' : v < 0 ? '-' : '';
     return `${sign}${(Math.abs(v) * 100).toFixed(0)}pp`;
   }
@@ -184,7 +196,18 @@ export class ImpactPreviewComponent {
     if (v >= 0) return 'cool';
     return 'neg';
   }
-  deltaColor(v: number): string {
+  measurementDelta(
+    projected: number | null | undefined,
+    base: number | null | undefined,
+  ): number | null {
+    if (projected == null || base == null) return null;
+    return projected - base;
+  }
+  invertDelta(v: number | null | undefined): number | null {
+    return v == null ? null : -v;
+  }
+  deltaColor(v: number | null | undefined): string {
+    if (v == null) return 'var(--ck-fg-3)';
     if (v > 0) return 'var(--ck-signal-pos)';
     if (v < 0) return 'var(--ck-signal-neg)';
     return 'var(--ck-fg-3)';

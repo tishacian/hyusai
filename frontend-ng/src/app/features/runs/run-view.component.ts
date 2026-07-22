@@ -12,10 +12,20 @@ import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent, RunOutcomeCardComponent } from '@app/shared/cockpit';
+import { CkObjectHeaderComponent, type CkObjectKpi } from '@app/shared/cockpit/object-header.component';
+import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
+import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
+import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
+import { LensService } from '@app/core/lens';
+import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
+import {
+  ObjectPerspectiveGateRevokedError,
+  ObjectPerspectiveStore,
+} from '@app/core/object-perspective.store';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
-import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 
 @Component({
   selector: 'app-run-view',
@@ -28,8 +38,75 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
     PageFrameComponent,
     RunOutcomeCardComponent,
     HelpTooltipComponent,
+    CkObjectHeaderComponent,
+    CkTabsComponent,
+    CkTabComponent,
+    ObjectPerspectiveComponent,
   ],
   template: `
+    @if (projectionEnabled()) {
+      <ck-object-header
+        eyebrow="Runs · Runtime execution"
+        [title]="titleLabel()"
+        [subtitle]="descriptionLabel()"
+        [kpis]="perspectiveKpis()"
+      >
+        <div actions class="inline-flex items-center gap-2">
+          <a routerLink="/runs" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
+            <app-icon name="arrow-left" [size]="12" /> All runs
+          </a>
+          @if (run()?.system_id) {
+            <a
+              [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
+                capabilityId: run()!.capability_id || navigation.capabilityId()
+              })"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            ><app-icon name="box" [size]="12" /> Open system</a>
+          }
+          <button type="button" (click)="refresh(true)" [disabled]="loading()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
+            <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" /> Refresh
+          </button>
+        </div>
+      </ck-object-header>
+
+      <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" ariaLabel="Run facets">
+        <ck-tab id="overview" label="Overview">
+          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        </ck-tab>
+        <ck-tab id="invocations" label="Invocations">
+          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="invocations" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+          @if (skillInvocationProjectionEnabled() && skillInvocations().length > 0) {
+            <section class="ck-surface rounded-md p-4 mt-4" data-testid="run-skill-invocation-links">
+              <h3 class="text-xs font-semibold text-white mb-3">Runtime SkillInvocations</h3>
+              <div class="flex flex-col gap-2">
+                @for (inv of skillInvocations(); track inv.id || $index) {
+                  @if (inv.id) {
+                    <a
+                      [routerLink]="['/runs', runId(), 'invocations', inv.id]"
+                      [queryParams]="{
+                        lens: activeLens(),
+                        capabilityId: run()!.capability_id || navigation.capabilityId(),
+                        systemId: run()!.system_id
+                      }"
+                      class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
+                    >
+                      <span class="font-mono text-cyan-200">{{ inv.skill_slug || inv.skill_id || inv.id }}</span>
+                      <span class="text-gray-400">{{ inv.status || 'unknown' }}</span>
+                    </a>
+                  }
+                }
+              </div>
+            </section>
+          }
+        </ck-tab>
+        <ck-tab id="payloads" label="Payloads">
+          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="payloads" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        </ck-tab>
+        <ck-tab id="checkpoints" label="Checkpoints">
+          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        </ck-tab>
+      </ck-tabs>
+    } @else {
     <ck-page-frame
       eyebrow="Measure · Runs"
       [title]="titleLabel()"
@@ -58,7 +135,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
         <button
           type="button"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-          (click)="refresh()"
+          (click)="refresh(true)"
           [disabled]="loading()"
         >
           <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
@@ -252,7 +329,17 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-baseline justify-between gap-3">
-                      @if (inv.skill_slug) {
+                      @if (skillInvocationProjectionEnabled() && inv.id) {
+                        <a
+                          [routerLink]="['/runs', runId(), 'invocations', inv.id]"
+                          [queryParams]="{
+                            lens: activeLens(),
+                            capabilityId: run()!.capability_id || navigation.capabilityId(),
+                            systemId: run()!.system_id
+                          }"
+                          class="font-mono text-sm text-white truncate hover:text-cyan-300"
+                        >{{ inv.skill_slug || inv.skill_id || 'Skill invocation' }}</a>
+                      } @else if (inv.skill_slug) {
                         <a
                           [routerLink]="navigation.objectUrlTree('skill', inv.skill_slug, {
                             capabilityId: navigation.capabilityId(),
@@ -353,6 +440,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
         }
       }
     </ck-page-frame>
+    }
   `,
 })
 export class RunViewComponent implements OnInit, OnDestroy {
@@ -360,11 +448,19 @@ export class RunViewComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly lensService = inject(LensService);
+  private readonly perspectiveStore = inject(ObjectPerspectiveStore);
   protected readonly navigation = inject(ZoomContextService);
   private routeSubscription: Subscription | null = null;
+  private facetRouteSubscription: Subscription | null = null;
   private loadSubscription: Subscription | null = null;
   private overrideSubscription: Subscription | null = null;
+  private perspectiveSubscription: Subscription | null = null;
+  private featureRefreshSubscription: Subscription | null = null;
   private overrideGeneration = 0;
+  private projectionFeatureEnabled = false;
+  private projectionActivationInFlight = false;
+  private requestedFacet: string | null = null;
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,
     () => this.resetWorkspaceState(),
@@ -374,6 +470,28 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly runId = signal<string>('');
   readonly run = signal<Run | null>(null);
   readonly loading = signal(false);
+  readonly perspectives = signal<Partial<Record<ObjectLens, ObjectPerspectiveResponse>>>({});
+  readonly perspectivesLoading = signal(false);
+  readonly perspectivesError = signal(false);
+  readonly activePerspectiveTab = signal<RunPerspectiveFacet>('overview');
+  readonly projectionEnabled = computed(() => this.workspaceFeature('run_360_projection_v1'));
+  readonly skillInvocationProjectionEnabled = computed(
+    () => this.workspaceFeature('skill_invocation_360_projection_v1'),
+  );
+  readonly activeLens = computed<ObjectLens>(() => {
+    const lens = this.lensService.lens();
+    return isObjectLens(lens) ? lens : 'build';
+  });
+  readonly activePerspective = computed(() => this.perspectives()[this.activeLens()] ?? null);
+  readonly perspectiveKpis = computed<CkObjectKpi[]>(() => {
+    const header = this.perspectives()['build']?.header;
+    return [
+      { label: 'Status', value: this.factValue(header?.['status']) },
+      { label: 'Duration', value: this.factValue(header?.['duration'], ' ms') },
+      { label: 'Invocations', value: this.factValue(header?.['invocation_count']) },
+      { label: 'Confidence', value: this.factValue(header?.['confidence']) },
+    ];
+  });
 
   readonly overrideMode = signal(false);
   readonly overrideValue = signal<number>(0);
@@ -427,6 +545,10 @@ export class RunViewComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.projectionFeatureEnabled = this.projectionEnabled();
+    this.featureRefreshSubscription = this.workspace.contextRefresh$.subscribe(
+      () => this.onProjectionFeatureRefresh(),
+    );
     this.routeSubscription = this.route.paramMap.pipe(
       map((params) => params.get('runId') ?? ''),
       distinctUntilChanged(),
@@ -439,15 +561,29 @@ export class RunViewComponent implements OnInit, OnDestroy {
       this.resetRunResult();
       this.refresh();
     });
+    this.facetRouteSubscription = this.route.queryParamMap.pipe(
+      map((params) => params.get('facet')),
+      distinctUntilChanged(),
+    ).subscribe((facet) => {
+      this.requestedFacet = facet;
+      this.applyRequestedFacet(facet);
+    });
   }
 
   ngOnDestroy(): void {
     this.routeSubscription?.unsubscribe();
     this.routeSubscription = null;
+    this.facetRouteSubscription?.unsubscribe();
+    this.facetRouteSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
+    this.featureRefreshSubscription?.unsubscribe();
+    this.featureRefreshSubscription = null;
     this.workspaceView.destroy();
   }
 
-  refresh(): void {
+  refresh(forcePerspectiveRefresh = false): void {
+    this.projectionFeatureEnabled = this.projectionEnabled();
     const id = this.runId();
     if (!id) return;
     this.loadSubscription?.unsubscribe();
@@ -467,6 +603,22 @@ export class RunViewComponent implements OnInit, OnDestroy {
       },
     });
     this.loadSubscription = subscription.closed ? null : subscription;
+    this.loadPerspectives(id, request, forcePerspectiveRefresh);
+  }
+
+  onPerspectiveTabChange(value: string): void {
+    if (!isRunPerspectiveFacet(value)) return;
+    this.requestedFacet = value;
+    this.activePerspectiveTab.set(value);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: value },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  private applyRequestedFacet(facet: string | null): void {
+    this.activePerspectiveTab.set(isRunPerspectiveFacet(facet) ? facet : 'overview');
   }
 
   formatTime(ts: string | undefined): string {
@@ -595,9 +747,53 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.refresh();
   }
 
+  private loadPerspectives(
+    runId: string,
+    request: WorkspaceViewRequest,
+    forceRefresh = false,
+  ): void {
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
+    if (!this.projectionEnabled()) {
+      this.perspectives.set({});
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(false);
+      return;
+    }
+    this.perspectivesLoading.set(true);
+    this.perspectivesError.set(false);
+    const subscription = this.perspectiveStore.loadAll({
+      objectType: 'run',
+      objectId: runId,
+      window: '30d',
+    }, { forceRefresh }).subscribe({
+      next: (payloads) => {
+        if (!this.workspaceView.isCurrent(request) || runId !== this.runId()) return;
+        this.perspectives.set(payloads);
+        this.perspectivesLoading.set(false);
+        this.perspectivesError.set(Object.keys(payloads).length !== 4);
+        this.projectionActivationInFlight = false;
+      },
+      error: (error: unknown) => {
+        if (!this.workspaceView.isCurrent(request) || runId !== this.runId()) return;
+        this.perspectives.set({});
+        this.perspectivesLoading.set(false);
+        this.perspectivesError.set(
+          !(error instanceof ObjectPerspectiveGateRevokedError),
+        );
+        if (!(error instanceof ObjectPerspectiveGateRevokedError)) {
+          this.projectionActivationInFlight = false;
+        }
+      },
+    });
+    this.perspectiveSubscription = subscription.closed ? null : subscription;
+  }
+
   private resetRunResult(): void {
     this.loadSubscription?.unsubscribe();
     this.loadSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
     this.overrideSubscription?.unsubscribe();
     this.overrideSubscription = null;
     this.overrideGeneration += 1;
@@ -606,11 +802,17 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.loading.set(false);
     this.overrideMode.set(false);
     this.submittingOverride.set(false);
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
+    this.projectionActivationInFlight = false;
   }
 
   private resetWorkspaceState(): void {
     this.loadSubscription?.unsubscribe();
     this.loadSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
     this.overrideSubscription?.unsubscribe();
     this.overrideSubscription = null;
     this.overrideGeneration += 1;
@@ -620,6 +822,42 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.overrideValue.set(0);
     this.overrideNote.set('');
     this.submittingOverride.set(false);
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
+    this.projectionActivationInFlight = false;
+    this.applyRequestedFacet(this.requestedFacet);
+  }
+
+  private onProjectionFeatureRefresh(): void {
+    const enabled = this.projectionEnabled();
+    const activated = enabled && !this.projectionFeatureEnabled;
+    this.projectionFeatureEnabled = enabled;
+    if (!enabled) {
+      this.perspectiveSubscription?.unsubscribe();
+      this.perspectiveSubscription = null;
+      this.perspectives.set({});
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(false);
+      return;
+    }
+    if (activated && !this.projectionActivationInFlight) {
+      this.projectionActivationInFlight = true;
+      this.reloadCurrentRun();
+    }
+  }
+
+  private workspaceFeature(key: string): boolean {
+    return this.workspace.current()?.effective_features?.[key] === true;
+  }
+
+  private factValue(fact: { state?: string; value?: unknown } | undefined, suffix = ''): string {
+    if (!fact || fact.state !== 'available' || fact.value == null) return '—';
+    if (typeof fact.value === 'number') {
+      const value = Number.isInteger(fact.value) ? String(fact.value) : fact.value.toFixed(2);
+      return `${value}${suffix}`;
+    }
+    return String(fact.value);
   }
 
   private overrideIsCurrent(
@@ -633,4 +871,17 @@ export class RunViewComponent implements OnInit, OnDestroy {
       && this.workspace.isRequestScopeCurrent(scope)
     );
   }
+}
+
+type RunPerspectiveFacet = 'overview' | 'invocations' | 'payloads' | 'checkpoints';
+
+const RUN_PERSPECTIVE_FACETS: readonly RunPerspectiveFacet[] = [
+  'overview',
+  'invocations',
+  'payloads',
+  'checkpoints',
+];
+
+function isRunPerspectiveFacet(value: string | null): value is RunPerspectiveFacet {
+  return value !== null && (RUN_PERSPECTIVE_FACETS as readonly string[]).includes(value);
 }

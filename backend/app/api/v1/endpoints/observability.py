@@ -9,14 +9,17 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.evaluation import EvaluationScore
 from app.models.run import Run
 from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.evaluation_preset_service import DEFAULT_EVAL_CONFIG
+from app.services.run_access import readable_runs
+from app.services.system_access import readable_systems
 
 router = APIRouter()
 
@@ -25,6 +28,7 @@ router = APIRouter()
 async def workspace_overview(
     window: str = Query("24h"),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
     since = _parse_window(window)
@@ -34,15 +38,26 @@ async def workspace_overview(
         .order_by(System.status.desc(), System.updated_at.desc())
         .all()
     )
-    runs = (
-        db.query(Run)
-        .filter(
-            Run.workspace_id == workspace.id,
-            or_(Run.started_at >= since, Run.completed_at >= since),
-        )
-        .order_by(Run.started_at.desc())
-        .limit(200)
-        .all()
+    systems = readable_systems(
+        db,
+        systems=systems,
+        user=user,
+        workspace=workspace,
+    )
+    runs = readable_runs(
+        db,
+        runs=(
+            db.query(Run)
+            .filter(
+                Run.workspace_id == workspace.id,
+                or_(Run.started_at >= since, Run.completed_at >= since),
+            )
+            .order_by(Run.started_at.desc())
+            .limit(200)
+            .all()
+        ),
+        user=user,
+        workspace=workspace,
     )
     jobs = (
         db.query(WorkspaceJob)
@@ -61,6 +76,21 @@ async def workspace_overview(
         .limit(100)
         .all()
     )
+
+    visible_system_ids = {system.id for system in systems}
+    visible_run_ids = {run.id for run in runs}
+    jobs = [
+        job
+        for job in jobs
+        if (not job.run_id or job.run_id in visible_run_ids)
+        and (not job.system_id or job.system_id in visible_system_ids)
+    ]
+    evaluations = [
+        row
+        for row in evaluations
+        if (not row.run_id or row.run_id in visible_run_ids)
+        and (not row.agent_id or row.agent_id in visible_system_ids)
+    ]
 
     system_rows = [_system_row(system, runs) for system in systems]
     job_rows = [_job_row(job) for job in jobs[:30]]

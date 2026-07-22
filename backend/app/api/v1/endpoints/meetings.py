@@ -23,11 +23,11 @@ from app.services.actions.executor import (
 from app.services.audit_logger import emit_audit_event
 from app.services.meeting_decisions import (
     list_decisions_for_event,
+    list_decisions_for_workspace,
     log_decision_for_workspace,
     serialize_decision,
 )
 from app.services.workspace_calendar import _get_event, serialize_event, update_event
-
 
 router = APIRouter()
 
@@ -85,6 +85,18 @@ def _serialize_pending_patch(
     if not pending or str(pending.get("event_id") or "") != event_id:
         return None
     return pending
+
+
+@router.get("/decisions-log")
+def meeting_decisions_log(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return the active workspace's persisted meeting-decision ledger."""
+
+    decisions = list_decisions_for_workspace(db, workspace, limit=200)
+    return {"decisions": [serialize_decision(item) for item in decisions]}
 
 
 @router.get("/{event_id}")

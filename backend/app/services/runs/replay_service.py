@@ -42,16 +42,19 @@ from __future__ import annotations
 
 import time
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.run import Run
+from app.models.system import System
 from app.services.audit_logger import emit_audit_event
 from app.services.evaluation.auto_eval import schedule_eval
-
+from app.services.run_engine.engine import validated_existing_run_flow_version_id
 
 logger = get_logger(__name__)
 
@@ -180,6 +183,33 @@ def _is_replayable_chat_run(parent: Run) -> bool:
         return False
     # System-scoped chat (chat from /systems/:id surface). OK.
     return True
+
+
+def _validated_parent_execution_evidence(
+    db: DBSession,
+    parent: Run,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Detach only same-tenant, same-System execution evidence for replay."""
+
+    if not parent.system_id or not isinstance(parent.flow_snapshot, dict):
+        return None, None
+    system = (
+        db.query(System)
+        .filter(
+            System.id == parent.system_id,
+            System.workspace_id == parent.workspace_id,
+        )
+        .one_or_none()
+    )
+    if system is None:
+        return None, None
+    version_id = validated_existing_run_flow_version_id(
+        db,
+        parent,
+        system,
+        workspace_id=parent.workspace_id,
+    )
+    return deepcopy(parent.flow_snapshot), version_id
 
 
 async def replay_run_async(
@@ -319,6 +349,8 @@ async def replay_run_async(
     if rag_context is not None:
         output_ref["rag_context"] = rag_context
 
+    flow_snapshot, flow_version_id = _validated_parent_execution_evidence(db, parent)
+
     new_run = Run(
         id=str(uuid.uuid4()),
         workspace_id=parent.workspace_id,
@@ -328,8 +360,18 @@ async def replay_run_async(
         trigger="replay",
         parent_run_id=parent.id,
         replay_overrides=overrides or {},
-        input_ref={"query": request_dict.get("query") or ""},
+        input_ref={
+            "query": request_dict.get("query") or "",
+            "execution": {
+                "snapshot_at": started_at.isoformat(timespec="microseconds") + "Z",
+                "runtime_revision": str(
+                    settings.agentium_image_revision or "development"
+                ).strip().lower(),
+            },
+        },
         output_ref=output_ref,
+        flow_snapshot=flow_snapshot,
+        flow_version_id=flow_version_id,
         started_at=started_at,
         completed_at=completed_at,
         duration_ms=duration_ms,

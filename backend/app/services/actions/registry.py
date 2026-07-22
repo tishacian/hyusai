@@ -20,6 +20,13 @@ from app.schemas.canonical import WorkspaceFamily
 from app.services.action_plans import handle_action_plan_chat_action
 from app.services.actions.contracts import ACTION_PACK_IDS, ActionPack
 from app.services.audit_logger import emit_audit_event
+from app.services.iam.decision_plane import resolve_manifest_permission
+from app.services.workspace_app_runtime import (
+    WorkspaceAppRuntimeError,
+    installed_action_packs,
+    installed_app_ids,
+    workspace_app_platform_enabled,
+)
 
 Surface = str
 HandlerKind = str
@@ -1521,6 +1528,12 @@ def catalog_action_manifests(workspace: Workspace) -> list[ActionManifest]:
     """Return the public catalog without another Mission Room's namespace."""
 
     manifests = all_action_manifests()
+    if workspace_app_platform_enabled(workspace):
+        try:
+            authoritative_packs = set(installed_action_packs(workspace))
+        except WorkspaceAppRuntimeError:
+            return []
+        return [manifest for manifest in manifests if manifest.pack in authoritative_packs]
     if _is_octocity_workspace(workspace):
         return [
             manifest
@@ -1547,16 +1560,29 @@ def effective_action_manifests(
 ) -> list[ActionManifest]:
     settings = workspace.settings or {}
     action_settings = _as_dict(settings.get("actions"))
-    packs = [ActionPack.global_voice_v1.value]
-    packs.extend(_capability_template_packs(settings))
-    packs.extend(_workspace_default_packs(workspace))
-    packs.extend(_list(action_settings.get("enabled_packs")))
-    packs.extend(_assistant_profile_packs(settings, assistant_profile))
-    packs.extend(_system_action_packs(system))
+    if workspace_app_platform_enabled(workspace):
+        try:
+            packs = list(installed_action_packs(workspace))
+        except WorkspaceAppRuntimeError:
+            return []
+        # The installed manifests own the complete action-pack boundary.
+        # Workspace *and System* settings are legacy inputs here: accepting a
+        # System pack would let one Mission Room re-enable another app's
+        # namespace behind the content-addressed lifecycle registry.
+        hidden_packs: set[str] = set()
+        hidden_actions: set[str] = set()
+        explicit_actions: set[str] = set()
+    else:
+        packs = [ActionPack.global_voice_v1.value]
+        packs.extend(_capability_template_packs(settings))
+        packs.extend(_workspace_default_packs(workspace))
+        packs.extend(_list(action_settings.get("enabled_packs")))
+        packs.extend(_assistant_profile_packs(settings, assistant_profile))
+        packs.extend(_system_action_packs(system))
 
-    hidden_packs = set(_list(action_settings.get("hidden_packs")))
-    hidden_actions = set(_list(action_settings.get("hidden_actions")))
-    explicit_actions = set(_list(action_settings.get("enabled_actions")))
+        hidden_packs = set(_list(action_settings.get("hidden_packs")))
+        hidden_actions = set(_list(action_settings.get("hidden_actions")))
+        explicit_actions = set(_list(action_settings.get("enabled_actions")))
 
     resolved: dict[str, ActionManifest] = {}
     for pack_name in packs:
@@ -1750,12 +1776,13 @@ def execute_action(
     assistant_profile: Optional[str] = None,
     confirm: bool = False,
     payload: Optional[dict[str, Any]] = None,
+    system: Optional[System] = None,
 ) -> dict[str, Any]:
     manifest = next(
         (
             item
             for item in effective_action_manifests(
-                workspace, surface=surface, assistant_profile=assistant_profile
+                workspace, surface=surface, assistant_profile=assistant_profile, system=system
             )
             if item.action_id == action_id
         ),
@@ -1879,6 +1906,34 @@ def handle_transverse_chat_action(
         and resolution.manifest
         and resolution.manifest.handler.kind == "legacy_adapter"
     ):
+        if user is None:
+            return _chat_action_denied(
+                db,
+                workspace,
+                user,
+                action_id=resolution.manifest.action_id,
+                reason="authenticated_subject_required",
+                mode="enforce",
+            )
+        permission = resolve_manifest_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            required_permission=resolution.manifest.required_permission,
+            legacy_allowed=True,
+            capability_manifest=resolution.manifest.capability_template,
+            action_id=resolution.manifest.action_id,
+        )
+        if not permission.effective_allowed:
+            return _chat_action_denied(
+                db,
+                workspace,
+                user,
+                action_id=resolution.manifest.action_id,
+                reason=permission.reason,
+                mode=permission.mode,
+                policy_id=permission.policy_id,
+            )
         result = execute_action(
             db,
             workspace,
@@ -1910,6 +1965,47 @@ def handle_transverse_chat_action(
             return legacy_result
 
     # Compatibility fallback for exact AYA behavior while actions roll out.
+    # It is intentionally available only in compat/shadow.  Once
+    # ``action.execute`` is attested and enforced, a phrase must resolve to a
+    # concrete ActionManifest before any legacy adapter can run.
+    if _may_reach_legacy_action_plan(query, assistant_profile):
+        if user is None:
+            return _chat_action_denied(
+                db,
+                workspace,
+                user,
+                action_id="legacy.action_plan_fallback",
+                reason="authenticated_subject_required",
+                mode="enforce",
+            )
+        fallback_permission = resolve_manifest_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            required_permission="action.execute",
+            legacy_allowed=True,
+            capability_manifest="agentium_actions",
+            action_id="legacy.action_plan_fallback",
+        )
+        if (
+            not fallback_permission.effective_allowed
+            or fallback_permission.mode not in {"compat", "shadow"}
+        ):
+            if fallback_permission.mode == "invalid_enforce":
+                denial_reason = "authorization_enforcement_attestation_invalid"
+            elif fallback_permission.mode == "enforce":
+                denial_reason = "manifest_required_in_enforce"
+            else:
+                denial_reason = fallback_permission.reason
+            return _chat_action_denied(
+                db,
+                workspace,
+                user,
+                action_id="legacy.action_plan_fallback",
+                reason=denial_reason,
+                mode=fallback_permission.mode,
+                policy_id=fallback_permission.policy_id,
+            )
     return handle_action_plan_chat_action(
         db,
         workspace,
@@ -1919,7 +2015,73 @@ def handle_transverse_chat_action(
     )
 
 
+def _may_reach_legacy_action_plan(
+    query: str,
+    assistant_profile: Optional[str],
+) -> bool:
+    """Conservative, side-effect-free guard for the historical fallback."""
+
+    if assistant_profile not in {"vigie_executive", "octave_executive"}:
+        return False
+    normalized = (query or "").casefold()
+    return any(
+        term in normalized
+        for term in (
+            "action",
+            "tache",
+            "tâche",
+            "suivi",
+            "cabinet",
+            "arbitrage",
+            "instruction",
+        )
+    )
+
+
+def _chat_action_denied(
+    db: DBSession,
+    workspace: Workspace,
+    user: Optional[User],
+    *,
+    action_id: str,
+    reason: str,
+    mode: str,
+    policy_id: Optional[str] = None,
+) -> dict[str, Any]:
+    audit_id = _audit(
+        db,
+        workspace,
+        user,
+        "action.denied",
+        {
+            "action_id": action_id,
+            "surface": "chat",
+            "reason": reason,
+            "mode": mode,
+            "policy_id": policy_id,
+        },
+    )
+    return {
+        "action": "action_denied",
+        "applied": False,
+        "content": "Cette action n'est pas autorisée dans ce workspace.",
+        "action_manifest_id": None if action_id.startswith("legacy.") else action_id,
+        "requires_confirmation": False,
+        "authorization": {
+            "mode": mode,
+            "reason": reason,
+            "policy_id": policy_id,
+        },
+        "audit_id": audit_id,
+    }
+
+
 def _is_octocity_workspace(workspace: Workspace) -> bool:
+    if workspace_app_platform_enabled(workspace):
+        try:
+            return "octocity.mission-room" in installed_app_ids(workspace)
+        except WorkspaceAppRuntimeError:
+            return False
     settings = workspace.settings or {}
     mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
@@ -1932,6 +2094,11 @@ def _is_octocity_workspace(workspace: Workspace) -> bool:
 
 
 def _is_sentinel_workspace(workspace: Workspace) -> bool:
+    if workspace_app_platform_enabled(workspace):
+        try:
+            return "sentinel.mission-room" in installed_app_ids(workspace)
+        except WorkspaceAppRuntimeError:
+            return False
     settings = workspace.settings or {}
     mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))

@@ -7,19 +7,37 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import chat
 from app.core.config import settings
+from app.core.iam.roles import WORKSPACE_OWNER
 from app.models.context import Context
 from app.models.run import Run, SkillInvocation
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.knowledge_collections import create_collection
 from app.services.workspace_maps import ensure_workspace_map_seed
 
 
 def _client(db_session, workspace: Workspace, orchestrator, monkeypatch) -> TestClient:
+    user = User(
+        id=f"user-{workspace.id}",
+        username=f"owner-{workspace.id}",
+        email=f"owner-{workspace.id}@example.test",
+        role="admin",
+        is_active=True,
+    )
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+        role_template=WORKSPACE_OWNER,
+    )
+    db_session.add_all([user, membership])
+    db_session.commit()
+
     app = FastAPI()
     app.include_router(chat.router, prefix="/chat")
     app.dependency_overrides[chat.get_current_workspace] = lambda: workspace
-    app.dependency_overrides[chat.get_current_user] = lambda: None
+    app.dependency_overrides[chat.get_current_user] = lambda: user
     app.dependency_overrides[chat.get_db] = lambda: db_session
     monkeypatch.setattr(chat, "get_orchestrator", lambda: orchestrator)
     monkeypatch.setattr(chat, "schedule_eval", lambda _run_id: None)
@@ -817,11 +835,13 @@ def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatc
 
     assert response.status_code == 200
     assert "data: [DONE]" in response.text
+    assert '"chunk_type": "action_result"' not in response.text
     assert orchestrator.last_request["grounding_mode"] == "balanced"
     assert orchestrator.last_request["grounding_policy"]["mode"] == "balanced"
     assert orchestrator.last_request["grounding_policy"]["allow_foundational_fallback"] is True
 
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "chat"
     assert run.output_ref["grounding_mode"] == "balanced"
     assert run.output_ref["grounding_policy"]["reason"] == "vigie_chat_first"
 

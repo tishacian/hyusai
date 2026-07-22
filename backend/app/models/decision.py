@@ -4,7 +4,7 @@ acted upon. Mirrors the "decision trail" of the executive cockpit.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, JSON, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, UniqueConstraint
 
 from app.db.base import Base
 
@@ -14,6 +14,15 @@ class Decision(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), nullable=True, index=True)
+
+    # Nullable for every pre-Lot-8 and non-value-loop Decision.  A non-null
+    # value binds exactly one authoritative Decision to its ValueScenario.
+    scenario_id = Column(
+        String(36),
+        ForeignKey("value_scenarios.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     scope = Column(String(20), default="capability")  # capability | system | run | portfolio
     target_id = Column(String(36), nullable=True, index=True)
@@ -25,7 +34,7 @@ class Decision(Base):
     title = Column(String(255), nullable=False)
     rationale = Column(JSON, default=dict)
 
-    impact_estimate = Column(JSON, default=dict)        # forecasted ROI delta, cost delta, …
+    impact_estimate = Column(JSON, default=dict)  # forecasted ROI delta, cost delta, …
     notes = Column(Text, default="")
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -42,3 +51,5 @@ class Decision(Base):
     applied_at = Column(DateTime, nullable=True)
     applied_patch = Column(JSON, nullable=True)
     applied_by = Column(String(255), nullable=True)
+
+    __table_args__ = (UniqueConstraint("scenario_id", name="uq_decisions_scenario_id"),)

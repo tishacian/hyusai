@@ -14,11 +14,14 @@ import { MaritimeTrackingService } from '@app/core/maritime-tracking.service';
 import { WorkspaceExperienceShadowService } from '@app/core/workspace-experience-shadow.service';
 import {
   WorkspaceService,
+  type WorkspaceAppRuntimeMissionRoom,
+  type WorkspaceAppRuntimeProjection,
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
-import { MissionRoomComponent } from './mission-room.component';
+import { MissionRailComponent, MissionRoomComponent } from './mission-room.component';
+import { OCTOCITY_MISSION_ROOM_PROFILE } from './mission-room.extension';
 
 interface ApiCall {
   path: string;
@@ -31,11 +34,13 @@ class WorkspaceStub {
   private epoch = 11;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
 
+  constructor(private readonly workspaceContext: Record<string, unknown> = { settings: {} }) {}
+
   currentSlug = () => this.slug;
-  current = () => ({ settings: {} });
+  current = () => this.workspaceContext;
 
   captureRequestScope(): WorkspaceRequestScope {
-    return Object.freeze({ workspaceSlug: this.slug, epoch: this.epoch });
+    return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {
@@ -60,8 +65,11 @@ class WorkspaceStub {
   }
 }
 
-function createHarness(options: { shadowThrows?: boolean } = {}) {
-  const workspace = new WorkspaceStub();
+function createHarness(options: {
+  shadowThrows?: boolean;
+  workspaceContext?: Record<string, unknown>;
+} = {}) {
+  const workspace = new WorkspaceStub(options.workspaceContext);
   const postCalls: ApiCall[] = [];
   const getCalls: ApiCall[] = [];
   const opens: unknown[] = [];
@@ -147,6 +155,187 @@ function createHarness(options: { shadowThrows?: boolean } = {}) {
   };
 }
 
+function authoritativeMissionContext(
+  mission: WorkspaceAppRuntimeMissionRoom,
+  actionPacks: string[],
+  tamperedSettings: Record<string, unknown>,
+): Record<string, unknown> {
+  const appId = mission.app_id;
+  const brandingNamespace = appId.startsWith('sentinel.') ? 'sentinel' : 'octocity';
+  const runtime: WorkspaceAppRuntimeProjection = {
+    mode: 'authoritative',
+    enabled: true,
+    valid: true,
+    installations: [{
+      app_id: appId,
+      version: mission.version,
+      manifest_digest: mission.manifest_digest,
+      category: 'workspace_extension',
+      routes: ['/hypervisor/mission-room'],
+      primary_surface_id: 'mission-room',
+      default_route: mission.default_route,
+      branding_namespace: brandingNamespace,
+      api_prefixes: ['/api/v1/mission-room'],
+      action_packs: actionPacks,
+      entitlement_keys: [],
+    }],
+    experience: {
+      shell: 'immersive',
+      routes: ['/hypervisor/mission-room'],
+      primary_surface_ids: ['mission-room'],
+      default_routes: { [appId]: mission.default_route },
+      branding_namespaces: [brandingNamespace],
+      api_prefixes: ['/api/v1/mission-room'],
+      action_packs: actionPacks,
+      mission_room: mission,
+    },
+  };
+  return {
+    mode: 'demo',
+    settings: {
+      ...tamperedSettings,
+      features: { workspace_app_platform_v1: true },
+    },
+    workspace_app_runtime: runtime,
+  };
+}
+
+function installTestWindow(): () => void {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: new EventTarget(),
+  });
+  return () => {
+    if (previousWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: previousWindow,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  };
+}
+
+test('MissionRoom presentation uses runtime authority over crossed legacy settings', () => {
+  const restoreWindow = installTestWindow();
+  const sentinel: WorkspaceAppRuntimeMissionRoom = {
+    profile: 'sentinel_government_v1',
+    assistant_profile: 'vigie_executive',
+    label: 'SENTINEL-CI',
+    assistant_label: 'AYA',
+    brand_style: 'sentinel',
+    navigation_keys: ['cockpit'],
+    app_id: 'sentinel.mission-room',
+    version: '1.0.0',
+    manifest_digest: 'sentinel-digest',
+    default_route: '/hypervisor/mission-room/cockpit',
+    primary_surface_id: 'mission-room',
+  };
+  const octocity: WorkspaceAppRuntimeMissionRoom = {
+    profile: 'octocity_institutional_v1',
+    assistant_profile: 'octave_executive',
+    label: 'Octocity Mission Room',
+    assistant_label: 'OCTAVE',
+    brand_style: 'agentium',
+    navigation_keys: ['cockpit'],
+    app_id: 'octocity.mission-room',
+    version: '1.0.0',
+    manifest_digest: 'octocity-digest',
+    default_route: '/hypervisor/mission-room/cockpit',
+    primary_surface_id: 'mission-room',
+  };
+  const cases = [
+    {
+      mission: sentinel,
+      actionPacks: ['global_voice_v1', 'sentinel_ci_aya_v1'],
+      tampered: {
+        demo_profile: 'octocity_mission_room',
+        assistant_profile_default: 'octave_executive',
+        workspace_app_label: 'Octocity Mission Room',
+        workspace_app_brand: { label: 'Octocity Mission Room', style: 'agentium' },
+        mission_room: { enabled: true, profile: 'octocity_institutional_v1', assistant_label: 'OCTAVE' },
+      },
+    },
+    {
+      mission: octocity,
+      actionPacks: ['global_voice_v1', 'octave_mission_room_v1'],
+      tampered: {
+        demo_profile: 'government_mission_room',
+        assistant_profile_default: 'vigie_executive',
+        workspace_app_label: 'SENTINEL-CI',
+        workspace_app_brand: { label: 'SENTINEL-CI', style: 'sentinel' },
+        mission_room: { enabled: true, profile: 'sentinel_government_v1', assistant_label: 'AYA' },
+      },
+    },
+  ];
+
+  try {
+    for (const current of cases) {
+      const harness = createHarness({
+        workspaceContext: authoritativeMissionContext(
+          current.mission,
+          current.actionPacks,
+          current.tampered,
+        ),
+      });
+      try {
+        assert.equal(harness.component.missionExtension().authority, 'workspace_app_runtime');
+        assert.equal(harness.component.missionExtension().profile, current.mission.profile);
+        assert.equal(harness.component.assistantName(), current.mission.assistant_label);
+        assert.equal(harness.component.assistantProfileKey(), current.mission.assistant_profile);
+        assert.equal(harness.component.missionBrandLabel(), current.mission.label);
+        assert.equal(harness.component.missionBrandStyle(), current.mission.brand_style);
+        assert.deepEqual(harness.component.missionExtension().actionPacks, current.actionPacks);
+      } finally {
+        harness.component.ngOnDestroy();
+      }
+    }
+  } finally {
+    restoreWindow();
+  }
+});
+
+test('MissionRoom direct construction stays neutral when enabled runtime authority is invalid', () => {
+  const restoreWindow = installTestWindow();
+  const harness = createHarness({
+    workspaceContext: {
+      mode: 'demo',
+      settings: {
+        features: { workspace_app_platform_v1: true },
+        demo_profile: 'government_mission_room',
+        workspace_app_label: 'SENTINEL-CI',
+        assistant_profile_default: 'vigie_executive',
+        mission_room: { enabled: true, profile: 'sentinel_government_v1', assistant_label: 'AYA' },
+      },
+      workspace_app_runtime: {
+        mode: 'authoritative',
+        enabled: true,
+        valid: false,
+        installations: [],
+        experience: null,
+      },
+    },
+  });
+  try {
+    assert.equal(harness.component.missionExtension().authority, 'fail_closed');
+    assert.equal(harness.component.missionExtension().enabled, false);
+    assert.equal(harness.component.assistantName(), 'Assistant');
+    assert.equal(harness.component.assistantProfileKey(), 'default');
+    assert.equal(harness.component.missionBrandLabel(), 'Mission Room');
+    assert.equal(harness.component.missionBrandStyle(), 'agentium');
+    assert.equal(harness.component.octocityProfile(), false);
+    assert.equal(harness.component.newsEyebrowLabel(), 'Alerte presse');
+    assert.equal(harness.component.missionRoomRoleLabel(), 'Mission Room · Vice Premier Ministre');
+    assert.equal(harness.component.strategicMapEyebrowLabel(), 'Carte strategique');
+    assert.equal(harness.component.ministerialRisk('critical'), 'prioritaire');
+  } finally {
+    harness.component.ngOnDestroy();
+    restoreWindow();
+  }
+});
+
 test('MissionRoom observes the authoritative navigation payload only after installing it unchanged', () => {
   const previousWindow = globalThis.window;
   Object.defineProperty(globalThis, 'window', {
@@ -194,6 +383,7 @@ test('MissionRoom observes the authoritative navigation payload only after insta
     assert.equal(missionShadowCalls[0].navigation, navigation);
     assert.deepEqual(missionShadowCalls[0].scope, {
       workspaceSlug: 'sentinel-ci',
+      workspaceId: 'workspace-sentinel-ci',
       epoch: 11,
     });
     assert.equal(missionShadowCalls[0].installedBeforeObservation, true);
@@ -416,4 +606,33 @@ test('MissionRoom startMeeting stays pinned to A and cannot navigate after A -> 
       Reflect.deleteProperty(globalThis, 'window');
     }
   }
+});
+
+test('generic Agentium branding is not classified as the Octocity presentation', () => {
+  const rail = new MissionRailComponent();
+  const mapItem = {
+    key: 'strategie',
+    label: 'Legacy label',
+    glyph: 'sliders',
+    route: '/hypervisor/mission-room/strategie',
+    api: '/mission-room/strategy',
+    object: 'Strategy',
+    workbench: 'Strategy',
+  } as const;
+
+  rail.brandStyle = 'agentium';
+  rail.assistantName = 'Assistant';
+  rail.missionProfile = 'generic';
+
+  assert.equal(rail.assistantOpenLabel, 'Ouvrir Assistant');
+  assert.equal(rail.searchLabel, 'Recherche dossier');
+  assert.equal(rail.railSectionLabel, 'Parcours Mission');
+  assert.equal(rail.railLabel(mapItem), 'Carte');
+
+  rail.missionProfile = OCTOCITY_MISSION_ROOM_PROFILE;
+
+  assert.equal(rail.assistantOpenLabel, 'Open Assistant');
+  assert.equal(rail.searchLabel, 'Search dossier');
+  assert.equal(rail.railSectionLabel, 'Mission path');
+  assert.equal(rail.railLabel(mapItem), 'Map');
 });

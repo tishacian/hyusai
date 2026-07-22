@@ -5,7 +5,12 @@ import { Injector, computed, signal } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import { NavigationResolverService } from './navigation-resolver.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
-import { WorkspaceService, type WorkspaceInfo, type WorkspaceMode } from './workspace.service';
+import {
+  WorkspaceService,
+  type WorkspaceAppRuntimeProjection,
+  type WorkspaceInfo,
+  type WorkspaceMode,
+} from './workspace.service';
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -62,6 +67,7 @@ class WorkspaceStub {
     mode?: WorkspaceMode;
     settings?: Record<string, unknown>;
     appEntitlements?: WorkspaceInfo['app_entitlements'];
+    appRuntime?: WorkspaceAppRuntimeProjection;
   } = {}): void {
     const slug = options.slug || 'andritz';
     this.currentSlug.set(slug);
@@ -74,6 +80,7 @@ class WorkspaceStub {
         mode: options.mode || 'builder',
         settings: options.settings || {},
         app_entitlements: options.appEntitlements,
+        workspace_app_runtime: options.appRuntime,
       },
     ]);
   }
@@ -190,6 +197,110 @@ test('V2 business redirects are executed only by the navigation resolver', () =>
       owner: 'navigation_resolver',
       reason: 'business_system_capture_compatibility',
     },
+  );
+});
+
+test('enabled Workspace App authority redirects every invalid runtime surface to a terminal unavailable shell', () => {
+  const settings = {
+    ...BUSINESS_PROFILE,
+    default_route: '/hypervisor/mission-room/cockpit',
+    mission_room: { enabled: true, profile: 'sentinel_government_v1' },
+    features: { workspace_app_platform_v1: true },
+  };
+  const invalidRuntime: WorkspaceAppRuntimeProjection = {
+    schema_version: 1,
+    mode: 'authoritative',
+    enabled: true,
+    valid: false,
+    error_code: 'manifest_untrusted',
+    installations: [],
+    experience: null,
+  };
+  const { resolver, profile } = makeHarness({ settings, appRuntime: invalidRuntime });
+
+  assert.equal(profile.workspaceExperienceV2Enabled(), false);
+  assert.equal(profile.workspaceAppPlatformEnabled(), true);
+  assert.equal(profile.workspaceAppUnavailable(), true);
+  for (const route of [
+    '/hypervisor',
+    '/chat',
+    '/systems/system-42',
+    '/hypervisor/mission-room/cockpit',
+    '/governance/audit',
+  ]) {
+    assert.deepEqual(expectTerminal(resolver, resolver.resolve(route)), {
+      requestedRoute: route,
+      resolvedRoute: '/workspace-app-unavailable',
+      owner: 'navigation_resolver',
+      reason: 'workspace_extension_unavailable',
+    });
+  }
+  assert.equal(resolver.resolve('/workspace-app-unavailable'), null);
+});
+
+test('invalid runtime exposes the isolated repair route only to workspace admins', () => {
+  const settings = { features: { workspace_app_platform_v1: true } };
+  const member = makeHarness({ role: 'member', settings }).resolver;
+  assert.equal(
+    expectTerminal(member, member.resolve('/workspace-app-repair')).resolvedRoute,
+    '/workspace-app-unavailable',
+  );
+
+  const admin = makeHarness({ role: 'admin', settings }).resolver;
+  assert.equal(admin.resolve('/workspace-app-repair'), null);
+  assert.equal(
+    expectTerminal(admin, admin.resolve('/governance/workspace-apps')).resolvedRoute,
+    '/workspace-app-unavailable',
+  );
+});
+
+test('the unavailable page cannot masquerade as workspace state once platform authority is healthy or disabled', () => {
+  const disabled = makeHarness().resolver;
+  assert.deepEqual(expectTerminal(disabled, disabled.resolve('/workspace-app-unavailable')), {
+    requestedRoute: '/workspace-app-unavailable',
+    resolvedRoute: '/hypervisor',
+    owner: 'navigation_resolver',
+    reason: 'workspace_default_route',
+  });
+
+  const healthy = makeHarness({
+    settings: { features: { workspace_app_platform_v1: true } },
+    appEntitlements: ['client360-pdr'],
+    appRuntime: {
+      schema_version: 1,
+      mode: 'authoritative',
+      enabled: true,
+      valid: true,
+      rollout_phase: 'active',
+      rollout_ref: `sha256:${'a'.repeat(64)}`,
+      installations: [{
+        app_id: 'andritz.client360-pdr',
+        version: '1.0.0',
+        manifest_digest: 'sha256:client360',
+        category: 'business_app',
+        routes: ['/client360'],
+        primary_surface_id: 'client360-pdr',
+        default_route: '/client360',
+        branding_namespace: 'andritz',
+        api_prefixes: ['/api/v1/client360'],
+        action_packs: ['andritz_industrial_v1'],
+        entitlement_keys: ['client360-pdr'],
+      }],
+      experience: {
+        shell: 'business',
+        routes: ['/client360'],
+        primary_surface_ids: ['client360-pdr'],
+        default_routes: { 'andritz.client360-pdr': '/client360' },
+        branding_namespaces: ['andritz'],
+        api_prefixes: ['/api/v1/client360'],
+        action_packs: ['andritz_industrial_v1'],
+        mission_room: null,
+      },
+    },
+  }).resolver;
+  assert.equal(
+    expectTerminal(healthy, healthy.resolve('/workspace-app-unavailable')).resolvedRoute,
+    '/client360',
   );
 });
 

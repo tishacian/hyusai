@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "manifests": [
+    {
+      "app_id": "andritz.chat",
+      "version": "1.0.0",
+      "sha256": "6c0ad48bf44064713758b7d5a8f9e14ba2913ffbb8a3e606fef47a8fc5a3ebf7"
+    },
+    {
+      "app_id": "andritz.client360-pdr",
+      "version": "1.0.0",
+      "sha256": "d36f65547f3d797a4fe83f484f37a683df64fa1633fb370ee7832dc63b2e1a0d"
+    },
+    {
+      "app_id": "andritz.knowledge-capture",
+      "version": "1.0.0",
+      "sha256": "95694345f586c25d3ad38bcaa3fedd0b8db27c58b9fcc24b5de3565898135737"
+    },
+    {
+      "app_id": "mission-room.extension",
+      "version": "1.0.0",
+      "sha256": "5df73dc182a6e209f47df0ad95698417c31ba0103d8a4dbcf964c07982ccb8b2"
+    },
+    {
+      "app_id": "mission-room.extension",
+      "version": "1.1.0",
+      "sha256": "a1cd9353e4a92ed6d329238f6b5704671556cd154539391c5286b06955f5f4b6"
+    },
+    {
+      "app_id": "mission-room.extension",
+      "version": "1.2.0",
+      "sha256": "86f74069b3ae816e813d999e26d5cc668780a951268d1e893d62fc0e64a67062"
+    },
+    {
+      "app_id": "octocity.mission-room",
+      "version": "1.0.0",
+      "sha256": "8453a1b618fdfe0cb4e9a5c6c5d18c905b3dd58435b26315e86d4f3f7712247c"
+    },
+    {
+      "app_id": "sentinel.mission-room",
+      "version": "1.0.0",
+      "sha256": "7bfd5d2a9242d6861ddb79767e919a23c39652a1234b5abe610e2ffc825940e6"
+    }
+  ]
+}

@@ -16,10 +16,12 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import object_session
 
 from app.models.capability import Capability
 from app.models.context import Context
@@ -34,6 +36,7 @@ from app.models.workspace import (
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
 )
+from app.models.workspace_app import WorkspaceAppInstallation
 from app.schemas.canonical import (
     ExecutionMode,
     SystemStatus,
@@ -43,20 +46,47 @@ from app.schemas.canonical import (
 from app.services import knowledge_collections
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
+from app.services.context_bindings import (
+    ContextBindingError,
+    context_in_workspace,
+    validate_context_id,
+    validate_system_id,
+)
 from app.services.iam.app_entitlements import (
     APP_ENTITLEMENTS_FEATURE,
-    BUSINESS_APP_KEYS,
     WORKSPACE_EXPERIENCE_FEATURE,
     WorkspaceEntitlementMutationConflictError,
     lock_workspace_for_app_entitlement_mutation,
     normalize_app_entitlements,
 )
 from app.services.iam.config_service import load_iam_config, patch_iam_config
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
+    resolve_system_catalog_bindings,
+)
+from app.services.workspace_app_lifecycle import (
+    WorkspaceAppLifecycleConflict,
+    WorkspaceAppLifecycleError,
+    WorkspaceAppLifecyclePlan,
+    WorkspaceAppLifecycleValidationError,
+    apply_workspace_app_lifecycle,
+    plan_workspace_app_lifecycle,
+)
+from app.services.workspace_app_manifests import (
+    WorkspaceAppManifestError,
+    get_builtin_workspace_app_manifest,
+    parse_semver,
+    validate_manifest_configuration,
+)
 from app.services.workspace_features import workspace_family
 
 BLUEPRINT_KIND = "agentium.workspace.blueprint"
 SCHEMA_VERSION = 2
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
+EXPERIENCE_CONTRACT_VERSION = 2
+SUPPORTED_EXPERIENCE_CONTRACT_VERSIONS = frozenset({1, EXPERIENCE_CONTRACT_VERSION})
+BLUEPRINT_KEY_MAX_LENGTH = 120
 
 EXPERIENCE_POLICIES = frozenset({"preserve_target", "merge_missing", "replace_portable"})
 ENTITLEMENT_POLICIES = frozenset({"preserve_target", "grant_all_existing_members"})
@@ -290,6 +320,8 @@ _PORTABLE_OBJECT_LIST_PATHS = frozenset(
     }
 )
 _MISSING = object()
+_AUTHORIZATION_V2_KEY = "authorization_v2"
+_AUTHORIZATION_ROLLOUT_KEYS = frozenset({"enforcement_attestations", "enforcement_history"})
 
 
 class WorkspaceBlueprintError(ValueError):
@@ -298,6 +330,80 @@ class WorkspaceBlueprintError(ValueError):
 
 class WorkspaceBlueprintConflictError(WorkspaceBlueprintError):
     """Raised when an apply no longer matches its validated target plan."""
+
+
+def _portable_iam_capability_overrides(value: Any) -> dict[str, Any]:
+    """Remove evidence authority from an IAM document crossing workspaces.
+
+    Blueprints may carry candidate policy in compat/shadow so a cloned
+    workspace can reproduce configuration safely.  They are never a proof
+    channel: enforce is downgraded to shadow and attestation/history records
+    are omitted even when a hand-crafted blueprint bypasses export.
+    """
+
+    overrides = deepcopy(dict(value)) if isinstance(value, Mapping) else {}
+    raw_policy = overrides.get(_AUTHORIZATION_V2_KEY)
+    if not isinstance(raw_policy, Mapping):
+        return overrides
+    policy = deepcopy(dict(raw_policy))
+    if str(policy.get("default_mode") or "").strip().lower() == "enforce":
+        policy["default_mode"] = "shadow"
+    raw_modes = policy.get("modes")
+    if isinstance(raw_modes, Mapping):
+        policy["modes"] = {
+            str(action): ("shadow" if str(mode).strip().lower() == "enforce" else deepcopy(mode))
+            for action, mode in raw_modes.items()
+        }
+    for key in _AUTHORIZATION_ROLLOUT_KEYS:
+        policy.pop(key, None)
+    overrides[_AUTHORIZATION_V2_KEY] = policy
+    return overrides
+
+
+def _merge_blueprint_iam_overrides(
+    current: Any,
+    portable: Any,
+) -> dict[str, Any]:
+    """Apply portable IAM policy without mutating target rollout authority."""
+
+    result = _portable_iam_capability_overrides(portable)
+    current_overrides = deepcopy(dict(current)) if isinstance(current, Mapping) else {}
+    current_raw = current_overrides.get(_AUTHORIZATION_V2_KEY)
+    if not isinstance(current_raw, Mapping):
+        return result
+    current_policy = deepcopy(dict(current_raw))
+
+    raw_target_policy = result.get(_AUTHORIZATION_V2_KEY)
+    if not isinstance(raw_target_policy, Mapping):
+        # A Blueprint that does not carry authorization-v2 is an edit of
+        # unrelated IAM config.  Keep the target's entire rollout document.
+        result[_AUTHORIZATION_V2_KEY] = current_policy
+        return result
+    target_policy = deepcopy(dict(raw_target_policy))
+
+    current_modes_raw = current_policy.get("modes")
+    current_modes = dict(current_modes_raw) if isinstance(current_modes_raw, Mapping) else {}
+    target_modes_raw = target_policy.get("modes")
+    target_modes = deepcopy(dict(target_modes_raw)) if isinstance(target_modes_raw, Mapping) else {}
+    for action, mode in current_modes.items():
+        if str(mode).strip().lower() == "enforce":
+            target_modes[action] = deepcopy(mode)
+    if target_modes or "modes" in target_policy:
+        target_policy["modes"] = target_modes
+
+    if str(current_policy.get("default_mode") or "").strip().lower() == "enforce":
+        target_policy["default_mode"] = deepcopy(current_policy["default_mode"])
+    has_rollout_authority = any(
+        str(mode).strip().lower() == "enforce" for mode in current_modes.values()
+    ) or any(key in current_policy for key in _AUTHORIZATION_ROLLOUT_KEYS)
+    if has_rollout_authority and "policy_version" in current_policy:
+        target_policy["policy_version"] = deepcopy(current_policy["policy_version"])
+    for key in _AUTHORIZATION_ROLLOUT_KEYS:
+        if key in current_policy:
+            target_policy[key] = deepcopy(current_policy[key])
+
+    result[_AUTHORIZATION_V2_KEY] = target_policy
+    return result
 
 
 def actor_display_name(user: User | None) -> str:
@@ -396,7 +502,7 @@ def export_workspace_blueprint(
             "slug": workspace.slug,
             "mode": workspace.mode,
         },
-        "experience": _serialize_workspace_experience(workspace),
+        "experience": _serialize_workspace_experience(workspace, db=db),
         "capabilities": [
             _serialize_capability(c, workspace_id=workspace.id, skill_slugs_by_id=skill_slugs_by_id)
             for c in capabilities
@@ -435,7 +541,9 @@ def export_workspace_blueprint(
             "exports_members": False,
             "role_flags": _without_secret_keys((iam_config.role_flags or {}) if iam_config else {}),
             "capability_overrides": _without_secret_keys(
-                (iam_config.capability_overrides or {}) if iam_config else {}
+                _portable_iam_capability_overrides(
+                    (iam_config.capability_overrides or {}) if iam_config else {}
+                )
             ),
         },
         "connectors": {
@@ -450,6 +558,9 @@ def export_workspace_blueprint(
         "data_policy": {
             "workspace_members": "excluded",
             "workspace_member_app_entitlements": "excluded",
+            "workspace_app_operation_receipts": "excluded",
+            "authorization_enforcement_attestations": "excluded",
+            "authorization_enforce_modes": "downgraded_to_shadow",
             "keycloak_identities": "excluded",
             "workspace_settings": "positive_allowlist_only",
             "action_runtime_state": "excluded",
@@ -494,8 +605,9 @@ def apply_workspace_blueprint(
     """Apply a workspace blueprint to ``workspace``.
 
     Dry-run is the default and performs no writes. Real import is additive:
-    existing objects are reused by stable keys (slug/name/scope), and no raw
-    data, members, credentials or historical runs are created.
+    Contexts and Systems are reused by opaque stable keys, while catalog and
+    preset references use their canonical portable identities. No raw data,
+    members, credentials or historical runs are created.
     """
     schema_version = _validate_blueprint(blueprint)
     _validate_apply_policies(
@@ -584,6 +696,15 @@ def apply_workspace_blueprint(
         activate_systems=activate_systems,
         report=report,
     )
+    _bind_context_systems(
+        db=db,
+        workspace=workspace,
+        contexts=list(blueprint.get("contexts") or []),
+        context_map=context_map,
+        system_map=system_map,
+        dry_run=dry_run,
+        report=report,
+    )
     _apply_presets(
         db=db,
         workspace=workspace,
@@ -603,16 +724,35 @@ def apply_workspace_blueprint(
     )
 
     if schema_version == SCHEMA_VERSION and not dry_run:
-        _apply_workspace_experience_plan(
-            workspace=workspace,
-            plan=experience_plan,
-        )
-        _apply_app_access_plan(
-            db=db,
-            workspace=workspace,
-            actor=actor,
-            plan=experience_plan["app_access"],
-        )
+        # App lifecycle plans were built against this exact prospective
+        # family/profile.  Persist it inside the still-uncommitted global
+        # Blueprint transaction before rebuilding and applying those plans.
+        # Any lifecycle failure rolls this flush and every imported object
+        # back together.
+        try:
+            _apply_workspace_experience_plan(
+                workspace=workspace,
+                plan=experience_plan,
+            )
+            db.flush()
+            _apply_workspace_apps_plan(
+                db=db,
+                workspace=workspace,
+                actor=actor,
+                blueprint_digest=blueprint_digest,
+                plan=experience_plan["workspace_apps"],
+            )
+            _apply_app_access_plan(
+                db=db,
+                workspace=workspace,
+                actor=actor,
+                plan=experience_plan["app_access"],
+            )
+        except Exception:
+            # Blueprint v2 is one authority boundary: experience, lifecycle,
+            # grants and imported objects must never commit partially.
+            db.rollback()
+            raise
 
     if not dry_run:
         emit_audit_event(
@@ -626,6 +766,9 @@ def apply_workspace_blueprint(
                 "experience_policy": experience_policy,
                 "entitlement_policy": entitlement_policy,
                 "experience_paths_changed": len(experience_plan["applied"]),
+                "workspace_app_operations": len(
+                    experience_plan["workspace_apps"].get("applied") or []
+                ),
                 "created": report["created"],
                 "reused": report["reused"],
                 "skipped_count": len(report["skipped"]),
@@ -659,6 +802,7 @@ def _validate_blueprint(blueprint: Mapping[str, Any]) -> int:
             not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value)
         ):
             raise WorkspaceBlueprintError(f"{key} must be an array of JSON objects.")
+    _validate_blueprint_object_identities(blueprint)
     _validate_system_contracts(list(blueprint.get("systems") or []))
     knowledge = blueprint.get("knowledge")
     if knowledge is not None and not isinstance(knowledge, Mapping):
@@ -766,6 +910,136 @@ def _string_list(value: Any) -> list[str]:
         if item and item not in out:
             out.append(item)
     return out
+
+
+def _canonical_blueprint_key(value: Any, *, path: str) -> str:
+    if not isinstance(value, str):
+        raise WorkspaceBlueprintError(f"{path} must be a non-empty string.")
+    normalized = value.strip()
+    if not normalized or normalized != value or len(normalized) > BLUEPRINT_KEY_MAX_LENGTH:
+        raise WorkspaceBlueprintError(
+            f"{path} must be canonical and at most {BLUEPRINT_KEY_MAX_LENGTH} characters."
+        )
+    return normalized
+
+
+def _legacy_blueprint_key(kind: str, name: str) -> str:
+    """Derive a repeatable opaque identity for an unkeyed legacy object."""
+
+    return str(uuid5(NAMESPACE_URL, f"agentium.workspace-blueprint:{kind}:{name}"))
+
+
+def _blueprint_object_identity(
+    item: Mapping[str, Any],
+    *,
+    kind: str,
+    name: str,
+) -> tuple[str, bool]:
+    if "stable_key" in item:
+        return (
+            _canonical_blueprint_key(item.get("stable_key"), path=f"{kind}.stable_key"),
+            False,
+        )
+    return _legacy_blueprint_key(kind, name), True
+
+
+def _stable_identity_token(stable_key: str) -> str:
+    return f"stable:{stable_key}"
+
+
+def _legacy_name_token(name: str) -> str:
+    return f"name:{name}"
+
+
+def _add_identity_mapping(
+    mapping: dict[str, str | None],
+    *,
+    stable_key: str,
+    legacy: bool,
+    name: str,
+    object_id: str | None,
+) -> None:
+    mapping[_stable_identity_token(stable_key)] = object_id
+    if legacy:
+        mapping[_legacy_name_token(name)] = object_id
+
+
+def _object_reference(
+    item: Mapping[str, Any],
+    *,
+    key_field: str,
+    legacy_field: str,
+    path: str,
+) -> tuple[str | None, bool, bool]:
+    """Return internal token, whether a ref was explicit, and key authority."""
+
+    if key_field in item:
+        value = item.get(key_field)
+        if value is None:
+            return None, True, True
+        stable_key = _canonical_blueprint_key(value, path=f"{path}.{key_field}")
+        return _stable_identity_token(stable_key), True, True
+    if legacy_field in item:
+        name = _string(item.get(legacy_field))
+        # A null legacy name historically meant "no portable binding", not
+        # an authoritative request to erase a target relation. Only the new
+        # key contract can express an explicit unbind.
+        return (
+            (_legacy_name_token(name), True, False)
+            if name
+            else (None, False, False)
+        )
+    return None, False, False
+
+
+def _validate_blueprint_object_identities(blueprint: Mapping[str, Any]) -> None:
+    for collection_name, kind in (("contexts", "context"), ("systems", "system")):
+        items = list(blueprint.get(collection_name) or [])
+        names = [_string(item.get("name")) for item in items]
+        effective_keys: set[str] = set()
+        for index, item in enumerate(items):
+            if "stable_key" in item:
+                stable_key = _canonical_blueprint_key(
+                    item.get("stable_key"),
+                    path=f"/{collection_name}/{index}/stable_key",
+                )
+                if stable_key in effective_keys:
+                    raise WorkspaceBlueprintConflictError(
+                        f"Duplicate {kind} stable_key {stable_key!r} in Blueprint."
+                    )
+                effective_keys.add(stable_key)
+                continue
+            name = names[index]
+            if name and names.count(name) > 1:
+                raise WorkspaceBlueprintConflictError(
+                    f"Legacy {kind} name {name!r} is ambiguous inside the Blueprint."
+                )
+            if name:
+                stable_key = _legacy_blueprint_key(kind, name)
+                if stable_key in effective_keys:
+                    raise WorkspaceBlueprintConflictError(
+                        f"Legacy {kind} {name!r} collides with another Blueprint identity."
+                    )
+                effective_keys.add(stable_key)
+
+        for index, item in enumerate(items):
+            for field in (
+                ("system_key",) if kind == "context" else ("context_key",)
+            ):
+                if field in item and item.get(field) is not None:
+                    _canonical_blueprint_key(
+                        item.get(field),
+                        path=f"/{collection_name}/{index}/{field}",
+                    )
+
+    presets = _as_dict(blueprint.get("presets"))
+    for preset_kind in ("rag", "evaluation"):
+        for index, item in enumerate(presets.get(preset_kind) or []):
+            if "scope_key" in item and item.get("scope_key") is not None:
+                _canonical_blueprint_key(
+                    item.get("scope_key"),
+                    path=f"/presets/{preset_kind}/{index}/scope_key",
+                )
 
 
 def _credential_shaped_key(value: Any) -> bool:
@@ -1138,7 +1412,76 @@ def _sanitize_mission_room(value: Any) -> dict[str, Any] | None:
     return {"enabled": source.get("enabled") is True, "config": config}
 
 
-def _serialize_workspace_experience(workspace: Workspace) -> dict[str, Any]:
+def _workspace_app_installation_payload(
+    installation: WorkspaceAppInstallation,
+) -> dict[str, Any]:
+    if (
+        installation.state != "installed"
+        or not installation.version
+        or not installation.manifest_digest
+    ):
+        raise WorkspaceBlueprintError(
+            f"Workspace App installation {installation.app_id!r} has an invalid materialized state."
+        )
+    try:
+        manifest = get_builtin_workspace_app_manifest(
+            installation.app_id,
+            installation.version,
+            expected_digest=installation.manifest_digest,
+        )
+        configuration = validate_manifest_configuration(
+            manifest,
+            installation.configuration if isinstance(installation.configuration, Mapping) else {},
+        )
+    except WorkspaceAppManifestError as exc:
+        raise WorkspaceBlueprintError(
+            f"Workspace App installation {installation.app_id!r} is not exportable: {exc}"
+        ) from exc
+    if configuration != dict(installation.configuration or {}):
+        raise WorkspaceBlueprintError(
+            f"Workspace App installation {installation.app_id!r} is not canonically configured."
+        )
+    return {
+        "app_id": manifest.app_id,
+        "version": manifest.version,
+        "manifest_digest": manifest.digest,
+        "config": configuration,
+    }
+
+
+def _serialize_workspace_apps(
+    db: DBSession,
+    workspace: Workspace,
+) -> dict[str, Any]:
+    installations = (
+        db.query(WorkspaceAppInstallation)
+        .filter(
+            WorkspaceAppInstallation.workspace_id == workspace.id,
+            WorkspaceAppInstallation.state == "installed",
+        )
+        .order_by(WorkspaceAppInstallation.app_id.asc())
+        .all()
+    )
+    return {
+        "mode": "authoritative",
+        "installations": [
+            _workspace_app_installation_payload(installation)
+            for installation in installations
+        ],
+        "operation_receipts": "excluded",
+    }
+
+
+def _serialize_workspace_experience(
+    workspace: Workspace,
+    *,
+    db: DBSession | None = None,
+) -> dict[str, Any]:
+    session = db or object_session(workspace)
+    if session is None:
+        raise WorkspaceBlueprintError(
+            "Workspace App installations require an attached database session for Blueprint v2."
+        )
     settings = _as_dict(workspace.settings)
     raw_features = _as_dict(settings.get("features"))
     features = {
@@ -1203,17 +1546,20 @@ def _serialize_workspace_experience(workspace: Workspace) -> dict[str, Any]:
             mission_room["dependencies"] = dependencies
         extensions[MISSION_ROOM_EXTENSION_ID] = mission_room
 
-    declared_apps = _string_list(navigation.get("primary_surfaces"))
-    required_apps = [key for key in BUSINESS_APP_KEYS if key in declared_apps]
-    if not required_apps:
-        required_apps = list(BUSINESS_APP_KEYS)
+    workspace_apps = _serialize_workspace_apps(session, workspace)
+    # Blueprint v2 transports the exact application access surface backed by
+    # its content-addressed installations.  Navigation declarations and the
+    # global registry must never manufacture grants for an absent app.
+    required_apps = _workspace_app_entitlement_keys(
+        workspace_apps.get("installations") or []
+    )
     app_access = {
         "enforcement_requested": raw_features.get(APP_ENTITLEMENTS_FEATURE) is True,
         "required_apps": required_apps,
         "member_grants": "excluded",
     }
     return {
-        "contract_version": 1,
+        "contract_version": EXPERIENCE_CONTRACT_VERSION,
         "profile": profile,
         "features": features,
         "navigation": navigation,
@@ -1222,6 +1568,7 @@ def _serialize_workspace_experience(workspace: Workspace) -> dict[str, Any]:
         "actions": actions,
         "extensions": extensions,
         "app_access": app_access,
+        "workspace_apps": workspace_apps,
     }
 
 
@@ -1821,6 +2168,69 @@ def _validate_mission_room_extension(value: Any, experience: Mapping[str, Any]) 
             )
 
 
+def _validate_workspace_apps_contract(value: Any) -> None:
+    path = "/experience/workspace_apps"
+    if not isinstance(value, Mapping):
+        raise WorkspaceBlueprintError(f"{path} must be a JSON object.")
+    _assert_known_keys(
+        value,
+        {"mode", "installations", "operation_receipts"},
+        path,
+    )
+    if value.get("mode") != "authoritative":
+        raise WorkspaceBlueprintError(f"{path}/mode must be authoritative.")
+    if value.get("operation_receipts") != "excluded":
+        raise WorkspaceBlueprintError(
+            f"{path}/operation_receipts must remain excluded."
+        )
+    installations = value.get("installations")
+    if not isinstance(installations, list):
+        raise WorkspaceBlueprintError(f"{path}/installations must be an array.")
+    identities: list[str] = []
+    for index, item in enumerate(installations):
+        item_path = f"{path}/installations/{index}"
+        if not isinstance(item, Mapping):
+            raise WorkspaceBlueprintError(f"{item_path} must be a JSON object.")
+        _assert_known_keys(
+            item,
+            {"app_id", "version", "manifest_digest", "config"},
+            item_path,
+        )
+        app_id = _string(item.get("app_id"))
+        version = _string(item.get("version"))
+        digest = _string(item.get("manifest_digest"))
+        configuration = item.get("config")
+        if not app_id or not version or not digest:
+            raise WorkspaceBlueprintError(
+                f"{item_path} requires app_id, version and manifest_digest."
+            )
+        if not isinstance(configuration, Mapping):
+            raise WorkspaceBlueprintError(f"{item_path}/config must be a JSON object.")
+        try:
+            manifest = get_builtin_workspace_app_manifest(
+                app_id,
+                version,
+                expected_digest=digest,
+            )
+            canonical_configuration = validate_manifest_configuration(
+                manifest,
+                configuration,
+            )
+        except WorkspaceAppManifestError as exc:
+            raise WorkspaceBlueprintError(f"{item_path}: {exc}") from exc
+        if canonical_configuration != dict(configuration):
+            raise WorkspaceBlueprintError(
+                f"{item_path}/config must include the complete canonical manifest config."
+            )
+        identities.append(app_id)
+    if len(identities) != len(set(identities)):
+        raise WorkspaceBlueprintError(f"{path}/installations contains duplicate app_id values.")
+    if identities != sorted(identities):
+        raise WorkspaceBlueprintError(
+            f"{path}/installations must be ordered by app_id."
+        )
+
+
 def _validate_v2_experience(blueprint: Mapping[str, Any]) -> None:
     workspace = blueprint.get("workspace")
     if not isinstance(workspace, Mapping):
@@ -1835,6 +2245,13 @@ def _validate_v2_experience(blueprint: Mapping[str, Any]) -> None:
     experience = blueprint.get("experience")
     if not isinstance(experience, Mapping):
         raise WorkspaceBlueprintError("experience must be a JSON object in a v2 Blueprint.")
+    contract_version = experience.get("contract_version")
+    if (
+        not isinstance(contract_version, int)
+        or isinstance(contract_version, bool)
+        or contract_version not in SUPPORTED_EXPERIENCE_CONTRACT_VERSIONS
+    ):
+        raise WorkspaceBlueprintError("Unsupported experience.contract_version.")
     allowed_sections = {
         "contract_version",
         "profile",
@@ -1846,15 +2263,20 @@ def _validate_v2_experience(blueprint: Mapping[str, Any]) -> None:
         "extensions",
         "app_access",
     }
+    if contract_version == EXPERIENCE_CONTRACT_VERSION:
+        allowed_sections.add("workspace_apps")
     _assert_known_keys(experience, allowed_sections, "/experience")
-    contract_version = experience.get("contract_version")
-    if (
-        not isinstance(contract_version, int)
-        or isinstance(contract_version, bool)
-        or contract_version != 1
-    ):
-        raise WorkspaceBlueprintError("Unsupported experience.contract_version.")
     _assert_no_secret_keys(experience)
+    prospective_entitlement_keys: list[str] | None = None
+    if contract_version == EXPERIENCE_CONTRACT_VERSION:
+        if "workspace_apps" not in experience:
+            raise WorkspaceBlueprintError(
+                "experience.workspace_apps is required by contract_version 2."
+            )
+        _validate_workspace_apps_contract(experience["workspace_apps"])
+        prospective_entitlement_keys = _workspace_app_entitlement_keys(
+            list(_as_dict(experience["workspace_apps"]).get("installations") or [])
+        )
 
     profile = experience.get("profile", {})
     if not isinstance(profile, Mapping):
@@ -1956,12 +2378,25 @@ def _validate_v2_experience(blueprint: Mapping[str, Any]) -> None:
             "experience.app_access.enforcement_requested must be a boolean."
         )
     try:
-        apps = normalize_app_entitlements(app_access.get("required_apps"))
+        apps = normalize_app_entitlements(
+            app_access.get("required_apps"),
+            allowed_keys=prospective_entitlement_keys,
+        )
     except ValueError as exc:
+        if prospective_entitlement_keys is not None:
+            raise WorkspaceBlueprintError(
+                "experience.app_access.required_apps must exactly match the entitlement_keys "
+                "of experience.workspace_apps.installations."
+            ) from exc
         raise WorkspaceBlueprintError(str(exc)) from exc
-    if not apps or apps != app_access.get("required_apps"):
+    if apps != app_access.get("required_apps"):
         raise WorkspaceBlueprintError(
-            "experience.app_access.required_apps must be non-empty and canonically ordered."
+            "experience.app_access.required_apps must be canonically ordered."
+        )
+    if prospective_entitlement_keys is not None and apps != prospective_entitlement_keys:
+        raise WorkspaceBlueprintError(
+            "experience.app_access.required_apps must exactly match the entitlement_keys "
+            "of experience.workspace_apps.installations."
         )
     if app_access.get("member_grants") != "excluded":
         raise WorkspaceBlueprintError("Workspace member application grants must remain excluded.")
@@ -2160,7 +2595,15 @@ def _blueprint_object_target_state(
     )
 
     context_names = {
-        name for item in blueprint.get("contexts") or [] if (name := _string(item.get("name")))
+        name
+        for item in blueprint.get("contexts") or []
+        if "stable_key" not in item and (name := _string(item.get("name")))
+    }
+    context_keys = {
+        key
+        for item in blueprint.get("contexts") or []
+        if "stable_key" in item
+        and (key := _canonical_blueprint_key(item.get("stable_key"), path="context.stable_key"))
     }
     collection_slugs = {
         slug
@@ -2168,7 +2611,15 @@ def _blueprint_object_target_state(
         if (slug := _string(item.get("slug")))
     }
     system_names = {
-        name for item in blueprint.get("systems") or [] if (name := _string(item.get("name")))
+        name
+        for item in blueprint.get("systems") or []
+        if "stable_key" not in item and (name := _string(item.get("name")))
+    }
+    system_keys = {
+        key
+        for item in blueprint.get("systems") or []
+        if "stable_key" in item
+        and (key := _canonical_blueprint_key(item.get("stable_key"), path="system.stable_key"))
     }
     preset_names = {
         name
@@ -2177,16 +2628,27 @@ def _blueprint_object_target_state(
         if (name := _string(item.get("name")))
     }
 
+    context_selectors = []
+    if context_names:
+        context_selectors.append(Context.name.in_(sorted(context_names)))
+    if context_keys:
+        context_selectors.append(Context.blueprint_key.in_(sorted(context_keys)))
     contexts = (
-        db.query(Context.id, Context.name, Context.version)
+        db.query(
+            Context.id,
+            Context.name,
+            Context.version,
+            Context.blueprint_key,
+            Context.system_id,
+        )
         .filter(
             Context.workspace_id == workspace.id,
-            Context.name.in_(sorted(context_names)),
+            or_(*context_selectors),
             Context.ephemeral.is_(False),
         )
-        .order_by(Context.name.asc(), Context.id.asc())
+        .order_by(Context.blueprint_key.asc(), Context.id.asc())
         .all()
-        if context_names
+        if context_selectors
         else []
     )
     collections = (
@@ -2200,15 +2662,26 @@ def _blueprint_object_target_state(
         if collection_slugs
         else []
     )
+    system_selectors = []
+    if system_names:
+        system_selectors.append(System.name.in_(sorted(system_names)))
+    if system_keys:
+        system_selectors.append(System.blueprint_key.in_(sorted(system_keys)))
     systems = (
-        db.query(System.id, System.name, System.status)
+        db.query(
+            System.id,
+            System.name,
+            System.status,
+            System.blueprint_key,
+            System.context_id,
+        )
         .filter(
             System.workspace_id == workspace.id,
-            System.name.in_(sorted(system_names)),
+            or_(*system_selectors),
         )
-        .order_by(System.name.asc(), System.id.asc())
+        .order_by(System.blueprint_key.asc(), System.id.asc())
         .all()
-        if system_names
+        if system_selectors
         else []
     )
 
@@ -2236,9 +2709,27 @@ def _blueprint_object_target_state(
             [[str(row.id), str(row.slug), row.workspace_id] for row in skill_rows],
             key=lambda item: (item[1], item[0]),
         ),
-        "contexts": [[str(row.id), str(row.name), int(row.version)] for row in contexts],
+        "contexts": [
+            [
+                str(row.id),
+                str(row.blueprint_key),
+                str(row.name),
+                int(row.version),
+                row.system_id,
+            ]
+            for row in contexts
+        ],
         "collections": [[str(row.id), str(row.slug)] for row in collections],
-        "systems": [[str(row.id), str(row.name), str(row.status)] for row in systems],
+        "systems": [
+            [
+                str(row.id),
+                str(row.blueprint_key),
+                str(row.name),
+                str(row.status),
+                row.context_id,
+            ]
+            for row in systems
+        ],
         "presets": preset_state,
         "iam": {
             "role_flags": _without_secret_keys(iam.role_flags or {}) if iam else {},
@@ -2249,21 +2740,112 @@ def _blueprint_object_target_state(
     }
 
 
+def _workspace_app_entitlement_keys(
+    installations: list[Mapping[str, Any]],
+) -> list[str]:
+    """Resolve entitlement keys only from exact installed manifest digests."""
+
+    declared: list[str] = []
+    for installation in installations:
+        app_id = _string(installation.get("app_id"))
+        version = _string(installation.get("version"))
+        digest = _string(installation.get("manifest_digest"))
+        if not app_id or not version or not digest:
+            raise WorkspaceBlueprintError(
+                "Workspace App installation identity is incomplete for entitlement resolution."
+            )
+        try:
+            manifest = get_builtin_workspace_app_manifest(
+                app_id,
+                version,
+                expected_digest=digest,
+            )
+        except WorkspaceAppManifestError as exc:
+            raise WorkspaceBlueprintError(
+                "Workspace App entitlement authority is not backed by a trusted manifest."
+            ) from exc
+        entitlement_keys = manifest.as_dict().get("entitlement_keys")
+        if not isinstance(entitlement_keys, list):
+            raise WorkspaceBlueprintError(
+                "Workspace App entitlement manifest contract is invalid."
+            )
+        declared.extend(entitlement_keys)
+    try:
+        return normalize_app_entitlements(declared)
+    except ValueError as exc:
+        raise WorkspaceBlueprintError(
+            "Workspace App manifest declares an invalid application entitlement."
+        ) from exc
+
+
+def _installed_workspace_app_entitlement_keys(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    lock: bool,
+) -> list[str]:
+    query = db.query(WorkspaceAppInstallation).filter(
+        WorkspaceAppInstallation.workspace_id == workspace_id,
+        WorkspaceAppInstallation.state == "installed",
+    )
+    if lock:
+        query = query.with_for_update(of=WorkspaceAppInstallation)
+    rows = query.order_by(WorkspaceAppInstallation.app_id.asc()).all()
+    return _workspace_app_entitlement_keys(
+        [
+            {
+                "app_id": row.app_id,
+                "version": row.version,
+                "manifest_digest": row.manifest_digest,
+            }
+            for row in rows
+        ]
+    )
+
+
 def _build_app_access_plan(
     *,
     db: DBSession,
     workspace: Workspace,
     experience: Mapping[str, Any],
     entitlement_policy: str,
+    prospective_entitlement_keys: list[str] | None,
 ) -> dict[str, Any]:
     source = _as_dict(experience.get("app_access"))
     requested = source.get("enforcement_requested") is True
-    required_apps = normalize_app_entitlements(source.get("required_apps"))
+    try:
+        required_apps = normalize_app_entitlements(
+            source.get("required_apps"),
+            allowed_keys=prospective_entitlement_keys,
+        )
+    except ValueError as exc:
+        raise WorkspaceBlueprintError(
+            "Blueprint app_access requests an entitlement not provided by its "
+            "prospective Workspace App installations."
+        ) from exc
+    if (
+        prospective_entitlement_keys is not None
+        and required_apps != prospective_entitlement_keys
+    ):
+        raise WorkspaceBlueprintError(
+            "Blueprint app_access.required_apps must exactly match the entitlement_keys "
+            "of its prospective Workspace App installations."
+        )
     settings = _as_dict(workspace.settings)
     current_features = _as_dict(settings.get("features"))
     currently_enabled = current_features.get(APP_ENTITLEMENTS_FEATURE) is True
     state = _entitlement_state(db, workspace.id)
     current_grants = {(member_id, app_key) for member_id, app_key in state["grants"]}
+    prospective_key_set = frozenset(prospective_entitlement_keys or [])
+    dormant_grants = (
+        [
+            [member_id, app_key]
+            for member_id, app_key in state["grants"]
+            if app_key not in prospective_key_set
+        ]
+        if requested and prospective_entitlement_keys is not None
+        else []
+    )
     missing = [
         (member_id, app_key)
         for member_id in state["member_ids"]
@@ -2275,6 +2857,7 @@ def _build_app_access_plan(
         "policy": entitlement_policy,
         "enforcement_requested": requested,
         "required_apps": required_apps,
+        "installed_entitlement_keys": deepcopy(prospective_entitlement_keys),
         "member_grants": "excluded",
         "member_count": len(state["member_ids"]),
         "grants_planned": len(missing) if grant_all else 0,
@@ -2282,7 +2865,268 @@ def _build_app_access_plan(
         "feature_currently_enabled": currently_enabled,
         "feature_activated": bool(grant_all and not currently_enabled),
         "preserved": bool(entitlement_policy == "preserve_target"),
+        "conflicts": [
+            {
+                "path": "/experience/app_access/required_apps",
+                "action": "conflict",
+                "reason": "dormant_entitlement_without_installed_app",
+                "count": len(dormant_grants),
+            }
+        ]
+        if dormant_grants
+        else [],
     }
+
+
+def _workspace_app_plan_entry(
+    *,
+    request: Mapping[str, Any],
+    plan: WorkspaceAppLifecyclePlan,
+) -> dict[str, Any]:
+    return {
+        "app_id": plan.app_id,
+        "action": plan.operation,
+        "request": deepcopy(dict(request)),
+        "plan": plan.as_dict(),
+    }
+
+
+def _workspace_app_context_conflicts(
+    *,
+    workspace: Workspace,
+    desired: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Validate every desired app against the workspace's effective context.
+
+    Lifecycle plans validate apps that transition, but an exact installation
+    is otherwise classified as ``reused`` without rebuilding a lifecycle
+    plan.  Blueprint v2 must also validate those reused installations because
+    a portable experience replacement may change their family or structural
+    Mission Room profile.
+    """
+
+    settings = _as_dict(workspace.settings)
+    raw_family = str(settings.get("family") or "").strip().lower()
+    try:
+        family = WorkspaceFamily(raw_family).value
+    except ValueError:
+        family = None
+    mission_room = _as_dict(settings.get("mission_room"))
+    profile = _string(mission_room.get("profile")) or None
+    conflicts: dict[str, dict[str, Any]] = {}
+
+    for request in desired:
+        app_id = str(request["app_id"])
+        manifest = get_builtin_workspace_app_manifest(
+            app_id,
+            str(request["version"]),
+            expected_digest=str(request["manifest_digest"]),
+        )
+        compatibility = _as_dict(manifest.as_dict().get("compatibility"))
+        allowed_families = compatibility.get("workspace_families")
+        allowed_profiles = compatibility.get("workspace_profiles")
+        forbidden_profiles = compatibility.get("forbidden_workspace_profiles")
+        reason: str | None = None
+        message: str | None = None
+        if family is None:
+            reason = "workspace_family_invalid"
+            message = "Workspace has no canonical family for this Workspace App."
+        elif not isinstance(allowed_families, list) or family not in allowed_families:
+            reason = "workspace_family_incompatible"
+            message = "Workspace App is incompatible with the prospective workspace family."
+        elif not isinstance(allowed_profiles, list) or not isinstance(
+            forbidden_profiles, list
+        ):
+            reason = "manifest_contract_invalid"
+            message = "Trusted Workspace App profile compatibility is invalid."
+        elif allowed_profiles and profile not in allowed_profiles:
+            reason = "workspace_profile_incompatible"
+            message = "Workspace App is incompatible with the prospective workspace profile."
+        elif profile in forbidden_profiles:
+            reason = "workspace_profile_reserved"
+            message = "Workspace App cannot claim the prospective reserved profile."
+        if reason is not None:
+            conflicts[app_id] = {
+                "path": f"/experience/workspace_apps/installations/{app_id}",
+                "action": "conflict",
+                "reason": reason,
+                "message": message,
+            }
+    return conflicts
+
+
+def _build_workspace_apps_plan(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    experience: Mapping[str, Any],
+    authoritative: bool,
+) -> dict[str, Any]:
+    current_contract = _serialize_workspace_apps(db, workspace)
+    current = list(current_contract["installations"])
+    if not authoritative:
+        return {
+            "mode": "preserve_target",
+            "desired": [],
+            "current": current,
+            "operations": [],
+            "reused": [],
+            "conflicts": [],
+        }
+
+    source = _as_dict(experience.get("workspace_apps"))
+    desired = [deepcopy(dict(item)) for item in source.get("installations") or []]
+    current_by_app = {str(item["app_id"]): item for item in current}
+    desired_by_app = {str(item["app_id"]): item for item in desired}
+    operations: list[dict[str, Any]] = []
+    reused: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    context_conflicts = _workspace_app_context_conflicts(
+        workspace=workspace,
+        desired=desired,
+    )
+    conflicts.extend(context_conflicts.values())
+
+    def add_operation(request: dict[str, Any]) -> None:
+        try:
+            plan = plan_workspace_app_lifecycle(
+                db,
+                workspace_id=workspace.id,
+                operation=str(request["operation"]),
+                app_id=str(request["app_id"]),
+                target_version=request.get("target_version"),
+                expected_manifest_digest=str(request["expected_manifest_digest"]),
+                configuration=request.get("configuration"),
+            )
+        except WorkspaceAppLifecycleError as exc:
+            conflicts.append(
+                {
+                    "path": f"/experience/workspace_apps/installations/{request['app_id']}",
+                    "action": "conflict",
+                    "reason": exc.code,
+                    "message": str(exc),
+                }
+            )
+            return
+        operations.append(_workspace_app_plan_entry(request=request, plan=plan))
+
+    for app_id in sorted(desired_by_app):
+        target = desired_by_app[app_id]
+        if app_id in context_conflicts:
+            continue
+        installed = current_by_app.get(app_id)
+        if installed is None:
+            add_operation(
+                {
+                    "operation": "install",
+                    "app_id": app_id,
+                    "target_version": target["version"],
+                    "expected_manifest_digest": target["manifest_digest"],
+                    "configuration": deepcopy(target["config"]),
+                }
+            )
+            continue
+        if installed == target:
+            reused.append(
+                {
+                    "app_id": app_id,
+                    "version": target["version"],
+                    "manifest_digest": target["manifest_digest"],
+                }
+            )
+            continue
+        if (
+            installed["version"] == target["version"]
+            and installed["manifest_digest"] == target["manifest_digest"]
+        ):
+            conflicts.append(
+                {
+                    "path": f"/experience/workspace_apps/installations/{app_id}",
+                    "action": "conflict",
+                    "reason": "configuration_drift_requires_explicit_lifecycle_migration",
+                }
+            )
+            continue
+        try:
+            installed_semver = parse_semver(str(installed["version"]))
+            target_semver = parse_semver(str(target["version"]))
+        except WorkspaceAppManifestError as exc:
+            conflicts.append(
+                {
+                    "path": f"/experience/workspace_apps/installations/{app_id}",
+                    "action": "conflict",
+                    "reason": "manifest_version_invalid",
+                    "message": str(exc),
+                }
+            )
+            continue
+        operation = "upgrade" if target_semver > installed_semver else "rollback"
+        add_operation(
+            {
+                "operation": operation,
+                "app_id": app_id,
+                "target_version": target["version"],
+                "expected_manifest_digest": target["manifest_digest"],
+                "configuration": deepcopy(target["config"]),
+            }
+        )
+
+    for app_id in sorted(set(current_by_app) - set(desired_by_app)):
+        installed = current_by_app[app_id]
+        add_operation(
+            {
+                "operation": "uninstall",
+                "app_id": app_id,
+                "target_version": None,
+                "expected_manifest_digest": installed["manifest_digest"],
+                "configuration": None,
+            }
+        )
+
+    return {
+        "mode": "authoritative",
+        "desired": desired,
+        "current": current,
+        "operations": operations,
+        "reused": reused,
+        "conflicts": conflicts,
+    }
+
+
+def _build_workspace_apps_plan_for_prospective_experience(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    experience: Mapping[str, Any],
+    authoritative: bool,
+    applied_experience: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Plan lifecycle transitions against the post-Blueprint experience.
+
+    The temporary assignment is deliberately protected by ``no_autoflush``:
+    lifecycle queries resolve the identity-mapped Workspace with its
+    prospective family/profile, while the database and the public dry-run
+    remain untouched.  The original ORM values are restored even when a
+    manifest or lifecycle validation raises.
+    """
+
+    original_mode = workspace.mode
+    original_settings = deepcopy(_as_dict(workspace.settings))
+    try:
+        with db.no_autoflush:
+            _apply_workspace_experience_plan(
+                workspace=workspace,
+                plan={"applied": applied_experience},
+            )
+            return _build_workspace_apps_plan(
+                db=db,
+                workspace=workspace,
+                experience=experience,
+                authoritative=authoritative,
+            )
+    finally:
+        workspace.mode = original_mode
+        workspace.settings = original_settings
 
 
 def _build_experience_plan(
@@ -2425,18 +3269,36 @@ def _build_experience_plan(
                         item["reason"] = "replace_incompatible_parent"
                     applied.append(item)
 
+    authoritative_workspace_apps = bool(
+        schema_version == SCHEMA_VERSION
+        and experience.get("contract_version") == EXPERIENCE_CONTRACT_VERSION
+    )
+    workspace_apps = _build_workspace_apps_plan_for_prospective_experience(
+        db=db,
+        workspace=workspace,
+        experience=experience,
+        authoritative=authoritative_workspace_apps,
+        applied_experience=applied,
+    )
+    prospective_entitlement_keys = (
+        _workspace_app_entitlement_keys(workspace_apps["desired"])
+        if authoritative_workspace_apps
+        else None
+    )
     app_access = (
         _build_app_access_plan(
             db=db,
             workspace=workspace,
             experience=experience,
             entitlement_policy=entitlement_policy,
+            prospective_entitlement_keys=prospective_entitlement_keys,
         )
         if schema_version == SCHEMA_VERSION
         else {
             "policy": entitlement_policy,
             "enforcement_requested": False,
             "required_apps": [],
+            "installed_entitlement_keys": None,
             "member_grants": "excluded",
             "member_count": 0,
             "grants_planned": 0,
@@ -2444,14 +3306,17 @@ def _build_experience_plan(
             "feature_currently_enabled": False,
             "feature_activated": False,
             "preserved": True,
+            "conflicts": [],
         }
     )
+    conflicts.extend(workspace_apps["conflicts"])
+    conflicts.extend(app_access["conflicts"])
     target_state = {
         "workspace_id": workspace.id,
         "workspace_slug": workspace.slug,
         "workspace_name": workspace.name,
         "mode": workspace.mode,
-        "experience": _serialize_workspace_experience(workspace),
+        "experience": _serialize_workspace_experience(workspace, db=db),
         "entitlements": _entitlement_state(db, workspace.id),
         "objects": _blueprint_object_target_state(db, workspace=workspace, blueprint=blueprint),
     }
@@ -2470,6 +3335,7 @@ def _build_experience_plan(
         "conflicts": conflicts,
         "legacy_ignored": legacy_ignored,
         "app_access": app_access,
+        "workspace_apps": workspace_apps,
         "plan_token": _payload_digest(token_payload),
     }
 
@@ -2506,6 +3372,76 @@ def _delete_path(root: dict[str, Any], path: list[str]) -> None:
             break
 
 
+def _apply_workspace_apps_plan(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    actor: User | None,
+    blueprint_digest: str,
+    plan: dict[str, Any],
+) -> None:
+    if plan.get("mode") != "authoritative":
+        return
+    applied: list[dict[str, Any]] = []
+    actor_key = actor.id if actor is not None else "system"
+    for entry in plan.get("operations") or []:
+        request = _as_dict(entry.get("request"))
+        planned = _as_dict(entry.get("plan"))
+        plan_sha256 = _string(planned.get("plan_sha256"))
+        if not plan_sha256:
+            raise WorkspaceBlueprintConflictError(
+                "Workspace App Blueprint plan is missing its lifecycle digest."
+            )
+        idempotency_key = "blueprint-v2-" + _payload_digest(
+            {
+                "workspace_id": workspace.id,
+                "blueprint_digest": blueprint_digest,
+                "app_id": request.get("app_id"),
+                "operation": request.get("operation"),
+                "plan_sha256": plan_sha256,
+                "actor": actor_key,
+            }
+        )
+        try:
+            result = apply_workspace_app_lifecycle(
+                db,
+                workspace_id=workspace.id,
+                operation=str(request.get("operation") or ""),
+                app_id=str(request.get("app_id") or ""),
+                target_version=request.get("target_version"),
+                expected_manifest_digest=str(
+                    request.get("expected_manifest_digest") or ""
+                ),
+                expected_plan_sha256=plan_sha256,
+                actor=actor_key,
+                idempotency_key=idempotency_key,
+                configuration=request.get("configuration"),
+                commit=False,
+            )
+        except WorkspaceAppLifecycleConflict as exc:
+            raise WorkspaceBlueprintConflictError(
+                f"Workspace App {request.get('app_id')!r} changed after dry-run: {exc}"
+            ) from exc
+        except WorkspaceAppLifecycleValidationError as exc:
+            raise WorkspaceBlueprintError(
+                f"Workspace App {request.get('app_id')!r} lifecycle is invalid: {exc}"
+            ) from exc
+        except WorkspaceAppLifecycleError as exc:
+            raise WorkspaceBlueprintError(
+                f"Workspace App {request.get('app_id')!r} lifecycle failed: {exc}"
+            ) from exc
+        applied.append(
+            {
+                "app_id": result.operation.app_id,
+                "operation": result.operation.operation,
+                "operation_id": result.operation.id,
+                "plan_sha256": result.operation.plan_sha256,
+                "idempotent_replay": result.idempotent_replay,
+            }
+        )
+    plan["applied"] = applied
+
+
 def _apply_workspace_experience_plan(*, workspace: Workspace, plan: Mapping[str, Any]) -> None:
     settings = deepcopy(_as_dict(workspace.settings))
     for item in plan.get("applied") or []:
@@ -2529,9 +3465,43 @@ def _apply_app_access_plan(
     actor: User | None,
     plan: dict[str, Any],
 ) -> None:
+    expected_installed = plan.get("installed_entitlement_keys")
+    if expected_installed is not None:
+        actual_installed = _installed_workspace_app_entitlement_keys(
+            db,
+            workspace_id=workspace.id,
+            lock=True,
+        )
+        try:
+            required_apps = normalize_app_entitlements(
+                plan.get("required_apps"),
+                allowed_keys=actual_installed,
+            )
+        except ValueError as exc:
+            raise WorkspaceBlueprintConflictError(
+                "Application entitlement authority changed after the Blueprint dry-run."
+            ) from exc
+        if actual_installed != expected_installed or required_apps != actual_installed:
+            raise WorkspaceBlueprintConflictError(
+                "Installed Workspace App entitlement_keys no longer match the Blueprint plan."
+            )
+        if plan.get("enforcement_requested"):
+            actual_key_set = frozenset(actual_installed)
+            dormant = [
+                [member_id, app_key]
+                for member_id, app_key in _entitlement_state(db, workspace.id)["grants"]
+                if app_key not in actual_key_set
+            ]
+            if dormant:
+                raise WorkspaceBlueprintConflictError(
+                    "Dormant application entitlements are not backed by an installed "
+                    "Workspace App."
+                )
+    else:
+        required_apps = normalize_app_entitlements(plan.get("required_apps"))
+
     if plan.get("policy") != "grant_all_existing_members" or not plan.get("enforcement_requested"):
         return
-    required_apps = normalize_app_entitlements(plan.get("required_apps"))
     memberships = (
         db.query(WorkspaceMember)
         .filter(WorkspaceMember.workspace_id == workspace.id)
@@ -2630,8 +3600,18 @@ def _serialize_capability(
 def _serialize_context(context: Context, *, systems_by_id: dict[str, System]) -> dict[str, Any]:
     system = systems_by_id.get(context.system_id or "")
     return {
+        "stable_key": _canonical_blueprint_key(
+            context.blueprint_key,
+            path="context.blueprint_key",
+        ),
         "name": context.name,
         "version": context.version,
+        "system_key": (
+            _canonical_blueprint_key(system.blueprint_key, path="system.blueprint_key")
+            if system
+            else None
+        ),
+        # Retained as non-authoritative display metadata for legacy readers.
         "system_name": system.name if system else None,
         "data_refs": _without_secret_keys(context.data_refs or []),
         "memory_refs": _without_secret_keys(context.memory_refs or []),
@@ -2656,7 +3636,17 @@ def _serialize_system(
     context = contexts_by_id.get(system.context_id or "")
     payload.update(
         {
+            "stable_key": _canonical_blueprint_key(
+                system.blueprint_key,
+                path="system.blueprint_key",
+            ),
             "capability_slug": capability.slug if capability else None,
+            "context_key": (
+                _canonical_blueprint_key(context.blueprint_key, path="context.blueprint_key")
+                if context
+                else None
+            ),
+            # Retained as non-authoritative display metadata for legacy readers.
             "context_name": context.name if context else None,
             "source_status": system.status,
             "import_status_default": "draft",
@@ -2686,15 +3676,24 @@ def _serialize_preset(
     capabilities_by_id: dict[str, Capability],
 ) -> dict[str, Any]:
     scope_ref = None
+    scope_key = None
     if preset.scope == "system":
         system = systems_by_id.get(preset.scope_id or "")
         scope_ref = system.name if system else None
+        scope_key = (
+            _canonical_blueprint_key(system.blueprint_key, path="system.blueprint_key")
+            if system
+            else None
+        )
     elif preset.scope == "capability":
         capability = capabilities_by_id.get(preset.scope_id or "")
         scope_ref = capability.slug if capability else None
+        scope_key = capability.slug if capability else None
     return {
         "name": preset.name,
         "scope": preset.scope,
+        "scope_key": scope_key,
+        # Retained as non-authoritative display metadata for legacy readers.
         "scope_ref": scope_ref,
         "config": _without_secret_keys(preset.config or {}),
         "is_default": bool(preset.is_default),
@@ -2800,6 +3799,98 @@ def _resolve_skill_slugs(
     return [by_slug[slug] for slug in slugs if slug in by_slug]
 
 
+def _existing_blueprint_object(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    model: type[Context] | type[System],
+    kind: str,
+    name: str,
+    stable_key: str,
+    legacy: bool,
+    extra_filters: tuple[Any, ...] = (),
+) -> Context | System | None:
+    if legacy:
+        rows = (
+            db.query(model)
+            .filter(
+                model.workspace_id == workspace.id,
+                model.name == name,
+                *extra_filters,
+            )
+            .order_by(model.id.asc())
+            .limit(2)
+            .all()
+        )
+        if len(rows) > 1:
+            raise WorkspaceBlueprintConflictError(
+                f"Legacy {kind} name {name!r} matches more than one target object."
+            )
+        if rows:
+            return rows[0]
+        key_collision = (
+            db.query(model)
+            .filter(
+                model.workspace_id == workspace.id,
+                model.blueprint_key == stable_key,
+                *extra_filters,
+            )
+            .first()
+        )
+        if key_collision is not None:
+            raise WorkspaceBlueprintConflictError(
+                f"Legacy {kind} {name!r} conflicts with an existing deterministic key."
+            )
+        return None
+
+    rows = (
+        db.query(model)
+        .filter(
+            model.workspace_id == workspace.id,
+            model.blueprint_key == stable_key,
+            *extra_filters,
+        )
+        .order_by(model.id.asc())
+        .limit(2)
+        .all()
+    )
+    if len(rows) > 1:
+        raise WorkspaceBlueprintConflictError(
+            f"Target {kind} stable_key {stable_key!r} is not unique."
+        )
+    return rows[0] if rows else None
+
+
+def _flush_new_blueprint_object(
+    db: DBSession,
+    *,
+    row: Context | System,
+    kind: str,
+    stable_key: str,
+) -> None:
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except IntegrityError as exc:
+        raise WorkspaceBlueprintConflictError(
+            f"Concurrent {kind} import claimed stable_key {stable_key!r}; rerun dry-run."
+        ) from exc
+
+
+def _mapped_object_id(
+    mapping: Mapping[str, str | None],
+    *,
+    token: str | None,
+    path: str,
+) -> str | None:
+    if token is None:
+        return None
+    if token not in mapping or not mapping[token]:
+        raise WorkspaceBlueprintError(f"{path} does not resolve inside this Blueprint.")
+    return mapping[token]
+
+
 def _apply_contexts(
     *,
     db: DBSession,
@@ -2814,28 +3905,63 @@ def _apply_contexts(
         if not name:
             report["skipped"].append({"kind": "context", "reason": "missing_name"})
             continue
-        existing = (
-            db.query(Context)
-            .filter(
-                Context.workspace_id == workspace.id,
-                Context.name == name,
-                Context.ephemeral.is_(False),
-            )
-            .first()
+        stable_key, legacy = _blueprint_object_identity(
+            item,
+            kind="context",
+            name=name,
+        )
+        existing = _existing_blueprint_object(
+            db=db,
+            workspace=workspace,
+            model=Context,
+            kind="context",
+            name=name,
+            stable_key=stable_key,
+            legacy=legacy,
+            extra_filters=(Context.ephemeral.is_(False),),
         )
         if existing:
-            out[name] = existing.id
+            _add_identity_mapping(
+                out,
+                stable_key=stable_key,
+                legacy=legacy,
+                name=name,
+                object_id=existing.id,
+            )
             report["reused"]["contexts"] += 1
-            report["actions"].append({"kind": "context", "name": name, "action": "reuse"})
+            report["actions"].append(
+                {
+                    "kind": "context",
+                    "name": name,
+                    "stable_key": stable_key,
+                    "identity": "legacy_name" if legacy else "stable_key",
+                    "action": "reuse",
+                }
+            )
             continue
         report["created"]["contexts"] += 1
-        report["actions"].append({"kind": "context", "name": name, "action": "create"})
+        report["actions"].append(
+            {
+                "kind": "context",
+                "name": name,
+                "stable_key": stable_key,
+                "identity": "legacy_name" if legacy else "stable_key",
+                "action": "create",
+            }
+        )
         if dry_run:
-            out[name] = f"dry-run:{name}"
+            _add_identity_mapping(
+                out,
+                stable_key=stable_key,
+                legacy=legacy,
+                name=name,
+                object_id=f"dry-run:context:{stable_key}",
+            )
             continue
         context = Context(
             id=str(uuid4()),
             workspace_id=workspace.id,
+            blueprint_key=stable_key,
             name=name,
             version=int(item.get("version") or 1),
             data_refs=item.get("data_refs") or [],
@@ -2846,9 +3972,19 @@ def _apply_contexts(
             permissions=item.get("permissions") or {},
             ephemeral=False,
         )
-        db.add(context)
-        db.flush()
-        out[name] = context.id
+        _flush_new_blueprint_object(
+            db,
+            row=context,
+            kind="context",
+            stable_key=stable_key,
+        )
+        _add_identity_mapping(
+            out,
+            stable_key=stable_key,
+            legacy=legacy,
+            name=name,
+            object_id=context.id,
+        )
     return out
 
 
@@ -2914,15 +4050,79 @@ def _apply_systems(
         if not name:
             report["skipped"].append({"kind": "system", "reason": "missing_name"})
             continue
-        existing = (
-            db.query(System)
-            .filter(System.workspace_id == workspace.id, System.name == name)
-            .first()
+        stable_key, legacy = _blueprint_object_identity(
+            item,
+            kind="system",
+            name=name,
+        )
+        context_token, context_binding_explicit, _context_key_authority = _object_reference(
+            item,
+            key_field="context_key",
+            legacy_field="context_name",
+            path="system",
+        )
+        context_id = _mapped_object_id(
+            context_map,
+            token=context_token,
+            path=f"System {name!r} context",
+        )
+        existing = _existing_blueprint_object(
+            db=db,
+            workspace=workspace,
+            model=System,
+            kind="system",
+            name=name,
+            stable_key=stable_key,
+            legacy=legacy,
         )
         if existing:
-            out[name] = existing.id
+            try:
+                resolve_persisted_system_catalog_bindings(
+                    db,
+                    workspace=workspace,
+                    system=existing,
+                )
+            except SystemCatalogBindingError as exc:
+                raise WorkspaceBlueprintConflictError(
+                    f"System {name!r} has an invalid catalog binding: {exc.code}."
+                ) from exc
+            _add_identity_mapping(
+                out,
+                stable_key=stable_key,
+                legacy=legacy,
+                name=name,
+                object_id=existing.id,
+            )
             report["reused"]["systems"] += 1
-            report["actions"].append({"kind": "system", "name": name, "action": "reuse"})
+            report["actions"].append(
+                {
+                    "kind": "system",
+                    "name": name,
+                    "stable_key": stable_key,
+                    "identity": "legacy_name" if legacy else "stable_key",
+                    "action": "reuse",
+                }
+            )
+            if context_binding_explicit and existing.context_id != context_id:
+                report["actions"].append(
+                    {
+                        "kind": "system",
+                        "name": name,
+                        "stable_key": stable_key,
+                        "action": "bind_context" if context_id else "unbind_context",
+                    }
+                )
+                if not dry_run:
+                    try:
+                        validate_context_id(
+                            db,
+                            workspace_id=workspace.id,
+                            context_id=context_id,
+                        )
+                    except ContextBindingError as exc:
+                        raise WorkspaceBlueprintConflictError(str(exc)) from exc
+                    existing.context_id = context_id
+                    db.flush()
             continue
 
         envelope = {
@@ -2980,31 +4180,72 @@ def _apply_systems(
             continue
 
         report["unresolved_skills"].extend(rebind_report.get("unresolved_skills", []))
+        system_id = str(uuid4())
+        capability_id = capability_map.get(item.get("capability_slug") or "") or None
+        if not dry_run:
+            try:
+                validate_context_id(
+                    db,
+                    workspace_id=workspace.id,
+                    context_id=context_id,
+                )
+                resolve_system_catalog_bindings(
+                    db,
+                    workspace=workspace,
+                    system_id=system_id,
+                    capability_id=capability_id,
+                    skill_ids=create_kwargs["skill_ids"],
+                    adaptive_policy_id=None,
+                )
+            except (ContextBindingError, SystemCatalogBindingError) as exc:
+                raise WorkspaceBlueprintConflictError(
+                    f"System {name!r} has an invalid binding: "
+                    f"{getattr(exc, 'code', 'binding_invalid')}."
+                ) from exc
         report["created"]["systems"] += 1
-        report["actions"].append({"kind": "system", "name": name, "action": "create"})
+        report["actions"].append(
+            {
+                "kind": "system",
+                "name": name,
+                "stable_key": stable_key,
+                "identity": "legacy_name" if legacy else "stable_key",
+                "action": "create",
+            }
+        )
         if dry_run:
-            out[name] = f"dry-run:{name}"
+            _add_identity_mapping(
+                out,
+                stable_key=stable_key,
+                legacy=legacy,
+                name=name,
+                object_id=f"dry-run:system:{stable_key}",
+            )
             continue
         system = System(
-            id=str(uuid4()),
+            id=system_id,
             workspace_id=workspace.id,
+            blueprint_key=stable_key,
             name=name,
             objective=create_kwargs["objective"],
-            capability_id=capability_map.get(item.get("capability_slug") or "") or None,
+            capability_id=capability_id,
             skill_ids=create_kwargs["skill_ids"],
             flow_definition=flow,
             execution_mode=execution_mode,
             execution_profile=create_kwargs["execution_profile"] or None,
             coordination_pattern=create_kwargs["coordination_pattern"],
-            context_id=context_map.get(item.get("context_name") or "") or None,
+            context_id=context_id,
             status=target_status,
             created_by=actor_name,
             default_prompt_type=create_kwargs["default_prompt_type"],
             default_model=create_kwargs["default_model"],
             retrieval_mode_default=create_kwargs["retrieval_mode_default"] or "auto",
         )
-        db.add(system)
-        db.flush()
+        _flush_new_blueprint_object(
+            db,
+            row=system,
+            kind="system",
+            stable_key=stable_key,
+        )
         version_service.record_new_version(
             db=db,
             system=system,
@@ -3012,9 +4253,95 @@ def _apply_systems(
             created_by=actor_name,
             message="Imported from workspace blueprint",
         )
-        out[name] = system.id
+        _add_identity_mapping(
+            out,
+            stable_key=stable_key,
+            legacy=legacy,
+            name=name,
+            object_id=system.id,
+        )
     report["unresolved_skills"] = sorted(set(report["unresolved_skills"]))
     return out
+
+
+def _bind_context_systems(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    contexts: list[Mapping[str, Any]],
+    context_map: Mapping[str, str | None],
+    system_map: Mapping[str, str | None],
+    dry_run: bool,
+    report: dict[str, Any],
+) -> None:
+    """Second pass restoring Context -> System edges after Systems exist."""
+
+    for item in contexts:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        stable_key, legacy = _blueprint_object_identity(
+            item,
+            kind="context",
+            name=name,
+        )
+        context_token = (
+            _legacy_name_token(name) if legacy else _stable_identity_token(stable_key)
+        )
+        context_id = _mapped_object_id(
+            context_map,
+            token=context_token,
+            path=f"Context {name!r}",
+        )
+        system_token, binding_explicit, _key_authority = _object_reference(
+            item,
+            key_field="system_key",
+            legacy_field="system_name",
+            path="context",
+        )
+        if not binding_explicit:
+            continue
+        system_id = _mapped_object_id(
+            system_map,
+            token=system_token,
+            path=f"Context {name!r} system",
+        )
+        if dry_run:
+            report["actions"].append(
+                {
+                    "kind": "context",
+                    "name": name,
+                    "stable_key": stable_key,
+                    "action": "restore_system_binding" if system_id else "restore_unbound",
+                }
+            )
+            continue
+        try:
+            context = context_in_workspace(
+                db,
+                workspace_id=workspace.id,
+                context_id=str(context_id),
+            )
+            validate_system_id(
+                db,
+                workspace_id=workspace.id,
+                system_id=system_id,
+            )
+        except ContextBindingError as exc:
+            raise WorkspaceBlueprintConflictError(str(exc)) from exc
+        if context.system_id == system_id:
+            continue
+        context.system_id = system_id
+        report["actions"].append(
+            {
+                "kind": "context",
+                "name": name,
+                "stable_key": stable_key,
+                "action": "restore_system_binding" if system_id else "restore_unbound",
+            }
+        )
+    if not dry_run:
+        db.flush()
 
 
 def _apply_presets(
@@ -3038,10 +4365,33 @@ def _apply_presets(
                 continue
             scope_id = None
             if scope == "capability":
-                scope_id = capability_map.get(str(item.get("scope_ref") or ""))
+                scope_key_authority = "scope_key" in item
+                scope_ref = str(
+                    item.get("scope_key")
+                    if scope_key_authority
+                    else item.get("scope_ref") or ""
+                )
+                scope_id = capability_map.get(scope_ref)
             elif scope == "system":
-                scope_id = system_map.get(str(item.get("scope_ref") or ""))
+                scope_key_authority = "scope_key" in item
+                raw_scope = item.get("scope_key") if scope_key_authority else item.get("scope_ref")
+                if raw_scope:
+                    token = (
+                        _stable_identity_token(
+                            _canonical_blueprint_key(
+                                raw_scope,
+                                path=f"{kind}_preset.scope_key",
+                            )
+                        )
+                        if scope_key_authority
+                        else _legacy_name_token(str(raw_scope))
+                    )
+                    scope_id = system_map.get(token)
             if scope != "workspace" and not scope_id:
+                if "scope_key" in item and item.get("scope_key") is not None:
+                    raise WorkspaceBlueprintError(
+                        f"{kind} preset {name!r} scope_key does not resolve inside this Blueprint."
+                    )
                 report["skipped"].append(
                     {"kind": f"{kind}_preset", "name": name, "reason": "unresolved_scope_ref"}
                 )
@@ -3096,12 +4446,19 @@ def _apply_iam_config(
         {"kind": "iam_config", "action": "patch" if not dry_run else "dry_run_patch"}
     )
     if not dry_run:
+        current = load_iam_config(db, workspace.id, create=False)
+        portable_overrides = (
+            _merge_blueprint_iam_overrides(
+                current.capability_overrides if current else {},
+                capability_overrides,
+            )
+            if isinstance(capability_overrides, Mapping)
+            else None
+        )
         patch_iam_config(
             db,
             workspace_id=workspace.id,
             role_flags=role_flags if isinstance(role_flags, dict) else None,
-            capability_overrides=capability_overrides
-            if isinstance(capability_overrides, dict)
-            else None,
+            capability_overrides=portable_overrides,
             updated_by_user_id=actor.id if actor else None,
         )

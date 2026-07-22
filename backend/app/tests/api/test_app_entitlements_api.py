@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, update
 
 from app.api.v1.endpoints import auth, iam
+from app.core.iam import dependencies as iam_dependencies
+from app.core.iam.dependencies import require_app_entitlement
+from app.core.config import settings
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER
+from app.models.capability import Capability
+from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import (
+    Workspace,
+    WorkspaceMember,
+    WorkspaceMemberAppEntitlement,
+)
 from app.services.iam.app_entitlements import (
     APP_ENTITLEMENTS_FEATURE,
     BUSINESS_APP_KEYS,
@@ -20,6 +29,8 @@ from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
     replace_member_app_entitlements,
 )
+from app.services.projection_gate import WORKSPACE_GATE_KEY, with_projection_activation
+from app.services.value_loop_gate import FEATURE_KEY as VALUE_LOOP_FEATURE_KEY
 
 
 def _seed_workspace(db_session):
@@ -101,6 +112,22 @@ def _iam_client(db_session, workspace: Workspace, owner: User) -> TestClient:
     return TestClient(app)
 
 
+def _entry_gate_client(db_session, workspace: Workspace, user: User) -> TestClient:
+    app = FastAPI()
+
+    @app.get(
+        "/api/v1/chat/probe",
+        dependencies=[Depends(require_app_entitlement(CHAT_APP))],
+    )
+    def probe() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.dependency_overrides[iam_dependencies.get_current_user] = lambda: user
+    app.dependency_overrides[iam_dependencies.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[iam_dependencies.get_db] = lambda: db_session
+    return TestClient(app)
+
+
 def test_auth_workspace_payloads_expose_canonical_app_entitlements(db_session) -> None:
     workspace, owner, member, _, _, _ = _seed_workspace(db_session)
     client = _auth_client(db_session, owner)
@@ -117,6 +144,48 @@ def test_auth_workspace_payloads_expose_canonical_app_entitlements(db_session) -
     by_user = {row["user_id"]: row for row in members.json()}
     assert by_user[owner.id]["app_entitlements"] == list(BUSINESS_APP_KEYS)
     assert by_user[member.id]["app_entitlements"] == [CHAT_APP, KNOWLEDGE_CAPTURE_APP]
+
+
+def test_workspace_app_runtime_keeps_manifest_entitlements_fail_closed_when_legacy_flag_is_off(
+    db_session,
+    monkeypatch,
+) -> None:
+    workspace, _, member, _, _, member_membership = _seed_workspace(db_session)
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "features": {
+            **((workspace.settings or {}).get("features") or {}),
+            APP_ENTITLEMENTS_FEATURE: False,
+            "workspace_app_platform_v1": True,
+        },
+    }
+    db_session.query(WorkspaceMemberAppEntitlement).filter_by(
+        workspace_member_id=member_membership.id,
+        app_key=CHAT_APP,
+    ).delete(synchronize_session=False)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        iam_dependencies,
+        "installed_entitlement_keys",
+        lambda *_args, **_kwargs: frozenset({CHAT_APP}),
+    )
+    monkeypatch.setattr(
+        iam_dependencies,
+        "workspace_app_api_path_allowed",
+        lambda *_args, **_kwargs: True,
+    )
+
+    response = _entry_gate_client(db_session, workspace, member).get(
+        "/api/v1/chat/probe"
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == {
+        "code": "WORKSPACE_APP_ACCESS_DENIED",
+        "message": "Workspace application access denied",
+        "app_key": CHAT_APP,
+    }
 
 
 def test_generic_workspace_patch_cannot_enable_app_entitlements(db_session) -> None:
@@ -141,6 +210,166 @@ def test_generic_workspace_patch_cannot_enable_app_entitlements(db_session) -> N
     assert response.json()["detail"]["code"] == "APP_ENTITLEMENTS_SETTING_MANAGED"
     db_session.refresh(workspace)
     assert workspace.settings["features"][APP_ENTITLEMENTS_FEATURE] is False
+
+
+def test_generic_workspace_patch_cannot_bypass_lot7_projection_rollout(db_session) -> None:
+    workspace, owner, _, _, _, _ = _seed_workspace(db_session)
+    workspace.settings = with_projection_activation(
+        {"family": "generic", "features": {APP_ENTITLEMENTS_FEATURE: True}},
+        projection="capability",
+        evidence_sha256="a" * 64,
+        revision="b" * 40,
+        system_id="system-canary",
+        capability_id="capability-canary",
+    )
+    gate_rows = workspace.settings[WORKSPACE_GATE_KEY]["activations"]
+    db_session.add_all(
+        [
+            Capability(
+                id="capability-canary",
+                workspace_id=workspace.id,
+                slug="capability-canary",
+                name="Capability canary",
+            ),
+            System(
+                id="system-canary",
+                workspace_id=workspace.id,
+                capability_id="capability-canary",
+                name="System canary",
+                status="active",
+                settings={
+                    "experience": {"system_360_canary": "v1"},
+                    "_lot7_projection_rollout_v1": {
+                        "schema_version": 1,
+                        "activations": [dict(row) for row in gate_rows],
+                        "probations": [],
+                        "deactivations": [],
+                    },
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+    client = _auth_client(db_session, owner)
+
+    flag = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={"settings": {"features": {"capability_360_projection_v1": False}}},
+    )
+    assert flag.status_code == 409
+    assert flag.json()["detail"]["code"] == "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED"
+
+    gate = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={"settings": {WORKSPACE_GATE_KEY: {"schema_version": 1, "activations": []}}},
+    )
+    assert gate.status_code == 409
+    assert gate.json()["detail"]["code"] == "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED"
+
+    ordinary = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={"settings": {"branding": {"name": "Safe"}}},
+    )
+    assert ordinary.status_code == 200
+    assert ordinary.json()["settings"][WORKSPACE_GATE_KEY] == workspace.settings[
+        WORKSPACE_GATE_KEY
+    ]
+    assert ordinary.json()["settings"]["features"][
+        "capability_360_projection_v1"
+    ] is True
+
+
+def test_generic_workspace_patch_cannot_bypass_lot8_value_loop_rollout(
+    db_session,
+) -> None:
+    workspace, owner, _, _, _, _ = _seed_workspace(db_session)
+    workspace.settings = {
+        "family": "generic",
+        "features": {
+            APP_ENTITLEMENTS_FEATURE: True,
+            VALUE_LOOP_FEATURE_KEY: False,
+        },
+    }
+    db_session.commit()
+    client = _auth_client(db_session, owner)
+
+    changed = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={
+            "settings": {
+                "features": {
+                    APP_ENTITLEMENTS_FEATURE: True,
+                    VALUE_LOOP_FEATURE_KEY: True,
+                }
+            }
+        },
+    )
+    assert changed.status_code == 409
+    assert changed.json()["detail"]["code"] == (
+        "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED"
+    )
+
+    ordinary = client.patch(
+        f"/auth/workspaces/{workspace.slug}",
+        json={"settings": {"branding": {"name": "Still safe"}}},
+    )
+    assert ordinary.status_code == 200
+    assert ordinary.json()["settings"]["features"][VALUE_LOOP_FEATURE_KEY] is False
+
+
+def test_workspace_response_exposes_only_sha_bound_effective_projection_flags(
+    db_session,
+    monkeypatch,
+) -> None:
+    workspace, owner, _, _, _, _ = _seed_workspace(db_session)
+    workspace.settings = with_projection_activation(
+        workspace.settings,
+        projection="capability",
+        evidence_sha256="a" * 64,
+        revision="b" * 40,
+        system_id="system-canary",
+        capability_id="capability-canary",
+    )
+    gate_rows = workspace.settings[WORKSPACE_GATE_KEY]["activations"]
+    db_session.add_all(
+        [
+            Capability(
+                id="capability-canary",
+                workspace_id=workspace.id,
+                slug="capability-canary",
+                name="Capability canary",
+            ),
+            System(
+                id="system-canary",
+                workspace_id=workspace.id,
+                capability_id="capability-canary",
+                name="System canary",
+                status="active",
+                settings={
+                    "experience": {"system_360_canary": "v1"},
+                    "_lot7_projection_rollout_v1": {
+                        "schema_version": 1,
+                        "activations": [dict(row) for row in gate_rows],
+                        "probations": [],
+                        "deactivations": [],
+                    },
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+    client = _auth_client(db_session, owner)
+
+    monkeypatch.setattr(settings, "agentium_image_revision", "b" * 40)
+    current = client.get(f"/auth/workspaces/{workspace.slug}")
+    assert current.status_code == 200
+    assert current.json()["effective_features"]["capability_360_projection_v1"] is True
+
+    monkeypatch.setattr(settings, "agentium_image_revision", "c" * 40)
+    stale = client.get(f"/auth/workspaces/{workspace.slug}")
+    assert stale.status_code == 200
+    assert stale.json()["settings"]["features"]["capability_360_projection_v1"] is True
+    assert stale.json()["effective_features"]["capability_360_projection_v1"] is False
 
 
 def test_generic_workspace_patch_preserves_managed_flag_and_family_when_omitted(

@@ -16,12 +16,19 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 4 | `LOT4-BUSINESS-SHELL-MISSION-EXTENSION` — Andritz shell and Mission Room are resolver-owned extensions | `full_stack` | ✅ 2/2 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 3/3 required | `node`, `pytest` | 🟠 Static verified |
 | 4 | `LOT4-SENTINEL-OCTOCITY-ISOLATION` — Sentinel and Octocity keep isolated branding and action packs | `full_stack` | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 2/2 required | `node`, `pytest` | 🟠 Static verified |
 | 4 | `LOT4-ANDRITZ-APP-ENTITLEMENTS` — Andritz app entitlements are explicit and fully backfilled | `full_stack` | ✅ 2/2 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 3/3 required | `pytest` | 🟠 Static verified |
-| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | `full_stack` | ✅ 1/1 required | ✅ 1/1 required | ✅ 2/2 required | ✅ 2/2 required | `node`, `pytest` | 🟠 Static verified |
+| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | `full_stack` | ✅ 2/2 required | ✅ 1/1 required | ✅ 2/2 required | ✅ 3/3 required | `node`, `pytest` | 🟠 Static verified |
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | `api` | ✅ 1/1 required | ✅ 1/1 required | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
-| 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ✅ 3/3 required | ✅ 8/8 required | `node`, `pytest` | 🟠 Static verified |
+| 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ❌ 2/3 required | ✅ 8/8 required | `node`, `pytest` | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
-| 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 2/2 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
+| 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
+| 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ✅ 8/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 6/6 required | `playwright`, `pytest` | 🟠 Static verified |
+| 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | `api` | ✅ 3/3 required | ✅ 2/2 required | — | ✅ 5/5 required | `pytest` | 🟠 Static verified |
+| 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | `backend` | ✅ 2/2 required | — | — | ✅ 2/2 required | `pytest` | 🟠 Static verified |
+| 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | `backend` | ✅ 1/1 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
+| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | `full_stack` | ✅ 6/6 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 5/5 required | `playwright`, `pytest` | 🟠 Static verified |
+| 9 | `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority | `full_stack` | ✅ 9/9 required | ✅ 1/1 required | ✅ 3/3 required | ✅ 13/13 required | `node`, `playwright`, `pytest` | 🟠 Static verified |
+| 9 | `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest | `governance` | ✅ 2/2 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 
 ## Evidence detail
 
@@ -111,13 +118,15 @@ The three business apps are granted per member, exposed by auth/IAM, enforced by
 
 ### `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely
 
-Blueprint v2 exports portable experience and app-access intent, validates actions and isolation, produces a dry-run plan token, and keeps v1 imports compatible. Mental model: §0.2, §30, §33.
+Blueprint v2 exports portable experience and app-access intent, preserves homonymous System and Context objects through opaque workspace-scoped stable keys, restores bidirectional bindings and preset scopes, produces a dry-run plan token, and keeps unambiguous v1 imports compatible. Mental model: §0.2, §30, §33.
 
 - **implementation / PASS** — [Blueprint v2 service and compatibility boundary](../backend/app/services/workspace_blueprints.py)
+- **implementation / PASS** — [Workspace-scoped Blueprint object identity migration](../backend/alembic/versions/071_blueprint_object_keys.py)
 - **api / PASS** — [Blueprint validate/apply API](../backend/app/api/v1/endpoints/blueprints.py)
 - **frontend / PASS** — [Immutable frontend dry-run binding](../frontend-ng/src/app/features/governance/workspace-blueprint-plan.ts)
 - **frontend / PASS** — [Blueprint governance workbench](../frontend-ng/src/app/features/governance/workspace-blueprints.component.ts)
 - **tests / PASS** — [Backend Blueprint v2 safety contract](../backend/app/tests/services/test_workspace_blueprints.py)
+- **tests / PASS** — [Blueprint object-key migration contract](../backend/app/tests/services/test_migration_071_blueprint_object_keys.py)
 - **tests / PASS** — [Frontend stale-plan protection](../frontend-ng/src/app/features/governance/workspace-blueprint-plan.spec.ts)
 
 ### `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle
@@ -142,7 +151,7 @@ Workspace, System, application and action-pack vocabularies are canonical at dat
 - **api / PASS** — [Workspace mutation schema canonicalization](../backend/app/api/v1/endpoints/auth.py)
 - **api / PASS** — [System mutation schema canonicalization](../backend/app/api/v1/endpoints/systems.py)
 - **frontend / PASS** — [Canonical frontend System contract projection](../frontend-ng/src/app/core/canonical-api.service.ts)
-- **frontend / PASS** — [Canonical frontend workspace and application projection](../frontend-ng/src/app/core/workspace.service.ts)
+- **frontend / FAIL** — [Canonical frontend workspace and application projection](../frontend-ng/src/app/core/workspace.service.ts); 1 literal(s) missing
 - **frontend / PASS** — [Configuration-driven Mission Room extension](../frontend-ng/src/app/features/mission-room/mission-room.extension.ts)
 - **tests / PASS** — [Canonical enum and database constraint contract](../backend/app/tests/services/test_canonical_contract_enums.py)
 - **tests / PASS** — [Canonical action-pack API boundaries](../backend/app/tests/services/test_action_pack_contracts.py)
@@ -181,8 +190,126 @@ A marker-discovered System keeps one canonical identity while Build, Operate, St
 A double-gated Celery execution path persists immutable child identities, resumes the parent idempotently and applies deterministic all, any and race joins under real broker redelivery. Mental model: §33.
 
 - **implementation / PASS** — [Persisted subflow coordination](../backend/app/services/run_engine/subflow_orchestration.py)
+- **implementation / PASS** — [Transactional dispatch outbox and bounded reconciler](../backend/app/services/run_engine/dispatch_outbox.py)
+- **implementation / PASS** — [Delegated HITL deadline watchdog](../backend/app/services/run_engine/hitl_watchdog.py)
+- **implementation / PASS** — [Additive durable dispatch schema](../backend/alembic/versions/064_run_dispatch_outbox.py)
+- **implementation / PASS** — [Bounded post-P4 maintenance worker](../backend/app/workers/p4_maintenance.py)
 - **implementation / PASS** — [Protected PostgreSQL and RabbitMQ gate](../.gitlab-ci.yml)
 - **tests / PASS** — [Real broker redelivery and fan-out integration](../backend/app/tests/integration/test_subflow_celery_rabbitmq.py)
+- **tests / PASS** — [Outbox delivery and reconciliation contracts](../backend/app/tests/services/test_dispatch_outbox.py)
+- **tests / PASS** — [Delegated HITL watchdog contracts](../backend/app/tests/services/test_hitl_watchdog.py)
+- **tests / PASS** — [Bounded maintenance loop contracts](../backend/app/tests/services/test_p4_maintenance.py)
+
+### `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives
+
+Ordered Workspace gates expose four honest lenses for Capability, Run and SkillInvocation while preserving identity and historical execution evidence; System creation, mutation, triggers and both runtime walkers resolve Capability, Skill and AdaptivePolicy references through one tenant-aware catalog boundary. Mental model: §43.1, §43.5.
+
+- **implementation / PASS** — [Attested runtime projection gate](../backend/app/services/projection_gate.py)
+- **implementation / PASS** — [Object perspective read models](../backend/app/services/object_perspective.py)
+- **implementation / PASS** — [Tenant-aware executable System catalog bindings](../backend/app/services/system_catalog_bindings.py)
+- **implementation / PASS** — [Ordered marker-discovered projection rollout](../backend/scripts/rollout_lot7_projections.py)
+- **implementation / PASS** — [Additive immutable execution schema](../backend/alembic/versions/065_system_version_config.py)
+- **implementation / PASS** — [Immutable invocation execution evidence migration](../backend/alembic/versions/066_skill_invocation_snapshot.py)
+- **implementation / PASS** — [SystemVersion uniqueness migration](../backend/alembic/versions/067_system_version_uniqueness.py)
+- **implementation / PASS** — [Five-profile user-validation gate](../scripts/agentium_trusted_compliance.py)
+- **api / PASS** — [Capability perspective route](../backend/app/api/v1/endpoints/capabilities.py)
+- **api / PASS** — [Run and SkillInvocation perspective routes](../backend/app/api/v1/endpoints/runs.py)
+- **frontend / PASS** — [Epoch-scoped latest-wins projection cache](../frontend-ng/src/app/core/object-perspective.store.ts)
+- **tests / PASS** — [Marker-discovered sequential object canary](../frontend-ng/e2e/tests/12-lot7-object-graph-canary.spec.ts)
+- **tests / PASS** — [Object projection integrity tests](../backend/app/tests/services/test_object_perspective.py)
+- **tests / PASS** — [System catalog tenant-isolation and runtime boundary tests](../backend/app/tests/services/test_system_catalog_bindings.py)
+- **tests / PASS** — [Additive migration contracts](../backend/app/tests/services/test_migration_067_system_version_uniqueness.py)
+- **tests / PASS** — [PostgreSQL SystemVersion concurrency gate](../backend/app/tests/integration/test_system_version_postgresql.py)
+- **tests / PASS** — [User-validation promotion thresholds](../backend/app/tests/infra/test_lot6_proof_contract.py)
+
+### `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce
+
+A single decision plane compares legacy and candidate permissions, binds shadow evidence to immutable JUnit artifacts and fails closed when runtime attestations drift. Mental model: §43.2.
+
+- **implementation / PASS** — [Granular authorization decision plane](../backend/app/services/iam/decision_plane.py)
+- **implementation / PASS** — [JUnit execution invariant](../backend/app/services/iam/evidence_contracts.py)
+- **implementation / PASS** — [SHA-bound Client360 authority preflight](../backend/scripts/preflight_client360_authority.py)
+- **api / PASS** — [Persisted ActionManifest resource authority](../backend/app/api/v1/endpoints/actions.py)
+- **api / PASS** — [Client360 action authorization boundary](../backend/app/api/v1/endpoints/client360.py)
+- **tests / PASS** — [Authorization boundary and attestation tests](../backend/app/tests/api/test_authorization_v2_boundaries.py)
+- **tests / PASS** — [Promotion evidence tests](../backend/app/tests/services/test_authorization_v2_rollout.py)
+- **tests / PASS** — [Client360 route authorization inventory](../backend/app/tests/api/test_client360_authorization_inventory.py)
+- **tests / PASS** — [Managed Run structural approval floor](../backend/app/tests/api/test_runs_hitl_auth.py)
+- **tests / PASS** — [Client360 authority preflight tests](../backend/app/tests/scripts/test_preflight_client360_authority.py)
+
+### `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry
+
+Cost, token and latency valves carry explicit coverage, include delegated child ledgers and fail closed under authoritative enforcement when a configured measure is unavailable. Mental model: §43.3.
+
+- **implementation / PASS** — [Coverage-aware Membrane valves](../backend/app/services/membrane/enforcement.py)
+- **implementation / PASS** — [Provider-reported Contract Risk token ledger](../backend/app/services/evaluation/judge.py)
+- **tests / PASS** — [Runtime measurement coverage tests](../backend/app/tests/services/test_run_engine_membrane_v2.py)
+- **tests / PASS** — [Contract Risk four-Skill token telemetry](../backend/app/tests/services/test_provider_token_telemetry.py)
+
+### `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible
+
+A family-discovered dry-run workflow prepares append-only shadow policy generations, binds configuration snapshots and restores the source policy through a drift-checked rollback; runtime business non-regression remains a separate rollout gate. Mental model: §43.4.
+
+- **implementation / PASS** — [Andritz shadow preparation and rollback](../backend/scripts/prepare_andritz_membrane_shadow.py)
+- **tests / PASS** — [Append-only Andritz shadow lifecycle](../backend/app/tests/services/test_andritz_membrane_shadow_rollout.py)
+
+### `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle
+
+Outcome, decision, simulation, approval, bounded actuation and independently sourced post-action measurement remain distinct, System-scoped, idempotent and protected by current authorization plus Membrane enforcement; promotion evidence v3 is bound to its source JUnit and the same protected GitLab OIDC job. Mental model: §44.
+
+- **implementation / PASS** — [Transactional value-loop state machine](../backend/app/services/value_loop.py)
+- **implementation / PASS** — [Attested marker-discovered rollout gate](../backend/scripts/rollout_value_loop.py)
+- **implementation / PASS** — [Redacted observation evidence collector](../backend/scripts/collect_value_loop_evidence.py)
+- **implementation / PASS** — [Additive value-loop persistence schema](../backend/alembic/versions/068_value_loop_core.py)
+- **implementation / PASS** — [Forecast-bound measurement evaluation schema](../backend/alembic/versions/072_value_measurement_evaluation.py)
+- **implementation / PASS** — [Canonical executed ControlPolicy identity](../backend/app/services/control_policy_snapshot.py)
+- **api / PASS** — [System-scoped value-loop commands](../backend/app/api/v1/endpoints/value_loop.py)
+- **api / PASS** — [Portfolio value-loop aggregation](../backend/app/api/v1/endpoints/hypervisor.py)
+- **frontend / PASS** — [Steer value-loop evidence UI](../frontend-ng/src/app/features/systems/system-value-loop.component.ts)
+- **tests / PASS** — [Value-loop transaction and evidence semantics](../backend/app/tests/services/test_value_loop.py)
+- **tests / PASS** — [Current-authority API boundary](../backend/app/tests/api/test_value_loop_api.py)
+- **tests / PASS** — [Value-loop migration contracts](../backend/app/tests/services/test_migration_072_value_measurement_evaluation.py)
+- **tests / PASS** — [Protected/local evidence collection and activation](../backend/app/tests/services/test_value_loop_rollout.py)
+- **tests / PASS** — [Marker-discovered value-loop canary](../frontend-ng/e2e/tests/13-lot8-value-loop-canary.spec.ts)
+
+### `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority
+
+Exact manifests govern compatibility, installation transitions, routes, branding, action packs and entitlements; a bootstrap, preflight, bounded probation and post-activation protocol binds evidence v2 to source JUnit and protected OIDC jobs, while invalid frontend authority fails closed to an isolated unavailable shell with an admin-only repair route. Mental model: §45.
+
+- **implementation / PASS** — [Content-addressed Workspace App lifecycle](../backend/app/services/workspace_app_lifecycle.py)
+- **implementation / PASS** — [Fail-closed installed-app runtime](../backend/app/services/workspace_app_runtime.py)
+- **implementation / PASS** — [Staged Workspace App authority rollout](../backend/scripts/rollout_workspace_app_platform.py)
+- **implementation / PASS** — [Protected preflight and post-activation evidence collector](../backend/scripts/collect_workspace_app_evidence.py)
+- **implementation / PASS** — [Immutable built-in manifest registry](../backend/app/services/workspace_app_manifests.py)
+- **implementation / PASS** — [Manifest-defined entitlement schema boundary](../backend/alembic/versions/070_workspace_app_entitlement_registry.py)
+- **implementation / PASS** — [Ordered lifecycle migration and backfill executors](../backend/app/services/workspace_app_lifecycle.py)
+- **implementation / PASS** — [Tenant-scoped lifecycle step receipts](../backend/alembic/versions/073_workspace_app_steps.py)
+- **implementation / PASS** — [Manifest-owned API prefixes and generic Mission Room provider](../backend/app/services/workspace_app_runtime.py)
+- **api / PASS** — [Workspace App governance API](../backend/app/api/v1/endpoints/workspace_app_governance.py)
+- **frontend / PASS** — [Content-addressed lifecycle console](../frontend-ng/src/app/features/governance/workspace-app-lifecycle.component.ts)
+- **frontend / PASS** — [Authoritative frontend fail-closed and repair contract](../frontend-ng/src/app/core/workspace-experience.ts)
+- **frontend / PASS** — [Isolated Workspace App unavailable shell](../frontend-ng/src/app/features/workspace-app-runtime/workspace-app-unavailable.component.ts)
+- **tests / PASS** — [Lifecycle transition and rollback contracts](../backend/app/tests/services/test_workspace_app_lifecycle.py)
+- **tests / PASS** — [Manifest isolation and publication lock](../backend/app/tests/services/test_workspace_app_manifests.py)
+- **tests / PASS** — [Installed runtime authority](../backend/app/tests/services/test_workspace_app_runtime.py)
+- **tests / PASS** — [Staged bootstrap, probation, finalize and OIDC gates](../backend/app/tests/services/test_workspace_app_platform_rollout.py)
+- **tests / PASS** — [Workspace App evidence phase and probation bindings](../backend/app/tests/services/test_workspace_app_evidence_collector.py)
+- **tests / PASS** — [Entitlement registry migration](../backend/app/tests/services/test_migration_070_workspace_app_entitlement_registry.py)
+- **tests / PASS** — [Lifecycle step receipt migration](../backend/app/tests/services/test_migration_073_workspace_app_steps.py)
+- **tests / PASS** — [Generic Mission Room provider isolation](../backend/app/tests/api/test_mission_room_extension_gate.py)
+- **tests / PASS** — [Platform-authoritative entitlement boundary](../backend/app/tests/api/test_app_entitlements_api.py)
+- **tests / PASS** — [Authenticated preflight lifecycle canary](../frontend-ng/e2e/tests/14-lot9-workspace-app-lifecycle-canary.spec.ts)
+- **tests / PASS** — [Authenticated probation runtime canary](../frontend-ng/e2e/tests/15-lot9-workspace-app-probation-canary.spec.ts)
+- **tests / PASS** — [Frontend unavailable and admin repair isolation](../frontend-ng/src/app/core/workspace-experience.spec.ts)
+- **tests / PASS** — [Resolver owns terminal unavailable redirects](../frontend-ng/src/app/core/navigation-resolver.service.spec.ts)
+
+### `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest
+
+Backend, frontend and worker references are immutable, built once and checked against real SBOM, provenance and signature-verification artifacts before any environment receipt is accepted. Mental model: §45.
+
+- **implementation / PASS** — [Digest-bound release verifier](../scripts/agentium_release_contract.py)
+- **implementation / PASS** — [Registry digest deployment overlay](../docker/compose.agentium.registry.yml)
+- **tests / PASS** — [Semantic supply-chain failure contracts](../backend/app/tests/infra/test_lot9_release_contract.py)
 
 ## Residual workspace-slug branch debt
 
@@ -197,14 +324,16 @@ Alembic migrations and repository utilities under `backend/scripts` are outside 
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == OCTOCITY_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead. |
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == SENTINEL_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Sentinel provisioning command locates the workspace identity it owns; runtime behavior is family/profile/action-pack driven. |
 
-## Runner and deployment attestations
+## Static and authenticated evidence levels
 
-Repository proofs, runner results, and deployment evidence are deliberately independent. External JSON is treated as untrusted evidence until an authenticated CI collector derives it:
+Repository proofs, runner results, environment evidence, behavioral evidence and user validation are deliberately independent. JSON passed to this static generator remains untrusted; only the authenticated CI collector can derive a higher formal state:
 
 - `python3 scripts/agentium_compliance.py --check` verifies the committed manifest and generated documentation.
 - `--runner-attestation <json> --sha <40-hex-sha>` records claimed runner evidence for an exact commit; it never sets `runner_verified` or `shipped`.
 - `--deployment-attestation <json> --sha <40-hex-sha>` records a claimed environment; it never sets `deployed`.
 - The requested SHA must equal Git `HEAD`, `CI_COMMIT_SHA` when present, and a completely clean checkout; evidence for another or dirty ref is rejected.
 - `--report-json <path|->` emits the combined machine-readable view. Neither external evidence type mutates this matrix.
+- `scripts/agentium_trusted_compliance.py` verifies the protected GitLab OIDC identity and derives `runner_verified → deployed_verified → behavior_verified → user_validated` from separate SHA- and job-bound artifacts.
+- `--user-attestation` is accepted only after behavioral proof and must cover five required profiles, at least four successes for each of four questions, mean confidence of at least 4/5 and zero critical identity or lens confusion.
 
-Formal promotion is intentionally disabled until a trusted CI collector derives proof coverage from immutable job identities and artifacts. A decorative mechanism therefore cannot self-declare `Shipped` or `Deployed` through a hand-written JSON file, branch name, manifest field, or documentation badge.
+Formal promotion is intentionally disabled in this static generator. The trusted collector writes a separate immutable CI artifact and never edits this matrix or the mental model. A decorative mechanism therefore cannot self-declare `Shipped` or `Deployed` through a hand-written JSON file, branch name, manifest field, or documentation badge.

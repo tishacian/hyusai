@@ -9,6 +9,7 @@ import {
   type Capability,
   type Run,
   type Skill,
+  type SkillInvocation,
   type System,
 } from './canonical-api.service';
 import { WorkspaceService, type WorkspaceContextTransition } from './workspace.service';
@@ -112,8 +113,14 @@ function graphHarness(url: string, options: { axesV4?: boolean } = {}) {
     system_id: system.id,
     capability_id: capability.id,
     status: 'completed',
-    skill_invocations: [{ skill_slug: 'contract_extract_v1', status: 'completed' }],
+    skill_invocations: [{
+      id: 'inv-real',
+      run_id: 'run-real',
+      skill_slug: 'contract_extract_v1',
+      status: 'completed',
+    }],
   };
+  const invocation: SkillInvocation = run.skill_invocations![0];
   const skill: Skill = {
     id: 'skill-id',
     slug: 'contract_extract_v1',
@@ -121,6 +128,9 @@ function graphHarness(url: string, options: { axesV4?: boolean } = {}) {
   };
   const canonical = {
     getRun: (id: string) => of(id === run.id ? run : null),
+    getSkillInvocation: (runId: string, invocationId: string) => of(
+      runId === run.id && invocationId === invocation.id ? invocation : null,
+    ),
     getSystem: (id: string) => of(id === system.id ? system : null),
     getCapability: (id: string) => of(id === capability.id ? capability : null),
     getSkill: (slug: string) => of(
@@ -166,6 +176,31 @@ test('Run deep link resolves the real Capability → System → Run graph and ke
   for (const node of navigation.nodes()) {
     assert.match(node.href, /(?:\?|&)lens=steer(?:&|$)/);
   }
+});
+
+test('SkillInvocation deep link resolves a runtime leaf without becoming a catalog Skill', () => {
+  const { navigation } = graphHarness(
+    '/runs/run-real/invocations/inv-real?lens=govern&systemId=spoof&capabilityId=spoof',
+  );
+
+  assert.equal(navigation.lens(), 'govern');
+  assert.equal(navigation.capabilityId(), 'cap-real');
+  assert.equal(navigation.systemId(), 'sys-real');
+  assert.equal(navigation.runId(), 'run-real');
+  assert.equal(navigation.skillInvocationId(), 'inv-real');
+  assert.equal(navigation.skillRef(), null);
+  assert.equal(navigation.deepestResolvedType(), 'skill_invocation');
+  assert.deepEqual(navigation.nodes().map((node) => node.key), [
+    'portfolio',
+    'capability',
+    'system',
+    'run',
+    'skill_invocation',
+  ]);
+  assert.equal(
+    navigation.urlForLens('steer', '/steering'),
+    '/runs/run-real/invocations/inv-real?lens=steer&capabilityId=cap-real&systemId=sys-real',
+  );
 });
 
 test('a catalog Skill is not attached to a Run that never invoked it', () => {

@@ -25,12 +25,13 @@ import math
 import time
 from collections.abc import Mapping
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
 from app.models.capability import Capability
@@ -39,17 +40,32 @@ from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
+from app.services.chains.version_service import (
+    ConfigurationSnapshotError,
+    normalize_configuration_snapshot,
+)
+from app.services.control_policy_snapshot import control_policy_execution_contract
 from app.services.membrane.enforcement import (
     MembraneEnforcementError,
+    ValveUsage,
     collect_valve_usage,
     evaluate_capability,
     evaluate_valves,
-    token_count_from_payload,
+    token_measurement_from_payload,
 )
 from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
 from app.services.outcome.derive import derive_outcome
+from app.services.skill_invocation_snapshot import (
+    capture_skill_execution_evidence,
+    resolve_skill_invocation_cost,
+)
 from app.services.skills_registry import resolve as resolve_skill
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_run_system_catalog_bindings,
+)
 
 from .events import bus as event_bus
 from .streaming import flush_token_sink, make_token_sink
@@ -80,12 +96,19 @@ def schedule_run(run_id: str) -> None:
         try:
             run = db.query(Run).filter(Run.id == run_id).first()
             if run:
-                system = db.query(System).filter(System.id == run.system_id).first()
+                system = (
+                    db.query(System)
+                    .filter(
+                        System.id == run.system_id,
+                        System.workspace_id == run.workspace_id,
+                    )
+                    .first()
+                )
                 workspace = (
                     db.query(Workspace)
-                    .filter(Workspace.id == (system.workspace_id or run.workspace_id))
+                    .filter(Workspace.id == run.workspace_id)
                     .first()
-                    if system and (system.workspace_id or run.workspace_id)
+                    if system and run.workspace_id
                     else None
                 )
                 use_dag = bool(system and should_use_dag(system, workspace))
@@ -339,17 +362,43 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
             logger.warning("run_engine: unknown run_id", run_id=run_id)
             return {"error": "run_not_found"}
 
-        system = db.query(System).filter(System.id == run.system_id).first()
+        system = (
+            db.query(System)
+            .filter(
+                System.id == run.system_id,
+                System.workspace_id == run.workspace_id,
+            )
+            .first()
+        )
         if not system:
             return _fail(db, run, "system_not_found")
 
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).first()
-            if system.capability_id
+        workspace = (
+            db.query(Workspace).filter(Workspace.id == run.workspace_id).first()
+            if run.workspace_id
             else None
         )
+        if run.workspace_id and workspace is None:
+            return _fail(db, run, "system_catalog_binding_invalid:workspace_not_found")
+        try:
+            catalog_bindings = resolve_run_system_catalog_bindings(
+                db,
+                workspace=workspace,
+                system=system,
+                run=run,
+            )
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
+        if run.capability_id is None:
+            run.capability_id = system.capability_id
+        capability = catalog_bindings.capability
         control = _load_control_policy(db, system)
-        adaptive = _load_adaptive_policy(db, system)
+        adaptive = (
+            catalog_bindings.adaptive_policy
+            if catalog_bindings.adaptive_policy is not None
+            and catalog_bindings.adaptive_policy.enabled
+            else None
+        )
 
         run_gate = _evaluate_run_capability(control, system)
         if not run_gate.allowed:
@@ -369,7 +418,7 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
                 action="system.engine.run",
             )
 
-        skill_slugs = _resolve_skill_sequence(db, system, capability)
+        skill_slugs = [skill.slug for skill in catalog_bindings.skills]
         if not skill_slugs:
             return _fail(db, run, "no_skills_bound")
 
@@ -380,9 +429,16 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
             capability=capability.slug if capability else None,
             skills=skill_slugs,
         )
+        first_start = run.status == "pending"
         run.status = "running"
         run.started_at = run.started_at or datetime.utcnow()
-        _snapshot_run_flow(db, run, system)
+        _snapshot_run_flow(
+            db,
+            run,
+            system,
+            first_start=first_start,
+            control=control,
+        )
         db.commit()
 
         ctx = _build_initial_ctx(db, run, system, capability)
@@ -508,9 +564,197 @@ def _build_initial_ctx(
     }
 
 
-def _snapshot_run_flow(db: DBSession, run: Run, system: System) -> None:
+_VERSION_BINDING_FIELDS = (
+    "control_policy_id",
+    "adaptive_policy_id",
+    "context_id",
+)
+
+
+def _flow_snapshots_equal(left: Any, right: Any) -> bool:
+    """Return exact structural equality for persisted JSON flow snapshots."""
+
+    try:
+        return json.dumps(
+            left,
+            sort_keys=True,
+            separators=(",", ":"),
+        ) == json.dumps(
+            right,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _version_configuration_matches_system(
+    version: SystemVersion,
+    system: System,
+) -> bool:
+    """Fail closed when a version claims bindings unlike those executed.
+
+    Flow-only versions remain valid historical evidence.  When configuration
+    evidence is present, however, every allowlisted binding it declares must
+    match the System resolved by the engine at this start/resume boundary.
+    """
+
+    if version.configuration_snapshot is None:
+        return True
+    try:
+        snapshot = normalize_configuration_snapshot(version.configuration_snapshot)
+    except ConfigurationSnapshotError:
+        return False
+    bindings = snapshot["bindings"]
+    return all(
+        bindings[field] == getattr(system, field)
+        for field in _VERSION_BINDING_FIELDS
+        if field in bindings
+    )
+
+
+def _parse_snapshot_boundary(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
+def validated_existing_run_flow_version_id(
+    db: DBSession,
+    run: Run,
+    system: System,
+    *,
+    workspace_id: str | None,
+) -> str | None:
+    """Validate an already-bound Run version without consulting mutable bindings.
+
+    This is used both for engine retry/HITL boundaries and by the terminal chat
+    replay producer, which does not enter either walker.  It never searches for
+    a replacement version: a missing or invalid historical reference remains
+    unbound.
+    """
+
+    if not run.flow_version_id or run.flow_snapshot is None:
+        return None
+    execution = (
+        run.input_ref.get("execution")
+        if isinstance(run.input_ref, dict)
+        and isinstance(run.input_ref.get("execution"), Mapping)
+        else {}
+    )
+    snapshot_at = _parse_snapshot_boundary(execution.get("snapshot_at"))
+    if snapshot_at is None:
+        snapshot_at = run.started_at
+    if snapshot_at is None:
+        return None
+    version = (
+        db.query(SystemVersion)
+        .filter(
+            SystemVersion.id == run.flow_version_id,
+            SystemVersion.system_id == system.id,
+            SystemVersion.workspace_id == workspace_id,
+            SystemVersion.created_at <= snapshot_at,
+        )
+        .one_or_none()
+    )
+    if version is None or not _flow_snapshots_equal(
+        version.flow_definition,
+        run.flow_snapshot,
+    ):
+        return None
+    return version.id
+
+
+def _bind_run_flow_version(
+    db: DBSession,
+    run: Run,
+    system: System,
+    *,
+    workspace_id: str | None,
+    snapshot_at: datetime | None,
+    initial_binding: bool,
+) -> None:
+    """Link a Run only to an exact, already-existing execution version.
+
+    The Run snapshot remains the primary immutable execution contract.  This
+    optional reference is attached only when a version for the same System and
+    workspace already existed at the server-owned snapshot boundary, contains
+    the exact same flow, and does not claim incompatible configuration
+    bindings.  A retry or HITL resume revalidates the same conditions; it never
+    creates a version or substitutes an approximate match.
+    """
+
+    if snapshot_at is None or run.flow_snapshot is None:
+        run.flow_version_id = None
+        return
+
+    candidates = (
+        db.query(SystemVersion)
+        .filter(
+            SystemVersion.system_id == system.id,
+            SystemVersion.workspace_id == workspace_id,
+            SystemVersion.created_at <= snapshot_at,
+        )
+        .order_by(
+            SystemVersion.version_number.desc(),
+            SystemVersion.created_at.desc(),
+        )
+        .all()
+    )
+    exact_versions = [
+        version
+        for version in candidates
+        if _flow_snapshots_equal(version.flow_definition, run.flow_snapshot)
+    ]
+
+    if run.flow_version_id:
+        # Revalidating the existing id prevents a forged/cross-tenant/future
+        # reference from being silently replaced by a different historical
+        # row.  Mutable current bindings are deliberately irrelevant here:
+        # they cannot rewrite evidence fixed at the first execution boundary.
+        run.flow_version_id = validated_existing_run_flow_version_id(
+            db,
+            run,
+            system,
+            workspace_id=workspace_id,
+        )
+        return
+
+    if not initial_binding or not exact_versions:
+        run.flow_version_id = None
+        return
+
+    # Configuration is part of the latest exact execution contract.  If that
+    # row is incompatible we must not fall back to an older flow-only row and
+    # make the Run appear better evidenced than it really is.
+    latest_exact = exact_versions[0]
+    run.flow_version_id = (
+        latest_exact.id
+        if _version_configuration_matches_system(latest_exact, system)
+        else None
+    )
+
+
+def _snapshot_run_flow(
+    db: DBSession,
+    run: Run,
+    system: System,
+    *,
+    first_start: bool | None = None,
+    control: ControlPolicy | None = None,
+) -> None:
     """Freeze the exact executable graph and its identity on first start."""
 
+    if run.system_id != system.id:
+        raise RuntimeError("run_system_identity_mismatch")
+    if first_start is None:
+        first_start = run.status == "pending"
     flow = system.flow_definition if isinstance(system.flow_definition, dict) else {}
     first_execution = run.flow_snapshot is None
     if run.flow_snapshot is None:
@@ -538,6 +782,25 @@ def _snapshot_run_flow(db: DBSession, run: Run, system: System) -> None:
         system_settings = system.settings if isinstance(system.settings, dict) else {}
         input_ref["retrieval_contract"] = deepcopy(system_settings.get("retrieval_contract") or {})
     execution = dict(input_ref.get("execution") or {})
+    if first_start:
+        snapshot_at = datetime.now(UTC).replace(tzinfo=None)
+        execution["snapshot_at"] = snapshot_at.isoformat(timespec="microseconds") + "Z"
+        execution["runtime_revision"] = str(
+            settings.agentium_image_revision or "development"
+        ).strip().lower()
+        # This field is server-owned.  A caller cannot manufacture causal
+        # evidence by sending a policy digest in Run.input_ref before start.
+        execution["control_policy"] = (
+            control_policy_execution_contract(control)
+            if control is not None
+            else {"schema_version": 1, "state": "not_configured"}
+        )
+    else:
+        snapshot_at = _parse_snapshot_boundary(execution.get("snapshot_at"))
+        # Runs started before the server-owned boundary was introduced retain
+        # their existing history without manufacturing a new execution time.
+        if snapshot_at is None and run.flow_version_id:
+            snapshot_at = run.started_at
     if "flow_sha256" not in execution:
         encoded = json.dumps(
             run.flow_snapshot or {},
@@ -552,6 +815,14 @@ def _snapshot_run_flow(db: DBSession, run: Run, system: System) -> None:
     execution.setdefault("system_id", system.id)
     input_ref["execution"] = execution
     run.input_ref = input_ref
+    _bind_run_flow_version(
+        db,
+        run,
+        system,
+        workspace_id=canonical_workspace_id,
+        snapshot_at=snapshot_at,
+        initial_binding=bool(first_start),
+    )
 
 
 async def _execute_task_node(
@@ -661,12 +932,27 @@ async def _execute_task_node(
         if resolved_input is not None
         else _build_skill_input(slug, run.input_ref or {}, last_output, ctx)
     )
+    execution_evidence = capture_skill_execution_evidence(
+        db,
+        workspace_id=run.workspace_id,
+        skill_slug=slug,
+    )
+    cost_evidence = resolve_skill_invocation_cost(
+        db,
+        workspace_id=run.workspace_id,
+        skill_id=execution_evidence.skill_id,
+        skill_slug=execution_evidence.skill_slug,
+    )
     invocation = SkillInvocation(
         id=str(uuid4()),
         run_id=run.id,
-        skill_slug=slug,
+        skill_id=execution_evidence.skill_id,
+        skill_slug=execution_evidence.skill_slug,
+        execution_snapshot=execution_evidence.execution_snapshot,
         status="running",
         started_at=datetime.utcnow(),
+        cost_measured=False,
+        metrics={"cost_evidence": cost_evidence.evidence},
         input_ref=skill_input,
         trace={
             **({"node_id": node_id} if node_id else {}),
@@ -701,7 +987,8 @@ async def _execute_task_node(
         invocation.error = "execution_cancelled"
         invocation.latency_ms = (time.monotonic() - t0) * 1000
         invocation.completed_at = datetime.utcnow()
-        invocation.cost = _skill_unit_price(db, slug)
+        invocation.cost = cost_evidence.cost
+        invocation.cost_measured = cost_evidence.cost_measured
         db.commit()
         raise
     except NotImplementedError as nie:
@@ -720,14 +1007,47 @@ async def _execute_task_node(
 
     invocation.latency_ms = (time.monotonic() - t0) * 1000
     invocation.completed_at = datetime.utcnow()
-    invocation.cost = _skill_unit_price(db, slug)
-    token_count = token_count_from_payload(invocation.output_ref or {})
+    invocation.cost = cost_evidence.cost
+    invocation.cost_measured = cost_evidence.cost_measured
     metrics = dict(invocation.metrics or {})
-    if token_count:
+    output_tokens, output_tokens_reported = token_measurement_from_payload(
+        invocation.output_ref or {}
+    )
+    metric_tokens, metric_tokens_reported = token_measurement_from_payload(metrics)
+    if output_tokens_reported or metric_tokens_reported:
         metrics["total_tokens"] = max(
-            token_count,
-            token_count_from_payload(metrics),
+            output_tokens,
+            metric_tokens,
         )
+        output_usage = (
+            invocation.output_ref.get("usage")
+            if isinstance(invocation.output_ref, dict)
+            and isinstance(invocation.output_ref.get("usage"), Mapping)
+            else {}
+        )
+        metrics["token_evidence"] = {
+            "measurement_coverage": "complete",
+            "measurement_source": output_usage.get("measurement_source")
+            or "reported_payload",
+            "provider_calls": output_usage.get("provider_calls"),
+        }
+    elif isinstance(invocation.output_ref, dict) and isinstance(
+        invocation.output_ref.get("provider_usage"), Mapping
+    ):
+        # Preserve reported partial totals for diagnosis, but deliberately do
+        # not mirror them to ``total_tokens``.  Membrane's existing parser then
+        # keeps this invocation unavailable instead of treating a partial LLM
+        # trace as a complete measurement.
+        provider_evidence = dict(invocation.output_ref["provider_usage"])
+        metrics["token_evidence"] = {
+            "measurement_coverage": provider_evidence.get("measurement_coverage")
+            or "unavailable",
+            "provider_calls": provider_evidence.get("provider_calls"),
+            "reported_calls": provider_evidence.get("reported_calls"),
+            "unreported_calls": provider_evidence.get("unreported_calls"),
+            "reported_total": provider_evidence.get("reported_total"),
+            "providers": provider_evidence.get("providers") or [],
+        }
     invocation.metrics = metrics
     trace = dict(invocation.trace or {})
     if "self_correct" in slug or (
@@ -905,13 +1225,6 @@ def _load_adaptive_policy(db: DBSession, system: System) -> Optional[AdaptivePol
     return policy
 
 
-def _skill_unit_price(db: DBSession, slug: str) -> float:
-    sk = db.query(Skill).filter(Skill.slug == slug).first()
-    if not sk:
-        return 0.0
-    return float((sk.pricing or {}).get("unit_price", 0.0))
-
-
 # ---------------------------------------------------------------------------
 # Skill I/O helpers
 # ---------------------------------------------------------------------------
@@ -1079,15 +1392,21 @@ def _runtime_valves_blocked(
     spec = _safe_membrane(control)
     if not spec.enforcement_active:
         return False
-    invocations = (
-        db.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .order_by(SkillInvocation.started_at.asc())
-        .all()
+    invocations, measurement_gaps = _valve_invocation_ledger(db, run)
+    measured_latencies = [
+        float(item.latency_ms)
+        for item in invocations
+        if item.latency_ms is not None
+    ]
+    duration_ms = (
+        sum(measured_latencies)
+        if len(measured_latencies) == len(invocations) and measurement_gaps == 0
+        else None
     )
     usage = collect_valve_usage(
         invocations,
-        duration_ms=sum(float(item.latency_ms or 0.0) for item in invocations),
+        duration_ms=duration_ms,
+        measurement_gaps=measurement_gaps,
     )
     decision = evaluate_valves(spec, usage)
     if decision.allowed:
@@ -1108,16 +1427,7 @@ def _runtime_valves_blocked(
                 "run_id": run.id,
                 "breaches": list(decision.breaches),
                 "mode": decision.mode,
-                "usage": {
-                    "cost": usage.cost,
-                    "latency_ms": usage.latency_ms,
-                    "tokens": usage.tokens,
-                    "failures": usage.failures,
-                    "retries": usage.retries,
-                    "loops": usage.loops,
-                    "autocorrections": usage.autocorrections,
-                    "attempts": usage.attempts,
-                },
+                "usage": _valve_usage_payload(usage),
             },
         )
         run.checkpoints = [
@@ -1159,13 +1469,12 @@ def _apply_control_postchecks(
     (``hard_abort=False``) behaviour is byte-identical to before.
     """
     spec = _safe_membrane(control)
-    invocations = (
-        db.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .order_by(SkillInvocation.started_at.asc())
-        .all()
+    invocations, measurement_gaps = _valve_invocation_ledger(db, run)
+    usage = collect_valve_usage(
+        invocations,
+        duration_ms=float(run.duration_ms) if run.duration_ms is not None else None,
+        measurement_gaps=measurement_gaps,
     )
-    usage = collect_valve_usage(invocations, duration_ms=float(run.duration_ms or 0.0))
     decision = evaluate_valves(spec, usage)
     if not decision.would_block:
         return False
@@ -1181,22 +1490,87 @@ def _apply_control_postchecks(
             "run_id": run.id,
             "hard_abort": hard_abort,
             "mode": decision.mode,
-            "usage": {
-                "cost": usage.cost,
-                "latency_ms": usage.latency_ms,
-                "tokens": usage.tokens,
-                "failures": usage.failures,
-                "retries": usage.retries,
-                "loops": usage.loops,
-                "autocorrections": usage.autocorrections,
-                "attempts": usage.attempts,
-            },
+            "usage": _valve_usage_payload(usage),
         },
     )
     if hard_abort:
         run.status = "failed"
         run.error = run.error or f"membrane_valve_breach:{','.join(decision.breaches)}"
     return hard_abort
+
+
+def _valve_invocation_ledger(
+    db: DBSession,
+    run: Run,
+) -> tuple[list[SkillInvocation], int]:
+    """Load a Run's valve ledger, including durable subflow descendants.
+
+    A child with no invocation ledger is an explicit measurement gap.  It is
+    never silently represented as a zero-cost/zero-token delegation.
+    """
+
+    run_ids = [str(run.id)]
+    descendants: list[str] = []
+    frontier = [str(run.id)]
+    seen = {str(run.id)}
+    while frontier:
+        batch = frontier[:500]
+        frontier = frontier[500:]
+        child_ids = [
+            str(row[0])
+            for row in (
+                db.query(Run.id)
+                .filter(
+                    Run.parent_run_id.in_(batch),
+                    Run.trigger == "subflow",
+                    Run.workspace_id == run.workspace_id,
+                )
+                .all()
+            )
+            if str(row[0]) not in seen
+        ]
+        seen.update(child_ids)
+        descendants.extend(child_ids)
+        run_ids.extend(child_ids)
+        frontier.extend(child_ids)
+
+    invocations: list[SkillInvocation] = []
+    for offset in range(0, len(run_ids), 500):
+        invocations.extend(
+            db.query(SkillInvocation)
+            .filter(SkillInvocation.run_id.in_(run_ids[offset : offset + 500]))
+            .order_by(SkillInvocation.started_at.asc())
+            .all()
+        )
+    invocation_run_ids = {str(item.run_id) for item in invocations}
+    measurement_gaps = sum(
+        1 for child_run_id in descendants if child_run_id not in invocation_run_ids
+    )
+    return invocations, measurement_gaps
+
+
+def _valve_usage_payload(usage: ValveUsage) -> dict[str, Any]:
+    return {
+        "cost": usage.cost,
+        "legacy_unverified_cost": usage.legacy_unverified_cost,
+        "latency_ms": usage.latency_ms,
+        "tokens": usage.tokens,
+        "coverage": {
+            "cost": usage.cost_coverage.value,
+            "tokens": usage.token_coverage.value,
+            "latency": usage.latency_coverage.value,
+            "invocations": usage.invocation_count,
+            "measurement_gaps": usage.measurement_gap_count,
+            "cost_measurements": usage.cost_measurement_count,
+            "token_measurements": usage.token_measurement_count,
+            "latency_measurements": usage.latency_measurement_count,
+        },
+        "failures": usage.failures,
+        "retries": usage.retries,
+        "loops": usage.loops,
+        "autocorrections": usage.autocorrections,
+        "attempts": usage.attempts,
+    }
 
 
 def _log_decision(

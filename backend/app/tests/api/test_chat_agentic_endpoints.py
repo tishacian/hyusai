@@ -22,9 +22,9 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.policy import ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
-from app.models.user import Message
+from app.models.user import Message, User
 from app.models.user import Session as ChatSession
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.evaluation.canonical_answer_service import create_canonical_answer
 
 ANDRITZ_NOTICES = "andritz-notices-techniques-spl-pilot"
@@ -166,11 +166,28 @@ def _client(
     *,
     orchestrator: Any,
     scheduled: list[str],
+    role_template: str = "workspace_contributor",
 ) -> TestClient:
+    user = User(
+        id=f"user-{workspace.id}",
+        username=f"user-{workspace.slug}",
+    )
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="member",
+        role_template=role_template,
+    )
+    db_session.add_all([user, membership])
+    db_session.query(ChatSession).filter(
+        ChatSession.workspace_id == workspace.id,
+        ChatSession.user_id.is_(None),
+    ).update({ChatSession.user_id: user.id}, synchronize_session=False)
+    db_session.commit()
     app = FastAPI()
     app.include_router(chat.router, prefix="/chat")
     app.dependency_overrides[chat.get_current_workspace] = lambda: workspace
-    app.dependency_overrides[chat.get_current_user] = lambda: None
+    app.dependency_overrides[chat.get_current_user] = lambda: user
     app.dependency_overrides[chat.get_db] = lambda: db_session
     monkeypatch.setattr(chat.settings, "enable_agentic_chat", True)
     monkeypatch.setattr(chat, "get_orchestrator", lambda: orchestrator)
@@ -628,3 +645,49 @@ def test_completion_uses_the_same_agentic_policy_runtime_and_canonical_run(
         db_session.query(Message).filter(Message.session_id == run.input_ref["session_id"]).count()
         == 2
     )
+
+
+def test_attested_engine_run_denial_blocks_both_agentic_chat_transports_before_run_creation(
+    db_session,
+    monkeypatch,
+    attest_authorization_v2,
+):
+    workspace, _surface, _executor = _seed_agentic_workspace(
+        db_session,
+        suffix="engine-denied",
+    )
+    config = WorkspaceIAMConfig(
+        workspace_id=workspace.id,
+        version=1,
+        role_flags={},
+        capability_overrides={
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "compat",
+                "modes": {"system.engine.run": "enforce"},
+            }
+        },
+    )
+    db_session.add(config)
+    db_session.commit()
+    attest_authorization_v2(config, ["system.engine.run"])
+    db_session.commit()
+
+    client = _client(
+        db_session,
+        workspace,
+        monkeypatch,
+        orchestrator=None,
+        scheduled=[],
+        role_template="workspace_viewer",
+    )
+    query = "Analyze the grounded technical evidence for BCX200 pump P-101."
+
+    completion = client.post("/chat/completion", json={"query": query})
+    assert completion.status_code == 403
+    assert completion.json()["detail"]["code"] == "WORKSPACE_PERMISSION_DENIED"
+
+    stream = client.post("/chat/stream", json={"query": query})
+    assert stream.status_code == 200
+    assert '"code": "SYSTEM_ENGINE_RUN_DENIED"' in stream.text
+    assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == 0

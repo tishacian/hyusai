@@ -17,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
-from app.schemas.canonical import WorkspaceApp, WorkspaceFamily, WorkspaceMode
+from app.schemas.canonical import WorkspaceFamily, WorkspaceMode
 
 
 def _enum_check(column: str, values: list[str]) -> str:
@@ -116,7 +116,9 @@ class WorkspaceMemberAppEntitlement(Base):
             name="uq_workspace_member_app_entitlement",
         ),
         CheckConstraint(
-            _enum_check("app_key", [item.value for item in WorkspaceApp]),
+            "length(app_key) BETWEEN 1 AND 80 "
+            "AND app_key = lower(trim(app_key)) "
+            "AND app_key NOT LIKE '% %'",
             name="ck_workspace_member_app_entitlements_app_key",
         ),
     )

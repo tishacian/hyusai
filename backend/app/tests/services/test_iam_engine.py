@@ -291,3 +291,20 @@ def test_system_engine_run_keeps_business_capability_as_resource_attribute(db_se
     )
     assert viewer_read.allowed is True
     assert viewer_read.policy_id.startswith("system_engine:system.read")
+
+
+def test_reviewer_capture_inheritance_flag_does_not_change_system_engine_legacy(db_session):
+    workspace, reviewer, membership = _subject(db_session, WORKSPACE_REVIEWER)
+
+    decision = AuthorizationEngine().evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="system",
+        action="engine.run",
+        resource_attrs={"iam_manifest": "system_engine"},
+    )
+
+    assert decision.allowed is True
+    assert decision.policy_id.startswith("system_engine:system.engine.run")

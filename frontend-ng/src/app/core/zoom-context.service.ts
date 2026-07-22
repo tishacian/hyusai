@@ -6,6 +6,7 @@ import {
   type Capability,
   type Run,
   type Skill,
+  type SkillInvocation,
   type System,
 } from './canonical-api.service';
 import {
@@ -45,6 +46,7 @@ interface ResolvedGraph {
   capability: Capability | null;
   system: System | null;
   run: Run | null;
+  invocation: SkillInvocation | null;
   skill: Skill | null;
 }
 
@@ -52,6 +54,7 @@ const EMPTY_ANCESTRY: NavigationAncestry = {
   capabilityId: null,
   systemId: null,
   runId: null,
+  skillInvocationId: null,
   skillRef: null,
 };
 
@@ -61,7 +64,7 @@ const EMPTY_ANCESTRY: NavigationAncestry = {
  * The Router is the sole owner of identity, scope and lens. Canonical APIs
  * only hydrate and validate the graph represented by that URL; they never
  * become a second navigation store. Components therefore cannot imperatively
- * set or clear a Capability, System, Run or Skill.
+ * set or clear a Capability, System, Run, SkillInvocation or Skill.
  */
 @Injectable({ providedIn: 'root' })
 export class ZoomContextService implements OnDestroy {
@@ -110,15 +113,22 @@ export class ZoomContextService implements OnDestroy {
   readonly capabilityId = computed(() => this.projection().ancestry.capabilityId);
   readonly systemId = computed(() => this.projection().ancestry.systemId);
   readonly runId = computed(() => this.projection().ancestry.runId);
+  readonly skillInvocationId = computed(
+    () => this.projection().ancestry.skillInvocationId,
+  );
   readonly skillRef = computed(() => this.projection().ancestry.skillRef);
 
   readonly capabilityLabel = computed(() => this.node('capability')?.label ?? null);
   readonly systemLabel = computed(() => this.node('system')?.label ?? null);
   readonly runLabel = computed(() => this.node('run')?.label ?? null);
+  readonly skillInvocationLabel = computed(
+    () => this.node('skill_invocation')?.label ?? null,
+  );
   readonly skillLabel = computed(() => this.node('skill')?.label ?? null);
 
   readonly deepestResolvedType = computed<HierarchyObjectType | null>(() => {
     const nodes = this.nodes();
+    if (nodes.some((node) => node.key === 'skill_invocation')) return 'skill_invocation';
     if (nodes.some((node) => node.key === 'skill')) return 'skill';
     if (nodes.some((node) => node.key === 'run')) return 'run';
     if (nodes.some((node) => node.key === 'system')) return 'system';
@@ -204,7 +214,10 @@ export class ZoomContextService implements OnDestroy {
     return navigationObjectUrl(type, ref, {
       capabilityId: axesEnabled ? options.capabilityId : null,
       systemId: axesEnabled ? options.systemId : null,
-      runId: axesEnabled ? options.runId : null,
+      runId: type === 'skill_invocation'
+        ? options.runId
+        : axesEnabled ? options.runId : null,
+      skillInvocationId: null,
       skillRef: axesEnabled ? options.skillRef : null,
       lens: axesEnabled
         ? (options.lens === undefined ? this.lens() : options.lens)
@@ -233,7 +246,11 @@ export class ZoomContextService implements OnDestroy {
     const requestScope = this.workspace.captureRequestScope();
     const route = this.routeContext(url);
     const needsGraph = Boolean(
-      route.capabilityId || route.systemId || route.runId || route.skillRef,
+      route.capabilityId
+      || route.systemId
+      || route.runId
+      || route.skillInvocationId
+      || route.skillRef,
     );
     this.graphSubscription.unsubscribe();
     this.graphSubscription = new Subscription();
@@ -246,6 +263,8 @@ export class ZoomContextService implements OnDestroy {
     const mayUseQueryAncestry = route.selectedType === null || route.selectedType === 'skill';
     const runId = route.selectedType === 'run'
       ? route.selectedRef
+      : route.selectedType === 'skill_invocation'
+        ? route.runId
       : (mayUseQueryAncestry ? route.runId : null);
     const directSystemId = route.selectedType === 'system'
       ? route.selectedRef
@@ -256,6 +275,9 @@ export class ZoomContextService implements OnDestroy {
     const skillRef = route.selectedType === 'skill'
       ? route.selectedRef
       : (route.selectedType === null ? route.skillRef : null);
+    const invocationId = route.selectedType === 'skill_invocation'
+      ? route.skillInvocationId
+      : null;
 
     const run$ = runId ? this.canonical.getRun(runId) : of(null);
     this.graphSubscription = run$.pipe(
@@ -266,10 +288,13 @@ export class ZoomContextService implements OnDestroy {
         return forkJoin({
           run: of(run),
           system: systemId ? this.canonical.getSystem(systemId) : of(null),
+          invocation: invocationId && runId
+            ? this.canonical.getSkillInvocation(runId, invocationId)
+            : of(null),
           skill: skillRef ? this.canonical.getSkill(skillRef) : of(null),
         });
       }),
-      switchMap(({ run, system, skill }) => {
+      switchMap(({ run, system, invocation, skill }) => {
         // The real System edge wins. A direct Capability hint is only valid
         // when no deeper object was requested.
         const capabilityId = system?.capability_id
@@ -278,6 +303,7 @@ export class ZoomContextService implements OnDestroy {
         return forkJoin({
           run: of(run),
           system: of(system),
+          invocation: of(invocation),
           skill: of(skill),
           capability: capabilityId
             ? this.canonical.getCapability(capabilityId)
@@ -308,7 +334,12 @@ export class ZoomContextService implements OnDestroy {
       scope: null,
       capabilityId: route.selectedType === 'capability' ? route.selectedRef : null,
       systemId: route.selectedType === 'system' ? route.selectedRef : null,
-      runId: route.selectedType === 'run' ? route.selectedRef : null,
+      runId: route.selectedType === 'run' || route.selectedType === 'skill_invocation'
+        ? route.runId
+        : null,
+      skillInvocationId: route.selectedType === 'skill_invocation'
+        ? route.selectedRef
+        : null,
       skillRef: route.selectedType === 'skill' ? route.selectedRef : null,
     };
   }
@@ -324,7 +355,11 @@ export class ZoomContextService implements OnDestroy {
         this.axesV3Enabled() ? route.lens : null,
       )],
       loading: !reset && Boolean(
-        route.capabilityId || route.systemId || route.runId || route.skillRef,
+        route.capabilityId
+        || route.systemId
+        || route.runId
+        || route.skillInvocationId
+        || route.skillRef,
       ),
     };
   }
@@ -336,23 +371,37 @@ export class ZoomContextService implements OnDestroy {
     let capability = graph.capability;
     let system = graph.system;
     let run = graph.run;
+    let invocation = graph.invocation;
     let skill = graph.skill;
 
     if (route.selectedType === 'capability') {
       capability = capability?.id === route.selectedRef ? capability : null;
       system = null;
       run = null;
+      invocation = null;
       skill = null;
     } else if (route.selectedType === 'system') {
       system = system?.id === route.selectedRef ? system : null;
       if (!system) capability = null;
       run = null;
+      invocation = null;
       skill = null;
     } else if (route.selectedType === 'run') {
       run = run?.id === route.selectedRef ? run : null;
       if (!run) {
         system = null;
         capability = null;
+      }
+      skill = null;
+      invocation = null;
+    } else if (route.selectedType === 'skill_invocation') {
+      invocation = invocation?.id === route.selectedRef ? invocation : null;
+      run = run?.id === route.runId ? run : null;
+      if (!run || !invocation || invocation.run_id !== run.id) {
+        capability = null;
+        system = null;
+        run = null;
+        invocation = null;
       }
       skill = null;
     } else if (route.selectedType === 'skill') {
@@ -362,6 +411,9 @@ export class ZoomContextService implements OnDestroy {
     if (run?.system_id && system?.id !== run.system_id) {
       system = null;
       capability = null;
+    }
+    if (invocation && (!run || invocation.run_id !== run.id)) {
+      invocation = null;
     }
     if (system?.capability_id && capability?.id !== system.capability_id) {
       capability = null;
@@ -398,8 +450,15 @@ export class ZoomContextService implements OnDestroy {
     const capabilityId = capability?.id ?? null;
     const systemId = system?.id ?? null;
     const runId = run?.id ?? null;
+    const skillInvocationId = invocation?.id ?? null;
     const skillRef = skill?.slug ?? null;
-    const ancestry: NavigationAncestry = { capabilityId, systemId, runId, skillRef };
+    const ancestry: NavigationAncestry = {
+      capabilityId,
+      systemId,
+      runId,
+      skillInvocationId,
+      skillRef,
+    };
     const projectedLens = this.axesV3Enabled() ? route.lens : null;
     const nodes: ZoomGraphNode[] = [this.portfolioNode(false, projectedLens)];
 
@@ -433,6 +492,21 @@ export class ZoomContextService implements OnDestroy {
         href: navigationObjectUrl('run', run.id, {
           capabilityId: capability?.id ?? null,
           systemId: system?.id ?? run.system_id,
+          lens: projectedLens,
+        }),
+      });
+    }
+    const runtimeInvocationId = invocation?.id;
+    if (invocation && runtimeInvocationId && run) {
+      nodes.push({
+        key: 'skill_invocation',
+        id: runtimeInvocationId,
+        label: invocation.skill_slug || invocation.skill_id || `Invocation ${this.shortRef(runtimeInvocationId)}`,
+        sub: `SkillInvocation · ${invocation.status || 'unknown'}`,
+        href: navigationObjectUrl('skill_invocation', runtimeInvocationId, {
+          capabilityId: capability?.id ?? null,
+          systemId: system?.id ?? run.system_id,
+          runId: run.id,
           lens: projectedLens,
         }),
       });

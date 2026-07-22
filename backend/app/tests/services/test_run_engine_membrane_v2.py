@@ -11,7 +11,12 @@ from app.models.policy import ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
-from app.services.membrane.enforcement import MembraneEnforcementError, ProvenanceArtifact
+from app.services.membrane.enforcement import (
+    MeasurementCoverage,
+    MembraneEnforcementError,
+    ProvenanceArtifact,
+    collect_valve_usage,
+)
 from app.services.run_engine import dag as dag_module
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag, resume_run_dag
@@ -129,6 +134,48 @@ def _fake_artifact(*_args: Any, **_kwargs: Any) -> ProvenanceArtifact:
         size_bytes=123,
         created_at="2026-07-20T00:00:00Z",
     )
+
+
+def test_subflow_without_invocation_ledger_is_a_parent_measurement_gap(db_session) -> None:
+    parent = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=None,
+        input_ref={},
+        output_ref={},
+        status="running",
+        trigger="manual",
+    )
+    child = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=None,
+        parent_run_id=parent.id,
+        input_ref={},
+        output_ref={},
+        status="completed",
+        trigger="subflow",
+    )
+    measured_parent_work = SkillInvocation(
+        id=str(uuid.uuid4()),
+        run_id=parent.id,
+        status="completed",
+        cost=0,
+        cost_measured=True,
+        metrics={"total_tokens": 0},
+        latency_ms=0,
+    )
+    db_session.add_all([parent, child, measured_parent_work])
+    db_session.commit()
+
+    ledger, gaps = engine_module._valve_invocation_ledger(db_session, parent)
+    usage = collect_valve_usage(ledger, measurement_gaps=gaps)
+
+    assert gaps == 1
+    assert usage.cost == 0
+    assert usage.tokens == 0
+    assert usage.invocation_count == 1
+    assert usage.measurement_gap_count == 1
+    assert usage.cost_coverage is MeasurementCoverage.PARTIAL
+    assert usage.token_coverage is MeasurementCoverage.PARTIAL
 
 
 async def test_invalid_explicit_v2_fails_closed_before_first_invocation(
@@ -295,6 +342,135 @@ async def test_required_citations_block_terminal_output(
     assert "citations_required" in summary["error"]
     db_session.expire_all()
     assert db_session.query(Run).filter(Run.id == run.id).one().output_ref == {}
+
+
+async def test_usage_priced_invocation_without_quantity_blocks_cost_budget(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def answer(_payload, _ctx):
+        return {
+            "answer": "priced by usage",
+            "citations": [{"id": "c"}],
+            "usage": {"total_tokens": 0},
+        }
+
+    _install_skill(monkeypatch, "answer_v1", answer)
+    _, run = _create_contract(
+        db_session,
+        slug="answer_v1",
+        membrane_spec=_spec(
+            provenance={"require_citations": False},
+            valves={"max_cost_per_decision": 1},
+        ),
+    )
+    skill = db_session.query(Skill).filter(Skill.slug == "answer_v1").one()
+    skill.pricing = {
+        "currency": "USD",
+        "unit": "per_1k_tokens",
+        "unit_price": 0.25,
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "failed"
+    assert "cost_measurement_unavailable" in summary["error"]
+    invocation = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == run.id)
+        .one()
+    )
+    assert invocation.cost == 0
+    assert invocation.cost_measured is False
+    assert invocation.metrics["cost_evidence"]["reason"] == "pricing_quantity_not_measured"
+
+
+async def test_missing_token_measurement_blocks(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def missing(_payload, _ctx):
+        return {"answer": "missing usage", "citations": [{"id": "c"}]}
+
+    _install_skill(monkeypatch, "answer_v1", missing)
+    _, missing_run = _create_contract(
+        db_session,
+        slug="answer_v1",
+        membrane_spec=_spec(
+            provenance={"require_citations": False},
+            valves={"token_budget": 1},
+        ),
+    )
+    missing_summary = await execute_run_dag(missing_run.id)
+    assert missing_summary["status"] == "failed"
+    assert "token_measurement_unavailable" in missing_summary["error"]
+
+
+async def test_explicit_zero_token_measurement_completes(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def zero(_payload, _ctx):
+        return {
+            "answer": "zero usage",
+            "citations": [{"id": "c"}],
+            "usage": {"total_tokens": 0},
+        }
+
+    _install_skill(monkeypatch, "answer_v1", zero)
+    _, zero_run = _create_contract(
+        db_session,
+        slug="answer_v1",
+        membrane_spec=_spec(
+            provenance={"require_citations": False},
+            valves={"token_budget": 1},
+        ),
+    )
+    zero_summary = await execute_run_dag(zero_run.id)
+    assert zero_summary["status"] == "completed"
+    zero_invocation = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == zero_run.id)
+        .one()
+    )
+    assert zero_invocation.metrics["total_tokens"] == 0
+
+
+async def test_shadow_records_missing_token_measurement_without_blocking(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def answer(_payload, _ctx):
+        return {"answer": "shadow", "citations": [{"id": "c"}]}
+
+    _install_skill(monkeypatch, "answer_v1", answer)
+    _, run = _create_contract(
+        db_session,
+        slug="answer_v1",
+        membrane_spec=_spec(
+            enforcement_mode="shadow",
+            provenance={"require_citations": False},
+            valves={"token_budget": 1},
+        ),
+    )
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    breach = (
+        db_session.query(Decision)
+        .filter(
+            Decision.target_id == run.system_id,
+            Decision.kind == "policy_breach",
+        )
+        .order_by(Decision.created_at.desc())
+        .first()
+    )
+    assert breach is not None
+    assert breach.rationale["breaches"] == ["token_measurement_unavailable"]
+    assert breach.rationale["hard_abort"] is False
+    assert breach.rationale["usage"]["coverage"]["tokens"] == "unavailable"
 
 
 async def test_disallowed_model_blocks_before_first_invocation(

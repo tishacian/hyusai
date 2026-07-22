@@ -212,7 +212,9 @@ def test_signed_claim_identity_must_match_protected_running_job() -> None:
         module.bound_ci_identity(claims, env)
 
 
-def test_formal_state_requires_runner_then_deployment_then_behavior(tmp_path: Path) -> None:
+def test_formal_state_requires_runner_then_deployment_then_behavior_then_users(
+    tmp_path: Path,
+) -> None:
     module = _load("agentium_trusted_compliance_state_test", "scripts/agentium_trusted_compliance.py")
     identity = _ci_identity()
     runner = _artifact("runner", "passed")
@@ -220,6 +222,27 @@ def test_formal_state_requires_runner_then_deployment_then_behavior(tmp_path: Pa
     behavior = _artifact("behavior", "passed")
     behavior_path = tmp_path / "behavior.json"
     behavior_path.write_text(json.dumps(behavior), encoding="utf-8")
+    user_validation = _artifact("user_validation", "passed")
+    user_validation["study"] = {
+        "participant_count": 5,
+        "profiles": [
+            "builder",
+            "operator",
+            "decision_owner",
+            "governor",
+            "transverse",
+        ],
+        "successes_per_question": {
+            "build": 5,
+            "operate": 4,
+            "steer": 4,
+            "govern": 5,
+        },
+        "confidence_mean": 4.4,
+        "critical_identity_or_lens_confusions": 0,
+    }
+    user_path = tmp_path / "user-validation.json"
+    user_path.write_text(json.dumps(user_validation), encoding="utf-8")
 
     validated = module.validate_evidence(
         behavior,
@@ -250,6 +273,25 @@ def test_formal_state_requires_runner_then_deployment_then_behavior(tmp_path: Pa
     assert report["formal_promotion"] == "authenticated_gitlab_oidc"
     assert report["claims"][0]["state"] == "behavior_verified"
 
+    validated_users = module.validate_user_validation_evidence(
+        user_validation,
+        path=user_path,
+        sha=SHA,
+        identity=identity,
+    )
+    user_report = module.derive_formal_report(
+        static_report=static,
+        sha=SHA,
+        identity=identity,
+        runners=[runner],
+        deployments=[deployment],
+        behaviors=[validated],
+        user_validations=[validated_users],
+        artifact_hashes={"user-validation.json": "e" * 64},
+    )
+    assert user_report["claims"][0]["state"] == "user_validated"
+    assert user_report["claims"][0]["user_validation_jobs"] == ["202"]
+
     without_runner = module.derive_formal_report(
         static_report=static,
         sha=SHA,
@@ -260,6 +302,42 @@ def test_formal_state_requires_runner_then_deployment_then_behavior(tmp_path: Pa
         artifact_hashes={},
     )
     assert without_runner["claims"][0]["state"] == "static_verified"
+
+
+def test_user_validation_cannot_bypass_cohort_thresholds(tmp_path: Path) -> None:
+    module = _load(
+        "agentium_trusted_compliance_user_threshold_test",
+        "scripts/agentium_trusted_compliance.py",
+    )
+    evidence = _artifact("user_validation", "passed")
+    evidence["study"] = {
+        "participant_count": 5,
+        "profiles": [
+            "builder",
+            "operator",
+            "decision_owner",
+            "governor",
+            "transverse",
+        ],
+        "successes_per_question": {
+            "build": 5,
+            "operate": 3,
+            "steer": 4,
+            "govern": 5,
+        },
+        "confidence_mean": 4.4,
+        "critical_identity_or_lens_confusions": 0,
+    }
+    path = tmp_path / "failed-study.json"
+    path.write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(module.TrustedComplianceError, match="four successes"):
+        module.validate_user_validation_evidence(
+            evidence,
+            path=path,
+            sha=SHA,
+            identity=_ci_identity(),
+        )
 
 
 def test_failed_or_cross_job_json_cannot_promote(tmp_path: Path) -> None:

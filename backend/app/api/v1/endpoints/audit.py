@@ -31,11 +31,41 @@ from app.db.base import get_db
 from app.models.audit import AuditLog
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.audit_access import enforce_audit_read
 from app.services.surface_catalog import SURFACE_METADATA
 
 logger = get_logger(__name__)
 router = APIRouter()
 NAVIGATION_RESOLVED_EVENT = "navigation.resolved"
+_SERVER_AUDIT_PREFIXES = (
+    "action.",
+    "admin.",
+    "calendar.",
+    "canonical_answer.",
+    "chain.",
+    "deposit.",
+    "evaluation.",
+    "iam.",
+    "kc.",
+    "knowledge.",
+    "lot7.",
+    "map.",
+    "maritime.",
+    "meeting.",
+    "mission_room.",
+    "notice.",
+    "recommendation.",
+    "report.",
+    "run.",
+    "runtime.",
+    "sharepoint.",
+    "spl.",
+    "system.",
+    "video_demo.",
+    "visual.",
+    "webcam.",
+    "workspace.",
+)
 
 _MACHINE_TOKEN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,99}$")
 _EMAIL_IN_PATH = re.compile(r"[^/\s@]+@[^/\s@]+\.[^/\s@]+", re.IGNORECASE)
@@ -50,6 +80,7 @@ _NAVIGATION_SURFACES = frozenset(
         "connectors",
         "contexts",
         "external-deposit",
+        "fse-reports",
         "governance",
         "hypervisor",
         "intelligence",
@@ -95,6 +126,7 @@ _REDIRECT_REASONS = frozenset(
         "business_profile_disallowed",
         "business_system_capture_compatibility",
         "direct",
+        "legacy_hypervisor_object_lens",
         "workspace_default_route",
         "workspace_extension_unavailable",
         "workspace_settings_entrypoint",
@@ -107,6 +139,7 @@ _REDIRECT_OWNER_BY_REASON = {
     "business_knowledge_compatibility": "navigation_resolver",
     "business_profile_disallowed": "navigation_resolver",
     "business_system_capture_compatibility": "navigation_resolver",
+    "legacy_hypervisor_object_lens": "navigation_resolver",
     "workspace_default_route": "navigation_resolver",
     "workspace_extension_unavailable": "navigation_resolver",
     "workspace_settings_entrypoint": "navigation_resolver",
@@ -145,6 +178,7 @@ _NAVIGATION_ROUTE_TEMPLATES = tuple(
 _SURFACE_ROUTE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/hypervisor/mission-room", "mission-room"),
     ("/systems/:id/capture", "system-capture"),
+    ("/knowledge/interventions", "fse-reports"),
     ("/knowledge/capture", "knowledge-capture"),
     ("/workspace/:slug/chat", "workspace-chat"),
     ("/steering/review-queue", "review-queue"),
@@ -345,6 +379,11 @@ async def create_audit_event(
     workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),
 ):
+    if any(event.event_type.startswith(prefix) for prefix in _SERVER_AUDIT_PREFIXES):
+        raise HTTPException(
+            status_code=403,
+            detail="Audit event namespace is reserved for server-side emitters",
+        )
     details = event.details
     actor = user.username or user.email or "unknown"
     trace_id = event.trace_id
@@ -406,8 +445,10 @@ async def list_audit_logs(
     limit: int = Query(50, ge=1, le=500),
     event_type: str | None = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    enforce_audit_read(db, user=user, workspace=workspace)
     query = (
         db.query(AuditLog)
         .filter(AuditLog.workspace_id == workspace.id)
@@ -437,8 +478,10 @@ async def list_audit_logs(
 @router.get("/summary")
 async def audit_summary(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    enforce_audit_read(db, user=user, workspace=workspace)
     total = (
         db.query(AuditLog)
         .filter(AuditLog.workspace_id == workspace.id)

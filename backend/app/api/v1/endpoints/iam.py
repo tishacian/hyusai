@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from collections.abc import Mapping
+from copy import deepcopy
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.core.iam.dependencies import (
     current_membership,
     evaluate_permission,
@@ -22,7 +26,7 @@ from app.core.iam.roles import (
 )
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.iam.app_entitlements import (
     WorkspaceEntitlementMutationConflictError,
     list_member_app_entitlements,
@@ -36,28 +40,112 @@ from app.services.iam.config_service import (
     load_iam_config,
     patch_iam_config,
 )
+from app.services.iam.decision_plane import candidate_config_sha256
 from app.services.iam.engine import AuthorizationEngine
 from app.services.iam.manifest import CAPTURE_MANIFEST, iter_permissions
+from app.services.iam.shadow_review import (
+    ShadowReviewError,
+    record_mismatch_review,
+    validate_source_manifest,
+)
 
 router = APIRouter()
 
 
 class IamConfigPatch(BaseModel):
-    role_flags: Optional[dict[str, Any]] = None
-    capability_overrides: Optional[dict[str, Any]] = None
+    role_flags: dict[str, Any] | None = None
+    capability_overrides: dict[str, Any] | None = None
 
 
 class MemberIamUpdate(BaseModel):
     role_template: str
     custom_labels: list[str] = Field(default_factory=list)
-    app_entitlements: Optional[list[str]] = None
+    app_entitlements: list[str] | None = None
 
 
 class IamEvaluateRequest(BaseModel):
-    subject_user_id: Optional[str] = None
+    subject_user_id: str | None = None
     resource_kind: str
     action: str
     resource_attrs: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuthorizationMismatchReviewEntry(BaseModel):
+    action: str
+    observation_ids: list[str]
+    reason_code: str
+    reason: str
+
+
+class AuthorizationMismatchReviewRequest(BaseModel):
+    source_ref: str
+    source_manifest: dict[str, Any]
+    entries: list[AuthorizationMismatchReviewEntry]
+
+
+_AUTHORIZATION_V2_KEY = "authorization_v2"
+
+
+def _rollout_managed_conflict(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "IAM_ROLLOUT_MANAGED_FIELD",
+            "message": message,
+        },
+    )
+
+
+def _configured_exact_enforce_actions(config: WorkspaceIAMConfig | None) -> list[str]:
+    overrides = config.capability_overrides if config is not None else None
+    policy = overrides.get(_AUTHORIZATION_V2_KEY) if isinstance(overrides, Mapping) else None
+    modes = policy.get("modes") if isinstance(policy, Mapping) else None
+    if not isinstance(modes, Mapping):
+        return []
+    return sorted(
+        str(action)
+        for action, mode in modes.items()
+        if "*" not in str(action) and str(mode).strip().lower() == "enforce"
+    )
+
+
+def _merge_capability_overrides_patch(
+    current: Any,
+    requested: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep all authorization-v2 authority out of the generic IAM PATCH.
+
+    ``capability_overrides`` historically behaves like a replacement.  The
+    versioned authorization document is different: compat/shadow creation,
+    promotion, demotion and repair belong to the dedicated locked rollout
+    commands.  Generic IAM edits carry the current document forward and fail
+    whenever a caller tries to create, replace or delete it.
+    """
+
+    current_overrides = deepcopy(dict(current)) if isinstance(current, Mapping) else {}
+    result = deepcopy(dict(requested))
+    current_raw = current_overrides.get(_AUTHORIZATION_V2_KEY)
+    requested_has_policy = _AUTHORIZATION_V2_KEY in result
+
+    current_policy = deepcopy(dict(current_raw)) if isinstance(current_raw, Mapping) else None
+
+    if not requested_has_policy:
+        if current_policy is not None:
+            result[_AUTHORIZATION_V2_KEY] = current_policy
+        return result
+
+    requested_raw = result.get(_AUTHORIZATION_V2_KEY)
+    if not isinstance(requested_raw, Mapping):
+        raise _rollout_managed_conflict(
+            "authorization_v2 must remain an object managed by the rollout boundary"
+        )
+    requested_policy = deepcopy(dict(requested_raw))
+    if current_policy is None or requested_policy != current_policy:
+        raise _rollout_managed_conflict(
+            "authorization_v2 can only be changed by the dedicated rollout commands"
+        )
+    result[_AUTHORIZATION_V2_KEY] = current_policy
+    return result
 
 
 def _member_payload(
@@ -189,11 +277,45 @@ async def patch_config(
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
     _admin_gate(db, user=user, workspace=workspace)
+    # Serialize with evidence-gated rollout and Blueprint apply, both of which
+    # take the workspace lock before mutating the shared JSON document.
+    db.query(Workspace).filter(Workspace.id == workspace.id).with_for_update(
+        of=Workspace
+    ).populate_existing().one()
+    current = (
+        db.query(WorkspaceIAMConfig)
+        .filter(WorkspaceIAMConfig.workspace_id == workspace.id)
+        .with_for_update(of=WorkspaceIAMConfig)
+        .populate_existing()
+        .one_or_none()
+    )
+    enforced_actions = _configured_exact_enforce_actions(current)
+    if (
+        enforced_actions
+        and body.role_flags is not None
+        and dict(body.role_flags) != dict(current.role_flags or {})
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "IAM_ENFORCE_REQUIRES_DEMOTION",
+                "message": (
+                    "Demote the exact enforce action group before changing candidate role flags"
+                ),
+                "actions": enforced_actions,
+            },
+        )
+    capability_overrides = body.capability_overrides
+    if capability_overrides is not None:
+        capability_overrides = _merge_capability_overrides_patch(
+            current.capability_overrides if current else {},
+            capability_overrides,
+        )
     config = patch_iam_config(
         db,
         workspace_id=workspace.id,
         role_flags=body.role_flags,
-        capability_overrides=body.capability_overrides,
+        capability_overrides=capability_overrides,
         updated_by_user_id=user.id,
     )
     db.commit()
@@ -202,6 +324,75 @@ async def patch_config(
         "role_flags": effective_role_flags(config),
         "capability_overrides": config.capability_overrides or {},
     }
+
+
+@router.post("/authorization-v2/mismatch-reviews", status_code=201)
+async def create_authorization_mismatch_review(
+    body: AuthorizationMismatchReviewRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record an authenticated approval for exact shadow observations.
+
+    The caller cannot approve a free-form aggregate. Every reviewed id is
+    rebuilt from the workspace audit ledger and the resulting document is
+    content-addressed before it joins the same transaction.
+    """
+
+    _admin_gate(db, user=user, workspace=workspace)
+    # Serialize review creation with IAM policy changes and promotion. A review
+    # for an older config version cannot race a policy edit into validity.
+    db.query(Workspace).filter(Workspace.id == workspace.id).with_for_update(
+        of=Workspace
+    ).populate_existing().one()
+    config = (
+        db.query(WorkspaceIAMConfig)
+        .filter(WorkspaceIAMConfig.workspace_id == workspace.id)
+        .with_for_update(of=WorkspaceIAMConfig)
+        .populate_existing()
+        .one_or_none()
+    )
+    if config is None:
+        raise HTTPException(status_code=409, detail="Workspace has no authorization-v2 config")
+
+    manifest = body.source_manifest
+    try:
+        start = datetime.fromisoformat(
+            str(manifest.get("window_started_at") or "").replace("Z", "+00:00")
+        )
+        end = datetime.fromisoformat(
+            str(manifest.get("window_ended_at") or "").replace("Z", "+00:00")
+        )
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("timezone required")
+        source = validate_source_manifest(
+            manifest,
+            source_ref=body.source_ref,
+            workspace_id=workspace.id,
+            actions=manifest.get("actions") if isinstance(manifest.get("actions"), list) else (),
+            revision=str(settings.agentium_image_revision or "").strip().lower(),
+            candidate_config_sha256=candidate_config_sha256(config),
+            candidate_config_version=int(config.version or 0),
+            window_started_at=start,
+            window_ended_at=end,
+        )
+        envelope = record_mismatch_review(
+            db,
+            source=source,
+            reviewer_user_id=user.id,
+            reviewer_identity=str(user.email or user.username or user.id),
+            reviewed_at=datetime.now(UTC),
+            entries=[entry.model_dump(mode="json") for entry in body.entries],
+        )
+        db.commit()
+    except (ShadowReviewError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AUTHORIZATION_MISMATCH_REVIEW_INVALID", "message": str(exc)},
+        ) from exc
+    return envelope
 
 
 @router.put("/members/{user_id}")

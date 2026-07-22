@@ -38,6 +38,7 @@ from app.services.client360_pdr import (
     patch_opportunity,
     prepare_campaign_follow_ups,
     record_impact,
+    resolve_client360_authority,
     run_opportunity_engine,
     send_mail_draft,
     serialize_campaign,
@@ -57,6 +58,7 @@ from app.services.iam.app_entitlements import (
     WorkspaceEntitlementMutationConflictError,
     lock_workspace_for_app_entitlement_mutation,
 )
+from app.services.iam.decision_plane import enforce_action, enforce_candidate_permission
 
 router = APIRouter(dependencies=[Depends(require_app_entitlement(CLIENT360_APP))])
 
@@ -231,13 +233,84 @@ class CampaignDraftsCreate(BaseModel):
     follow_up: bool = False
 
 
+def _client360_legacy_admin(
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+) -> bool:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.user_id == user.id,
+        )
+        .first()
+    )
+    if membership is None:
+        return False
+    role = normalize_role_template(membership.role_template, membership.role)
+    return role in ADMIN_ROLE_TEMPLATES
+
+
+def _enforce_client360_action(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    resource_kind: str,
+    action: str,
+    legacy_allowed: bool,
+    resource_attrs: Optional[dict[str, Any]] = None,
+) -> None:
+    try:
+        system, capability = resolve_client360_authority(db, workspace)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "CLIENT360_AUTHORITY_UNAVAILABLE",
+                "message": "Client360 System/Capability authority is unavailable",
+            },
+        ) from exc
+    attrs = {
+        "system_id": system.id,
+        "capability_id": capability.id,
+        **dict(resource_attrs or {}),
+    }
+    if resource_kind == "action" and action == "execute":
+        enforce_candidate_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind=resource_kind,
+            action=action,
+            legacy_allowed=legacy_allowed,
+            candidate_manifest="agentium_actions",
+            resource_attrs=attrs,
+        )
+        return
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind=resource_kind,
+        action=action,
+        legacy_allowed=legacy_allowed,
+        resource_attrs=attrs,
+    )
+
+
 @router.get("/summary")
 def client360_summary(
     include_mail_ai: bool = Query(default=True),
     include_workspace_candidates: bool = Query(default=True),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return summary_payload(
         db,
         workspace,
@@ -250,8 +323,12 @@ def client360_summary(
 def client360_alerts(
     limit: int = Query(default=200, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return alerts_payload(db, workspace, limit=limit)
 
 
@@ -268,6 +345,15 @@ async def client360_chat(
     serves the Client360 application's own assistant tab and always answers
     within the Client360 PDR domain (``require_trigger=False``).
     """
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={"operation": "chat"},
+    )
     result = await handle_client360_chat_query(
         db,
         workspace,
@@ -288,7 +374,12 @@ async def client360_chat(
 @router.get("/scope")
 def client360_scope_get(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return {"scope": client360_scope(workspace)}
 
 
@@ -303,8 +394,12 @@ def client360_opportunities(
     confidence: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return {
         "items": list_opportunities(
             db,
@@ -326,8 +421,18 @@ def client360_opportunities(
 def client360_opportunity_engine_run(
     body: EngineRunCreate,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={"operation": "opportunity_engine", "dry_run": body.dry_run},
+    )
     result = run_opportunity_engine(db, workspace, dry_run=body.dry_run)
     if body.dry_run:
         db.rollback()
@@ -340,9 +445,19 @@ def client360_opportunity_engine_run(
 def client360_sources_sync_from_collection(
     body: SyncFromCollectionBody,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Map Installed_base_SPL / pilot spreadsheets into Client360DataSource rows."""
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=True,
+        resource_attrs={"operation": "sync_sources"},
+    )
     scope = (body.scope or "phase1").strip().lower()
     if scope not in {"phase1", "all"}:
         raise HTTPException(status_code=400, detail="scope must be 'phase1' or 'all'")
@@ -377,8 +492,21 @@ def client360_opportunity_patch(
     opportunity_id: str,
     body: OpportunityPatch,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="decision",
+        action="approve",
+        legacy_allowed=True,
+        resource_attrs={
+            "opportunity_id": opportunity_id,
+            "requested_status": body.status,
+        },
+    )
     try:
         opportunity = patch_opportunity(
             db, workspace, opportunity_id, body.model_dump(exclude_unset=True)
@@ -399,8 +527,12 @@ def client360_campaigns(
     status: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return {"items": list_campaigns(db, workspace, status=status, limit=limit)}
 
 
@@ -411,6 +543,15 @@ def client360_campaign_create(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="action",
+        action="execute",
+        legacy_allowed=True,
+        resource_attrs={"operation": "campaign_create"},
+    )
     try:
         campaign = create_campaign(
             db,
@@ -436,8 +577,18 @@ def client360_campaign_patch(
     campaign_id: str,
     body: CampaignPatch,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="action",
+        action="execute",
+        legacy_allowed=True,
+        resource_attrs={"campaign_id": campaign_id, "operation": "campaign_patch"},
+    )
     patch = body.model_dump(exclude_unset=True)
     if isinstance(patch.get("selection_criteria"), dict):
         patch["selection_criteria"] = {
@@ -464,6 +615,15 @@ def client360_campaign_drafts(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={"campaign_id": campaign_id, "operation": "campaign_drafts"},
+    )
     try:
         if body.follow_up:
             result = prepare_campaign_follow_ups(
@@ -498,8 +658,12 @@ def client360_campaign_drafts(
 def client360_campaign_stats(
     campaign_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     try:
         return campaign_stats(db, workspace, campaign_id)
     except LookupError as exc:
@@ -510,8 +674,12 @@ def client360_campaign_stats(
 def client360_mappings(
     status: Optional[str] = Query(default=None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return {"items": list_mapping_rules(db, workspace, status=status)}
 
 
@@ -522,6 +690,15 @@ def client360_mapping_create(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=True,
+        resource_attrs={"operation": "mapping_create"},
+    )
     try:
         row = upsert_mapping_rule(db, workspace, user, body.model_dump())
         db.commit()
@@ -540,6 +717,15 @@ def client360_mapping_patch(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=True,
+        resource_attrs={"mapping_id": mapping_id, "operation": "mapping_patch"},
+    )
     try:
         row = patch_mapping_rule(
             db, workspace, user, mapping_id, body.model_dump(exclude_unset=True)
@@ -559,8 +745,20 @@ def client360_mapping_patch(
 def client360_customer(
     customer_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    # Customer detail currently performs an optional AI summary; it is an
+    # execution boundary rather than a free read until that enrichment is split.
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={"customer_id": customer_id, "operation": "customer_summary"},
+    )
     return customer_payload(db, workspace, customer_id)
 
 
@@ -571,6 +769,18 @@ def client360_mail_draft_create(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={
+            "opportunity_id": body.opportunity_id,
+            "operation": "mail_draft_create",
+        },
+    )
     try:
         draft, action = create_mail_draft(
             db,
@@ -592,7 +802,12 @@ def client360_mail_draft_create(
 @router.get("/mail-settings")
 def client360_mail_settings_get(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
     return {"mail_settings": client360_mail_settings_payload(workspace)}
 
 
@@ -604,6 +819,16 @@ def client360_mail_settings_patch(
     db: DBSession = Depends(get_db),
 ):
     try:
+        legacy_admin = _client360_legacy_admin(db, workspace, user)
+        _enforce_client360_action(
+            db,
+            workspace=workspace,
+            user=user,
+            resource_kind="system",
+            action="admin",
+            legacy_allowed=legacy_admin,
+            resource_attrs={"operation": "mail_settings_patch"},
+        )
         workspace = lock_workspace_for_app_entitlement_mutation(db, workspace.id)
         membership = (
             db.query(WorkspaceMember)
@@ -654,6 +879,18 @@ def client360_mail_draft_send(
     db: DBSession = Depends(get_db),
 ):
     try:
+        _enforce_client360_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="mail_draft",
+            action="mail.send",
+            # Existing Client360 behaviour allowed every entitled member.
+            # Compat/shadow preserve it; only an explicit v2 enforce entry
+            # switches authority to the candidate policy.
+            legacy_allowed=True,
+            resource_attrs={"draft_id": draft_id, "operation": "mail_send"},
+        )
         draft, action = send_mail_draft(
             db,
             workspace,
@@ -692,6 +929,15 @@ def client360_action_patch(
     db: DBSession = Depends(get_db),
 ):
     try:
+        _enforce_client360_action(
+            db,
+            workspace=workspace,
+            user=user,
+            resource_kind="action",
+            action="execute",
+            legacy_allowed=True,
+            resource_attrs={"action_id": action_id, "operation": "action_patch"},
+        )
         action = patch_action(db, workspace, user, action_id, body.model_dump(exclude_unset=True))
         db.commit()
         db.refresh(action)
@@ -710,6 +956,15 @@ def client360_action_impact(
     db: DBSession = Depends(get_db),
 ):
     try:
+        _enforce_client360_action(
+            db,
+            workspace=workspace,
+            user=user,
+            resource_kind="action",
+            action="execute",
+            legacy_allowed=True,
+            resource_attrs={"action_id": action_id, "operation": "impact_record"},
+        )
         event = record_impact(
             db,
             workspace,

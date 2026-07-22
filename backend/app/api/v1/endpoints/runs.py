@@ -5,6 +5,7 @@ ledger so the cockpit can drill from the Run timeline down to individual
 skill calls.
 """
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
@@ -18,7 +19,6 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
-from app.core.iam.roles import WORKSPACE_REVIEWER, is_admin_template, normalize_role_template
 from app.core.logging import get_logger
 from app.db.base import SessionLocal, get_db
 from app.models.capability import Capability
@@ -26,10 +26,7 @@ from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
-from app.services.chat_execution_policy import (
-    migration_059_system_id,
-)
+from app.models.workspace import Workspace
 from app.services.decisions import (
     InvalidTransition,
 )
@@ -39,15 +36,63 @@ from app.services.decisions import (
 from app.services.decisions import (
     reject as reject_decision,
 )
+from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import (
+    legacy_object_action_allowed,
+    legacy_run_approval_allowed,
+)
+from app.services.object_perspective import (
+    build_run_perspective,
+    build_skill_invocation_perspective,
+    projection_feature_enabled,
+)
 from app.services.outcome.derive import apply_operator_override
+from app.services.run_access import (
+    PRIVATE_CHAT_TRIGGER as _PRIVATE_CHAT_TRIGGER,
+)
+from app.services.run_access import (
+    can_view_private_chat_runs as _can_view_private_chat_runs,
+)
+from app.services.run_access import (
+    has_private_chat_admin_access as _has_private_chat_admin_access,
+)
+from app.services.run_access import (
+    managed_agentic_run_requires_admin as _managed_agentic_run_requires_admin,
+)
+from app.services.run_access import (
+    readable_run_page,
+    readable_runs,
+    readable_skill_invocations,
+    skill_invocation_read_attrs,
+)
+from app.services.run_access import (
+    run_is_visible as _run_is_visible,
+)
+from app.services.run_access import (
+    run_read_attrs as _run_read_attrs,
+)
 from app.services.run_engine import schedule_run
 from app.services.run_engine.dag import resume_run_dag, resume_run_dag_debug
 from app.services.run_engine.events import bus as event_bus
+from app.services.run_outcome_provenance import record_operator_outcome_override
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-_PRIVATE_CHAT_TRIGGER = "chat_agentic"
+
+def _projection_evidence_sha256(value: Any) -> Optional[str]:
+    """Return a content address without exposing the underlying runtime payload."""
+
+    if not isinstance(value, dict | list) or not value:
+        return None
+    canonical = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _postgres_hitl_coordination_supported() -> bool:
@@ -91,133 +136,6 @@ def _delegated_hitl_deadline(run: Run) -> Optional[datetime]:
         delegation = (run.input_ref.get("_delegation") or {})
         value = delegation.get("deadline_at") if isinstance(delegation, dict) else None
     return _utc_naive_datetime(value)
-
-
-def _has_private_chat_admin_access(
-    db: DBSession,
-    *,
-    user: User,
-    workspace: Workspace,
-) -> bool:
-    if getattr(user, "role", None) == "admin":
-        return True
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        )
-        .first()
-    )
-    return bool(membership and is_admin_template(membership.role_template, membership.role))
-
-
-def _can_view_private_chat_runs(
-    db: DBSession,
-    *,
-    user: User,
-    workspace: Workspace,
-) -> bool:
-    """Reviewers and workspace/org admins may inspect every Agentic chat Run."""
-    if _has_private_chat_admin_access(db, user=user, workspace=workspace):
-        return True
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        )
-        .first()
-    )
-    if membership is None:
-        return False
-    return bool(
-        normalize_role_template(membership.role_template, membership.role) == WORKSPACE_REVIEWER
-    )
-
-
-def _managed_agentic_run_requires_admin(
-    db: DBSession,
-    *,
-    run: Run,
-    workspace: Workspace,
-) -> bool:
-    """Keep in-flight and rejected migration-059 Runs admin-only.
-
-    This closes both sides of the HITL race: an initiator cannot attach an SSE
-    stream while the gated draft is still being produced, and a rejected draft
-    does not become readable merely because finalisation made the Run terminal.
-    """
-    managed_system_id = migration_059_system_id(workspace)
-    if managed_system_id is None:
-        return False
-    managed = run.system_id == managed_system_id
-
-    # A parent subflow can surface a Decision owned by a managed child Run.
-    # Preserve the same boundary for that parent without trusting checkpoint
-    # payload beyond the server-persisted Decision -> Run relationship.
-    if not managed:
-        decision_ids = [
-            checkpoint.get("decision_id")
-            for checkpoint in list(run.checkpoints or [])
-            if isinstance(checkpoint, dict) and checkpoint.get("kind") == "hitl_pause"
-        ]
-        decision_ids = [decision_id for decision_id in decision_ids if decision_id]
-        if decision_ids:
-            managed = (
-                db.query(Run.id)
-                .join(Decision, Decision.target_id == Run.id)
-                .filter(
-                    Decision.id.in_(decision_ids),
-                    Decision.scope == "run",
-                    or_(
-                        Decision.workspace_id == workspace.id,
-                        Decision.workspace_id.is_(None),
-                    ),
-                    Run.workspace_id == workspace.id,
-                    Run.system_id == managed_system_id,
-                )
-                .first()
-                is not None
-            )
-    if not managed:
-        return False
-
-    if run.status not in {"completed", "failed", "cancelled"}:
-        return True
-
-    output = run.output_ref if isinstance(run.output_ref, dict) else {}
-    if str(output.get("hitl_decision") or "").strip().lower() == "rejected":
-        return True
-    return any(
-        isinstance(checkpoint, dict)
-        and checkpoint.get("kind") == "hitl_resume"
-        and str(checkpoint.get("decision_status") or "").strip().lower() == "rejected"
-        for checkpoint in list(run.checkpoints or [])
-    )
-
-
-def _run_is_visible(
-    db: DBSession,
-    *,
-    run: Run,
-    user: User,
-    workspace: Workspace,
-    allow_managed_hitl_for_resolution: bool = False,
-) -> bool:
-    requires_admin = _managed_agentic_run_requires_admin(
-        db,
-        run=run,
-        workspace=workspace,
-    )
-    resolution_may_authorize = allow_managed_hitl_for_resolution and run.status == "hitl_pending"
-    if requires_admin and not resolution_may_authorize:
-        return _has_private_chat_admin_access(db, user=user, workspace=workspace)
-    if run.trigger != _PRIVATE_CHAT_TRIGGER:
-        return True
-    if run.initiated_by_user_id == user.id:
-        return True
-    return _can_view_private_chat_runs(db, user=user, workspace=workspace)
 
 
 def _visible_run_or_404(
@@ -282,6 +200,25 @@ def _row(r: Run) -> Dict[str, Any]:
         "checkpoints": checkpoints,
         "waiting_subflows": r.waiting_subflows or {},
         "result_held": membrane_held,
+        # Additive, secret-free integrity evidence used by the protected Lot 7
+        # canary. The raw flow stays in the projection service's allowlisted
+        # view; this endpoint exposes only its exact content address.
+        "flow_evidence": {
+            "flow_version_id": r.flow_version_id,
+            "flow_snapshot_sha256": _projection_evidence_sha256(r.flow_snapshot),
+            "execution_snapshot_at": (
+                r.input_ref.get("execution", {}).get("snapshot_at")
+                if isinstance(r.input_ref, dict)
+                and isinstance(r.input_ref.get("execution"), dict)
+                else None
+            ),
+            "runtime_revision": (
+                r.input_ref.get("execution", {}).get("runtime_revision")
+                if isinstance(r.input_ref, dict)
+                and isinstance(r.input_ref.get("execution"), dict)
+                else None
+            ),
+        },
     }
 
 
@@ -318,8 +255,13 @@ def _pending_debug_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _invocation(i: SkillInvocation, *, redact_io: bool = False) -> Dict[str, Any]:
-    return {
+def _invocation(
+    i: SkillInvocation,
+    *,
+    redact_io: bool = False,
+    include_projection_evidence: bool = False,
+) -> Dict[str, Any]:
+    payload = {
         "id": i.id,
         "skill_slug": i.skill_slug,
         "status": i.status,
@@ -332,7 +274,25 @@ def _invocation(i: SkillInvocation, *, redact_io: bool = False) -> Dict[str, Any
         "metrics": i.metrics or {},
         "trace": i.trace or {},
         "error": i.error,
+        "execution_evidence": {
+            "resolution": (
+                i.execution_snapshot.get("resolution")
+                if isinstance(i.execution_snapshot, dict)
+                else None
+            ),
+            "execution_snapshot_sha256": _projection_evidence_sha256(
+                i.execution_snapshot
+            ),
+        },
     }
+    if include_projection_evidence:
+        payload.update(
+            {
+                "cost_measured": i.cost_measured,
+                "execution_snapshot": i.execution_snapshot or {},
+            }
+        )
+    return payload
 
 
 @router.get("")
@@ -390,8 +350,13 @@ async def list_runs(
         )
     if status:
         q = q.filter(Run.status == status)
-    rows = q.order_by(Run.started_at.desc()).limit(limit).all()
-    rows = [row for row in rows if _run_is_visible(db, run=row, user=user, workspace=workspace)]
+    rows = readable_run_page(
+        db,
+        query=q.order_by(Run.started_at.desc()),
+        limit=limit,
+        user=user,
+        workspace=workspace,
+    )
     return {"runs": [_row(r) for r in rows]}
 
 
@@ -408,16 +373,42 @@ async def get_run(
         user=user,
         workspace=workspace,
     )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(r),
+    )
     invocations = (
         db.query(SkillInvocation)
         .filter(SkillInvocation.run_id == r.id)
         .order_by(SkillInvocation.started_at.asc())
         .all()
     )
+    invocations = readable_skill_invocations(
+        db,
+        invocations=invocations,
+        run=r,
+        user=user,
+        workspace=workspace,
+    )
+    include_invocation_evidence = projection_feature_enabled(
+        db,
+        workspace,
+        "skill_invocation",
+    )
     payload: Dict[str, Any] = {
         **_row(r),
         "invocations": [
-            _invocation(i, redact_io=_membrane_egress_held(r)) for i in invocations
+            _invocation(
+                i,
+                redact_io=_membrane_egress_held(r),
+                include_projection_evidence=include_invocation_evidence,
+            )
+            for i in invocations
         ],
     }
     pending_cp = _pending_hitl_checkpoint(r)
@@ -504,6 +495,163 @@ async def get_run(
     return payload
 
 
+@router.get("/{run_id}/perspective")
+async def get_run_perspective(
+    run_id: str,
+    lens: Literal["build", "operate", "steer", "govern"],
+    window: Literal["7d", "30d", "90d"] = "30d",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    if not projection_feature_enabled(db, workspace, "run"):
+        raise HTTPException(
+            410,
+            {"code": "OBJECT_PROJECTION_REVOKED", "object_type": "run"},
+        )
+    run = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        # ``_visible_run_or_404`` is the legacy authority and already hides
+        # cross-workspace/private Runs. The v2 plane only takes authority for
+        # an explicit enforce rollout.
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(run),
+    )
+    return build_run_perspective(
+        db,
+        workspace=workspace,
+        user=user,
+        run=run,
+        lens=lens,
+        window=window,
+    )
+
+
+@router.get("/{run_id}/invocations/{invocation_id}")
+async def get_skill_invocation(
+    run_id: str,
+    invocation_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Resolve the runtime invocation, never the catalog Skill."""
+
+    if not projection_feature_enabled(db, workspace, "skill_invocation"):
+        raise HTTPException(404, "Skill invocation not found")
+    run = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(run),
+    )
+    invocation = db.query(SkillInvocation).filter(
+        SkillInvocation.id == invocation_id,
+        SkillInvocation.run_id == run.id,
+    ).first()
+    if invocation is None:
+        raise HTTPException(404, "Skill invocation not found")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="skill_invocation",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=skill_invocation_read_attrs(invocation, run),
+    )
+    return {
+        **_invocation(
+            invocation,
+            redact_io=_membrane_egress_held(run),
+            include_projection_evidence=True,
+        ),
+        "run_id": run.id,
+        "system_id": run.system_id,
+        "capability_id": run.capability_id,
+    }
+
+
+@router.get("/{run_id}/invocations/{invocation_id}/perspective")
+async def get_skill_invocation_perspective(
+    run_id: str,
+    invocation_id: str,
+    lens: Literal["build", "operate", "steer", "govern"],
+    window: Literal["7d", "30d", "90d"] = "30d",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    if not projection_feature_enabled(db, workspace, "skill_invocation"):
+        raise HTTPException(
+            410,
+            {
+                "code": "OBJECT_PROJECTION_REVOKED",
+                "object_type": "skill_invocation",
+            },
+        )
+    run = _visible_run_or_404(
+        db,
+        run_id=run_id,
+        user=user,
+        workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(run),
+    )
+    invocation = db.query(SkillInvocation).filter(
+        SkillInvocation.id == invocation_id,
+        SkillInvocation.run_id == run.id,
+    ).first()
+    if invocation is None:
+        raise HTTPException(404, "Skill invocation perspective not found")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="skill_invocation",
+        action="read",
+        # The parent Run has already passed the complete legacy visibility
+        # boundary above; an invocation can never broaden that visibility.
+        legacy_allowed=True,
+        resource_attrs=skill_invocation_read_attrs(invocation, run),
+    )
+    return build_skill_invocation_perspective(
+        db,
+        workspace=workspace,
+        user=user,
+        run=run,
+        invocation=invocation,
+        lens=lens,
+        window=window,
+    )
+
+
 class HitlResolve(BaseModel):
     action: Literal["accept", "reject"]
     actor: Optional[str] = Field(
@@ -521,13 +669,6 @@ def _actor_label(user: User) -> str:
         or getattr(user, "keycloak_sub", None)
         or str(user.id)
     )
-
-
-def _is_migration_managed_agentic_system(
-    workspace: Workspace,
-    system: System,
-) -> bool:
-    return migration_059_system_id(workspace) == system.id
 
 
 def _run_lineage(
@@ -635,34 +776,25 @@ def _record_hitl_dispatch_plane(run: Run, *, decision_id: str, plane: str) -> No
     ]
 
 
-def _require_hitl_authorization(
+def _legacy_hitl_authorized(
     db: DBSession,
     *,
     user: User,
     workspace: Workspace,
     paused_run: Run,
     decision_target: Run,
-) -> None:
-    """Allow workspace admins, or the initiating user for ordinary Systems.
+) -> bool:
+    """Return the pre-v2 initiator/admin authorization decision.
 
     Migration-059's production Agentic System is deliberately stricter: only
     organization admins and workspace admin/owner roles may resolve its HITL
     gates, even when they initiated the Run themselves.
-    """
-    is_admin = getattr(user, "role", None) == "admin"
-    if not is_admin:
-        membership = (
-            db.query(WorkspaceMember)
-            .filter(
-                WorkspaceMember.user_id == user.id,
-                WorkspaceMember.workspace_id == workspace.id,
-            )
-            .first()
-        )
-        if membership is None:
-            raise HTTPException(403, "Workspace membership required to resolve HITL")
-        is_admin = is_admin_template(membership.role_template, membership.role)
 
+    Corrupt or cross-workspace lineage remains a hard structural failure. The
+    managed-System admin floor is enforced separately at the endpoint before
+    Authorization v2; this legacy result is therefore only the role/action
+    decision inside that structural boundary.
+    """
     affected_runs: Dict[str, Run] = {}
     for candidate in (paused_run, decision_target):
         lineage = _run_lineage(db, run=candidate, workspace_id=workspace.id)
@@ -670,30 +802,12 @@ def _require_hitl_authorization(
             raise HTTPException(403, "Run lineage is outside the current workspace")
         affected_runs.update({row.id: row for row in lineage})
 
-    for candidate in affected_runs.values():
-        if not candidate.system_id:
-            continue
-        system = (
-            db.query(System)
-            .filter(
-                System.id == candidate.system_id,
-                System.workspace_id == workspace.id,
-            )
-            .first()
-        )
-        if system is None:
-            raise HTTPException(403, "Run System is outside the current workspace")
-        if _is_migration_managed_agentic_system(workspace, system) and not is_admin:
-            raise HTTPException(
-                403,
-                "Admin/owner access required for the production Agentic System",
-            )
-
-    if is_admin:
-        return
-    if any(row.initiated_by_user_id == user.id for row in affected_runs.values()):
-        return
-    raise HTTPException(403, "Only the Run initiator or a workspace admin may resolve HITL")
+    return legacy_run_approval_allowed(
+        db,
+        user=user,
+        workspace=workspace,
+        runs=affected_runs.values(),
+    )
 
 
 @router.post("/{run_id}/hitl")
@@ -812,12 +926,49 @@ async def resolve_run_hitl(
     if decision_target is None:
         db.rollback()
         raise HTTPException(404, "HITL decision not found")
-    _require_hitl_authorization(
+
+    # Migration-059's managed Agentic System keeps an admin-only structural
+    # boundary. Authorization v2 may further restrict this action, but an
+    # ``enforce`` policy must never widen the managed HITL gate to reviewers.
+    # Check both the surfaced pause and the canonical Decision target so a
+    # parent subflow cannot hide a managed child.
+    managed_requires_admin = any(
+        _managed_agentic_run_requires_admin(
+            db,
+            run=candidate,
+            workspace=workspace,
+        )
+        for candidate in (r, decision_target)
+    )
+    if managed_requires_admin and not _has_private_chat_admin_access(
+        db,
+        user=user,
+        workspace=workspace,
+    ):
+        db.rollback()
+        raise HTTPException(403, "Managed Run HITL requires workspace admin")
+
+    legacy_allowed = _legacy_hitl_authorized(
         db,
         user=user,
         workspace=workspace,
         paused_run=r,
         decision_target=decision_target,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="approve",
+        legacy_allowed=legacy_allowed,
+        resource_attrs={
+            "run_id": r.id,
+            "system_id": r.system_id,
+            "capability_id": r.capability_id,
+            "decision_id": decision.id,
+            "owner_user_id": decision_target.initiated_by_user_id,
+        },
     )
 
     actor = _actor_label(user)
@@ -1012,6 +1163,20 @@ async def step_run(
         user=user,
         workspace=workspace,
     )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={
+            "system_id": r.system_id,
+            "capability_id": r.capability_id,
+            "run_id": r.id,
+            "owner_user_id": r.initiated_by_user_id,
+        },
+    )
     if r.status != "debug_pending":
         raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
     background_tasks.add_task(_step_wrapper, r.id, body.action, body.breakpoints or None)
@@ -1182,11 +1347,20 @@ async def stream_run(
     ``snapshot`` (initial state dump on connect) and ``close`` (terminal
     signal so the client can unsubscribe without inspecting ``status``).
     """
-    _visible_run_or_404(
+    run = _visible_run_or_404(
         db,
         run_id=run_id,
         user=user,
         workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(run),
     )
     return StreamingResponse(
         _run_event_stream(run_id, request, workspace.id if workspace else None),
@@ -1256,12 +1430,34 @@ async def override_run_outcome(
         user=user,
         workspace=workspace,
     )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="run",
+            action="admin",
+        ),
+        resource_attrs=_run_read_attrs(r),
+    )
     if r.status not in ("completed", "failed"):
         raise HTTPException(
             409,
             f"Run is still {r.status!r}; operator overrides require a settled run.",
         )
+    previous_value = r.value_estimated
     apply_operator_override(r, value=body.value, note=body.note)
+    record_operator_outcome_override(
+        r,
+        actor=_actor_label(user),
+        previous_value=previous_value,
+        note=body.note,
+    )
     db.commit()
     return _row(r)
 
@@ -1334,6 +1530,20 @@ async def replay_run(
         user=user,
         workspace=workspace,
     )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={
+            "system_id": parent.system_id,
+            "capability_id": parent.capability_id,
+            "run_id": parent.id,
+            "owner_user_id": parent.initiated_by_user_id,
+        },
+    )
 
     try:
         new_run, response_text = await replay_run_async(
@@ -1384,11 +1594,20 @@ async def list_run_replays(
     breached run already has follow-up replays the reviewer can
     compare against.
     """
-    _visible_run_or_404(
+    parent = _visible_run_or_404(
         db,
         run_id=run_id,
         user=user,
         workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(parent),
     )
 
     children = (
@@ -1402,11 +1621,12 @@ async def list_run_replays(
         .order_by(Run.started_at.desc())
         .all()
     )
-    children = [
-        child
-        for child in children
-        if _run_is_visible(db, run=child, user=user, workspace=workspace)
-    ]
+    children = readable_runs(
+        db,
+        runs=children,
+        user=user,
+        workspace=workspace,
+    )
     return {
         "parent_run_id": run_id,
         "items": [
@@ -1439,6 +1659,20 @@ async def rerun_run(
         run_id=run_id,
         user=user,
         workspace=workspace,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={
+            "system_id": parent.system_id,
+            "capability_id": parent.capability_id,
+            "run_id": parent.id,
+            "owner_user_id": parent.initiated_by_user_id,
+        },
     )
 
     new_run = Run(

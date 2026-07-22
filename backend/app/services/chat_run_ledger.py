@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
-from app.models.skill import Skill
 from app.models.system import System
 from app.services.outcome.derive import derive_outcome
-
+from app.services.skill_invocation_snapshot import (
+    capture_skill_execution_evidence,
+    resolve_skill_invocation_cost,
+)
 
 WORKSPACE_ASSISTANT_CAPABILITY_SLUG = "workspace_assistant"
 
@@ -303,17 +305,33 @@ def _create_chat_invocations(
     for spec in specs:
         latency_ms = max(1.0, duration_ms * float(spec["latency_share"]))
         end = min(completed_at, cursor + timedelta(milliseconds=latency_ms))
+        execution_evidence = capture_skill_execution_evidence(
+            db,
+            workspace_id=run.workspace_id,
+            skill_slug=str(spec["slug"]),
+        )
+        cost_evidence = resolve_skill_invocation_cost(
+            db,
+            workspace_id=run.workspace_id,
+            skill_id=execution_evidence.skill_id,
+            skill_slug=execution_evidence.skill_slug,
+        )
+        metrics = dict(spec.get("metrics") or {})
+        metrics["cost_evidence"] = cost_evidence.evidence
         invocation = SkillInvocation(
             run_id=run.id,
-            skill_slug=spec["slug"],
+            skill_id=execution_evidence.skill_id,
+            skill_slug=execution_evidence.skill_slug,
+            execution_snapshot=execution_evidence.execution_snapshot,
             status="completed",
             started_at=cursor,
             completed_at=end,
             latency_ms=latency_ms,
-            cost=_skill_unit_price(db, str(spec["slug"])),
+            cost=cost_evidence.cost,
+            cost_measured=cost_evidence.cost_measured,
             input_ref={"run_trigger": run.trigger or "chat"},
             output_ref={k: v for k, v in dict(spec["output_ref"]).items() if v is not None},
-            metrics=dict(spec.get("metrics") or {}),
+            metrics=metrics,
             trace={},
         )
         db.add(invocation)
@@ -346,17 +364,6 @@ def _retrieval_telemetry(extra_output: dict[str, Any]) -> dict[str, Any]:
 
 def _answer_policy_telemetry(extra_output: dict[str, Any]) -> dict[str, Any]:
     return {key: extra_output.get(key) for key in _ANSWER_POLICY_KEYS if extra_output.get(key) is not None}
-
-
-def _skill_unit_price(db: DBSession, slug: str) -> float:
-    skill = db.query(Skill).filter(Skill.slug == slug).first()
-    pricing = skill.pricing if skill else None
-    if not isinstance(pricing, dict):
-        return 0.0
-    try:
-        return round(float(pricing.get("unit_price") or 0.0), 6)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _estimate_chat_confidence(

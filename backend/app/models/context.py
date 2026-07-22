@@ -11,7 +11,7 @@ and by the drop-and-ask flow itself — no background worker required.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, UniqueConstraint
 
 from app.db.base import Base
 
@@ -22,6 +22,9 @@ class Context(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), nullable=True, index=True)
     system_id = Column(String(36), nullable=True, index=True)
+    # Portable, opaque identity used by Workspace Blueprints. Context names
+    # may legitimately collide and therefore never carry import authority.
+    blueprint_key = Column(String(120), nullable=False, default=lambda: str(uuid4()))
 
     name = Column(String(200), nullable=False, default="default")
     version = Column(Integer, default=1)
@@ -42,3 +45,11 @@ class Context(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "blueprint_key",
+            name="uq_contexts_workspace_blueprint_key",
+        ),
+    )

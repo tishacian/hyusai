@@ -243,7 +243,7 @@
             "path": "frontend-ng/src/app/core/navigation-profile.service.ts",
             "contains": [
               "this.featureEnabled('workspace_experience_v2')",
-              "if (!workspace || !this.workspaceExperienceV2Enabled()) return null",
+              "!this.workspaceExperienceV2Enabled() && !this.workspaceAppPlatformEnabled()",
               "resolveWorkspaceExperienceV2"
             ]
           }
@@ -318,7 +318,7 @@
             "label": "Cockpit identity contract",
             "path": "frontend-ng/src/app/core/navigation.catalog.spec.ts",
             "contains": [
-              "lens changes preserve Capability, System and Run identity for every cockpit lens",
+              "lens changes preserve Capability, System, Run and SkillInvocation identity",
               "object builders use canonical locators and business guards match registered surfaces"
             ],
             "runner": "node"
@@ -609,7 +609,7 @@
       "lot": 5,
       "title": "Workspace Blueprint v2 migrates portable experience safely",
       "kind": "full_stack",
-      "description": "Blueprint v2 exports portable experience and app-access intent, validates actions and isolation, produces a dry-run plan token, and keeps v1 imports compatible.",
+      "description": "Blueprint v2 exports portable experience and app-access intent, preserves homonymous System and Context objects through opaque workspace-scoped stable keys, restores bidirectional bindings and preset scopes, produces a dry-run plan token, and keeps unambiguous v1 imports compatible.",
       "mental_model_sections": [
         "0.2",
         "30",
@@ -628,7 +628,20 @@
               "expected_plan_token",
               "locked_workspace_guard",
               "def _mapping_declares_credential",
-              "grant_all_existing_members"
+              "grant_all_existing_members",
+              "def _blueprint_object_identity(",
+              "def _serialize_context(",
+              "model.blueprint_key == stable_key"
+            ]
+          },
+          {
+            "label": "Workspace-scoped Blueprint object identity migration",
+            "path": "backend/alembic/versions/071_blueprint_object_keys.py",
+            "contains": [
+              "revision = \"071_blueprint_object_keys\"",
+              "KEY_COLUMN = \"blueprint_key\"",
+              "uq_systems_workspace_blueprint_key",
+              "uq_contexts_workspace_blueprint_key"
             ]
           }
         ],
@@ -673,7 +686,17 @@
               "test_andritz_round_trip_backfills_all_members_before_entitlement_activation",
               "test_merge_conflict_replace_idempotence_and_stale_plan_detection",
               "test_mutating_apply_reauthorizes_immediately_after_workspace_lock",
-              "test_replace_portable_blocks_before_erasing_private_state_in_object_lists"
+              "test_replace_portable_blocks_before_erasing_private_state_in_object_lists",
+              "test_blueprint_v2_round_trip_preserves_homonyms_bidirectional_edges_and_preset_scope",
+              "test_legacy_unkeyed_blueprint_rejects_ambiguous_target_homonyms"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Blueprint object-key migration contract",
+            "path": "backend/app/tests/services/test_migration_071_blueprint_object_keys.py",
+            "contains": [
+              "test_upgrade_backfills_ids_and_enforces_workspace_scoped_key_uniqueness"
             ],
             "runner": "pytest"
           },
@@ -1163,6 +1186,46 @@
             ]
           },
           {
+            "label": "Transactional dispatch outbox and bounded reconciler",
+            "path": "backend/app/services/run_engine/dispatch_outbox.py",
+            "contains": [
+              "def enqueue_dispatch(",
+              ".with_for_update(skip_locked=True)",
+              "def publish_claimed_dispatch(",
+              "def reconcile_dispatch_outbox("
+            ]
+          },
+          {
+            "label": "Delegated HITL deadline watchdog",
+            "path": "backend/app/services/run_engine/hitl_watchdog.py",
+            "contains": [
+              "WATCHDOG_ERROR = \"subflow_hitl_deadline_expired\"",
+              "def quarantine_locked_hitl_owner(",
+              "def expire_overdue_hitl_waits(",
+              "event_type=SUBFLOW_PARENT_RESUME"
+            ]
+          },
+          {
+            "label": "Additive durable dispatch schema",
+            "path": "backend/alembic/versions/064_run_dispatch_outbox.py",
+            "contains": [
+              "revision = \"064_run_dispatch_outbox\"",
+              "delegation_deadline_at",
+              "run_dispatch_outbox",
+              "uq_run_dispatch_outbox_dedupe_key"
+            ]
+          },
+          {
+            "label": "Bounded post-P4 maintenance worker",
+            "path": "backend/app/workers/p4_maintenance.py",
+            "contains": [
+              "def run_maintenance_cycle(",
+              "expire_overdue_hitl_waits",
+              "reconcile_dispatch_outbox",
+              "def run_maintenance_loop("
+            ]
+          },
+          {
             "label": "Protected PostgreSQL and RabbitMQ gate",
             "path": ".gitlab-ci.yml",
             "contains": [
@@ -1181,6 +1244,933 @@
               "test_real_rabbitmq_redelivery_fanout_joins_hitl_and_cancellation",
               "test_acks_late_redelivers_after_dedicated_worker_crash",
               "RUN_RABBITMQ_INTEGRATION"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Outbox delivery and reconciliation contracts",
+            "path": "backend/app/tests/services/test_dispatch_outbox.py",
+            "contains": [
+              "test_enqueue_is_uncommitted_idempotent_and_task_id_is_stable",
+              "test_claim_recovers_expired_lease_and_stale_owner_cannot_ack",
+              "test_publish_uses_only_ids_and_the_outbox_task_id",
+              "test_repair_derives_initial_and_parent_resume_events"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Delegated HITL watchdog contracts",
+            "path": "backend/app/tests/services/test_hitl_watchdog.py",
+            "contains": [
+              "test_expired_proposed_hitl_fails_child_and_wakes_parent",
+              "test_mismatched_parent_envelope_is_quarantined_fail_closed",
+              "test_expiry_cancels_active_delegated_descendants_in_same_transaction"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Bounded maintenance loop contracts",
+            "path": "backend/app/tests/services/test_p4_maintenance.py",
+            "contains": [
+              "test_cycle_is_bounded_and_passes_configured_limits",
+              "test_cycle_runs_watchdog_before_outbox_and_survives_outbox_failure"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT7-OBJECT-GRAPH-PROJECTIONS",
+      "lot": 7,
+      "title": "Capability, Run and SkillInvocation expose governed object perspectives",
+      "kind": "full_stack",
+      "description": "Ordered Workspace gates expose four honest lenses for Capability, Run and SkillInvocation while preserving identity and historical execution evidence; System creation, mutation, triggers and both runtime walkers resolve Capability, Skill and AdaptivePolicy references through one tenant-aware catalog boundary.",
+      "mental_model_sections": [
+        "43.1",
+        "43.5"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Attested runtime projection gate",
+            "path": "backend/app/services/projection_gate.py",
+            "contains": [
+              "PROJECTION_ORDER = (\"capability\", \"run\", \"skill_invocation\")",
+              "def projection_enabled(",
+              "def validated_gate_rows("
+            ]
+          },
+          {
+            "label": "Object perspective read models",
+            "path": "backend/app/services/object_perspective.py",
+            "contains": [
+              "def build_capability_perspective(",
+              "def build_run_perspective(",
+              "def build_skill_invocation_perspective(",
+              "def _projection_state_digest("
+            ]
+          },
+          {
+            "label": "Tenant-aware executable System catalog bindings",
+            "path": "backend/app/services/system_catalog_bindings.py",
+            "contains": [
+              "class SystemCatalogBindingError(ValueError)",
+              "def resolve_system_catalog_bindings(",
+              "def resolve_persisted_system_catalog_bindings(",
+              "def resolve_run_system_catalog_bindings("
+            ]
+          },
+          {
+            "label": "Ordered marker-discovered projection rollout",
+            "path": "backend/scripts/rollout_lot7_projections.py",
+            "contains": [
+              "def discover_target(",
+              "def activate(",
+              "def deactivate(",
+              "behavior_verified"
+            ]
+          },
+          {
+            "label": "Additive immutable execution schema",
+            "path": "backend/alembic/versions/065_system_version_config.py",
+            "contains": [
+              "configuration_snapshot",
+              "down_revision = \"064_run_dispatch_outbox\""
+            ]
+          },
+          {
+            "label": "Immutable invocation execution evidence migration",
+            "path": "backend/alembic/versions/066_skill_invocation_snapshot.py",
+            "contains": [
+              "execution_snapshot",
+              "cost_measured",
+              "down_revision = \"065_system_version_config\""
+            ]
+          },
+          {
+            "label": "SystemVersion uniqueness migration",
+            "path": "backend/alembic/versions/067_system_version_uniqueness.py",
+            "contains": [
+              "down_revision = \"066_skill_invocation_snapshot\"",
+              "CONSTRAINT_NAME = \"uq_system_versions_system_version_number\"",
+              "def _duplicate_version_groups("
+            ]
+          },
+          {
+            "label": "Five-profile user-validation gate",
+            "path": "scripts/agentium_trusted_compliance.py",
+            "contains": [
+              "def validate_user_validation_evidence(",
+              "kind=\"user_validation\"",
+              "participant_count < 5",
+              "parser.add_argument(\"--user-attestation\""
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Capability perspective route",
+            "path": "backend/app/api/v1/endpoints/capabilities.py",
+            "contains": [
+              "@router.get(\"/{cap_id}/perspective\")",
+              "projection_feature_enabled(db, workspace, \"capability\")",
+              "return build_capability_perspective("
+            ]
+          },
+          {
+            "label": "Run and SkillInvocation perspective routes",
+            "path": "backend/app/api/v1/endpoints/runs.py",
+            "contains": [
+              "@router.get(\"/{run_id}/perspective\")",
+              "@router.get(\"/{run_id}/invocations/{invocation_id}/perspective\")",
+              "projection_feature_enabled"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Epoch-scoped latest-wins projection cache",
+            "path": "frontend-ng/src/app/core/object-perspective.store.ts",
+            "contains": [
+              "ObjectPerspectiveRequestSupersededError",
+              "snapshot_id changes across lenses",
+              "shareReplay({ bufferSize: 1, refCount: true })",
+              "WorkspaceRequestInvalidatedError"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Marker-discovered sequential object canary",
+            "path": "frontend-ng/e2e/tests/12-lot7-object-graph-canary.spec.ts",
+            "contains": [
+              "settings.experience.system_360_canary = \"v1\"",
+              "E2E_LOT7_PROJECTION",
+              "Capability, Run and SkillInvocation"
+            ],
+            "runner": "playwright"
+          },
+          {
+            "label": "Object projection integrity tests",
+            "path": "backend/app/tests/services/test_object_perspective.py",
+            "contains": [
+              "test_snapshot_fingerprints_data_exposed_by_other_lenses",
+              "test_skill_invocation_is_a_distinct_runtime_object",
+              "test_projection_flags_require_attested_gate_and_remain_per_object_type"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "System catalog tenant-isolation and runtime boundary tests",
+            "path": "backend/app/tests/services/test_system_catalog_bindings.py",
+            "contains": [
+              "test_family_catalog_visibility_is_authoritative_for_system_bindings",
+              "test_create_and_update_reject_invisible_catalog_references",
+              "test_sequential_and_dag_fail_before_skill_invocation_on_hidden_binding",
+              "test_runtime_rejects_run_system_workspace_and_capability_drift",
+              "test_event_trigger_rejects_invalid_catalog_before_journaling"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Additive migration contracts",
+            "path": "backend/app/tests/services/test_migration_067_system_version_uniqueness.py",
+            "contains": [
+              "test_upgrade_preserves_rows_and_enforces_uniqueness_then_downgrades",
+              "test_upgrade_fails_closed_with_structured_duplicate_audit"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "PostgreSQL SystemVersion concurrency gate",
+            "path": "backend/app/tests/integration/test_system_version_postgresql.py",
+            "contains": [
+              "pytestmark = [pytest.mark.integration, pytest.mark.postgresql]",
+              "test_system_version_allocation_is_serialized_on_postgresql"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "User-validation promotion thresholds",
+            "path": "backend/app/tests/infra/test_lot6_proof_contract.py",
+            "contains": [
+              "test_formal_state_requires_runner_then_deployment_then_behavior_then_users",
+              "test_user_validation_cannot_bypass_cohort_thresholds",
+              "critical_identity_or_lens_confusions"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT7-AUTHORIZATION-ROLLOUT",
+      "lot": 7,
+      "title": "Action-level authorization advances through compat, shadow and enforce",
+      "kind": "api",
+      "description": "A single decision plane compares legacy and candidate permissions, binds shadow evidence to immutable JUnit artifacts and fails closed when runtime attestations drift.",
+      "mental_model_sections": [
+        "43.2"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Granular authorization decision plane",
+            "path": "backend/app/services/iam/decision_plane.py",
+            "contains": [
+              "class AuthorizationMode(str, Enum)",
+              "def resolve_manifest_permission(",
+              "def enforcement_attestation_errors(",
+              "candidate_config_sha256"
+            ]
+          },
+          {
+            "label": "JUnit execution invariant",
+            "path": "backend/app/services/iam/evidence_contracts.py",
+            "contains": [
+              "def junit_count_errors(",
+              "JUnit contract has no executed test cases"
+            ]
+          },
+          {
+            "label": "SHA-bound Client360 authority preflight",
+            "path": "backend/scripts/preflight_client360_authority.py",
+            "contains": [
+              "def build_preflight(",
+              "resolve_client360_authority(db, workspace)",
+              "target_runtime_revision_required",
+              "return 0 if result[\"summary\"][\"blocked\"] == 0 else 2"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Persisted ActionManifest resource authority",
+            "path": "backend/app/api/v1/endpoints/actions.py",
+            "contains": [
+              "def _manifest_resource_attrs(",
+              "ExpertCaptureSession.workspace_id == workspace.id",
+              "resolve_manifest_permission("
+            ]
+          },
+          {
+            "label": "Client360 action authorization boundary",
+            "path": "backend/app/api/v1/endpoints/client360.py",
+            "contains": [
+              "def _enforce_client360_action(",
+              "CLIENT360_AUTHORITY_UNAVAILABLE",
+              "resolve_client360_authority(db, workspace)",
+              "action=\"mail.send\""
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Authorization boundary and attestation tests",
+            "path": "backend/app/tests/api/test_authorization_v2_boundaries.py",
+            "contains": [
+              "test_capture_action_resolves_persisted_session_owner_before_enforce",
+              "test_action_manifest_required_permission_is_effective_at_api_boundary"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Promotion evidence tests",
+            "path": "backend/app/tests/services/test_authorization_v2_rollout.py",
+            "contains": [
+              "test_promotion_and_runtime_reject_all_skipped_junit_contracts",
+              "test_status_rejects_tampered_trusted_runner_attestation"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Client360 route authorization inventory",
+            "path": "backend/app/tests/api/test_client360_authorization_inventory.py",
+            "contains": [
+              "test_every_client360_route_has_one_explicit_action_boundary",
+              "test_authorization_precedes_every_client360_business_operation"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Managed Run structural approval floor",
+            "path": "backend/app/tests/api/test_runs_hitl_auth.py",
+            "contains": [
+              "test_managed_agentic_hitl_requires_admin_even_for_run_initiator",
+              "test_managed_hitl_admin_floor_cannot_be_widened_by_v2_enforce"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Client360 authority preflight tests",
+            "path": "backend/app/tests/scripts/test_preflight_client360_authority.py",
+            "contains": [
+              "test_preflight_is_read_only_and_binds_authority_config_and_runtime",
+              "test_cli_requires_the_explicit_target_revision_even_if_runtime_has_an_old_sha",
+              "test_preflight_config_content_drift_changes_authority_at_same_version"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT7-MEMBRANE-MEASUREMENTS",
+      "lot": 7,
+      "title": "Membrane budgets distinguish measured zero from unavailable telemetry",
+      "kind": "backend",
+      "description": "Cost, token and latency valves carry explicit coverage, include delegated child ledgers and fail closed under authoritative enforcement when a configured measure is unavailable.",
+      "mental_model_sections": [
+        "43.3"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Coverage-aware Membrane valves",
+            "path": "backend/app/services/membrane/enforcement.py",
+            "contains": [
+              "class MeasurementCoverage(str, Enum)",
+              "cost_measurement_unavailable",
+              "token_measurement_unavailable",
+              "def collect_valve_usage("
+            ]
+          },
+          {
+            "label": "Provider-reported Contract Risk token ledger",
+            "path": "backend/app/services/evaluation/judge.py",
+            "contains": [
+              "def normalize_provider_usage(",
+              "def provider_usage_evidence(",
+              "def contractual_zero_token_usage("
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Runtime measurement coverage tests",
+            "path": "backend/app/tests/services/test_run_engine_membrane_v2.py",
+            "contains": [
+              "test_missing_token_measurement_blocks",
+              "test_explicit_zero_token_measurement_completes",
+              "test_subflow_without_invocation_ledger_is_a_parent_measurement_gap"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Contract Risk four-Skill token telemetry",
+            "path": "backend/app/tests/services/test_provider_token_telemetry.py",
+            "contains": [
+              "test_contract_risk_four_skill_flow_persists_complete_token_ledger",
+              "test_llm_rag_answer_accumulates_generation_and_review_calls",
+              "test_claim_audit_does_not_invent_missing_judge_usage"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT7-ANDRITZ-MEMBRANE-SHADOW",
+      "lot": 7,
+      "title": "Andritz Membrane v2 shadow preparation is append-only and reversible",
+      "kind": "backend",
+      "description": "A family-discovered dry-run workflow prepares append-only shadow policy generations, binds configuration snapshots and restores the source policy through a drift-checked rollback; runtime business non-regression remains a separate rollout gate.",
+      "mental_model_sections": [
+        "43.4"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Andritz shadow preparation and rollback",
+            "path": "backend/scripts/prepare_andritz_membrane_shadow.py",
+            "contains": [
+              "def prepare(",
+              "def rollback(",
+              "def _prepared_policies_for_system(",
+              "system_version_number"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Append-only Andritz shadow lifecycle",
+            "path": "backend/app/tests/services/test_andritz_membrane_shadow_rollout.py",
+            "contains": [
+              "test_prepare_rollback_prepare_uses_latest_append_only_generation",
+              "test_shadow_rollback_fails_closed_on_binding_or_contract_drift"
+            ],
+            "runner": "pytest"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT8-AUTHORITATIVE-VALUE-LOOP",
+      "lot": 8,
+      "title": "System value scenarios follow one governed evidence lifecycle",
+      "kind": "full_stack",
+      "description": "Outcome, decision, simulation, approval, bounded actuation and independently sourced post-action measurement remain distinct, System-scoped, idempotent and protected by current authorization plus Membrane enforcement; promotion evidence v3 is bound to its source JUnit and the same protected GitLab OIDC job.",
+      "mental_model_sections": [
+        "44"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Transactional value-loop state machine",
+            "path": "backend/app/services/value_loop.py",
+            "contains": [
+              "def create_value_scenario(",
+              "def simulate_value_scenario(",
+              "def approve_value_scenario(",
+              "def act_value_scenario(",
+              "def measure_value_scenario("
+            ]
+          },
+          {
+            "label": "Attested marker-discovered rollout gate",
+            "path": "backend/scripts/rollout_value_loop.py",
+            "contains": [
+              "EVIDENCE_SCHEMA_VERSION = 3",
+              "EVIDENCE_KIND = \"lot8_value_loop_behavior\"",
+              "def discover_target(",
+              "def open_canary_window(",
+              "def _require_same_trusted_runner(",
+              "def _source_junit(",
+              "activation requires MembraneSpec v2 enforce",
+              "def deactivate("
+            ]
+          },
+          {
+            "label": "Redacted observation evidence collector",
+            "path": "backend/scripts/collect_value_loop_evidence.py",
+            "contains": [
+              "OBSERVATION_KIND = \"lot8_value_loop_observation\"",
+              "def collect_evidence(",
+              "protected collection requires an active SHA-bound canary window",
+              "mode == \"protected\"",
+              "source_junit_sha256 = hashlib.sha256(playwright_junit).hexdigest()",
+              "producer = rollout._validated_trusted_runner(trusted_runner, revision=revision)",
+              "protected observation and OIDC producer identify different GitLab jobs"
+            ]
+          },
+          {
+            "label": "Additive value-loop persistence schema",
+            "path": "backend/alembic/versions/068_value_loop_core.py",
+            "contains": [
+              "revision = \"068_value_loop_core\"",
+              "down_revision = \"067_system_version_uniqueness\"",
+              "value_measurements",
+              "control_policy_id"
+            ]
+          },
+          {
+            "label": "Forecast-bound measurement evaluation schema",
+            "path": "backend/alembic/versions/072_value_measurement_evaluation.py",
+            "contains": [
+              "revision = \"072_value_measurement_eval\"",
+              "forecast_delta",
+              "assumption_verdict",
+              "assumption_evaluation"
+            ]
+          },
+          {
+            "label": "Canonical executed ControlPolicy identity",
+            "path": "backend/app/services/control_policy_snapshot.py",
+            "contains": [
+              "def control_policy_execution_contract(",
+              "def validated_control_policy_execution_contract(",
+              "CONTROL_POLICY_EXECUTION_SCHEMA_VERSION = 1"
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "System-scoped value-loop commands",
+            "path": "backend/app/api/v1/endpoints/value_loop.py",
+            "contains": [
+              "@router.get(\"/{system_id}/value-loop\")",
+              "@router.post(\"/{system_id}/value-loop/scenarios/{scenario_id}/simulate\"",
+              "@router.post(\"/{system_id}/value-loop/scenarios/{scenario_id}/approve\")",
+              "@router.post(\"/{system_id}/value-loop/scenarios/{scenario_id}/act\"",
+              "@router.post(\"/{system_id}/value-loop/scenarios/{scenario_id}/measure\""
+            ]
+          },
+          {
+            "label": "Portfolio value-loop aggregation",
+            "path": "backend/app/api/v1/endpoints/hypervisor.py",
+            "contains": [
+              "@router.get(\"/value-loop\")",
+              "forecast_verdict_counts",
+              "value_measurements.assumption_verdict",
+              "forecast_assumption_gap"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Steer value-loop evidence UI",
+            "path": "frontend-ng/src/app/features/systems/system-value-loop.component.ts",
+            "contains": [
+              "Simulation, not measurement",
+              "Measured from a post-action Run",
+              "Simulate configured actuator",
+              "Measure from latest post-action Run"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Value-loop transaction and evidence semantics",
+            "path": "backend/app/tests/services/test_value_loop.py",
+            "contains": [
+              "test_complete_loop_keeps_simulation_and_measurement_distinct",
+              "test_action_retry_is_idempotent_and_request_hash_is_bound",
+              "test_no_post_action_sample_is_explicit_not_measured_and_remains_acted",
+              "measurement.forecast_delta == {\"value\": 5.0, \"cost\": -1.0}",
+              "measurement.assumption_verdict == \"confirmed\""
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Current-authority API boundary",
+            "path": "backend/app/tests/api/test_value_loop_api.py",
+            "contains": [
+              "test_mutation_refreshes_authority_after_workspace_lock",
+              "test_value_loop_read_models_redact_credential_shaped_evidence",
+              "test_patch_specific_forecasts_produce_distinct_outcomes",
+              "test_missing_patch_forecast_is_not_configured_and_persists_nothing",
+              "test_sha_bound_canary_window_opens_then_expires_closed",
+              "test_exact_enforce_manifest_executes_every_value_loop_endpoint"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Value-loop migration contracts",
+            "path": "backend/app/tests/services/test_migration_072_value_measurement_evaluation.py",
+            "contains": [
+              "test_upgrade_backfills_then_constrains_the_measurement_contract",
+              "test_real_sqlite_upgrade_backfills_enforces_and_downgrades"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Protected/local evidence collection and activation",
+            "path": "backend/app/tests/services/test_value_loop_rollout.py",
+            "contains": [
+              "test_protected_collector_resolves_redacted_observation_into_strict_evidence",
+              "test_local_or_non_promotable_collection_never_emits_record_ids",
+              "test_collector_rejects_canary_authored_operator_measurement",
+              "test_activation_requires_same_oidc_job_and_source_junit_binding"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Marker-discovered value-loop canary",
+            "path": "frontend-ng/e2e/tests/13-lot8-value-loop-canary.spec.ts",
+            "contains": [
+              "E2E_LOT8_CANARY",
+              "discovers one marked System and proves persisted simulate-to-measure semantics",
+              "evidence_type: 'simulation'"
+            ],
+            "runner": "playwright"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT9-WORKSPACE-APP-LIFECYCLE",
+      "lot": 9,
+      "title": "Workspace Apps use content-addressed lifecycle and runtime authority",
+      "kind": "full_stack",
+      "description": "Exact manifests govern compatibility, installation transitions, routes, branding, action packs and entitlements; a bootstrap, preflight, bounded probation and post-activation protocol binds evidence v2 to source JUnit and protected OIDC jobs, while invalid frontend authority fails closed to an isolated unavailable shell with an admin-only repair route.",
+      "mental_model_sections": [
+        "45"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Content-addressed Workspace App lifecycle",
+            "path": "backend/app/services/workspace_app_lifecycle.py",
+            "contains": [
+              "def validate_workspace_app_compatibility(",
+              "def plan_workspace_app_lifecycle(",
+              "def apply_workspace_app_lifecycle(",
+              "code=\"runtime_authority_active\""
+            ]
+          },
+          {
+            "label": "Fail-closed installed-app runtime",
+            "path": "backend/app/services/workspace_app_runtime.py",
+            "contains": [
+              "WORKSPACE_APP_PLATFORM_FEATURE = \"workspace_app_platform_v1\"",
+              "def inspect_authoritative_workspace_app_runtime(",
+              "def workspace_app_installations_sha256(",
+              "def validate_workspace_app_runtime_activation(",
+              "def resolve_workspace_app_runtime(",
+              "def safe_workspace_app_runtime_payload("
+            ]
+          },
+          {
+            "label": "Staged Workspace App authority rollout",
+            "path": "backend/scripts/rollout_workspace_app_platform.py",
+            "contains": [
+              "EVIDENCE_SCHEMA_VERSION = 2",
+              "def bootstrap(",
+              "def stage(",
+              "def finalize(",
+              "def abort(",
+              "same protected GitLab job"
+            ]
+          },
+          {
+            "label": "Protected preflight and post-activation evidence collector",
+            "path": "backend/scripts/collect_workspace_app_evidence.py",
+            "contains": [
+              "PREFLIGHT_OBSERVATION_KIND = \"lot9_workspace_app_preflight_observation\"",
+              "POSTACTIVATION_OBSERVATION_KIND = \"lot9_workspace_app_postactivation_observation\"",
+              "def collect_evidence(",
+              "source_junit_sha256 = hashlib.sha256(playwright_junit).hexdigest()",
+              "producer = rollout._validated_trusted_runner(trusted_runner, revision=revision)"
+            ]
+          },
+          {
+            "label": "Immutable built-in manifest registry",
+            "path": "backend/app/services/workspace_app_manifests.py",
+            "contains": [
+              "MANIFEST_LOCK_SCHEMA_VERSION = 1",
+              "def verify_builtin_workspace_app_manifest_lock(",
+              "BUILTIN_WORKSPACE_APP_MANIFEST_LOCK = verify_builtin_workspace_app_manifest_lock()"
+            ]
+          },
+          {
+            "label": "Manifest-defined entitlement schema boundary",
+            "path": "backend/alembic/versions/070_workspace_app_entitlement_registry.py",
+            "contains": [
+              "down_revision = \"069_workspace_app_lifecycle\"",
+              "def _format_check(dialect: str)",
+              "Refusing to restore the legacy entitlement enum"
+            ]
+          },
+          {
+            "label": "Ordered lifecycle migration and backfill executors",
+            "path": "backend/app/services/workspace_app_lifecycle.py",
+            "contains": [
+              "LIFECYCLE_PHASES = frozenset({\"normal\", \"legacy_adoption\"})",
+              "def _compile_lifecycle_steps(",
+              "LIFECYCLE_STEP_EXECUTORS = MappingProxyType({",
+              "def _execute_lifecycle_steps("
+            ]
+          },
+          {
+            "label": "Tenant-scoped lifecycle step receipts",
+            "path": "backend/alembic/versions/073_workspace_app_steps.py",
+            "contains": [
+              "revision = \"073_workspace_app_steps\"",
+              "down_revision = \"072_value_measurement_eval\"",
+              "workspace_app_lifecycle_step_receipts",
+              "fk_workspace_app_step_receipts_operation_tenant"
+            ]
+          },
+          {
+            "label": "Manifest-owned API prefixes and generic Mission Room provider",
+            "path": "backend/app/services/workspace_app_runtime.py",
+            "contains": [
+              "def _application_api_prefixes(",
+              "def resolve_mission_room_provider_runtime(",
+              "def mission_room_provider_request_allowed(",
+              "def workspace_app_api_path_allowed("
+            ]
+          }
+        ],
+        "api": [
+          {
+            "label": "Workspace App governance API",
+            "path": "backend/app/api/v1/endpoints/workspace_app_governance.py",
+            "contains": [
+              "@router.get(\"/manifests\")",
+              "@router.get(\"/installations\")",
+              "@router.post(\"/plan\")",
+              "@router.post(\"/apply\")"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Content-addressed lifecycle console",
+            "path": "frontend-ng/src/app/features/governance/workspace-app-lifecycle.component.ts",
+            "contains": [
+              "data-testid=\"workspace-app-lifecycle\"",
+              "data-testid=\"workspace-app-manifest-digest\"",
+              "data-testid=\"workspace-app-plan-sha\"",
+              "No entitlement mutation"
+            ]
+          },
+          {
+            "label": "Authoritative frontend fail-closed and repair contract",
+            "path": "frontend-ng/src/app/core/workspace-experience.ts",
+            "contains": [
+              "WORKSPACE_APP_UNAVAILABLE_ROUTE = '/workspace-app-unavailable'",
+              "WORKSPACE_APP_REPAIR_ROUTE = '/workspace-app-repair'",
+              "workspace_app_unavailable",
+              "workspace_apps:authoritative_fail_closed"
+            ]
+          },
+          {
+            "label": "Isolated Workspace App unavailable shell",
+            "path": "frontend-ng/src/app/features/workspace-app-runtime/workspace-app-unavailable.component.ts",
+            "contains": [
+              "data-testid=\"workspace-app-unavailable\"",
+              "No workspace application has been opened.",
+              "data-testid=\"workspace-app-repair-link\""
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Lifecycle transition and rollback contracts",
+            "path": "backend/app/tests/services/test_workspace_app_lifecycle.py",
+            "contains": [
+              "test_install_is_content_addressed_audited_and_does_not_mutate_entitlements",
+              "test_upgrade_rollback_and_uninstall_are_explicit_ordered_transitions",
+              "test_exact_retry_is_idempotent_and_conflicting_reuse_is_rejected",
+              "test_active_runtime_authority_blocks_new_lifecycle_but_allows_exact_replay",
+              "test_normal_lifecycle_excludes_legacy_backfill_and_legacy_adoption_requires_evidence",
+              "test_step_executor_failure_rolls_back_installation_receipts_and_audit"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Manifest isolation and publication lock",
+            "path": "backend/app/tests/services/test_workspace_app_manifests.py",
+            "contains": [
+              "test_published_manifest_versions_are_exactly_frozen_by_lockfile",
+              "test_andritz_has_exactly_three_apps_and_fse_is_a_knowledge_capture_surface",
+              "test_sentinel_and_octocity_branding_and_action_packs_are_isolated"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Installed runtime authority",
+            "path": "backend/app/tests/services/test_workspace_app_runtime.py",
+            "contains": [
+              "test_gate_off_does_not_query_or_change_the_historical_runtime",
+              "test_tampered_manifest_digest_fails_closed_without_row_disclosure",
+              "test_installed_action_packs_ignore_legacy_cross_profile_overrides",
+              "test_entry_entitlements_are_derived_from_the_installed_manifest",
+              "test_active_runtime_rechecks_revision_installations_and_rollout_history",
+              "test_feature_flag_without_activation_attestation_fails_closed"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Staged bootstrap, probation, finalize and OIDC gates",
+            "path": "backend/app/tests/services/test_workspace_app_platform_rollout.py",
+            "contains": [
+              "test_bootstrap_is_dry_run_safe_applied_once_and_audited",
+              "test_stage_opens_bounded_probation_and_finalize_binds_both_proofs",
+              "test_probation_expiry_fails_closed_but_abort_is_always_safe",
+              "test_stage_requires_same_oidc_job_and_source_junit_binding",
+              "test_finalize_is_bound_to_the_preflight_and_postactivation_job"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Workspace App evidence phase and probation bindings",
+            "path": "backend/app/tests/services/test_workspace_app_evidence_collector.py",
+            "contains": [
+              "test_preflight_collection_is_directly_consumable_by_stage",
+              "test_post_collection_is_bound_to_live_probation_and_finalizes",
+              "test_wrong_junit_or_phase_specific_checks_are_rejected",
+              "test_post_observation_from_another_or_expired_probation_is_rejected"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Entitlement registry migration",
+            "path": "backend/app/tests/services/test_migration_070_workspace_app_entitlement_registry.py",
+            "contains": [
+              "test_upgrade_preserves_legacy_grants_and_accepts_canonical_manifest_keys",
+              "test_downgrade_refuses_manifest_defined_grants_then_restores_legacy_enum"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Lifecycle step receipt migration",
+            "path": "backend/app/tests/services/test_migration_073_workspace_app_steps.py",
+            "contains": [
+              "test_upgrade_labels_legacy_operations_and_creates_tenant_scoped_receipts",
+              "test_real_sqlite_upgrade_enforces_receipts_and_safe_downgrade"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Generic Mission Room provider isolation",
+            "path": "backend/app/tests/api/test_mission_room_extension_gate.py",
+            "contains": [
+              "test_generic_provider_serves_only_real_workspace_objects",
+              "test_generic_provider_blocks_every_specialized_shared_prefix_route",
+              "test_get_and_both_draft_providers_commit_audits_visible_to_a_fresh_session"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Platform-authoritative entitlement boundary",
+            "path": "backend/app/tests/api/test_app_entitlements_api.py",
+            "contains": [
+              "test_workspace_app_runtime_keeps_manifest_entitlements_fail_closed_when_legacy_flag_is_off"
+            ],
+            "runner": "pytest"
+          },
+          {
+            "label": "Authenticated preflight lifecycle canary",
+            "path": "frontend-ng/e2e/tests/14-lot9-workspace-app-lifecycle-canary.spec.ts",
+            "contains": [
+              "E2E_LOT9_CANARY",
+              "discovers the dedicated target and leaves a proven nonempty installation set",
+              "no workspace slug/name, app id/name or row id is embedded in this source",
+              "exact_initial_ledger_restored: true"
+            ],
+            "runner": "playwright"
+          },
+          {
+            "label": "Authenticated probation runtime canary",
+            "path": "frontend-ng/e2e/tests/15-lot9-workspace-app-probation-canary.spec.ts",
+            "contains": [
+              "E2E_LOT9_POST_CANARY",
+              "proves the staged runtime on the same workspace and installation set",
+              "rollout_phase: 'probation'",
+              "lot9_workspace_app_postactivation_observation"
+            ],
+            "runner": "playwright"
+          },
+          {
+            "label": "Frontend unavailable and admin repair isolation",
+            "path": "frontend-ng/src/app/core/workspace-experience.spec.ts",
+            "contains": [
+              "enabled platform fails closed to an isolated unavailable shell when runtime authority is absent or invalid",
+              "invalid runtime keeps the unavailable page terminal and grants only admins the isolated repair route"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Resolver owns terminal unavailable redirects",
+            "path": "frontend-ng/src/app/core/navigation-resolver.service.spec.ts",
+            "contains": [
+              "enabled Workspace App authority redirects every invalid runtime surface to a terminal unavailable shell",
+              "invalid runtime exposes the isolated repair route only to workspace admins",
+              "the unavailable page cannot masquerade as workspace state once platform authority is healthy or disabled"
+            ],
+            "runner": "node"
+          }
+        ]
+      }
+    },
+    {
+      "id": "LOT9-IMMUTABLE-SUPPLY-CHAIN",
+      "lot": 9,
+      "title": "Release contract binds source, images and semantic evidence by digest",
+      "kind": "governance",
+      "description": "Backend, frontend and worker references are immutable, built once and checked against real SBOM, provenance and signature-verification artifacts before any environment receipt is accepted.",
+      "mental_model_sections": [
+        "45"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Digest-bound release verifier",
+            "path": "scripts/agentium_release_contract.py",
+            "contains": [
+              "COMPONENTS = (\"backend\", \"frontend\", \"worker\")",
+              "artifact_root is required for release verification",
+              "CycloneDX or SPDX JSON document",
+              "does not name the exact OCI digest",
+              "signature verification output does not match the release subject",
+              "parser.add_argument(\"--cosign-issuer\", required=True)",
+              "parser.add_argument(\"--cosign-identity\", required=True)"
+            ]
+          },
+          {
+            "label": "Registry digest deployment overlay",
+            "path": "docker/compose.agentium.registry.yml",
+            "contains": [
+              "scripts/agentium_release_contract.py",
+              "AGENTIUM_BACKEND_IMAGE",
+              "AGENTIUM_FRONTEND_IMAGE",
+              "AGENTIUM_WORKER_IMAGE"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "Semantic supply-chain failure contracts",
+            "path": "backend/app/tests/infra/test_lot9_release_contract.py",
+            "contains": [
+              "test_exact_built_tested_and_deployed_digests_verify",
+              "test_provenance_and_cosign_output_are_bound_to_exact_subject",
+              "test_cosign_signer_is_pinned_outside_the_self_declared_release",
+              "test_release_verification_requires_real_semantic_artifacts",
+              "test_artifact_path_cannot_escape_root"
             ],
             "runner": "pytest"
           }

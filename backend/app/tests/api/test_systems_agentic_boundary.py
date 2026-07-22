@@ -8,6 +8,7 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 from app.api.v1.endpoints import control_plane, systems
+from app.models.context import Context
 from app.models.policy import ControlPolicy
 from app.models.system import System
 from app.models.user import User
@@ -224,6 +225,54 @@ async def test_system_cannot_bind_control_policy_from_another_workspace(db_sessi
     assert exc_info.value.status_code == 400
     db_session.refresh(system)
     assert system.control_policy_id is None
+
+
+@pytest.mark.asyncio
+async def test_system_create_and_update_reject_context_from_another_workspace(db_session):
+    workspace = _workspace(db_session, slug=f"context-owner-{uuid4().hex[:8]}")
+    other = _workspace(db_session, slug=f"context-other-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    foreign_context = Context(
+        id=str(uuid4()),
+        workspace_id=other.id,
+        name="Foreign business context",
+        business_constraints={"tenant_secret": "must-not-cross"},
+    )
+    local_system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Local System",
+        objective="test",
+        settings={},
+        flow_definition={},
+    )
+    db_session.add_all([foreign_context, local_system])
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as create_error:
+        await systems.create_system(
+            systems.SystemCreate(
+                name="Cross-tenant Context System",
+                context_id=foreign_context.id,
+            ),
+            workspace,
+            admin,
+            db_session,
+        )
+    assert create_error.value.status_code == 400
+
+    with pytest.raises(HTTPException) as update_error:
+        await systems.update_system(
+            local_system.id,
+            systems.SystemUpdate(context_id=foreign_context.id),
+            systems.SystemUpdateOptions(),
+            workspace,
+            admin,
+            db_session,
+        )
+    assert update_error.value.status_code == 400
+    db_session.refresh(local_system)
+    assert local_system.context_id is None
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,13 @@ import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shar
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
-export type WorkspaceAppEntitlement = 'chat' | 'client360-pdr' | 'knowledge-capture' | 'fse-reports';
+/** Canonical manifest-defined key; runtime values are validated before use. */
+export type WorkspaceAppEntitlement = string;
+export interface WorkspaceAppEntitlementOption {
+  key: WorkspaceAppEntitlement;
+  label: string;
+  appId: string | null;
+}
 export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
   key: WorkspaceAppEntitlement;
   label: string;
@@ -14,6 +20,68 @@ export const BUSINESS_WORKSPACE_APPS: ReadonlyArray<{
   { key: 'knowledge-capture', label: 'Capture de connaissances' },
   { key: 'fse-reports', label: "Rapports d'intervention FSE" },
 ]);
+
+export interface WorkspaceAppRuntimeInstallation {
+  app_id: string;
+  version: string;
+  manifest_digest: string;
+  category: string;
+  routes: string[];
+  primary_surface_id: string;
+  default_route: string;
+  branding_namespace: string;
+  api_prefixes: string[];
+  action_packs: string[];
+  entitlement_keys: string[];
+  /** Optional public manifest presentation fields supported by newer runtimes. */
+  display_name?: string;
+  entitlement_labels?: Record<string, string>;
+}
+
+export interface WorkspaceAppRuntimeMissionRoom {
+  profile: string;
+  assistant_profile: string;
+  label: string;
+  assistant_label: string;
+  brand_style: string;
+  navigation_keys: string[];
+  app_id: string;
+  version: string;
+  manifest_digest: string;
+  default_route: string;
+  primary_surface_id: string;
+  /** Immutable provider contract copied from the installed manifest. */
+  provider_kind?: string;
+  provider_endpoints?: string[];
+}
+
+export interface WorkspaceAppRuntimeExperience {
+  shell: string;
+  routes: string[];
+  primary_surface_ids: string[];
+  default_routes: Record<string, string>;
+  branding_namespaces: string[];
+  api_prefixes: string[];
+  action_packs: string[];
+  mission_room: WorkspaceAppRuntimeMissionRoom | null;
+}
+
+/**
+ * Secret-free projection derived by the backend from exact, content-addressed
+ * Workspace App installations. It becomes authoritative only behind the
+ * workspace_app_platform_v1 feature flag.
+ */
+export interface WorkspaceAppRuntimeProjection {
+  schema_version?: number;
+  mode: string;
+  enabled: boolean;
+  valid: boolean;
+  rollout_phase?: 'inspection' | 'disabled' | 'probation' | 'active' | 'invalid';
+  rollout_ref?: string | null;
+  error_code?: string;
+  installations: WorkspaceAppRuntimeInstallation[];
+  experience: WorkspaceAppRuntimeExperience | null;
+}
 
 export interface WorkspaceInfo {
   id: string;
@@ -25,7 +93,9 @@ export interface WorkspaceInfo {
   created_at?: string;
   mode?: WorkspaceMode;
   settings?: Record<string, unknown>;
+  effective_features?: Record<string, boolean>;
   app_entitlements?: WorkspaceAppEntitlement[];
+  workspace_app_runtime?: WorkspaceAppRuntimeProjection;
 }
 
 export interface WorkspaceDetail {
@@ -39,8 +109,117 @@ export interface WorkspaceDetail {
   created_at: string;
   deleted_at?: string | null;
   settings?: Record<string, unknown>;
+  effective_features?: Record<string, boolean>;
   mode?: WorkspaceMode;
   app_entitlements?: WorkspaceAppEntitlement[];
+  workspace_app_runtime?: WorkspaceAppRuntimeProjection;
+}
+
+const WORKSPACE_APP_ENTITLEMENT_RE = /^[a-z0-9][a-z0-9.-]{0,79}$/;
+const LEGACY_WORKSPACE_APP_LABELS = new Map<string, string>(
+  BUSINESS_WORKSPACE_APPS.map((item) => [item.key, item.label]),
+);
+
+export function isWorkspaceAppEntitlement(value: unknown): value is WorkspaceAppEntitlement {
+  return typeof value === 'string' && WORKSPACE_APP_ENTITLEMENT_RE.test(value);
+}
+
+export function normalizeWorkspaceAppEntitlements(
+  values: readonly unknown[] | null | undefined,
+): WorkspaceAppEntitlement[] {
+  const normalized: WorkspaceAppEntitlement[] = [];
+  const seen = new Set<string>();
+  for (const value of values ?? []) {
+    if (!isWorkspaceAppEntitlement(value) || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+export function workspaceAppEntitlementOptions(
+  workspace: Pick<WorkspaceInfo, 'settings' | 'workspace_app_runtime'> | null | undefined,
+  activeEntitlements: readonly unknown[] = [],
+): WorkspaceAppEntitlementOption[] {
+  const options: WorkspaceAppEntitlementOption[] = [];
+  const seen = new Set<string>();
+  const features = workspace?.settings?.['features'];
+  const platformEnabled = Boolean(
+    features
+    && typeof features === 'object'
+    && !Array.isArray(features)
+    && (features as Record<string, unknown>)['workspace_app_platform_v1'] === true,
+  );
+  const installations = platformEnabled
+    ? workspace?.workspace_app_runtime?.installations ?? []
+    : [];
+
+  const add = (
+    key: unknown,
+    label: unknown,
+    appId: string | null,
+  ): void => {
+    if (!isWorkspaceAppEntitlement(key) || seen.has(key)) return;
+    const normalizedLabel = typeof label === 'string' && label.trim()
+      ? label.trim()
+      : entitlementLabelFallback(key);
+    seen.add(key);
+    options.push({ key, label: normalizedLabel, appId });
+  };
+
+  if (platformEnabled) {
+    for (const installation of installations) {
+      const keys = normalizeWorkspaceAppEntitlements(installation.entitlement_keys);
+      for (const key of keys) {
+        const runtimeLabel = installation.entitlement_labels?.[key];
+        const singleKeyLabel = keys.length === 1 ? installation.display_name : null;
+        add(
+          key,
+          runtimeLabel || LEGACY_WORKSPACE_APP_LABELS.get(key) || singleKeyLabel,
+          installation.app_id || null,
+        );
+      }
+    }
+  } else {
+    for (const option of BUSINESS_WORKSPACE_APPS) add(option.key, option.label, null);
+  }
+
+  for (const key of normalizeWorkspaceAppEntitlements(activeEntitlements)) {
+    add(key, LEGACY_WORKSPACE_APP_LABELS.get(key), null);
+  }
+  return options;
+}
+
+export function toggleWorkspaceAppEntitlement(
+  current: readonly unknown[] | null | undefined,
+  key: unknown,
+  enabled: boolean,
+  options: readonly WorkspaceAppEntitlementOption[],
+): WorkspaceAppEntitlement[] {
+  const existing = normalizeWorkspaceAppEntitlements(current);
+  if (!isWorkspaceAppEntitlement(key)) return existing;
+  const selected = new Set(existing);
+  if (enabled) selected.add(key);
+  else selected.delete(key);
+  const ordered: WorkspaceAppEntitlement[] = [];
+  for (const option of options) {
+    if (selected.delete(option.key)) ordered.push(option.key);
+  }
+  // Preserve valid active keys absent from the current runtime catalog. This
+  // prevents an unrelated checkbox from revoking a future or uninstalled app.
+  for (const value of existing) {
+    if (selected.delete(value)) ordered.push(value);
+  }
+  for (const value of selected) ordered.push(value);
+  return ordered;
+}
+
+function entitlementLabelFallback(key: string): string {
+  return key
+    .split(/[.-]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 export interface WorkspaceMemberDetail {
@@ -123,6 +302,8 @@ function readStoredWorkspaceSlug(): string | null {
 
 export interface WorkspaceRequestScope {
   readonly workspaceSlug: string | null;
+  /** Immutable tenant identity; the slug alone can be reused after recreation. */
+  readonly workspaceId: string | null;
   readonly epoch: number;
 }
 
@@ -197,7 +378,10 @@ export class WorkspaceService {
       features
       && typeof features === 'object'
       && !Array.isArray(features)
-      && (features as Record<string, unknown>)['app_entitlements_v1'] === true,
+      && (
+        (features as Record<string, unknown>)['app_entitlements_v1'] === true
+        || (features as Record<string, unknown>)['workspace_app_platform_v1'] === true
+      ),
     );
   });
   readonly sapHanaConnectorEnabled = computed(() => {
@@ -230,12 +414,20 @@ export class WorkspaceService {
 
   captureRequestScope(): WorkspaceRequestScope {
     const state = this.state();
-    return Object.freeze({ workspaceSlug: state.activeSlug, epoch: state.epoch });
+    const workspaceId = state.list.find((workspace) => workspace.slug === state.activeSlug)?.id ?? null;
+    return Object.freeze({
+      workspaceSlug: state.activeSlug,
+      workspaceId,
+      epoch: state.epoch,
+    });
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {
     const state = this.state();
-    return state.activeSlug === scope.workspaceSlug && state.epoch === scope.epoch;
+    const workspaceId = state.list.find((workspace) => workspace.slug === state.activeSlug)?.id ?? null;
+    return state.activeSlug === scope.workspaceSlug
+      && workspaceId === scope.workspaceId
+      && state.epoch === scope.epoch;
   }
 
   registerContextReset(resetter: WorkspaceContextResetter): () => void {
@@ -255,7 +447,17 @@ export class WorkspaceService {
         const nextSlug = current && list.some((workspace) => workspace.slug === current)
           ? current
           : list[0]?.slug ?? null;
-        if (nextSlug === current) {
+        const currentWorkspaceId = this.current()?.id ?? null;
+        const nextWorkspaceId = list.find((workspace) => workspace.slug === nextSlug)?.id ?? null;
+        if (
+          nextSlug === current
+          && (
+            currentWorkspaceId === nextWorkspaceId
+            // Initial hydration resolves the stored slug to its real identity;
+            // there is no previously published tenant to invalidate.
+            || currentWorkspaceId === null
+          )
+        ) {
           this.state.update((state) => ({ ...state, list }));
           this.contextRefreshSubject.next();
         } else {
@@ -293,18 +495,56 @@ export class WorkspaceService {
       // suppress the public emission as well as the internal state mutation.
       filter(() => this.isRequestScopeCurrent(scope)),
       tap((detail) => {
-        this.state.update((state) => {
-          const list = state.list;
-          const next = { ...detail };
-          const updated = !list.find((w) => w.slug === detail.slug)
-            ? [...list, next]
-            : list.map((w) => (w.slug === detail.slug ? { ...w, ...next } : w));
-          return { ...state, list: updated };
-        });
-        this.contextRefreshSubject.next();
+        const state = this.state();
+        const current = state.list.find((workspace) => workspace.slug === state.activeSlug);
+        const next = { ...detail };
+        const updated = !state.list.find((workspace) => workspace.slug === detail.slug)
+          ? [...state.list, next]
+          : state.list.map((workspace) => (
+            workspace.slug === detail.slug ? { ...workspace, ...next } : workspace
+          ));
+        if (
+          detail.slug === state.activeSlug
+          && current
+          && current.id !== detail.id
+        ) {
+          this.commitWorkspaceContext(updated, detail.slug);
+        } else {
+          this.state.set({ ...state, list: updated });
+          this.contextRefreshSubject.next();
+        }
       }),
       catchError(() => this.isRequestScopeCurrent(scope) ? of(null) : EMPTY),
     );
+  }
+
+  /**
+   * Pessimistically revoke one server-computed feature without changing the
+   * workspace identity or epoch. A subsequent metadata refresh may confirm a
+   * newer lease, but an expired/deactivated projection must disappear from an
+   * already-open SPA immediately.
+   */
+  revokeEffectiveFeature(key: string): void {
+    const slug = this.currentSlug();
+    if (!slug) return;
+    let changed = false;
+    this.state.update((state) => {
+      const list = state.list.map((workspace) => {
+        if (workspace.slug !== slug || workspace.effective_features?.[key] !== true) {
+          return workspace;
+        }
+        changed = true;
+        return {
+          ...workspace,
+          effective_features: {
+            ...(workspace.effective_features ?? {}),
+            [key]: false,
+          },
+        };
+      });
+      return changed ? { ...state, list } : state;
+    });
+    if (changed) this.contextRefreshSubject.next();
   }
 
   createWorkspace(name: string, slug?: string): Observable<WorkspaceDetail> {
@@ -388,7 +628,9 @@ export class WorkspaceService {
       role: 'admin' | 'member';
       app_entitlements?: readonly WorkspaceAppEntitlement[];
     } = { email, role };
-    if (appEntitlements !== undefined) body.app_entitlements = appEntitlements;
+    if (appEntitlements !== undefined) {
+      body.app_entitlements = normalizeWorkspaceAppEntitlements(appEntitlements);
+    }
     return this.http.post<InviteMemberResponse>(
       `/api/v1/auth/workspaces/${slug}/members`,
       body,
@@ -405,7 +647,9 @@ export class WorkspaceService {
       role: 'admin' | 'member';
       app_entitlements?: readonly WorkspaceAppEntitlement[];
     } = { role };
-    if (appEntitlements !== undefined) body.app_entitlements = appEntitlements;
+    if (appEntitlements !== undefined) {
+      body.app_entitlements = normalizeWorkspaceAppEntitlements(appEntitlements);
+    }
     return this.http.patch(`/api/v1/auth/workspaces/${slug}/members/${userId}`, body);
   }
 
@@ -429,7 +673,16 @@ export class WorkspaceService {
       app_entitlements?: readonly WorkspaceAppEntitlement[];
     },
   ): Observable<{ status: 'ok'; member: WorkspaceMemberDetail }> {
-    return this.http.put<{ status: 'ok'; member: WorkspaceMemberDetail }>(`/api/v1/iam/members/${userId}`, body);
+    const normalized = body.app_entitlements === undefined
+      ? body
+      : {
+        ...body,
+        app_entitlements: normalizeWorkspaceAppEntitlements(body.app_entitlements),
+      };
+    return this.http.put<{ status: 'ok'; member: WorkspaceMemberDetail }>(
+      `/api/v1/iam/members/${userId}`,
+      normalized,
+    );
   }
 
   removeMember(slug: string, userId: string): Observable<unknown> {
@@ -460,7 +713,14 @@ export class WorkspaceService {
 
   private commitWorkspaceContext(list: WorkspaceInfo[], nextSlug: string | null): void {
     const previous = this.state();
-    if (previous.activeSlug === nextSlug) {
+    const previousWorkspaceId = previous.list.find(
+      (workspace) => workspace.slug === previous.activeSlug,
+    )?.id ?? null;
+    const nextWorkspaceId = list.find((workspace) => workspace.slug === nextSlug)?.id ?? null;
+    if (
+      previous.activeSlug === nextSlug
+      && previousWorkspaceId === nextWorkspaceId
+    ) {
       this.state.set({ ...previous, list });
       return;
     }
@@ -494,14 +754,18 @@ export class WorkspaceService {
   }
 
   private upsertWorkspace(workspace: WorkspaceInfo): void {
-    const refreshesCurrent = workspace.slug === this.currentSlug();
-    this.state.update((state) => {
-      const exists = state.list.some((item) => item.slug === workspace.slug);
-      const list = exists
-        ? state.list.map((item) => item.slug === workspace.slug ? { ...item, ...workspace } : item)
-        : [...state.list, workspace];
-      return { ...state, list };
-    });
+    const state = this.state();
+    const refreshesCurrent = workspace.slug === state.activeSlug;
+    const current = state.list.find((item) => item.slug === state.activeSlug);
+    const exists = state.list.some((item) => item.slug === workspace.slug);
+    const list = exists
+      ? state.list.map((item) => item.slug === workspace.slug ? { ...item, ...workspace } : item)
+      : [...state.list, workspace];
+    if (refreshesCurrent && current && current.id !== workspace.id) {
+      this.commitWorkspaceContext(list, workspace.slug);
+      return;
+    }
+    this.state.set({ ...state, list });
     if (refreshesCurrent) this.contextRefreshSubject.next();
   }
 }

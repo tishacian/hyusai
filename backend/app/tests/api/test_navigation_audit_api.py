@@ -179,6 +179,7 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
         ("navigation_resolver", "workspace_default_route"),
         ("navigation_resolver", "workspace_extension_unavailable"),
         ("navigation_resolver", "workspace_settings_entrypoint"),
+        ("navigation_resolver", "legacy_hypervisor_object_lens"),
     ),
 )
 def test_navigation_resolved_accepts_each_redirect_owner_reason_pair(
@@ -274,6 +275,32 @@ def test_navigation_resolved_accepts_direct_navigation_with_equal_routes(
         "redirect_reason": "direct",
         "redirected": False,
     }
+
+
+def test_navigation_resolved_accepts_and_canonicalizes_fse_reports_surface(
+    db_session,
+):
+    workspace, user = _seed(db_session)
+    response = _client(db_session, workspace, user).post(
+        "/api/v1/audit",
+        json={
+            "event_type": "navigation.resolved",
+            "details": {
+                "schema_version": 1,
+                "requested_route": "/knowledge/interventions",
+                "resolved_route": "/knowledge/interventions",
+                "effective_workspace": workspace.slug,
+                "effective_surface": "fse-reports",
+                "redirect_owner": "angular_router",
+                "redirect_reason": "direct",
+                "redirected": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["details"]["effective_surface"] == "fse-reports"
+    assert response.json()["details"]["resolved_route"] == "/knowledge/interventions"
 
 
 @pytest.mark.parametrize(
@@ -438,3 +465,21 @@ def test_generic_audit_event_keeps_existing_authenticated_actor_contract(db_sess
     assert row.actor == user.username
     assert row.details == {"free_form": True}
     assert row.severity == "warning"
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    ["iam.shadow.evaluation", "lot7.authorization.enforce_promoted", "run.completed"],
+)
+def test_public_audit_endpoint_rejects_server_namespaces(db_session, event_type):
+    workspace, user = _seed(db_session)
+    response = _client(db_session, workspace, user).post(
+        "/api/v1/audit",
+        json={
+            "event_type": event_type,
+            "details": {"origin": "server", "candidate_allowed": 1},
+        },
+    )
+
+    assert response.status_code == 403
+    assert db_session.query(AuditLog).filter_by(event_type=event_type).count() == 0

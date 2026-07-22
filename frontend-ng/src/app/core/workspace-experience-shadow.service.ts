@@ -207,6 +207,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
           mode: runtimeWorkspace.mode,
           settings: runtimeWorkspace.settings,
           appEntitlements: runtimeWorkspace.app_entitlements,
+          appRuntime: runtimeWorkspace.workspace_app_runtime,
         },
         scenario: { ...critical.input.scenario },
       };
@@ -296,6 +297,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
         mode: workspace.mode,
         settings: workspace.settings,
         appEntitlements: workspace.app_entitlements,
+        appRuntime: workspace.workspace_app_runtime,
       },
       scenario: {
         role: workspace.role,
@@ -628,6 +630,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
         mode: workspace.mode ?? null,
         settings: workspace.settings ?? null,
         appEntitlements: workspace.app_entitlements ?? null,
+        appRuntime: workspace.workspace_app_runtime ?? null,
       },
     });
   }

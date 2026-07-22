@@ -8,12 +8,15 @@ and that a flow with no maps is byte-identical to the legacy flat-merge path.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
+
+import pytest
 
 from app.models.context import Context
-from app.models.run import Run, SkillInvocation
+from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import _seed_pool, execute_run_dag
 from app.services.run_engine.variable_pool import VariablePool, apply_inputs_map
@@ -50,11 +53,21 @@ def _mk_skill(db, slug: str) -> Skill:
 
 
 def _mk_system(db, *, flow: Dict[str, Any]) -> System:
+    skill_slugs = [
+        str((node.get("config") or {}).get("skill_slug"))
+        for node in (flow.get("nodes") or [])
+        if node.get("kind") in {"task", "retry", "loop"}
+        and (node.get("config") or {}).get("skill_slug")
+    ]
+    skill_ids = [
+        row.id
+        for row in db.query(Skill).filter(Skill.slug.in_(skill_slugs)).all()
+    ] if skill_slugs else []
     sys_row = System(
         id=str(uuid.uuid4()),
         name="vp system",
         objective="test",
-        skill_ids=[],
+        skill_ids=skill_ids,
         flow_definition=flow,
     )
     db.add(sys_row)
@@ -212,6 +225,45 @@ def test_context_namespace_reads_bound_context_environment_state(db_session):
         {},
         io_mode="strict",
     ) == {"event_type": "system.test.audited"}
+
+
+def test_context_namespace_rejects_cross_workspace_binding(db_session):
+    owner = Workspace(
+        id=str(uuid.uuid4()),
+        name="Context owner",
+        slug=f"context-owner-{uuid.uuid4().hex[:8]}",
+    )
+    other = Workspace(
+        id=str(uuid.uuid4()),
+        name="Context other",
+        slug=f"context-other-{uuid.uuid4().hex[:8]}",
+    )
+    foreign_context = Context(
+        id=str(uuid.uuid4()),
+        workspace_id=other.id,
+        name="Foreign context",
+        business_constraints={"sensitive_business_rule": "never expose"},
+    )
+    system = System(
+        id=str(uuid.uuid4()),
+        workspace_id=owner.id,
+        name="Local System",
+        objective="test",
+        context_id=foreign_context.id,
+        flow_definition={},
+    )
+    run = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=owner.id,
+        system_id=system.id,
+        input_ref={},
+        status="pending",
+    )
+    db_session.add_all([owner, other, foreign_context, system, run])
+    db_session.commit()
+
+    with pytest.raises(RuntimeError, match="system_context_binding_invalid"):
+        _seed_pool(db_session, VariablePool(), run, system)
 
 
 async def test_no_maps_is_byte_identical_to_flat_merge(db_session, monkeypatch):

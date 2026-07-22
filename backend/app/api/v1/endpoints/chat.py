@@ -68,6 +68,7 @@ from app.services.industrial_answer_profile import (
     industrial_answer_policy,
     resolve_answer_profile,
 )
+from app.services.system_engine_authorization import enforce_system_engine_run
 from app.services.mission_room import (
     briefing_payload,
     cockpit_payload,
@@ -1709,6 +1710,7 @@ async def _try_registry_chat_action(
     assistant_profile: Optional[str],
     session_id: Optional[str] = None,
     knowledge_scope: Optional[str] = None,
+    system_id: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     return await handle_registry_chat_action(
         db,
@@ -1718,6 +1720,7 @@ async def _try_registry_chat_action(
         assistant_profile=assistant_profile,
         session_id=session_id,
         knowledge_scope=knowledge_scope,
+        system_id=system_id,
     )
 
 
@@ -2266,6 +2269,7 @@ async def chat_completion(
                 "canonical_answer_score": match_score,
             }
 
+        registry_system_id = _resolve_system_id(db, workspace.id, request.agent_id)
         registry_action = await _try_registry_chat_action(
             db,
             workspace,
@@ -2274,6 +2278,7 @@ async def chat_completion(
             assistant_profile=request.assistant_profile,
             session_id=request.session_id,
             knowledge_scope=request.knowledge_scope,
+            system_id=registry_system_id,
         )
         if registry_action:
             content = registry_action["content"]
@@ -2281,7 +2286,7 @@ async def chat_completion(
             run_id = _persist_chat_run(
                 db,
                 workspace_id=workspace.id,
-                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                system_id=registry_system_id,
                 query=validated_query,
                 response_text=content,
                 sources=registry_action.get("sources") or [],
@@ -2536,6 +2541,13 @@ async def chat_completion(
         )
         agentic_fallback_metadata: Optional[dict[str, Any]] = None
         if execution_decision.is_agentic:
+            enforce_system_engine_run(
+                db,
+                user=user,
+                workspace=workspace,
+                system=execution_decision.executor_system,
+                source="chat.completion",
+            )
             history, previous_salient_entities = _load_chat_conversation_state(
                 db,
                 session_id=request.session_id,
@@ -3494,6 +3506,7 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
+            registry_system_id = _resolve_system_id(db, workspace.id, request.agent_id)
             registry_action = await _try_registry_chat_action(
                 db,
                 workspace,
@@ -3502,6 +3515,7 @@ async def chat_stream(
                 assistant_profile=request.assistant_profile,
                 session_id=request.session_id,
                 knowledge_scope=request.knowledge_scope,
+                system_id=registry_system_id,
             )
             if registry_action:
                 content = registry_action["content"]
@@ -3528,7 +3542,7 @@ async def chat_stream(
                 run_id = _persist_chat_run(
                     db,
                     workspace_id=workspace.id,
-                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    system_id=registry_system_id,
                     query=validated_query,
                     response_text=content,
                     sources=registry_action.get("sources") or [],
@@ -3982,6 +3996,25 @@ async def chat_stream(
                 _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
             agentic_fallback_metadata: Optional[dict[str, Any]] = None
             if execution_decision.is_agentic:
+                try:
+                    enforce_system_engine_run(
+                        db,
+                        user=user,
+                        workspace=workspace,
+                        system=execution_decision.executor_system,
+                        source="chat.stream",
+                    )
+                except HTTPException:
+                    db.rollback()
+                    yield _sse_data(
+                        _error_chunk(
+                            "SYSTEM_ENGINE_RUN_DENIED",
+                            "System execution is not authorized",
+                            recoverable=False,
+                        )
+                    )
+                    yield _sse_done()
+                    return
                 conversation_history, previous_salient_entities = _load_chat_conversation_state(
                     db, session_id=request.session_id
                 )

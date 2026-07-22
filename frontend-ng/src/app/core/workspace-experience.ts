@@ -4,9 +4,17 @@
  * legacy projection remains the compatibility oracle and rollback path.
  */
 
+import type {
+  WorkspaceAppRuntimeExperience,
+  WorkspaceAppRuntimeInstallation,
+  WorkspaceAppRuntimeProjection,
+} from './workspace.service';
+
 export const WORKSPACE_EXPERIENCE_SCHEMA_VERSION = 2 as const;
 export const WORKSPACE_EXPERIENCE_EVIDENCE_SCHEMA_VERSION = 1 as const;
 export const WORKSPACE_EXPERIENCE_RESOLVER_VERSION = 'workspace-experience-v2.flagged.1' as const;
+export const WORKSPACE_APP_UNAVAILABLE_ROUTE = '/workspace-app-unavailable' as const;
+export const WORKSPACE_APP_REPAIR_ROUTE = '/workspace-app-repair' as const;
 
 export const BUSINESS_PRIMARY_SURFACE_IDS = [
   'chat',
@@ -58,7 +66,8 @@ export type WorkspaceExperienceShellKind =
   | 'agentium_standard'
   | 'business'
   | 'workspace_app_immersive'
-  | 'workspace_focus';
+  | 'workspace_focus'
+  | 'workspace_app_unavailable';
 
 export type WorkspaceExperienceAdvancedAccess = 'admin_only' | 'link' | 'hidden';
 export type WorkspaceExperienceIssueKind = 'error' | 'unknown_adapter';
@@ -68,6 +77,7 @@ export interface WorkspaceExperienceWorkspace {
   mode?: string | null;
   settings?: Readonly<Record<string, unknown>> | null;
   appEntitlements?: readonly string[] | null;
+  appRuntime?: WorkspaceAppRuntimeProjection | null;
 }
 
 export interface WorkspaceExperienceScenario {
@@ -411,6 +421,527 @@ function missionProjection(
   };
 }
 
+interface AuthoritativeWorkspaceAppState {
+  runtime: WorkspaceAppRuntimeProjection;
+  experience: WorkspaceAppRuntimeExperience;
+  installations: WorkspaceAppRuntimeInstallation[];
+}
+
+function workspaceAppPlatformEnabled(input: WorkspaceExperienceInput): boolean {
+  return featureEnabled(input, 'workspace_app_platform_v1');
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.every((item) => typeof item === 'string' && item.trim().length > 0);
+}
+
+function orderedUniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function sameStringArray(left: unknown, right: readonly string[]): boolean {
+  return stringArray(left)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function sameStringRecord(left: unknown, right: Readonly<Record<string, string>>): boolean {
+  if (!isPlainObject(left)) return false;
+  const leftEntries = Object.entries(left).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  const rightEntries = Object.entries(right).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  return leftEntries.length === rightEntries.length
+    && leftEntries.every(([key, value], index) => (
+      key === rightEntries[index]?.[0] && value === rightEntries[index]?.[1]
+    ));
+}
+
+function runtimeContract(
+  input: WorkspaceExperienceInput,
+): { state: AuthoritativeWorkspaceAppState | null; issues: WorkspaceExperienceIssue[] } {
+  const issues: WorkspaceExperienceIssue[] = [];
+  const rawRuntime: unknown = input.workspace.appRuntime;
+  if (!isPlainObject(rawRuntime)) {
+    return {
+      state: null,
+      issues: [issue('error', 'workspace_app_runtime_missing', '/workspace/workspace_app_runtime')],
+    };
+  }
+  if (
+    rawRuntime['schema_version'] !== 1
+    || rawRuntime['mode'] !== 'authoritative'
+    || rawRuntime['enabled'] !== true
+    || rawRuntime['valid'] !== true
+  ) {
+    return {
+      state: null,
+      issues: [issue('error', 'workspace_app_runtime_invalid', '/workspace/workspace_app_runtime')],
+    };
+  }
+  const rolloutPhase = rawRuntime['rollout_phase'];
+  const rolloutRef = rawRuntime['rollout_ref'];
+  if (
+    !['probation', 'active'].includes(String(rolloutPhase))
+    || typeof rolloutRef !== 'string'
+    || !/^sha256:[0-9a-f]{64}$/.test(rolloutRef)
+  ) {
+    return {
+      state: null,
+      issues: [issue(
+        'error',
+        'workspace_app_runtime_attestation_invalid',
+        '/workspace/workspace_app_runtime/rollout_ref',
+      )],
+    };
+  }
+
+  const rawInstallations = rawRuntime['installations'];
+  const rawExperience = rawRuntime['experience'];
+  if (
+    !Array.isArray(rawInstallations)
+    || rawInstallations.length === 0
+    || !isPlainObject(rawExperience)
+  ) {
+    return {
+      state: null,
+      issues: [issue('error', 'workspace_app_runtime_malformed', '/workspace/workspace_app_runtime')],
+    };
+  }
+
+  const shell = rawExperience['shell'];
+  if (!['standard', 'business', 'immersive'].includes(String(shell))) {
+    issues.push(issue('error', 'workspace_app_runtime_shell_invalid', '/workspace/workspace_app_runtime/experience/shell'));
+  }
+  for (const [key, value] of [
+    ['routes', rawExperience['routes']],
+    ['primary_surface_ids', rawExperience['primary_surface_ids']],
+    ['branding_namespaces', rawExperience['branding_namespaces']],
+    ['api_prefixes', rawExperience['api_prefixes']],
+    ['action_packs', rawExperience['action_packs']],
+  ] as const) {
+    if (!stringArray(value)) {
+      if (!Array.isArray(value) || value.length > 0) {
+        issues.push(issue('error', 'workspace_app_runtime_malformed', `/workspace/workspace_app_runtime/experience/${key}`));
+      }
+    }
+  }
+  const routes = stringArray(rawExperience['routes']) ? rawExperience['routes'] : [];
+  if (routes.some((route) => !route.startsWith('/'))) {
+    issues.push(issue('error', 'workspace_app_runtime_route_invalid', '/workspace/workspace_app_runtime/experience/routes'));
+  }
+  const apiPrefixes = stringArray(rawExperience['api_prefixes'])
+    ? rawExperience['api_prefixes']
+    : [];
+  if (apiPrefixes.some((prefix) => !prefix.startsWith('/api/v1/'))) {
+    issues.push(issue('error', 'workspace_app_runtime_api_prefix_invalid', '/workspace/workspace_app_runtime/experience/api_prefixes'));
+  }
+  const rawDefaultRoutes = rawExperience['default_routes'];
+  if (!isPlainObject(rawDefaultRoutes) || Object.values(rawDefaultRoutes).some((route) => (
+    typeof route !== 'string' || !route.startsWith('/')
+  ))) {
+    issues.push(issue('error', 'workspace_app_runtime_default_route_invalid', '/workspace/workspace_app_runtime/experience/default_routes'));
+  }
+
+  const installations: WorkspaceAppRuntimeInstallation[] = [];
+  for (let index = 0; index < rawInstallations.length; index += 1) {
+    const value = rawInstallations[index];
+    if (
+      !isPlainObject(value)
+      || !stringValue(value['app_id'])
+      || !stringValue(value['version'])
+      || !stringValue(value['manifest_digest'])
+      || !stringValue(value['category'])
+      || !stringValue(value['primary_surface_id'])
+      || !absoluteRoute(value['default_route'])
+      || !stringValue(value['branding_namespace'])
+      || !stringArray(value['routes'])
+      || !stringArray(value['api_prefixes'])
+      || !stringArray(value['action_packs'])
+      || !stringArray(value['entitlement_keys'])
+      || value['routes'].some((route) => !route.startsWith('/'))
+      || value['api_prefixes'].some((prefix) => !prefix.startsWith('/api/v1/'))
+      || !value['routes'].some((route) => routeWithinScope(String(value['default_route']), route))
+    ) {
+      issues.push(issue('error', 'workspace_app_runtime_installation_invalid', `/workspace/workspace_app_runtime/installations/${index}`));
+      continue;
+    }
+    installations.push(value as unknown as WorkspaceAppRuntimeInstallation);
+  }
+
+  if (installations.length === rawInstallations.length) {
+    const expectedRoutes = orderedUniqueStrings(installations.flatMap((item) => item.routes));
+    const expectedSurfaces = orderedUniqueStrings(installations.map((item) => item.primary_surface_id));
+    const expectedBranding = orderedUniqueStrings(installations.map((item) => item.branding_namespace));
+    const expectedApiPrefixes = orderedUniqueStrings(installations.flatMap((item) => item.api_prefixes));
+    const expectedActionPacks = orderedUniqueStrings(installations.flatMap((item) => item.action_packs));
+    const expectedDefaults = Object.fromEntries(installations.map((item) => [item.app_id, item.default_route]));
+    if (
+      !sameStringArray(rawExperience['routes'], expectedRoutes)
+      || !sameStringArray(rawExperience['primary_surface_ids'], expectedSurfaces)
+      || !sameStringArray(rawExperience['branding_namespaces'], expectedBranding)
+      || !sameStringArray(rawExperience['api_prefixes'], expectedApiPrefixes)
+      || !sameStringArray(rawExperience['action_packs'], expectedActionPacks)
+      || !sameStringRecord(rawExperience['default_routes'], expectedDefaults)
+    ) {
+      issues.push(issue('error', 'workspace_app_runtime_aggregate_mismatch', '/workspace/workspace_app_runtime/experience'));
+    }
+  }
+
+  const mission = rawExperience['mission_room'];
+  if (mission !== null && mission !== undefined) {
+    const providerKind = isPlainObject(mission) ? mission['provider_kind'] : undefined;
+    const providerEndpoints = isPlainObject(mission) ? mission['provider_endpoints'] : undefined;
+    if (
+      !isPlainObject(mission)
+      || !stringValue(mission['profile'])
+      || !stringValue(mission['assistant_profile'])
+      || !stringValue(mission['label'])
+      || !stringValue(mission['assistant_label'])
+      || !stringValue(mission['brand_style'])
+      || !stringArray(mission['navigation_keys'])
+      || !stringValue(mission['app_id'])
+      || !stringValue(mission['version'])
+      || !stringValue(mission['manifest_digest'])
+      || !absoluteRoute(mission['default_route'])
+      || !stringValue(mission['primary_surface_id'])
+      || ((providerKind !== undefined || providerEndpoints !== undefined) && (
+        !stringValue(providerKind) || !stringArray(providerEndpoints)
+      ))
+    ) {
+      issues.push(issue('error', 'workspace_app_runtime_mission_room_invalid', '/workspace/workspace_app_runtime/experience/mission_room'));
+    } else {
+      const owner = installations.find((installation) => installation.app_id === mission['app_id']);
+      if (
+        !owner
+        || owner.version !== mission['version']
+        || owner.manifest_digest !== mission['manifest_digest']
+        || owner.primary_surface_id !== mission['primary_surface_id']
+        || owner.default_route !== mission['default_route']
+      ) {
+        issues.push(issue('error', 'workspace_app_runtime_mission_room_owner_mismatch', '/workspace/workspace_app_runtime/experience/mission_room'));
+      }
+    }
+  }
+  if (shell === 'immersive' && !isPlainObject(mission)) {
+    issues.push(issue('error', 'workspace_app_runtime_mission_room_missing', '/workspace/workspace_app_runtime/experience/mission_room'));
+  }
+  if (shell !== 'immersive' && mission !== null) {
+    issues.push(issue('error', 'workspace_app_runtime_mission_room_unexpected', '/workspace/workspace_app_runtime/experience/mission_room'));
+  }
+
+  const primarySurfaceIds = stringArray(rawExperience['primary_surface_ids'])
+    ? rawExperience['primary_surface_ids']
+    : [];
+  if (shell === 'business' && !primarySurfaceIds.some((surface) => (
+    (BUSINESS_PRIMARY_SURFACE_IDS as readonly string[]).includes(surface)
+  ))) {
+    issues.push(issue('error', 'workspace_app_runtime_business_surface_missing', '/workspace/workspace_app_runtime/experience/primary_surface_ids'));
+  }
+  if (shell === 'business' && primarySurfaceIds.some((surface) => (
+    !(BUSINESS_PRIMARY_SURFACE_IDS as readonly string[]).includes(surface)
+  ))) {
+    issues.push(issue('error', 'workspace_app_runtime_business_surface_unknown', '/workspace/workspace_app_runtime/experience/primary_surface_ids'));
+  }
+
+  if (issues.some((item) => item.kind === 'error')) {
+    return { state: null, issues };
+  }
+  return {
+    state: {
+      runtime: rawRuntime as unknown as WorkspaceAppRuntimeProjection,
+      experience: rawExperience as unknown as WorkspaceAppRuntimeExperience,
+      installations,
+    },
+    issues,
+  };
+}
+
+function authoritativeInstalledBusinessSurfaces(
+  state: AuthoritativeWorkspaceAppState,
+): string[] {
+  return BUSINESS_PRIMARY_SURFACE_IDS.filter((surfaceId) => {
+    const expectedRoute = businessSurfaceRoute(surfaceId);
+    return Boolean(expectedRoute && state.installations.some((installation) => (
+      installation.entitlement_keys.includes(surfaceId)
+      && installation.routes.some((route) => routeWithinScope(expectedRoute, route))
+    )));
+  });
+}
+
+function authoritativeBusinessSurfaces(
+  input: WorkspaceExperienceInput,
+  state: AuthoritativeWorkspaceAppState,
+): string[] {
+  const canonical = authoritativeInstalledBusinessSurfaces(state);
+  // Workspace App runtime authority owns both the installed surface set and
+  // its membership grants.  Once the platform gate is on, falling back to
+  // every installed surface when the legacy entitlement flag is absent would
+  // disagree with the backend entry dependency and briefly render links that
+  // are guaranteed to return 403.
+  const grants = new Set(Array.isArray(input.workspace.appEntitlements)
+    ? input.workspace.appEntitlements.filter((item): item is string => typeof item === 'string')
+    : []);
+  return canonical.filter((surface) => grants.has(surface));
+}
+
+function installationForSurface(
+  state: AuthoritativeWorkspaceAppState,
+  surfaceId: string,
+): WorkspaceAppRuntimeInstallation | null {
+  return state.installations.find((installation) => installation.entitlement_keys.includes(surfaceId)) ?? null;
+}
+
+function authoritativeBusinessDefaultRoute(
+  input: WorkspaceExperienceInput,
+  state: AuthoritativeWorkspaceAppState,
+): string {
+  for (const surfaceId of authoritativeBusinessSurfaces(input, state)) {
+    const route = installationForSurface(state, surfaceId)?.default_route;
+    if (route) return pathOnly(route);
+  }
+  return '/account/profile';
+}
+
+function routeWithinScope(path: string, route: string): boolean {
+  const normalized = pathOnly(path);
+  const scope = pathOnly(route).replace(/\/$/, '');
+  return normalized === scope || normalized.startsWith(`${scope}/`);
+}
+
+function authoritativeBusinessAllowedPath(
+  input: WorkspaceExperienceInput,
+  state: AuthoritativeWorkspaceAppState,
+  path: string,
+): boolean {
+  const normalized = pathOnly(path);
+  if (normalized === '/account' || normalized.startsWith('/account/')) return true;
+  return authoritativeBusinessSurfaces(input, state).some((surfaceId) => {
+    const installation = installationForSurface(state, surfaceId);
+    return Boolean(installation?.routes.some((route) => routeWithinScope(normalized, route)));
+  });
+}
+
+function authoritativeDefaultRoute(state: AuthoritativeWorkspaceAppState): string | null {
+  if (state.experience.mission_room?.default_route) {
+    return pathOnly(state.experience.mission_room.default_route);
+  }
+  for (const installation of state.installations) {
+    if (installation.default_route) return pathOnly(installation.default_route);
+  }
+  return null;
+}
+
+function resolveAuthoritativeRoute(
+  input: WorkspaceExperienceInput,
+  state: AuthoritativeWorkspaceAppState,
+  businessActive: boolean,
+): WorkspaceExperienceRouteResolution {
+  const requestedRoute = pathOnly(input.scenario.requestedRoute);
+  let resolvedRoute = requestedRoute;
+  let semanticQueryKeys: string[] = [];
+  let workspaceTargetMatchesCurrent: boolean | null = null;
+  let semanticTargetPreserved: boolean | null = null;
+  let redirectReason: WorkspaceExperienceRouteResolution['redirectReason'] = 'none';
+
+  if (businessActive && !authoritativeBusinessAllowedPath(input, state, requestedRoute)) {
+    if (
+      requestedRoute === '/knowledge'
+      && authoritativeBusinessSurfaces(input, state).includes('knowledge-capture')
+    ) {
+      resolvedRoute = '/knowledge/capture';
+      redirectReason = 'business_knowledge_compatibility';
+    } else if (
+      /^\/systems\/[^/]+\/capture$/.test(requestedRoute)
+      && authoritativeBusinessSurfaces(input, state).includes('knowledge-capture')
+    ) {
+      resolvedRoute = '/knowledge/capture';
+      semanticQueryKeys = ['systemId'];
+      semanticTargetPreserved = true;
+      redirectReason = 'business_system_capture_compatibility';
+    } else {
+      resolvedRoute = authoritativeBusinessDefaultRoute(input, state);
+      redirectReason = 'business_profile_disallowed';
+    }
+  } else if (
+    state.experience.shell === 'immersive'
+    && requestedRoute === '/hypervisor'
+    && authoritativeDefaultRoute(state)
+  ) {
+    resolvedRoute = authoritativeDefaultRoute(state) as string;
+    redirectReason = 'workspace_default_route';
+  } else if (requestedRoute === '/workspace' && input.workspace.slug) {
+    resolvedRoute = `/workspace/${encodeURIComponent(input.workspace.slug)}/settings`;
+    workspaceTargetMatchesCurrent = true;
+    redirectReason = 'workspace_settings_entrypoint';
+  }
+
+  return {
+    requestedRoute: canonicalRoute(requestedRoute),
+    resolvedRoute: canonicalRoute(resolvedRoute),
+    semanticQueryKeys,
+    workspaceTargetMatchesCurrent,
+    semanticTargetPreserved,
+    redirectOwner: 'workspace_experience_v2',
+    redirectReason,
+  };
+}
+
+function runtimeMissionProjection(
+  state: AuthoritativeWorkspaceAppState,
+): WorkspaceExperienceMissionRoomProjection | null {
+  const mission = state.experience.mission_room;
+  if (!mission) return null;
+  return {
+    profile: mission.profile,
+    label: mission.label,
+    assistantLabel: mission.assistant_label,
+    assistantProfile: mission.assistant_profile,
+    brandStyle: mission.brand_style,
+    navigationKeys: [...mission.navigation_keys],
+  };
+}
+
+function resolveAuthoritativeWorkspaceExperience(
+  input: WorkspaceExperienceInput,
+): WorkspaceExperienceV2 {
+  const { state, issues } = runtimeContract(input);
+  const admin = isAdminScenario(input.scenario);
+  const preview = Boolean(input.scenario.businessPreview);
+  if (!state) {
+    const route = pathOnly(input.scenario.requestedRoute);
+    const repairAllowed = admin && route === WORKSPACE_APP_REPAIR_ROUTE;
+    const terminalUnavailable = route === WORKSPACE_APP_UNAVAILABLE_ROUTE;
+    const resolvedRoute = repairAllowed || terminalUnavailable
+      ? route
+      : WORKSPACE_APP_UNAVAILABLE_ROUTE;
+    return {
+      schemaVersion: WORKSPACE_EXPERIENCE_SCHEMA_VERSION,
+      resolverVersion: WORKSPACE_EXPERIENCE_RESOLVER_VERSION,
+      registryEntryIds: [],
+      workspaceSlug: input.workspace.slug,
+      scenarioKey: workspaceExperienceScenarioKey(input.scenario),
+      shellKind: 'workspace_app_unavailable',
+      homeRoute: WORKSPACE_APP_UNAVAILABLE_ROUTE,
+      primarySurfaceIds: [],
+      advancedAccess: 'admin_only',
+      chrome: {
+        titleBar: false,
+        sideRail: false,
+        objectIndex: false,
+        commandBar: false,
+        commandPalette: false,
+        businessHeader: false,
+        missionRail: false,
+      },
+      workspaceApp: {
+        configured: false,
+        shell: null,
+        profile: null,
+        defaultView: null,
+        immersiveRouteScope: null,
+      },
+      immersiveRouteScope: null,
+      cockpitVerbs: [],
+      routeResolution: {
+        requestedRoute: canonicalRoute(route),
+        resolvedRoute: canonicalRoute(resolvedRoute),
+        semanticQueryKeys: [],
+        workspaceTargetMatchesCurrent: null,
+        semanticTargetPreserved: null,
+        redirectOwner: 'workspace_experience_v2',
+        redirectReason: resolvedRoute === route ? 'none' : 'workspace_extension_unavailable',
+      },
+      business: {
+        configured: false,
+        active: false,
+        admin,
+        preview,
+        declaredPrimarySurfaceIds: [],
+      },
+      missionRoom: null,
+      issues,
+      provenance: ['workspace_apps:authoritative_fail_closed'],
+    };
+  }
+
+  const businessConfigured = state.experience.shell === 'business';
+  const businessActive = businessConfigured && (!admin || preview);
+  const routeResolution = resolveAuthoritativeRoute(input, state, businessActive);
+  const focus = /^\/workspace\/[^/]+\/chat$/.test(routeResolution.resolvedRoute);
+  const immersive = state.experience.shell === 'immersive'
+    && state.experience.routes.some((route) => routeWithinScope(routeResolution.resolvedRoute, route));
+  const kind: WorkspaceExperienceShellKind = focus
+    ? 'workspace_focus'
+    : businessActive
+      ? 'business'
+      : immersive
+        ? 'workspace_app_immersive'
+        : 'agentium_standard';
+  const cockpitVerbs = kind === 'agentium_standard'
+    ? input.workspace.mode === 'builder'
+      ? [...BUILDER_COCKPIT_VERBS]
+      : [...FULL_COCKPIT_VERBS]
+    : [];
+  const businessSurfaces = authoritativeBusinessSurfaces(input, state);
+  const missionRoom = runtimeMissionProjection(state);
+  const primarySurfaceIds = kind === 'business'
+    ? businessSurfaces
+    : kind === 'workspace_app_immersive'
+      ? [...state.experience.primary_surface_ids]
+      : [...cockpitVerbs];
+  const immersiveRoot = state.experience.shell === 'immersive'
+    ? state.experience.routes[0] ?? null
+    : null;
+  const immersiveRouteScope = immersiveRoot ? `${pathOnly(immersiveRoot).replace(/\/$/, '')}/**` : null;
+  const appDefault = authoritativeDefaultRoute(state);
+  const homeRoute = businessActive
+    ? authoritativeBusinessDefaultRoute(input, state)
+    : state.experience.shell === 'immersive' && appDefault
+      ? appDefault
+      : '/hypervisor';
+
+  return {
+    schemaVersion: WORKSPACE_EXPERIENCE_SCHEMA_VERSION,
+    resolverVersion: WORKSPACE_EXPERIENCE_RESOLVER_VERSION,
+    registryEntryIds: [
+      'workspace_app_runtime',
+      ...state.installations.map((installation) => `workspace_app:${installation.app_id}`),
+    ],
+    workspaceSlug: input.workspace.slug,
+    scenarioKey: workspaceExperienceScenarioKey(input.scenario),
+    shellKind: kind,
+    homeRoute: canonicalRoute(pathOnly(homeRoute)),
+    primarySurfaceIds,
+    advancedAccess: 'admin_only',
+    chrome: chromeFor(kind, routeResolution.resolvedRoute),
+    workspaceApp: {
+      configured: state.installations.length > 0,
+      shell: state.experience.shell,
+      profile: missionRoom?.profile ?? null,
+      defaultView: state.experience.mission_room?.default_route.split('/').filter(Boolean).at(-1) ?? null,
+      immersiveRouteScope,
+    },
+    immersiveRouteScope,
+    cockpitVerbs,
+    routeResolution,
+    business: {
+      configured: businessConfigured,
+      active: businessActive,
+      admin,
+      preview,
+      declaredPrimarySurfaceIds: BUSINESS_PRIMARY_SURFACE_IDS.filter((surface) => (
+        authoritativeInstalledBusinessSurfaces(state).includes(surface)
+      )),
+    },
+    missionRoom,
+    issues,
+    provenance: [
+      'workspace_apps:authoritative',
+      ...state.installations.map((installation) => `workspace_app:${installation.app_id}@${installation.version}`),
+    ],
+  };
+}
+
 const ADAPTERS: WorkspaceExperienceAdapter[] = [
   {
     id: 'portfolio',
@@ -712,6 +1243,9 @@ function cloneMissionRoom(value: WorkspaceExperienceMissionRoomProjection): Work
 
 /** New declarative candidate. Its output is deliberately not consumed by Angular. */
 export function resolveWorkspaceExperienceV2(input: WorkspaceExperienceInput): WorkspaceExperienceV2 {
+  if (workspaceAppPlatformEnabled(input)) {
+    return resolveAuthoritativeWorkspaceExperience(input);
+  }
   const { state, ids } = applyRegistry(input);
   return {
     schemaVersion: WORKSPACE_EXPERIENCE_SCHEMA_VERSION,

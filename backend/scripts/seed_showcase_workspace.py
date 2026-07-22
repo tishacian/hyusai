@@ -37,13 +37,13 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.evaluation_preset import EvaluationPreset
+from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import (
     KnowledgeCollection,
     KnowledgeCollectionSource,
     WorkerJob,
 )
 from app.models.knowledge_guide import KnowledgeGuide
-from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
 from app.models.run import Run, SkillInvocation
@@ -51,8 +51,8 @@ from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_version import SystemVersion
-from app.models.user import Session as ChatSession
 from app.models.user import Message, User
+from app.models.user import Session as ChatSession
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.audit_logger import emit_audit_event
@@ -71,9 +71,13 @@ from app.services.rag.knowledge_scopes import normalize_knowledge_scopes
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
+from app.services.skill_invocation_snapshot import capture_skill_execution_evidence
+from app.services.seed_catalog_safety import (
+    owned_capability_for_seed,
+    visible_capability_for_seed,
+)
 from app.services.skills_registry import seed_skills_and_capabilities
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
-
 
 SHOWCASE_SOURCE = "showcase_seed"
 SYSTEM360_AUDIT_EVENT_TYPE = "system.contract_risk.claims_audited"
@@ -602,6 +606,14 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                     # keeps its current values below.
                     "cockpit_router_axes_v4": False,
                     "system_360_projection_v1": False,
+                    # Lot 7 projectors are independently validated and rolled
+                    # out by object type.  A seed must never activate them.
+                    "capability_360_projection_v1": False,
+                    "run_360_projection_v1": False,
+                    "skill_invocation_360_projection_v1": False,
+                    # Lot 8 is prepared structurally but never activated by
+                    # a seed. Rollout owns this feature transition.
+                    "value_loop_v1": False,
                     "flow_v3_dag_authoritative": False,
                     "sap_hana_connector": True,
                     "rpa_bridge": True,
@@ -650,6 +662,10 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
             "showcase_seed": True,
             "persona_nav": "full",
             "features": {
+                "capability_360_projection_v1": False,
+                "run_360_projection_v1": False,
+                "skill_invocation_360_projection_v1": False,
+                "value_loop_v1": False,
                 **current_features,
                 "cockpit_router_axes_v3": True,
                 "sap_hana_connector": True,
@@ -774,7 +790,10 @@ def system360_membrane_v2_template(
             "allowed_skills": contract_skills,
             "allowed_models": ["gpt-4o-mini"],
             "allowed_delegations": [],
-            "allowed_actions": ["system.engine.run"],
+            "allowed_actions": [
+                "system.engine.run",
+                "control_policy.guardrails.patch.v1",
+            ],
         },
         "provenance": {
             "require_citations": True,
@@ -794,7 +813,11 @@ def system360_membrane_v2_template(
 def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capability]:
     out: Dict[str, Capability] = {}
     for entry in CAPABILITIES:
-        cap = db.query(Capability).filter(Capability.slug == entry["slug"]).first()
+        cap = owned_capability_for_seed(
+            db,
+            workspace=workspace,
+            slug=entry["slug"],
+        )
         payload = {
             "workspace_id": workspace.id,
             "name": entry["name"],
@@ -1958,16 +1981,82 @@ def ensure_systems(
                 "event_trigger": {"mode": "live"},
                 **(
                     {
-                        "experience": {"system_360_canary": "v1"},
+                        "experience": {
+                            "system_360_canary": "v1",
+                            "value_loop_canary": "v1",
+                        },
+                        "value_loop": {
+                            "actuators": {
+                                "control_policy.guardrails.patch.v1": {
+                                    "enabled": True,
+                                    "fields": {
+                                        "max_cost_per_decision": {"min": 0, "max": 50},
+                                        "max_latency_ms": {"min": 100, "max": 30_000},
+                                        "mandatory_hitl_if_confidence_below": {
+                                            "min": 0,
+                                            "max": 1,
+                                        },
+                                    },
+                                }
+                            }
+                        },
                         "steering_model": {
                             "version": "contract-risk-v1",
-                            "cost_multiplier": 0.9,
-                            "value_multiplier": 1.1,
                             "confidence": 0.7,
                             "assumptions": [
                                 "Evidence mix remains comparable to the selected window.",
                                 "Projected values are simulated and are not measurements.",
                             ],
+                            "forecasts": {
+                                "max_cost_per_decision": [
+                                    {
+                                        "minimum": 0,
+                                        "maximum": 10,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 0.92,
+                                        "value_multiplier": 1.04,
+                                    },
+                                    {
+                                        "minimum": 10,
+                                        "maximum": 50,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 1.0,
+                                        "value_multiplier": 1.08,
+                                    },
+                                ],
+                                "max_latency_ms": [
+                                    {
+                                        "minimum": 100,
+                                        "maximum": 5_000,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 1.08,
+                                        "value_multiplier": 1.1,
+                                    },
+                                    {
+                                        "minimum": 5_000,
+                                        "maximum": 30_000,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 0.95,
+                                        "value_multiplier": 1.0,
+                                    },
+                                ],
+                                "mandatory_hitl_if_confidence_below": [
+                                    {
+                                        "minimum": 0,
+                                        "maximum": 0.5,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 0.95,
+                                        "value_multiplier": 1.03,
+                                    },
+                                    {
+                                        "minimum": 0.5,
+                                        "maximum": 1,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 1.08,
+                                        "value_multiplier": 1.12,
+                                    },
+                                ],
+                            },
                         },
                     }
                     if spec["key"] == "contract"
@@ -2026,6 +2115,26 @@ def ensure_systems(
                     **existing_settings["experience"],
                     **seeded_settings["experience"],
                 }
+            if isinstance(existing_settings.get("value_loop"), dict) and isinstance(
+                seeded_settings.get("value_loop"), dict
+            ):
+                seeded_value_loop = dict(seeded_settings["value_loop"])
+                existing_value_loop = dict(existing_settings["value_loop"])
+                seeded_actuators = (
+                    dict(seeded_value_loop.get("actuators"))
+                    if isinstance(seeded_value_loop.get("actuators"), dict)
+                    else {}
+                )
+                existing_actuators = (
+                    dict(existing_value_loop.get("actuators"))
+                    if isinstance(existing_value_loop.get("actuators"), dict)
+                    else {}
+                )
+                seeded_settings["value_loop"] = {
+                    **seeded_value_loop,
+                    **existing_value_loop,
+                    "actuators": {**seeded_actuators, **existing_actuators},
+                }
             payload["settings"] = {**existing_settings, **seeded_settings}
             if (
                 spec["key"] == "contract"
@@ -2066,8 +2175,10 @@ def ensure_systems(
         experience = dict(raw_experience) if isinstance(raw_experience, dict) else {}
         if candidate.id == contract_id:
             experience["system_360_canary"] = "v1"
+            experience["value_loop_canary"] = "v1"
         else:
             experience.pop("system_360_canary", None)
+            experience.pop("value_loop_canary", None)
         if experience:
             candidate_settings["experience"] = experience
         else:
@@ -2579,8 +2690,10 @@ def seed_knowledge_and_capture(
     db.commit()
 
     capture_system_id: Optional[str] = None
-    capability = (
-        db.query(Capability).filter(Capability.slug == CAPTURE_CAPABILITY_SLUG).first()
+    capability = visible_capability_for_seed(
+        db,
+        workspace=workspace,
+        slug=CAPTURE_CAPABILITY_SLUG,
     )
     if capability is None:
         print(
@@ -3077,10 +3190,17 @@ def seed_translation_invocations(
         status = "completed"
         if not accepted and slug == "translation_package_delivery_v1":
             status = "cancelled"
+        execution_evidence = capture_skill_execution_evidence(
+            db,
+            workspace_id=run.workspace_id,
+            skill_slug=slug,
+        )
         db.add(SkillInvocation(
             id=str(uuid4()),
             run_id=run.id,
-            skill_slug=slug,
+            skill_id=execution_evidence.skill_id,
+            skill_slug=execution_evidence.skill_slug,
+            execution_snapshot=execution_evidence.execution_snapshot,
             input_ref={
                 "batch_id": config.get("batch", {}).get("batch_id", "PMI-KANGOO3-2026-06"),
                 "target_langs": config.get("batch", {}).get("target_langs", TRANSLATION_TARGET_LANGS),
@@ -3099,11 +3219,18 @@ def seed_translation_invocations(
             completed_at=stage_started + timedelta(milliseconds=latency_ms),
             latency_ms=float(latency_ms),
             cost=cost,
+            cost_measured=False,
             metrics={
                 "prompt_tokens": 120_000 + idx * 18_000,
                 "completion_tokens": 54_000 + idx * 7_500,
                 "deterministic": True,
                 "external_egress": False,
+                "cost_evidence": {
+                    "schema_version": 1,
+                    "state": "not_measured",
+                    "reason": "synthetic_seed",
+                    "source": SHOWCASE_SOURCE,
+                },
             },
             trace={
                 "tool_call_id": f"pmi-ts-{run.id[:8]}-{idx + 1:02d}",
@@ -3393,10 +3520,17 @@ def seed_translation_story(
 def seed_invocations(db: DBSession, runs: List[Run]) -> None:
     for run in runs:
         for idx, slug in enumerate(["semantic_search_v1", "llm_rag_answer_v1", "claim_audit_v1"]):
+            execution_evidence = capture_skill_execution_evidence(
+                db,
+                workspace_id=run.workspace_id,
+                skill_slug=slug,
+            )
             db.add(SkillInvocation(
                 id=str(uuid4()),
                 run_id=run.id,
-                skill_slug=slug,
+                skill_id=execution_evidence.skill_id,
+                skill_slug=execution_evidence.skill_slug,
+                execution_snapshot=execution_evidence.execution_snapshot,
                 input_ref={"query": run.input_ref.get("query")},
                 output_ref={"status": "ok", "showcase_seed": True},
                 status="completed",
@@ -3404,7 +3538,16 @@ def seed_invocations(db: DBSession, runs: List[Run]) -> None:
                 completed_at=run.started_at + timedelta(milliseconds=(idx + 1) * 250),
                 latency_ms=250 + idx * 120,
                 cost=0.02 + idx * 0.03,
-                metrics={"showcase_seed": True},
+                cost_measured=False,
+                metrics={
+                    "showcase_seed": True,
+                    "cost_evidence": {
+                        "schema_version": 1,
+                        "state": "not_measured",
+                        "reason": "synthetic_seed",
+                        "source": SHOWCASE_SOURCE,
+                    },
+                },
             ))
 
 

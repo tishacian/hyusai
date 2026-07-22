@@ -1,0 +1,28 @@
+# Lot-9 immutable registry overlay.  Use only with a release contract that has
+# passed scripts/agentium_release_contract.py.  The values must be full
+# registry references ending in @sha256:<64 hex>; tags are intentionally not
+# accepted by the release verifier.
+services:
+  agentium-frontend:
+    image: ${AGENTIUM_FRONTEND_IMAGE:?Set a verified frontend digest reference}
+    build: null
+
+  agentium-migrate:
+    image: ${AGENTIUM_BACKEND_IMAGE:?Set a verified backend digest reference}
+    build: null
+
+  agentium-backend:
+    image: ${AGENTIUM_BACKEND_IMAGE:?Set a verified backend digest reference}
+    build: null
+
+  agentium-worker-cpu:
+    image: ${AGENTIUM_WORKER_IMAGE:?Set a verified worker digest reference}
+    build: null
+
+  agentium-p4-maintenance:
+    image: ${AGENTIUM_WORKER_IMAGE:?Set a verified worker digest reference}
+    build: null
+
+  agentium-sftp:
+    image: ${AGENTIUM_BACKEND_IMAGE:?Set a verified backend digest reference}
+    build: null

@@ -25,6 +25,10 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
             "cockpit_router_axes_v3": True,
             "cockpit_router_axes_v4": False,
             "system_360_projection_v1": False,
+            "capability_360_projection_v1": False,
+            "run_360_projection_v1": False,
+            "skill_invocation_360_projection_v1": False,
+            "value_loop_v1": False,
             "flow_v3_dag_authoritative": False,
             "sap_hana_connector": True,
             "rpa_bridge": True,
@@ -65,6 +69,10 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
             "cockpit_router_axes_v3": True,
             "cockpit_router_axes_v4": True,
             "system_360_projection_v1": True,
+            "capability_360_projection_v1": False,
+            "run_360_projection_v1": False,
+            "skill_invocation_360_projection_v1": False,
+            "value_loop_v1": False,
             "flow_v3_dag_authoritative": True,
             "sap_hana_connector": True,
             "rpa_bridge": True,
@@ -94,6 +102,10 @@ def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session)
         "showcase_seed": True,
         "persona_nav": "full",
         "features": {
+            "capability_360_projection_v1": False,
+            "run_360_projection_v1": False,
+            "skill_invocation_360_projection_v1": False,
+            "value_loop_v1": False,
             "cockpit_router_axes_v3": True,
             "sap_hana_connector": True,
             "rpa_bridge": True,
@@ -142,7 +154,10 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
 
     assert result["runs"] >= 14
     assert capabilities["video_contract_risk"].id == contract_system.capability_id
-    assert contract_system.settings["experience"] == {"system_360_canary": "v1"}
+    assert contract_system.settings["experience"] == {
+        "system_360_canary": "v1",
+        "value_loop_canary": "v1",
+    }
     assert contract_system.settings["steering_model"]["version"] == "contract-risk-v1"
     assert contract_system.flow_definition["schema_version"] == 3
     assert contract_system.flow_definition["io_mode"] == "strict"
@@ -159,6 +174,12 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     assert membrane["version"] == 2
     assert membrane["enforcement_mode"] == "shadow"
     assert membrane["provenance"]["object_store_prefix"] == f"system-360/{contract_system.id}"
+    assert "control_policy.guardrails.patch.v1" in membrane["capabilities"]["allowed_actions"]
+    assert workspace.settings["features"]["value_loop_v1"] is False
+    actuator = contract_system.settings["value_loop"]["actuators"][
+        "control_policy.guardrails.patch.v1"
+    ]
+    assert actuator["enabled"] is True
     canaries = [
         row
         for row in db_session.query(System).filter(System.workspace_id == workspace.id).all()

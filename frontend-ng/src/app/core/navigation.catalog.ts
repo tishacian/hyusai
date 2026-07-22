@@ -21,6 +21,7 @@ export type AgentiumObjectType =
   | 'Capability'
   | 'System'
   | 'Skill'
+  | 'SkillInvocation'
   | 'Workbench'
   | 'Run'
   | 'Knowledge'
@@ -224,6 +225,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Canonical runtime evidence and execution detail.',
   },
   {
+    id: 'skill-invocations',
+    label: 'Skill Invocations',
+    route: '/runs/:runId/invocations/:invocationId',
+    lens: 'operate',
+    object: 'SkillInvocation',
+    scope: 'run',
+    apiPrefix: '/api/v1/runs',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'One concrete Skill execution inside its canonical parent Run.',
+  },
+  {
     id: 'observability',
     label: 'Observability',
     route: '/observability',
@@ -330,6 +343,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     status: 'canonical',
     audience: 'admin',
     description: 'Export and apply workspace structure/configuration without users, secrets or raw data.',
+  },
+  {
+    id: 'workspace-app-platform',
+    label: 'Workspace Apps',
+    route: '/governance/workspace-apps',
+    lens: 'govern',
+    object: 'Workspace',
+    scope: 'admin',
+    apiPrefix: '/api/v1/governance/workspace-apps',
+    status: 'canonical',
+    audience: 'admin',
+    description: 'Content-addressed installation, upgrade, rollback and uninstall lifecycle for Workspace Apps.',
   },
   {
     id: 'apps',
@@ -484,6 +509,7 @@ export type CockpitScopeType =
   | 'knowledge'
   | 'flow'
   | 'run'
+  | 'skill_invocation'
   | 'preset'
   | 'app'
   | 'connector'
@@ -537,12 +563,18 @@ export interface CockpitVerb {
   hiddenInModes?: WorkspaceMode[];
 }
 
-export type HierarchyObjectType = 'capability' | 'system' | 'run' | 'skill';
+export type HierarchyObjectType =
+  | 'capability'
+  | 'system'
+  | 'run'
+  | 'skill_invocation'
+  | 'skill';
 
 export interface NavigationAncestry {
   capabilityId: string | null;
   systemId: string | null;
   runId: string | null;
+  skillInvocationId: string | null;
   skillRef: string | null;
 }
 
@@ -581,6 +613,7 @@ const HIERARCHY_SURFACE_IDS: Record<HierarchyObjectType, string> = {
   capability: 'capabilities',
   system: 'systems',
   run: 'runs',
+  skill_invocation: 'skill-invocations',
   skill: 'skills',
 };
 
@@ -831,7 +864,15 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
   const segments = routeSegments(path);
   let selectedType: HierarchyObjectType | null = null;
   let selectedRef: string | null = null;
-  if (segments[0] === 'capabilities' && segments[1]) {
+  if (
+    segments[0] === 'runs'
+    && segments[1]
+    && segments[2] === 'invocations'
+    && segments[3]
+  ) {
+    selectedType = 'skill_invocation';
+    selectedRef = decodedSegment(segments[3]);
+  } else if (segments[0] === 'capabilities' && segments[1]) {
     selectedType = 'capability';
     selectedRef = decodedSegment(segments[1]);
   } else if (segments[0] === 'systems' && segments[1] && segments[1] !== 'new') {
@@ -849,7 +890,12 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
     ? selectedRef
     : query['capabilityId'] || (path === '/capabilities' ? query['focus'] : null) || null;
   const systemId = selectedType === 'system' ? selectedRef : query['systemId'] || null;
-  const runId = selectedType === 'run' ? selectedRef : query['runId'] || null;
+  const runId = selectedType === 'run'
+    ? selectedRef
+    : selectedType === 'skill_invocation'
+      ? decodedSegment(segments[1])
+      : query['runId'] || null;
+  const skillInvocationId = selectedType === 'skill_invocation' ? selectedRef : null;
   const skillRef = selectedType === 'skill' ? selectedRef : query['skillRef'] || null;
   const explicitLens = query['lens'];
   const matchedLens = matchAgentiumSurface(path)?.lens ?? 'build';
@@ -872,6 +918,7 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
     capabilityId,
     systemId,
     runId,
+    skillInvocationId,
     skillRef,
   };
 }
@@ -898,6 +945,19 @@ export function navigationObjectUrl(
   ref: string,
   options: NavigationObjectUrlOptions = {},
 ): string {
+  if (type === 'skill_invocation') {
+    if (!options.runId) {
+      throw new Error('A SkillInvocation URL requires its canonical parent runId');
+    }
+    const path = `/runs/${encodeURIComponent(options.runId)}/invocations/${encodeURIComponent(ref)}`;
+    return appendNavigationQuery(path, {
+      lens: lensQueryForPath(path, options.lens),
+      tab: options.tab,
+      scope: options.scope,
+      capabilityId: options.capabilityId,
+      systemId: options.systemId,
+    });
+  }
   const path = `${agentiumSurfaceRoute(HIERARCHY_SURFACE_IDS[type])}/${encodeURIComponent(ref)}`;
   return appendNavigationQuery(path, {
     lens: lensQueryForPath(path, options.lens),
@@ -936,6 +996,7 @@ export function navigationLensUrl(
     context.capabilityId ||
     context.systemId ||
     context.runId ||
+    context.skillInvocationId ||
     context.skillRef,
   );
   if (!ownsHierarchyContext) return fallbackRoute;
@@ -947,7 +1008,7 @@ export function navigationLensUrl(
     scope: context.scope,
     lens: preserveExplicitLens ? targetLens : lensQueryForPath(context.path, targetLens),
     capabilityId: context.selectedType === 'capability' ? null : ancestry.capabilityId,
-    systemId: context.selectedType === null || context.selectedType === 'run' || context.selectedType === 'skill'
+    systemId: context.selectedType === null || context.selectedType === 'run' || context.selectedType === 'skill_invocation' || context.selectedType === 'skill'
       ? ancestry.systemId
       : null,
     runId: context.selectedType === null || context.selectedType === 'skill'

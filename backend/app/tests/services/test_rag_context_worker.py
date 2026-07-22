@@ -3186,6 +3186,8 @@ async def test_multi_collection_balanced_scoped_uses_planner_sparse_decisions(
 
 
 def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
+    import app.workers as workers_package
+
     class FakeCelery:
         def __init__(self, *_args, **_kwargs):
             self.conf = SimpleNamespace(update=lambda **_kwargs: None)
@@ -3201,8 +3203,22 @@ def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
         "app.services.rag.context.run_rag_retrieve_context",
         lambda payload: {"chunks": [payload["query"]], "metrics": {"chunks_retrieved": 1}},
     )
-    sys.modules.pop("app.workers.celery_app", None)
-    sys.modules.pop("app.workers.tasks", None)
+    # Isolate both import caches. Importing a submodule also stores it as an
+    # attribute on its parent package; clearing only ``sys.modules`` leaves the
+    # FakeCelery module visible to tests collected later in the same process.
+    missing = object()
+    module_names = ("app.workers.celery_app", "app.workers.tasks")
+    package_attrs = ("celery_app", "tasks")
+    saved_modules = {name: sys.modules.get(name, missing) for name in module_names}
+    saved_attrs = {
+        name: getattr(workers_package, name, missing) for name in package_attrs
+    }
+    for name in module_names:
+        sys.modules.pop(name, None)
+    for name in package_attrs:
+        if hasattr(workers_package, name):
+            delattr(workers_package, name)
+
     try:
         from app.workers.tasks import rag_retrieve_context
 
@@ -3211,8 +3227,17 @@ def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
             "metrics": {"chunks_retrieved": 1},
         }
     finally:
-        sys.modules.pop("app.workers.celery_app", None)
-        sys.modules.pop("app.workers.tasks", None)
+        for name, value in saved_modules.items():
+            if value is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = value
+        for name, value in saved_attrs.items():
+            if value is missing:
+                if hasattr(workers_package, name):
+                    delattr(workers_package, name)
+            else:
+                setattr(workers_package, name, value)
 
 
 def test_retrieval_profile_uses_workspace_default_rag_mode(monkeypatch):

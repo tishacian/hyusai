@@ -14,7 +14,7 @@ class WorkspaceStub {
   readonly contextEpoch = () => this.epoch;
 
   captureRequestScope(): WorkspaceRequestScope {
-    return Object.freeze({ workspaceSlug: this.slug, epoch: this.epoch });
+    return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {

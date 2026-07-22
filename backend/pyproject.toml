@@ -70,5 +70,6 @@ pythonpath = ["."]
 testpaths = ["app/tests"]
 markers = [
     "integration: tests that require external services (e.g. Qdrant on localhost)",
+    "postgresql: tests that require PostgreSQL row-lock semantics",
     "rabbitmq: tests that require a real RabbitMQ broker",
 ]

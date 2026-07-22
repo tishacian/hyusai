@@ -44,6 +44,17 @@ from app.services.iam.app_entitlements import (
     normalize_app_entitlements,
     replace_member_app_entitlements,
 )
+from app.services.projection_gate import (
+    FEATURE_BY_PROJECTION,
+    WORKSPACE_GATE_KEY,
+    authoritative_projection_enabled,
+)
+from app.services.value_loop_gate import FEATURE_KEY as VALUE_LOOP_FEATURE_KEY
+from app.services.workspace_app_runtime import (
+    WORKSPACE_APP_PLATFORM_FEATURE,
+    WORKSPACE_APP_ROLLOUT_STATE_KEY,
+    safe_workspace_app_runtime_payload,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -197,8 +208,10 @@ class WorkspaceDetail(BaseModel):
     created_at: datetime
     deleted_at: Optional[datetime] = None
     settings: dict = {}
+    effective_features: dict[str, bool] = Field(default_factory=dict)
     mode: str = "executive"
     app_entitlements: list[str] = Field(default_factory=list)
+    workspace_app_runtime: dict = Field(default_factory=dict)
 
 
 class MemberDetail(BaseModel):
@@ -572,6 +585,7 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
                     "role": m.role,
                     "mode": getattr(ws, "mode", "executive") or "executive",
                     "app_entitlements": list_member_app_entitlements(db, m),
+                    "workspace_app_runtime": safe_workspace_app_runtime_payload(ws, db=db),
                 }
             )
 
@@ -841,6 +855,24 @@ def _resolve_workspace_and_role(
     return workspace, membership
 
 
+def _effective_workspace_features(
+    db: DBSession,
+    workspace: Workspace,
+) -> dict[str, bool]:
+    """Return server-resolved managed flags without mutating persisted settings."""
+
+    revision = str(settings.agentium_image_revision or "").strip().lower()
+    return {
+        feature: authoritative_projection_enabled(
+            db,
+            workspace,
+            projection,
+            runtime_revision=revision,
+        )
+        for projection, feature in FEATURE_BY_PROJECTION.items()
+    }
+
+
 def _lock_workspace_and_role_for_membership_mutation(
     db: DBSession,
     user: User,
@@ -926,6 +958,8 @@ def _settings_with_managed_workspace_fields_preserved(
             "_migration_059_andritz_agentic_default_state",
             "WORKSPACE_MIGRATION_STATE_MANAGED",
         ),
+        (WORKSPACE_GATE_KEY, "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED"),
+        (WORKSPACE_APP_ROLLOUT_STATE_KEY, "LOT9_WORKSPACE_APP_ROLLOUT_STATE_MANAGED"),
     )
     for field, code in managed_top_level_fields:
         current_has_field = field in current_settings
@@ -988,6 +1022,95 @@ def _settings_with_managed_workspace_fields_preserved(
         )
         preserved_features[APP_ENTITLEMENTS_FEATURE] = current_features[APP_ENTITLEMENTS_FEATURE]
         next_settings["features"] = preserved_features
+
+    managed_projection_flags = frozenset(FEATURE_BY_PROJECTION.values())
+    for flag in managed_projection_flags:
+        current_has_flag = isinstance(current_features, Mapping) and flag in current_features
+        requested_has_flag = (
+            isinstance(requested_features, Mapping) and flag in requested_features
+        )
+        if requested_has_flag and (
+            not current_has_flag or requested_features[flag] != current_features[flag]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED",
+                    "message": f"features.{flag} is managed by the Lot 7 rollout service",
+                },
+            )
+        if current_has_flag:
+            preserved_features = (
+                dict(next_settings.get("features"))
+                if isinstance(next_settings.get("features"), Mapping)
+                else {}
+            )
+            preserved_features[flag] = current_features[flag]
+            next_settings["features"] = preserved_features
+
+    current_has_value_loop_flag = isinstance(current_features, Mapping) and (
+        VALUE_LOOP_FEATURE_KEY in current_features
+    )
+    requested_has_value_loop_flag = isinstance(requested_features, Mapping) and (
+        VALUE_LOOP_FEATURE_KEY in requested_features
+    )
+    if requested_has_value_loop_flag and (
+        not current_has_value_loop_flag
+        or requested_features[VALUE_LOOP_FEATURE_KEY]
+        != current_features[VALUE_LOOP_FEATURE_KEY]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
+                "message": (
+                    f"features.{VALUE_LOOP_FEATURE_KEY} is managed by the Lot 8 "
+                    "rollout service"
+                ),
+            },
+        )
+    if current_has_value_loop_flag:
+        preserved_features = (
+            dict(next_settings.get("features"))
+            if isinstance(next_settings.get("features"), Mapping)
+            else {}
+        )
+        preserved_features[VALUE_LOOP_FEATURE_KEY] = current_features[
+            VALUE_LOOP_FEATURE_KEY
+        ]
+        next_settings["features"] = preserved_features
+
+    current_has_workspace_app_flag = isinstance(current_features, Mapping) and (
+        WORKSPACE_APP_PLATFORM_FEATURE in current_features
+    )
+    requested_has_workspace_app_flag = isinstance(requested_features, Mapping) and (
+        WORKSPACE_APP_PLATFORM_FEATURE in requested_features
+    )
+    if requested_has_workspace_app_flag and (
+        not current_has_workspace_app_flag
+        or requested_features[WORKSPACE_APP_PLATFORM_FEATURE]
+        != current_features[WORKSPACE_APP_PLATFORM_FEATURE]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOT9_WORKSPACE_APP_ROLLOUT_STATE_MANAGED",
+                "message": (
+                    f"features.{WORKSPACE_APP_PLATFORM_FEATURE} is managed by the Lot 9 "
+                    "rollout service"
+                ),
+            },
+        )
+    if current_has_workspace_app_flag:
+        preserved_features = (
+            dict(next_settings.get("features"))
+            if isinstance(next_settings.get("features"), Mapping)
+            else {}
+        )
+        preserved_features[WORKSPACE_APP_PLATFORM_FEATURE] = current_features[
+            WORKSPACE_APP_PLATFORM_FEATURE
+        ]
+        next_settings["features"] = preserved_features
     return next_settings
 
 
@@ -1031,8 +1154,10 @@ async def create_workspace(
         member_count=1,
         created_at=workspace.created_at,
         settings=workspace.settings or {},
+        effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
+        workspace_app_runtime=safe_workspace_app_runtime_payload(workspace, db=db),
     )
 
 
@@ -1066,8 +1191,10 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                     "member_count": member_count,
                     "created_at": ws.created_at.isoformat() if ws.created_at else None,
                     "settings": ws.settings or {},
+                    "effective_features": _effective_workspace_features(db, ws),
                     "mode": getattr(ws, "mode", "executive") or "executive",
                     "app_entitlements": list_member_app_entitlements(db, m),
+                    "workspace_app_runtime": safe_workspace_app_runtime_payload(ws, db=db),
                 }
             )
     return result
@@ -1096,8 +1223,10 @@ async def get_workspace(
         created_at=workspace.created_at,
         deleted_at=workspace.deleted_at,
         settings=workspace.settings or {},
+        effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
+        workspace_app_runtime=safe_workspace_app_runtime_payload(workspace, db=db),
     )
 
 
@@ -1161,8 +1290,10 @@ async def update_workspace(
         member_count=member_count,
         created_at=workspace.created_at,
         settings=workspace.settings or {},
+        effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
+        workspace_app_runtime=safe_workspace_app_runtime_payload(workspace, db=db),
     )
 
 
@@ -1207,8 +1338,10 @@ async def update_workspace_mode(
         member_count=member_count,
         created_at=workspace.created_at,
         settings=workspace.settings or {},
+        effective_features=_effective_workspace_features(db, workspace),
         mode=workspace.mode or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
+        workspace_app_runtime=safe_workspace_app_runtime_payload(workspace, db=db),
     )
 
 

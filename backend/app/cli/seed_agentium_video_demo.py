@@ -27,6 +27,8 @@ from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
 )
 from app.services.mission_room import ensure_octocity_mission_room_workspace
+from app.services.seed_catalog_safety import owned_capability_for_seed
+from app.services.skill_invocation_snapshot import capture_skill_execution_evidence
 from app.services.skills_registry import seed_skills_and_capabilities
 
 SHOWCASE_SLUG = "agentium-showcase"
@@ -122,11 +124,10 @@ def _ensure_video_capability(
     db, workspace: Workspace, spec: dict[str, Any], system: System
 ) -> Capability:
     slug = str(spec["capability_slug"])
-    capability = db.query(Capability).filter(Capability.slug == slug).first()
+    capability = owned_capability_for_seed(db, workspace=workspace, slug=slug)
     if not capability:
-        capability = Capability(slug=slug)
+        capability = Capability(slug=slug, workspace_id=workspace.id)
         db.add(capability)
-    capability.workspace_id = workspace.id
     capability.name = str(spec["capability_name"])
     capability.description = (
         f"Synthetic C-level video capability for {system.name}: governed design, runtime execution, "
@@ -349,11 +350,18 @@ def _seed_portfolio_runs(db, workspace: Workspace) -> tuple[int, int]:
             )
         )
         for skill_idx, skill_slug in enumerate(spec["skills"]):
+            execution_evidence = capture_skill_execution_evidence(
+                db,
+                workspace_id=workspace.id,
+                skill_slug=skill_slug,
+            )
             db.add(
                 SkillInvocation(
                     id=str(uuid4()),
                     run_id=run_id,
-                    skill_slug=skill_slug,
+                    skill_id=execution_evidence.skill_id,
+                    skill_slug=execution_evidence.skill_slug,
+                    execution_snapshot=execution_evidence.execution_snapshot,
                     input_ref={"video_demo": VIDEO_DEMO_TAG, "query": spec["query"]},
                     output_ref={"status": "ok", "connector_bound": skill_idx < 2},
                     status="completed",
@@ -361,7 +369,16 @@ def _seed_portfolio_runs(db, workspace: Workspace) -> tuple[int, int]:
                     completed_at=started + timedelta(milliseconds=(skill_idx + 1) * 260),
                     latency_ms=260 + skill_idx * 90,
                     cost=round(spec["cost"] / max(1, len(spec["skills"])), 2),
-                    metrics={"video_demo": VIDEO_DEMO_TAG},
+                    cost_measured=False,
+                    metrics={
+                        "video_demo": VIDEO_DEMO_TAG,
+                        "cost_evidence": {
+                            "schema_version": 1,
+                            "state": "not_measured",
+                            "reason": "synthetic_seed",
+                            "source": VIDEO_DEMO_TAG,
+                        },
+                    },
                 )
             )
         db.add(

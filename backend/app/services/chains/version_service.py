@@ -1,4 +1,4 @@
-"""Rolling window version store for ``System.flow_definition`` — E3.1.
+"""Rolling window version store for System flow and configuration evidence.
 
 Keep the table simple, keep the semantics boring:
 
@@ -13,6 +13,10 @@ Keep the table simple, keep the semantics boring:
   creates a *new* version whose ``flow_definition`` equals the target
   one. The editor renders "v42 — rolled back to v17" via
   ``rolled_back_from_id``.
+- A caller may explicitly attach a small, positive-allowlisted
+  ``configuration_snapshot``.  This lets configuration-only rollouts append
+  honest evidence while all legacy flow-only callers retain their exact no-op
+  behaviour when the DAG is unchanged.
 
 Every mutation emits an audit event (``chain.version.created``,
 ``chain.version.purged``, ``chain.rollback``) with workspace/system/
@@ -31,7 +35,7 @@ import json
 import logging
 from collections.abc import Mapping
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session as DBSession
@@ -43,21 +47,58 @@ from app.services.audit_logger import emit_audit_event
 
 logger = logging.getLogger(__name__)
 
+CONFIGURATION_SNAPSHOT_SCHEMA_VERSION = 1
+_CONFIGURATION_SNAPSHOT_KEYS = frozenset({"schema_version", "bindings", "transition"})
+_CONFIGURATION_BINDING_KEYS = frozenset(
+    {"control_policy_id", "adaptive_policy_id", "context_id"}
+)
+_CONFIGURATION_TRANSITION_KEYS = frozenset(
+    {
+        "kind",
+        "previous_control_policy_id",
+        "enforcement_mode",
+        "source_contract_sha256",
+        "target_contract_sha256",
+    }
+)
+_CONFIGURATION_TRANSITION_KINDS = frozenset({"control_policy_rebind"})
+_MEMBRANE_ENFORCEMENT_MODES = frozenset({"compat", "shadow", "enforce"})
+
 
 class ChainVersionError(Exception):
     """Raised when a rollback / lookup cannot be satisfied."""
 
 
-def _next_version_number(db: DBSession, system_id: str) -> int:
-    """Return the next ``version_number`` for a system (1-based)."""
-    latest = (
-        db.query(SystemVersion.version_number)
-        .filter(SystemVersion.system_id == system_id)
-        .order_by(desc(SystemVersion.version_number))
-        .limit(1)
-        .scalar()
+class ConfigurationSnapshotError(ValueError):
+    """Raised when configuration evidence exceeds its positive allowlist."""
+
+
+def _lock_system_for_versioning(db: DBSession, system_id: str) -> System:
+    """Serialize version allocation on the stable parent row.
+
+    Locking the latest ``SystemVersion`` cannot protect the first insert, and
+    locking every existing version would still leave an empty-history race.
+    The parent ``System`` exists for the complete lifetime of its history, so
+    it is the single lock target for both the no-op comparison and allocation
+    of ``max(version_number) + 1``.
+
+    ``of=System`` is important on PostgreSQL because ``System.capability`` is
+    joined eagerly: a bare ``FOR UPDATE`` would attempt to lock the nullable
+    side of that outer join as well.
+    """
+
+    locked = (
+        db.query(System)
+        .filter(System.id == system_id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .one_or_none()
     )
-    return (latest or 0) + 1
+    if locked is None:
+        raise ChainVersionError(
+            f"System {system_id!r} no longer exists; cannot append a version."
+        )
+    return locked
 
 
 def _flow_definitions_equal(a: Any, b: Any) -> bool:
@@ -77,6 +118,139 @@ def _flow_definitions_equal(a: Any, b: Any) -> bool:
         return repr(a) == repr(b)
 
 
+def _configuration_reference(value: Any, *, field: str, nullable: bool = False) -> str | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str):
+        raise ConfigurationSnapshotError(
+            f"configuration_snapshot.{field} must be a canonical UUID reference"
+        )
+    try:
+        parsed = UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise ConfigurationSnapshotError(
+            f"configuration_snapshot.{field} must be a canonical UUID reference"
+        ) from exc
+    if str(parsed) != value:
+        raise ConfigurationSnapshotError(
+            f"configuration_snapshot.{field} must be a canonical UUID reference"
+        )
+    return str(parsed)
+
+
+def _contract_sha256(value: Any, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or value.lower() != value
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ConfigurationSnapshotError(
+            f"configuration_snapshot.{field} must be a lowercase SHA-256 digest"
+        )
+    return value
+
+
+def normalize_configuration_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and detach safe configuration evidence.
+
+    This is deliberately not a generic settings snapshot.  Only immutable
+    binding references, the transition kind/mode, and contract digests can
+    cross this boundary.  Unknown keys fail closed instead of being copied and
+    potentially persisting a secret-bearing policy body.
+    """
+
+    if not isinstance(snapshot, Mapping):
+        raise ConfigurationSnapshotError("configuration_snapshot must be an object")
+    raw = dict(snapshot)
+    unknown = sorted(
+        repr(key)
+        for key in raw
+        if not isinstance(key, str) or key not in _CONFIGURATION_SNAPSHOT_KEYS
+    )
+    if unknown:
+        raise ConfigurationSnapshotError(
+            "unsupported configuration_snapshot fields: " + ", ".join(unknown)
+        )
+    if raw.get("schema_version") != CONFIGURATION_SNAPSHOT_SCHEMA_VERSION:
+        raise ConfigurationSnapshotError(
+            "configuration_snapshot.schema_version must be "
+            f"{CONFIGURATION_SNAPSHOT_SCHEMA_VERSION}"
+        )
+
+    raw_bindings = raw.get("bindings")
+    if not isinstance(raw_bindings, Mapping) or not raw_bindings:
+        raise ConfigurationSnapshotError(
+            "configuration_snapshot.bindings must be a non-empty object"
+        )
+    unknown_bindings = sorted(
+        repr(key)
+        for key in raw_bindings
+        if not isinstance(key, str) or key not in _CONFIGURATION_BINDING_KEYS
+    )
+    if unknown_bindings:
+        raise ConfigurationSnapshotError(
+            "unsupported configuration_snapshot.bindings fields: "
+            + ", ".join(unknown_bindings)
+        )
+    bindings = {
+        key: _configuration_reference(
+            value,
+            field=f"bindings.{key}",
+            nullable=True,
+        )
+        for key, value in raw_bindings.items()
+    }
+
+    normalized: dict[str, Any] = {
+        "schema_version": CONFIGURATION_SNAPSHOT_SCHEMA_VERSION,
+        "bindings": bindings,
+    }
+    raw_transition = raw.get("transition")
+    if raw_transition is not None:
+        if not isinstance(raw_transition, Mapping):
+            raise ConfigurationSnapshotError(
+                "configuration_snapshot.transition must be an object"
+            )
+        unknown_transition = sorted(
+            repr(key)
+            for key in raw_transition
+            if not isinstance(key, str) or key not in _CONFIGURATION_TRANSITION_KEYS
+        )
+        if unknown_transition:
+            raise ConfigurationSnapshotError(
+                "unsupported configuration_snapshot.transition fields: "
+                + ", ".join(unknown_transition)
+            )
+        if raw_transition.get("kind") not in _CONFIGURATION_TRANSITION_KINDS:
+            raise ConfigurationSnapshotError(
+                "configuration_snapshot.transition.kind is unsupported"
+            )
+        if raw_transition.get("enforcement_mode") not in _MEMBRANE_ENFORCEMENT_MODES:
+            raise ConfigurationSnapshotError(
+                "configuration_snapshot.transition.enforcement_mode is unsupported"
+            )
+        transition = {
+            "kind": raw_transition["kind"],
+            "previous_control_policy_id": _configuration_reference(
+                raw_transition.get("previous_control_policy_id"),
+                field="transition.previous_control_policy_id",
+                nullable=True,
+            ),
+            "enforcement_mode": raw_transition["enforcement_mode"],
+            "source_contract_sha256": _contract_sha256(
+                raw_transition.get("source_contract_sha256"),
+                field="transition.source_contract_sha256",
+            ),
+            "target_contract_sha256": _contract_sha256(
+                raw_transition.get("target_contract_sha256"),
+                field="transition.target_contract_sha256",
+            ),
+        }
+        normalized["transition"] = transition
+    return copy.deepcopy(normalized)
+
+
 def record_new_version(
     *,
     db: DBSession,
@@ -87,32 +261,55 @@ def record_new_version(
     rolled_back_from_id: str | None = None,
     audit_actor: str | None = None,
     purge: bool = True,
+    configuration_snapshot: Mapping[str, Any] | None = None,
 ) -> SystemVersion | None:
     """Persist a new ``SystemVersion`` for this system and trim the
     rolling window. Commits on the caller's session (we only flush —
     the caller decides when to commit so we stay inside their
     transaction when embedded in a larger write).
 
-    Returns the new version, or ``None`` if ``flow_definition`` is
-    identical to the latest one on file (no-op save).
+    Returns the new version, or ``None`` if the authoritative inputs are
+    identical to the latest row.  When ``configuration_snapshot`` is omitted,
+    only the flow participates in that comparison, preserving the historical
+    contract for every legacy caller.  When supplied explicitly, the validated
+    snapshot participates too and can therefore prove a configuration-only
+    transition.
     """
 
+    normalized_configuration = (
+        normalize_configuration_snapshot(configuration_snapshot)
+        if configuration_snapshot is not None
+        else None
+    )
+
+    # The parent lock must be acquired before either reading the latest row or
+    # deriving its successor.  Every cooperating writer therefore allocates a
+    # version number inside one serialized critical section.  The database
+    # uniqueness constraint remains the final guard for non-cooperating writes.
+    locked_system = _lock_system_for_versioning(db, system.id)
     latest = (
         db.query(SystemVersion)
-        .filter(SystemVersion.system_id == system.id)
+        .filter(SystemVersion.system_id == locked_system.id)
         .order_by(desc(SystemVersion.version_number))
         .first()
     )
 
-    if latest is not None and _flow_definitions_equal(latest.flow_definition, flow_definition):
-        return None
+    if latest is not None and _flow_definitions_equal(
+        latest.flow_definition, flow_definition
+    ):
+        if configuration_snapshot is None or _flow_definitions_equal(
+            latest.configuration_snapshot,
+            normalized_configuration,
+        ):
+            return None
 
     version = SystemVersion(
         id=str(uuid4()),
-        system_id=system.id,
-        workspace_id=system.workspace_id,
-        version_number=_next_version_number(db, system.id),
+        system_id=locked_system.id,
+        workspace_id=locked_system.workspace_id,
+        version_number=(latest.version_number if latest is not None else 0) + 1,
         flow_definition=copy.deepcopy(dict(flow_definition)),
+        configuration_snapshot=normalized_configuration,
         message=message,
         rolled_back_from_id=rolled_back_from_id,
         created_by=created_by or "demo-user",
@@ -123,18 +320,24 @@ def record_new_version(
     # Product/runtime edits retain the bounded rolling window.  Migration and
     # rollout callers can opt out explicitly: those operations promise never
     # to delete a historical SystemVersion while establishing a new contract.
-    purged_ids = _purge_window(db=db, system_id=system.id) if purge else []
+    purged_ids = _purge_window(db=db, system_id=locked_system.id) if purge else []
 
     emit_audit_event(
-        workspace_id=system.workspace_id,
+        workspace_id=locked_system.workspace_id,
         event_type="chain.version.created",
         actor=audit_actor or created_by or "demo-user",
         details={
-            "system_id": system.id,
+            "system_id": locked_system.id,
             "version_id": version.id,
             "version_number": version.version_number,
             "rolled_back_from_id": rolled_back_from_id,
             "message_len": len(message) if message else 0,
+            "has_configuration_snapshot": normalized_configuration is not None,
+            "configuration_snapshot_schema_version": (
+                normalized_configuration.get("schema_version")
+                if normalized_configuration is not None
+                else None
+            ),
         },
         # Reuse the caller's session so we stay inside their unit of
         # work (same transaction, same connection). Production doesn't
@@ -148,11 +351,11 @@ def record_new_version(
 
     if purged_ids:
         emit_audit_event(
-            workspace_id=system.workspace_id,
+            workspace_id=locked_system.workspace_id,
             event_type="chain.version.purged",
             actor=audit_actor or "system",
             details={
-                "system_id": system.id,
+                "system_id": locked_system.id,
                 "purged_count": len(purged_ids),
                 "purged_ids": purged_ids,
                 "window": settings.custom_chain_version_window,
@@ -335,6 +538,7 @@ def serialize_version(version: SystemVersion) -> dict[str, Any]:
         "workspace_id": version.workspace_id,
         "version_number": version.version_number,
         "flow_definition": version.flow_definition,
+        "configuration_snapshot": version.configuration_snapshot,
         "message": version.message,
         "rolled_back_from_id": version.rolled_back_from_id,
         "created_at": version.created_at.isoformat() if version.created_at else None,

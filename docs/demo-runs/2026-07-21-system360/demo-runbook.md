@@ -19,7 +19,7 @@ Production gelée et testée sur `cfa3f616050bb5f75c9a3709219b52939e7ec0bd`. Ne 
 | 3:15–4:30 | Passer à **Steer** | Montrer outcomes, décisions, policies et simulation ; distinguer explicitement simulation et mesure. |
 | 4:30–5:45 | Passer à **Govern** | Montrer actions autorisées par le resolver, contraintes Membrane, audit et versions. |
 | 5:45–6:45 | Utiliser retour/avance puis recharger | Faire constater que System, header, breadcrumb et facette restent invariants. Hypervisor reste le home Portfolio, pas une lens objet. |
-| 6:45–8:00 | Basculer vers Andritz | Montrer les trois applications historiques **plus FSE**, soit quatre applications intentionnelles, sans changement de leurs APIs. |
+| 6:45–8:00 | Basculer vers Andritz | Montrer les trois applications historiques, dont les surfaces Capture et FSE de Knowledge Capture, sans changement de leurs APIs. |
 | 8:00–9:15 | Montrer Sentinel puis Octocity | Souligner l'isolation du branding, des action packs et l'absence de termes croisés. |
 | 9:15–10:00 | Revenir au System canari | Résumer : construire, opérer, piloter et gouverner le même System sans perdre le contexte. |
 
@@ -47,7 +47,7 @@ Le mode secours démontre l'état testé ; il ne doit pas être présenté comme
 ## Limites connues, non bloquantes pour la démo
 
 - La garde console stricte a identifié un `422` de télémétrie sur `POST /api/v1/audit`
-  lors du passage par l'app FSE Andritz. La navigation et les quatre applications restent
+  lors du passage par la surface FSE Andritz. La navigation et les trois applications restent
   fonctionnelles ; ne pas présenter la console comme totalement propre.
 - Sentinel et Octocity rendent correctement leurs Mission Rooms, mais l'appel secondaire
   `GET /api/v1/meetings/decisions-log` répond encore `404` et le composant affiche son état

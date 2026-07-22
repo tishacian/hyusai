@@ -3,7 +3,7 @@ personas: [builder, operator, executive]
 languages: [en, fr]
 
 # ---------------------------------------------------------------------------
-# HYPERVISOR — Balance sheet, decisions, portfolio what-if.
+# HYPERVISOR — Portfolio balance sheet and decision signals.
 # ---------------------------------------------------------------------------
 items:
   - id: hypervisor.balance-sheet.overview
@@ -65,15 +65,15 @@ items:
         related_actions: ["hypervisor.decisions.accept", "steering.levers.resource"]
       operator:
         summary:
-          en: "Goes through a proposed Decision — you validate the impact before it is applied."
-          fr: "Passe par une Decision proposée — tu valides l'impact avant application."
+          en: "Creates a decision signal; any real change must then follow the governed System value loop."
+          fr: "Crée un signal de décision ; tout changement réel passe ensuite par la boucle de valeur gouvernée du System."
         user_story:
-          en: "As an operator, I validate the scaling recommendation before it rewrites policies."
-          fr: "En tant qu'operator, je valide la recommandation de scaling avant qu'elle ne modifie les policies."
+          en: "As an operator, I validate the recommendation, then open the System Steer scenario when an actuator is configured."
+          fr: "En tant qu'operator, je valide la recommandation, puis j'ouvre le scénario Steer du System lorsqu'un actuator est configuré."
         prerequisites:
           - en: "An open Decision with action=scale."
             fr: "Une Decision ouverte avec action=scale"
-        related_actions: ["hypervisor.decisions.apply"]
+        related_actions: ["hypervisor.decisions.accept"]
       builder:
         summary:
           en: "An executive action — you will feel it in the composition of your Systems tomorrow."
@@ -102,13 +102,13 @@ items:
         related_actions: ["hypervisor.decisions.accept", "hypervisor.decisions.reject"]
       operator:
         summary:
-          en: "Action center: accept/reject/apply per decision, filterable by scope."
-          fr: "Centre d'action : accept/reject/apply par décision, filtrable par scope."
+          en: "Decision inbox: accept or reject signals by scope; enactment belongs to the governed System value loop."
+          fr: "Boîte de décisions : accepte ou rejette les signaux par scope ; l'enactment appartient à la boucle de valeur gouvernée du System."
         user_story:
           en: "As an operator, I work the feed and prioritise blocking actions first."
           fr: "En tant qu'operator, je traite le flux de décisions en priorisant les actions bloquantes."
         prerequisites: []
-        related_actions: ["hypervisor.decisions.apply"]
+        related_actions: ["hypervisor.decisions.accept", "hypervisor.decisions.reject"]
       builder:
         summary:
           en: "Read-only for you — shows decisions that will impact your Systems."
@@ -128,26 +128,26 @@ items:
     by_persona:
       executive:
         summary:
-          en: "Validate the recommendation — an operator still needs to enact it."
-          fr: "Valide la recommandation — elle reste à enacter par un operator."
+          en: "Validate the recommendation as a decision signal; this does not mutate a System or policy."
+          fr: "Valide la recommandation comme signal de décision ; cela ne modifie ni System ni policy."
         user_story:
           en: "As an executive, I accept the decision to authorize its application."
           fr: "En tant que dirigeant, j'accepte la décision pour autoriser son application."
         prerequisites:
           - en: "Status = proposed."
             fr: "Statut = proposed"
-        related_actions: ["hypervisor.decisions.apply"]
+        related_actions: []
       operator:
         summary:
-          en: "Intermediate step before Apply; attach an audit note if relevant."
-          fr: "Étape intermédiaire avant Apply ; ajoute une note d'audit si nécessaire."
+          en: "Records acceptance and its audit note; use System Steer for governed simulation, approval and actuation."
+          fr: "Enregistre l'acceptation et sa note d'audit ; utilise System Steer pour simuler, approuver et agir sous gouvernance."
         user_story:
           en: "As an operator, I accept the decision and flag it for application under my responsibility."
           fr: "En tant qu'operator, j'accepte la décision et la marque pour application sous ma responsabilité."
         prerequisites:
           - en: "Status = proposed."
             fr: "Statut = proposed"
-        related_actions: ["hypervisor.decisions.apply", "hypervisor.decisions.reject"]
+        related_actions: ["hypervisor.decisions.reject"]
       builder:
         summary:
           en: "Reserved to executives/operators."
@@ -198,32 +198,32 @@ items:
 
   - id: hypervisor.decisions.apply
     title:
-      en: "Apply a decision"
-      fr: "Appliquer une décision"
+      en: "Legacy decision Apply (retired)"
+      fr: "Apply de décision legacy (retiré)"
     category: action
     learn_more: "#s-24-decisions"
     by_persona:
       operator:
         summary:
-          en: "Enact the decision: patches the impacted policies/systems and logs the audit trail."
-          fr: "Enacte la décision : patch les policies/systems concernés et enregistre l'audit."
+          en: "This generic actuator is disabled and returns not_configured; use the authoritative System value loop."
+          fr: "Cet actuator générique est désactivé et retourne not_configured ; utilise la boucle de valeur autoritaire du System."
         user_story:
-          en: "As an operator, I apply the decision to materialize the change on the runtime."
-          fr: "En tant qu'operator, j'applique la décision pour matérialiser le changement sur le runtime."
+          en: "As an operator, I enact only an approved, bounded System scenario with a configured actuator."
+          fr: "En tant qu'operator, je n'enacte qu'un scénario System approuvé, borné et doté d'un actuator configuré."
         prerequisites:
-          - en: "Status = accepted."
-            fr: "Statut = accepted"
-        related_actions: ["runs.list", "steering.levers.resource"]
+          - en: "Open the target System in Steer and create a value-loop scenario."
+            fr: "Ouvrir le System cible dans Steer et créer un scénario de boucle de valeur."
+        related_actions: ["runs.list"]
       executive:
         summary:
-          en: "Accepted → applied transition — usually triggered by an operator."
-          fr: "Transition accepted → applied — habituellement déclenchée par un operator."
+          en: "Direct Hypervisor Apply is retired; acceptance alone never mutates runtime state."
+          fr: "L'Apply direct Hypervisor est retiré ; une acceptation seule ne modifie jamais le runtime."
         user_story:
-          en: "As an executive, I trigger Apply only when I need to short-circuit the chain."
-          fr: "En tant que dirigeant, je déclenche Apply uniquement quand je veux court-circuiter la chaîne."
+          en: "As an executive, I approve the explicit System simulation instead of bypassing the chain."
+          fr: "En tant que dirigeant, j'approuve la simulation explicite du System sans court-circuiter la chaîne."
         prerequisites:
-          - en: "Status = accepted."
-            fr: "Statut = accepted"
+          - en: "A persisted System simulation is awaiting approval."
+            fr: "Une simulation System persistée attend une approbation."
         related_actions: []
       builder:
         summary:
@@ -237,33 +237,33 @@ items:
 
   - id: hypervisor.what-if.run
     title:
-      en: "What-If simulation"
-      fr: "Simulation What-If"
+      en: "Legacy portfolio What-If (retired)"
+      fr: "What-If portfolio legacy (retiré)"
     category: action
     learn_more: "#s-36-steering"
     by_persona:
       executive:
         summary:
-          en: "Projects the P&L when you move resource / velocity / autonomy / risk tolerance."
-          fr: "Projette le P&L si tu bouges resource / velocity / autonomy / risk tolerance."
+          en: "The generic projection is disabled; a real forecast is created and persisted on one System scenario."
+          fr: "La projection générique est désactivée ; un vrai forecast est créé et persisté sur un scénario System."
         user_story:
           en: "As an executive, I simulate the levers before any change to validate the expected impact."
           fr: "En tant que dirigeant, je simule les leviers avant tout changement pour valider l'impact attendu."
         prerequisites: []
-        related_actions: ["steering.levers.resource"]
+        related_actions: []
       operator:
         summary:
-          en: "Try a lever combination and read the projection before modifying policies."
-          fr: "Essaie une combinaison de leviers et mesure la projection avant de modifier les policies."
+          en: "Returns not_configured; use System Steer to simulate a bounded patch before approval."
+          fr: "Retourne not_configured ; utilise System Steer pour simuler un patch borné avant approbation."
         user_story:
           en: "As an operator, I run a what-if to check resilience before applying a tuning."
           fr: "En tant qu'operator, je lance un what-if pour vérifier la résilience avant d'appliquer un réglage."
         prerequisites: []
-        related_actions: ["steering.levers.resource"]
+        related_actions: []
       builder:
         summary:
-          en: "Preview the effect of the levers on the Systems you designed."
-          fr: "Pré-visualise l'effet des leviers sur les Systems que tu as conçus."
+          en: "No generic preview is inferred; missing steering models remain explicitly not_configured."
+          fr: "Aucune preview générique n'est inférée ; un modèle de steering absent reste explicitement not_configured."
         user_story:
           en: "As a builder, I simulate the levers to understand the sensitivity of my Systems."
           fr: "En tant que builder, je simule les leviers pour comprendre la sensibilité de mes Systems."

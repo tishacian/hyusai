@@ -61,7 +61,7 @@ class WorkspaceStub {
   ];
 
   captureRequestScope(): WorkspaceRequestScope {
-    return Object.freeze({ workspaceSlug: this.scopeSlug, epoch: this.epoch });
+    return Object.freeze({ workspaceSlug: this.scopeSlug, workspaceId: `workspace-${this.scopeSlug}`, epoch: this.epoch });
   }
 
   isRequestScopeCurrent(scope: WorkspaceRequestScope): boolean {
