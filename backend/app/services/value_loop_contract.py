@@ -96,6 +96,7 @@ def validate_value_loop_runtime_contract(
             ControlPolicy.id == system.control_policy_id,
             ControlPolicy.workspace_id == workspace_id,
         )
+        .populate_existing()
         .one_or_none()
     )
     return validate_value_loop_actuator_objects(

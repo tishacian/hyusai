@@ -74,7 +74,11 @@ from app.services.run_access import (
 from app.services.run_engine import schedule_run
 from app.services.run_engine.dag import resume_run_dag, resume_run_dag_debug
 from app.services.run_engine.events import bus as event_bus
-from app.services.run_outcome_provenance import record_operator_outcome_override
+from app.services.run_outcome_provenance import (
+    baseline_run_exclusion_reason,
+    record_operator_outcome_override,
+    run_measurement_provenance,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -159,8 +163,15 @@ def _visible_run_or_404(
     return run
 
 
-def _row(r: Run) -> Dict[str, Any]:
+def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
     membrane_held = _membrane_egress_held(r)
+    measurement_provenance = run_measurement_provenance(r, db=db)
+    baseline_exclusion = baseline_run_exclusion_reason(r)
+    baseline_eligible = bool(
+        isinstance(measurement_provenance, dict)
+        and measurement_provenance.get("source") == "runtime_auto"
+        and baseline_exclusion is None
+    )
     checkpoints = []
     for checkpoint in list(r.checkpoints or []):
         if (
@@ -194,6 +205,16 @@ def _row(r: Run) -> Dict[str, Any]:
             "efficiency": r.efficiency,
             "value_source": getattr(r, "value_source", None) or "unset",
             "operator_value_note": getattr(r, "operator_value_note", None),
+            "measurement_provenance": measurement_provenance,
+            "baseline_eligible": baseline_eligible,
+            "baseline_ineligible_reason": (
+                baseline_exclusion
+                or (
+                    "baseline_runtime_provenance_unavailable"
+                    if not baseline_eligible
+                    else None
+                )
+            ),
         },
         "retries": r.retries,
         "error": r.error,
@@ -357,7 +378,7 @@ async def list_runs(
         user=user,
         workspace=workspace,
     )
-    return {"runs": [_row(r) for r in rows]}
+    return {"runs": [_row(r, db=db) for r in rows]}
 
 
 @router.get("/{run_id}")
@@ -401,7 +422,7 @@ async def get_run(
         "skill_invocation",
     )
     payload: Dict[str, Any] = {
-        **_row(r),
+        **_row(r, db=db),
         "invocations": [
             _invocation(
                 i,
@@ -1445,21 +1466,39 @@ async def override_run_outcome(
         ),
         resource_attrs=_run_read_attrs(r),
     )
+    # Serialize override histories and replace any stale identity-map state
+    # before deriving the value and its mandatory audit receipt.
+    r = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=Run)
+        .one_or_none()
+    )
+    if r is None:
+        raise HTTPException(404, "Run not found")
     if r.status not in ("completed", "failed"):
         raise HTTPException(
             409,
             f"Run is still {r.status!r}; operator overrides require a settled run.",
         )
-    previous_value = r.value_estimated
-    apply_operator_override(r, value=body.value, note=body.note)
-    record_operator_outcome_override(
-        r,
-        actor=_actor_label(user),
-        previous_value=previous_value,
-        note=body.note,
-    )
-    db.commit()
-    return _row(r)
+    try:
+        previous_value = r.value_estimated
+        apply_operator_override(r, value=body.value, note=body.note)
+        record_operator_outcome_override(
+            r,
+            db=db,
+            actor=_actor_label(user),
+            previous_value=previous_value,
+            note=body.note,
+        )
+        db.commit()
+    except Exception:
+        # Outcome, embedded receipt and exact AuditLog are one atomic write.
+        db.rollback()
+        raise
+    db.refresh(r)
+    return _row(r, db=db)
 
 
 # ---------------------------------------------------------------------------
@@ -1631,7 +1670,7 @@ async def list_run_replays(
         "parent_run_id": run_id,
         "items": [
             {
-                **_row(r),
+                **_row(r, db=db),
                 "replay_overrides": r.replay_overrides or {},
                 "evaluation_scores": r.evaluation_scores,
             }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import app.services.system_perspective as system_perspective_service
 from app.core.config import settings as app_settings
 from app.models.audit import AuditLog
 from app.models.capability import Capability
@@ -227,6 +228,11 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
     baseline = db_session.query(Run).filter_by(id="run-contract").one()
     revision = "a" * 40
     monkeypatch.setattr(app_settings, "agentium_image_revision", revision)
+    monkeypatch.setattr(
+        system_perspective_service,
+        "value_loop_enabled",
+        lambda *_args, **_kwargs: True,
+    )
 
     gate_off = build_system_perspective(
         db_session,
@@ -248,21 +254,6 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
         "experience": {
             **system.settings["experience"],
             "value_loop_canary": "v1",
-        },
-        "_lot8_value_loop_rollout_v1": {
-            "schema_version": 1,
-            "prepared": None,
-            "activations": [
-                {
-                    "system_id": system.id,
-                    "revision": revision,
-                    "activated_at": datetime.now(UTC).isoformat(),
-                    "evidence_ref": "sha256:" + "c" * 64,
-                    "artifact_ref": "sha256:" + "d" * 64,
-                }
-            ],
-            "deactivations": [],
-            "policy_transitions": [],
         },
         "value_loop": {
             "actuators": {
@@ -295,22 +286,40 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
         },
     )
     system.control_policy_id = policy.id
-    rollout_state = system.settings["_lot8_value_loop_rollout_v1"]
-    activation = rollout_state["activations"][0]
     policy_reference = control_policy_execution_contract(policy)
-    chain_created_at = activation["activated_at"]
-    activation.update(
-        {
-            "policy_chain_ref": value_loop_policy_chain_reference(
-                system_id=system.id,
-                revision=revision,
-                created_at=chain_created_at,
-                control_policy=policy_reference,
-            ),
-            "policy_chain_created_at": chain_created_at,
-            "control_policy": policy_reference,
-        }
+    opened_at = datetime.now(UTC)
+    expires_at = opened_at + timedelta(hours=1)
+    chain_ref = value_loop_policy_chain_reference(
+        system_id=system.id,
+        revision=revision,
+        created_at=opened_at.isoformat(),
+        control_policy=policy_reference,
     )
+    audit_id = "value-loop-window-audit"
+    system.settings = {
+        **system.settings,
+        "_lot8_value_loop_rollout_v1": {
+            "schema_version": 1,
+            "prepared": {
+                "system_id": system.id,
+                "contract_sha256": "f" * 64,
+            },
+            "proof_window": {
+                "audit_id": audit_id,
+                "system_id": system.id,
+                "revision": revision,
+                "contract_sha256": "f" * 64,
+                "opened_at": opened_at.isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "opened_by": "operator@example.test",
+                "policy_chain_ref": chain_ref,
+                "control_policy": policy_reference,
+            },
+            "activations": [],
+            "deactivations": [],
+            "policy_transitions": [],
+        },
+    }
     create_operation = ValueLoopOperation(
         id="value-operation-create",
         workspace_id=workspace.id,
@@ -367,7 +376,31 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
         confidence=0.7,
     )
     db_session.add_all(
-        [policy, create_operation, simulate_operation, scenario, decision, simulation]
+        [
+            policy,
+            create_operation,
+            simulate_operation,
+            scenario,
+            decision,
+            simulation,
+            AuditLog(
+                id=audit_id,
+                workspace_id=workspace.id,
+                event_type="lot8.value_loop.canary_window.opened",
+                actor="operator@example.test",
+                agent_id=system.id,
+                details={
+                    "system_id": system.id,
+                    "revision": revision,
+                    "expires_at": expires_at.isoformat(),
+                    "feature": "value_loop_v1",
+                    "claim_promoted": False,
+                    "policy_chain_ref": chain_ref,
+                    "control_policy_revision": policy_reference["revision"],
+                    "control_policy_sha256": policy_reference["sha256"],
+                },
+            ),
+        ]
     )
     db_session.commit()
 
@@ -382,7 +415,15 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
     scenarios = _fact(steer, "overview", "value-loop", "scenarios")
     actuator = _fact(steer, "design", "value-actuator", "actuator")
     preview = _fact(steer, "design", "simulation", "preview")
+    value_loop_block = next(
+        block
+        for block in steer["facets"]["overview"]["blocks"]
+        if block["id"] == "value-loop"
+    )
 
+    assert value_loop_block["title"] == (
+        "Outcome → Decision → Simulate → Approve → Act → Measure"
+    )
     assert lifecycle["value"] == "simulated"
     assert scenarios["sample_count"] == 1
     assert scenarios["value"][0]["simulation"]["evidence_type"] == "simulation"
@@ -393,6 +434,33 @@ def test_steer_projects_persisted_value_loop_only_behind_unique_marker(
     assert preview["value"]["projected_outcome"]["value"] == 8.8
     assert preview["value"]["provenance"]["system_id"] == system.id
 
+    monkeypatch.setattr(
+        system_perspective_service,
+        "value_loop_enabled",
+        lambda *_args, **_kwargs: False,
+    )
+    authority_closed = build_system_perspective(
+        db_session,
+        workspace=workspace,
+        user=user,
+        system=system,
+        lens="steer",
+    )
+    closed_actuator = _fact(
+        authority_closed,
+        "design",
+        "value-actuator",
+        "actuator",
+    )
+    assert closed_actuator["state"] == "not_configured"
+    assert closed_actuator["value"] is None
+    assert closed_actuator["reason"] == "value_loop_execution_authority_not_ready"
+
+    monkeypatch.setattr(
+        system_perspective_service,
+        "value_loop_enabled",
+        lambda *_args, **_kwargs: True,
+    )
     drifted_settings = dict(system.settings)
     drifted_settings["value_loop"] = {"actuators": {}}
     system.settings = drifted_settings

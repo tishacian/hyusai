@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import pytest
 
@@ -25,15 +26,45 @@ from app.services.object_perspective import (
     build_skill_invocation_perspective,
     projection_feature_enabled,
 )
-from app.services.projection_gate import with_projection_activation
+from app.services.projection_gate import (
+    PROJECTION_FINALIZATION_AUDIT_EVENT,
+    projection_activation_audit_details,
+    projection_activation_sha256,
+    with_projection_activation,
+)
 from app.services.projection_integrity import invocation_cost_is_measured
 from app.services.run_engine.engine import _snapshot_run_flow
 from app.services.system_perspective import build_system_perspective
+
+TEST_TRUSTED_RUNNER = {
+    "issuer": "https://gitlab.example.test",
+    "project_id": "42",
+    "pipeline_id": "314",
+    "job_id": "159",
+    "commit_sha": "a" * 40,
+    "ref": "demo/agentic",
+    "ref_protected": True,
+}
 
 
 @pytest.fixture(autouse=True)
 def _deployed_projection_revision(monkeypatch):
     monkeypatch.setattr(settings, "agentium_image_revision", "a" * 40)
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_oidc_issuer",
+        TEST_TRUSTED_RUNNER["issuer"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_project_id",
+        TEST_TRUSTED_RUNNER["project_id"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_ref",
+        TEST_TRUSTED_RUNNER["ref"],
+    )
 
 
 def _projection_settings(*projections: str) -> dict:
@@ -50,13 +81,43 @@ def _projection_settings(*projections: str) -> dict:
     return settings
 
 
-def _canary_settings(workspace_settings: dict) -> dict:
+def _canary_settings(db_session, workspace_settings: dict, *, workspace_id: str) -> dict:
     rows = workspace_settings["_lot7_projection_gate_v1"]["activations"]
+    activations = []
+    for row in rows:
+        pilot_audit_id = str(uuid4())
+        activation = {
+            **dict(row),
+            "trusted_runner": dict(TEST_TRUSTED_RUNNER),
+            "pilot_observation": {
+                "audit_id": pilot_audit_id,
+                "observation_ref": f"sha256:{'b' * 64}",
+                "participant_ref": f"sha256:{'c' * 64}",
+                "profile": "operator",
+            },
+            "activated_by": "lot7-test-runner",
+            "activated_at": "2026-01-01T00:00:00+00:00",
+            "probation_lease_id": str(uuid4()),
+        }
+        activation["activation_sha256"] = projection_activation_sha256(activation)
+        audit_id = str(uuid4())
+        db_session.add(
+            AuditLog(
+                id=audit_id,
+                workspace_id=workspace_id,
+                event_type=PROJECTION_FINALIZATION_AUDIT_EVENT,
+                actor=activation["activated_by"],
+                agent_id=row["system_id"],
+                details=projection_activation_audit_details(activation),
+            )
+        )
+        activation["audit_id"] = audit_id
+        activations.append(activation)
     return {
         "experience": {"system_360_canary": "v1"},
         "_lot7_projection_rollout_v1": {
             "schema_version": 1,
-            "activations": [dict(row) for row in rows],
+            "activations": activations,
             "probations": [],
             "deactivations": [],
         },
@@ -114,7 +175,11 @@ def _seed(db_session):
         capability_id=capability.id,
         skill_ids=[skill.id],
         status="active",
-        settings=_canary_settings(workspace_settings),
+        settings=_canary_settings(
+            db_session,
+            workspace_settings,
+            workspace_id=workspace.id,
+        ),
     )
     run = Run(
         id="run-lot7",
@@ -1305,7 +1370,12 @@ def test_projection_flags_require_attested_gate_and_remain_per_object_type(db_se
     assert projection_feature_enabled(db_session, workspace, "capability") is False
     workspace.settings = _projection_settings("capability")
     system = db_session.query(System).filter_by(id=run.system_id).one()
-    system.settings = _canary_settings(workspace.settings)
+    system.settings = _canary_settings(
+        db_session,
+        workspace.settings,
+        workspace_id=workspace.id,
+    )
+    db_session.flush()
     assert projection_feature_enabled(db_session, workspace, "capability") is True
     assert projection_feature_enabled(db_session, workspace, "run") is False
     assert projection_feature_enabled(db_session, workspace, "skill_invocation") is False

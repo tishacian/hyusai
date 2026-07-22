@@ -18,6 +18,8 @@ Vague E / E3.1 — versioning + DAG validation:
   history and restore flow.
 """
 
+import copy
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -67,6 +69,101 @@ from app.services.system_perspective import build_system_perspective
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
+
+_MANAGED_SYSTEM_SETTING_FIELDS = {
+    "_lot6_system360_rollout_v1": "LOT6_SYSTEM360_ROLLOUT_STATE_MANAGED",
+    "_lot7_projection_rollout_v1": "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED",
+    "_lot8_value_loop_rollout_v1": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
+}
+_MANAGED_SYSTEM_EXPERIENCE_FIELDS = {
+    "system_360_canary": "LOT6_SYSTEM360_ROLLOUT_STATE_MANAGED",
+    "value_loop_canary": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
+}
+
+
+def _managed_system_settings_error(*, code: str, path: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": f"{path} is managed internally",
+        },
+    )
+
+
+def _settings_with_managed_system_fields_preserved(
+    current: object,
+    requested: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep rollout markers and evidence outside generic System writes.
+
+    ``System.settings`` remains a replacement payload for ordinary product
+    configuration. Rollout state and canary selection are different: only the
+    seed/rollout services may create, change, or remove them. Omitting one from
+    a generic replacement therefore preserves the current server-owned value.
+    """
+
+    current_settings = (
+        copy.deepcopy(dict(current)) if isinstance(current, Mapping) else {}
+    )
+    next_settings = copy.deepcopy(dict(requested))
+
+    for field, code in _MANAGED_SYSTEM_SETTING_FIELDS.items():
+        current_has_field = field in current_settings
+        requested_has_field = field in next_settings
+        if requested_has_field and (
+            not current_has_field
+            or next_settings[field] != current_settings[field]
+        ):
+            raise _managed_system_settings_error(
+                code=code,
+                path=f"system.settings.{field}",
+            )
+        if current_has_field:
+            next_settings[field] = copy.deepcopy(current_settings[field])
+
+    current_experience_raw = current_settings.get("experience")
+    current_experience = (
+        dict(current_experience_raw)
+        if isinstance(current_experience_raw, Mapping)
+        else {}
+    )
+    requested_has_experience = "experience" in next_settings
+    requested_experience_raw = next_settings.get("experience")
+    requested_experience = (
+        copy.deepcopy(dict(requested_experience_raw))
+        if isinstance(requested_experience_raw, Mapping)
+        else {}
+    )
+    current_has_managed_experience = any(
+        field in current_experience for field in _MANAGED_SYSTEM_EXPERIENCE_FIELDS
+    )
+    if (
+        requested_has_experience
+        and not isinstance(requested_experience_raw, Mapping)
+        and current_has_managed_experience
+    ):
+        raise _managed_system_settings_error(
+            code="SYSTEM_EXPERIENCE_ROLLOUT_STATE_MANAGED",
+            path="system.settings.experience",
+        )
+    for field, code in _MANAGED_SYSTEM_EXPERIENCE_FIELDS.items():
+        current_has_field = field in current_experience
+        requested_has_field = field in requested_experience
+        if requested_has_field and (
+            not current_has_field
+            or requested_experience[field] != current_experience[field]
+        ):
+            raise _managed_system_settings_error(
+                code=code,
+                path=f"system.settings.experience.{field}",
+            )
+        if current_has_field:
+            requested_experience[field] = copy.deepcopy(current_experience[field])
+
+    if requested_has_experience or current_has_managed_experience:
+        next_settings["experience"] = requested_experience
+    return next_settings
 
 
 def _is_migration_managed_agentic_system(
@@ -581,8 +678,12 @@ async def create_system(
         ),
         resource_attrs={"capability_id": body.capability_id},
     )
+    system_settings = _settings_with_managed_system_fields_preserved(
+        {},
+        body.settings or {},
+    )
     if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
-        body.settings, body.flow_definition
+        system_settings, body.flow_definition
     ):
         _require_reserved_agentic_identity_admin(
             db,
@@ -631,7 +732,7 @@ async def create_system(
         capability_id=body.capability_id,
         skill_ids=body.skill_ids,
         flow_definition=body.flow_definition,
-        settings=body.settings or {},
+        settings=system_settings,
         execution_mode=body.execution_mode.value,
         execution_profile=body.execution_profile or None,
         coordination_pattern=body.coordination_pattern,
@@ -788,14 +889,14 @@ def _sync_membrane_collection_allowlist(
     ``collection_allowlist`` is set to the connected ``asset`` collection slugs
     (``[]`` when there are none — neutral, never over-restrictive).
 
-    SAFETY (cannot block legitimate retrieval): this writes DECLARATIVE metadata
-    only. The DAG retrieval path (``retrieve_rag_context``) enforces the inbound
-    allowlist via the WORKSPACE ``source_policy``, not this ControlPolicy, so the
-    synced list is never consulted on that path; and even where it is consulted,
-    ``_apply_membrane_inbound_collections`` falls back to the full collection set
-    on an empty intersection. We only UPDATE an EXISTING ``membrane_spec`` (never
-    fabricate one) so a system that had a derived spec is not silently promoted
-    to an authoritative one for the capability/outbound facets.
+    This writes declarative metadata only. The DAG retrieval path
+    (``retrieve_rag_context``) currently resolves its allowlist from the
+    Workspace ``source_policy``, not this ControlPolicy. Where an authoritative
+    v2 ControlPolicy is consumed, an empty intersection intentionally blocks in
+    ``enforce`` and only observes in ``shadow``; it never broadens to every
+    collection. We only UPDATE an EXISTING ``membrane_spec`` (never fabricate
+    one) so a System with a derived spec is not silently promoted to an
+    authoritative contract for the capability/outbound facets.
     """
     policy_id = getattr(system, "control_policy_id", None)
     if not policy_id:
@@ -837,12 +938,26 @@ async def update_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    # The same row carries server-owned rollout receipts. Lock and refresh it
+    # before merging a generic settings replacement so a concurrent rollout
+    # cannot be reverted by a stale, otherwise legitimate System update.
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .first()
+    )
     if not s:
         raise HTTPException(404, "System not found")
     _enforce_system_admin(db, user=user, workspace=workspace, system=s)
 
     updates = body.model_dump(exclude_unset=True, mode="json")
+    if "settings" in updates:
+        updates["settings"] = _settings_with_managed_system_fields_preserved(
+            s.settings,
+            updates["settings"] or {},
+        )
     changed_fields = sorted(
         key for key, value in updates.items() if getattr(s, key, None) != value
     )

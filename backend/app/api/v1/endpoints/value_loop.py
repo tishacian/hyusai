@@ -1,9 +1,6 @@
 """System-scoped API for the authoritative Lot 8 value loop."""
 from __future__ import annotations
 
-import hashlib
-import json
-import math
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -44,7 +41,6 @@ from app.services.value_loop import (
     ValueLoopValidationError,
     act_value_scenario,
     approve_value_scenario,
-    canonicalize_value_loop_patch,
     create_value_scenario,
     measure_value_scenario,
     simulate_value_scenario,
@@ -303,231 +299,6 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def _finite_setting(value: Any, field: str) -> float:
-    if isinstance(value, bool):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": f"System steering model has an invalid {field}",
-            },
-        )
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": f"System steering model has no valid {field}",
-            },
-        ) from exc
-    if not math.isfinite(result):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": f"System steering model has an invalid {field}",
-            },
-        )
-    return result
-
-
-def _server_simulation_contract(
-    *,
-    system: System,
-    scenario: ValueScenario,
-    canonical_patch: Mapping[str, float],
-) -> dict[str, Any]:
-    """Derive a labelled forecast from persisted System configuration.
-
-    The client may choose the bounded action it wants to preview, but cannot
-    submit a model identity, confidence, projected result or provenance and
-    have Agentium present those values as a server simulation.
-    """
-
-    settings = system.settings if isinstance(system.settings, Mapping) else {}
-    raw_model = settings.get("steering_model")
-    model = dict(raw_model) if isinstance(raw_model, Mapping) else {}
-    version = str(model.get("version") or "").strip()
-    if not version:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": "System steering model is not configured",
-            },
-        )
-    confidence = _finite_setting(model.get("confidence"), "confidence")
-    if not 0 <= confidence <= 1:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": "System steering model confidence is invalid",
-            },
-        )
-
-    forecasts = model.get("forecasts")
-    if not isinstance(forecasts, Mapping):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "SIMULATION_NOT_CONFIGURED",
-                "message": "System steering model has no patch forecasts",
-            },
-        )
-
-    required_rule_fields = {
-        "minimum",
-        "maximum",
-        "include_maximum",
-        "cost_multiplier",
-        "value_multiplier",
-    }
-    matched_rules: list[dict[str, Any]] = []
-    aggregate_cost_multiplier = 1.0
-    aggregate_value_multiplier = 1.0
-    for field, patch_value in sorted(canonical_patch.items()):
-        raw_rules = forecasts.get(field)
-        if not isinstance(raw_rules, list) or not raw_rules:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "SIMULATION_NOT_CONFIGURED",
-                    "message": f"System steering model has no forecast for patch.{field}",
-                },
-            )
-        matches: list[dict[str, Any]] = []
-        for index, raw_rule in enumerate(raw_rules):
-            if not isinstance(raw_rule, Mapping) or set(raw_rule) != required_rule_fields:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "SIMULATION_NOT_CONFIGURED",
-                        "message": f"System steering forecast {field}[{index}] is invalid",
-                    },
-                )
-            include_maximum = raw_rule.get("include_maximum")
-            if not isinstance(include_maximum, bool):
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "SIMULATION_NOT_CONFIGURED",
-                        "message": f"System steering forecast {field}[{index}] has invalid bounds",
-                    },
-                )
-            minimum = _finite_setting(raw_rule.get("minimum"), f"forecasts.{field}[{index}].minimum")
-            maximum = _finite_setting(raw_rule.get("maximum"), f"forecasts.{field}[{index}].maximum")
-            cost_multiplier = _finite_setting(
-                raw_rule.get("cost_multiplier"),
-                f"forecasts.{field}[{index}].cost_multiplier",
-            )
-            value_multiplier = _finite_setting(
-                raw_rule.get("value_multiplier"),
-                f"forecasts.{field}[{index}].value_multiplier",
-            )
-            if (
-                minimum > maximum
-                or cost_multiplier < 0
-                or value_multiplier < 0
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "SIMULATION_NOT_CONFIGURED",
-                        "message": f"System steering forecast {field}[{index}] has invalid bounds",
-                    },
-                )
-            in_bounds = minimum <= patch_value < maximum
-            if include_maximum and patch_value == maximum:
-                in_bounds = True
-            if in_bounds:
-                matches.append(
-                    {
-                        "field": field,
-                        "minimum": minimum,
-                        "maximum": maximum,
-                        "include_maximum": include_maximum,
-                        "cost_multiplier": cost_multiplier,
-                        "value_multiplier": value_multiplier,
-                    }
-                )
-        if len(matches) != 1:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "SIMULATION_NOT_CONFIGURED",
-                    "message": (
-                        f"System steering model must match exactly one forecast for patch.{field}"
-                    ),
-                },
-            )
-        matched = matches[0]
-        matched_rules.append(matched)
-        aggregate_cost_multiplier *= matched["cost_multiplier"]
-        aggregate_value_multiplier *= matched["value_multiplier"]
-
-    canonical_patch_payload = dict(sorted(canonical_patch.items()))
-    patch_sha256 = hashlib.sha256(
-        json.dumps(
-            canonical_patch_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-
-    baseline = scenario.baseline_outcome if isinstance(scenario.baseline_outcome, Mapping) else {}
-
-    def projected(field: str, multiplier: float) -> float | None:
-        value = baseline.get(field)
-        if value is None or isinstance(value, bool):
-            return None
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return None
-        return number * multiplier if math.isfinite(number) else None
-
-    measured_value = baseline.get("value_source") in {"auto", "operator"}
-    projected_value = (
-        projected("value", aggregate_value_multiplier) if measured_value else None
-    )
-    projected_cost = projected("cost", aggregate_cost_multiplier)
-    assumptions = model.get("assumptions")
-    if not isinstance(assumptions, list) or any(not isinstance(item, str) for item in assumptions):
-        assumptions = []
-    return {
-        "model": f"system-steering:{version}",
-        "assumptions": {
-            "configured": assumptions,
-            "canonical_patch": canonical_patch_payload,
-            "patch_sha256": patch_sha256,
-            "matched_forecasts": matched_rules,
-            "aggregate_cost_multiplier": aggregate_cost_multiplier,
-            "aggregate_value_multiplier": aggregate_value_multiplier,
-        },
-        "projected_outcome": {
-            "value": projected_value,
-            "value_state": "available" if projected_value is not None else "not_measured",
-            "cost": projected_cost,
-            "cost_state": "available" if projected_cost is not None else "not_measured",
-        },
-        "provenance": {
-            "scope": "system",
-            "system_id": system.id,
-            "source_run_id": scenario.source_run_id,
-            "model_source": "systems.settings.steering_model",
-            "model_version": version,
-            "canonical_patch": canonical_patch_payload,
-            "patch_sha256": patch_sha256,
-            "matched_forecasts": matched_rules,
-        },
-        "confidence": confidence,
-    }
-
-
 def _serialize_simulation(row: ValueSimulation) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -644,6 +415,7 @@ def _serialize_scenario(
         "objective": row.objective,
         "baseline_outcome": scrub_projection_mapping(row.baseline_outcome or {}),
         "approved_simulation_id": row.approved_simulation_id,
+        "approved_simulation_content_sha256": row.approved_simulation_content_sha256,
         "approved_by": row.approved_by,
         "approved_at": _iso(row.approved_at),
         "acted_at": _iso(row.acted_at),
@@ -819,7 +591,7 @@ async def simulate_system_value_scenario(
 ) -> dict[str, Any]:
     workspace = _workspace_for_mutation(db, workspace)
     system = _system_or_404(db, workspace, system_id)
-    scenario = _scenario_or_404(
+    _scenario_or_404(
         db,
         workspace_id=workspace.id,
         system_id=system.id,
@@ -835,22 +607,11 @@ async def simulate_system_value_scenario(
         scenario_id=scenario_id,
     )
     try:
-        canonical_patch = canonicalize_value_loop_patch(body.recommended_patch)
-        simulation_contract = _server_simulation_contract(
-            system=system,
-            scenario=scenario,
-            canonical_patch=canonical_patch,
-        )
         simulation = simulate_value_scenario(
             db,
             workspace_id=workspace.id,
             scenario_id=scenario_id,
-            model=simulation_contract["model"],
-            assumptions=simulation_contract["assumptions"],
-            projected_outcome=simulation_contract["projected_outcome"],
-            provenance=simulation_contract["provenance"],
-            confidence=simulation_contract["confidence"],
-            recommended_patch=canonical_patch,
+            recommended_patch=body.recommended_patch,
             actor=_actor(user),
             idempotency_key=idempotency_key,
         )

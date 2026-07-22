@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from uuid import uuid4
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -12,12 +15,43 @@ from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
-from app.services.projection_gate import with_projection_activation
+from app.services.projection_gate import (
+    PROJECTION_FINALIZATION_AUDIT_EVENT,
+    projection_activation_audit_details,
+    projection_activation_sha256,
+    with_projection_activation,
+)
+from app.services.run_outcome_provenance import RUN_OUTCOME_OVERRIDE_AUDIT_EVENT
+
+TEST_TRUSTED_RUNNER = {
+    "issuer": "https://gitlab.example.test",
+    "project_id": "42",
+    "pipeline_id": "314",
+    "job_id": "159",
+    "commit_sha": "a" * 40,
+    "ref": "demo/agentic",
+    "ref_protected": True,
+}
 
 
 @pytest.fixture(autouse=True)
 def _deployed_projection_revision(monkeypatch):
     monkeypatch.setattr(settings, "agentium_image_revision", "a" * 40)
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_oidc_issuer",
+        TEST_TRUSTED_RUNNER["issuer"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_project_id",
+        TEST_TRUSTED_RUNNER["project_id"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_ref",
+        TEST_TRUSTED_RUNNER["ref"],
+    )
 
 
 def _projection_settings(*projections: str) -> dict:
@@ -34,13 +68,42 @@ def _projection_settings(*projections: str) -> dict:
     return settings
 
 
-def _canary_settings(workspace_settings: dict) -> dict:
+def _canary_settings(db_session, workspace_settings: dict, *, workspace_id: str) -> dict:
     rows = workspace_settings["_lot7_projection_gate_v1"]["activations"]
+    activations = []
+    for row in rows:
+        activation = {
+            **dict(row),
+            "trusted_runner": dict(TEST_TRUSTED_RUNNER),
+            "pilot_observation": {
+                "audit_id": str(uuid4()),
+                "observation_ref": f"sha256:{'b' * 64}",
+                "participant_ref": f"sha256:{'c' * 64}",
+                "profile": "operator",
+            },
+            "activated_by": "lot7-api-test-runner",
+            "activated_at": "2026-01-01T00:00:00+00:00",
+            "probation_lease_id": str(uuid4()),
+        }
+        activation["activation_sha256"] = projection_activation_sha256(activation)
+        audit_id = str(uuid4())
+        db_session.add(
+            AuditLog(
+                id=audit_id,
+                workspace_id=workspace_id,
+                event_type=PROJECTION_FINALIZATION_AUDIT_EVENT,
+                actor=activation["activated_by"],
+                agent_id=row["system_id"],
+                details=projection_activation_audit_details(activation),
+            )
+        )
+        activation["audit_id"] = audit_id
+        activations.append(activation)
     return {
         "experience": {"system_360_canary": "v1"},
         "_lot7_projection_rollout_v1": {
             "schema_version": 1,
-            "activations": [dict(row) for row in rows],
+            "activations": activations,
             "probations": [],
             "deactivations": [],
         },
@@ -80,7 +143,11 @@ def _seed(db_session):
         name="System API",
         capability_id=capability.id,
         status="active",
-        settings=_canary_settings(settings),
+        settings=_canary_settings(
+            db_session,
+            settings,
+            workspace_id=workspace.id,
+        ),
     )
     run = Run(
         id="run-object-api",
@@ -181,7 +248,11 @@ def test_object_projection_routes_fail_closed_by_workspace_and_flag(db_session):
 
     workspace.settings = _projection_settings("capability")
     system = db_session.query(System).filter_by(id=run.system_id).one()
-    system.settings = _canary_settings(workspace.settings)
+    system.settings = _canary_settings(
+        db_session,
+        workspace.settings,
+        workspace_id=workspace.id,
+    )
     db_session.commit()
     assert client.get(
         f"/capabilities/{capability.id}/perspective",
@@ -477,6 +548,94 @@ def test_run_collection_stream_and_ledger_honor_independent_read_modes(
         f"/runs/{run.id}/step",
         json={"action": "continue"},
     ).status_code == 403
+
+
+def test_run_outcome_override_persists_exact_redacted_server_receipt(db_session):
+    workspace, user, _capability, run, _invocation, _foreign = _seed(db_session)
+    client = _client(db_session, workspace, user)
+
+    response = client.patch(
+        f"/runs/{run.id}/outcome",
+        json={"value": 42.75, "note": "board-only commercial note"},
+    )
+
+    assert response.status_code == 200
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    audit = (
+        db_session.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace.id,
+            AuditLog.event_type == RUN_OUTCOME_OVERRIDE_AUDIT_EVENT,
+        )
+        .one()
+    )
+    receipt = persisted.output_ref["operator_value_overrides"][-1]
+    assert receipt["audit_id"] == audit.id
+    assert receipt["artifact_ref"] == audit.details["artifact_ref"]
+    assert audit.actor == user.email
+    assert audit.details["run_id"] == run.id
+    assert set(audit.details) == {
+        "schema_version",
+        "receipt_schema_version",
+        "source",
+        "run_id",
+        "previous_value_sha256",
+        "value_sha256",
+        "note_sha256",
+        "artifact_ref",
+    }
+    serialized = json.dumps(audit.details, sort_keys=True)
+    assert "board-only commercial note" not in serialized
+    assert "42.75" not in serialized
+    provenance = response.json()["outcome"]["measurement_provenance"]
+    assert provenance["audit_id"] == audit.id
+    assert provenance["actor"] == user.email
+    assert provenance["artifact_ref"] == receipt["artifact_ref"]
+
+
+def test_run_outcome_override_rolls_back_when_mandatory_audit_flush_fails(
+    db_session,
+    monkeypatch,
+):
+    workspace, user, _capability, run, _invocation, _foreign = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    before = {
+        "value": run.value_estimated,
+        "source": run.value_source,
+        "note": run.operator_value_note,
+        "output_ref": run.output_ref,
+    }
+    real_flush = db_session.flush
+
+    def fail_operator_audit(*args, **kwargs):
+        if any(
+            isinstance(row, AuditLog)
+            and row.event_type == RUN_OUTCOME_OVERRIDE_AUDIT_EVENT
+            for row in db_session.new
+        ):
+            raise RuntimeError("mandatory audit unavailable")
+        return real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "flush", fail_operator_audit)
+    with pytest.raises(RuntimeError, match="mandatory audit unavailable"):
+        client.patch(
+            f"/runs/{run.id}/outcome",
+            json={"value": 99.0, "note": "must roll back"},
+        )
+
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.value_estimated == before["value"]
+    assert persisted.value_source == before["source"]
+    assert persisted.operator_value_note == before["note"]
+    assert persisted.output_ref == before["output_ref"]
+    assert (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == RUN_OUTCOME_OVERRIDE_AUDIT_EVENT)
+        .count()
+        == 0
+    )
 
 
 def test_run_govern_resolves_real_legacy_approval_and_per_action_mode(

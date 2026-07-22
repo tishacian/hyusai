@@ -64,6 +64,8 @@ export interface Outcome {
   currency?: string;
   value_source?: 'auto' | 'operator' | 'unset';
   operator_value_note?: string | null;
+  baseline_eligible?: boolean;
+  baseline_ineligible_reason?: string | null;
 }
 
 export interface SkillInvocation {
@@ -734,6 +736,7 @@ export interface ValueScenario {
   objective: string;
   baseline_outcome: Record<string, unknown>;
   approved_simulation_id: string | null;
+  approved_simulation_content_sha256: string | null;
   approved_by: string | null;
   approved_at: string | null;
   acted_at: string | null;

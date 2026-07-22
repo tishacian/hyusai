@@ -52,6 +52,15 @@ interface RunRow {
   outcome?: {
     value_estimated?: number | null;
     value_source?: 'auto' | 'operator' | 'unset';
+    measurement_provenance?: {
+      schema_version?: number;
+      source?: 'runtime_auto' | 'operator_override';
+      actor?: string;
+      recorded_at?: string;
+      artifact_ref?: string;
+    } | null;
+    baseline_eligible?: boolean;
+    baseline_ineligible_reason?: string | null;
   };
 }
 
@@ -328,6 +337,62 @@ async function triggerAndAwaitMeasuredRun(
   return { run: null, reason: 'post_action_run_timeout' };
 }
 
+async function triggerAndAwaitBaselineRun(
+  page: Page,
+  workspace: WorkspaceSummary,
+  system: SystemRow,
+): Promise<{ run: RunRow | null; reason: string | null }> {
+  const triggered = await api<{ id?: string }>(
+    page,
+    workspace.slug,
+    `/systems/${encodeURIComponent(system.id)}/runs`,
+    {
+      method: 'POST',
+      body: {
+        trigger: 'manual',
+        input_ref: {
+          query: 'Run the configured System to establish a fresh measured baseline.',
+        },
+      },
+    },
+  );
+  if (!triggered.ok || !triggered.body.id) {
+    return { run: null, reason: `baseline_run_trigger_failed_${triggered.status}` };
+  }
+
+  const deadline = Date.now() + 5 * 60 * 1_000;
+  while (Date.now() < deadline) {
+    const current = await api<RunRow>(
+      page,
+      workspace.slug,
+      `/runs/${encodeURIComponent(triggered.body.id)}`,
+    );
+    if (!current.ok) {
+      return { run: null, reason: `baseline_run_unreadable_${current.status}` };
+    }
+    if (current.body.status === 'completed') {
+      const outcome = current.body.outcome;
+      if (
+        outcome?.baseline_eligible === true
+        && outcome.measurement_provenance?.source === 'runtime_auto'
+        && typeof outcome.value_estimated === 'number'
+        && Number.isFinite(outcome.value_estimated)
+      ) {
+        return { run: current.body, reason: null };
+      }
+      return {
+        run: null,
+        reason: outcome?.baseline_ineligible_reason ?? 'baseline_runtime_provenance_unavailable',
+      };
+    }
+    if (['failed', 'cancelled', 'hitl_pending'].includes(current.body.status)) {
+      return { run: null, reason: `baseline_run_${current.body.status}` };
+    }
+    await page.waitForTimeout(2_000);
+  }
+  return { run: null, reason: 'baseline_run_timeout' };
+}
+
 async function buildInfo(page: Page, path: string): Promise<BuildInfo> {
   const response = await page.request.get(`${path}?canary=${Date.now()}`, {
     headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
@@ -413,22 +478,16 @@ test.describe.serial('Lot 8 — authenticated authoritative value-loop canary', 
     expect(features(workspace.settings)['cockpit_router_axes_v4']).toBe(true);
     expect(features(workspace.settings)['system_360_projection_v1']).toBe(true);
 
-    const runsResult = await api<{ runs: RunRow[] }>(
-      page,
-      workspace.slug,
-      `/runs?system_id=${encodeURIComponent(system.id)}&status=completed&limit=100`,
-    );
-    expect(runsResult.ok).toBe(true);
-    const baselines = unwrap(runsResult.body, 'runs')
-      .filter((run) => (
-        run.system_id === system.id
-        && typeof run.outcome?.value_estimated === 'number'
-        && Number.isFinite(run.outcome.value_estimated)
-        && (run.outcome.value_source === 'auto' || run.outcome.value_source === 'operator')
-      ))
-      .sort((left, right) => `${left.started_at ?? ''}|${left.id}`.localeCompare(`${right.started_at ?? ''}|${right.id}`));
-    expect(baselines.length, 'the canary needs one completed Run with observed value').toBeGreaterThan(0);
-    const baseline = baselines[0];
+    const baselineResult = await triggerAndAwaitBaselineRun(page, workspace, system);
+    expect(
+      baselineResult.reason,
+      'the canary needs a fresh, non-seed Run with server runtime provenance',
+    ).toBeNull();
+    expect(baselineResult.run).toBeTruthy();
+    const baseline = baselineResult.run as RunRow;
+    expect(baseline.system_id).toBe(system.id);
+    expect(baseline.outcome?.baseline_eligible).toBe(true);
+    expect(baseline.outcome?.measurement_provenance?.source).toBe('runtime_auto');
 
     const policiesResult = await api<{ policies: ControlPolicyRow[] }>(
       page,

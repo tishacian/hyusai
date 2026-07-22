@@ -34,12 +34,15 @@ from app.models.value_loop import (
     ValueScenario,
     ValueSimulation,
 )
+from app.models.workspace import Workspace
+from app.services import value_loop_gate
 from app.services.control_policy_snapshot import (
     control_policy_execution_contract,
     validated_control_policy_execution_contract,
 )
 from app.services.membrane.spec import EnforcementMode, MembraneSpec
 from app.services.run_outcome_provenance import (
+    baseline_run_exclusion_reason,
     is_canary_authored_operator_outcome,
     run_measurement_provenance,
 )
@@ -52,6 +55,7 @@ PATCH_FIELDS = (
     "mandatory_hitl_if_confidence_below",
 )
 MEASURED_VALUE_SOURCES = ("auto", "operator")
+SIMULATION_CONTRACT_VERSION = 1
 
 
 class ValueLoopError(RuntimeError):
@@ -194,6 +198,7 @@ def _audit(
     event_type: str,
     actor: str,
     details: Mapping[str, Any],
+    timestamp: datetime | None = None,
 ) -> AuditLog:
     """Write a mandatory audit row in the caller's transaction.
 
@@ -205,7 +210,7 @@ def _audit(
     row = AuditLog(
         id=str(uuid4()),
         workspace_id=workspace_id,
-        timestamp=datetime.utcnow(),
+        timestamp=timestamp or datetime.utcnow(),
         event_type=event_type,
         actor=_required_text(actor, "actor", maximum=255),
         details=dict(details),
@@ -228,12 +233,28 @@ def _rollback_and_raise(db: DBSession, exc: Exception) -> NoReturn:
     raise exc
 
 
+def _workspace_for_update(db: DBSession, workspace_id: str) -> Workspace:
+    """Acquire the tenant mutex and replace any stale identity-map state."""
+
+    row = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace_id)
+        .populate_existing()
+        .with_for_update(of=Workspace)
+        .one_or_none()
+    )
+    if row is None:
+        raise ValueLoopNotFound("Workspace not found")
+    return row
+
+
 def _system_for_update(db: DBSession, workspace_id: str, system_id: str) -> System:
     row = (
         db.query(System)
         .filter(System.id == system_id, System.workspace_id == workspace_id)
+        .populate_existing()
         .with_for_update(of=System)
-        .first()
+        .one_or_none()
     )
     if row is None:
         raise ValueLoopNotFound("System not found")
@@ -251,8 +272,9 @@ def _scenario_for_update(
             ValueScenario.id == scenario_id,
             ValueScenario.workspace_id == workspace_id,
         )
+        .populate_existing()
         .with_for_update(of=ValueScenario)
-        .first()
+        .one_or_none()
     )
     if row is None:
         raise ValueLoopNotFound("ValueScenario not found")
@@ -270,15 +292,16 @@ def _decision_for_update(
             Decision.workspace_id == workspace_id,
             Decision.scenario_id == scenario_id,
         )
+        .populate_existing()
         .with_for_update(of=Decision)
-        .first()
+        .one_or_none()
     )
     if row is None:
         raise ValueLoopConflict("ValueScenario has no authoritative Decision")
     return row
 
 
-def _run_outcome(run: Run) -> dict[str, Any]:
+def _run_outcome(db: DBSession, run: Run) -> dict[str, Any]:
     outcome = {
         "source_type": "run",
         "run_id": run.id,
@@ -294,7 +317,7 @@ def _run_outcome(run: Run) -> dict[str, Any]:
     policy_contract = _run_policy_contract(run)
     if policy_contract is not None:
         outcome["control_policy"] = policy_contract
-    measurement_provenance = run_measurement_provenance(run)
+    measurement_provenance = run_measurement_provenance(run, db=db)
     if measurement_provenance is not None:
         outcome["measurement_provenance"] = measurement_provenance
     return outcome
@@ -348,16 +371,261 @@ def _canonical_patch(patch: Mapping[str, Any]) -> dict[str, float]:
     return result
 
 
-def canonicalize_value_loop_patch(patch: Mapping[str, Any]) -> dict[str, float]:
-    """Return the one canonical actuator patch representation.
+def _simulation_not_configured(message: str) -> NoReturn:
+    raise ValueLoopConflict(message, code="SIMULATION_NOT_CONFIGURED")
 
-    The HTTP simulation contract and the transactional actuator deliberately
-    share this function.  A forecast can therefore never be calculated from
-    a client payload that would later be interpreted differently at actuation
-    time.
-    """
 
-    return _canonical_patch(patch)
+def _finite_steering_setting(value: Any, field: str) -> float:
+    if isinstance(value, bool):
+        _simulation_not_configured(
+            f"System steering model has an invalid {field}"
+        )
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        _simulation_not_configured(
+            f"System steering model has no valid {field}"
+        )
+    if not math.isfinite(result):
+        _simulation_not_configured(
+            f"System steering model has an invalid {field}"
+        )
+    return result
+
+
+def _derive_simulation_contract(
+    *,
+    system: System,
+    scenario: ValueScenario,
+    canonical_patch: Mapping[str, float],
+) -> dict[str, Any]:
+    """Derive the only trusted forecast contract from locked server state."""
+
+    settings = system.settings if isinstance(system.settings, Mapping) else {}
+    raw_model = settings.get("steering_model")
+    model = dict(raw_model) if isinstance(raw_model, Mapping) else {}
+    version = str(model.get("version") or "").strip()
+    if not version:
+        _simulation_not_configured("System steering model is not configured")
+    confidence = _finite_steering_setting(model.get("confidence"), "confidence")
+    if not 0 <= confidence <= 1:
+        _simulation_not_configured("System steering model confidence is invalid")
+
+    forecasts = model.get("forecasts")
+    if not isinstance(forecasts, Mapping):
+        _simulation_not_configured(
+            "System steering model has no patch forecasts"
+        )
+
+    required_rule_fields = {
+        "minimum",
+        "maximum",
+        "include_maximum",
+        "cost_multiplier",
+        "value_multiplier",
+    }
+    matched_rules: list[dict[str, Any]] = []
+    aggregate_cost_multiplier = 1.0
+    aggregate_value_multiplier = 1.0
+    for field, patch_value in sorted(canonical_patch.items()):
+        raw_rules = forecasts.get(field)
+        if not isinstance(raw_rules, list) or not raw_rules:
+            _simulation_not_configured(
+                f"System steering model has no forecast for patch.{field}"
+            )
+        matches: list[dict[str, Any]] = []
+        for index, raw_rule in enumerate(raw_rules):
+            if not isinstance(raw_rule, Mapping) or set(raw_rule) != required_rule_fields:
+                _simulation_not_configured(
+                    f"System steering forecast {field}[{index}] is invalid"
+                )
+            include_maximum = raw_rule.get("include_maximum")
+            if not isinstance(include_maximum, bool):
+                _simulation_not_configured(
+                    f"System steering forecast {field}[{index}] has invalid bounds"
+                )
+            minimum = _finite_steering_setting(
+                raw_rule.get("minimum"),
+                f"forecasts.{field}[{index}].minimum",
+            )
+            maximum = _finite_steering_setting(
+                raw_rule.get("maximum"),
+                f"forecasts.{field}[{index}].maximum",
+            )
+            cost_multiplier = _finite_steering_setting(
+                raw_rule.get("cost_multiplier"),
+                f"forecasts.{field}[{index}].cost_multiplier",
+            )
+            value_multiplier = _finite_steering_setting(
+                raw_rule.get("value_multiplier"),
+                f"forecasts.{field}[{index}].value_multiplier",
+            )
+            if minimum > maximum or cost_multiplier < 0 or value_multiplier < 0:
+                _simulation_not_configured(
+                    f"System steering forecast {field}[{index}] has invalid bounds"
+                )
+            in_bounds = minimum <= patch_value < maximum
+            if include_maximum and patch_value == maximum:
+                in_bounds = True
+            if in_bounds:
+                matches.append(
+                    {
+                        "field": field,
+                        "minimum": minimum,
+                        "maximum": maximum,
+                        "include_maximum": include_maximum,
+                        "cost_multiplier": cost_multiplier,
+                        "value_multiplier": value_multiplier,
+                    }
+                )
+        if len(matches) != 1:
+            _simulation_not_configured(
+                f"System steering model must match exactly one forecast for patch.{field}"
+            )
+        matched = matches[0]
+        matched_rules.append(matched)
+        aggregate_cost_multiplier *= matched["cost_multiplier"]
+        aggregate_value_multiplier *= matched["value_multiplier"]
+
+    canonical_patch_payload = dict(sorted(canonical_patch.items()))
+    patch_sha256 = hashlib.sha256(
+        _canonical_json(canonical_patch_payload).encode("utf-8")
+    ).hexdigest()
+    baseline = (
+        scenario.baseline_outcome
+        if isinstance(scenario.baseline_outcome, Mapping)
+        else {}
+    )
+
+    def projected(field: str, multiplier: float) -> float | None:
+        value = baseline.get(field)
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number * multiplier if math.isfinite(number) else None
+
+    measured_value = baseline.get("value_source") in MEASURED_VALUE_SOURCES
+    projected_value = (
+        projected("value", aggregate_value_multiplier) if measured_value else None
+    )
+    projected_cost = projected("cost", aggregate_cost_multiplier)
+    configured_assumptions = model.get("assumptions")
+    if not isinstance(configured_assumptions, list) or any(
+        not isinstance(item, str) for item in configured_assumptions
+    ):
+        configured_assumptions = []
+    return {
+        "model": f"system-steering:{version}",
+        "assumptions": {
+            "configured": configured_assumptions,
+            "canonical_patch": canonical_patch_payload,
+            "patch_sha256": patch_sha256,
+            "matched_forecasts": matched_rules,
+            "aggregate_cost_multiplier": aggregate_cost_multiplier,
+            "aggregate_value_multiplier": aggregate_value_multiplier,
+        },
+        "projected_outcome": {
+            "value": projected_value,
+            "value_state": "available" if projected_value is not None else "not_measured",
+            "cost": projected_cost,
+            "cost_state": "available" if projected_cost is not None else "not_measured",
+            "evidence_type": "simulation",
+        },
+        "provenance": {
+            "scope": "system",
+            "system_id": system.id,
+            "source_run_id": scenario.source_run_id,
+            "model_source": "systems.settings.steering_model",
+            "model_version": version,
+            "canonical_patch": canonical_patch_payload,
+            "patch_sha256": patch_sha256,
+            "matched_forecasts": matched_rules,
+        },
+        "confidence": confidence,
+    }
+
+
+def _canonical_simulation_snapshot(
+    simulation: ValueSimulation,
+) -> tuple[dict[str, Any], str]:
+    """Return the exact content-addressed ValueSimulation approval contract."""
+
+    if simulation.generated_at is None:
+        raise ValueLoopConflict("ValueSimulation has no generation timestamp")
+    mappings: dict[str, dict[str, Any]] = {}
+    for field in (
+        "assumptions",
+        "projected_outcome",
+        "recommended_action",
+        "provenance",
+    ):
+        value = getattr(simulation, field)
+        if not isinstance(value, Mapping):
+            raise ValueLoopConflict(f"ValueSimulation {field} is invalid")
+        mappings[field] = dict(value)
+    confidence = _finite_number(simulation.confidence, "simulation.confidence")
+    if not 0 <= confidence <= 1:
+        raise ValueLoopConflict("ValueSimulation confidence is invalid")
+    contract = {
+        "schema_version": SIMULATION_CONTRACT_VERSION,
+        "id": simulation.id,
+        "workspace_id": simulation.workspace_id,
+        "system_id": simulation.system_id,
+        "scenario_id": simulation.scenario_id,
+        "operation_id": simulation.operation_id,
+        "status": simulation.status,
+        "evidence_type": "simulation",
+        "model": simulation.model,
+        "assumptions": mappings["assumptions"],
+        "projected_outcome": mappings["projected_outcome"],
+        "recommended_action": mappings["recommended_action"],
+        "provenance": mappings["provenance"],
+        "confidence": confidence,
+        "generated_at": simulation.generated_at.isoformat(),
+    }
+    canonical = _canonical_json(contract)
+    snapshot = json.loads(canonical)
+    return snapshot, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _approved_simulation_snapshot(
+    scenario: ValueScenario,
+    simulation: ValueSimulation,
+) -> dict[str, Any]:
+    """Verify the approval pin and current simulation are byte-for-byte equal."""
+
+    pinned = scenario.approved_simulation_snapshot
+    pinned_sha256 = str(scenario.approved_simulation_content_sha256 or "")
+    if not isinstance(pinned, Mapping) or len(pinned_sha256) != 64:
+        raise ValueLoopConflict(
+            "approved simulation has no immutable contract pin",
+            code="approved_simulation_unpinned",
+        )
+    try:
+        int(pinned_sha256, 16)
+        pinned_canonical = _canonical_json(pinned)
+        pinned_contract_sha256 = hashlib.sha256(
+            pinned_canonical.encode("utf-8")
+        ).hexdigest()
+        current, current_sha256 = _canonical_simulation_snapshot(simulation)
+    except (TypeError, ValueError, ValueLoopError) as exc:
+        raise ValueLoopConflict(
+            "approved simulation contract changed after approval",
+            code="approved_simulation_changed",
+        ) from exc
+    if (
+        pinned_sha256 != pinned_contract_sha256
+        or pinned_sha256 != current_sha256
+        or pinned_canonical != _canonical_json(current)
+    ):
+        raise ValueLoopConflict(
+            "approved simulation contract changed after approval",
+            code="approved_simulation_changed",
+        )
+    return current
 
 
 def _explicit_membrane_allows(control: ControlPolicy, actuator: str) -> None:
@@ -430,23 +698,15 @@ def _configured_bounds(system: System, patch: Mapping[str, float]) -> None:
             raise ValueLoopValidationError(f"patch.{field} is outside the System-configured bounds")
 
 
-def _actuator_contract_for_update(
+def _control_policy_for_update(
     db: DBSession,
     *,
     workspace_id: str,
-    system_id: str,
-    actuator: str,
-    patch: Mapping[str, float],
-) -> tuple[System, ControlPolicy]:
-    if actuator != CONTROL_POLICY_GUARDRAILS_PATCH_V1:
-        raise ValueLoopValidationError("unsupported value actuator")
-    system = _system_for_update(db, workspace_id, system_id)
+    system: System,
+) -> ControlPolicy | None:
     if not system.control_policy_id:
-        raise ValueLoopConflict(
-            "System has no ControlPolicy",
-            code="actuator_not_configured",
-        )
-    control = (
+        return None
+    return (
         db.query(ControlPolicy)
         .filter(
             ControlPolicy.id == system.control_policy_id,
@@ -454,17 +714,148 @@ def _actuator_contract_for_update(
             ControlPolicy.scope == "system",
             ControlPolicy.target_id == system.id,
         )
+        .populate_existing()
         .with_for_update(of=ControlPolicy)
-        .first()
+        .one_or_none()
     )
+
+
+def _scenario_system_id(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    scenario_id: str,
+) -> str:
+    """Resolve the aggregate owner without consulting an ORM identity entry.
+
+    The Workspace mutex is acquired before this lookup.  The scalar projection
+    deliberately bypasses SQLAlchemy's identity map; the row itself is locked
+    only after the stable tenant/System/ControlPolicy authority order.
+    """
+
+    row = (
+        db.query(ValueScenario.system_id)
+        .filter(
+            ValueScenario.id == scenario_id,
+            ValueScenario.workspace_id == workspace_id,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        raise ValueLoopNotFound("ValueScenario not found")
+    return str(row[0])
+
+
+def _authority_for_scenario_update(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    scenario_id: str,
+) -> tuple[Workspace, System, ControlPolicy | None]:
+    """Lock mutable authority in one global order before aggregate rows.
+
+    Rollout/admin mutations use the same tenant -> System -> ControlPolicy
+    order.  Returning a nullable policy is intentional: a completed command
+    may still replay its immutable idempotency receipt after later authority
+    removal.  New commands call ``_validate_locked_authority`` and fail closed.
+    """
+
+    workspace = _workspace_for_update(db, workspace_id)
+    system_id = _scenario_system_id(
+        db,
+        workspace_id=workspace_id,
+        scenario_id=scenario_id,
+    )
+    system = _system_for_update(db, workspace_id, system_id)
+    policy = _control_policy_for_update(
+        db,
+        workspace_id=workspace_id,
+        system=system,
+    )
+    return workspace, system, policy
+
+
+def _runtime_gate_is_authoritative(
+    *,
+    workspace: Workspace,
+    system: System,
+) -> bool:
+    """Identify a rollout that has entered (or left) executable runtime.
+
+    A prepared-only System is deliberately not executable through HTTP, but
+    rollout tooling must be able to create its first behavioural proof before
+    activation.  Once a proof window, activation or deactivation exists, the
+    authoritative gate remains mandatory even when the feature is switched
+    off; this prevents a concurrent rollback from being interpreted as an
+    unmanaged service call.
+    """
+
+    workspace_settings = (
+        workspace.settings if isinstance(workspace.settings, Mapping) else {}
+    )
+    features = workspace_settings.get("features")
+    feature_enabled = bool(
+        isinstance(features, Mapping)
+        and features.get(value_loop_gate.FEATURE_KEY) is True
+    )
+    system_settings = system.settings if isinstance(system.settings, Mapping) else {}
+    state = system_settings.get(value_loop_gate.ROLLOUT_STATE_KEY)
+    if not isinstance(state, Mapping):
+        return feature_enabled
+    return bool(
+        feature_enabled
+        or isinstance(state.get("proof_window"), Mapping)
+        or state.get("activations")
+        or state.get("deactivations")
+    )
+
+
+def _validate_locked_authority(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+    control: ControlPolicy | None,
+    actuator: str,
+    patch: Mapping[str, float],
+    expected_policy: Mapping[str, Any] | None = None,
+) -> None:
+    """Revalidate current rollout, binding and actuator while locks are held."""
+
+    if actuator != CONTROL_POLICY_GUARDRAILS_PATCH_V1:
+        raise ValueLoopValidationError("unsupported value actuator")
     if control is None:
         raise ValueLoopConflict(
             "System ControlPolicy must be explicitly scoped to this System",
             code="actuator_not_configured",
         )
+    if system.control_policy_id != control.id:
+        raise ValueLoopConflict(
+            "System ControlPolicy binding changed while acquiring authority",
+            code="actuator_not_configured",
+        )
     _explicit_membrane_allows(control, actuator)
     _configured_bounds(system, patch)
-    return system, control
+    if _runtime_gate_is_authoritative(
+        workspace=workspace,
+        system=system,
+    ) and not value_loop_gate.value_loop_enabled(
+        db,
+        workspace=workspace,
+        system=system,
+    ):
+        raise ValueLoopConflict(
+            "the authoritative value-loop rollout gate is closed",
+            code="value_loop_not_enabled",
+        )
+    if expected_policy is not None:
+        current = control_policy_execution_contract(control)
+        expected = validated_control_policy_execution_contract(expected_policy)
+        if expected is None or current != expected:
+            raise ValueLoopConflict(
+                "ControlPolicy changed after the approved action",
+                code="control_policy_changed",
+            )
 
 
 def _load_idempotent_result(
@@ -519,6 +910,7 @@ def create_value_scenario(
     }
     request_hash = _request_sha256("scenario.create", request)
     try:
+        _workspace_for_update(db, workspace_id)
         _system_for_update(db, workspace_id, system_id)
         source = (
             db.query(Run)
@@ -527,14 +919,31 @@ def create_value_scenario(
                 Run.workspace_id == workspace_id,
                 Run.system_id == system_id,
             )
+            .populate_existing()
             .with_for_update(of=Run)
-            .first()
+            .one_or_none()
         )
         if source is None:
             raise ValueLoopNotFound("baseline Run not found")
         if source.status != "completed" or source.completed_at is None:
             raise ValueLoopValidationError("baseline Run must be completed")
-        if not _is_measured_outcome(_run_outcome(source)):
+        exclusion_reason = baseline_run_exclusion_reason(source)
+        if exclusion_reason is not None:
+            raise ValueLoopValidationError(
+                "baseline Run is not independent runtime evidence",
+                code=exclusion_reason,
+            )
+        baseline_provenance = run_measurement_provenance(source, db=db)
+        if (
+            not isinstance(baseline_provenance, Mapping)
+            or baseline_provenance.get("source") != "runtime_auto"
+        ):
+            raise ValueLoopValidationError(
+                "baseline Run must contain server runtime provenance",
+                code="baseline_not_measured",
+            )
+        baseline_outcome = _run_outcome(db, source)
+        if not _is_measured_outcome(baseline_outcome):
             raise ValueLoopValidationError(
                 "baseline Run must contain a measured value",
                 code="baseline_not_measured",
@@ -574,7 +983,7 @@ def create_value_scenario(
             operation_id=receipt.id,
             status="decision_proposed",
             objective=request["objective"],
-            baseline_outcome=_run_outcome(source),
+            baseline_outcome=baseline_outcome,
         )
         db.add(scenario)
         db.flush()
@@ -619,46 +1028,29 @@ def simulate_value_scenario(
     *,
     workspace_id: str,
     scenario_id: str,
-    model: str,
-    assumptions: Mapping[str, Any],
-    projected_outcome: Mapping[str, Any],
-    provenance: Mapping[str, Any],
-    confidence: float,
     recommended_patch: Mapping[str, Any],
     actor: str,
     idempotency_key: str,
 ) -> ValueSimulation:
-    """Persist a labelled forecast for a configured, real actuator."""
+    """Derive and persist a labelled forecast from locked System state."""
 
     patch = _canonical_patch(recommended_patch)
-    confidence_value = _finite_number(confidence, "confidence")
-    if not 0 <= confidence_value <= 1:
-        raise ValueLoopValidationError("confidence must be between 0 and 1")
-    if not isinstance(assumptions, Mapping):
-        raise ValueLoopValidationError("assumptions must be an object")
-    if not isinstance(projected_outcome, Mapping) or not projected_outcome:
-        raise ValueLoopValidationError("projected_outcome must be a non-empty object")
-    if not isinstance(provenance, Mapping) or not provenance:
-        raise ValueLoopValidationError("simulation provenance must be explicit")
-    simulated_outcome = dict(projected_outcome)
-    simulated_outcome["evidence_type"] = "simulation"
     request = {
         "workspace_id": workspace_id,
         "scenario_id": scenario_id,
-        "model": _required_text(model, "model", maximum=200),
-        "assumptions": dict(assumptions),
-        "projected_outcome": simulated_outcome,
-        "provenance": dict(provenance),
-        "confidence": confidence_value,
-        "recommended_action": {
-            "actuator": CONTROL_POLICY_GUARDRAILS_PATCH_V1,
-            "patch": patch,
-        },
+        "recommended_patch": patch,
         "actor": _required_text(actor, "actor", maximum=255),
     }
     request_hash = _request_sha256("simulate", request)
     try:
+        workspace, system, control = _authority_for_scenario_update(
+            db,
+            workspace_id=workspace_id,
+            scenario_id=scenario_id,
+        )
         scenario = _scenario_for_update(db, workspace_id, scenario_id)
+        if scenario.system_id != system.id:
+            raise ValueLoopConflict("ValueScenario changed System while acquiring locks")
         existing = _find_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -673,12 +1065,18 @@ def simulate_value_scenario(
         decision = _decision_for_update(db, workspace_id, scenario.id)
         if decision.status != "proposed":
             raise ValueLoopConflict("authoritative Decision is not proposed")
-        _actuator_contract_for_update(
+        _validate_locked_authority(
             db,
-            workspace_id=workspace_id,
-            system_id=scenario.system_id,
+            workspace=workspace,
+            system=system,
+            control=control,
             actuator=CONTROL_POLICY_GUARDRAILS_PATCH_V1,
             patch=patch,
+        )
+        simulation_contract = _derive_simulation_contract(
+            system=system,
+            scenario=scenario,
+            canonical_patch=patch,
         )
         receipt = _claim_operation_receipt(
             db,
@@ -695,12 +1093,15 @@ def simulate_value_scenario(
             scenario_id=scenario.id,
             operation_id=receipt.id,
             status="available",
-            model=request["model"],
-            assumptions=request["assumptions"],
-            projected_outcome=request["projected_outcome"],
-            recommended_action=request["recommended_action"],
-            provenance=request["provenance"],
-            confidence=confidence_value,
+            model=simulation_contract["model"],
+            assumptions=simulation_contract["assumptions"],
+            projected_outcome=simulation_contract["projected_outcome"],
+            recommended_action={
+                "actuator": CONTROL_POLICY_GUARDRAILS_PATCH_V1,
+                "patch": patch,
+            },
+            provenance=simulation_contract["provenance"],
+            confidence=simulation_contract["confidence"],
         )
         db.add(simulation)
         scenario.status = "simulated"
@@ -714,7 +1115,7 @@ def simulate_value_scenario(
                 "scenario_id": scenario.id,
                 "simulation_id": simulation.id,
                 "system_id": scenario.system_id,
-                "model": request["model"],
+                "model": simulation_contract["model"],
                 "actuator": CONTROL_POLICY_GUARDRAILS_PATCH_V1,
                 "patch_fields": sorted(patch),
                 "request_sha256": request_hash,
@@ -747,7 +1148,14 @@ def approve_value_scenario(
     }
     request_hash = _request_sha256("approve", request)
     try:
+        workspace, system, control = _authority_for_scenario_update(
+            db,
+            workspace_id=workspace_id,
+            scenario_id=scenario_id,
+        )
         scenario = _scenario_for_update(db, workspace_id, scenario_id)
+        if scenario.system_id != system.id:
+            raise ValueLoopConflict("ValueScenario changed System while acquiring locks")
         existing = _find_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -767,14 +1175,34 @@ def approve_value_scenario(
                 ValueSimulation.scenario_id == scenario.id,
                 ValueSimulation.status == "available",
             )
+            .populate_existing()
             .with_for_update(of=ValueSimulation)
-            .first()
+            .one_or_none()
         )
         if simulation is None:
             raise ValueLoopNotFound("ValueSimulation not found")
         decision = _decision_for_update(db, workspace_id, scenario.id)
         if decision.status != "proposed":
             raise ValueLoopConflict("authoritative Decision is not proposed")
+        recommended = simulation.recommended_action or {}
+        actuator = recommended.get("actuator")
+        if actuator != CONTROL_POLICY_GUARDRAILS_PATCH_V1:
+            raise ValueLoopConflict(
+                "ValueSimulation has no supported actuator",
+                code="actuator_not_configured",
+            )
+        simulation_patch = _canonical_patch(recommended.get("patch") or {})
+        _validate_locked_authority(
+            db,
+            workspace=workspace,
+            system=system,
+            control=control,
+            actuator=actuator,
+            patch=simulation_patch,
+        )
+        approved_snapshot, approved_sha256 = _canonical_simulation_snapshot(
+            simulation
+        )
         receipt = _claim_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -786,6 +1214,8 @@ def approve_value_scenario(
         now = datetime.utcnow()
         scenario.status = "approved"
         scenario.approved_simulation_id = simulation.id
+        scenario.approved_simulation_content_sha256 = approved_sha256
+        scenario.approved_simulation_snapshot = approved_snapshot
         scenario.approval_operation_id = receipt.id
         scenario.approved_by = request["actor"]
         scenario.approved_at = now
@@ -795,8 +1225,9 @@ def approve_value_scenario(
         decision.impact_estimate = {
             "evidence_type": "simulation",
             "simulation_id": simulation.id,
-            "projected_outcome": dict(simulation.projected_outcome or {}),
-            "confidence": simulation.confidence,
+            "projected_outcome": dict(approved_snapshot["projected_outcome"]),
+            "confidence": approved_snapshot["confidence"],
+            "simulation_content_sha256": approved_sha256,
         }
         _finish_receipt(receipt, result_type="value_scenario", result_id=scenario.id)
         _audit(
@@ -808,6 +1239,7 @@ def approve_value_scenario(
                 "scenario_id": scenario.id,
                 "decision_id": decision.id,
                 "simulation_id": simulation.id,
+                "simulation_content_sha256": approved_sha256,
                 "system_id": scenario.system_id,
                 "request_sha256": request_hash,
             },
@@ -841,7 +1273,14 @@ def act_value_scenario(
     }
     request_hash = _request_sha256("act", request)
     try:
+        workspace, system, control = _authority_for_scenario_update(
+            db,
+            workspace_id=workspace_id,
+            scenario_id=scenario_id,
+        )
         scenario = _scenario_for_update(db, workspace_id, scenario_id)
+        if scenario.system_id != system.id:
+            raise ValueLoopConflict("ValueScenario changed System while acquiring locks")
         existing = _find_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -861,12 +1300,14 @@ def act_value_scenario(
                 ValueSimulation.scenario_id == scenario.id,
                 ValueSimulation.status == "available",
             )
+            .populate_existing()
             .with_for_update(of=ValueSimulation)
-            .first()
+            .one_or_none()
         )
         if simulation is None:
             raise ValueLoopConflict("approved simulation is unavailable")
-        recommended = simulation.recommended_action or {}
+        approved_contract = _approved_simulation_snapshot(scenario, simulation)
+        recommended = approved_contract["recommended_action"]
         expected_actuator = recommended.get("actuator")
         expected_patch = _canonical_patch(recommended.get("patch") or {})
         if actuator != expected_actuator or canonical_patch != expected_patch:
@@ -877,13 +1318,15 @@ def act_value_scenario(
         decision = _decision_for_update(db, workspace_id, scenario.id)
         if decision.status != "accepted":
             raise ValueLoopConflict("authoritative Decision is not accepted")
-        system, control = _actuator_contract_for_update(
+        _validate_locked_authority(
             db,
-            workspace_id=workspace_id,
-            system_id=scenario.system_id,
+            workspace=workspace,
+            system=system,
+            control=control,
             actuator=actuator,
             patch=canonical_patch,
         )
+        assert control is not None  # narrowed by the fail-closed validator
         receipt = _claim_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -922,15 +1365,8 @@ def act_value_scenario(
             executed_by=request["actor"],
             executed_at=now,
         )
-        record_authorized_policy_transition(
-            system,
-            before=before_contract,
-            after=after_contract,
-            action_execution_id=action.id,
-            scenario_id=scenario.id,
-            actor=request["actor"],
-        )
         db.add(action)
+        db.flush()
         scenario.status = "acted"
         scenario.acted_at = now
         decision.status = "applied"
@@ -944,15 +1380,19 @@ def act_value_scenario(
             "control_policy_sha256": after_contract["sha256"],
         }
         _finish_receipt(receipt, result_type="value_action_execution", result_id=action.id)
-        _audit(
+        action_audit = _audit(
             db,
             workspace_id=workspace_id,
             event_type="value_loop.action.executed",
             actor=request["actor"],
+            timestamp=now,
             details={
                 "scenario_id": scenario.id,
                 "decision_id": decision.id,
                 "simulation_id": simulation.id,
+                "simulation_content_sha256": (
+                    scenario.approved_simulation_content_sha256
+                ),
                 "action_execution_id": action.id,
                 "system_id": scenario.system_id,
                 "control_policy_id": control.id,
@@ -962,6 +1402,18 @@ def act_value_scenario(
                 "changed_fields": sorted(canonical_patch),
                 "request_sha256": request_hash,
             },
+        )
+        record_authorized_policy_transition(
+            db,
+            system,
+            before=before_contract,
+            after=after_contract,
+            action_execution_id=action.id,
+            scenario_id=scenario.id,
+            actor=request["actor"],
+            audit_id=action_audit.id,
+            request_sha256=request_hash,
+            transitioned_at=now,
         )
         db.commit()
         db.refresh(action)
@@ -991,7 +1443,18 @@ def _valid_observed_run(
 
 
 def _is_measured_outcome(outcome: Mapping[str, Any]) -> bool:
-    if outcome.get("value_source") not in MEASURED_VALUE_SOURCES:
+    value_source = outcome.get("value_source")
+    expected_provenance = {
+        "auto": "runtime_auto",
+        "operator": "operator_override",
+    }.get(value_source)
+    provenance = outcome.get("measurement_provenance")
+    if (
+        value_source not in MEASURED_VALUE_SOURCES
+        or not isinstance(provenance, Mapping)
+        or provenance.get("source") != expected_provenance
+        or not str(provenance.get("artifact_ref") or "").startswith("sha256:")
+    ):
         return False
     value = outcome.get("value")
     if isinstance(value, bool):
@@ -1138,7 +1601,14 @@ def measure_value_scenario(
     }
     request_hash = _request_sha256("measure", request)
     try:
+        workspace, system, control = _authority_for_scenario_update(
+            db,
+            workspace_id=workspace_id,
+            scenario_id=scenario_id,
+        )
         scenario = _scenario_for_update(db, workspace_id, scenario_id)
+        if scenario.system_id != system.id:
+            raise ValueLoopConflict("ValueScenario changed System while acquiring locks")
         existing = _find_operation_receipt(
             db,
             workspace_id=workspace_id,
@@ -1157,8 +1627,9 @@ def measure_value_scenario(
                 ValueActionExecution.scenario_id == scenario.id,
                 ValueActionExecution.status == "succeeded",
             )
+            .populate_existing()
             .with_for_update(of=ValueActionExecution)
-            .first()
+            .one_or_none()
         )
         if action is None:
             raise ValueLoopConflict("acted scenario has no action execution")
@@ -1171,8 +1642,9 @@ def measure_value_scenario(
                 ValueSimulation.scenario_id == scenario.id,
                 ValueSimulation.status == "available",
             )
+            .populate_existing()
             .with_for_update(of=ValueSimulation)
-            .first()
+            .one_or_none()
         )
         if (
             simulation is None
@@ -1182,6 +1654,16 @@ def measure_value_scenario(
                 "acted scenario is not bound to its approved simulation"
             )
         expected_policy = _action_policy_contract(action)
+        action_patch = _canonical_patch(action.patch or {})
+        _validate_locked_authority(
+            db,
+            workspace=workspace,
+            system=system,
+            control=control,
+            actuator=action.actuator,
+            patch=action_patch,
+            expected_policy=expected_policy,
+        )
 
         source: Run | None
         policy_mismatch_seen = False
@@ -1198,8 +1680,9 @@ def measure_value_scenario(
                     Run.workspace_id == workspace_id,
                     Run.system_id == scenario.system_id,
                 )
+                .populate_existing()
                 .with_for_update(of=Run)
-                .first()
+                .one_or_none()
             )
             if source is None:
                 raise ValueLoopNotFound("post-action Run not found")
@@ -1227,6 +1710,7 @@ def measure_value_scenario(
                     Run.value_estimated.isnot(None),
                 )
                 .order_by(Run.completed_at.desc(), Run.id.desc())
+                .populate_existing()
                 .with_for_update(of=Run)
                 .all()
             )
@@ -1243,7 +1727,7 @@ def measure_value_scenario(
                 if is_canary_authored_operator_outcome(candidate):
                     canary_authored_seen = True
                     continue
-                if run_measurement_provenance(candidate) is None:
+                if run_measurement_provenance(candidate, db=db) is None:
                     provenance_unavailable_seen = True
                     continue
                 source = candidate
@@ -1258,7 +1742,7 @@ def measure_value_scenario(
         )
 
         baseline = dict(scenario.baseline_outcome or {})
-        observed = _run_outcome(source) if source is not None else None
+        observed = _run_outcome(db, source) if source is not None else None
         if not _is_measured_outcome(baseline):
             status = "not_measured"
             reason = "baseline_value_not_measured"
@@ -1272,17 +1756,21 @@ def measure_value_scenario(
                 reason = "no_post_action_run_with_applied_policy"
             else:
                 reason = "no_comparable_post_action_run"
-        elif not _is_measured_outcome(observed):
-            # In particular, ``value_source=unset`` can never promote a
-            # scenario to measured, even when the Run has a numeric default.
-            status = "not_measured"
-            reason = "post_action_value_not_measured"
         elif source is not None and is_canary_authored_operator_outcome(source):
             status = "not_measured"
             reason = "canary_authored_outcome_is_not_independent"
-        elif not isinstance(observed.get("measurement_provenance"), Mapping):
+        elif (
+            observed.get("value_source") in MEASURED_VALUE_SOURCES
+            and not isinstance(observed.get("measurement_provenance"), Mapping)
+        ):
             status = "not_measured"
             reason = "post_action_measurement_provenance_unavailable"
+        elif not _is_measured_outcome(observed):
+            # In particular, ``value_source=unset`` can never promote a
+            # scenario to measured, even when the Run has a numeric default;
+            # a provenance source must also match the declared value source.
+            status = "not_measured"
+            reason = "post_action_value_not_measured"
         else:
             status = "measured"
             reason = None
@@ -1358,7 +1846,6 @@ __all__ = [
     "ValueLoopError",
     "ValueLoopNotFound",
     "ValueLoopValidationError",
-    "canonicalize_value_loop_patch",
     "act_value_scenario",
     "approve_value_scenario",
     "create_value_scenario",

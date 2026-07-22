@@ -59,7 +59,7 @@ from app.services.value_loop_contract import (
     CONTROL_POLICY_GUARDRAILS_PATCH_V1,
     validate_value_loop_runtime_contract,
 )
-from app.services.value_loop_gate import value_loop_requested
+from app.services.value_loop_gate import value_loop_enabled, value_loop_requested
 from app.services.value_scenario_access import readable_value_scenarios
 
 OBJECT_LENSES = ("build", "operate", "steer", "govern")
@@ -460,7 +460,10 @@ def _steer_projection(system: System, **data: Any) -> dict[str, Any]:
         value_loop_restricted = value_loop.get("state") == "restricted"
         actuator_configured = value_loop.get("actuator_configured") is True
         overview_blocks.append(
-            _block("value-loop", "Outcome → Decision → Act → Measure", [
+            _block(
+                "value-loop",
+                "Outcome → Decision → Simulate → Approve → Act → Measure",
+                [
                 _fact(
                     "lifecycle",
                     "Authoritative lifecycle",
@@ -501,6 +504,7 @@ def _steer_projection(system: System, **data: Any) -> dict[str, Any]:
                     restricted=value_loop_restricted,
                     configured=actuator_configured,
                     source="systems.settings.value_loop.actuators",
+                    reason=value_loop.get("actuator_reason"),
                 ),
                 _fact(
                     "fields",
@@ -509,6 +513,7 @@ def _steer_projection(system: System, **data: Any) -> dict[str, Any]:
                     restricted=value_loop_restricted,
                     configured=actuator_configured,
                     source="systems.settings.value_loop.actuators.fields",
+                    reason=value_loop.get("actuator_reason"),
                 ),
             ]),
         )
@@ -746,6 +751,7 @@ def _fact(
     unavailable: bool = False,
     unit: Optional[str] = None,
     source: Optional[str] = None,
+    reason: Optional[str] = None,
     as_of: Optional[str] = None,
     sample_count: Optional[int] = None,
 ) -> dict[str, Any]:
@@ -773,6 +779,7 @@ def _fact(
         "value": _jsonable(value),
         "unit": unit,
         "source": source,
+        "reason": reason,
         "as_of": as_of,
         "sample_count": sample_count,
     }
@@ -1065,6 +1072,27 @@ def _value_loop_projection(
     actuator = CONTROL_POLICY_GUARDRAILS_PATCH_V1
     actuator_config = actuators.get(actuator) if isinstance(actuators, Mapping) else {}
     fields = actuator_config.get("fields") if isinstance(actuator_config, Mapping) else {}
+    # A structurally valid actuator contract is not sufficient authority to
+    # expose an executable control. The mutation endpoints also require the
+    # exact rollout receipt, current authorization-v2 enforcement and the
+    # bound ControlPolicy chain. Keep Steer aligned with that same authority.
+    actuator_enabled = bool(
+        actuator_contract.valid
+        and value_loop_enabled(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    )
+    actuator_reason = (
+        actuator_contract.reason
+        if not actuator_contract.valid
+        else (
+            "available"
+            if actuator_enabled
+            else "value_loop_execution_authority_not_ready"
+        )
+    )
     return {
         "state": "available" if scenarios else "not_configured",
         "latest_status": scenarios[0].status if scenarios else "not_started",
@@ -1073,8 +1101,8 @@ def _value_loop_projection(
         "measured_count": len([row for row in measurements if row.status == "measured"]),
         "actuator": actuator,
         "actuator_fields": sorted(fields) if isinstance(fields, Mapping) else [],
-        "actuator_configured": actuator_contract.valid,
-        "actuator_reason": actuator_contract.reason,
+        "actuator_configured": actuator_enabled,
+        "actuator_reason": actuator_reason,
         "as_of": _iso(datetime.utcnow()),
     }
 

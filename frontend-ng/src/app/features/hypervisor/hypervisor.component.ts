@@ -24,7 +24,11 @@ import {
   TagComponent,
   HelpTooltipComponent,
 } from '@app/shared/cockpit';
-import { formatHypervisorImpact, measuredImpactDelta } from './hypervisor-impact';
+import {
+  formatHypervisorImpact,
+  measuredCapabilityCount,
+  measuredImpactDelta,
+} from './hypervisor-impact';
 import { summarizePortfolioValueLoop } from './hypervisor-value-loop';
 
 type PeriodKey = 'wtd' | 'mtd' | 'qtd' | 'rolling_30d' | 'rolling_90d';
@@ -751,10 +755,9 @@ export class HypervisorComponent implements OnInit {
   readonly capabilities = computed<CapabilityRow[]>(() => this.balance()?.capabilities ?? []);
   readonly signals = computed<HypervisorSignal[]>(() => this.balance()?.signals ?? []);
   readonly valueLoopSummary = computed(() => summarizePortfolioValueLoop(this.valueLoop()));
-  readonly capabilityCount = computed(() => Math.max(
+  readonly capabilityCount = computed(() => measuredCapabilityCount(
     this.capabilities().length,
     this.portfolio()?.capabilities_count || 0,
-    this.portfolio()?.runs_count || 0,
   ));
 
   readonly netValue = computed<number | null>(() => {

@@ -27,6 +27,7 @@ from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services import value_loop_gate
 from app.services.control_policy_snapshot import control_policy_execution_contract
 from app.services.iam.decision_plane import AuthorizationMode, resolve_mode
+from app.services.run_outcome_provenance import record_runtime_auto_outcome
 from app.services.value_loop import CONTROL_POLICY_GUARDRAILS_PATCH_V1
 from app.services.value_loop_gate import value_loop_policy_chain_reference
 
@@ -95,16 +96,12 @@ def _seed(db_session):
             "experience": {"value_loop_canary": "v1"},
             "_lot8_value_loop_rollout_v1": {
                 "schema_version": 1,
-                "prepared": None,
-                "activations": [
-                    {
-                        "system_id": "pending",
-                        "revision": RUNTIME_REVISION,
-                        "activated_at": datetime.now(UTC).isoformat(),
-                        "evidence_ref": "sha256:" + "b" * 64,
-                        "artifact_ref": "sha256:" + "c" * 64,
-                    }
-                ],
+                "prepared": {
+                    "system_id": "pending",
+                    "contract_sha256": "f" * 64,
+                },
+                "proof_window": None,
+                "activations": [],
                 "deactivations": [],
                 "policy_transitions": [],
             },
@@ -177,26 +174,30 @@ def _seed(db_session):
             },
         },
     )
-    system.settings["_lot8_value_loop_rollout_v1"]["activations"][0][
-        "system_id"
-    ] = system.id
     policy.target_id = system.id
     rollout_state = system.settings["_lot8_value_loop_rollout_v1"]
-    activation = rollout_state["activations"][0]
+    rollout_state["prepared"]["system_id"] = system.id
     policy_reference = control_policy_execution_contract(policy)
-    chain_created_at = activation["activated_at"]
-    activation.update(
-        {
-            "policy_chain_ref": value_loop_policy_chain_reference(
-                system_id=system.id,
-                revision=RUNTIME_REVISION,
-                created_at=chain_created_at,
-                control_policy=policy_reference,
-            ),
-            "policy_chain_created_at": chain_created_at,
-            "control_policy": policy_reference,
-        }
+    opened_at = datetime.now(UTC)
+    expires_at = opened_at + timedelta(hours=2)
+    policy_chain_ref = value_loop_policy_chain_reference(
+        system_id=system.id,
+        revision=RUNTIME_REVISION,
+        created_at=opened_at.isoformat(),
+        control_policy=policy_reference,
     )
+    audit_id = str(uuid4())
+    rollout_state["proof_window"] = {
+        "audit_id": audit_id,
+        "system_id": system.id,
+        "revision": RUNTIME_REVISION,
+        "contract_sha256": rollout_state["prepared"]["contract_sha256"],
+        "opened_at": opened_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "opened_by": "operator@example.test",
+        "policy_chain_ref": policy_chain_ref,
+        "control_policy": policy_reference,
+    }
     baseline = Run(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -210,8 +211,43 @@ def _seed(db_session):
         cost_internal=10.0,
         efficiency=1.0,
         value_source="auto",
+        input_ref={
+            "execution": {
+                "control_policy": policy_reference,
+                "flow_sha256": "b" * 64,
+                "runtime_revision": RUNTIME_REVISION,
+            }
+        },
     )
-    db_session.add_all([workspace, user, member, policy, system, baseline])
+    db_session.add_all(
+        [
+            workspace,
+            user,
+            member,
+            policy,
+            system,
+            baseline,
+            AuditLog(
+                id=audit_id,
+                workspace_id=workspace.id,
+                event_type="lot8.value_loop.canary_window.opened",
+                actor="operator@example.test",
+                agent_id=system.id,
+                details={
+                    "system_id": system.id,
+                    "revision": RUNTIME_REVISION,
+                    "expires_at": expires_at.isoformat(),
+                    "feature": "value_loop_v1",
+                    "claim_promoted": False,
+                    "policy_chain_ref": policy_chain_ref,
+                    "control_policy_revision": policy_reference["revision"],
+                    "control_policy_sha256": policy_reference["sha256"],
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+    record_runtime_auto_outcome(baseline, db=db_session)
     db_session.commit()
     return workspace, user, system, policy, baseline
 
@@ -385,6 +421,8 @@ def _observed_run(
         input_ref={
             "execution": {
                 "control_policy": action.after_state["_control_policy"],
+                "flow_sha256": "c" * 64,
+                "runtime_revision": RUNTIME_REVISION,
             }
         },
     )
@@ -611,6 +649,8 @@ def test_measure_hides_private_cross_system_and_cross_tenant_source_runs(db_sess
     )
     db_session.add(authorized)
     db_session.commit()
+    record_runtime_auto_outcome(authorized, db=db_session)
+    db_session.commit()
     measured = client.post(
         f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/measure",
         headers={"Idempotency-Key": "same-system-owned-measurement"},
@@ -645,6 +685,8 @@ def test_measure_preserves_shadow_for_a_legacy_visible_source(
         owner_id=other_user.id,
     )
     db_session.add_all([other_user, observed])
+    db_session.commit()
+    record_runtime_auto_outcome(observed, db=db_session)
     db_session.commit()
     _set_contributor(db_session, workspace, user)
     _set_run_read_mode(
@@ -768,6 +810,7 @@ def test_api_executes_authoritative_loop_and_preserves_evidence_types(
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
+    assert len(approved.json()["approved_simulation_content_sha256"]) == 64
 
     acted = client.post(
         f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/act",
@@ -810,10 +853,14 @@ def test_api_executes_authoritative_loop_and_preserves_evidence_types(
         input_ref={
             "execution": {
                 "control_policy": action.after_state["_control_policy"],
+                "flow_sha256": "d" * 64,
+                "runtime_revision": RUNTIME_REVISION,
             }
         },
     )
     db_session.add(observed)
+    db_session.commit()
+    record_runtime_auto_outcome(observed, db=db_session)
     db_session.commit()
 
     measured = client.post(
@@ -881,6 +928,57 @@ def test_api_executes_authoritative_loop_and_preserves_evidence_types(
     assert portfolio_outcome["delta"]["value"] == 30.0
     assert portfolio_outcome["forecast_delta"] == {"value": 5.0, "cost": -3.0}
     assert portfolio_outcome["assumption_verdict"] == "confirmed"
+
+
+def test_api_act_rejects_simulation_rewrite_after_approval(db_session):
+    workspace, user, system, policy, baseline = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    created = client.post(
+        f"/systems/{system.id}/value-loop/scenarios",
+        headers={"Idempotency-Key": "rewrite-create"},
+        json={
+            "source_run_id": baseline.id,
+            "objective": "Do not trust a rewritten forecast",
+            "title": "Approval content pin",
+        },
+    )
+    assert created.status_code == 201, created.text
+    scenario_id = created.json()["id"]
+    simulated = client.post(
+        f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/simulate",
+        headers={"Idempotency-Key": "rewrite-simulate"},
+        json={"recommended_patch": {"mandatory_hitl_if_confidence_below": 0.6}},
+    )
+    assert simulated.status_code == 201, simulated.text
+    approved = client.post(
+        f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/approve",
+        headers={"Idempotency-Key": "rewrite-approve"},
+        json={"simulation_id": simulated.json()["id"]},
+    )
+    assert approved.status_code == 200, approved.text
+    operation_count = db_session.query(ValueLoopOperation).count()
+
+    simulation = db_session.get(ValueSimulation, simulated.json()["id"])
+    simulation.recommended_action = {
+        "actuator": ACTUATOR,
+        "patch": {"mandatory_hitl_if_confidence_below": 0.7},
+    }
+    db_session.commit()
+    attacked = client.post(
+        f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/act",
+        headers={"Idempotency-Key": "rewrite-act"},
+        json={
+            "actuator": ACTUATOR,
+            "patch": {"mandatory_hitl_if_confidence_below": 0.7},
+        },
+    )
+
+    assert attacked.status_code == 409, attacked.text
+    assert attacked.json()["detail"]["code"] == "approved_simulation_changed"
+    db_session.refresh(policy)
+    assert policy.mandatory_hitl_if_confidence_below == 0.4
+    assert db_session.query(ValueActionExecution).count() == 0
+    assert db_session.query(ValueLoopOperation).count() == operation_count
 
 
 def test_api_rejects_unmeasured_run_as_scenario_baseline(db_session):
@@ -1030,10 +1128,14 @@ def test_exact_enforce_manifest_executes_every_value_loop_endpoint(
         input_ref={
             "execution": {
                 "control_policy": action.after_state["_control_policy"],
+                "flow_sha256": "e" * 64,
+                "runtime_revision": RUNTIME_REVISION,
             }
         },
     )
     db_session.add(observed)
+    db_session.commit()
+    record_runtime_auto_outcome(observed, db=db_session)
     db_session.commit()
     measured = client.post(
         f"/systems/{system.id}/value-loop/scenarios/{scenario_id}/measure",
@@ -1157,23 +1259,26 @@ def test_sha_bound_canary_window_opens_then_expires_closed(db_session):
     contract_sha = "f" * 64
     opened_at = (now - timedelta(minutes=1)).isoformat()
     policy_reference = control_policy_execution_contract(policy)
+    audit_id = str(uuid4())
+    policy_chain_ref = value_loop_policy_chain_reference(
+        system_id=system.id,
+        revision=RUNTIME_REVISION,
+        created_at=opened_at,
+        control_policy=policy_reference,
+    )
     settings = dict(system.settings)
     settings["_lot8_value_loop_rollout_v1"] = {
         "schema_version": 1,
         "prepared": {"system_id": system.id, "contract_sha256": contract_sha},
         "proof_window": {
+            "audit_id": audit_id,
             "system_id": system.id,
             "revision": RUNTIME_REVISION,
             "contract_sha256": contract_sha,
             "opened_at": opened_at,
             "expires_at": (now + timedelta(minutes=30)).isoformat(),
             "opened_by": "operator@example.test",
-            "policy_chain_ref": value_loop_policy_chain_reference(
-                system_id=system.id,
-                revision=RUNTIME_REVISION,
-                created_at=opened_at,
-                control_policy=policy_reference,
-            ),
+            "policy_chain_ref": policy_chain_ref,
             "control_policy": policy_reference,
         },
         "activations": [],
@@ -1183,7 +1288,7 @@ def test_sha_bound_canary_window_opens_then_expires_closed(db_session):
     system.settings = settings
     db_session.add(
         AuditLog(
-            id=str(uuid4()),
+            id=audit_id,
             workspace_id=workspace.id,
             event_type="lot8.value_loop.canary_window.opened",
             actor="operator@example.test",
@@ -1194,7 +1299,11 @@ def test_sha_bound_canary_window_opens_then_expires_closed(db_session):
                 "expires_at": settings["_lot8_value_loop_rollout_v1"][
                     "proof_window"
                 ]["expires_at"],
+                "feature": "value_loop_v1",
                 "claim_promoted": False,
+                "policy_chain_ref": policy_chain_ref,
+                "control_policy_revision": policy_reference["revision"],
+                "control_policy_sha256": policy_reference["sha256"],
             },
         )
     )

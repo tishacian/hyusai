@@ -54,7 +54,10 @@ from app.db.base import SessionLocal  # noqa: E402
 from app.models.workspace import Workspace, WorkspaceIAMConfig  # noqa: E402
 from app.services.audit_logger import emit_audit_event  # noqa: E402
 from app.services.iam.decision_plane import (  # noqa: E402
+    PROMOTION_EVENT_TYPE,
+    PROMOTION_RECEIPT_KEY,
     build_authorization_v2_backfill,
+    build_promotion_receipt_document,
     candidate_config_sha256,
     enforcement_attestation_errors,
     resolve_mode,
@@ -66,6 +69,7 @@ from app.services.iam.shadow_review import (  # noqa: E402
     assert_source_manifest_matches_audit,
     expected_blockers,
     load_persisted_review,
+    sha256_ref,
     validate_review_envelope,
     validate_source_manifest,
 )
@@ -515,7 +519,7 @@ def _require_authoritative_shadow_source(
     workspace_id: str,
     evidence: Mapping[str, Any],
     metadata: Mapping[str, Any],
-) -> None:
+) -> dict[str, Any]:
     """Rebuild every source row from AuditLog before any promotion preview.
 
     A SHA-256 makes a caller-provided manifest tamper-evident, but not
@@ -547,12 +551,14 @@ def _require_authoritative_shadow_source(
             ),
         )
         assert_source_manifest_matches_audit(db, source)
+        return copy.deepcopy(source.document)
     except (ShadowReviewError, TypeError, ValueError) as exc:
         raise AuthorizationPromotionError(str(exc)) from exc
 
 
 def _status_from_documents(
     *,
+    db: DBSession,
     config: WorkspaceIAMConfig,
     workspace_id: str,
     policy: Mapping[str, Any],
@@ -571,6 +577,7 @@ def _status_from_documents(
             config,
             resource_kind=resource_kind,
             action=candidate_action,
+            db=db,
         ).value
         raw_attestation = attestations.get(action)
         drift: list[str] = []
@@ -582,6 +589,8 @@ def _status_from_documents(
                     config=config,
                     action=action,
                     require_runtime_revision=True,
+                    db=db,
+                    require_server_receipt=True,
                 )
             )
         elif raw_attestation is not None:
@@ -621,6 +630,7 @@ def status(
     workspace, config = _workspace_and_config(db, workspace_id=workspace_id, lock=False)
     _, policy, modes, attestations = _documents(config)
     return _status_from_documents(
+        db=db,
         config=config,
         workspace_id=workspace.id,
         policy=policy,
@@ -655,6 +665,7 @@ def promote(
     workspace, config = _workspace_and_config(db, workspace_id=workspace_id, lock=apply)
     overrides, policy, modes, attestations = _documents(config)
     full_status = _status_from_documents(
+        db=db,
         config=config,
         workspace_id=workspace.id,
         policy=policy,
@@ -694,6 +705,7 @@ def promote(
         )
 
     metadata = None
+    source_manifest: dict[str, Any] | None = None
     if evidence is not None:
         metadata = validate_evidence(
             evidence,
@@ -711,7 +723,7 @@ def promote(
             raise AuthorizationPromotionError(
                 "shadow evidence candidate config version differs from current workspace policy"
             )
-        _require_authoritative_shadow_source(
+        source_manifest = _require_authoritative_shadow_source(
             db,
             workspace_id=workspace.id,
             evidence=evidence,
@@ -775,6 +787,32 @@ def promote(
         "promoted_at": datetime.now(UTC).isoformat(),
     }
     try:
+        if source_manifest is None:
+            raise AuthorizationPromotionError("canonical shadow source is missing")
+        receipt_document = build_promotion_receipt_document(
+            workspace_id=workspace.id,
+            promotion=promoted,
+            source_manifest=source_manifest,
+        )
+        receipt_ref = sha256_ref(receipt_document)
+        audit_id = emit_audit_event(
+            db=db,
+            workspace_id=workspace.id,
+            event_type=PROMOTION_EVENT_TYPE,
+            actor=actor_value,
+            details={
+                "artifact_ref": receipt_ref,
+                "document": receipt_document,
+            },
+        )
+        if audit_id is None:
+            raise AuthorizationPromotionError(
+                "authorization promotion audit could not be persisted"
+            )
+        promoted[PROMOTION_RECEIPT_KEY] = {
+            "audit_id": audit_id,
+            "artifact_ref": receipt_ref,
+        }
         for action in selected:
             modes[action] = "enforce"
             attestations[action] = copy.deepcopy(promoted)
@@ -783,25 +821,23 @@ def promote(
         overrides["authorization_v2"] = policy
         config.capability_overrides = overrides
         config.version = int(config.version or 0) + 1
-
-        audit_id = emit_audit_event(
-            db=db,
-            workspace_id=workspace.id,
-            event_type="lot7.authorization.enforce_promoted",
-            actor=actor_value,
-            details={
-                "policy_version": POLICY_VERSION,
-                "actions": list(selected),
-                "revision": requested_revision,
-                "evidence_sha256": metadata["evidence_sha256"],
-                "shadow_evaluation_count": sum(
-                    row["evaluations"] for row in metadata["shadow_observation"]["actions"].values()
-                ),
-            },
+        db.flush()
+        receipt_errors = sorted(
+            {
+                error
+                for action in selected
+                for error in enforcement_attestation_errors(
+                    config=config,
+                    action=action,
+                    require_runtime_revision=True,
+                    db=db,
+                    require_server_receipt=True,
+                )
+            }
         )
-        if audit_id is None:
+        if receipt_errors:
             raise AuthorizationPromotionError(
-                "authorization promotion audit could not be persisted"
+                "authorization promotion receipt is not authoritative: " + "; ".join(receipt_errors)
             )
         db.commit()
     except Exception:

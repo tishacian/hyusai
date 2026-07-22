@@ -16,6 +16,7 @@ export interface PerspectiveFact {
   value: unknown | null;
   unit?: string | null;
   source?: string | null;
+  reason?: string | null;
   as_of?: string | null;
   sample_count?: number | null;
 }

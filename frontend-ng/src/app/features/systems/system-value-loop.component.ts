@@ -76,6 +76,11 @@ export function valueLoopResponseIsCurrent(
     && expectedWorkspaceKey === currentWorkspaceKey;
 }
 
+export function valueLoopBaselineRunIsEligible(run: Run): boolean {
+  return run.outcome?.baseline_eligible === true
+    && run.outcome.baseline_ineligible_reason === null;
+}
+
 /** Retains one key across retries and retires it only after success. */
 export class ValueLoopCommandLedger {
   private readonly keys = new Map<string, string>();
@@ -297,13 +302,7 @@ export class SystemValueLoopComponent {
   hitlThreshold = 0.6;
 
   readonly scenarios = computed(() => this.loop()?.items ?? []);
-  readonly eligibleRuns = computed(() =>
-    this.runs().filter((run) =>
-      run.status === 'completed'
-      && run.outcome?.value_estimated != null
-      && (run.outcome?.value_source === 'auto' || run.outcome?.value_source === 'operator'),
-    ),
-  );
+  readonly eligibleRuns = computed(() => this.runs().filter(valueLoopBaselineRunIsEligible));
   readonly canCreate = computed(() =>
     !!this.selectedRunId && !!this.title.trim() && !!this.objective.trim(),
   );

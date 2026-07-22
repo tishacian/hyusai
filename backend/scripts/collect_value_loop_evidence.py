@@ -45,6 +45,7 @@ from app.services.control_policy_snapshot import (  # noqa: E402
     validated_control_policy_execution_contract,
 )
 from app.services.run_outcome_provenance import (  # noqa: E402
+    baseline_run_exclusion_reason,
     is_canary_authored_operator_outcome,
     run_measurement_provenance,
 )
@@ -378,7 +379,7 @@ def _resolve_records(
                 raise rollout.ValueLoopRolloutError(
                     "canary-authored operator outcome is not independent measurement evidence"
                 )
-            expected_provenance = run_measurement_provenance(observed)
+            expected_provenance = run_measurement_provenance(observed, db=db)
             measured_provenance = observed_outcome.get("measurement_provenance")
             if expected_provenance is None or measured_provenance != expected_provenance:
                 raise rollout.ValueLoopRolloutError(
@@ -508,6 +509,30 @@ def collect_evidence(
         raise rollout.ValueLoopRolloutError(
             "server-side baseline Run differs from the redacted observation"
         )
+    baseline_run = (
+        db.query(Run)
+        .filter(
+            Run.id == scenario.source_run_id,
+            Run.workspace_id == workspace.id,
+            Run.system_id == system.id,
+        )
+        .one_or_none()
+    )
+    if baseline_run is None:
+        raise rollout.ValueLoopRolloutError("server-side baseline Run is unavailable")
+    baseline_exclusion = baseline_run_exclusion_reason(baseline_run)
+    if baseline_exclusion is not None:
+        raise rollout.ValueLoopRolloutError(baseline_exclusion)
+    baseline_provenance = run_measurement_provenance(baseline_run, db=db)
+    if (
+        not isinstance(baseline_provenance, Mapping)
+        or baseline_provenance.get("source") != "runtime_auto"
+        or _record(_record(scenario.baseline_outcome).get("measurement_provenance"))
+        != dict(baseline_provenance)
+    ):
+        raise rollout.ValueLoopRolloutError(
+            "baseline Run lacks matching server runtime provenance"
+        )
     if proof_window is not None:
         opened_at = rollout._parse_utc(
             proof_window["opened_at"],
@@ -523,6 +548,26 @@ def collect_evidence(
         if scenario_created_at < opened_at:
             raise rollout.ValueLoopRolloutError(
                 "evidence scenario predates the active canary window"
+            )
+        baseline_started_at = baseline_run.started_at
+        baseline_completed_at = baseline_run.completed_at
+        if baseline_started_at is None or baseline_completed_at is None:
+            raise rollout.ValueLoopRolloutError(
+                "baseline Run has no complete execution window"
+            )
+        if baseline_started_at.tzinfo is None:
+            baseline_started_at = baseline_started_at.replace(tzinfo=UTC)
+        else:
+            baseline_started_at = baseline_started_at.astimezone(UTC)
+        if baseline_completed_at.tzinfo is None:
+            baseline_completed_at = baseline_completed_at.replace(tzinfo=UTC)
+        else:
+            baseline_completed_at = baseline_completed_at.astimezone(UTC)
+        if not (
+            opened_at <= baseline_started_at <= baseline_completed_at < expires_at
+        ):
+            raise rollout.ValueLoopRolloutError(
+                "baseline Run was not executed inside the active canary window"
             )
     observation_ref = f"sha256:{_canonical_sha256(payload)}"
 

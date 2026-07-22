@@ -57,6 +57,7 @@ from app.services.membrane.enforcement import (
 )
 from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
 from app.services.outcome.derive import derive_outcome
+from app.services.run_outcome_provenance import record_runtime_auto_outcome
 from app.services.skill_invocation_snapshot import (
     capture_skill_execution_evidence,
     resolve_skill_invocation_cost,
@@ -1123,6 +1124,8 @@ def _finalize_run(
             # A v2 enforce valve is a publication boundary, not merely a
             # failed status annotation.  Legacy/v1 keeps its historical output.
             run.output_ref = {}
+    if run.status == "completed" and run.value_source == "auto" and control is not None:
+        record_runtime_auto_outcome(run, db=db)
     db.commit()
 
     # Vague E / E1 — schedule post-run auto-evaluation. Fire-and-forget,

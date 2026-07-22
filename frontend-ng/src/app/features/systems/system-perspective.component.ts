@@ -79,6 +79,11 @@ const STATE_LABELS: Record<PerspectiveFact['state'], string> = {
                         @if (fact.as_of) { <span> · {{ fact.as_of }}</span> }
                       </small>
                     }
+                    @if (fact.state !== 'available' && fact.reason) {
+                      <small class="fact-reason" data-testid="perspective-fact-reason">
+                        {{ fact.reason }}
+                      </small>
+                    }
                   </div>
                 }
               </dl>

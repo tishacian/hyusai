@@ -9,6 +9,14 @@ export function measuredImpactDelta(
   return projected - base;
 }
 
+/** Count portfolio capabilities without ever substituting the Run count. */
+export function measuredCapabilityCount(
+  visibleCapabilities: number,
+  persistedCapabilities: number | null | undefined,
+): number {
+  return Math.max(visibleCapabilities, persistedCapabilities ?? 0);
+}
+
 /**
  * Format the mixed JSON values accepted by the Hypervisor decision API.
  * Numeric values retain the historical display while descriptive values are

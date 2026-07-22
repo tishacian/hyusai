@@ -12,8 +12,11 @@ from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.iam.decision_plane import (
+    PROMOTION_EVENT_TYPE,
+    PROMOTION_RECEIPT_KEY,
     AuthorizationMode,
     build_authorization_v2_backfill,
+    build_promotion_receipt_document,
     enforce_action,
     merge_authorization_v2_backfill,
     resolve_action,
@@ -22,6 +25,7 @@ from app.services.iam.decision_plane import (
     resolve_mode,
 )
 from app.services.iam.manifest import get_manifest
+from app.services.iam.shadow_review import sha256_ref
 from app.services.run_access import readable_run_page, readable_runs
 
 
@@ -235,9 +239,9 @@ def test_authorized_run_page_is_filled_after_candidate_filtering(
 
     page = readable_run_page(
         db_session,
-        query=db_session.query(Run).filter(Run.workspace_id == workspace.id).order_by(
-            Run.started_at.desc()
-        ),
+        query=db_session.query(Run)
+        .filter(Run.workspace_id == workspace.id)
+        .order_by(Run.started_at.desc()),
         limit=1,
         user=user,
         workspace=workspace,
@@ -358,6 +362,121 @@ def test_enforce_is_exact_attested_and_bound_to_running_revision(
     config.capability_overrides = payload
     assert (
         resolve_mode(config, resource_kind="system", action="read")
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+
+def test_enforce_cannot_be_reconstructed_from_config_json_alone(
+    db_session,
+    attest_authorization_v2,
+):
+    workspace, _user, _member = _subject(db_session)
+    config = _config(db_session, workspace, modes={"system.read": "enforce"})
+    attest_authorization_v2(config, ["system.read"])
+    db_session.commit()
+
+    detached_copy = WorkspaceIAMConfig(
+        workspace_id=workspace.id,
+        version=config.version,
+        role_flags=copy.deepcopy(config.role_flags),
+        capability_overrides=copy.deepcopy(config.capability_overrides),
+    )
+    assert (
+        resolve_mode(detached_copy, resource_kind="system", action="read")
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+    payload = copy.deepcopy(config.capability_overrides)
+    payload["authorization_v2"]["enforcement_attestations"]["system.read"].pop(
+        PROMOTION_RECEIPT_KEY
+    )
+    config.capability_overrides = payload
+    db_session.commit()
+
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+
+def test_recomputed_config_receipt_cannot_replace_server_promotion(
+    db_session,
+    attest_authorization_v2,
+):
+    workspace, _user, _member = _subject(db_session)
+    config = _config(db_session, workspace, modes={"system.read": "enforce"})
+    attest_authorization_v2(config, ["system.read"])
+    db_session.commit()
+    audit = db_session.query(AuditLog).filter_by(event_type=PROMOTION_EVENT_TYPE).one()
+
+    payload = copy.deepcopy(config.capability_overrides)
+    attestation = payload["authorization_v2"]["enforcement_attestations"]["system.read"]
+    attestation["promoted_by"] = "forged-operator"
+    forged_document = build_promotion_receipt_document(
+        workspace_id=workspace.id,
+        promotion=attestation,
+        source_manifest=audit.details["document"]["shadow_source"]["document"],
+    )
+    attestation[PROMOTION_RECEIPT_KEY]["artifact_ref"] = sha256_ref(forged_document)
+    config.capability_overrides = payload
+    db_session.commit()
+
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+
+def test_enforce_fails_closed_when_promotion_or_shadow_ledger_is_tampered(
+    db_session,
+    attest_authorization_v2,
+):
+    workspace, _user, _member = _subject(db_session)
+    config = _config(db_session, workspace, modes={"system.read": "enforce"})
+    attest_authorization_v2(config, ["system.read"])
+    db_session.commit()
+    promotion = db_session.query(AuditLog).filter_by(event_type=PROMOTION_EVENT_TYPE).one()
+    source_id = promotion.details["document"]["shadow_source"]["document"]["rows"][0]["id"]
+
+    source = db_session.get(AuditLog, source_id)
+    source.details = {**source.details, "candidate_allowed": 3, "candidate_denied": 2}
+    db_session.commit()
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+    source.details = {**source.details, "candidate_allowed": 4, "candidate_denied": 1}
+    promotion.details = {
+        **promotion.details,
+        "document": {**promotion.details["document"], "workspace_id": "foreign-workspace"},
+    }
+    db_session.commit()
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
+        is AuthorizationMode.INVALID_ENFORCE
+    )
+
+
+def test_enforce_revalidates_current_oidc_anchors(
+    db_session,
+    monkeypatch,
+    attest_authorization_v2,
+):
+    from app.core.config import settings
+
+    workspace, _user, _member = _subject(db_session)
+    config = _config(db_session, workspace, modes={"system.read": "enforce"})
+    attest_authorization_v2(config, ["system.read"])
+    db_session.commit()
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
+        is AuthorizationMode.ENFORCE
+    )
+
+    monkeypatch.setattr(settings, "authorization_v2_trusted_project_id", "rotated-project")
+    assert (
+        resolve_mode(config, resource_kind="system", action="read", db=db_session)
         is AuthorizationMode.INVALID_ENFORCE
     )
 

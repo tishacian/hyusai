@@ -2,6 +2,7 @@ import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type {
+  Run,
   ValueLoopMeasurement,
   ValueLoopSimulation,
   ValueScenario,
@@ -9,6 +10,7 @@ import type {
 import {
   ValueLoopCommandLedger,
   latestValueLoopMeasurement,
+  valueLoopBaselineRunIsEligible,
   valueLoopMeasurementLabel,
   valueLoopResponseIsCurrent,
   valueLoopStepRows,
@@ -35,6 +37,27 @@ function simulation(): ValueLoopSimulation {
     provenance: { system_id: 'system-a' },
     confidence: 0.7,
     generated_at: '2026-07-22T10:00:00Z',
+  };
+}
+
+function baselineRun(
+  id: string,
+  options: {
+    source?: 'auto' | 'operator' | 'unset';
+    eligible?: boolean;
+    reason?: string | null;
+  } = {},
+): Run {
+  return {
+    id,
+    system_id: 'system-a',
+    status: 'completed',
+    outcome: {
+      value_estimated: 100,
+      value_source: options.source ?? 'auto',
+      baseline_eligible: options.eligible,
+      baseline_ineligible_reason: options.reason ?? null,
+    },
   };
 }
 
@@ -76,6 +99,7 @@ function scenario(
     objective: 'Improve measured value',
     baseline_outcome: { value: 100, value_source: 'operator' },
     approved_simulation_id: options.simulated ? 'simulation-1' : null,
+    approved_simulation_content_sha256: options.simulated ? 'a'.repeat(64) : null,
     approved_by: null,
     approved_at: null,
     acted_at: null,
@@ -131,6 +155,36 @@ test('value-loop progress advances only through persisted scenario states', () =
       status,
     );
   }
+});
+
+test('baseline selector trusts the server eligibility flag and excludes operator, seed and canary runs', () => {
+  const runtime = baselineRun('runtime', { eligible: true });
+  const operator = baselineRun('operator', {
+    source: 'operator',
+    eligible: false,
+    reason: 'baseline_runtime_provenance_unavailable',
+  });
+  const seed = baselineRun('seed', {
+    eligible: false,
+    reason: 'baseline_run_is_synthetic_demo',
+  });
+  const canary = baselineRun('canary', {
+    eligible: false,
+    reason: 'baseline_run_is_canary_authored',
+  });
+  const contradictoryCanary = baselineRun('contradictory-canary', {
+    eligible: true,
+    reason: 'baseline_run_is_canary_authored',
+  });
+  const legacyAuto = baselineRun('legacy-auto');
+
+  assert.deepEqual(
+    [runtime, operator, seed, canary, contradictoryCanary, legacyAuto]
+      .filter(valueLoopBaselineRunIsEligible)
+      .map((run) => run.id),
+    ['runtime'],
+    'missing or false server eligibility must fail closed even when a Run has a measured value',
+  );
 });
 
 test('late value-loop responses are rejected after a workspace, System or request change', () => {

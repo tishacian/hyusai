@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -16,7 +17,12 @@ from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
-from app.services.projection_gate import projection_enabled
+from app.services.projection_gate import (
+    PROJECTION_FINALIZATION_AUDIT_EVENT,
+    authoritative_projection_enabled,
+    projection_activation_sha256,
+    projection_enabled,
+)
 from scripts import rollout_lot7_projections as rollout
 
 TRUSTED_RUNNER = {
@@ -758,6 +764,156 @@ def test_final_activation_requires_trusted_runner_and_persisted_pilot_audit(
     assert drifted["projections"][0]["behavior_verified"] is False
 
 
+def test_runtime_gate_revalidates_exact_finalization_audit_and_current_runner_anchors(
+    db_session,
+    monkeypatch,
+):
+    workspace, capability, system = _seed_target(db_session)
+    applied = _stage_and_activate(
+        db_session,
+        workspace,
+        capability,
+        system,
+        "capability",
+    )
+    activation = applied["validation"]
+    assert activation["audit_id"]
+    assert activation["activation_sha256"] == projection_activation_sha256(activation)
+    finalization_audit = (
+        db_session.query(AuditLog)
+        .filter_by(id=activation["audit_id"])
+        .one()
+    )
+    assert finalization_audit.event_type == PROJECTION_FINALIZATION_AUDIT_EVENT
+
+    def enabled() -> bool:
+        db_session.refresh(workspace)
+        db_session.refresh(system)
+        return authoritative_projection_enabled(
+            db_session,
+            workspace,
+            "capability",
+            runtime_revision=TRUSTED_RUNNER["commit_sha"],
+        )
+
+    assert enabled() is True
+    original_settings = copy.deepcopy(system.settings)
+    original_audit_details = copy.deepcopy(finalization_audit.details)
+
+    # A settings writer cannot forge a different CI job even if it recomputes
+    # the content digest: the immutable server receipt still differs.
+    tampered_settings = copy.deepcopy(original_settings)
+    tampered_activation = tampered_settings[rollout.ROLLOUT_STATE_KEY]["activations"][0]
+    tampered_activation["trusted_runner"]["job_id"] = "forged-job"
+    tampered_activation["activation_sha256"] = projection_activation_sha256(
+        tampered_activation
+    )
+    system.settings = tampered_settings
+    db_session.commit()
+    assert enabled() is False
+
+    system.settings = original_settings
+    db_session.commit()
+    assert enabled() is True
+
+    # Persisted identity is re-evaluated against today's anchors, not merely
+    # trusted because it was accepted by an older rollout invocation.
+    monkeypatch.setattr(
+        rollout.settings,
+        "authorization_v2_trusted_project_id",
+        "different-project",
+    )
+    assert enabled() is False
+    monkeypatch.setattr(
+        rollout.settings,
+        "authorization_v2_trusted_project_id",
+        TRUSTED_RUNNER["project_id"],
+    )
+    assert enabled() is True
+
+    # The exact AuditLog content is authoritative; matching only its id and
+    # event type is insufficient.
+    finalization_audit.details = {
+        **original_audit_details,
+        "evidence_sha256": "f" * 64,
+    }
+    db_session.commit()
+    assert enabled() is False
+
+    finalization_audit.details = original_audit_details
+    db_session.commit()
+    assert enabled() is True
+
+    missing_audit_settings = copy.deepcopy(original_settings)
+    missing_audit_settings[rollout.ROLLOUT_STATE_KEY]["activations"][0][
+        "audit_id"
+    ] = str(uuid4())
+    system.settings = missing_audit_settings
+    db_session.commit()
+    assert enabled() is False
+
+
+def test_finalization_audit_failure_rolls_back_pilot_and_activation_state(
+    db_session,
+    monkeypatch,
+):
+    workspace, capability, system = _seed_target(db_session)
+    rollout.stage(
+        db_session,
+        workspace_id=workspace.id,
+        projection="capability",
+        apply=True,
+        actor="operator",
+    )
+    db_session.refresh(workspace)
+    db_session.refresh(system)
+    original_emit = rollout.emit_audit_event
+
+    def fail_finalization_audit(**kwargs):
+        if kwargs.get("event_type") == PROJECTION_FINALIZATION_AUDIT_EVENT:
+            return None
+        return original_emit(**kwargs)
+
+    monkeypatch.setattr(rollout, "emit_audit_event", fail_finalization_audit)
+    with pytest.raises(
+        rollout.ProjectionRolloutError,
+        match="activation audit event could not be persisted",
+    ):
+        rollout.activate(
+            db_session,
+            workspace_id=workspace.id,
+            projection="capability",
+            evidence=_evidence(
+                db_session,
+                workspace,
+                capability,
+                system,
+                "capability",
+                trusted_runner=TRUSTED_RUNNER,
+            ),
+            pilot_observation=_pilot_observation(
+                system,
+                capability,
+                "capability",
+            ),
+            apply=True,
+            actor="operator",
+            trusted_runner=TRUSTED_RUNNER,
+        )
+
+    db_session.refresh(workspace)
+    db_session.refresh(system)
+    state = rollout._state(system)
+    assert state["activations"] == []
+    assert [row["projection"] for row in state["probations"]] == ["capability"]
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(event_type=rollout.PILOT_OBSERVATION_AUDIT_EVENT)
+        .count()
+        == 0
+    )
+
+
 def test_formal_completion_requires_trusted_runner_and_deployed_revision(
     db_session,
     monkeypatch,
@@ -1152,7 +1308,7 @@ def test_run_detail_exposes_only_content_addressed_projection_evidence(db_sessio
         id=runtime["primary_invocation_id"]
     ).one()
 
-    run_payload = _row(run)
+    run_payload = _row(run, db=db_session)
     invocation_payload = _invocation(invocation)
     assert run_payload["flow_evidence"] == {
         "flow_version_id": runtime["flow_version_id"],

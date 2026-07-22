@@ -469,7 +469,17 @@ def test_generic_audit_event_keeps_existing_authenticated_actor_contract(db_sess
 
 @pytest.mark.parametrize(
     "event_type",
-    ["iam.shadow.evaluation", "lot7.authorization.enforce_promoted", "run.completed"],
+    [
+        "iam.shadow.evaluation",
+        "lot7.authorization.enforce_promoted",
+        "lot8.value_loop.canary_window.opened",
+        "lot9.workspace_app_platform.activated",
+        "decision.actuation.applied",
+        "value_loop.action.executed",
+        "workspace_app.install.applied",
+        "run.completed",
+        "system360.rollout.activated",
+    ],
 )
 def test_public_audit_endpoint_rejects_server_namespaces(db_session, event_type):
     workspace, user = _seed(db_session)

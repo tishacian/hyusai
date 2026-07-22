@@ -26,27 +26,45 @@ default.  Unknown or malformed values fail safe to ``compat``.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import object_session
 
 from app.core.config import settings
 from app.core.iam.dependencies import evaluate_permission
+from app.models.audit import AuditLog
+
+
+# Protected runners and the API host may differ slightly in wall-clock time.
+# Promotion accepts the same bounded skew as the evidence validator; larger
+# causal inversions still fail closed.
+PROMOTION_VALIDATION_CLOCK_SKEW = timedelta(minutes=5)
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
 from app.services.iam.evidence_contracts import junit_count_errors
 from app.services.iam.manifest import MANIFESTS, get_manifest
-from app.services.iam.shadow_review import MISMATCH_REVIEW_KIND, sha256_ref
+from app.services.iam.shadow_review import (
+    MISMATCH_REVIEW_KIND,
+    ShadowReviewError,
+    apply_review_to_summaries,
+    assert_source_manifest_matches_audit,
+    load_persisted_review,
+    sha256_ref,
+    validate_review_envelope,
+    validate_source_manifest,
+)
 
 
 class AuthorizationMode(str, Enum):
@@ -60,6 +78,38 @@ GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 ACTION_KEY_RE = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*")
 ATTESTATIONS_KEY = "enforcement_attestations"
+PROMOTION_EVENT_TYPE = "lot7.authorization.enforce_promoted"
+PROMOTION_RECEIPT_KIND = "authorization_v2_enforcement_promotion"
+PROMOTION_RECEIPT_KEY = "promotion_receipt"
+
+
+def build_promotion_receipt_document(
+    *,
+    workspace_id: str,
+    promotion: Mapping[str, Any],
+    source_manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the canonical server-side receipt before its audit id exists."""
+
+    promoted = copy.deepcopy(dict(promotion))
+    promoted.pop(PROMOTION_RECEIPT_KEY, None)
+    source = copy.deepcopy(dict(source_manifest))
+    source_ref = str(
+        (promoted.get("shadow_observation") or {}).get("source_ref")
+        if isinstance(promoted.get("shadow_observation"), Mapping)
+        else ""
+    )
+    return {
+        "schema_version": 1,
+        "kind": PROMOTION_RECEIPT_KIND,
+        "workspace_id": str(workspace_id),
+        "actions": copy.deepcopy(promoted.get("actions")),
+        "promotion": promoted,
+        "shadow_source": {
+            "artifact_ref": source_ref,
+            "document": source,
+        },
+    }
 
 
 def candidate_config_sha256(config: Optional[WorkspaceIAMConfig]) -> str:
@@ -137,6 +187,7 @@ def resolve_mode(
     *,
     resource_kind: str,
     action: str,
+    db: Optional[DBSession] = None,
 ) -> AuthorizationMode:
     payload = authorization_v2_config(config)
     modes = payload.get("modes")
@@ -168,11 +219,12 @@ def resolve_mode(
     # Runtime authority requires the exact action promoted by the rollout gate.
     if source_key != exact_key:
         return AuthorizationMode.SHADOW
-    if _enforcement_attestation_errors(
+    if enforcement_attestation_errors(
         config=config,
-        policy=payload,
         action=exact_key,
         require_runtime_revision=True,
+        db=db,
+        require_server_receipt=True,
     ):
         # An exact enforce declaration is an authorization boundary.  Drift
         # must fail closed; silently falling back to legacy/shadow would reopen
@@ -270,7 +322,10 @@ def _enforcement_attestation_errors(
         errors.append("invalid attestation validated_at")
     if promoted_at is None:
         errors.append("invalid attestation promoted_at")
-    elif validated_at is not None and promoted_at < validated_at:
+    elif (
+        validated_at is not None
+        and promoted_at + PROMOTION_VALIDATION_CLOCK_SKEW < validated_at
+    ):
         errors.append("attestation promotion predates validation")
 
     group = attestation.get("actions")
@@ -302,15 +357,15 @@ def _enforcement_attestation_errors(
             if contract.get("format") != "junit":
                 errors.append(f"attestation {contract_name} contract is not JUnit")
             artifact_ref = str(contract.get("artifact_ref") or "")
-            if not artifact_ref.startswith("sha256:") or SHA256_RE.fullmatch(
-                artifact_ref[7:]
-            ) is None:
+            if (
+                not artifact_ref.startswith("sha256:")
+                or SHA256_RE.fullmatch(artifact_ref[7:]) is None
+            ):
                 errors.append(
                     f"attestation {contract_name} contract artifact is not content-addressed"
                 )
             errors.extend(
-                f"attestation {contract_name} {error}"
-                for error in junit_count_errors(contract)
+                f"attestation {contract_name} {error}" for error in junit_count_errors(contract)
             )
             producer = contract.get("producer")
             if not isinstance(producer, Mapping):
@@ -320,9 +375,7 @@ def _enforcement_attestation_errors(
                 errors.append(f"attestation {contract_name} producer revision drift")
             for field in ("issuer", "project_id", "pipeline_id", "job_id", "ref"):
                 if not str(producer.get(field) or "").strip():
-                    errors.append(
-                        f"attestation {contract_name} producer {field} is missing"
-                    )
+                    errors.append(f"attestation {contract_name} producer {field} is missing")
             if str(producer.get("issuer") or "").rstrip("/") != str(
                 settings.authorization_v2_trusted_oidc_issuer or ""
             ).rstrip("/"):
@@ -331,9 +384,7 @@ def _enforcement_attestation_errors(
                 settings.authorization_v2_trusted_project_id or ""
             ):
                 errors.append(f"attestation {contract_name} producer project drift")
-            if str(producer.get("ref") or "") != str(
-                settings.authorization_v2_trusted_ref or ""
-            ):
+            if str(producer.get("ref") or "") != str(settings.authorization_v2_trusted_ref or ""):
                 errors.append(f"attestation {contract_name} producer ref drift")
             if producer.get("ref_protected") is not True:
                 errors.append(f"attestation {contract_name} producer ref is not protected")
@@ -360,9 +411,7 @@ def _enforcement_attestation_errors(
         errors.append("attestation shadow revision drift")
     if shadow.get("candidate_config_sha256") != candidate_digest:
         errors.append("attestation shadow candidate config drift")
-    if shadow.get("candidate_config_version") != attestation.get(
-        "candidate_config_version"
-    ):
+    if shadow.get("candidate_config_version") != attestation.get("candidate_config_version"):
         errors.append("attestation shadow candidate config version drift")
     started_at = _aware_timestamp(shadow.get("window_started_at"))
     ended_at = _aware_timestamp(shadow.get("window_ended_at"))
@@ -448,9 +497,11 @@ def _enforcement_attestation_errors(
         if dict(subject) != expected_review_subject:
             errors.append("mismatch review subject drift")
     reviewer = document.get("reviewed_by")
-    if not isinstance(reviewer, Mapping) or not str(reviewer.get("user_id") or "").strip() or not str(
-        reviewer.get("identity") or ""
-    ).strip():
+    if (
+        not isinstance(reviewer, Mapping)
+        or not str(reviewer.get("user_id") or "").strip()
+        or not str(reviewer.get("identity") or "").strip()
+    ):
         errors.append("mismatch review reviewer identity is missing")
     reviewed_at = _aware_timestamp(document.get("reviewed_at"))
     if reviewed_at is None:
@@ -463,20 +514,182 @@ def _enforcement_attestation_errors(
     return errors
 
 
+def _promotion_receipt_errors(
+    *,
+    db: Optional[DBSession],
+    config: Optional[WorkspaceIAMConfig],
+    action: str,
+) -> list[str]:
+    """Reload the canonical promotion and all of its server-owned evidence.
+
+    The JSON policy is only a cache of the rollout decision.  Authority comes
+    from an exact, content-addressed promotion row in ``AuditLog`` which, in
+    turn, embeds the immutable shadow-source manifest.  Runtime validation
+    rebuilds that manifest from the original shadow audit rows and reloads the
+    mismatch review when one was required.
+    """
+
+    errors: list[str] = []
+    policy = authorization_v2_config(config)
+    attestations = policy.get(ATTESTATIONS_KEY)
+    raw_attestation = attestations.get(action) if isinstance(attestations, Mapping) else None
+    if not isinstance(raw_attestation, Mapping):
+        return ["promotion receipt has no attestation to bind"]
+    attestation = dict(raw_attestation)
+    workspace_id = str(getattr(config, "workspace_id", "") or "")
+    receipt = attestation.get(PROMOTION_RECEIPT_KEY)
+    if not isinstance(receipt, Mapping) or set(receipt) != {"audit_id", "artifact_ref"}:
+        return ["canonical promotion receipt is missing or malformed"]
+    audit_id = str(receipt.get("audit_id") or "").strip()
+    artifact_ref = str(receipt.get("artifact_ref") or "").strip()
+    if not audit_id:
+        errors.append("canonical promotion audit id is missing")
+    if not artifact_ref.startswith("sha256:") or SHA256_RE.fullmatch(artifact_ref[7:]) is None:
+        errors.append("canonical promotion receipt is not content-addressed")
+
+    session = db or (object_session(config) if config is not None else None)
+    if session is None:
+        return [*errors, "canonical promotion ledger is unavailable"]
+    if errors:
+        return errors
+    row = (
+        session.query(AuditLog)
+        .filter(
+            AuditLog.id == audit_id,
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.event_type == PROMOTION_EVENT_TYPE,
+        )
+        .one_or_none()
+    )
+    if row is None or not isinstance(row.details, Mapping):
+        return ["canonical promotion is absent from the server audit ledger"]
+    if row.actor != attestation.get("promoted_by"):
+        errors.append("canonical promotion actor differs from the attestation")
+    details = dict(row.details)
+    if set(details) != {"artifact_ref", "document"}:
+        return [*errors, "canonical promotion audit fields are invalid"]
+    document = details.get("document")
+    if not isinstance(document, Mapping):
+        return [*errors, "canonical promotion document is missing"]
+    document = dict(document)
+    if details.get("artifact_ref") != artifact_ref or sha256_ref(document) != artifact_ref:
+        errors.append("canonical promotion content digest drift")
+    if set(document) != {
+        "schema_version",
+        "kind",
+        "workspace_id",
+        "actions",
+        "promotion",
+        "shadow_source",
+    }:
+        return [*errors, "canonical promotion document fields are invalid"]
+    if document.get("schema_version") != 1 or document.get("kind") != PROMOTION_RECEIPT_KIND:
+        errors.append("canonical promotion document contract is invalid")
+    if document.get("workspace_id") != workspace_id:
+        errors.append("canonical promotion workspace drift")
+    if document.get("actions") != attestation.get("actions"):
+        errors.append("canonical promotion action group drift")
+    expected_promotion = {
+        key: value for key, value in attestation.items() if key != PROMOTION_RECEIPT_KEY
+    }
+    if document.get("promotion") != expected_promotion:
+        errors.append("canonical promotion differs from the configured attestation")
+
+    shadow = attestation.get("shadow_observation")
+    source_envelope = document.get("shadow_source")
+    if not isinstance(shadow, Mapping) or not isinstance(source_envelope, Mapping):
+        return [*errors, "canonical shadow source is missing"]
+    if set(source_envelope) != {"artifact_ref", "document"}:
+        return [*errors, "canonical shadow source envelope fields are invalid"]
+    source_ref = str(shadow.get("source_ref") or "")
+    source_document = source_envelope.get("document")
+    if source_envelope.get("artifact_ref") != source_ref:
+        errors.append("canonical shadow source reference drift")
+    started_at = _aware_timestamp(shadow.get("window_started_at"))
+    ended_at = _aware_timestamp(shadow.get("window_ended_at"))
+    group = attestation.get("actions")
+    version = attestation.get("candidate_config_version")
+    if (
+        started_at is None
+        or ended_at is None
+        or not isinstance(group, list)
+        or not isinstance(version, int)
+        or isinstance(version, bool)
+    ):
+        return [*errors, "canonical shadow source binding is incomplete"]
+    try:
+        source = validate_source_manifest(
+            source_document,
+            source_ref=source_ref,
+            workspace_id=workspace_id,
+            actions=group,
+            revision=str(attestation.get("revision") or ""),
+            candidate_config_sha256=str(attestation.get("candidate_config_sha256") or ""),
+            candidate_config_version=version,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+        )
+        assert_source_manifest_matches_audit(session, source)
+    except (ShadowReviewError, TypeError, ValueError) as exc:
+        errors.append(f"canonical shadow source is invalid: {exc}")
+        return errors
+
+    review = shadow.get("mismatch_review")
+    expected_summaries = source.summaries
+    if review is not None:
+        if not isinstance(review, Mapping):
+            errors.append("canonical mismatch review envelope is invalid")
+        else:
+            try:
+                validated_at = _aware_timestamp(attestation.get("validated_at"))
+                if validated_at is None:
+                    raise ShadowReviewError("promotion validation timestamp is invalid")
+                validated_review = validate_review_envelope(
+                    review,
+                    source=source,
+                    validated_at=validated_at,
+                )
+                persisted_review = load_persisted_review(
+                    session,
+                    workspace_id=workspace_id,
+                    audit_id=str(review.get("audit_id") or ""),
+                )
+            except ShadowReviewError as exc:
+                errors.append(f"canonical mismatch review is unavailable: {exc}")
+            else:
+                if persisted_review != dict(review):
+                    errors.append("canonical mismatch review differs from the audit ledger")
+                expected_summaries = apply_review_to_summaries(source, validated_review)
+    if shadow.get("actions") != expected_summaries:
+        errors.append("canonical shadow summaries differ from the authoritative source")
+    return errors
+
+
 def enforcement_attestation_errors(
     *,
     config: Optional[WorkspaceIAMConfig],
     action: str,
     require_runtime_revision: bool = True,
+    db: Optional[DBSession] = None,
+    require_server_receipt: bool = True,
 ) -> list[str]:
     """Expose the runtime's exact enforce-coherence check to rollout tooling."""
 
-    return _enforcement_attestation_errors(
+    errors = _enforcement_attestation_errors(
         config=config,
         policy=authorization_v2_config(config),
         action=action,
         require_runtime_revision=require_runtime_revision,
     )
+    if require_server_receipt:
+        errors.extend(
+            _promotion_receipt_errors(
+                db=db,
+                config=config,
+                action=action,
+            )
+        )
+    return errors
 
 
 def resolve_action(
@@ -546,7 +759,7 @@ def resolve_candidate_permission(
         audit_denials=False,
     )
     config = load_iam_config(db, workspace.id, create=False)
-    mode = resolve_mode(config, resource_kind=resource_kind, action=action)
+    mode = resolve_mode(config, resource_kind=resource_kind, action=action, db=db)
     mismatch = bool(legacy_allowed) != candidate.allowed
     effective_allowed = (
         candidate.allowed
@@ -706,7 +919,7 @@ def resolve_manifest_permission(
         audit_denials=False,
     )
     config = load_iam_config(db, workspace.id, create=False)
-    mode = resolve_mode(config, resource_kind="action", action="execute")
+    mode = resolve_mode(config, resource_kind="action", action="execute", db=db)
     mismatch = bool(legacy_allowed) != candidate.allowed
     resolution = ActionResolution(
         resource_kind="action",

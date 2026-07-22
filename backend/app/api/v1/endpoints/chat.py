@@ -68,7 +68,6 @@ from app.services.industrial_answer_profile import (
     industrial_answer_policy,
     resolve_answer_profile,
 )
-from app.services.system_engine_authorization import enforce_system_engine_run
 from app.services.mission_room import (
     briefing_payload,
     cockpit_payload,
@@ -77,6 +76,8 @@ from app.services.mission_room import (
     source_index,
 )
 from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
+from app.services.run_outcome_provenance import record_runtime_auto_outcome
+from app.services.system_engine_authorization import enforce_system_engine_run
 from app.services.systems.bootstrap import (
     WORKSPACE_CHAT_VARIANT,
     resolve_workspace_chat_source_policy,
@@ -945,6 +946,33 @@ def _persist_chat_run(
         )
         db.add(run)
         db.flush()
+        control = None
+        if system_id:
+            system = (
+                db.query(System)
+                .filter(
+                    System.id == system_id,
+                    System.workspace_id == workspace_id,
+                )
+                .one_or_none()
+            )
+            if system is not None:
+                # Reuse the canonical execution snapshot instead of allowing
+                # the chat surface to invent a parallel provenance format.
+                from app.services.run_engine.engine import (
+                    _load_control_policy,
+                    _snapshot_run_flow,
+                )
+
+                control = _load_control_policy(db, system)
+                if control is not None:
+                    _snapshot_run_flow(
+                        db,
+                        run,
+                        system,
+                        first_start=True,
+                        control=control,
+                    )
         enrich_chat_run_ledger(
             db,
             run,
@@ -953,6 +981,8 @@ def _persist_chat_run(
             extra_output=extra_output or {},
             create_invocations_if_missing=True,
         )
+        if run.value_source == "auto" and control is not None:
+            record_runtime_auto_outcome(run, db=db)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()

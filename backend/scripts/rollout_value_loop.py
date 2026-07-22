@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Structural, attested rollout for the Lot 8 System value loop.
 
-The target is selected only through persisted experience markers.  No slug,
-name or fixed identifier participates in discovery.  Every mutating command
-is a dry-run unless ``--apply`` is passed explicitly.
+The default target is selected only through persisted experience markers.  No
+slug, name or code-owned fixed identifier participates in discovery.  An
+operator may pass a runtime-discovered System ID to target a tenant-scoped
+rollout or rollback explicitly.  Every mutating command is a dry-run unless
+``--apply`` is passed explicitly.
 
 ``prepare`` installs the bounded actuator contract and its Membrane allow-list
 entry, but deliberately leaves the Workspace feature disabled.  ``activate``
@@ -72,6 +74,7 @@ from app.services.value_loop_gate import (  # noqa: E402
     ROLLOUT_STATE_KEY,
     value_loop_enabled,
     value_loop_policy_chain_reference,
+    value_loop_requested,
 )
 from scripts.rollout_authorization_v2 import (  # noqa: E402
     AuthorizationPromotionError,
@@ -245,6 +248,7 @@ def _active_proof_window(
     if not isinstance(raw, Mapping):
         return None
     expected = {
+        "audit_id",
         "system_id",
         "revision",
         "contract_sha256",
@@ -260,6 +264,7 @@ def _active_proof_window(
         raw.get("system_id") != system_id
         or raw.get("revision") != revision
         or raw.get("contract_sha256") != _prepared_contract_sha256()
+        or not str(raw.get("audit_id") or "").strip()
         or not str(raw.get("opened_by") or "").strip()
         or re.fullmatch(r"sha256:[0-9a-f]{64}", str(raw.get("policy_chain_ref") or ""))
         is None
@@ -273,6 +278,42 @@ def _active_proof_window(
     if expires_at <= opened_at or current < opened_at or current >= expires_at:
         return None
     return dict(raw)
+
+
+def _workspace_open_proof_window_system_ids(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+) -> list[str]:
+    """Find every currently open proof window, failing on malformed state."""
+
+    now = datetime.now(UTC)
+    owners: list[str] = []
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .order_by(System.id.asc())
+        .all()
+    )
+    for candidate in systems:
+        raw = _state(candidate).get("proof_window")
+        if raw is None:
+            continue
+        if not isinstance(raw, Mapping):  # Defensive; _state already checks.
+            raise ValueLoopRolloutError("invalid Lot 8 proof window")
+        opened_at = _parse_utc(
+            raw.get("opened_at"),
+            field="proof_window.opened_at",
+        )
+        expires_at = _parse_utc(
+            raw.get("expires_at"),
+            field="proof_window.expires_at",
+        )
+        if expires_at <= opened_at:
+            raise ValueLoopRolloutError("Lot 8 proof window has an invalid duration")
+        if opened_at <= now < expires_at:
+            owners.append(str(candidate.id))
+    return owners
 
 
 def _require_actor(actor: str) -> str:
@@ -290,16 +331,21 @@ def discover_target(
     db: DBSession,
     *,
     workspace_id: str,
+    system_id: str | None = None,
     lock: bool = False,
     allow_system360_fallback: bool = True,
+    require_canary_marker: bool = False,
 ) -> tuple[Workspace, System, bool]:
-    """Discover one target using only persisted structural markers.
+    """Resolve one active, tenant-scoped target without business identity.
 
-    The boolean return value says whether ``prepare`` must derive the Lot 8
-    marker from the unique System 360 marker.
+    Without ``system_id``, selection remains marker-only and ambiguous marker
+    sets fail closed.  ``system_id`` is an explicit operator target, never a
+    slug/name lookup or code-owned constant.  The boolean return value says
+    whether ``prepare`` must move/derive the unique Lot 8 canary marker.
     """
 
     scoped_workspace_id = str(workspace_id or "").strip()
+    scoped_system_id = str(system_id or "").strip() or None
     if not scoped_workspace_id:
         raise ValueLoopRolloutError("workspace_id is required")
     workspace_query = db.query(Workspace).filter(
@@ -311,27 +357,51 @@ def discover_target(
     if workspace is None:
         raise ValueLoopRolloutError("the target Workspace is missing or inactive")
 
-    candidates = db.query(System).filter(
-        System.workspace_id == workspace.id,
-        System.status == "active",
-    ).all()
-    marked = [row for row in candidates if _marker_matches(row, CANARY_MARKER_KEY)]
-    derived = False
-    if len(marked) > 1:
-        raise ValueLoopRolloutError(
-            f"expected at most one active {CANARY_MARKER_KEY} marker, found {len(marked)}"
-        )
-    if not marked:
+    def select(candidates: list[System]) -> tuple[System, bool]:
+        marked = [
+            row for row in candidates if _marker_matches(row, CANARY_MARKER_KEY)
+        ]
+        if scoped_system_id is not None:
+            selected = [row for row in candidates if row.id == scoped_system_id]
+            if len(selected) != 1:
+                raise ValueLoopRolloutError(
+                    "the target System is missing, inactive, or outside the Workspace"
+                )
+            target = selected[0]
+            has_marker = _marker_matches(target, CANARY_MARKER_KEY)
+            if require_canary_marker and not has_marker:
+                raise ValueLoopRolloutError(
+                    "the explicitly targeted System is not the current Lot 8 canary"
+                )
+            return target, not (has_marker and len(marked) == 1)
+
+        if len(marked) > 1:
+            raise ValueLoopRolloutError(
+                f"expected at most one active {CANARY_MARKER_KEY} marker, "
+                f"found {len(marked)}"
+            )
+        if marked:
+            return marked[0], False
         if not allow_system360_fallback:
             raise ValueLoopRolloutError("the Workspace has no Lot 8 canary marker")
-        marked = [row for row in candidates if _marker_matches(row, SYSTEM360_MARKER_KEY)]
-        if len(marked) != 1:
+        system360 = [
+            row for row in candidates if _marker_matches(row, SYSTEM360_MARKER_KEY)
+        ]
+        if len(system360) != 1:
             raise ValueLoopRolloutError(
                 "expected exactly one active System 360 marker to derive the Lot 8 "
-                f"canary, found {len(marked)}"
+                f"canary, found {len(system360)}"
             )
-        derived = True
-    system = marked[0]
+        return system360[0], True
+
+    candidates = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .order_by(System.id.asc())
+        .all()
+    )
+    system, derived = select(candidates)
+    selected_system_id = system.id
 
     if lock:
         workspace = (
@@ -345,30 +415,23 @@ def discover_target(
             .with_for_update(of=Workspace)
             .one_or_none()
         )
-        system = (
+        candidates = (
             db.query(System)
             .populate_existing()
             .filter(
-                System.id == system.id,
                 System.workspace_id == scoped_workspace_id,
                 System.status == "active",
             )
+            .order_by(System.id.asc())
             .with_for_update(of=System)
-            .one_or_none()
+            .all()
         )
-        if workspace is None or system is None:
+        if workspace is None:
             raise ValueLoopRolloutError("the rollout target changed while acquiring locks")
-        current = db.query(System).filter(
-            System.workspace_id == workspace.id,
-            System.status == "active",
-        ).all()
-        lot8 = [row for row in current if _marker_matches(row, CANARY_MARKER_KEY)]
-        system360 = [row for row in current if _marker_matches(row, SYSTEM360_MARKER_KEY)]
-        if derived:
-            if lot8 or len(system360) != 1 or system360[0].id != system.id:
-                raise ValueLoopRolloutError("the structural marker set changed while locking")
-        elif len(lot8) != 1 or lot8[0].id != system.id:
-            raise ValueLoopRolloutError("the Lot 8 marker set changed while locking")
+        system, locked_derived = select(candidates)
+        if system.id != selected_system_id or locked_derived != derived:
+            raise ValueLoopRolloutError("the structural target changed while locking")
+        derived = locked_derived
     return workspace, system, derived
 
 
@@ -456,6 +519,49 @@ def _set_marker(system: System) -> None:
     system.settings = system_settings
 
 
+def _clear_marker(system: System) -> None:
+    system_settings = _record(system.settings)
+    experience = _record(system_settings.get("experience"))
+    experience.pop(CANARY_MARKER_KEY, None)
+    system_settings["experience"] = experience
+    system.settings = system_settings
+
+
+def _select_exclusive_canary_marker(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+) -> list[str]:
+    """Move the proof marker without changing any activation authority."""
+
+    owners = _workspace_open_proof_window_system_ids(
+        db,
+        workspace=workspace,
+    )
+    if owners and owners != [system.id]:
+        raise ValueLoopRolloutError(
+            "cannot move the Lot 8 canary while another proof window is open"
+        )
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .order_by(System.id.asc())
+        .all()
+    )
+    previous = [
+        str(row.id)
+        for row in systems
+        if row.id != system.id and _marker_matches(row, CANARY_MARKER_KEY)
+    ]
+    for row in systems:
+        if row.id == system.id:
+            _set_marker(row)
+        elif _marker_matches(row, CANARY_MARKER_KEY):
+            _clear_marker(row)
+    return previous
+
+
 def _install_actuator(system: System) -> None:
     system_settings = _record(system.settings)
     value_loop = _record(system_settings.get("value_loop"))
@@ -509,10 +615,16 @@ def _emit_required_audit(
     return audit_id
 
 
-def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
+def status(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    system_id: str | None = None,
+) -> dict[str, Any]:
     workspace, system, derived = discover_target(
         db,
         workspace_id=workspace_id,
+        system_id=system_id,
         allow_system360_fallback=True,
     )
     policy = _control_policy(db, workspace=workspace, system=system, lock=False)
@@ -538,8 +650,12 @@ def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
         "workspace_id": workspace.id,
         "system_id": system.id,
         "marker": {
-            "present": not derived,
-            "derivable_from_system_360": derived,
+            "present": _marker_matches(system, CANARY_MARKER_KEY),
+            "exclusive": not derived,
+            "requires_selection": derived,
+            "derivable_from_system_360": (
+                derived and _marker_matches(system, SYSTEM360_MARKER_KEY)
+            ),
         },
         "prepared": prepared,
         "preparation_reason": preparation_reason,
@@ -567,20 +683,18 @@ def prepare(
     db: DBSession,
     *,
     workspace_id: str,
+    system_id: str | None = None,
     apply: bool,
     actor: str,
 ) -> dict[str, Any]:
     workspace, system, derived = discover_target(
         db,
         workspace_id=workspace_id,
+        system_id=system_id,
         lock=apply,
         allow_system360_fallback=True,
     )
     policy = _control_policy(db, workspace=workspace, system=system, lock=apply)
-    if _feature_enabled(workspace):
-        raise ValueLoopRolloutError(
-            "value_loop_v1 is already enabled; deactivate before preparing"
-        )
     existing_config = _actuator_config(system)
     if existing_config is not None and existing_config != _canonical_actuator_config():
         raise ValueLoopRolloutError(
@@ -591,6 +705,14 @@ def prepare(
     changed_fields = []
     if derived:
         changed_fields.append(f"system.settings.experience.{CANARY_MARKER_KEY}")
+        proof_owners = _workspace_open_proof_window_system_ids(
+            db,
+            workspace=workspace,
+        )
+        if proof_owners and proof_owners != [system.id]:
+            raise ValueLoopRolloutError(
+                "cannot prepare a new Lot 8 canary while another proof window is open"
+            )
     if existing_config is None:
         changed_fields.append("system.settings.value_loop.actuators")
     if CONTROL_POLICY_GUARDRAILS_PATCH_V1 not in allowed:
@@ -606,6 +728,13 @@ def prepare(
     )
     if not isinstance(state.get("prepared"), Mapping):
         changed_fields.append(f"system.settings.{ROLLOUT_STATE_KEY}")
+    previous_marker_system_ids = [
+        str(row.id)
+        for row in db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status == "active")
+        .all()
+        if row.id != system.id and _marker_matches(row, CANARY_MARKER_KEY)
+    ]
     report = {
         "schema_version": 1,
         "operation": "apply" if apply else "dry_run",
@@ -614,7 +743,8 @@ def prepare(
         "system_id": system.id,
         "changed": not already_prepared,
         "changed_fields": changed_fields,
-        "feature_enabled": False,
+        "feature_enabled": _feature_enabled(workspace),
+        "previous_canary_system_ids": previous_marker_system_ids,
         "contract_sha256": contract_digest,
         "membrane_mode": parsed.effective_mode.value,
     }
@@ -623,8 +753,13 @@ def prepare(
 
     actor_value = _require_actor(actor)
     try:
+        applied_previous_marker_system_ids: list[str] = []
         if derived:
-            _set_marker(system)
+            applied_previous_marker_system_ids = _select_exclusive_canary_marker(
+                db,
+                workspace=workspace,
+                system=system,
+            )
         _install_actuator(system)
         _allow_actuator(policy)
         now = datetime.now(UTC).isoformat()
@@ -645,7 +780,8 @@ def prepare(
                 "system_id": system.id,
                 "contract_sha256": contract_digest,
                 "changed_fields": changed_fields,
-                "feature_enabled": False,
+                "feature_enabled": _feature_enabled(workspace),
+                "previous_canary_system_ids": applied_previous_marker_system_ids,
             },
         )
         db.commit()
@@ -659,6 +795,7 @@ def open_canary_window(
     db: DBSession,
     *,
     workspace_id: str,
+    system_id: str | None = None,
     apply: bool,
     actor: str,
 ) -> dict[str, Any]:
@@ -667,8 +804,10 @@ def open_canary_window(
     workspace, system, derived = discover_target(
         db,
         workspace_id=workspace_id,
+        system_id=system_id,
         lock=apply,
         allow_system360_fallback=False,
+        require_canary_marker=True,
     )
     if derived:  # Defensive: fallback is disabled above.
         raise ValueLoopRolloutError("prepare must persist the Lot 8 marker first")
@@ -698,6 +837,16 @@ def open_canary_window(
         system_id=system.id,
         revision=revision,
     )
+    proof_owners = _workspace_open_proof_window_system_ids(
+        db,
+        workspace=workspace,
+    )
+    if len(proof_owners) > 1 or (
+        proof_owners and proof_owners != [system.id]
+    ):
+        raise ValueLoopRolloutError(
+            "another System already owns the Workspace Lot 8 proof window"
+        )
     if active is not None and not value_loop_enabled(
         db,
         workspace=workspace,
@@ -705,10 +854,6 @@ def open_canary_window(
     ):
         raise ValueLoopRolloutError(
             "the active canary window no longer matches the ControlPolicy chain"
-        )
-    if _feature_enabled(workspace) and active is None:
-        raise ValueLoopRolloutError(
-            "value_loop_v1 is enabled without an active canary window"
         )
     report = {
         "schema_version": 1,
@@ -744,10 +889,8 @@ def open_canary_window(
             "policy_chain_ref": policy_chain_ref,
             "control_policy": policy_reference,
         }
-        state["proof_window"] = proof_window
         _set_feature(workspace, True)
-        _save_state(system, state)
-        _emit_required_audit(
+        audit_id = _emit_required_audit(
             db,
             workspace=workspace,
             system=system,
@@ -764,6 +907,9 @@ def open_canary_window(
                 "control_policy_sha256": policy_reference["sha256"],
             },
         )
+        proof_window["audit_id"] = audit_id
+        state["proof_window"] = proof_window
+        _save_state(system, state)
         db.commit()
         report["proof_window"] = proof_window
         return report
@@ -1192,6 +1338,7 @@ def activate(
     db: DBSession,
     *,
     workspace_id: str,
+    system_id: str | None = None,
     evidence: Mapping[str, Any] | None,
     apply: bool,
     actor: str,
@@ -1200,10 +1347,11 @@ def activate(
     workspace, system, derived = discover_target(
         db,
         workspace_id=workspace_id,
+        system_id=system_id,
         lock=apply,
         allow_system360_fallback=False,
     )
-    if derived:  # Defensive; false by contract when fallback is disabled.
+    if derived and system_id is None:  # Defensive for marker-only discovery.
         raise ValueLoopRolloutError("prepare must persist the Lot 8 marker first")
     policy = _control_policy(db, workspace=workspace, system=system, lock=apply)
     prepared, reason = _prepared_contract(policy, system)
@@ -1258,10 +1406,6 @@ def activate(
         and latest.get("revision") == revision
         and value_loop_enabled(db, workspace=workspace, system=system)
     )
-    if _feature_enabled(workspace) and not already_active and proof_window is None:
-        raise ValueLoopRolloutError(
-            "value_loop_v1 is enabled without matching activation evidence or canary window"
-        )
     report = {
         "schema_version": 1,
         "operation": "apply" if apply else "dry_run",
@@ -1310,9 +1454,7 @@ def activate(
         }
         _set_feature(workspace, True)
         state["proof_window"] = None
-        state["activations"].append(activation)
-        _save_state(system, state)
-        _emit_required_audit(
+        audit_id = _emit_required_audit(
             db,
             workspace=workspace,
             system=system,
@@ -1326,13 +1468,23 @@ def activate(
                 "source_junit_ref": metadata["source_junit_ref"],
                 "observation_ref": metadata["observation_ref"],
                 "record_ids": metadata["records"],
+                "checks": metadata["checks"],
+                "runner_test_count": metadata["runner_test_count"],
+                "validated_at": metadata["validated_at"],
+                "validated_by": metadata["validated_by"],
+                "activated_at": activated_at,
+                "trusted_runner": metadata["trusted_runner"],
                 "feature": FEATURE_KEY,
                 "policy_chain_ref": policy_chain_ref,
                 "policy_chain_created_at": policy_chain_created_at,
                 "control_policy_revision": policy_reference["revision"],
                 "control_policy_sha256": policy_reference["sha256"],
+                "claim_promoted": True,
             },
         )
+        activation["audit_id"] = audit_id
+        state["activations"].append(activation)
+        _save_state(system, state)
         db.commit()
         return report
     except Exception:
@@ -1340,28 +1492,93 @@ def activate(
         raise
 
 
+def _rollout_state_engaged(state: Mapping[str, Any]) -> bool:
+    if state.get("proof_window") is not None:
+        return True
+    activations = state.get("activations")
+    deactivations = state.get("deactivations")
+    if not isinstance(activations, list) or not isinstance(deactivations, list):
+        raise ValueLoopRolloutError("invalid Lot 8 activation history")
+    try:
+        activated_at = max(
+            (
+                _parse_utc(row.get("activated_at"), field="activation.activated_at")
+                for row in activations
+            ),
+            default=None,
+        )
+        deactivated_at = max(
+            (
+                _parse_utc(
+                    row.get("deactivated_at"),
+                    field="deactivation.deactivated_at",
+                )
+                for row in deactivations
+            ),
+            default=None,
+        )
+    except AttributeError as exc:  # Defensive; _state validates row mappings.
+        raise ValueLoopRolloutError("invalid Lot 8 activation history") from exc
+    return bool(
+        activated_at is not None
+        and (deactivated_at is None or activated_at > deactivated_at)
+    )
+
+
+def _other_requested_system_ids(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    excluded_system_id: str,
+) -> list[str]:
+    systems = (
+        db.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.status == "active",
+            System.id != excluded_system_id,
+        )
+        .order_by(System.id.asc())
+        .all()
+    )
+    return [
+        str(system.id)
+        for system in systems
+        if value_loop_requested(db, workspace=workspace, system=system)
+    ]
+
+
 def deactivate(
     db: DBSession,
     *,
     workspace_id: str,
+    system_id: str | None = None,
     apply: bool,
     actor: str,
 ) -> dict[str, Any]:
     workspace, system, _derived = discover_target(
         db,
         workspace_id=workspace_id,
+        system_id=system_id,
         lock=apply,
         allow_system360_fallback=False,
     )
     state = _state(system)
-    enabled = _feature_enabled(workspace)
+    engaged = _rollout_state_engaged(state)
+    other_requested_ids = _other_requested_system_ids(
+        db,
+        workspace=workspace,
+        excluded_system_id=system.id,
+    )
     report = {
         "schema_version": 1,
         "operation": "apply" if apply else "dry_run",
         "direction": "deactivate",
         "workspace_id": workspace.id,
         "system_id": system.id,
-        "changed": enabled,
+        "changed": engaged,
+        "workspace_feature_remains_enabled": bool(other_requested_ids),
+        "other_requested_system_ids": other_requested_ids,
         "preserved": [
             "system marker",
             "actuator configuration",
@@ -1370,11 +1587,10 @@ def deactivate(
             "activation evidence",
         ],
     }
-    if not apply or not enabled:
+    if not apply or not engaged:
         return report
     actor_value = _require_actor(actor)
     try:
-        _set_feature(workspace, False)
         state["proof_window"] = None
         deactivation = {
             "system_id": system.id,
@@ -1388,6 +1604,12 @@ def deactivate(
         }
         state["deactivations"].append(deactivation)
         _save_state(system, state)
+        other_requested_ids = _other_requested_system_ids(
+            db,
+            workspace=workspace,
+            excluded_system_id=system.id,
+        )
+        _set_feature(workspace, bool(other_requested_ids))
         _emit_required_audit(
             db,
             workspace=workspace,
@@ -1397,6 +1619,8 @@ def deactivate(
             details={
                 "system_id": system.id,
                 "feature": FEATURE_KEY,
+                "workspace_feature_enabled": bool(other_requested_ids),
+                "other_requested_system_ids": other_requested_ids,
                 "preserved_additive_state": True,
             },
         )
@@ -1425,6 +1649,10 @@ def _parser() -> argparse.ArgumentParser:
     for command in ("status", "prepare", "open-canary", "activate", "deactivate"):
         child = subparsers.add_parser(command)
         child.add_argument("--workspace-id", required=True)
+        child.add_argument(
+            "--system-id",
+            help="runtime-discovered tenant-scoped target; never a code-owned ID",
+        )
         if command != "status":
             child.add_argument("--apply", action="store_true")
             child.add_argument("--actor", default="")
@@ -1443,11 +1671,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with SessionLocal() as db:
             if args.command == "status":
-                result = status(db, workspace_id=args.workspace_id)
+                result = status(
+                    db,
+                    workspace_id=args.workspace_id,
+                    system_id=args.system_id,
+                )
             elif args.command == "prepare":
                 result = prepare(
                     db,
                     workspace_id=args.workspace_id,
+                    system_id=args.system_id,
                     apply=args.apply,
                     actor=args.actor,
                 )
@@ -1455,6 +1688,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = open_canary_window(
                     db,
                     workspace_id=args.workspace_id,
+                    system_id=args.system_id,
                     apply=args.apply,
                     actor=args.actor,
                 )
@@ -1470,6 +1704,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = activate(
                     db,
                     workspace_id=args.workspace_id,
+                    system_id=args.system_id,
                     evidence=_load_evidence(args.evidence),
                     apply=args.apply,
                     actor=args.actor,
@@ -1479,6 +1714,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = deactivate(
                     db,
                     workspace_id=args.workspace_id,
+                    system_id=args.system_id,
                     apply=args.apply,
                     actor=args.actor,
                 )

@@ -276,7 +276,7 @@ async def test_low_confidence_egress_holds_without_publishing_then_resumes_once(
     assert checkpoint["membrane_egress"] is True
     from app.api.v1.endpoints.runs import _invocation, _row
 
-    public_run = _row(stored)
+    public_run = _row(stored, db=db_session)
     public_pause = next(
         cp
         for cp in reversed(public_run["checkpoints"])

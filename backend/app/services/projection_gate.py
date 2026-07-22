@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.core.config import settings
+from app.models.audit import AuditLog
 from app.models.system import System
 
 PROJECTION_ORDER = ("capability", "run", "skill_invocation")
@@ -20,14 +24,157 @@ WORKSPACE_GATE_KEY = "_lot7_projection_gate_v1"
 WORKSPACE_GATE_SCHEMA_VERSION = 1
 SYSTEM_CANARY_MARKER = "v1"
 SYSTEM_ROLLOUT_STATE_KEY = "_lot7_projection_rollout_v1"
+PROJECTION_FINALIZATION_AUDIT_EVENT = "lot7.projection.probation_finalized"
+PROJECTION_ACTIVATION_RECEIPT_SCHEMA_VERSION = 1
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GIT_SHA = re.compile(r"[0-9a-f]{40}")
 PROBATION_MAX_LEASE = timedelta(minutes=30)
+_TRUSTED_RUNNER_FIELDS = frozenset(
+    {
+        "issuer",
+        "project_id",
+        "pipeline_id",
+        "job_id",
+        "commit_sha",
+        "ref",
+        "ref_protected",
+    }
+)
 
 
 class ProjectionGateError(ValueError):
     """Raised when rollout code would persist an incoherent gate."""
+
+
+def projection_activation_sha256(activation: Mapping[str, Any]) -> str:
+    """Content-address one activation without its receipt or server audit id.
+
+    The final AuditLog id cannot be part of the digest that the same AuditLog
+    records. Excluding only those two server-generated receipt fields keeps the
+    rest of the persisted activation immutable without introducing a circular
+    hash dependency.
+    """
+
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in activation.items()
+        if key not in {"activation_sha256", "audit_id"}
+    }
+    try:
+        canonical = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ProjectionGateError("Lot 7 activation is not canonical JSON") from exc
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def projection_activation_audit_details(
+    activation: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the exact, non-secret server receipt persisted in AuditLog."""
+
+    pilot = activation.get("pilot_observation")
+    runner = activation.get("trusted_runner")
+    if not isinstance(pilot, Mapping) or not isinstance(runner, Mapping):
+        raise ProjectionGateError("Lot 7 activation needs pilot and trusted runner receipts")
+    activation_sha256 = str(activation.get("activation_sha256") or "")
+    if _SHA256.fullmatch(activation_sha256) is None:
+        raise ProjectionGateError("Lot 7 activation receipt digest is invalid")
+    return {
+        "schema_version": PROJECTION_ACTIVATION_RECEIPT_SCHEMA_VERSION,
+        "system_id": activation.get("system_id"),
+        "capability_id": activation.get("capability_id"),
+        "projection": activation.get("projection"),
+        "feature": activation.get("feature"),
+        "revision": activation.get("revision"),
+        "evidence_sha256": activation.get("evidence_sha256"),
+        "activation_sha256": activation_sha256,
+        "activated_at": activation.get("activated_at"),
+        "probation_lease_id": activation.get("probation_lease_id"),
+        "pilot_observation_ref": pilot.get("observation_ref"),
+        "pilot_observation_audit_id": pilot.get("audit_id"),
+        "pilot_participant_ref": pilot.get("participant_ref"),
+        "pilot_profile": pilot.get("profile"),
+        "trusted_runner": copy.deepcopy(dict(runner)),
+    }
+
+
+def _trusted_activation_runner(value: Any, *, revision: str) -> bool:
+    """Revalidate persisted runner identity against current trust anchors."""
+
+    if not isinstance(value, Mapping) or set(value) != _TRUSTED_RUNNER_FIELDS:
+        return False
+    issuer = str(value.get("issuer") or "").rstrip("/")
+    trusted_issuer = str(settings.authorization_v2_trusted_oidc_issuer or "").rstrip("/")
+    trusted_project = str(settings.authorization_v2_trusted_project_id or "").strip()
+    trusted_ref = str(settings.authorization_v2_trusted_ref or "").strip()
+    return bool(
+        _GIT_SHA.fullmatch(revision)
+        and issuer.startswith("https://")
+        and trusted_issuer.startswith("https://")
+        and issuer == trusted_issuer
+        and trusted_project
+        and str(value.get("project_id")) == trusted_project
+        and trusted_ref
+        and str(value.get("ref")) == trusted_ref
+        and str(value.get("commit_sha") or "").lower() == revision
+        and value.get("ref_protected") is True
+        and str(value.get("pipeline_id") or "").strip()
+        and str(value.get("job_id") or "").strip()
+    )
+
+
+def _activation_receipt_valid(
+    db: Any,
+    *,
+    workspace_id: str,
+    system: System,
+    activation: Mapping[str, Any],
+    revision: str,
+) -> bool:
+    """Bind one verified activation to its exact server AuditLog receipt."""
+
+    if not _trusted_activation_runner(
+        activation.get("trusted_runner"),
+        revision=revision,
+    ):
+        return False
+    audit_id = str(activation.get("audit_id") or "").strip()
+    try:
+        uuid.UUID(audit_id)
+    except ValueError:
+        return False
+    receipt_digest = str(activation.get("activation_sha256") or "")
+    if _SHA256.fullmatch(receipt_digest) is None:
+        return False
+    try:
+        if projection_activation_sha256(activation) != receipt_digest:
+            return False
+        expected_details = projection_activation_audit_details(activation)
+    except ProjectionGateError:
+        return False
+    audit = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.id == audit_id,
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.event_type == PROJECTION_FINALIZATION_AUDIT_EVENT,
+            AuditLog.agent_id == system.id,
+            AuditLog.actor == str(activation.get("activated_by") or ""),
+        )
+        .one_or_none()
+    )
+    return bool(
+        audit is not None
+        and isinstance(audit.details, Mapping)
+        and dict(audit.details) == expected_details
+    )
 
 
 def projection_enabled(
@@ -85,11 +232,12 @@ def authoritative_projection_enabled(
     System.  Any ambiguity fails closed.
     """
 
+    revision = str(runtime_revision or "").strip().lower()
     workspace_settings = getattr(workspace, "settings", None)
     if not projection_enabled(
         workspace_settings,
         projection,
-        runtime_revision=runtime_revision,
+        runtime_revision=revision,
         at=at,
     ):
         return False
@@ -114,7 +262,11 @@ def authoritative_projection_enabled(
     probations = _unique_rollout_rows(state.get("probations", []))
     if activations is None or probations is None:
         return False
-    gate = workspace_settings.get(WORKSPACE_GATE_KEY) if isinstance(workspace_settings, Mapping) else None
+    gate = (
+        workspace_settings.get(WORKSPACE_GATE_KEY)
+        if isinstance(workspace_settings, Mapping)
+        else None
+    )
     if not isinstance(gate, Mapping):
         return False
     try:
@@ -139,6 +291,14 @@ def authoritative_projection_enabled(
             return False
         if phase == "verified":
             if persisted.get("evidence_sha256") != row.get("evidence_sha256"):
+                return False
+            if not _activation_receipt_valid(
+                db,
+                workspace_id=workspace_id,
+                system=system,
+                activation=persisted,
+                revision=revision,
+            ):
                 return False
         else:
             for field in ("lease_id", "staged_at", "expires_at"):

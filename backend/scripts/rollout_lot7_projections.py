@@ -60,12 +60,15 @@ from app.services.audit_logger import emit_audit_event  # noqa: E402
 from app.services.projection_gate import (  # noqa: E402
     FEATURE_BY_PROJECTION,
     PROBATION_MAX_LEASE,
+    PROJECTION_FINALIZATION_AUDIT_EVENT,
     PROJECTION_ORDER,
     SYSTEM_CANARY_MARKER,
     SYSTEM_ROLLOUT_STATE_KEY,
     WORKSPACE_GATE_KEY,
     ProjectionGateError,
-    projection_enabled,
+    authoritative_projection_enabled,
+    projection_activation_audit_details,
+    projection_activation_sha256,
     validated_gate_rows,
     with_projection_activation,
     with_projection_probation,
@@ -1488,41 +1491,42 @@ def activate(
             "--apply finalization requires a protected GitLab OIDC runner"
         )
 
-    pilot_audit_id = emit_audit_event(
-        workspace_id=workspace.id,
-        event_type=PILOT_OBSERVATION_AUDIT_EVENT,
-        actor=actor_value,
-        agent_id=system.id,
-        details={
-            "schema_version": PILOT_OBSERVATION_SCHEMA_VERSION,
-            "subject": pilot_metadata["subject"],
-            "observation_ref": pilot_metadata["observation_ref"],
-            "participant_ref": pilot_metadata["participant_ref"],
-            "profile": pilot_metadata["profile"],
-            "trusted_runner": runner_metadata,
-        },
-        db=db,
-    )
-    if pilot_audit_id is None:
-        raise ProjectionRolloutError(
-            "the authenticated pilot observation could not be persisted"
-        )
-    pilot_metadata = {**pilot_metadata, "audit_id": pilot_audit_id}
-    report["pilot_observation"] = pilot_metadata
-
-    activation = {
-        "projection": projection,
-        "feature": FEATURE_BY_PROJECTION[projection],
-        "system_id": system.id,
-        "capability_id": capability.id,
-        **metadata,
-        "pilot_observation": pilot_metadata,
-        "activated_by": actor_value,
-        "activated_at": datetime.now(UTC).isoformat(),
-        "probation_lease_id": probation.get("lease_id"),
-    }
     try:
-        workspace.settings = with_projection_activation(
+        pilot_audit_id = emit_audit_event(
+            workspace_id=workspace.id,
+            event_type=PILOT_OBSERVATION_AUDIT_EVENT,
+            actor=actor_value,
+            agent_id=system.id,
+            details={
+                "schema_version": PILOT_OBSERVATION_SCHEMA_VERSION,
+                "subject": pilot_metadata["subject"],
+                "observation_ref": pilot_metadata["observation_ref"],
+                "participant_ref": pilot_metadata["participant_ref"],
+                "profile": pilot_metadata["profile"],
+                "trusted_runner": runner_metadata,
+            },
+            db=db,
+        )
+        if pilot_audit_id is None:
+            raise ProjectionRolloutError(
+                "the authenticated pilot observation could not be persisted"
+            )
+        pilot_metadata = {**pilot_metadata, "audit_id": pilot_audit_id}
+        report["pilot_observation"] = pilot_metadata
+
+        activation = {
+            "projection": projection,
+            "feature": FEATURE_BY_PROJECTION[projection],
+            "system_id": system.id,
+            "capability_id": capability.id,
+            **metadata,
+            "pilot_observation": pilot_metadata,
+            "activated_by": actor_value,
+            "activated_at": datetime.now(UTC).isoformat(),
+            "probation_lease_id": probation.get("lease_id"),
+        }
+        activation["activation_sha256"] = projection_activation_sha256(activation)
+        next_workspace_settings = with_projection_activation(
             workspace.settings,
             projection=projection,
             evidence_sha256=metadata["evidence_sha256"],
@@ -1530,38 +1534,36 @@ def activate(
             system_id=system.id,
             capability_id=capability.id,
         )
+        audit_id = emit_audit_event(
+            workspace_id=workspace.id,
+            event_type=PROJECTION_FINALIZATION_AUDIT_EVENT,
+            actor=actor_value,
+            agent_id=system.id,
+            details=projection_activation_audit_details(activation),
+            db=db,
+        )
+        if audit_id is None:
+            raise ProjectionRolloutError(
+                "the activation audit event could not be persisted"
+            )
+        activation["audit_id"] = audit_id
+        workspace.settings = next_workspace_settings
+        state["probations"] = [
+            item
+            for item in state["probations"]
+            if item.get("projection") != projection
+        ]
+        state["activations"].append(activation)
+        _save_state(system, state)
+        db.commit()
+        report["validation"] = activation
+        return report
     except ProjectionGateError as exc:
+        db.rollback()
         raise ProjectionRolloutError(str(exc)) from exc
-    state["probations"] = [
-        item for item in state["probations"] if item.get("projection") != projection
-    ]
-    state["activations"].append(activation)
-    _save_state(system, state)
-    audit_id = emit_audit_event(
-        workspace_id=workspace.id,
-        event_type="lot7.projection.probation_finalized",
-        actor=actor_value,
-        agent_id=system.id,
-        details={
-            "system_id": system.id,
-            "capability_id": capability.id,
-            "projection": projection,
-            "feature": FEATURE_BY_PROJECTION[projection],
-            "revision": metadata["revision"],
-            "evidence_sha256": metadata["evidence_sha256"],
-            "pilot_observation_ref": pilot_metadata["observation_ref"],
-            "pilot_observation_audit_id": pilot_metadata["audit_id"],
-            "pilot_participant_ref": pilot_metadata["participant_ref"],
-            "pilot_profile": pilot_metadata["profile"],
-            "probation_lease_id": probation.get("lease_id"),
-        },
-        db=db,
-    )
-    if audit_id is None:
-        raise ProjectionRolloutError("the activation audit event could not be persisted")
-    db.commit()
-    report["validation"] = activation
-    return report
+    except Exception:
+        db.rollback()
+        raise
 
 
 def deactivate(
@@ -1751,8 +1753,9 @@ def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
         )
         effective = bool(
             runtime_revision_valid
-            and projection_enabled(
-                workspace.settings,
+            and authoritative_projection_enabled(
+                db,
+                workspace,
                 projection,
                 runtime_revision=runtime_revision,
             )
@@ -1779,6 +1782,7 @@ def status(db: DBSession, *, workspace_id: str) -> dict[str, Any]:
                     and runner_verified
                     and revision_matches_runtime
                     and pilot_observed
+                    and effective
                 ),
             }
         )

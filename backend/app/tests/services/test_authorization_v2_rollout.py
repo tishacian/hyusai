@@ -288,6 +288,30 @@ def _forged_review_evidence(config: WorkspaceIAMConfig, db) -> dict:
     return _persist_evidence_source(db, evidence)
 
 
+def _persisted_review_evidence(config: WorkspaceIAMConfig, db) -> dict:
+    evidence = _forged_review_evidence(config, db)
+    envelope = evidence["shadow_observation"]["mismatch_review"]
+    document = envelope["document"]
+    db.add(
+        AuditLog(
+            id=envelope["audit_id"],
+            workspace_id=config.workspace_id,
+            timestamp=datetime.fromisoformat(document["reviewed_at"])
+            .astimezone(UTC)
+            .replace(tzinfo=None),
+            event_type="iam.shadow.mismatch_reviewed",
+            actor=document["reviewed_by"]["identity"],
+            details={
+                "artifact_ref": envelope["artifact_ref"],
+                "document": document,
+            },
+            severity="warning",
+        )
+    )
+    db.flush()
+    return evidence
+
+
 def test_dry_run_is_inert_and_refuses_compat_jump_or_missing_actor(db_session):
     workspace, config = _seed(
         db_session,
@@ -564,7 +588,15 @@ def test_apply_is_atomic_audited_idempotent_and_preserves_custom_configuration(d
         event_type="lot7.authorization.enforce_promoted",
     )
     assert audits.count() == 1
-    assert audits.one().details["actions"] == sorted(ACTIONS)
+    promotion_audit = audits.one()
+    receipt = attestations["run.read"][rollout.PROMOTION_RECEIPT_KEY]
+    assert receipt["audit_id"] == promotion_audit.id
+    assert receipt["artifact_ref"] == promotion_audit.details["artifact_ref"]
+    assert promotion_audit.details["document"]["actions"] == sorted(ACTIONS)
+    assert (
+        promotion_audit.details["document"]["promotion"]["evidence_sha256"]
+        == (attestations["run.read"]["evidence_sha256"])
+    )
 
     repeated = rollout.promote(
         db_session,
@@ -587,6 +619,104 @@ def test_apply_is_atomic_audited_idempotent_and_preserves_custom_configuration(d
     by_action = {row["action"]: row for row in report["actions"]}
     assert by_action["run.read"]["attested"] is True
     assert by_action["system.read"]["drift"] == []
+
+
+def test_runtime_requires_exact_promotion_row_in_the_same_workspace(db_session):
+    workspace, config = _seed(db_session)
+    rollout.promote(
+        db_session,
+        workspace_id=workspace.id,
+        actions=ACTIONS,
+        revision=REVISION,
+        evidence=_evidence(config, db=db_session),
+        apply=True,
+        actor="operator@example.net",
+        trusted_runner=_trusted_runner(),
+    )
+    receipt = config.capability_overrides["authorization_v2"][rollout.ATTESTATIONS_KEY]["run.read"][
+        rollout.PROMOTION_RECEIPT_KEY
+    ]
+    promotion = db_session.get(AuditLog, receipt["audit_id"])
+    foreign, _foreign_config = _seed(db_session)
+    promotion.workspace_id = foreign.id
+    db_session.commit()
+
+    report = rollout.status(db_session, workspace_id=workspace.id)
+    assert report["healthy"] is False
+    assert all(
+        any("absent from the server audit ledger" in error for error in row["drift"])
+        for row in report["actions"]
+        if row["action"] in ACTIONS
+    )
+
+    promotion.workspace_id = workspace.id
+    db_session.commit()
+    assert rollout.status(db_session, workspace_id=workspace.id)["healthy"] is True
+    db_session.delete(promotion)
+    db_session.commit()
+    assert rollout.status(db_session, workspace_id=workspace.id)["healthy"] is False
+
+
+def test_runtime_reloads_the_authoritative_mismatch_review(db_session):
+    workspace, config = _seed(
+        db_session,
+        modes={"run.read": "shadow", "system.read": "shadow"},
+    )
+    evidence = _persisted_review_evidence(config, db_session)
+    rollout.promote(
+        db_session,
+        workspace_id=workspace.id,
+        actions=["run.read"],
+        revision=REVISION,
+        evidence=evidence,
+        apply=True,
+        actor="operator@example.net",
+        trusted_runner=_trusted_runner(),
+    )
+    assert (
+        rollout.status(
+            db_session,
+            workspace_id=workspace.id,
+            actions=["run.read"],
+        )["healthy"]
+        is True
+    )
+
+    review_id = evidence["shadow_observation"]["mismatch_review"]["audit_id"]
+    review = db_session.get(AuditLog, review_id)
+    original_details = copy.deepcopy(review.details)
+    review.details = {
+        **review.details,
+        "artifact_ref": "sha256:" + "0" * 64,
+    }
+    db_session.commit()
+    report = rollout.status(
+        db_session,
+        workspace_id=workspace.id,
+        actions=["run.read"],
+    )
+    assert report["healthy"] is False
+    assert any("mismatch review differs" in error for error in report["actions"][0]["drift"])
+
+    review.details = original_details
+    db_session.commit()
+    assert (
+        rollout.status(
+            db_session,
+            workspace_id=workspace.id,
+            actions=["run.read"],
+        )["healthy"]
+        is True
+    )
+    db_session.delete(review)
+    db_session.commit()
+    report = rollout.status(
+        db_session,
+        workspace_id=workspace.id,
+        actions=["run.read"],
+    )
+    assert report["healthy"] is False
+    assert any("mismatch review is unavailable" in error for error in report["actions"][0]["drift"])
 
 
 @pytest.mark.parametrize(
@@ -772,6 +902,35 @@ def test_audit_failure_rolls_back_policy_and_attestation(db_session, monkeypatch
     monkeypatch.setattr(rollout, "emit_audit_event", lambda **_kwargs: None)
 
     with pytest.raises(rollout.AuthorizationPromotionError, match="audit could not be persisted"):
+        rollout.promote(
+            db_session,
+            workspace_id=workspace.id,
+            actions=ACTIONS,
+            revision=REVISION,
+            evidence=_evidence(config, db=db_session),
+            apply=True,
+            actor="operator",
+            trusted_runner=_trusted_runner(),
+        )
+
+    config = db_session.get(WorkspaceIAMConfig, workspace.id)
+    assert config.version == original_version
+    policy = config.capability_overrides["authorization_v2"]
+    assert all(policy["modes"][action] == "shadow" for action in ACTIONS)
+    assert rollout.ATTESTATIONS_KEY not in policy
+    assert db_session.query(AuditLog).count() == 0
+
+
+def test_fake_audit_id_rolls_back_policy_and_attestation(db_session, monkeypatch):
+    workspace, config = _seed(db_session)
+    original_version = config.version
+    monkeypatch.setattr(
+        rollout,
+        "emit_audit_event",
+        lambda **_kwargs: "audit-id-without-a-server-row",
+    )
+
+    with pytest.raises(rollout.AuthorizationPromotionError, match="receipt is not authoritative"):
         rollout.promote(
             db_session,
             workspace_id=workspace.id,
