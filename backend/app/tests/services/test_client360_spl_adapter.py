@@ -13,13 +13,20 @@ from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_
 from app.services.client360_pdr import classify_data_source
 from app.models.client360 import Client360DataSource
 from app.services.client360_contract import CLIENT360_PILOT_DATASET_MARKER
+from app.services.client360_pdr import client360_scope
 from app.services.client360_spl_adapter import (
     aggregate_purchase_history_records,
+    aggregate_sales_orders_records,
+    aggregate_spc_records,
+    build_project_registry_index,
     detect_spl_role,
+    expand_project_registry_records,
     map_row_for_role,
     months_to_weeks,
     passes_phase1_scope,
     rehydrate_pilot_mvp_into_collection,
+    resolve_customer_for_project,
+    sales_orders_row_accepted,
     sync_sources_from_collection,
 )
 
@@ -151,6 +158,275 @@ def test_detect_spl_role() -> None:
             "Installed_base_SPL/Histo_Achat_Pieces_Machines_Montbonnot.xlsx"
         )
         == "purchase_history"
+    )
+    # project_registry before machine; sales_orders distinct from sales_by_country.
+    assert (
+        detect_spl_role("Installed_base_SPL/Liste Projets _ Clients.xlsx")
+        == "project_registry"
+    )
+    assert (
+        detect_spl_role(
+            "Installed_base_SPL/Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx"
+        )
+        == "sales_orders"
+    )
+
+
+def test_classify_project_registry_and_sales_orders() -> None:
+    assert (
+        classify_data_source("Installed_base_SPL/Liste Projets _ Clients.xlsx")
+        == "contact_hub"
+    )
+    assert (
+        classify_data_source(
+            "Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx"
+        )
+        == "sap_sales_history"
+    )
+
+
+def test_map_project_registry_multi_codes() -> None:
+    mapped = map_row_for_role(
+        "project_registry",
+        {
+            "CONTRACT NAME": "SEP100\nXEP100",
+            "FINAL CUSTOMER": "Eruslu Tekstil",
+            "SAP REFERENCE": "4500123",
+            "Site Country": "Turkey",
+        },
+    )
+    assert mapped is not None
+    assert mapped["customer_name"] == "Eruslu Tekstil"
+    assert mapped["sap_reference"] == "4500123"
+    assert mapped["country"] == "Turkey"
+    assert mapped["project_codes"] == ["SEP100", "XEP100"]
+    expanded = expand_project_registry_records([mapped])
+    assert len(expanded) == 2
+    assert {row["project_code"] for row in expanded} == {"SEP100", "XEP100"}
+    assert all(row["customer_name"] == "Eruslu Tekstil" for row in expanded)
+
+
+def test_resolve_customer_for_project_from_registry() -> None:
+    records = expand_project_registry_records(
+        [
+            {
+                "project_codes": ["SEP100", "XEP100"],
+                "customer_name": "Eruslu Tekstil",
+                "sap_reference": "4500123",
+                "country": "Turkey",
+            }
+        ]
+    )
+    index = build_project_registry_index(records)
+    by_project = resolve_customer_for_project("SEP100", index=index)
+    assert by_project is not None
+    assert by_project["customer_name"] == "Eruslu Tekstil"
+    assert by_project["country"] == "Turkey"
+    by_sap = resolve_customer_for_project(sap_ref="4500123", index=index)
+    assert by_sap is not None
+    assert by_sap["customer_name"] == "Eruslu Tekstil"
+    assert resolve_customer_for_project("UNKNOWN", index=index) is None
+
+
+def test_sales_orders_filters_and_aggregation() -> None:
+    keep = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Mogul Nonwovens",
+            "Material": "MAT-1",
+            "Description": "Injector strip",
+            "Order Quantity": 2,
+            "Net Price": 50.0,
+            "Offering": "SSPA",
+            "Document Date": "2021-06-15",
+            "Currency": "EUR",
+        },
+    )
+    assert keep is not None
+    assert keep["sales_known_value"] == pytest.approx(100.0)
+    assert sales_orders_row_accepted(keep) is True
+
+    andritz = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "ANDRITZ SAS",
+            "Material": "MAT-1",
+            "Order Quantity": 1,
+            "Net Price": 10.0,
+            "Offering": "SSPA",
+            "Document Date": "2022-01-01",
+        },
+    )
+    assert sales_orders_row_accepted(andritz) is False
+
+    dummy = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Dummy Customer FR",
+            "Material": "MAT-1",
+            "Order Quantity": 1,
+            "Net Price": 10.0,
+            "Offering": "SSPA",
+            "Document Date": "2022-01-01",
+        },
+    )
+    assert sales_orders_row_accepted(dummy) is False
+
+    old = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Mogul Nonwovens",
+            "Material": "MAT-1",
+            "Order Quantity": 1,
+            "Net Price": 10.0,
+            "Offering": "SSPA",
+            "Document Date": "2015-01-01",
+        },
+    )
+    assert sales_orders_row_accepted(old) is False
+
+    non_sspa = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Mogul Nonwovens",
+            "Material": "MAT-1",
+            "Order Quantity": 1,
+            "Net Price": 10.0,
+            "Offering": "MACHINE",
+            "Document Date": "2022-01-01",
+        },
+    )
+    assert sales_orders_row_accepted(non_sspa) is False
+
+    rows = [
+        keep,
+        map_row_for_role(
+            "sales_orders",
+            {
+                "Sold-To Party Name": "Mogul Nonwovens",
+                "Material": "MAT-1",
+                "Description": "Injector strip",
+                "Order Quantity": 3,
+                "Net Price": 40.0,
+                "Offering": "SSPA",
+                "Document Date": "2023-01-01",
+                "Currency": "EUR",
+            },
+        ),
+    ]
+    aggregated, meta = aggregate_sales_orders_records(rows)
+    assert meta["aggregation"] == "by_customer_material"
+    assert meta["material_count"] == 1
+    assert len(aggregated) == 1
+    assert aggregated[0]["sales_known_qty"] == pytest.approx(5.0)
+    assert aggregated[0]["sales_known_value"] == pytest.approx(220.0)
+    assert aggregated[0]["role"] == "sales_orders"
+
+
+def test_aggregate_spc_joins_registry_country() -> None:
+    registry = build_project_registry_index(
+        [
+            {
+                "project_code": "SEP100",
+                "customer_name": "Septona SA",
+                "customer_key": "septona sa",
+                "country": "Greece",
+                "sap_reference": "111",
+            }
+        ]
+    )
+    aggregated, meta = aggregate_spc_records(
+        [
+            {
+                "customer_name": "Septona SA",
+                "customer_key": "septona sa",
+                "part_reference": "PDR-1",
+                "part_description": "Strip",
+                "installed_quantity": 2,
+                "country": None,
+            },
+            {
+                "customer_name": "Septona SA",
+                "customer_key": "septona sa",
+                "part_reference": "PDR-1",
+                "part_description": "Strip",
+                "installed_quantity": 3,
+                "country": None,
+            },
+            {
+                "customer_name": "Septona SA",
+                "customer_key": "septona sa",
+                "part_reference": "PDR-2",
+                "part_description": "Belt",
+                "installed_quantity": 0,
+                "country": None,
+            },
+        ],
+        registry_index=registry,
+    )
+    assert meta["aggregation"] == "by_customer_material"
+    assert len(aggregated) == 1
+    assert aggregated[0]["part_reference"] == "PDR-1"
+    assert aggregated[0]["installed_quantity"] == pytest.approx(5.0)
+    assert aggregated[0]["country"] == "Greece"
+    assert meta["registry_country_joins"] == 1
+
+
+def test_client360_scope_mode_pilot_and_all() -> None:
+    from app.services.client360_pdr import _scope_skip_reason
+
+    pilot_ws = Workspace(
+        id=str(uuid4()),
+        name="Andritz",
+        slug="andritz",
+        settings={},
+    )
+    pilot_scope = client360_scope(pilot_ws)
+    assert pilot_scope["scope_mode"] == "pilot"
+    assert (
+        _scope_skip_reason(
+            {
+                "country": "France",
+                "customer_name": "Acme",
+                "part_family": "wear strip",
+                "mapping_status": "validated",
+            },
+            pilot_scope,
+        )
+        == "country_out_of_pilot_scope"
+    )
+
+    all_ws = Workspace(
+        id=str(uuid4()),
+        name="Andritz",
+        slug="andritz",
+        settings={"client360_pdr_scope": {"scope_mode": "all"}},
+    )
+    all_scope = client360_scope(all_ws)
+    assert all_scope["scope_mode"] == "all"
+    assert (
+        _scope_skip_reason(
+            {
+                "country": "France",
+                "customer_name": "Acme",
+                "part_family": "wear strip",
+                "mapping_status": "validated",
+            },
+            all_scope,
+        )
+        is None
+    )
+    # Wear-parts mapping gate remains in scope_mode=all.
+    assert (
+        _scope_skip_reason(
+            {
+                "country": "France",
+                "customer_name": "Acme",
+                "part_family": "structural frame",
+            },
+            all_scope,
+        )
+        == "not_confirmed_wear_part"
     )
 
 
@@ -465,6 +741,200 @@ def test_sync_include_purchase_history_upserts_other(
     )
     assert row.source_type == "other"
     assert row.meta_data["role"] == "purchase_history"
+
+
+def _spc_xlsx(tmp_path: Path) -> Path:
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["Sold name", "Number", "Title", "Quantity", "Country Key"])
+    sheet.append(["Septona SA", "PDR-1", "Injector Strip", 4, "GR"])
+    sheet.append(["Septona SA", "PDR-1", "Injector Strip", 2, "GR"])
+    path = tmp_path / "Installed base - SPC.xlsx"
+    workbook.save(path)
+    return path
+
+
+def test_sync_phase1_skips_spc_without_flag(db_session, tmp_path, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    filename = "Installed base - SPC.xlsx"
+    collection = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        name="Andritz Client360 Installed Base",
+        status="ready",
+        document_names=[filename],
+        vector_collection_name="andritz_client360_installed_base",
+        artifact_prefix=f"knowledge/{CLIENT360_INSTALLED_BASE_COLLECTION_SLUG}/",
+        document_count=1,
+        chunk_count=0,
+    )
+    source = KnowledgeCollectionSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        filename=filename,
+        normalized_name=filename,
+        source_kind="spreadsheet",
+        extension=".xlsx",
+        origin="test",
+        status="ready",
+    )
+    db_session.add_all([collection, source])
+    db_session.commit()
+
+    xlsx_path = _spc_xlsx(tmp_path)
+
+    def fake_materialize(db, workspace_arg, collection_arg, name):
+        return Path(xlsx_path), source.id, None
+
+    monkeypatch.setattr(
+        "app.services.client360_spl_adapter._materialize_collection_file",
+        fake_materialize,
+    )
+
+    result = sync_sources_from_collection(
+        db_session,
+        workspace,
+        collection_slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        dry_run=True,
+        scope="phase1",
+        rehydrate_mvp=False,
+    )
+    skipped = [item for item in result["sources"] if item.get("action") == "skipped"]
+    assert any(
+        item.get("reason") == "spc_deferred_until_include_spc_or_scope_all"
+        for item in skipped
+    )
+    assert result["include_spc"] is False
+
+
+def test_sync_include_spc_aggregates(db_session, tmp_path, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    filename = "Installed base - SPC.xlsx"
+    collection = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        name="Andritz Client360 Installed Base",
+        status="ready",
+        document_names=[filename],
+        vector_collection_name="andritz_client360_installed_base",
+        artifact_prefix=f"knowledge/{CLIENT360_INSTALLED_BASE_COLLECTION_SLUG}/",
+        document_count=1,
+        chunk_count=0,
+    )
+    source = KnowledgeCollectionSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        filename=filename,
+        normalized_name=filename,
+        source_kind="spreadsheet",
+        extension=".xlsx",
+        origin="test",
+        status="ready",
+    )
+    db_session.add_all([collection, source])
+    db_session.commit()
+
+    xlsx_path = _spc_xlsx(tmp_path)
+
+    def fake_materialize(db, workspace_arg, collection_arg, name):
+        return Path(xlsx_path), source.id, None
+
+    monkeypatch.setattr(
+        "app.services.client360_spl_adapter._materialize_collection_file",
+        fake_materialize,
+    )
+
+    result = sync_sources_from_collection(
+        db_session,
+        workspace,
+        collection_slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        dry_run=False,
+        scope="phase1",
+        rehydrate_mvp=False,
+        include_spc=True,
+    )
+    assert result["include_spc"] is True
+    assert result["sources_upserted"] >= 1
+    upserted = next(
+        item
+        for item in result["sources"]
+        if item.get("action") in {"created", "updated"}
+    )
+    assert upserted["source_type"] == "installed_base"
+    assert upserted["metadata"]["role"] == "spc"
+    assert upserted["metadata"]["aggregation"] == "by_customer_material"
+    assert upserted["row_count"] == 1.0
+    assert upserted["metadata"]["records"][0]["installed_quantity"] == pytest.approx(6.0)
+
+
+def test_sync_project_registry_always(db_session, tmp_path, monkeypatch) -> None:
+    openpyxl = pytest.importorskip("openpyxl")
+    workspace = _seed_workspace(db_session)
+    filename = "Liste Projets _ Clients.xlsx"
+    collection = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        name="Andritz Client360 Installed Base",
+        status="ready",
+        document_names=[filename],
+        vector_collection_name="andritz_client360_installed_base",
+        artifact_prefix=f"knowledge/{CLIENT360_INSTALLED_BASE_COLLECTION_SLUG}/",
+        document_count=1,
+        chunk_count=0,
+    )
+    source = KnowledgeCollectionSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        filename=filename,
+        normalized_name=filename,
+        source_kind="spreadsheet",
+        extension=".xlsx",
+        origin="test",
+        status="ready",
+    )
+    db_session.add_all([collection, source])
+    db_session.commit()
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["CONTRACT NAME", "FINAL CUSTOMER", "SAP REFERENCE", "Site Country"])
+    sheet.append(["SEP100\nXEP100", "Eruslu Tekstil", "4500123", "Turkey"])
+    sheet.append(["FR-99", "Acme France", "999", "France"])
+    xlsx_path = tmp_path / filename
+    workbook.save(xlsx_path)
+
+    def fake_materialize(db, workspace_arg, collection_arg, name):
+        return Path(xlsx_path), source.id, None
+
+    monkeypatch.setattr(
+        "app.services.client360_spl_adapter._materialize_collection_file",
+        fake_materialize,
+    )
+
+    result = sync_sources_from_collection(
+        db_session,
+        workspace,
+        collection_slug=CLIENT360_INSTALLED_BASE_COLLECTION_SLUG,
+        dry_run=False,
+        scope="phase1",
+        rehydrate_mvp=False,
+    )
+    upserted = next(
+        item
+        for item in result["sources"]
+        if item.get("action") in {"created", "updated"}
+    )
+    assert upserted["source_type"] == "contact_hub"
+    assert upserted["metadata"]["role"] == "project_registry"
+    # France row kept (registry is not country-filtered); multi-code expanded.
+    assert upserted["row_count"] == 3.0
 
 
 def test_sync_rehydrates_mvp_without_promoted_files(db_session) -> None:

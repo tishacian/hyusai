@@ -1,9 +1,11 @@
 """Natural-language Client360 PDR queries for the Andritz workspace chat.
 
-Phase 5 of the Client360 PDR post-MVP backlog. This module translates a chat
-question into a **bounded** call to the *existing* Client360 read functions
-(:func:`list_opportunities`, :func:`customer_payload`, :func:`campaign_stats`
-and :func:`list_campaigns` from :mod:`app.services.client360_pdr`).
+This module translates a chat question into a **bounded** call to the existing
+Client360 read functions (:func:`list_opportunities`, :func:`customer_payload`,
+:func:`campaign_stats`, :func:`list_campaigns` from :mod:`app.services.client360_pdr`).
+
+Extended dedicated intents (Phase 3): ``customer_audit``, ``forecast``,
+``navigation``, ``opportunity_detail`` — still filter-bounded, never free SQL.
 
 Guardrails (deterministic, explainable, workspace-scoped):
 
@@ -17,6 +19,7 @@ Guardrails (deterministic, explainable, workspace-scoped):
   any free SQL or arbitrary DB access.
 - A deterministic keyword extractor is the fallback whenever the LLM is
   disabled, unavailable, or returns something out-of-vocabulary.
+- Registry customer names (when available) enrich the customer facet allow-list.
 - Opportunity ``evidence_refs`` are preserved in the response, and a
   "Ouvrir dans Client360" CTA (route ``/client360``) is attached.
 """
@@ -91,6 +94,16 @@ _TRIGGER_TOKENS: tuple[str, ...] = (
     "haute confiance",
     "high confidence",
     "fiche client",
+    "audit",
+    "audite",
+    "prevoir",
+    "a prevoir",
+    "forecast",
+    "echeance",
+    "navig",
+    "onglet",
+    "pourquoi cette opportun",
+    "formule",
 )
 
 _STATUS_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -170,6 +183,85 @@ def _facets(items: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
     return facets
 
 
+def _registry_customer_names(db: DBSession, workspace: Workspace) -> list[str]:
+    """Collect registry / directory customer names as an allow-list for facets.
+
+    Prefers Phase-2 ``list_customers`` when present; otherwise falls back to the
+    project-registry index / data-source records. Failures degrade to ``[]``.
+    """
+    names: list[str] = []
+
+    try:
+        from app.services import client360_pdr as pdr_mod
+
+        list_customers = getattr(pdr_mod, "list_customers", None)
+    except Exception:  # noqa: BLE001
+        list_customers = None
+
+    if callable(list_customers):
+        try:
+            payload = list_customers(db, workspace)
+        except Exception:  # noqa: BLE001 - Phase 2 helper may still be mid-flight.
+            _logger.debug("list_customers unavailable for chat facets", exc_info=True)
+            payload = None
+        rows: list[Any]
+        if isinstance(payload, dict):
+            rows = list(payload.get("customers") or payload.get("items") or [])
+        elif isinstance(payload, list):
+            rows = payload
+        else:
+            rows = []
+        for row in rows:
+            if isinstance(row, dict):
+                name = row.get("customer_name") or row.get("name") or row.get("customer_key")
+            else:
+                name = row
+            if name:
+                names.append(str(name))
+        if names:
+            return list(dict.fromkeys(names))
+
+    try:
+        from app.services.client360_spl_adapter import load_project_registry_index
+
+        index = load_project_registry_index(db, workspace)
+    except Exception:  # noqa: BLE001
+        _logger.debug("project registry index unavailable for chat facets", exc_info=True)
+        return []
+
+    for entry in (index or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("customer_name") or entry.get("customer_key")
+        if name:
+            names.append(str(name))
+    return list(dict.fromkeys(names))
+
+
+def _merge_customer_allowlist(
+    facets: dict[str, dict[str, str]],
+    customer_names: list[str],
+) -> dict[str, dict[str, str]]:
+    """Enrich the customer facet map with registry/directory names (allow-list)."""
+    customer_facet = dict(facets.get("customer") or {})
+    for name in customer_names:
+        text = re.sub(r"\s+", " ", str(name or "")).strip()
+        if not text:
+            continue
+        customer_facet.setdefault(_norm(text), text[:120])
+    merged = dict(facets)
+    merged["customer"] = customer_facet
+    return merged
+
+
+def _build_facets(
+    db: DBSession,
+    workspace: Workspace,
+    items: list[dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    return _merge_customer_allowlist(_facets(items), _registry_customer_names(db, workspace))
+
+
 def _sanitize_filters(raw: dict[str, Any], facets: dict[str, dict[str, str]]) -> dict[str, Any]:
     """Bound arbitrary key/value pairs to the existing filter vocabulary.
 
@@ -178,6 +270,8 @@ def _sanitize_filters(raw: dict[str, Any], facets: dict[str, dict[str, str]]) ->
     against their allow-list, exact-match facet values are re-mapped to a
     canonical value that actually exists in the workspace, and free-text
     ``customer`` is only ever passed to the ORM's parametrised ``ilike``.
+    When a registry/directory allow-list is present, customer values are
+    remapped to a canonical allow-listed name when possible.
     """
     out: dict[str, Any] = {}
     if not isinstance(raw, dict):
@@ -199,8 +293,10 @@ def _sanitize_filters(raw: dict[str, Any], facets: dict[str, dict[str, str]]) ->
                 out[key] = canonical
         elif key == "customer":
             text = re.sub(r"\s+", " ", str(value)).strip()
-            if text:
-                out["customer"] = text[:120]
+            if not text:
+                continue
+            canonical = facets.get("customer", {}).get(_norm(text))
+            out["customer"] = (canonical or text)[:120]
         elif key == "limit":
             try:
                 parsed = int(value)
@@ -225,11 +321,16 @@ def _deterministic_filters(query: str, facets: dict[str, dict[str, str]]) -> dic
             raw["confidence"] = label
             break
 
+    # Prefer longer facet matches so "wear belts" wins over "wear" if both exist.
     for field in ("country", "hub", "technology", "part_family", "customer"):
+        best: tuple[int, str] | None = None
         for norm_value, canonical in facets.get(field, {}).items():
             if norm_value and norm_value in normalized:
-                raw[field] = canonical
-                break
+                score = len(norm_value)
+                if best is None or score > best[0]:
+                    best = (score, canonical)
+        if best is not None:
+            raw[field] = best[1]
 
     match = _LIMIT_RE.search(normalized)
     if match:
@@ -314,7 +415,7 @@ async def translate_query_to_filters(
     Both paths run through :func:`_sanitize_filters`, so the result is always
     bounded to the existing filter vocabulary regardless of translation method.
     """
-    facets = _facets(items)
+    facets = _build_facets(db, workspace, items)
     try:
         llm_result = await _llm_filters(db, workspace, query, facets)
     except Exception:  # noqa: BLE001 - degrade to deterministic extraction.
@@ -329,6 +430,63 @@ async def translate_query_to_filters(
 
 def _detect_intent(query: str) -> str:
     normalized = _norm(query)
+    asks_why = any(
+        token in normalized
+        for token in ("pourquoi", "explique", "explication", "formule", "comment calcul", "comment est calcul")
+    )
+    mentions_opportunity = any(
+        token in normalized
+        for token in ("opportun", "potentiel", "ecart", "gap", "wear", "piece", "part family", "part_family")
+    )
+    if (
+        "detail opportun" in normalized
+        or "opportunity detail" in normalized
+        or (asks_why and mentions_opportunity)
+        or ("formule" in normalized and mentions_opportunity)
+    ):
+        return "opportunity_detail"
+    if any(
+        token in normalized
+        for token in (
+            "prevoir",
+            "a prevoir",
+            "forecast",
+            "echeance",
+            "echeances",
+            "next due",
+            "pieces a prevoir",
+            "quoi prevoir",
+        )
+    ):
+        return "forecast"
+    if any(
+        token in normalized
+        for token in (
+            "audit",
+            "audite",
+            "auditer",
+            "data gap",
+            "data gaps",
+            "lacune",
+            "lacunes",
+        )
+    ):
+        return "customer_audit"
+    if any(
+        token in normalized
+        for token in (
+            "navig",
+            "ouvre",
+            "ouvrir",
+            "onglet",
+            "amene",
+            "va vers",
+            "montre moi la page",
+            "go to",
+            "open tab",
+        )
+    ):
+        return "navigation"
     if "campagne" in normalized or "campaign" in normalized:
         return "campaign"
     if (
@@ -558,6 +716,415 @@ def _campaign_response(
     }
 
 
+def _fmt_qty(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:g}"
+
+
+def _opportunity_formula_lines(item: dict[str, Any]) -> list[str]:
+    """Explain gap = theoretical annual need − known sales (deterministic engine).
+
+    Engine formula: ``installed × recommended × (52 / periodicity_weeks) − sales``.
+    The product plan shorthand is « installed × periodicity − sales »; we surface
+    the full explainable inputs used by :func:`calculate_annual_theoretical_qty`.
+    """
+    installed = item.get("installed_quantity")
+    recommended = item.get("recommended_quantity")
+    periodicity = item.get("periodicity_weeks")
+    sales = item.get("sales_known_qty")
+    annual = item.get("annual_theoretical_qty")
+    gap_qty = item.get("potential_gap_qty")
+    gap_value = item.get("potential_gap_value")
+
+    lines = [
+        "Formule d'opportunité (déterministe) :",
+        "- besoin_annuel ≈ installé × qté_recommandée × (52 / périodicité_semaines)",
+        "- écart ≈ max(besoin_annuel − ventes_connues, 0)",
+        (
+            f"- entrées : installé={_fmt_qty(installed)}, "
+            f"recommandé={_fmt_qty(recommended)}, "
+            f"périodicité={_fmt_qty(periodicity)} sem., "
+            f"ventes={_fmt_qty(sales)}"
+        ),
+        (
+            f"- résultat : besoin_annuel={_fmt_qty(annual)}, "
+            f"écart_qté={_fmt_qty(gap_qty)}, "
+            f"écart_valeur={_fmt_eur(gap_value)}"
+        ),
+    ]
+    return lines
+
+
+def _pick_opportunity(
+    db: DBSession,
+    workspace: Workspace,
+    filters: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    list_filters = dict(filters)
+    list_filters.setdefault("limit", 5)
+    items = list_opportunities(db, workspace, **list_filters)
+    return items[0] if items else None
+
+
+def _customer_audit_response(
+    db: DBSession,
+    workspace: Workspace,
+    filters: dict[str, Any],
+    method: str,
+) -> dict[str, Any]:
+    customer = filters.get("customer")
+    if not customer:
+        return {
+            "intent": "customer_audit",
+            "content": (
+                "**Client360 — audit client** : précisez un client du registre "
+                "(ex. « audite Eruslu ») pour obtenir fiche, lacunes et échéances."
+            ),
+            "result": {"customer": None, "data_gaps": [], "next_due": []},
+            "sources": [],
+            "evidence_refs": [],
+            "cta": _cta({"view": "customer"}),
+        }
+
+    payload = customer_payload(db, workspace, str(customer))
+    opportunities = payload.get("opportunities") or []
+    customer_name = (payload.get("customer") or {}).get("name") or customer
+    data_gaps = list(payload.get("data_gaps") or [])
+    next_due = list(payload.get("next_due") or [])
+    if not next_due:
+        for item in opportunities:
+            due = item.get("next_due_at")
+            if due:
+                next_due.append(
+                    {
+                        "part_family": item.get("part_family"),
+                        "part_reference": item.get("part_reference"),
+                        "next_due_at": due,
+                        "opportunity_id": item.get("id"),
+                    }
+                )
+        next_due = sorted(next_due, key=lambda row: str(row.get("next_due_at") or ""))[:10]
+
+    projects = payload.get("projects") or []
+    machines = payload.get("machines") or []
+    purchases = payload.get("purchases") or []
+    total_gap_value = sum(float(item.get("potential_gap_value") or 0) for item in opportunities)
+
+    lines = [
+        f"**Client360 — audit {customer_name}** : {len(opportunities)} opportunité(s), "
+        f"potentiel {_fmt_eur(total_gap_value)}."
+    ]
+    if projects:
+        lines.append(f"Projets registre : {len(projects)}.")
+    if machines:
+        lines.append(f"Machines / parc : {len(machines)}.")
+    if purchases:
+        lines.append(f"Achats / ventes connus : {len(purchases)}.")
+    if data_gaps:
+        lines.append("Lacunes données : " + ", ".join(str(gap) for gap in data_gaps[:12]) + ".")
+    else:
+        lines.append("Aucune lacune structurante signalée sur les opportunités.")
+    if next_due:
+        lines.append("Échéances :")
+        for row in next_due[:5]:
+            lines.append(
+                f"- {row.get('part_family') or '—'} ({row.get('part_reference') or '—'}) "
+                f"→ {str(row.get('next_due_at') or '')[:10]}"
+            )
+    else:
+        lines.append("Aucune échéance déterministe disponible (historique d'achat ou périodicité manquants).")
+
+    return {
+        "intent": "customer_audit",
+        "content": "\n".join(lines),
+        "result": {
+            "customer": payload.get("customer"),
+            "data_gaps": data_gaps,
+            "next_due": next_due,
+            "projects": projects,
+            "machines": machines,
+            "purchases": purchases,
+            "opportunities": opportunities,
+        },
+        "sources": _sources_for(opportunities),
+        "evidence_refs": _evidence_refs_for(opportunities),
+        "cta": _cta({"customer": str(customer_name), "view": "customer"}),
+    }
+
+
+def _normalize_forecast_result(result: Any) -> Optional[dict[str, Any]]:
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list):
+        return {"items": result, "count": len(result)}
+    return {"value": result}
+
+
+def _call_forecast_helper(
+    db: DBSession,
+    workspace: Workspace,
+    customer: Optional[str],
+    filters: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Best-effort call into Phase-4 ``client360_forecast`` when importable."""
+    try:
+        from app.services import client360_forecast as forecast_mod
+    except ImportError:
+        return None
+
+    fn = None
+    for name in (
+        "customer_forecast",
+        "forecast_customer",
+        "list_customer_due_items",
+        "due_items_for_customer",
+        "forecast_due_parts",
+    ):
+        candidate = getattr(forecast_mod, name, None)
+        if callable(candidate):
+            fn = candidate
+            break
+    if fn is None:
+        return None
+
+    attempts = [
+        lambda: fn(db, workspace, customer),
+        lambda: fn(db, workspace, customer=customer),
+        lambda: fn(db, workspace),
+    ]
+    for attempt in attempts:
+        try:
+            return _normalize_forecast_result(attempt())
+        except TypeError:
+            continue
+        except Exception:  # noqa: BLE001
+            _logger.warning("client360_forecast helper failed", exc_info=True)
+            return None
+    return None
+
+
+def _forecast_response(
+    db: DBSession,
+    workspace: Workspace,
+    filters: dict[str, Any],
+    method: str,
+) -> dict[str, Any]:
+    customer = filters.get("customer")
+    forecast = _call_forecast_helper(db, workspace, str(customer) if customer else None, filters)
+    cta_params = {key: str(value) for key, value in filters.items() if key != "limit"}
+    cta_params.setdefault("view", "customer")
+
+    if forecast is not None:
+        items = list(forecast.get("items") or forecast.get("next_due") or forecast.get("due") or [])
+        lines = [
+            f"**Client360 — prévisions** ({_filter_summary(filters)}) : "
+            f"{len(items)} échéance(s) déterministe(s)."
+        ]
+        for item in items[:5]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {item.get('customer_name') or customer or '—'} · "
+                f"{item.get('part_family') or '—'} ({item.get('part_reference') or '—'}) → "
+                f"{str(item.get('next_due_at') or item.get('due_at') or 'n/a')[:10]}"
+            )
+        if not items and forecast.get("message"):
+            lines.append(str(forecast["message"]))
+        sources = _sources_for(
+            [
+                item
+                for item in items
+                if isinstance(item, dict) and (item.get("id") or item.get("evidence_refs"))
+            ]
+        )
+        evidence = _evidence_refs_for(items if all(isinstance(i, dict) for i in items) else [])
+        return {
+            "intent": "forecast",
+            "content": "\n".join(lines),
+            "result": forecast,
+            "sources": sources,
+            "evidence_refs": evidence,
+            "cta": _cta(cta_params),
+        }
+
+    # Deterministic stub while Phase 4 lands: surface opportunity due dates / gaps.
+    list_filters = dict(filters)
+    list_filters.setdefault("limit", _DEFAULT_LIST_LIMIT)
+    opportunities = list_opportunities(db, workspace, **list_filters)
+    due_rows = [item for item in opportunities if item.get("next_due_at")]
+    gaps = sorted({gap for item in opportunities for gap in (item.get("data_gaps") or [])})
+    scope = f" pour {customer}" if customer else ""
+    lines = [
+        f"**Client360 — prévisions{scope}** : moteur forecast indisponible pour l'instant.",
+        "Estimation déterministe dégradée à partir des opportunités déjà calculées "
+        "(last purchase + périodicité absents → pas de prévision fiable).",
+    ]
+    if due_rows:
+        lines.append(f"{len(due_rows)} échéance(s) déjà présentes sur les opportunités :")
+        for item in due_rows[:5]:
+            lines.append(
+                f"- {item.get('customer_name') or '—'} · "
+                f"{item.get('part_family') or '—'} → {str(item.get('next_due_at'))[:10]}"
+            )
+    else:
+        lines.append(
+            "Aucune échéance `next_due_at` en base. "
+            "Brancher sales_orders + périodicité (Phase 4) pour calculer les pièces à prévoir."
+        )
+    if gaps:
+        lines.append("Lacunes bloquantes observées : " + ", ".join(gaps[:8]) + ".")
+
+    return {
+        "intent": "forecast",
+        "content": "\n".join(lines),
+        "result": {
+            "forecast_available": False,
+            "stub": True,
+            "opportunities_with_due": due_rows,
+            "data_gaps": gaps,
+            "message": (
+                "client360_forecast not importable; deterministic stub pointing to data gaps"
+            ),
+        },
+        "sources": _sources_for(due_rows or opportunities[:5]),
+        "evidence_refs": _evidence_refs_for(due_rows or opportunities[:5]),
+        "cta": _cta(cta_params),
+    }
+
+
+def _navigation_response(
+    filters: dict[str, Any],
+    query: str,
+) -> dict[str, Any]:
+    normalized = _norm(query)
+    view = "opportunities"
+    if any(token in normalized for token in ("campagne", "campaign", "mail", "suivi")):
+        view = "campaigns"
+    elif any(token in normalized for token in ("mapping", "regle", "règle")):
+        view = "mapping"
+    elif any(token in normalized for token in ("donnee", "source", "data")):
+        view = "data"
+    elif any(
+        token in normalized
+        for token in ("fiche", "client", "parc", "audit", "customer", "echeance", "prevoir")
+    ):
+        view = "customer"
+
+    query_params = {key: str(value) for key, value in filters.items() if key != "limit"}
+    query_params["view"] = view
+    if filters.get("customer"):
+        query_params["customer"] = str(filters["customer"])
+
+    lines = [
+        f"**Client360 — navigation** : ouvrir l'onglet `{view}`",
+    ]
+    if query_params.get("customer"):
+        lines.append(f"avec le client `{query_params['customer']}`.")
+    else:
+        lines.append("avec les filtres résolus de la question.")
+    if filters:
+        lines.append(f"Filtres : {_filter_summary(filters)}.")
+
+    return {
+        "intent": "navigation",
+        "content": "\n".join(lines),
+        "result": {"view": view, "query_params": query_params},
+        "sources": [],
+        "evidence_refs": [],
+        "cta": _cta(query_params),
+    }
+
+
+def _opportunity_detail_response(
+    db: DBSession,
+    workspace: Workspace,
+    filters: dict[str, Any],
+    method: str,
+) -> dict[str, Any]:
+    item = _pick_opportunity(db, workspace, filters)
+    if not item:
+        return {
+            "intent": "opportunity_detail",
+            "content": (
+                "**Client360 — détail opportunité** : aucune opportunité ne correspond "
+                f"à {_filter_summary(filters)}. Affinez client / famille / référence."
+            ),
+            "result": {"opportunity": None, "formula": None},
+            "sources": [],
+            "evidence_refs": [],
+            "cta": _cta({key: str(value) for key, value in filters.items() if key != "limit"}),
+        }
+
+    title = (
+        " · ".join(
+            part
+            for part in (
+                item.get("customer_name"),
+                item.get("part_family"),
+                item.get("part_reference"),
+            )
+            if part
+        )
+        or "Opportunité"
+    )
+    lines = [
+        f"**Client360 — pourquoi {title} ?**",
+        *_opportunity_formula_lines(item),
+    ]
+    evidence = item.get("evidence_refs") or []
+    if evidence:
+        lines.append("Preuves d'entrée :")
+        for ref in evidence[:5]:
+            if isinstance(ref, dict):
+                label = ref.get("filename") or ref.get("label") or ref.get("kind") or "source"
+                extra = ref.get("row") or ref.get("rows") or ref.get("line")
+                lines.append(f"- {label}" + (f" (ligne {extra})" if extra is not None else ""))
+            else:
+                lines.append(f"- {ref}")
+
+    cta_params = {key: str(value) for key, value in filters.items() if key != "limit"}
+    if item.get("customer_name"):
+        cta_params["customer"] = str(item["customer_name"])
+    if item.get("id"):
+        cta_params["opportunity"] = str(item["id"])
+
+    return {
+        "intent": "opportunity_detail",
+        "content": "\n".join(lines),
+        "result": {
+            "opportunity": item,
+            "formula": {
+                "annual_theoretical_qty": (
+                    "installed_quantity × recommended_quantity × (52 / periodicity_weeks)"
+                ),
+                "potential_gap_qty": "max(annual_theoretical_qty − sales_known_qty, 0)",
+                "plan_shorthand": "installed × periodicity − sales",
+                "inputs": {
+                    "installed_quantity": item.get("installed_quantity"),
+                    "recommended_quantity": item.get("recommended_quantity"),
+                    "periodicity_weeks": item.get("periodicity_weeks"),
+                    "sales_known_qty": item.get("sales_known_qty"),
+                },
+                "outputs": {
+                    "annual_theoretical_qty": item.get("annual_theoretical_qty"),
+                    "potential_gap_qty": item.get("potential_gap_qty"),
+                    "potential_gap_value": item.get("potential_gap_value"),
+                },
+            },
+        },
+        "sources": _sources_for([item]),
+        "evidence_refs": _evidence_refs_for([item]),
+        "cta": _cta(cta_params),
+    }
+
+
 async def handle_client360_chat_query(
     db: DBSession,
     workspace: Workspace,
@@ -598,6 +1165,14 @@ async def handle_client360_chat_query(
         response = _campaign_response(db, workspace, query, filters, method)
     elif intent == "customer":
         response = _customer_response(db, workspace, filters, method)
+    elif intent == "customer_audit":
+        response = _customer_audit_response(db, workspace, filters, method)
+    elif intent == "forecast":
+        response = _forecast_response(db, workspace, filters, method)
+    elif intent == "navigation":
+        response = _navigation_response(filters, query)
+    elif intent == "opportunity_detail":
+        response = _opportunity_detail_response(db, workspace, filters, method)
     else:
         response = _opportunities_response(db, workspace, filters, method)
 

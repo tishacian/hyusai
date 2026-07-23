@@ -277,3 +277,190 @@ def test_handler_customer_intent_uses_customer_payload(db_session) -> None:
     assert result["intent"] == "customer"
     assert result["filters"].get("customer") == "Septona"
     assert result["cta"]["query_params"].get("customer") == "Septona"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — extended dedicated intents
+# ---------------------------------------------------------------------------
+def test_detect_intent_phase3_vocabulary() -> None:
+    assert client360_chat._detect_intent("audite Eruslu") == "customer_audit"
+    assert client360_chat._detect_intent("quelles pièces à prévoir chez Mogul ?") == "forecast"
+    assert client360_chat._detect_intent("ouvre l'onglet client Septona") == "navigation"
+    assert (
+        client360_chat._detect_intent("pourquoi cette opportunité wear belts ?")
+        == "opportunity_detail"
+    )
+
+
+def test_registry_customer_names_enrich_facets(db_session, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    monkeypatch.setattr(
+        client360_chat,
+        "_registry_customer_names",
+        lambda db, ws: ["Eruslu", "Mogul"],
+    )
+    items = client360_pdr.list_opportunities(db_session, workspace, limit=500)
+    facets = client360_chat._build_facets(db_session, workspace, items)
+    assert facets["customer"][client360_chat._norm("Eruslu")] == "Eruslu"
+    assert facets["customer"][client360_chat._norm("Mogul")] == "Mogul"
+    filters = client360_chat._deterministic_filters("audite Eruslu", facets)
+    assert filters.get("customer") == "Eruslu"
+
+
+def test_handler_customer_audit_intent(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(
+        db_session,
+        workspace,
+        data_gaps=["sap_sales_history_missing"],
+        next_due_at=datetime(2026, 9, 1, 9, 0, 0),
+    )
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="audite Septona",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "customer_audit"
+    assert result["filters"].get("customer") == "Septona"
+    assert "sap_sales_history_missing" in (result["result"].get("data_gaps") or [])
+    assert result["result"].get("next_due")
+    assert result["cta"]["route"] == client360_chat.CLIENT360_CTA_ROUTE
+    assert result["cta"]["query_params"].get("customer") == "Septona"
+    assert result["sources"]
+    assert result["evidence_refs"]
+
+
+def test_handler_forecast_stub_when_module_missing(db_session, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace, next_due_at=datetime(2026, 8, 15, 9, 0, 0))
+    monkeypatch.setattr(client360_chat, "_call_forecast_helper", lambda *a, **k: None)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="quelles pièces à prévoir chez Septona ?",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "forecast"
+    assert result["result"].get("stub") is True
+    assert "data gaps" in result["result"].get("message", "").lower() or result["result"].get(
+        "data_gaps"
+    ) is not None
+    assert result["cta"]["query_params"].get("customer") == "Septona"
+    assert result["sources"]
+
+
+def test_handler_forecast_uses_helper_when_available(db_session, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    monkeypatch.setattr(
+        client360_chat,
+        "_call_forecast_helper",
+        lambda *a, **k: {
+            "items": [
+                {
+                    "customer_name": "Septona",
+                    "part_family": "wear belts",
+                    "part_reference": "PDR-001",
+                    "next_due_at": "2026-10-01T00:00:00",
+                    "evidence_refs": [{"kind": "forecast", "filename": "sales_orders.xlsx"}],
+                }
+            ]
+        },
+    )
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="forecast Septona wear belts",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "forecast"
+    assert result["result"].get("stub") is not True
+    assert result["result"]["items"][0]["next_due_at"].startswith("2026-10-01")
+    assert result["evidence_refs"]
+
+
+def test_handler_navigation_intent_attaches_cta(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="ouvre l'onglet fiche client Septona",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "navigation"
+    assert result["cta"]["route"] == client360_chat.CLIENT360_CTA_ROUTE
+    assert result["cta"]["query_params"].get("view") == "customer"
+    assert result["cta"]["query_params"].get("customer") == "Septona"
+
+
+def test_handler_opportunity_detail_explains_formula(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(
+        db_session,
+        workspace,
+        installed_quantity=10,
+        recommended_quantity=2,
+        periodicity_weeks=4,
+        sales_known_qty=8,
+        annual_theoretical_qty=260.0,
+        potential_gap_qty=252.0,
+        potential_gap_value=37800.0,
+        evidence_refs=[
+            {"kind": "source", "filename": "SEPTONA - Client 360.xlsx", "row": 12}
+        ],
+    )
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="pourquoi cette opportunité wear belts Septona ?",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "opportunity_detail"
+    formula = result["result"]["formula"]
+    assert "installed_quantity" in formula["annual_theoretical_qty"]
+    assert "sales_known_qty" in formula["potential_gap_qty"]
+    assert formula["plan_shorthand"] == "installed × periodicity − sales"
+    assert "besoin_annuel" in result["content"]
+    assert "SEPTONA - Client 360.xlsx" in result["content"]
+    assert result["evidence_refs"]
+    assert result["cta"]["query_params"].get("customer") == "Septona"
+
+
+def test_phase3_intents_remain_filter_bounded(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="audite Septona; DROP TABLE opportunities; evil=1",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert set(result["filters"].keys()) <= set(client360_chat._ALLOWED_FILTER_KEYS)
+    assert "evil" not in result["filters"]

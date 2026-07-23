@@ -28,6 +28,7 @@ from app.services.client360_pdr import (
     customer_payload,
     generate_campaign_drafts,
     list_campaigns,
+    list_customers,
     list_mapping_rules,
     list_opportunities,
     opportunity_facets,
@@ -92,6 +93,8 @@ class Client360MailSettingsPatch(BaseModel):
     ssl: Optional[bool] = None
     starttls: Optional[bool] = None
     timeout_seconds: Optional[float] = Field(default=None, ge=1, le=120)
+    system_prompt: Optional[str] = Field(default=None, max_length=20000)
+    reset_system_prompt: Optional[bool] = None
 
 
 class Client360ActionPatch(BaseModel):
@@ -181,6 +184,13 @@ class SyncFromCollectionBody(BaseModel):
         description=(
             "Phase-2 opt-in: sync Histo_Achat purchase_history feed "
             "(also included when scope=all)"
+        ),
+    )
+    include_spc: bool = Field(
+        default=False,
+        description=(
+            "Opt-in: sync Installed base SPC (~56MB / 50k+ lines); "
+            "also included when scope=all. Default Phase-1 HTTP sync skips it."
         ),
     )
 
@@ -355,6 +365,7 @@ def client360_sources_sync_from_collection(
             scope=scope,
             rehydrate_mvp=body.rehydrate_mvp,
             include_purchase_history=body.include_purchase_history,
+            include_spc=body.include_spc,
         )
         if body.dry_run:
             result["mvp_archive_preview"] = preview_archive_mvp_orphan_sources(
@@ -553,6 +564,29 @@ def client360_mapping_patch(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/customers")
+def client360_customers(
+    q: Optional[str] = Query(default=None),
+    country: Optional[str] = Query(default=None),
+    technology: Optional[str] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
+    return list_customers(
+        db,
+        workspace,
+        q=q,
+        country=country,
+        technology=technology,
+        limit=limit,
+    )
 
 
 @router.get("/customers/{customer_id}")

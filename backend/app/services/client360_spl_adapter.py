@@ -62,8 +62,13 @@ PURCHASE_HISTORY_ROLE_TOKENS = (
     "po_delivered",
     "achat_pieces",
 )
+SALES_ORDERS_DEFAULT_MIN_YEAR = 2019
+SALES_ORDERS_PREFERRED_OFFERING = "sspa"
+SALES_ORDERS_EXCLUDE_CUSTOMER_PREFIXES = ("andritz", "dummy customer")
 
 SPL_ROLES = (
+    "project_registry",
+    "sales_orders",
     "purchase_history",
     "machine",
     "spc",
@@ -89,11 +94,20 @@ def detect_spl_role(filename: str) -> str:
         return "family_opportunity"
     if "sales_by_country" in underscored or "salesbycountry" in underscored:
         return "sales_by_country"
+    if "sales_order" in underscored or "salesorders" in underscored or re.search(
+        r"(^|_)va05($|_)", underscored
+    ):
+        return "sales_orders"
     if "materials_consumption" in underscored:
         return "materials_consumptions"
     # Before ``machine``: Histo_Achat_…_Machines_… must not become machine.
     if any(token in underscored for token in PURCHASE_HISTORY_ROLE_TOKENS):
         return "purchase_history"
+    # Before ``machine``: Liste Projets _ Clients must not become machine.
+    if ("projets" in underscored and "clients" in underscored) or (
+        "project" in underscored and "customer" in underscored
+    ):
+        return "project_registry"
     if re.search(r"(^|_)spc($|_)", underscored) or "installed_base_spc" in underscored:
         return "spc"
     if "machine" in underscored:
@@ -108,6 +122,40 @@ def detect_spl_role(filename: str) -> str:
 def _fold(value: Any) -> str:
     text = _safe_text(value).lower()
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
+def _split_multi_codes(value: Any) -> list[str]:
+    """Split multi-value SAP cells (e.g. ``SEP100\\nXEP100``)."""
+    text = _safe_text(value)
+    if not text:
+        return []
+    parts = re.split(r"[\n\r;/|]+", text)
+    return [part.strip() for part in parts if part and part.strip()]
+
+
+def _index_key(value: Any) -> str:
+    token = _normalize_token(value)
+    return token.replace(" ", "") if token else ""
+
+
+def _parse_year(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if hasattr(value, "year"):
+        try:
+            return int(value.year)
+        except (TypeError, ValueError):
+            return None
+    text = _safe_text(value)
+    if not text:
+        return None
+    match = re.search(r"(19|20)\d{2}", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
 
 
 def _pick(row: dict[str, Any], *aliases: str) -> Any:
@@ -180,6 +228,77 @@ def passes_phase1_scope(record: dict[str, Any], *, scope: dict[str, Any] | None 
 
 
 def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
+    if role == "project_registry":
+        # Multi-code CONTRACT NAME expands to one record per project_code.
+        project_codes = _split_multi_codes(
+            _pick(row, "CONTRACT NAME", "Contract Name", "project_code", "Project")
+        )
+        customer = _safe_text(
+            _pick(row, "FINAL CUSTOMER", "Final Customer", "customer_name", "Customer")
+        )
+        sap_ref = _safe_text(
+            _pick(row, "SAP REFERENCE", "SAP Reference", "sap_reference", "SAP Ref")
+        )
+        country = _safe_text(_pick(row, "Site Country", "Country", "Country Key", "country"))
+        if not project_codes and not customer and not sap_ref:
+            return None
+        codes = project_codes or [None]
+        # Caller expands list via map_project_registry_row; return first + extras marker.
+        base = {
+            "project_code": codes[0],
+            "project_codes": [code for code in codes if code],
+            "customer_name": customer or None,
+            "customer_key": _normalize_token(customer) or None,
+            "sap_reference": sap_ref or None,
+            "country": country or None,
+            "role": "project_registry",
+        }
+        return base
+
+    if role == "sales_orders":
+        customer = _safe_text(
+            _pick(
+                row,
+                "Sold-To Party Name",
+                "Sold-to party name",
+                "Sold To Party Name",
+                "Sold-To Party",
+                "customer_name",
+            )
+        )
+        part_ref = _safe_text(_pick(row, "Material", "part_reference", "Material Number"))
+        part_desc = _safe_text(
+            _pick(row, "Description", "Material Description", "part_description")
+        )
+        qty = _safe_non_negative_float(
+            _pick(row, "Order Quantity", "Order Qty", "sales_known_qty", "Quantity")
+        )
+        net_price = _safe_non_negative_float(
+            _pick(row, "Net Price", "Net price", "Unit Price")
+        )
+        net_value = _safe_non_negative_float(
+            _pick(row, "Net Value", "Net value", "sales_known_value")
+        )
+        if net_value is None and net_price is not None and qty is not None:
+            net_value = round(net_price * qty, 4)
+        offering = _safe_text(_pick(row, "Offering", "offering", "Product hierarchy"))
+        doc_date = _pick(row, "Document Date", "Doc. Date", "Billing Date", "date")
+        if not customer and not part_ref:
+            return None
+        return {
+            "customer_name": customer or None,
+            "customer_key": _normalize_token(customer) or None,
+            "part_reference": part_ref or None,
+            "part_description": part_desc or None,
+            "sales_known_qty": qty,
+            "sales_known_value": net_value,
+            "currency": _safe_text(_pick(row, "Currency", "Document Currency")) or "EUR",
+            "offering": offering or None,
+            "document_date": _safe_text(doc_date) or None,
+            "document_year": _parse_year(doc_date),
+            "role": "sales_orders",
+        }
+
     if role == "machine":
         customer = _safe_text(
             _pick(
@@ -205,6 +324,12 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "technology": technology or None,
             "machine_label": machine or None,
             "line_label": _safe_text(_pick(row, "Project Name", "line_label")) or None,
+            "project_code": _safe_text(
+                _pick(row, "Project definition", "CONTRACT NAME", "project_code")
+            )
+            or None,
+            "sap_reference": _safe_text(_pick(row, "SAP REFERENCE", "SAP Reference")) or None,
+            "wbs_element": _safe_text(_pick(row, "Andritz WBS Element", "WBS Element")) or None,
             "construction_year": _safe_text(_pick(row, "Construction year", "Construction Year"))
             or None,
         }
@@ -235,6 +360,12 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "machine_label": _safe_text(_pick(row, "Machine", "Equipment", "machine_label"))
             or None,
             "technology": _safe_text(_pick(row, "technology", "Object Description")) or None,
+            "project_code": _safe_text(
+                _pick(row, "Project definition", "CONTRACT NAME", "project_code")
+            )
+            or None,
+            "sap_reference": _safe_text(_pick(row, "SAP REFERENCE", "SAP Reference")) or None,
+            "wbs_element": _safe_text(_pick(row, "Andritz WBS Element", "WBS Element")) or None,
         }
 
     if role == "family_opportunity":
@@ -421,10 +552,285 @@ def aggregate_purchase_history_records(
     return aggregated, meta
 
 
+def expand_project_registry_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One registry row per project_code (CONTRACT NAME may hold multiple codes)."""
+    expanded: list[dict[str, Any]] = []
+    for record in records:
+        codes = [
+            code
+            for code in (_as_list(record.get("project_codes")) or [_safe_text(record.get("project_code"))])
+            if _safe_text(code)
+        ]
+        if not codes:
+            codes = [None]
+        for code in codes:
+            item = {
+                "project_code": code,
+                "customer_name": record.get("customer_name"),
+                "customer_key": record.get("customer_key")
+                or _normalize_token(record.get("customer_name"))
+                or None,
+                "sap_reference": record.get("sap_reference"),
+                "country": record.get("country"),
+                "wbs_element": record.get("wbs_element"),
+                "role": "project_registry",
+            }
+            if item.get("customer_name") or item.get("project_code") or item.get("sap_reference"):
+                expanded.append(item)
+    return expanded
+
+
+def build_project_registry_index(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Index registry rows by normalized project_code / wbs / sap_reference."""
+    index: dict[str, dict[str, Any]] = {}
+    for record in records:
+        payload = {
+            "customer_name": record.get("customer_name"),
+            "customer_key": record.get("customer_key")
+            or _normalize_token(record.get("customer_name"))
+            or None,
+            "country": record.get("country"),
+            "sap_reference": record.get("sap_reference"),
+            "project_code": record.get("project_code"),
+            "wbs_element": record.get("wbs_element"),
+        }
+        for field in ("project_code", "wbs_element", "sap_reference"):
+            key = _index_key(record.get(field))
+            if key:
+                index[key] = payload
+        customer_key = _index_key(record.get("customer_key") or record.get("customer_name"))
+        if customer_key and payload.get("country"):
+            # Secondary lookup used by SPC Sold-name → country join.
+            index.setdefault(f"customer:{customer_key}", payload)
+    return index
+
+
+def resolve_customer_for_project(
+    project_code: str | None = None,
+    *,
+    wbs: str | None = None,
+    sap_ref: str | None = None,
+    index: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve FINAL CUSTOMER / country from the project registry index."""
+    if not index:
+        return None
+    for candidate in (project_code, wbs, sap_ref):
+        key = _index_key(candidate)
+        if key and key in index:
+            return dict(index[key])
+    return None
+
+
+def load_project_registry_index(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    extra_records: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build a resolve index from persisted project_registry sources (+ optional rows)."""
+    records: list[dict[str, Any]] = list(extra_records or [])
+    rows = (
+        db.query(Client360DataSource)
+        .filter(
+            Client360DataSource.workspace_id == workspace.id,
+            Client360DataSource.status != "archived",
+        )
+        .all()
+    )
+    for row in rows:
+        meta = _as_dict(row.meta_data)
+        if meta.get("role") != "project_registry":
+            continue
+        for record in _as_list(meta.get("records")):
+            if isinstance(record, dict):
+                records.append(record)
+    return build_project_registry_index(expand_project_registry_records(records))
+
+
+def sales_orders_row_accepted(
+    record: dict[str, Any],
+    *,
+    min_year: int = SALES_ORDERS_DEFAULT_MIN_YEAR,
+) -> bool:
+    """Quality gate: drop internal sold-tos, non-SSPA offerings, pre-window years."""
+    customer = _fold(record.get("customer_name") or record.get("customer_key"))
+    if any(customer.startswith(prefix) for prefix in SALES_ORDERS_EXCLUDE_CUSTOMER_PREFIXES):
+        return False
+    year = record.get("document_year")
+    if isinstance(year, int) and year < min_year:
+        return False
+    offering = _fold(record.get("offering"))
+    if offering:
+        if SALES_ORDERS_PREFERRED_OFFERING in offering or "spare" in offering:
+            return True
+        # Prefer SSPA: drop other explicit offerings (machines, services, …).
+        return False
+    return True
+
+
+def aggregate_sales_orders_records(
+    records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collapse sales order lines to customer × Material."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        customer_key = _normalize_token(record.get("customer_key") or record.get("customer_name"))
+        part_ref = _safe_text(record.get("part_reference"))
+        if not customer_key or not part_ref:
+            continue
+        groups[(customer_key, part_ref)].append(record)
+
+    aggregated: list[dict[str, Any]] = []
+    for (customer_key, part_ref), rows in groups.items():
+        qtys = [
+            qty
+            for qty in (_safe_non_negative_float(row.get("sales_known_qty")) for row in rows)
+            if qty is not None
+        ]
+        values = [
+            value
+            for value in (_safe_non_negative_float(row.get("sales_known_value")) for row in rows)
+            if value is not None
+        ]
+        descriptions = [
+            text for text in (_safe_text(row.get("part_description")) for row in rows) if text
+        ]
+        last = rows[-1]
+        dated = []
+        for row in rows:
+            year = row.get("document_year")
+            doc = _safe_text(row.get("document_date"))
+            dated.append((year or 0, doc or "", row))
+        dated.sort(key=lambda item: (item[0], item[1]))
+        latest_row = dated[-1][2] if dated else last
+        aggregated.append(
+            {
+                "customer_name": last.get("customer_name"),
+                "customer_key": customer_key,
+                "part_reference": part_ref,
+                "part_description": (
+                    Counter(descriptions).most_common(1)[0][0] if descriptions else None
+                ),
+                "sales_known_qty": round(sum(qtys), 4) if qtys else None,
+                "sales_known_value": round(sum(values), 4) if values else None,
+                "currency": _safe_text(last.get("currency")) or "EUR",
+                "offering": last.get("offering"),
+                "last_document_date": latest_row.get("document_date"),
+                "last_purchase_date": latest_row.get("document_date"),
+                "order_line_count": len(rows),
+                "role": "sales_orders",
+            }
+        )
+
+    meta = {
+        "aggregation": "by_customer_material",
+        "material_count": len(aggregated),
+        "order_lines_seen": len(records),
+    }
+    return aggregated, meta
+
+
+def aggregate_spc_records(
+    records: list[dict[str, Any]],
+    *,
+    registry_index: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Aggregate SPC lines by Sold name × Material (qty > 0); join registry for country."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        qty = _safe_float(record.get("installed_quantity"))
+        if qty is None or qty <= 0:
+            continue
+        customer_key = _normalize_token(record.get("customer_key") or record.get("customer_name"))
+        part_ref = _safe_text(record.get("part_reference"))
+        if not customer_key or not part_ref:
+            continue
+        groups[(customer_key, part_ref)].append(record)
+
+    index = registry_index or {}
+    aggregated: list[dict[str, Any]] = []
+    joined_country = 0
+    for (customer_key, part_ref), rows in groups.items():
+        qtys = [
+            qty
+            for qty in (_safe_float(row.get("installed_quantity")) for row in rows)
+            if qty is not None and qty > 0
+        ]
+        descriptions = [
+            text for text in (_safe_text(row.get("part_description")) for row in rows) if text
+        ]
+        last = rows[-1]
+        country = _safe_text(last.get("country")) or None
+        if not country:
+            resolved = index.get(f"customer:{_index_key(customer_key)}")
+            if not resolved:
+                resolved = resolve_customer_for_project(
+                    last.get("project_code"),
+                    wbs=last.get("wbs_element"),
+                    sap_ref=last.get("sap_reference"),
+                    index=index,
+                )
+            if resolved and resolved.get("country"):
+                country = resolved.get("country")
+                joined_country += 1
+        aggregated.append(
+            {
+                "customer_name": last.get("customer_name"),
+                "customer_key": customer_key,
+                "country": country,
+                "part_reference": part_ref,
+                "part_description": (
+                    Counter(descriptions).most_common(1)[0][0] if descriptions else None
+                ),
+                "installed_quantity": round(sum(qtys), 4) if qtys else None,
+                "machine_label": last.get("machine_label"),
+                "technology": last.get("technology"),
+                "role": "spc",
+            }
+        )
+
+    meta = {
+        "aggregation": "by_customer_material",
+        "material_count": len(aggregated),
+        "spc_lines_seen": len(records),
+        "registry_country_joins": joined_country,
+    }
+    return aggregated, meta
+
+
+def _enrich_record_from_registry(
+    record: dict[str, Any],
+    registry_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Fill customer/country from project registry when project/wbs/sap keys exist."""
+    if not registry_index:
+        return record
+    resolved = resolve_customer_for_project(
+        record.get("project_code"),
+        wbs=record.get("wbs_element"),
+        sap_ref=record.get("sap_reference"),
+        index=registry_index,
+    )
+    if not resolved:
+        return record
+    out = dict(record)
+    if not out.get("customer_name") and resolved.get("customer_name"):
+        out["customer_name"] = resolved["customer_name"]
+        out["customer_key"] = resolved.get("customer_key") or _normalize_token(
+            resolved["customer_name"]
+        )
+    if not out.get("country") and resolved.get("country"):
+        out["country"] = resolved["country"]
+    return out
+
+
 def _source_type_for_role(role: str, filename: str) -> str:
+    if role == "project_registry":
+        return "contact_hub"
     if role == "family_opportunity":
         return "periodicity"
-    if role == "sales_by_country":
+    if role in {"sales_by_country", "sales_orders"}:
         return "sap_sales_history"
     if role in {"machine", "spc", "pilot"}:
         return "installed_base" if role != "pilot" else classify_data_source(filename)
@@ -438,6 +844,12 @@ def _minimal_columns_ok(source_type: str, records: list[dict[str, Any]]) -> bool
         return False
     if source_type == "periodicity":
         return any(r.get("part_family") and r.get("periodicity_weeks") is not None for r in records)
+    if source_type == "contact_hub":
+        return any(
+            (r.get("customer_name") or r.get("customer_key"))
+            and (r.get("project_code") or r.get("sap_reference"))
+            for r in records
+        )
     if source_type == "installed_base":
         return any(
             (r.get("customer_name") or r.get("customer_key"))
@@ -669,7 +1081,7 @@ def _upsert_data_source(
     extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ready = _minimal_columns_ok(source_type, records)
-    if role == "purchase_history" and records:
+    if role in {"purchase_history", "project_registry"} and records:
         ready = True
     status = "ready" if ready else ("needs_review" if records else "error")
     label = Path(origin_file).name
@@ -751,6 +1163,7 @@ def sync_sources_from_collection(
     scope: str = "phase1",
     rehydrate_mvp: bool = True,
     include_purchase_history: bool = False,
+    include_spc: bool = False,
 ) -> dict[str, Any]:
     """Map collection spreadsheets into Client360DataSource rows.
 
@@ -758,6 +1171,12 @@ def sync_sources_from_collection(
 
     ``include_purchase_history``: Phase-2 opt-in to sync Histo_Achat (also
     included when ``scope == "all"``). Phase-1 interactive sync skips it.
+
+    ``include_spc``: opt-in to sync Installed base SPC (~56MB / 50k+ lines);
+    also included when ``scope == "all"``. Default Phase-1 HTTP sync skips it.
+
+    ``project_registry`` always syncs (small file, no country filter).
+    ``sales_orders`` always syncs with quality filters + customer×Material agg.
 
     Always rehydrates MVP pilot sources into the unified collection first (unless
     ``rehydrate_mvp=False``), so the UI is not stuck at 0 linked sources when
@@ -813,10 +1232,18 @@ def sync_sources_from_collection(
         if name and name not in filenames:
             filenames.append(name)
 
+    # Registry first so Machine / SPC / PO can resolve customer + country.
+    filenames = sorted(
+        filenames,
+        key=lambda name: 0 if detect_spl_role(name) == "project_registry" else 1,
+    )
+
     sources_out: list[dict[str, Any]] = []
     skipped: dict[str, int] = {}
     temp_paths: list[Path] = []
     allow_purchase_history = include_purchase_history or scope == "all"
+    allow_spc = include_spc or scope == "all"
+    registry_index = load_project_registry_index(db, workspace)
 
     try:
         for filename in filenames:
@@ -846,14 +1273,14 @@ def sync_sources_from_collection(
                     }
                 )
                 continue
-            if role == "spc" and scope == "phase1":
+            if role == "spc" and not allow_spc:
                 skipped["spc_deferred"] = skipped.get("spc_deferred", 0) + 1
                 sources_out.append(
                     {
                         "action": "skipped",
                         "filename": filename,
                         "role": role,
-                        "reason": "spc_deferred_until_size_ok",
+                        "reason": "spc_deferred_until_include_spc_or_scope_all",
                     }
                 )
                 continue
@@ -882,8 +1309,13 @@ def sync_sources_from_collection(
                     _logger.warning("failed reading xlsx %s: %s", filename, exc)
                     skipped["xlsx_read_error"] = skipped.get("xlsx_read_error", 0) + 1
 
-            # Purchase history must come from the workbook (not table-facts 5k cap).
-            if not raw_rows and role != "purchase_history":
+            # Heavy / PO feeds must come from the workbook (not table-facts 5k cap).
+            if not raw_rows and role not in {
+                "purchase_history",
+                "spc",
+                "sales_orders",
+                "project_registry",
+            }:
                 raw_rows = _records_from_table_facts_for_file(
                     db,
                     workspace,
@@ -912,8 +1344,14 @@ def sync_sources_from_collection(
                 if not record:
                     skipped["unmapped_row"] = skipped.get("unmapped_row", 0) + 1
                     continue
+                if role == "sales_orders" and not sales_orders_row_accepted(record):
+                    skipped["sales_orders_filtered"] = skipped.get("sales_orders_filtered", 0) + 1
+                    continue
+                if role in {"machine", "spc", "purchase_history"}:
+                    record = _enrich_record_from_registry(record, registry_index)
+                # Registry + sales_orders are global feeds; PO has no client country.
                 if (
-                    role != "purchase_history"
+                    role not in {"purchase_history", "project_registry", "sales_orders"}
                     and scope == "phase1"
                     and not passes_phase1_scope(record, scope=workspace_scope)
                 ):
@@ -927,8 +1365,22 @@ def sync_sources_from_collection(
                 mapped.append(record)
 
             extra_metadata: dict[str, Any] | None = None
-            if role == "purchase_history":
+            if role == "project_registry":
+                mapped = expand_project_registry_records(mapped)
+                registry_index = load_project_registry_index(
+                    db, workspace, extra_records=mapped
+                )
+                extra_metadata = {"record_count": len(mapped)}
+            elif role == "purchase_history":
                 mapped, agg_meta = aggregate_purchase_history_records(mapped)
+                extra_metadata = agg_meta
+            elif role == "sales_orders":
+                mapped, agg_meta = aggregate_sales_orders_records(mapped)
+                extra_metadata = agg_meta
+            elif role == "spc":
+                mapped, agg_meta = aggregate_spc_records(
+                    mapped, registry_index=registry_index
+                )
                 extra_metadata = agg_meta
 
             source_type = _source_type_for_role(role, filename)
@@ -998,6 +1450,7 @@ def sync_sources_from_collection(
         "dry_run": dry_run,
         "scope": scope,
         "include_purchase_history": allow_purchase_history,
+        "include_spc": allow_spc,
         "files_seen": len(filenames),
         "sources": sources_out,
         "skipped": skipped,

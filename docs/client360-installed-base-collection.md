@@ -29,14 +29,19 @@ evidence). **Ne pas** y mélanger les notices techniques SPL (ZIP).
 
 | Fichier | `source_type` cible | Usage |
 | --- | --- | --- |
+| `Liste Projets _ Clients.xlsx` | `contact_hub` (`metadata.role=project_registry`) | Registre projet↔client (toujours syncé ; brancher en premier) |
+| `Liste Sales Orders D800…xlsx` | `sap_sales_history` | Ventes client (Sold-to) — remplace progressivement `Sales_By_Country` |
 | `Family - Opportunity.xlsx` | `periodicity` + `market_signal` | Périodicités (mois → semaines), IB Turkey, prix |
 | `Installed base - Machine.xlsx` | `installed_base` | Arbre client / site / ligne / machine |
-| `Installed base - SPC.xlsx` | `installed_base` | Quantités installées Material / Title |
+| `Installed base - SPC.xlsx` | `installed_base` | Quantités installées Material / Title — sync opt-in (`include_spc` / `scope=all`) ; promote ≤60 Mo |
 | `Sales_By_Country.xlsx` | `sap_sales_history` | Agrégats ventes (Phase 1 : GR / TR) |
 | `Materials_Consumptions.xlsx` | enrichissement | Lead time / prix / stock — Phase 2 |
 | `Histo_Achat_Pieces_Machines_Montbonnot.xlsx` | `other` (`metadata.role=purchase_history`) | Enrichissement coût unitaire + délai (Phase 2) — **jamais** `sap_sales_history` |
 
 Préfixe deposit typique : `Installed_base_SPL/`.
+
+Ops généralisé (promote → sync → `scope_mode` → moteur → smoke → deploy) :
+[docs/ops/client360-generalized-app.md](ops/client360-generalized-app.md).
 
 ### Histo_Achat Montbonnot (`purchase_history`)
 
@@ -118,7 +123,8 @@ POST /api/v1/client360/sources/sync-from-collection
 {
   "collection_slug": "andritz-client360-installed-base",
   "dry_run": false,
-  "scope": {},   # optionnel (filtre pays / tech côté backend)
+  "scope": "phase1",   # ou "all" (active aussi SPC + purchase_history)
+  "include_spc": false,
   "include_purchase_history": false
 }
 ```
@@ -128,6 +134,9 @@ POST /api/v1/client360/sources/sync-from-collection
   `metadata.records`, `metadata.origin_file`, `metadata.adapter_version`.
 - `include_purchase_history: true` — sync le feed Histo_Achat (`other` / `purchase_history`) ;
   défaut `false` (Phase 1 skip). Voir section [Histo_Achat Montbonnot](#histo_achat-montbonnot-purchase_history).
+- `include_spc: true` — sync Installed base SPC ; défaut `false` (defer jusqu’à flag ou `scope=all`).
+- Le **moteur** lit `workspace.settings.client360_pdr_scope.scope_mode` (`pilot`|`all`) —
+  distinct du flag sync `scope`.
 
 ## Moteur d’opportunités
 
