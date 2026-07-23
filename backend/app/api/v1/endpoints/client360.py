@@ -573,12 +573,8 @@ def client360_customers(
     technology: Optional[str] = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
-    )
     return list_customers(
         db,
         workspace,
