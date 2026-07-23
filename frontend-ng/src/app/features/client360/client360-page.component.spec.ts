@@ -318,6 +318,64 @@ test('Client360 fiche loads in two phases: payload without AI summary, then asyn
   }
 });
 
+test('Client360 pins fiche and summary to one workspace epoch and purges them on switch', () => {
+  const harness = createHarness();
+  const { component, workspace, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer(
+      { customer_key: 'septona', customer_name: 'Septona S.A.' } as never,
+    );
+    const detailCall = getCalls.find(
+      (call) => call.url === '/api/v1/client360/customers/septona',
+    );
+    assert.ok(detailCall);
+    assert.equal(workspaceHeader(detailCall), 'andritz');
+
+    detailCall.response.next({
+      customer: {
+        id: 'septona',
+        name: 'Septona S.A.',
+        countries: [],
+        hubs: [],
+        technologies: [],
+      },
+      ai_summary: null,
+      opportunities: [],
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+    const summaryCall = getCalls.find(
+      (call) => call.url === '/api/v1/client360/customers/septona/summary',
+    );
+    assert.ok(summaryCall);
+    assert.equal(workspaceHeader(summaryCall), 'andritz');
+    assert.ok(component.selectedCustomer());
+
+    workspace.switchWorkspace();
+
+    assert.equal(detailCall.response.observed, false);
+    assert.equal(summaryCall.response.observed, false);
+    assert.equal(component.selectedCustomer(), null);
+    assert.equal(component.selectedDirectoryCustomerKey(), null);
+    assert.equal(component.customerDetailLoading(), false);
+    assert.equal(component.customerSummaryLoading(), false);
+
+    summaryCall.response.next({
+      ai_summary: {
+        text: 'Late response from the previous workspace.',
+        generation_mode: 'ai_assisted',
+        highlights: [],
+      },
+    });
+    assert.equal(component.selectedCustomer(), null);
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
 test('Client360 fiche pages long lists client-side with show-more increments', () => {
   const harness = createHarness();
   const { component, getCalls } = harness;

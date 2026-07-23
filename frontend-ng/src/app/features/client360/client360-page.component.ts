@@ -288,8 +288,8 @@ interface Client360NextDueItem {
   part_family?: string | null;
   part_description?: string | null;
   next_due_at?: string | null;
-  recommended_quantity?: number | null;
-  confidence?: string | null;
+  recommended_qty?: number | null;
+  confidence?: number | null;
   customer_key?: string | null;
   opportunity_id?: string | null;
   [key: string]: unknown;
@@ -2361,17 +2361,25 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.campaignDueWithinWeeks = null;
   }
 
-  selectDirectoryCustomer(customer: Client360DirectoryCustomer): void {
+  selectDirectoryCustomer(
+    customer: Client360DirectoryCustomer,
+    actionContext?: WorkspaceActionContext,
+  ): void {
     this.selectedDirectoryCustomerKey.set(customer.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
-    this.fetchCustomerFiche(customer.customer_key);
+    this.fetchCustomerFiche(customer.customer_key, {}, actionContext);
   }
 
   private fetchCustomerFiche(
     customerKey: string,
     options: { keepSelectedOpportunity?: boolean } = {},
+    actionContext: WorkspaceActionContext = {
+      scope: this.workspace.captureRequestScope(),
+      generation: this.workspaceActionGeneration,
+    },
   ): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     this.customerDetailRequest?.unsubscribe();
     this.customerSummaryRequest?.unsubscribe();
     this.customerDetailLoading.set(true);
@@ -2384,18 +2392,23 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.customerDetailRequest = this.http
       .get<Client360CustomerResponse>(
         `/api/v1/client360/customers/${encodeURIComponent(customerKey)}`,
-        { params: new HttpParams().set('include_ai_summary', 'false') },
+        {
+          params: new HttpParams().set('include_ai_summary', 'false'),
+          ...this.workspaceHttpOptions(actionContext.scope),
+        },
       )
       .subscribe({
         next: (payload) => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.selectedCustomer.set(payload);
           if (!options.keepSelectedOpportunity) {
             this.selectedOpportunity.set(payload.opportunities[0] ?? null);
           }
           this.customerDetailLoading.set(false);
-          this.loadCustomerSummary(customerKey);
+          this.loadCustomerSummary(customerKey, actionContext);
         },
         error: () => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.selectedCustomer.set(null);
           if (!options.keepSelectedOpportunity) {
             this.selectedOpportunity.set(null);
@@ -2406,14 +2419,20 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       });
   }
 
-  private loadCustomerSummary(customerKey: string): void {
+  private loadCustomerSummary(
+    customerKey: string,
+    actionContext: WorkspaceActionContext,
+  ): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     this.customerSummaryLoading.set(true);
     this.customerSummaryRequest = this.http
       .get<{ ai_summary: Client360AiSummary | null }>(
         `/api/v1/client360/customers/${encodeURIComponent(customerKey)}/summary`,
+        this.workspaceHttpOptions(actionContext.scope),
       )
       .subscribe({
         next: (payload) => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.customerSummaryLoading.set(false);
           if (this.selectedDirectoryCustomerKey() !== customerKey) return;
           const current = this.selectedCustomer();
@@ -2422,7 +2441,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
           }
         },
         error: () => {
-          this.customerSummaryLoading.set(false);
+          if (this.workspaceActionContextIsCurrent(actionContext)) {
+            this.customerSummaryLoading.set(false);
+          }
         },
       });
   }
@@ -2851,6 +2872,10 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   private resetWorkspaceActions(): void {
     this.workspaceActionGeneration += 1;
     this.cancelActionRefreshRequests();
+    this.customerDetailRequest?.unsubscribe();
+    this.customerDetailRequest = null;
+    this.customerSummaryRequest?.unsubscribe();
+    this.customerSummaryRequest = null;
     this.mappingValidationRequest?.unsubscribe();
     this.mappingValidationRequest = null;
     this.mappingReloadRequest?.unsubscribe();
@@ -2865,6 +2890,27 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.engineResult.set(null);
     this.syncResult.set(null);
     this.syncStatus.set(null);
+    this.summary.set(null);
+    this.opportunitiesResponse.set(null);
+    this.selectedOpportunity.set(null);
+    this.selectedCustomer.set(null);
+    this.customersResponse.set(null);
+    this.selectedDirectoryCustomerKey.set(null);
+    this.focusedProjectCode.set(null);
+    this.currentDraft.set(null);
+    this.alertsResponse.set(null);
+    this.mappingsResponse.set(null);
+    this.mailSettings.set(null);
+    this.campaignsResponse.set(null);
+    this.selectedCampaign.set(null);
+    this.campaignStats.set(null);
+    this.directorySelection.set([]);
+    this.campaignTargetCustomerKeys.set([]);
+    this.customerDetailLoading.set(false);
+    this.customerSummaryLoading.set(false);
+    this.chatMessages.set([]);
+    this.chatBusy.set(false);
+    this.chatError.set(null);
   }
 
   updateOpportunityStatus(opp: Client360Opportunity, status: 'validated' | 'dismissed'): void {
@@ -2911,14 +2957,22 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   }
 
   selectOpportunity(opp: Client360Opportunity): void {
+    const actionContext: WorkspaceActionContext = {
+      scope: this.workspace.captureRequestScope(),
+      generation: this.workspaceActionGeneration,
+    };
     this.selectedOpportunity.set(opp);
     this.selectedDirectoryCustomerKey.set(opp.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
     if (!this.customersResponse()) {
-      this.loadCustomers();
+      this.loadCustomers(actionContext);
     }
-    this.fetchCustomerFiche(opp.customer_key, { keepSelectedOpportunity: true });
+    this.fetchCustomerFiche(
+      opp.customer_key,
+      { keepSelectedOpportunity: true },
+      actionContext,
+    );
   }
 
   generateDraft(opp: Client360Opportunity): void {

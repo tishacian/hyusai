@@ -9,29 +9,31 @@ from fastapi.routing import APIRoute
 from app.api.v1.endpoints import client360
 
 EXPECTED = {
-    ("GET", "/summary"): ("system", "read"),
-    ("GET", "/alerts"): ("system", "read"),
-    ("POST", "/chat"): ("system", "engine.run"),
-    ("GET", "/scope"): ("system", "read"),
-    ("GET", "/opportunities"): ("system", "read"),
-    ("POST", "/engines/opportunities/run"): ("system", "engine.run"),
-    ("POST", "/sources/sync-from-collection"): ("system", "admin"),
-    ("PATCH", "/opportunities/{opportunity_id}"): ("decision", "approve"),
-    ("GET", "/campaigns"): ("system", "read"),
-    ("POST", "/campaigns"): ("action", "execute"),
-    ("PATCH", "/campaigns/{campaign_id}"): ("action", "execute"),
-    ("POST", "/campaigns/{campaign_id}/drafts"): ("system", "engine.run"),
-    ("GET", "/campaigns/{campaign_id}/stats"): ("system", "read"),
-    ("GET", "/mappings"): ("system", "read"),
-    ("POST", "/mappings"): ("system", "admin"),
-    ("PATCH", "/mappings/{mapping_id}"): ("system", "admin"),
-    ("GET", "/customers/{customer_id}"): ("system", "engine.run"),
-    ("POST", "/mail-drafts"): ("system", "engine.run"),
-    ("GET", "/mail-settings"): ("system", "read"),
-    ("PATCH", "/mail-settings"): ("system", "admin"),
-    ("POST", "/mail-drafts/{draft_id}/send"): ("mail_draft", "mail.send"),
-    ("PATCH", "/actions/{action_id}"): ("action", "execute"),
-    ("POST", "/actions/{action_id}/impact"): ("action", "execute"),
+    ("GET", "/summary"): ("system", {"read"}),
+    ("GET", "/alerts"): ("system", {"read"}),
+    ("POST", "/chat"): ("system", {"engine.run"}),
+    ("GET", "/scope"): ("system", {"read"}),
+    ("GET", "/opportunities"): ("system", {"read"}),
+    ("POST", "/engines/opportunities/run"): ("system", {"engine.run"}),
+    ("POST", "/sources/sync-from-collection"): ("system", {"admin"}),
+    ("PATCH", "/opportunities/{opportunity_id}"): ("decision", {"approve"}),
+    ("GET", "/campaigns"): ("system", {"read"}),
+    ("POST", "/campaigns"): ("action", {"execute"}),
+    ("PATCH", "/campaigns/{campaign_id}"): ("action", {"execute"}),
+    ("POST", "/campaigns/{campaign_id}/drafts"): ("system", {"engine.run"}),
+    ("GET", "/campaigns/{campaign_id}/stats"): ("system", {"read"}),
+    ("GET", "/mappings"): ("system", {"read"}),
+    ("POST", "/mappings"): ("system", {"admin"}),
+    ("PATCH", "/mappings/{mapping_id}"): ("system", {"admin"}),
+    ("GET", "/customers"): ("system", {"read"}),
+    ("GET", "/customers/{customer_id}"): ("system", {"read", "engine.run"}),
+    ("GET", "/customers/{customer_id}/summary"): ("system", {"engine.run"}),
+    ("POST", "/mail-drafts"): ("system", {"engine.run"}),
+    ("GET", "/mail-settings"): ("system", {"read"}),
+    ("PATCH", "/mail-settings"): ("system", {"admin"}),
+    ("POST", "/mail-drafts/{draft_id}/send"): ("mail_draft", {"mail.send"}),
+    ("PATCH", "/actions/{action_id}"): ("action", {"execute"}),
+    ("POST", "/actions/{action_id}/impact"): ("action", {"execute"}),
 }
 
 
@@ -61,6 +63,18 @@ def _constant_keyword(call: ast.Call, name: str) -> str:
     return keyword.value.value
 
 
+def _action_keyword_values(call: ast.Call) -> set[str]:
+    keyword = next(item for item in call.keywords if item.arg == "action")
+    if isinstance(keyword.value, ast.Constant):
+        assert isinstance(keyword.value.value, str)
+        return {keyword.value.value}
+    assert isinstance(keyword.value, ast.IfExp)
+    values = {keyword.value.body, keyword.value.orelse}
+    assert all(isinstance(item, ast.Constant) for item in values)
+    assert all(isinstance(item.value, str) for item in values)
+    return {item.value for item in values}
+
+
 def test_every_client360_route_has_one_explicit_action_boundary() -> None:
     routes = {
         (method, route.path): route
@@ -76,7 +90,7 @@ def test_every_client360_route_has_one_explicit_action_boundary() -> None:
         call = _authorization_call(route.endpoint)
         assert (
             _constant_keyword(call, "resource_kind"),
-            _constant_keyword(call, "action"),
+            _action_keyword_values(call),
         ) == expected
 
 
@@ -92,6 +106,7 @@ def test_authorization_precedes_every_client360_business_operation() -> None:
         "generate_campaign_drafts",
         "handle_client360_chat_query",
         "list_campaigns",
+        "list_customers",
         "list_mapping_rules",
         "list_opportunities",
         "patch_action",
