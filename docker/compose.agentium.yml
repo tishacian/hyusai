@@ -168,10 +168,15 @@ services:
       - agentium-net
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
     volumes:
-      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
-      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
-      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      # Alembic is a PostgreSQL-only control plane. Keeping every application
+      # store read-only prevents a migration import/side effect from mutating
+      # tenant data outside the database backup boundary.
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store:ro
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db:ro
     command: ["alembic", "upgrade", "head"]
 
   agentium-backend:
@@ -193,6 +198,7 @@ services:
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
       AGENTIUM_BACKEND_WORKERS: ${AGENTIUM_BACKEND_WORKERS:-3}
       AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE: ${AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE:-5}
       STARTUP_RECONCILIATION: ${AGENTIUM_STARTUP_RECONCILIATION:-enabled}
@@ -226,6 +232,7 @@ services:
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
@@ -248,6 +255,7 @@ services:
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
@@ -272,6 +280,7 @@ services:
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
       SECURE_DEPOSIT_SFTP_HOST: 0.0.0.0
       SECURE_DEPOSIT_SFTP_PORT: 2222
     volumes:
@@ -318,11 +327,112 @@ services:
       MINIO_ROOT_USER: ${AGENTIUM_MINIO_ROOT_USER:-agentium}
       MINIO_ROOT_PASSWORD: ${AGENTIUM_MINIO_ROOT_PASSWORD:-change-me-minio-password}
       MINIO_BUCKET: ${AGENTIUM_MINIO_BUCKET:-agentium-artifacts}
+      MINIO_APP_ACCESS_KEY: ${OBJECT_STORE_S3_ACCESS_KEY:-agentium-app}
+      MINIO_APP_SECRET_KEY: ${OBJECT_STORE_S3_SECRET_KEY:-change-me-agentium-app-password}
+      MINIO_RELEASE_A_PROBE_KEY: ${AGENTIUM_RELEASE_A_MINIO_PROBE_KEY:-.agentium-release-a-permission-probe}
+      MINIO_APP_POLICY: ${AGENTIUM_RELEASE_A_MINIO_POLICY_NAME:-agentium-release-a-app-policy}
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - >
-        mc alias set agentium http://agentium-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        && mc mb --ignore-existing "agentium/$$MINIO_BUCKET"
+      - |
+        set -eu
+        umask 077
+
+        fail() {
+          printf 'MinIO bootstrap contract failed\n' >&2
+          exit 1
+        }
+
+        read_minio_user_contract() {
+          mc admin user info agentium "$$MINIO_APP_ACCESS_KEY" --json > /tmp/agentium-app-user.json
+          compact="$$(tr -d '[:space:]' < /tmp/agentium-app-user.json)"
+          printf '%s' "$$compact" | grep -Fq '"status":"success"' || fail
+          printf '%s' "$$compact" | grep -Fq '"accessKey":"'"$$MINIO_APP_ACCESS_KEY"'"' || fail
+          printf '%s' "$$compact" | grep -Fq '"userStatus":"enabled"' || fail
+          case "$$compact" in *'"memberOf":[]'*) ;; *'"memberOf":'*) fail ;; esac
+          actual_policy="$$(printf '%s' "$$compact" | sed -n 's/.*"policyName":"\([^"]*\)".*/\1/p')"
+          printf '%s\n' "$$actual_policy"
+        }
+
+        assert_minio_policy_contract() {
+          rm -f /tmp/agentium-app-policy.actual.json
+          mc admin policy info agentium "$$MINIO_APP_POLICY" --policy-file /tmp/agentium-app-policy.actual.json >/dev/null
+          expected_policy="$$(tr -d '[:space:]' < /tmp/agentium-app-policy.json)"
+          actual_policy="$$(tr -d '[:space:]' < /tmp/agentium-app-policy.actual.json)"
+          [ "$$actual_policy" = "$$expected_policy" ] || fail
+        }
+
+        case "$$MINIO_APP_ACCESS_KEY" in ''|*[!A-Za-z0-9_.-]*) fail ;; esac
+        case "$$MINIO_APP_POLICY" in ''|*[!A-Za-z0-9_.-]*) fail ;; esac
+        case "$$MINIO_BUCKET" in ''|*[!a-z0-9.-]*) fail ;; esac
+        [ "$${#MINIO_BUCKET}" -ge 3 ] && [ "$${#MINIO_BUCKET}" -le 63 ] || fail
+        case "$$MINIO_RELEASE_A_PROBE_KEY" in .agentium-release-a-*) ;; *) fail ;; esac
+        case "$$MINIO_RELEASE_A_PROBE_KEY" in *[!A-Za-z0-9._-]*) fail ;; esac
+        mc alias set agentium http://agentium-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 || fail
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::'"$$MINIO_BUCKET"'"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::'"$$MINIO_BUCKET"'/*"]}]}' > /tmp/agentium-app-policy.json
+
+        user_existed=false
+        user_policy=''
+        if mc admin user info agentium "$$MINIO_APP_ACCESS_KEY" >/dev/null 2>&1; then
+          user_existed=true
+          user_policy="$$(read_minio_user_contract)"
+          [ -z "$$user_policy" ] || [ "$$user_policy" = "$$MINIO_APP_POLICY" ] || fail
+          mc alias set agentium-app http://agentium-minio:9000 "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY" >/dev/null 2>&1 || fail
+        fi
+
+        policy_existed=false
+        if mc admin policy info agentium "$$MINIO_APP_POLICY" --policy-file /tmp/agentium-app-policy.actual.json >/dev/null 2>&1; then
+          policy_existed=true
+          expected_policy="$$(tr -d '[:space:]' < /tmp/agentium-app-policy.json)"
+          actual_policy="$$(tr -d '[:space:]' < /tmp/agentium-app-policy.actual.json)"
+          [ "$$actual_policy" = "$$expected_policy" ] || fail
+        else
+          rm -f /tmp/agentium-app-policy.actual.json
+        fi
+
+        case "$$user_existed:$$user_policy:$$policy_existed" in
+          false::false|true::false|true::true|true:"$$MINIO_APP_POLICY":true) ;;
+          *) fail ;;
+        esac
+        mc mb --ignore-existing "agentium/$$MINIO_BUCKET"
+        mc version enable "agentium/$$MINIO_BUCKET"
+        case "$$user_existed:$$user_policy:$$policy_existed" in
+          false::false)
+            mc admin user add agentium "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY" >/dev/null 2>&1 || fail
+            [ -z "$$(read_minio_user_contract)" ] || fail
+            mc alias set agentium-app http://agentium-minio:9000 "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY" >/dev/null 2>&1 || fail
+            mc admin policy create agentium "$$MINIO_APP_POLICY" /tmp/agentium-app-policy.json >/dev/null
+            ;;
+          true::false)
+            mc admin policy create agentium "$$MINIO_APP_POLICY" /tmp/agentium-app-policy.json >/dev/null
+            ;;
+          true::true|true:"$$MINIO_APP_POLICY":true)
+            ;;
+          *)
+            fail
+            ;;
+        esac
+
+        assert_minio_policy_contract
+        if [ "$$user_policy" != "$$MINIO_APP_POLICY" ]; then
+          mc admin policy attach agentium "$$MINIO_APP_POLICY" --user "$$MINIO_APP_ACCESS_KEY" >/dev/null
+        fi
+        [ "$$(read_minio_user_contract)" = "$$MINIO_APP_POLICY" ] || fail
+        test "$$(mc version info --json "agentium/$$MINIO_BUCKET" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')" = Enabled
+        test -z "$$(mc ls --versions "agentium/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY")"
+        printf 'root-control' | mc pipe "agentium/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY"
+        test "$$(mc cat "agentium-app/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY")" = root-control
+        printf 'application-control' | mc pipe "agentium-app/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY"
+        test "$$(mc cat "agentium-app/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY")" = application-control
+        mc ls "agentium-app/$$MINIO_BUCKET" >/dev/null
+        ! mc rm "agentium-app/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY" >/tmp/delete-denied 2>&1
+        grep -Eqi 'AccessDenied|access denied' /tmp/delete-denied
+        ! mc version suspend "agentium-app/$$MINIO_BUCKET" >/tmp/config-denied 2>&1
+        grep -Eqi 'AccessDenied|access denied' /tmp/config-denied
+        mc rm --force --versions "agentium/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY"
+        ! mc stat "agentium/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY" >/dev/null 2>&1
+        test -z "$$(mc ls --versions "agentium/$$MINIO_BUCKET/$$MINIO_RELEASE_A_PROBE_KEY")"
+        rm -f /tmp/agentium-app-user.json /tmp/agentium-app-policy.json /tmp/agentium-app-policy.actual.json
+        rm -f /tmp/delete-denied /tmp/config-denied
 
   agentium-pg:
     image: postgres:17

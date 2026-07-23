@@ -11,13 +11,17 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
+from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services import secure_deposit as secure_deposit_service
+from app.services import secure_deposit_sftp
 from app.services.knowledge_collections import document_manifest_key
 from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
+    SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
     _archive_document_metadata,
     _extract_andritz_project_reference,
     authenticate_link,
@@ -28,6 +32,8 @@ from app.services.secure_deposit import (
     promote_file_to_collection,
     receive_file,
     record_staged_file_from_path,
+    revoke_link,
+    rotate_link_password,
     safe_filename,
     safe_relative_path,
     verify_session_token,
@@ -56,6 +62,47 @@ def _workspace_user(db_session):
     )
     db_session.flush()
     return workspace, user
+
+
+class _FakeAsyncSSH:
+    class SSHServer:
+        pass
+
+    class SFTPServer:
+        def __init__(self, _chan):
+            pass
+
+    class SFTPAttrs:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class SFTPName:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class SFTPError(Exception):
+        pass
+
+    class SFTPNoSuchFile(Exception):  # noqa: N818 - mirrors AsyncSSH API
+        pass
+
+    class SFTPFailure(Exception):  # noqa: N818 - mirrors AsyncSSH API
+        pass
+
+    class SFTPPermissionDenied(Exception):  # noqa: N818 - mirrors AsyncSSH API
+        pass
+
+
+def _ssh_auth_server(client_version: str):
+    ssh_server, _sftp_server = _build_asyncssh_components(_FakeAsyncSSH)
+    server = ssh_server()
+    server.connection_made(
+        SimpleNamespace(
+            get_extra_info=lambda key: client_version if key == "client_version" else None
+        )
+    )
+    return server
 
 
 def test_deposit_link_password_is_one_time_and_session_scoped(db_session):
@@ -133,6 +180,281 @@ def test_deposit_link_rejects_bad_password(db_session):
         authenticate_link(db_session, access_id=link.access_id, password="wrong")
 
     assert exc.value.status_code == 401
+
+
+def test_release_a_sftp_canary_success_audit_recovers_after_commit_before_response(
+    db_session,
+    monkeypatch,
+):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Release A disposable SFTP proof",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    )
+    db_session.commit()
+    server = _ssh_auth_server("SSH-2.0-AgentiumReleaseASFTPPositiveCanary")
+    original = secure_deposit_sftp._emit_password_auth_audit
+    crashed = False
+
+    def _commit_then_crash(*args, **kwargs):
+        nonlocal crashed
+        event_id = original(*args, **kwargs)
+        if kwargs.get("retry_safe_canary") and not crashed:
+            crashed = True
+            raise RuntimeError("simulated producer disconnect after audit commit")
+        return event_id
+
+    monkeypatch.setattr(
+        secure_deposit_sftp,
+        "_emit_password_auth_audit",
+        _commit_then_crash,
+    )
+
+    # The first SSH decision is lost after the authoritative audit commit.
+    assert server.validate_password(link.access_id, password) is False
+    monkeypatch.setattr(
+        secure_deposit_sftp,
+        "_emit_password_auth_audit",
+        original,
+    )
+
+    # Redelivery authenticates and reuses exactly the committed event.
+    assert server.validate_password(link.access_id, password) is True
+    db_session.expire_all()
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "deposit.sftp.auth.success")
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].id == secure_deposit_sftp._canary_audit_id(
+        link,
+        event_type="deposit.sftp.auth.success",
+        reason=None,
+    )
+    assert rows[0].details == {"access_id": link.access_id, "link_id": link.id}
+
+
+def test_release_a_sftp_canary_denial_audit_is_retry_safe_after_revocation(
+    db_session,
+    monkeypatch,
+):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Release A disposable SFTP proof",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    )
+    db_session.commit()
+    revoke_link(db_session, link=link, user=user)
+    db_session.commit()
+    server = _ssh_auth_server("SSH-2.0-AgentiumReleaseASFTPPositiveCanary")
+    original = secure_deposit_sftp._emit_password_auth_audit
+    crashed = False
+
+    def _commit_then_crash(*args, **kwargs):
+        nonlocal crashed
+        event_id = original(*args, **kwargs)
+        if kwargs.get("retry_safe_canary") and not crashed:
+            crashed = True
+            raise RuntimeError("simulated producer disconnect after denial audit commit")
+        return event_id
+
+    monkeypatch.setattr(
+        secure_deposit_sftp,
+        "_emit_password_auth_audit",
+        _commit_then_crash,
+    )
+    assert server.validate_password(link.access_id, password) is False
+    monkeypatch.setattr(
+        secure_deposit_sftp,
+        "_emit_password_auth_audit",
+        original,
+    )
+    assert server.validate_password(link.access_id, password) is False
+
+    db_session.expire_all()
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "deposit.sftp.auth.failed")
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].id == secure_deposit_sftp._canary_audit_id(
+        link,
+        event_type="deposit.sftp.auth.failed",
+        reason="inactive_or_expired",
+    )
+    assert rows[0].details == {
+        "access_id": link.access_id,
+        "link_id": link.id,
+        "reason": "inactive_or_expired",
+    }
+
+
+@pytest.mark.parametrize(
+    ("profile", "client_version"),
+    [
+        (None, "SSH-2.0-AgentiumReleaseASFTPPositiveCanary"),
+        (SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY, "SSH-2.0-OpenSSH_9.9"),
+    ],
+)
+def test_sftp_business_authentication_is_never_deduplicated_by_one_marker_alone(
+    db_session,
+    profile,
+    client_version,
+):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Ordinary SFTP link",
+        expires_at=None,
+        max_file_size_mb=20,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=profile,
+    )
+    db_session.commit()
+    server = _ssh_auth_server(client_version)
+
+    assert server.validate_password(link.access_id, password) is True
+    assert server.validate_password(link.access_id, password) is True
+
+    db_session.expire_all()
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "deposit.sftp.auth.success")
+        .all()
+    )
+    assert len(rows) == 2
+    assert rows[0].id != rows[1].id
+
+
+def test_reserved_canary_access_namespace_requires_the_explicit_profile(
+    db_session,
+    monkeypatch,
+):
+    workspace, user = _workspace_user(db_session)
+    generated = iter(("password-token", "ra1_attempted-prefix"))
+    monkeypatch.setattr(
+        secure_deposit_service.secrets,
+        "token_urlsafe",
+        lambda _size: next(generated),
+    )
+
+    link, _password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="ra1_ is only text in this ordinary label",
+        expires_at=None,
+        max_file_size_mb=20,
+        allowed_extensions=[],
+    )
+
+    assert link.access_id == "ra1-attempted-prefix"
+    assert not secure_deposit_service.is_release_a_sftp_canary_access_id(
+        link.access_id
+    )
+    assert secure_deposit_service.serialize_link(link)[
+        "sftp_auth_audit_profile"
+    ] is None
+
+
+def test_release_a_sftp_canary_bad_password_audits_remain_per_attempt(db_session):
+    workspace, user = _workspace_user(db_session)
+    link, _password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Release A disposable SFTP proof",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    )
+    db_session.commit()
+    server = _ssh_auth_server("SSH-2.0-AgentiumReleaseASFTPPositiveCanary")
+
+    assert server.validate_password(link.access_id, "incorrect-one") is False
+    assert server.validate_password(link.access_id, "incorrect-two") is False
+
+    db_session.expire_all()
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "deposit.sftp.auth.failed")
+        .all()
+    )
+    assert len(rows) == 2
+    assert {row.details["reason"] for row in rows} == {"bad_password"}
+
+
+def test_release_a_sftp_canary_profile_is_sftp_only_and_credential_immutable(db_session):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Release A disposable SFTP proof",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    )
+
+    with pytest.raises(HTTPException) as public_error:
+        authenticate_link(db_session, access_id=link.access_id, password=password)
+    with pytest.raises(HTTPException) as rotation_error:
+        rotate_link_password(db_session, link=link, user=user)
+
+    assert public_error.value.status_code == 403
+    assert rotation_error.value.status_code == 409
+
+
+def test_release_a_sftp_canary_rejects_a_conflicting_deterministic_audit(db_session):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Release A disposable SFTP proof",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=[],
+        sftp_auth_audit_profile=SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    )
+    event_id = secure_deposit_sftp._canary_audit_id(
+        link,
+        event_type="deposit.sftp.auth.success",
+        reason=None,
+    )
+    db_session.add(
+        AuditLog(
+            id=event_id,
+            workspace_id=workspace.id,
+            event_type="deposit.sftp.auth.success",
+            actor=f"sftp:{link.access_id}",
+            details={"access_id": link.access_id, "link_id": "different-link"},
+        )
+    )
+    db_session.commit()
+    server = _ssh_auth_server("SSH-2.0-AgentiumReleaseASFTPPositiveCanary")
+
+    assert server.validate_password(link.access_id, password) is False
+    db_session.expire_all()
+    assert db_session.query(AuditLog).filter(AuditLog.id == event_id).count() == 1
 
 
 def test_disabled_workspace_blocks_link_creation(db_session):

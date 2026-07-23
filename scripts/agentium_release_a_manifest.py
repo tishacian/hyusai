@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-LIVE_BASE_SHA = "a8c790ade6b65859b53649b9bbf0c81a370d1856"
+LIVE_BASE_SHA = "154fd98822439747846cd941dce1bf8191f379b2"
 PROFILE = "agentium-release-a-diff-manifest-v7"
 VERIFICATION_PROFILE = "agentium-release-a-diff-verification-v7"
 REVIEW_PROFILE = "agentium-release-a-semantic-review-v1"

@@ -4,11 +4,11 @@ from __future__ import annotations
 import mimetypes
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 from starlette.background import BackgroundTask
 
@@ -18,21 +18,22 @@ from app.db.base import get_db
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.audit_logger import emit_audit_event
 from app.services.secure_deposit import (
-    authenticate_link,
-    build_indexing_assist_snapshot,
     assert_link_usable,
+    authenticate_link,
     build_deposit_archive,
+    build_indexing_assist_snapshot,
     create_link,
     default_allowed_extensions,
     extract_deposit_zip_member_to_temp,
     get_link_by_access_id,
     is_workspace_enabled,
     list_deposit_zip_archive,
-    promote_files_to_collection_batch,
-    promote_file_to_collection,
     preview_deposit_file,
     preview_deposit_zip_member,
+    promote_file_to_collection,
+    promote_files_to_collection_batch,
     receive_file,
     revoke_link,
     rotate_link_password,
@@ -50,7 +51,6 @@ from app.services.secure_deposit_operations import (
     SFTP_RECONCILIATION_JOB_KIND,
     get_sftp_operations_snapshot,
 )
-from app.services.audit_logger import emit_audit_event
 from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
 
 public_router = APIRouter()
@@ -65,10 +65,13 @@ class PublicSessionRequest(BaseModel):
 
 
 class DepositLinkCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label: str = Field(default="External deposit", max_length=255)
     expires_at: Optional[datetime] = None
     max_file_size_mb: Optional[int] = Field(default=None, ge=1, le=MAX_DEPOSIT_FILE_SIZE_MB)
     allowed_extensions: Optional[list[str]] = None
+    sftp_auth_audit_profile: Literal["release_a_canary_v1"] | None = None
 
 
 class DepositLinkPatchRequest(BaseModel):
@@ -348,6 +351,7 @@ def create_deposit_link(
         expires_at=body.expires_at,
         max_file_size_mb=body.max_file_size_mb,
         allowed_extensions=body.allowed_extensions,
+        sftp_auth_audit_profile=body.sftp_auth_audit_profile,
     )
     db.commit()
     db.refresh(link)

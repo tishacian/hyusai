@@ -6,27 +6,36 @@ import os
 import stat as stat_module
 import subprocess
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.db.base import SessionLocal
+from app.models.audit import AuditLog
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.secure_deposit import (
+    SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
     assert_link_usable,
     extension_for,
+    is_release_a_sftp_canary_access_id,
     is_workspace_enabled,
     record_staged_file_from_path,
     safe_filename,
     safe_relative_path,
     verify_password,
 )
-from app.services.secure_deposit_operations import delete_sftp_upload_sidecar, write_sftp_upload_sidecar
+from app.services.secure_deposit_operations import (
+    delete_sftp_upload_sidecar,
+    write_sftp_upload_sidecar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +46,151 @@ _FXF_APPEND = 0x00000004
 _ROOT_ALIASES = {"upload"}
 _SFTP_UID = 1000
 _SFTP_GID = 1000
+_RELEASE_A_CANARY_CLIENT_VERSION = "SSH-2.0-AgentiumReleaseASFTPPositiveCanary"
+_RELEASE_A_CANARY_AUDIT_NAMESPACE = uuid.UUID("76a9577e-f3a8-5b4d-a921-b6532a6c3cbb")
+
+
+def _release_a_canary_client(conn: Any) -> bool:
+    """Recognise the exact SSH producer in addition to the DB link opt-in."""
+
+    try:
+        client_version = conn.get_extra_info("client_version")
+    except (AttributeError, TypeError):
+        return False
+    if isinstance(client_version, bytes):
+        try:
+            client_version = client_version.decode("ascii", errors="strict")
+        except UnicodeDecodeError:
+            return False
+    return client_version == _RELEASE_A_CANARY_CLIENT_VERSION
+
+
+def _canary_audit_id(link: DepositAccessLink, *, event_type: str, reason: str | None) -> str:
+    identity = "\x00".join(
+        (
+            SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+            str(link.id),
+            event_type,
+            reason or "",
+        )
+    )
+    return str(uuid.uuid5(_RELEASE_A_CANARY_AUDIT_NAMESPACE, identity))
+
+
+def _assert_existing_canary_audit(
+    entry: AuditLog,
+    *,
+    link: DepositAccessLink,
+    event_type: str,
+    severity: str,
+    details: dict[str, str],
+) -> None:
+    """Fail closed if a deterministic canary audit id was pre-populated."""
+
+    if (
+        entry.workspace_id != link.workspace_id
+        or entry.event_type != event_type
+        or entry.actor != f"sftp:{link.access_id}"
+        or entry.details != details
+        or entry.trace_id is not None
+        or entry.agent_id is not None
+        or entry.severity != severity
+        or not isinstance(entry.timestamp, datetime)
+    ):
+        raise RuntimeError("SFTP canary audit id collides with different evidence")
+
+
+def _emit_password_auth_audit(
+    db: DBSession,
+    *,
+    link: DepositAccessLink,
+    event_type: str,
+    severity: str = "info",
+    reason: str | None = None,
+    retry_safe_canary: bool = False,
+) -> str | None:
+    """Persist one SSH authentication audit.
+
+    Ordinary authentication remains per-attempt. The deterministic path is
+    deliberately narrow: callers may enable it only for the two Release A
+    canary outcomes, after checking both the reserved access-id namespace and
+    the exact SSH client version. A committed row is therefore reusable after a
+    producer crash without turning general SFTP authentication into a
+    deduplicated stream.
+    """
+
+    details = {"access_id": link.access_id, "link_id": link.id}
+    if reason is not None:
+        details["reason"] = reason
+
+    if not retry_safe_canary:
+        event_id = emit_audit_event(
+            db=db,
+            workspace_id=link.workspace_id,
+            event_type=event_type,
+            actor=f"sftp:{link.access_id}",
+            severity=severity,
+            details=details,
+        )
+        db.commit()
+        return event_id
+
+    if not is_release_a_sftp_canary_access_id(link.access_id) or (
+        event_type,
+        reason,
+    ) not in {
+        ("deposit.sftp.auth.success", None),
+        ("deposit.sftp.auth.failed", "inactive_or_expired"),
+    }:
+        raise RuntimeError("SFTP canary retry-safe audit was requested outside its contract")
+
+    event_id = _canary_audit_id(link, event_type=event_type, reason=reason)
+    existing = db.get(AuditLog, event_id)
+    if existing is not None:
+        _assert_existing_canary_audit(
+            existing,
+            link=link,
+            event_type=event_type,
+            severity=severity,
+            details=details,
+        )
+        return event_id
+
+    entry = AuditLog(
+        id=event_id,
+        workspace_id=link.workspace_id,
+        timestamp=datetime.utcnow(),
+        event_type=event_type,
+        actor=f"sftp:{link.access_id}",
+        details=details,
+        trace_id=None,
+        agent_id=None,
+        severity=severity,
+    )
+    try:
+        # The SAVEPOINT contains a concurrent primary-key conflict without
+        # invalidating the link lookup transaction around it.
+        with db.begin_nested():
+            db.add(entry)
+            db.flush()
+    except IntegrityError:
+        db.expire_all()
+        existing = db.get(AuditLog, event_id, populate_existing=True)
+        if existing is None:
+            raise RuntimeError("SFTP canary audit could not be persisted idempotently") from None
+        _assert_existing_canary_audit(
+            existing,
+            link=link,
+            event_type=event_type,
+            severity=severity,
+            details=details,
+        )
+        return event_id
+
+    # This commit is intentionally before the SSH decision. If the producer
+    # crashes after it, the deterministic row above is recovered on redelivery.
+    db.commit()
+    return event_id
 
 
 def _decode_path(path: bytes | str) -> str:
@@ -330,6 +484,12 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
         def connection_made(self, conn: Any) -> None:
             self._conn = conn
 
+        def _retry_safe_canary_audit(self, link: DepositAccessLink) -> bool:
+            return (
+                is_release_a_sftp_canary_access_id(link.access_id)
+                and _release_a_canary_client(getattr(self, "_conn", None))
+            )
+
         def begin_auth(self, _username: str) -> bool:
             return True
 
@@ -365,35 +525,33 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                         reason = "inactive_or_expired"
                         allowed = False
                 if not allowed:
-                    emit_audit_event(
-                        db=db,
-                        workspace_id=link.workspace_id,
+                    _emit_password_auth_audit(
+                        db,
+                        link=link,
                         event_type="deposit.sftp.auth.failed",
-                        actor=f"sftp:{username}",
                         severity="warning",
-                        details={"access_id": username, "link_id": link.id, "reason": reason},
+                        reason=reason,
+                        retry_safe_canary=(
+                            reason == "inactive_or_expired"
+                            and self._retry_safe_canary_audit(link)
+                        ),
                     )
-                    db.commit()
                     return False
                 if not verify_password(link.password_hash, password):
-                    emit_audit_event(
-                        db=db,
-                        workspace_id=link.workspace_id,
+                    _emit_password_auth_audit(
+                        db,
+                        link=link,
                         event_type="deposit.sftp.auth.failed",
-                        actor=f"sftp:{username}",
                         severity="warning",
-                        details={"access_id": username, "link_id": link.id, "reason": "bad_password"},
+                        reason="bad_password",
                     )
-                    db.commit()
                     return False
-                emit_audit_event(
-                    db=db,
-                    workspace_id=link.workspace_id,
+                _emit_password_auth_audit(
+                    db,
+                    link=link,
                     event_type="deposit.sftp.auth.success",
-                    actor=f"sftp:{username}",
-                    details={"access_id": username, "link_id": link.id},
+                    retry_safe_canary=self._retry_safe_canary_audit(link),
                 )
-                db.commit()
                 return True
             except Exception:  # noqa: BLE001
                 db.rollback()

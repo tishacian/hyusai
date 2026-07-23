@@ -820,10 +820,11 @@
             "label": "Database-aware immutable image rollback",
             "path": "scripts/deploy-vm.sh",
             "contains": [
-              "printf 'format\\t2\\n'",
+              "printf 'format\\t3\\n'",
               "printf 'database_revision\\t%s\\n'",
               "actual_database_revision=\"$(current_database_revision)\"",
-              "Rollback images refusé"
+              "Rollback images refusé",
+              "ensure_rollback_image_override \"$state_file\""
             ]
           }
         ],

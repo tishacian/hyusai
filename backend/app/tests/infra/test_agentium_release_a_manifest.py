@@ -16,7 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 HELPER = ROOT / "scripts" / "agentium_release_a_manifest.py"
-FIXED_BASE_SHA = "a8c790ade6b65859b53649b9bbf0c81a370d1856"
+FIXED_BASE_SHA = "154fd98822439747846cd941dce1bf8191f379b2"
 NOW = datetime(2026, 7, 22, 19, 0, tzinfo=UTC)
 
 

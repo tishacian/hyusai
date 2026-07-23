@@ -12,10 +12,15 @@ from app.api.v1.endpoints import secure_deposit
 from app.core.config import settings
 from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection
+from app.models.secure_deposit import DepositAccessLink
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
-from app.services.secure_deposit import create_link, record_staged_file_from_path
+from app.services.secure_deposit import (
+    SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX,
+    create_link,
+    record_staged_file_from_path,
+)
 from app.services.secure_deposit_operations import write_sftp_upload_sidecar
 
 
@@ -199,6 +204,62 @@ def test_owner_can_rotate_then_revoke_link_and_credentials_follow_state(db_sessi
 
     revoked_session = public.post(f"/deposit/{link.access_id}/session", json={"password": rotated_password})
     assert revoked_session.status_code == 403
+
+
+def test_internal_api_explicitly_marks_release_a_sftp_canary_link(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+    workspace = Workspace(
+        id="ws-release-a-sftp-canary",
+        name="Release A SFTP canary",
+        slug="release-a-sftp-canary",
+        settings={"features": {"secure_deposit": True}},
+    )
+    user = User(
+        id="user-release-a-sftp-canary",
+        email="release-a-operator@example.test",
+        username="release-a-operator",
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    response = client.post(
+        "/sftp/links",
+        json={
+            "label": "Release A disposable SFTP proof",
+            "max_file_size_mb": 1,
+            "allowed_extensions": [],
+            "sftp_auth_audit_profile": "release_a_canary_v1",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["link"]
+    assert payload["sftp_auth_audit_profile"] == "release_a_canary_v1"
+    persisted = db_session.get(DepositAccessLink, payload["id"])
+    assert persisted is not None
+    assert persisted.access_id.startswith(SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX)
+
+    invalid = client.post(
+        "/sftp/links",
+        json={
+            "label": "Not a supported audit mode",
+            "sftp_auth_audit_profile": "dedupe_all",
+        },
+    )
+    assert invalid.status_code == 422
+
+    forced_access_id = client.post(
+        "/sftp/links",
+        json={
+            "label": "Ordinary link",
+            "access_id": f"{SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX}forged",
+        },
+    )
+    assert forced_access_id.status_code == 422
 
 
 def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypatch, tmp_path):
