@@ -17,7 +17,7 @@ import os
 import re
 import statistics
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any, Optional
 from uuid import uuid4
@@ -61,6 +61,7 @@ from app.services.client360_forecast import (
     apply_next_due_to_record,
     campaign_expected_value,
     last_purchase_date_from_record,
+    parse_forecast_date,
 )
 from app.services.email import SmtpDeliveryConfig, send_email_with_config
 from app.services.iam.app_entitlements import (
@@ -3911,7 +3912,24 @@ CAMPAIGN_SELECTION_KEYS = (
     "confidence",
     "limit",
 )
+# Explicit targeting keys (annuaire multi-selection / next-due window). Kept
+# separate from CAMPAIGN_SELECTION_KEYS so the chat filter allow-list — which
+# mirrors the ``list_opportunities`` parameters — stays unchanged.
+CAMPAIGN_TARGETING_MAX_CUSTOMERS = 200
 _CAMPAIGN_RESPONDED_STATUSES = {"responded", "quote_requested", "won", "lost", "dismissed"}
+
+
+def _campaign_customer_keys(criteria: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for value in _as_list(criteria.get("customer_keys")):
+        text = _safe_text(value)
+        normalized = _customer_key_for(text)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        keys.append(text)
+    return keys[:CAMPAIGN_TARGETING_MAX_CUSTOMERS]
 
 
 def _campaign_selection_filters(criteria: Any) -> dict[str, Any]:
@@ -3922,7 +3940,54 @@ def _campaign_selection_filters(criteria: Any) -> dict[str, Any]:
         if value is None or value == "":
             continue
         out[key] = _safe_int(value, 100) if key == "limit" else _safe_text(value)
+    customer_keys = _campaign_customer_keys(data)
+    if customer_keys:
+        out["customer_keys"] = customer_keys
+    due_within_weeks = _safe_int(data.get("due_within_weeks"), 0)
+    if due_within_weeks > 0:
+        out["due_within_weeks"] = due_within_weeks
     return out
+
+
+def _campaign_target_opportunities(
+    db: DBSession,
+    workspace: Workspace,
+    criteria: Any,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve campaign targets.
+
+    An explicit ``customer_keys`` selection (annuaire / fiche next-due) resolves
+    to those customers' opportunities; otherwise the historical opportunity
+    filters apply. ``due_within_weeks`` further restricts targets to
+    opportunities whose deterministic ``next_due_at`` falls before the window.
+    """
+    selection = _campaign_selection_filters(criteria)
+    customer_keys = selection.pop("customer_keys", [])
+    due_within_weeks = selection.pop("due_within_weeks", None)
+    if customer_keys:
+        limit = _safe_int(selection.pop("limit", 0), 0) or None
+        pool = list_opportunities(db, workspace, **{**selection, "limit": 500})
+        wanted = {_customer_key_for(key) for key in customer_keys}
+        items = [
+            item
+            for item in pool
+            if _customer_key_for(item.get("customer_key") or item.get("customer_name")) in wanted
+        ]
+        if limit:
+            items = items[:limit]
+    else:
+        items = list_opportunities(db, workspace, **selection)
+    if due_within_weeks:
+        horizon = (now or datetime.utcnow()) + timedelta(weeks=int(due_within_weeks))
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            due = parse_forecast_date(item.get("next_due_at"))
+            if due is not None and due <= horizon:
+                filtered.append(item)
+        items = filtered
+    return items
 
 
 def serialize_campaign(row: Client360Campaign) -> dict[str, Any]:
@@ -4103,10 +4168,10 @@ def generate_campaign_drafts(
     language: str = "fr",
     include_prices: bool = False,
     limit: int | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     campaign = _get_campaign(db, workspace, campaign_id)
-    filters = _campaign_selection_filters(campaign.selection_criteria)
-    items = list_opportunities(db, workspace, **filters)
+    items = _campaign_target_opportunities(db, workspace, campaign.selection_criteria, now=now)
 
     engaged = _customers_in_active_campaigns(db, workspace, exclude_campaign_id=campaign.id)
     already_drafted = _customers_with_campaign_drafts(db, workspace, campaign.id)
@@ -4295,8 +4360,7 @@ def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dic
         sum(float(event.order_value or 0) for event in events if event.impact_type == "order"), 2
     )
 
-    filters = _campaign_selection_filters(campaign.selection_criteria)
-    items = list_opportunities(db, workspace, **filters)
+    items = _campaign_target_opportunities(db, workspace, campaign.selection_criteria)
     potential_gap_value = round(
         sum(float(item.get("potential_gap_value") or 0) for item in items), 2
     )
