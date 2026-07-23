@@ -428,8 +428,44 @@ async def translate_query_to_filters(
     return _deterministic_filters(query, facets), "deterministic"
 
 
+_GREETING_TOKENS = {
+    "hello",
+    "hi",
+    "hey",
+    "yo",
+    "bonjour",
+    "salut",
+    "coucou",
+    "bonsoir",
+    "hola",
+    "test",
+    "ping",
+    "ca",
+    "va",
+}
+
+_HELP_TOKENS = (
+    "que sais tu",
+    "que peux tu",
+    "que sait",
+    "comment marche",
+    "comment fonctionne",
+    "capacite",
+    "help",
+    "aide",
+)
+
+
+def _is_greeting(normalized: str) -> bool:
+    words = normalized.split()
+    return bool(words) and len(words) <= 3 and all(word in _GREETING_TOKENS for word in words)
+
+
 def _detect_intent(query: str) -> str:
     normalized = _norm(query)
+    # Small talk must never fall through to the opportunities dump.
+    if _is_greeting(normalized):
+        return "help"
     asks_why = any(
         token in normalized
         for token in ("pourquoi", "explique", "explication", "formule", "comment calcul", "comment est calcul")
@@ -495,6 +531,9 @@ def _detect_intent(query: str) -> str:
         or "installed base" in normalized
     ):
         return "customer"
+    # Checked last so e.g. "aide-moi a auditer Septona" still routes to audit.
+    if any(token in normalized for token in _HELP_TOKENS):
+        return "help"
     return "opportunities"
 
 
@@ -513,8 +552,12 @@ def _evidence_refs_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return aggregated
 
 
+_MAX_CHAT_SOURCES = 10
+
+
 def _sources_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
     for item in items:
         title = (
             " · ".join(
@@ -528,6 +571,12 @@ def _sources_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             or "Opportunité Client360"
         )
+        # Many opportunities share customer+family labels; showing each one
+        # floods the chat with duplicate lines. The full audit trail stays in
+        # evidence_refs, which aggregates every opportunity.
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
         sources.append(
             {
                 "title": title,
@@ -538,7 +587,38 @@ def _sources_for(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "evidence_refs": item.get("evidence_refs") or [],
             }
         )
+        if len(sources) >= _MAX_CHAT_SOURCES:
+            break
     return sources
+
+
+def _plain_text(content: str) -> str:
+    # The dedicated chat surface renders plain text; markdown markers would
+    # otherwise show up literally (e.g. "**Client360**").
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", content).replace("`", "")
+
+
+def _help_response() -> dict[str, Any]:
+    content = "\n".join(
+        [
+            "Assistant Client360 — je réponds uniquement sur les données Client360 "
+            "(lectures bornées et sourcées, jamais de SQL libre).",
+            "Exemples de questions :",
+            "- « Opportunités en Turquie en confiance haute »",
+            "- « Fiche client Septona » ou « Audite Septona »",
+            "- « Quelles pièces à prévoir dans les 6 prochains mois ? »",
+            "- « Pourquoi cette opportunité O'ring ? » (détail du calcul)",
+            "- « Campagnes en cours » ou « Ouvre l'onglet campagnes »",
+        ]
+    )
+    return {
+        "intent": "help",
+        "content": content,
+        "result": {},
+        "sources": [],
+        "evidence_refs": [],
+        "cta": _cta(),
+    }
 
 
 def _fmt_eur(value: Any) -> str:
@@ -1155,11 +1235,17 @@ async def handle_client360_chat_query(
     if require_trigger and not is_client360_query(query):
         return None
 
+    intent = _detect_intent(query)
+    if intent == "help":
+        # Greetings/help never need the opportunity scan or filter translation.
+        filters, method = {}, "none"
+        response = _help_response()
+        return _finalize_answer(db, workspace, user, query, response, filters, method)
+
     # Single bounded scan reused for facet vocabulary and (for the list intent)
     # to seed the translation. No arbitrary DB access beyond the read API.
     scope_items = list_opportunities(db, workspace, limit=500)
     filters, method = await translate_query_to_filters(db, workspace, query, scope_items)
-    intent = _detect_intent(query)
 
     if intent == "campaign":
         response = _campaign_response(db, workspace, query, filters, method)
@@ -1176,6 +1262,18 @@ async def handle_client360_chat_query(
     else:
         response = _opportunities_response(db, workspace, filters, method)
 
+    return _finalize_answer(db, workspace, user, query, response, filters, method)
+
+
+def _finalize_answer(
+    db: DBSession,
+    workspace: Workspace,
+    user: Optional[User],
+    query: str,
+    response: dict[str, Any],
+    filters: dict[str, Any],
+    method: str,
+) -> dict[str, Any]:
     emit_audit_event(
         db=db,
         workspace_id=workspace.id,
@@ -1197,7 +1295,7 @@ async def handle_client360_chat_query(
         "intent": response["intent"],
         "filters": filters,
         "translation_method": method,
-        "content": response["content"],
+        "content": _plain_text(response["content"]),
         "result": response["result"],
         "sources": response["sources"],
         "evidence_refs": response["evidence_refs"],

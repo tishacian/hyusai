@@ -292,6 +292,46 @@ def test_detect_intent_phase3_vocabulary() -> None:
     )
 
 
+def test_detect_intent_greeting_and_help() -> None:
+    assert client360_chat._detect_intent("hello") == "help"
+    assert client360_chat._detect_intent("Bonjour !") == "help"
+    assert client360_chat._detect_intent("que peux-tu faire ?") == "help"
+    # Help keywords stay subordinate to domain intents.
+    assert client360_chat._detect_intent("aide-moi à auditer Septona") == "customer_audit"
+    assert client360_chat._detect_intent("montre les opportunités Turquie") == "opportunities"
+
+
+def test_handler_greeting_returns_help_without_sources(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session, workspace, None, query="hello", require_trigger=False
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "help"
+    assert result["sources"] == []
+    assert result["evidence_refs"] == []
+    assert "Assistant Client360" in result["content"]
+
+
+def test_content_is_plain_text_and_sources_deduped(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    # Same customer/family/reference labels -> would previously emit twin sources.
+    _seed_opportunity(db_session, workspace)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session, workspace, None, query="montre les opportunités PDR"
+        )
+    )
+    assert result is not None
+    assert "**" not in result["content"]
+    titles = [src["title"] for src in result["sources"]]
+    assert titles and len(titles) == len(set(titles))
+
+
 def test_registry_customer_names_enrich_facets(db_session, monkeypatch) -> None:
     workspace = _seed_workspace(db_session)
     _seed_opportunity(db_session, workspace)
