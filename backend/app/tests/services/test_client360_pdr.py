@@ -1214,6 +1214,154 @@ def test_generate_campaign_drafts_dedups_active_campaign(db_session) -> None:
     )
 
 
+def test_create_campaign_persists_customer_keys_targeting(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    user = _seed_user(db_session)
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Selection annuaire",
+        campaign_type="renewal",
+        selection_criteria={
+            "customer_keys": ["Septona", "septona", " Mogul ", ""],
+            "due_within_weeks": "12",
+            "unknown": "drop",
+        },
+    )
+    db_session.commit()
+
+    # Duplicate keys (same normalized customer) and empty entries are dropped.
+    assert campaign.selection_criteria == {
+        "customer_keys": ["Septona", "Mogul"],
+        "due_within_weeks": 12,
+    }
+
+
+def test_generate_campaign_drafts_targets_explicit_customer_selection(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="alpha")
+    _seed_campaign_opportunity(db_session, workspace, customer_key="beta", email=None)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="gamma")
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Annuaire",
+        campaign_type="free",
+        selection_criteria={"customer_keys": ["Alpha", "beta"]},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, campaign.id)
+    db_session.commit()
+
+    # gamma stays out of the selection; beta is selected but lacks a contact email.
+    assert result["created"] == 1
+    assert result["skipped"].get("missing_contact_email") == 1
+    drafts = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .all()
+    )
+    drafted_customers = {
+        db_session.query(Client360Opportunity)
+        .filter(Client360Opportunity.id == draft.opportunity_id)
+        .one()
+        .customer_key
+        for draft in drafts
+    }
+    assert drafted_customers == {"alpha"}
+    db_session.refresh(campaign)
+    assert campaign.targeted_count == 2
+
+
+def test_generate_campaign_drafts_customer_selection_keeps_active_campaign_dedup(
+    db_session,
+) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="shared")
+
+    first = create_campaign(db_session, workspace, user, name="First", campaign_type="free")
+    generate_campaign_drafts(db_session, workspace, user, first.id)
+    db_session.commit()
+
+    second = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Second",
+        campaign_type="renewal",
+        selection_criteria={"customer_keys": ["shared"]},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, second.id)
+    db_session.commit()
+
+    assert result["created"] == 0
+    assert result["skipped"].get("active_campaign_conflict") == 1
+
+
+def test_generate_campaign_drafts_due_within_weeks_targets_due_soon_only(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    now = datetime(2026, 7, 1, 9, 0, 0)
+    _seed_campaign_opportunity(
+        db_session, workspace, customer_key="duesoon", next_due_at=datetime(2026, 8, 1, 9, 0, 0)
+    )
+    _seed_campaign_opportunity(
+        db_session, workspace, customer_key="duelater", next_due_at=datetime(2027, 7, 1, 9, 0, 0)
+    )
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Echeances",
+        campaign_type="renewal",
+        selection_criteria={"customer_keys": ["duesoon", "duelater"], "due_within_weeks": 8},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, campaign.id, now=now)
+    db_session.commit()
+
+    assert result["created"] == 1
+    draft = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .one()
+    )
+    opportunity = (
+        db_session.query(Client360Opportunity)
+        .filter(Client360Opportunity.id == draft.opportunity_id)
+        .one()
+    )
+    assert opportunity.customer_key == "duesoon"
+    db_session.refresh(campaign)
+    assert campaign.targeted_count == 1
+
+
+def test_campaign_stats_scopes_potential_to_customer_selection(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="alpha")
+    _seed_campaign_opportunity(db_session, workspace, customer_key="gamma")
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Cible",
+        campaign_type="free",
+        selection_criteria={"customer_keys": ["alpha"]},
+    )
+    db_session.commit()
+
+    stats = campaign_stats(db_session, workspace, campaign.id)["stats"]
+    assert stats["targeted_customers"] == 1
+    assert stats["targeted_opportunities"] == 1
+
+
 def test_campaign_stats_reports_transformation_and_potential(db_session) -> None:
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     user = _seed_user(db_session)

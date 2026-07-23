@@ -214,6 +214,9 @@ class CampaignSelectionCriteria(BaseModel):
     part_family: Optional[str] = None
     confidence: Optional[str] = None
     limit: Optional[int] = Field(default=None, ge=1, le=500)
+    # Explicit targeting from the customer directory / fiche next-due block.
+    customer_keys: Optional[list[str]] = Field(default=None, max_length=200)
+    due_within_weeks: Optional[int] = Field(default=None, ge=1, le=520)
 
 
 class CampaignCreate(BaseModel):
