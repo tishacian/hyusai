@@ -1305,7 +1305,14 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
     )
 
     expected_url = "/api/v1/documents/doc%20published%2Fid/raw"
-    assert result["export_urls"] == {"download_url": expected_url, "raw_url": expected_url}
+    assert result["export_urls"]["download_url"] == expected_url
+    assert result["export_urls"]["raw_url"] == expected_url
+    assert result["export_urls"]["pdf_url"] == (
+        f"/api/v1/knowledge-capture/proposals/{reviewed.id}/export?format=pdf"
+    )
+    assert result["export_urls"]["docx_url"] == (
+        f"/api/v1/knowledge-capture/proposals/{reviewed.id}/export?format=docx"
+    )
     assert result["destination"] == "capture-export-knowledge"
     assert result["destination_scope"] == "capture-export-knowledge"
     assert result["collection"] == "capture-export-knowledge"

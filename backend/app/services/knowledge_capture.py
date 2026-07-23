@@ -3227,10 +3227,13 @@ async def publish_proposal_to_knowledge(
         raise ValueError(f"Publication failed during vector ingestion: {publication_meta['error']}")
     export_urls: Dict[str, str] = {}
     if document_id:
+        from app.services.capture_report_export import export_urls_for_proposal
+
         raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
         export_urls = {
             "download_url": raw_url,
             "raw_url": raw_url,
+            **export_urls_for_proposal(str(proposal.id)),
         }
         publication_meta["export_urls"] = export_urls
         publication_meta["document_id"] = document_id

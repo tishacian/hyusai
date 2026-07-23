@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import {
   ApiService,
   type CaptureSessionDocument,
@@ -162,8 +163,31 @@ interface ReportSource {
               [title]="'Exporter le rapport en Markdown'"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
             >
-              <ck-glyph name="arrow-down" [size]="13" color="currentColor" /> Exporter en Markdown
+              <ck-glyph name="arrow-down" [size]="13" color="currentColor" /> Markdown
             </button>
+            <button
+              type="button"
+              (click)="downloadBrandedExport('pdf')"
+              [disabled]="!!brandedExportBusy()"
+              [title]="'Exporter le rapport PDF brandé Andritz'"
+              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 10%, transparent); color:var(--ck-signal-cool); font-size:12px; font-weight:600;"
+            >
+              <ck-glyph name="ledger" [size]="13" color="currentColor" />
+              {{ brandedExportBusy() === 'pdf' ? 'PDF…' : 'PDF Andritz' }}
+            </button>
+            <button
+              type="button"
+              (click)="downloadBrandedExport('docx')"
+              [disabled]="!!brandedExportBusy()"
+              [title]="'Exporter le rapport DOCX brandé Andritz'"
+              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
+            >
+              <ck-glyph name="ledger" [size]="13" color="currentColor" />
+              {{ brandedExportBusy() === 'docx' ? 'DOCX…' : 'DOCX' }}
+            </button>
+            @if (brandedExportError()) {
+              <span style="font-size:11.5px; color:var(--ck-signal-neg);">{{ brandedExportError() }}</span>
+            }
 
             <button
               type="button"
@@ -844,6 +868,9 @@ export class ReportProvenanceComponent {
   protected readonly reviewFeedback = signal<{ ok: boolean; message: string } | null>(null);
   /** Guards the review buttons while a decision round-trip is in flight. */
   protected readonly reviewBusy = signal(false);
+  /** Guards branded PDF/DOCX export downloads. */
+  protected readonly brandedExportBusy = signal<'pdf' | 'docx' | null>(null);
+  protected readonly brandedExportError = signal<string | null>(null);
 
   private async runReview(
     status: 'accepted' | 'rejected' | 'changes_requested',
@@ -1070,6 +1097,27 @@ export class ReportProvenanceComponent {
   /** Export the report as Markdown (available as soon as a proposal is loaded). */
   protected exportReport(): void {
     void this.engine.exportReport();
+  }
+
+  protected async downloadBrandedExport(format: 'pdf' | 'docx'): Promise<void> {
+    const proposalId = this.engine.proposalId();
+    if (!proposalId || this.brandedExportBusy()) return;
+    this.brandedExportBusy.set(format);
+    this.brandedExportError.set(null);
+    try {
+      const blob = await firstValueFrom(this.api.downloadCaptureProposalExport(proposalId, format));
+      const stem = (this.title() || 'rapport-fse').trim().replace(/[^\w.\-]+/g, '_');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${stem}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      this.brandedExportError.set(`Export ${format.toUpperCase()} impossible.`);
+    } finally {
+      this.brandedExportBusy.set(null);
+    }
   }
 
   protected factText(fact: ProposalFact): string {

@@ -393,7 +393,12 @@ export interface CapturePublicationResult {
   final_title?: string | null;
   include_unresolved_questions?: boolean;
   published_at?: string | null;
-  export_urls?: { download_url?: string; raw_url?: string };
+  export_urls?: {
+    download_url?: string;
+    raw_url?: string;
+    pdf_url?: string;
+    docx_url?: string;
+  };
 }
 
 /**
@@ -428,7 +433,12 @@ export interface CaptureProposal {
       collection_slug?: string | null;
       chunks_processed?: number | null;
       published_at?: string | null;
-      export_urls?: { download_url?: string; raw_url?: string };
+      export_urls?: {
+        download_url?: string;
+        raw_url?: string;
+        pdf_url?: string;
+        docx_url?: string;
+      };
     };
     audit?: { event_count?: number; amendment_count?: number };
   };
@@ -673,8 +683,14 @@ export class ApiService {
     });
   }
 
-  getBlob(path: string): Observable<Blob> {
-    return this.http.get(`${this.base}${path}`, { responseType: 'blob' });
+  getBlob(
+    path: string,
+    options?: { workspaceSlug?: string | null },
+  ): Observable<Blob> {
+    return this.http.get(`${this.base}${path}`, {
+      headers: this.workspaceHeaders(options?.workspaceSlug),
+      responseType: 'blob',
+    });
   }
 
   /** Upload an audio blob and receive a transcription. */
@@ -1001,6 +1017,16 @@ export class ApiService {
     },
   ): Observable<unknown> {
     return this.post(`/knowledge-capture/proposals/${proposalId}/publish`, body || {});
+  }
+
+  /** Branded Andritz PDF/DOCX derivative of a finalized capture proposal. */
+  downloadCaptureProposalExport(
+    proposalId: string,
+    format: 'pdf' | 'docx',
+  ): Observable<Blob> {
+    return this.getBlob(
+      `/knowledge-capture/proposals/${encodeURIComponent(proposalId)}/export?format=${format}`,
+    );
   }
 
   updateCapturePlan(sessionId: string, plan: Record<string, unknown>): Observable<unknown> {

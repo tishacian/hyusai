@@ -7,6 +7,8 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
+import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from '../capture-engine';
 import { composePublicationName } from '../capture-templates';
@@ -81,6 +83,31 @@ const CUSTOM_DESTINATION = '__custom__';
             >
               <ck-glyph name="zoom-in" [size]="14" color="currentColor" /> Ouvrir la fiche publiée
             </a>
+          }
+          @if (engine.proposalId()) {
+            <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:4px;">
+              <button
+                type="button"
+                (click)="downloadExport('pdf')"
+                [disabled]="exportBusy()"
+                style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 10%, transparent); color:var(--ck-signal-cool); font-size:13px; font-weight:600; cursor:pointer;"
+              >
+                <ck-glyph name="ledger" [size]="13" color="currentColor" />
+                {{ exportBusy() === 'pdf' ? 'PDF…' : 'Exporter PDF Andritz' }}
+              </button>
+              <button
+                type="button"
+                (click)="downloadExport('docx')"
+                [disabled]="exportBusy()"
+                style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:13px; font-weight:600; cursor:pointer;"
+              >
+                <ck-glyph name="ledger" [size]="13" color="currentColor" />
+                {{ exportBusy() === 'docx' ? 'DOCX…' : 'Exporter DOCX' }}
+              </button>
+            </div>
+            @if (exportError()) {
+              <div style="font-size:12px; color:var(--ck-signal-neg);">{{ exportError() }}</div>
+            }
           }
           <button
             type="button"
@@ -194,6 +221,7 @@ const CUSTOM_DESTINATION = '__custom__';
 })
 export class CaptureFilPublishComponent {
   protected readonly engine = inject(CaptureEngine);
+  private readonly api = inject(ApiService);
 
   /** Emitted once publication succeeds — the shell returns to the dashboard. */
   @Output() done = new EventEmitter<void>();
@@ -243,6 +271,8 @@ export class CaptureFilPublishComponent {
   protected readonly customDestination = signal('');
   protected readonly includeUnresolved = signal(true);
   protected readonly busy = signal(false);
+  protected readonly exportBusy = signal<'pdf' | 'docx' | null>(null);
+  protected readonly exportError = signal<string | null>(null);
 
   protected readonly published = this.engine.publication;
 
@@ -281,5 +311,29 @@ export class CaptureFilPublishComponent {
       include_unresolved_questions: this.includeUnresolved(),
     });
     this.busy.set(false);
+  }
+
+  protected async downloadExport(format: 'pdf' | 'docx'): Promise<void> {
+    const proposalId = this.engine.proposalId();
+    if (!proposalId || this.exportBusy()) return;
+    this.exportBusy.set(format);
+    this.exportError.set(null);
+    try {
+      const blob = await firstValueFrom(this.api.downloadCaptureProposalExport(proposalId, format));
+      const stem =
+        this.published()?.final_title?.trim()
+        || this.finalTitle().trim()
+        || 'rapport-fse';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${stem}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      this.exportError.set(`Export ${format.toUpperCase()} impossible. Réessayez.`);
+    } finally {
+      this.exportBusy.set(null);
+    }
   }
 }

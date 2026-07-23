@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -34,6 +35,7 @@ from app.models.system import System
 from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
+from app.services.capture_report_export import build_capture_report_export
 from app.services.capture_templates import (
     get_capture_template,
     list_capture_templates,
@@ -2445,6 +2447,49 @@ async def extend_capture_session_endpoint(
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
     return serialize_session(extended)
+
+
+@router.get("/proposals/{proposal_id}/export")
+async def export_capture_proposal_document(
+    proposal_id: str,
+    format: Literal["pdf", "docx"] = Query(default="pdf"),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Response:
+    """Branded Andritz PDF/DOCX derivative of a finalized capture report.
+
+    Does not mutate publication or indexing — pure on-demand render.
+    """
+    try:
+        proposal, session = _load_proposal_with_session(
+            db, workspace_id=workspace.id, proposal_id=proposal_id
+        )
+        attrs = _proposal_attrs(proposal, session)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="read",
+            resource_attrs=attrs,
+            audit_prefix="kc",
+        )
+        content, media_type, filename = build_capture_report_export(
+            proposal=proposal,
+            session=session,
+            fmt=format,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/proposals/{proposal_id}/publish")
