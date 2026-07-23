@@ -355,6 +355,50 @@ test('Client360 fiche pages long lists client-side with show-more increments', (
   }
 });
 
+test('Client360 landing page collapses alerts to a digest and pages the table', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.loadAlerts();
+    const alertsCall = getCalls.find((call) => call.url === '/api/v1/client360/alerts');
+    assert.ok(alertsCall, 'alerts requested');
+    alertsCall.response.next({
+      alerts: Array.from({ length: 20 }, (_, i) => ({
+        id: `al-${i}`,
+        type: i % 2 ? 'delivery_delay' : 'data_gap',
+        severity: i < 3 ? 'high' : 'low',
+        title: `t${i}`,
+        message: `m${i}`,
+      })),
+      counts: { by_type: { delivery_delay: 10, data_gap: 10 } },
+    });
+    assert.equal(component.visibleAlerts().length, 6, 'alerts collapse to a preview');
+    assert.equal(component.visibleAlerts()[0].severity, 'high', 'urgent alerts come first');
+
+    component.toggleAlertTypeFilter('data_gap');
+    assert.ok(component.filteredAlerts().every((alert) => alert.type === 'data_gap'));
+    component.toggleAlertTypeFilter('data_gap');
+    assert.equal(component.alertTypeFilter(), null, 'second click clears the type filter');
+
+    component.toggleAlertsExpanded();
+    assert.equal(component.visibleAlerts().length, 20, 'expansion reveals every alert');
+
+    component.loadOpportunities();
+    const oppsCall = getCalls.find((call) => call.url === '/api/v1/client360/opportunities');
+    assert.ok(oppsCall, 'opportunities requested');
+    oppsCall.response.next({
+      items: Array.from({ length: 80 }, (_, i) => ({ id: `opp-${i}` })),
+      facets: {},
+    });
+    assert.equal(component.visibleOpportunities().length, 25, 'table shows the first page');
+    component.showMoreOpportunitiesTable();
+    assert.equal(component.visibleOpportunities().length, 75, 'show-more extends the table');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
 test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () => {
   const harness = createHarness();
   const { component, workspace, postCalls, getCalls } = harness;

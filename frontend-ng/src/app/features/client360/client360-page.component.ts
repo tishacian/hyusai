@@ -61,6 +61,9 @@ const CLIENT360_UNIFIED_COLLECTION_SLUG = 'andritz-client360-installed-base';
 const FICHE_PURCHASES_PAGE = 15;
 const FICHE_OPPORTUNITIES_PAGE = 24;
 const FICHE_TIMELINE_PAGE = 12;
+// Landing page: alerts collapse to a short digest and the table pages itself.
+const ALERTS_PREVIEW_COUNT = 6;
+const OPPORTUNITIES_TABLE_PAGE = 25;
 
 interface Client360Opportunity {
   id: string;
@@ -552,12 +555,20 @@ interface CampaignDraftsOutcome {
               <h3><ck-glyph name="warn" [size]="14" color="currentColor" /> Alertes ({{ alerts().length }})</h3>
               <div class="alerts-counts">
                 @for (entry of alertCountEntries(); track entry.key) {
-                  <span class="pill" [ngClass]="entry.key">{{ labelAlertType(entry.key) }} · {{ entry.value }}</span>
+                  <button
+                    type="button"
+                    class="pill pill-filter"
+                    [ngClass]="{ active: alertTypeFilter() === entry.key }"
+                    title="Filtrer les alertes de ce type"
+                    (click)="toggleAlertTypeFilter(entry.key)"
+                  >
+                    {{ labelAlertType(entry.key) }} · {{ entry.value }}
+                  </button>
                 }
               </div>
             </div>
-            <ul class="alerts-list">
-              @for (alert of alerts(); track alert.id) {
+            <ul class="alerts-list" [class.expanded]="alertsExpanded()">
+              @for (alert of visibleAlerts(); track alert.id) {
                 <li [ngClass]="alert.severity" (click)="openAlert(alert)">
                   <span class="alert-sev" [ngClass]="alert.severity">{{ labelAlertSeverity(alert.severity) }}</span>
                   <div class="alert-body">
@@ -570,6 +581,17 @@ interface CampaignDraftsOutcome {
                 </li>
               }
             </ul>
+            @if (filteredAlerts().length > visibleAlerts().length || alertsExpanded()) {
+              <div class="button-row">
+                <button type="button" class="secondary" (click)="toggleAlertsExpanded()">
+                  @if (alertsExpanded()) {
+                    Reduire
+                  } @else {
+                    Afficher tout ({{ filteredAlerts().length }})
+                  }
+                </button>
+              </div>
+            }
           </section>
         }
         <section class="ck-surface toolbar">
@@ -641,7 +663,7 @@ interface CampaignDraftsOutcome {
                 </tr>
               </thead>
               <tbody>
-                @for (opp of sortedOpportunities(); track opp.id) {
+                @for (opp of visibleOpportunities(); track opp.id) {
                   <tr (click)="selectOpportunity(opp)">
                     <td>
                       <strong>{{ opp.customer_name }}</strong>
@@ -664,6 +686,13 @@ interface CampaignDraftsOutcome {
                 }
               </tbody>
             </table>
+            @if (sortedOpportunities().length > opportunitiesTableLimit()) {
+              <div class="button-row show-more-row">
+                <button type="button" class="secondary" (click)="showMoreOpportunitiesTable()">
+                  Afficher plus ({{ sortedOpportunities().length - opportunitiesTableLimit() }} restantes)
+                </button>
+              </div>
+            }
           }
         </section>
       }
@@ -1766,6 +1795,10 @@ interface CampaignDraftsOutcome {
     .alerts-head h3 { display: inline-flex; align-items: center; gap: 6px; }
     .alerts-counts { display: flex; flex-wrap: wrap; gap: 6px; }
     .alerts-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .alerts-list.expanded { max-height: 46vh; overflow-y: auto; padding-right: 2px; }
+    .alerts-counts .pill-filter { font: inherit; font-size: 11px; cursor: pointer; }
+    .alerts-counts .pill-filter:hover { border-color: var(--ck-stroke-3); }
+    .alerts-counts .pill-filter.active { border-color: var(--ck-stroke-hot); color: var(--ck-signal-cool); }
     .alerts-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); cursor: pointer; }
     .alerts-list li:hover { border-color: var(--ck-stroke-3); }
     .alerts-list li.high { border-left: 3px solid var(--ck-signal-neg); }
@@ -2093,6 +2126,22 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly alertCountEntries = computed(() =>
     Object.entries(this.alertsResponse()?.counts?.by_type ?? {}).map(([key, value]) => ({ key, value })),
   );
+  readonly alertsExpanded = signal(false);
+  readonly alertTypeFilter = signal<string | null>(null);
+  readonly opportunitiesTableLimit = signal(OPPORTUNITIES_TABLE_PAGE);
+  readonly filteredAlerts = computed(() => {
+    const type = this.alertTypeFilter();
+    const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    return this.alerts()
+      .filter((alert) => !type || alert.type === type)
+      .sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+  });
+  readonly visibleAlerts = computed(() =>
+    this.alertsExpanded() ? this.filteredAlerts() : this.filteredAlerts().slice(0, ALERTS_PREVIEW_COUNT),
+  );
+  readonly visibleOpportunities = computed(() =>
+    this.sortedOpportunities().slice(0, this.opportunitiesTableLimit()),
+  );
   readonly campaigns = computed(() => this.campaignsResponse()?.items ?? []);
   readonly campaignSegments = computed(() => this.summary()?.positioning?.mvp_contract?.campaign_segments ?? []);
   readonly isDemoSafe = computed(() => this.workspace.isDemoSafeMode());
@@ -2192,6 +2241,18 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (!alert.opportunity_id) return;
     const opp = this.opportunities().find((item) => item.id === alert.opportunity_id);
     if (opp) this.selectOpportunity(opp);
+  }
+
+  toggleAlertTypeFilter(type: string): void {
+    this.alertTypeFilter.update((current) => (current === type ? null : type));
+  }
+
+  toggleAlertsExpanded(): void {
+    this.alertsExpanded.update((expanded) => !expanded);
+  }
+
+  showMoreOpportunitiesTable(): void {
+    this.opportunitiesTableLimit.update((limit) => limit + 50);
   }
 
   openTab(tab: ViewKey): void {
@@ -2304,6 +2365,13 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.selectedDirectoryCustomerKey.set(customer.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
+    this.fetchCustomerFiche(customer.customer_key);
+  }
+
+  private fetchCustomerFiche(
+    customerKey: string,
+    options: { keepSelectedOpportunity?: boolean } = {},
+  ): void {
     this.customerDetailRequest?.unsubscribe();
     this.customerSummaryRequest?.unsubscribe();
     this.customerDetailLoading.set(true);
@@ -2315,20 +2383,23 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     // which is fetched asynchronously (it is the slow, LLM-backed part).
     this.customerDetailRequest = this.http
       .get<Client360CustomerResponse>(
-        `/api/v1/client360/customers/${encodeURIComponent(customer.customer_key)}`,
+        `/api/v1/client360/customers/${encodeURIComponent(customerKey)}`,
         { params: new HttpParams().set('include_ai_summary', 'false') },
       )
       .subscribe({
         next: (payload) => {
           this.selectedCustomer.set(payload);
-          const firstOpp = payload.opportunities[0] ?? null;
-          this.selectedOpportunity.set(firstOpp);
+          if (!options.keepSelectedOpportunity) {
+            this.selectedOpportunity.set(payload.opportunities[0] ?? null);
+          }
           this.customerDetailLoading.set(false);
-          this.loadCustomerSummary(customer.customer_key);
+          this.loadCustomerSummary(customerKey);
         },
         error: () => {
           this.selectedCustomer.set(null);
-          this.selectedOpportunity.set(null);
+          if (!options.keepSelectedOpportunity) {
+            this.selectedOpportunity.set(null);
+          }
           this.customerDetailLoading.set(false);
           this.error.set('Impossible de charger la fiche client');
         },
@@ -2824,6 +2895,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       next: (payload) => {
         if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.opportunitiesResponse.set(payload);
+        this.opportunitiesTableLimit.set(OPPORTUNITIES_TABLE_PAGE);
         if (!this.selectedOpportunity() && payload.items.length) {
           this.selectedOpportunity.set(payload.items[0]);
         }
@@ -2846,10 +2918,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (!this.customersResponse()) {
       this.loadCustomers();
     }
-    this.http.get<Client360CustomerResponse>(`/api/v1/client360/customers/${encodeURIComponent(opp.customer_key)}`).subscribe({
-      next: (payload) => this.selectedCustomer.set(payload),
-      error: () => this.selectedCustomer.set(null),
-    });
+    this.fetchCustomerFiche(opp.customer_key, { keepSelectedOpportunity: true });
   }
 
   generateDraft(opp: Client360Opportunity): void {
