@@ -280,6 +280,81 @@ test('Client360 fiche next-due CTA targets the customer with a due window', () =
   }
 });
 
+test('Client360 fiche loads in two phases: payload without AI summary, then async summary merge', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer({ customer_key: 'septona', customer_name: 'Septona S.A.' } as never);
+    const detailCall = getCalls.find((call) => call.url === '/api/v1/client360/customers/septona');
+    assert.ok(detailCall, 'fiche payload requested');
+    const params = (detailCall.options as { params?: { get(name: string): string | null } }).params;
+    assert.equal(params?.get('include_ai_summary'), 'false', 'fast path skips the AI summary');
+    assert.equal(component.customerDetailLoading(), true);
+
+    detailCall.response.next({
+      customer: { id: 'septona', name: 'Septona S.A.', countries: [], hubs: [], technologies: [] },
+      ai_summary: null,
+      opportunities: [],
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+    assert.equal(component.customerDetailLoading(), false, 'fiche renders before the summary');
+    assert.equal(component.customerSummaryLoading(), true, 'summary fetch starts after the fiche');
+
+    const summaryCall = getCalls.find(
+      (call) => call.url === '/api/v1/client360/customers/septona/summary',
+    );
+    assert.ok(summaryCall, 'summary requested asynchronously');
+    summaryCall.response.next({
+      ai_summary: { text: 'Resume genere.', generation_mode: 'ai_assisted', highlights: [] },
+    });
+    assert.equal(component.customerSummaryLoading(), false);
+    assert.equal(component.selectedCustomer()?.ai_summary?.text, 'Resume genere.');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 fiche pages long lists client-side with show-more increments', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer({ customer_key: 'septona', customer_name: 'Septona S.A.' } as never);
+    const detailCall = getCalls.find((call) => call.url === '/api/v1/client360/customers/septona');
+    assert.ok(detailCall);
+    detailCall.response.next({
+      customer: { id: 'septona', name: 'Septona S.A.', countries: [], hubs: [], technologies: [] },
+      ai_summary: null,
+      opportunities: Array.from({ length: 130 }, (_, i) => ({ id: `opp-${i}` })),
+      purchases: Array.from({ length: 40 }, (_, i) => ({ part_reference: `ref-${i}` })),
+      timeline: Array.from({ length: 30 }, (_, i) => ({ at: `2026-01-${(i % 28) + 1}`, kind: 'impact', label: `e${i}` })),
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+
+    assert.equal(component.fichePurchases().length, 15, 'purchases capped at first page');
+    assert.equal(component.ficheOpportunities().length, 24, 'opportunity chips capped at first page');
+    assert.equal(component.ficheTimeline().length, 12, 'timeline capped at first page');
+
+    component.showMoreFichePurchases();
+    assert.equal(component.fichePurchases().length, 40, 'show-more reveals the remaining purchases');
+    component.showMoreFicheOpportunities();
+    assert.equal(component.ficheOpportunities().length, 124);
+
+    component.selectDirectoryCustomer({ customer_key: 'mogul', customer_name: 'Mogul' } as never);
+    assert.equal(component.fichePurchasesLimit(), 15, 'limits reset when switching customer');
+    assert.equal(component.ficheOpportunitiesLimit(), 24);
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
 test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () => {
   const harness = createHarness();
   const { component, workspace, postCalls, getCalls } = harness;

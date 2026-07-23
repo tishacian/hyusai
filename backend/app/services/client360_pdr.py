@@ -2053,7 +2053,13 @@ def list_customers(
     }
 
 
-def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> dict[str, Any]:
+def customer_payload(
+    db: DBSession,
+    workspace: Workspace,
+    customer_id: str,
+    *,
+    include_ai_summary: bool = True,
+) -> dict[str, Any]:
     rows = (
         db.query(Client360Opportunity)
         .filter(
@@ -2157,7 +2163,13 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
     aggregates = _customer_summary_aggregates(
         customer_name, opportunities, installed_base, timeline, data_gaps
     )
-    ai_summary = _generate_customer_summary_content(db, workspace, aggregates)
+    # The AI summary is the slow part of the payload (LLM completion); callers
+    # can skip it and fetch it separately so the fiche renders immediately.
+    ai_summary = (
+        _generate_customer_summary_content(db, workspace, aggregates)
+        if include_ai_summary
+        else None
+    )
     return {
         "customer": {
             "id": customer_key or customer_id,

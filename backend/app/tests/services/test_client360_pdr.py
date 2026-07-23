@@ -1766,6 +1766,19 @@ def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None
     assert "37800" in summary["text"]
 
 
+def test_customer_payload_skips_ai_summary_on_demand(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    _seed_opportunity(db_session, workspace)
+    db_session.commit()
+
+    payload = customer_payload(db_session, workspace, "septona", include_ai_summary=False)
+
+    assert payload["ai_summary"] is None
+    # The rest of the fiche stays fully populated on the fast path.
+    assert payload["customer"]["name"]
+    assert payload["opportunities"]
+
+
 def test_customer_payload_summary_uses_llm_when_configured(monkeypatch, db_session) -> None:
     workspace = _seed_workspace(
         db_session,

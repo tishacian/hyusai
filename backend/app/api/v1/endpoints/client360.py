@@ -591,10 +591,23 @@ def client360_customers(
 @router.get("/customers/{customer_id}")
 def client360_customer(
     customer_id: str,
+    include_ai_summary: bool = Query(default=True),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    return customer_payload(db, workspace, customer_id)
+    return customer_payload(db, workspace, customer_id, include_ai_summary=include_ai_summary)
+
+
+@router.get("/customers/{customer_id}/summary")
+def client360_customer_summary(
+    customer_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    # Dedicated slow path: the UI loads the fiche without the AI summary first,
+    # then fetches this endpoint asynchronously.
+    payload = customer_payload(db, workspace, customer_id, include_ai_summary=True)
+    return {"customer": payload["customer"], "ai_summary": payload["ai_summary"]}
 
 
 @router.post("/mail-drafts")
