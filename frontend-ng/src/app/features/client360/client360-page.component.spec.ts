@@ -127,10 +127,11 @@ test('Client360 pins and cancels every runEngine refresh read before it can muta
         '/api/v1/client360/mail-settings',
         '/api/v1/client360/mappings',
         '/api/v1/client360/opportunities',
+        '/api/v1/client360/customers',
         '/api/v1/client360/alerts',
       ],
     );
-    assert.deepEqual(getCalls.map(workspaceHeader), Array(5).fill('andritz'));
+    assert.deepEqual(getCalls.map(workspaceHeader), Array(6).fill('andritz'));
 
     workspace.switchWorkspace();
     assert.equal(component.loading(), false);
@@ -141,11 +142,13 @@ test('Client360 pins and cancels every runEngine refresh read before it can muta
     getCalls[1].response.next({ mail_settings: {} });
     getCalls[2].response.next({ items: [] });
     getCalls[3].response.next({ items: [] });
-    getCalls[4].response.next({ alerts: [] });
+    getCalls[4].response.next({ items: [], total: 0, facets: { countries: [], technologies: [] } });
+    getCalls[5].response.next({ alerts: [] });
     assert.equal(component.summary(), null);
     assert.equal(component.mailSettings(), null);
     assert.equal(component.mappingsResponse(), null);
     assert.equal(component.opportunitiesResponse(), null);
+    assert.equal(component.customersResponse(), null);
     assert.equal(component.alertsResponse(), null);
   } finally {
     component.ngOnDestroy();

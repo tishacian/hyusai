@@ -59,6 +59,11 @@ from app.services.client360_contract import (
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
 )
+from app.services.client360_forecast import (
+    apply_next_due_to_record,
+    campaign_expected_value,
+    last_purchase_date_from_record,
+)
 from app.services.email import SmtpDeliveryConfig, send_email_with_config
 from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
@@ -211,10 +216,14 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 
 def client360_scope(workspace: Workspace) -> dict[str, Any]:
     configured = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("client360_pdr_scope"))
+    scope_mode = _safe_text(configured.get("scope_mode") or "pilot").lower()
+    if scope_mode not in {"pilot", "all"}:
+        scope_mode = "pilot"
     return {
         "official_name": CLIENT360_MVP_CONTRACT["official_name"],
         "business_scope": "spare_parts",
         "part_scope": "wear_parts",
+        "scope_mode": scope_mode,
         "pilot_technologies": _as_list(configured.get("pilot_technologies"))
         or list(PILOT_TECHNOLOGIES),
         "pilot_countries": _as_list(configured.get("pilot_countries")) or list(PILOT_COUNTRIES),
@@ -473,12 +482,14 @@ def _scope_skip_reason(record: dict[str, Any], scope: dict[str, Any]) -> str | N
     ):
         return "technology_out_of_pilot_scope"
 
-    countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
-    customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
-    country = _normalize_token(record.get("country"))
-    customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
-    if country and countries and country not in countries and customer not in customers:
-        return "country_out_of_pilot_scope"
+    # scope_mode=all skips the country/customer pilot gate; wear-parts mapping gate above stays.
+    if _safe_text(scope.get("scope_mode")).lower() != "all":
+        countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
+        customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
+        country = _normalize_token(record.get("country"))
+        customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
+        if country and countries and country not in countries and customer not in customers:
+            return "country_out_of_pilot_scope"
     return None
 
 
@@ -611,7 +622,15 @@ def classify_data_source(text: str) -> str:
     # Installed_base_SPL / Client360 pilot filenames (underscored or spaced).
     if "family" in underscored and "opportunity" in underscored:
         return "periodicity"
+    if ("projets" in underscored and "clients" in underscored) or (
+        "project" in underscored and "customer" in underscored
+    ):
+        return "contact_hub"
     if "sales_by_country" in underscored or "salesbycountry" in underscored:
+        return "sap_sales_history"
+    if "sales_order" in underscored or "salesorders" in underscored or re.search(
+        r"(^|_)va05($|_)", underscored
+    ):
         return "sap_sales_history"
     if "materials_consumption" in underscored:
         return "other"
@@ -1454,6 +1473,450 @@ def _generate_customer_summary_content(
     return _fallback_customer_summary(aggregates, reason="running_event_loop")
 
 
+def _record_role(record: dict[str, Any]) -> str:
+    return _normalize_token(record.get("role"))
+
+
+def _customer_key_for(value: Any) -> str:
+    return _normalize_token(value)
+
+
+def _raw_source_records_by_roles(
+    db: DBSession,
+    workspace: Workspace,
+    roles: set[str],
+) -> list[dict[str, Any]]:
+    """Read persisted source ``metadata.records`` without canonical field stripping.
+
+    Registry / machine / sales_orders rows carry fields (``project_code``,
+    ``sap_reference``, ``construction_year``, …) that the opportunity
+    canonicalize path does not keep.
+    """
+    wanted = {_normalize_token(role) for role in roles if _normalize_token(role)}
+    if not wanted:
+        return []
+    records: list[dict[str, Any]] = []
+    rows = (
+        db.query(Client360DataSource)
+        .filter(
+            Client360DataSource.workspace_id == workspace.id,
+            Client360DataSource.status != "archived",
+        )
+        .all()
+    )
+    for source in rows:
+        metadata = _as_dict(source.meta_data)
+        source_role = _normalize_token(metadata.get("role") or metadata.get("spl_role"))
+        raw_rows = _as_list(
+            metadata.get("records") or metadata.get("rows") or metadata.get("mapped_rows")
+        )
+        for raw in raw_rows:
+            if not isinstance(raw, dict):
+                continue
+            role = _normalize_token(raw.get("role")) or source_role
+            if role not in wanted:
+                continue
+            item = dict(raw)
+            item["role"] = role
+            item.setdefault("source_type", source.source_type)
+            item.setdefault("customer_key", _customer_key_for(item.get("customer_key") or item.get("customer_name")))
+            records.append(item)
+    return records
+
+
+def _records_matching_customer(
+    records: list[dict[str, Any]],
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    keys = {key for key in (customer_key, _customer_key_for(customer_name)) if key}
+    if not keys:
+        return []
+    matched: list[dict[str, Any]] = []
+    for record in records:
+        record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if record_key and record_key in keys:
+            matched.append(record)
+    return matched
+
+
+def _load_project_registry_records(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for record in _raw_source_records_by_roles(db, workspace, {"project_registry"}):
+        customer_name = _safe_text(record.get("customer_name"))
+        customer_key = _customer_key_for(record.get("customer_key") or customer_name)
+        if not customer_key and not record.get("project_code") and not record.get("sap_reference"):
+            continue
+        records.append(
+            {
+                "project_code": _safe_text(record.get("project_code")) or None,
+                "sap_reference": _safe_text(record.get("sap_reference")) or None,
+                "wbs_element": _safe_text(record.get("wbs_element")) or None,
+                "customer_name": customer_name or None,
+                "customer_key": customer_key or None,
+                "country": _safe_text(record.get("country")) or None,
+                "role": "project_registry",
+            }
+        )
+    return records
+
+
+def _customer_projects(
+    registry_records: list[dict[str, Any]],
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    projects: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for record in _records_matching_customer(
+        registry_records, customer_key=customer_key, customer_name=customer_name
+    ):
+        item = {
+            "project_code": record.get("project_code"),
+            "sap_reference": record.get("sap_reference"),
+            "wbs_element": record.get("wbs_element"),
+            "country": record.get("country"),
+        }
+        dedupe = (
+            _safe_text(item.get("project_code")),
+            _safe_text(item.get("sap_reference")),
+            _safe_text(item.get("wbs_element")),
+        )
+        if not any(dedupe) or dedupe in seen:
+            continue
+        seen.add(dedupe)
+        projects.append(item)
+    projects.sort(
+        key=lambda item: (
+            _safe_text(item.get("project_code")),
+            _safe_text(item.get("sap_reference")),
+        )
+    )
+    return projects
+
+
+def _customer_machines(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+    registry_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Machine.xlsx equipment for the customer (Sold-to + registry project join)."""
+    from app.services.client360_spl_adapter import (
+        build_project_registry_index,
+        resolve_customer_for_project,
+    )
+
+    registry = registry_records if registry_records is not None else _load_project_registry_records(
+        db, workspace
+    )
+    registry_index = build_project_registry_index(registry)
+    keys = {key for key in (customer_key, _customer_key_for(customer_name)) if key}
+    machines: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for record in _raw_source_records_by_roles(db, workspace, {"machine"}):
+        record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if record_key not in keys:
+            resolved = resolve_customer_for_project(
+                record.get("project_code"),
+                wbs=record.get("wbs_element"),
+                sap_ref=record.get("sap_reference"),
+                index=registry_index,
+            )
+            resolved_key = _customer_key_for(
+                (resolved or {}).get("customer_key") or (resolved or {}).get("customer_name")
+            )
+            if resolved_key not in keys:
+                continue
+            if not record_key and resolved:
+                record_key = resolved_key
+        item = {
+            "machine_label": _safe_text(record.get("machine_label")) or None,
+            "technology": _safe_text(record.get("technology")) or None,
+            "line_label": _safe_text(record.get("line_label")) or None,
+            "project_code": _safe_text(record.get("project_code")) or None,
+            "sap_reference": _safe_text(record.get("sap_reference")) or None,
+            "wbs_element": _safe_text(record.get("wbs_element")) or None,
+            "construction_year": _safe_text(record.get("construction_year")) or None,
+            "country": _safe_text(record.get("country")) or None,
+            "customer_key": record_key or customer_key,
+        }
+        dedupe = (
+            _safe_text(item.get("machine_label")),
+            _safe_text(item.get("technology")),
+            _safe_text(item.get("line_label")),
+            _safe_text(item.get("project_code")),
+        )
+        if not any(dedupe) or dedupe in seen:
+            continue
+        seen.add(dedupe)
+        machines.append(item)
+    machines.sort(
+        key=lambda item: (
+            _safe_text(item.get("technology")),
+            _safe_text(item.get("line_label")),
+            _safe_text(item.get("machine_label")),
+        )
+    )
+    return machines
+
+
+def _customer_purchases(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Sales-order aggregates for the customer, enriched with PO cost/lead when present."""
+    sales = _raw_source_records_by_roles(db, workspace, {"sales_orders"})
+    purchase_rows = _raw_source_records_by_roles(db, workspace, {"purchase_history"})
+    matched = _records_matching_customer(
+        sales, customer_key=customer_key, customer_name=customer_name
+    )
+    cost_index = _index_purchase_costs(purchase_rows)
+    lead_index = _index_purchase_lead_times(purchase_rows)
+    by_ref_cost = _as_dict(cost_index.get("by_part_reference"))
+    purchases: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in matched:
+        part_ref = _safe_text(record.get("part_reference"))
+        if not part_ref:
+            continue
+        ref_key = _normalize_token(part_ref)
+        if ref_key in seen:
+            # Prefer the first (already aggregated) sales_orders row per material.
+            continue
+        seen.add(ref_key)
+        unit_cost = by_ref_cost.get(ref_key)
+        po_count = _safe_float(record.get("po_count"))
+        if unit_cost is None:
+            unit_cost = _safe_non_negative_float(record.get("unit_cost"))
+        lead = lead_index.get(ref_key)
+        if lead is None:
+            lead = _safe_float(record.get("delivery_time_weeks"))
+        if po_count is None:
+            for po_record in purchase_rows:
+                if _normalize_token(po_record.get("part_reference")) != ref_key:
+                    continue
+                po_count = _safe_float(po_record.get("po_count")) or 1.0
+                if unit_cost is None:
+                    unit_cost = _safe_non_negative_float(po_record.get("unit_cost"))
+                if lead is None:
+                    lead = _safe_float(po_record.get("delivery_time_weeks"))
+                break
+        purchases.append(
+            {
+                "part_reference": part_ref,
+                "part_description": _safe_text(record.get("part_description")) or None,
+                "sales_known_qty": _safe_float(record.get("sales_known_qty")),
+                "sales_known_value": _safe_non_negative_float(record.get("sales_known_value")),
+                "currency": _safe_text(record.get("currency")) or "EUR",
+                "last_document_date": _safe_text(
+                    record.get("last_document_date") or record.get("document_date")
+                )
+                or None,
+                "order_line_count": _safe_int(record.get("order_line_count"), 1)
+                if record.get("order_line_count") is not None
+                else None,
+                "unit_cost": unit_cost,
+                "delivery_time_weeks": lead,
+                "po_count": int(po_count) if po_count is not None else None,
+                "cost_sum": _safe_non_negative_float(record.get("cost_sum")),
+            }
+        )
+    purchases.sort(
+        key=lambda item: (
+            -(_safe_non_negative_float(item.get("sales_known_value")) or 0.0),
+            _safe_text(item.get("part_reference")),
+        )
+    )
+    return purchases
+
+
+def _customer_next_due(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Deterministic due items from Phase-4 forecast when the module is present."""
+    try:
+        from app.services.client360_forecast import customer_next_due
+    except ImportError:
+        return []
+    try:
+        result = customer_next_due(
+            db,
+            workspace,
+            customer_key=customer_key,
+            customer_name=customer_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Client360 forecast next_due failed: %s", type(exc).__name__)
+        return []
+    if result is None:
+        return []
+    return [item for item in _as_list(result) if isinstance(item, dict)]
+
+
+def list_customers(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    q: str | None = None,
+    country: str | None = None,
+    technology: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Customer directory: project registry × opportunities, sorted by potential."""
+    registry_records = _load_project_registry_records(db, workspace)
+    opportunities = list_opportunities(db, workspace, limit=500)
+
+    directory: dict[str, dict[str, Any]] = {}
+
+    def _ensure(customer_key: str, customer_name: str | None = None) -> dict[str, Any]:
+        key = customer_key or _customer_key_for(customer_name)
+        if not key:
+            key = "unknown"
+        bucket = directory.get(key)
+        if bucket is None:
+            bucket = {
+                "customer_key": key,
+                "customer_name": customer_name or key,
+                "countries": set(),
+                "hubs": set(),
+                "technologies": set(),
+                "projects": [],
+                "project_count": 0,
+                "opportunity_count": 0,
+                "statuses": {},
+                "potential_gap_value": 0.0,
+                "potential_gap_qty": 0.0,
+                "currency": "EUR",
+            }
+            directory[key] = bucket
+        elif customer_name and (
+            bucket["customer_name"] == key or len(customer_name) > len(str(bucket["customer_name"]))
+        ):
+            bucket["customer_name"] = customer_name
+        return bucket
+
+    for record in registry_records:
+        customer_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if not customer_key:
+            continue
+        bucket = _ensure(customer_key, record.get("customer_name"))
+        if record.get("country"):
+            bucket["countries"].add(record["country"])
+        project = {
+            "project_code": record.get("project_code"),
+            "sap_reference": record.get("sap_reference"),
+            "wbs_element": record.get("wbs_element"),
+            "country": record.get("country"),
+        }
+        if any(project.get(field) for field in ("project_code", "sap_reference", "wbs_element")):
+            if project not in bucket["projects"]:
+                bucket["projects"].append(project)
+
+    for opp in opportunities:
+        customer_key = _customer_key_for(opp.get("customer_key") or opp.get("customer_name"))
+        if not customer_key:
+            continue
+        bucket = _ensure(customer_key, opp.get("customer_name"))
+        bucket["opportunity_count"] += 1
+        status = _safe_text(opp.get("status")) or "detected"
+        statuses = bucket["statuses"]
+        statuses[status] = int(statuses.get(status, 0)) + 1
+        bucket["potential_gap_value"] += float(_safe_float(opp.get("potential_gap_value")) or 0.0)
+        bucket["potential_gap_qty"] += float(_safe_float(opp.get("potential_gap_qty")) or 0.0)
+        if opp.get("currency"):
+            bucket["currency"] = opp["currency"]
+        if opp.get("country"):
+            bucket["countries"].add(opp["country"])
+        if opp.get("hub"):
+            bucket["hubs"].add(opp["hub"])
+        if opp.get("technology"):
+            bucket["technologies"].add(opp["technology"])
+
+    query = _normalize_token(q)
+    country_filter = _safe_text(country)
+    technology_filter = _safe_text(technology)
+    items: list[dict[str, Any]] = []
+    facet_countries: set[str] = set()
+    facet_technologies: set[str] = set()
+
+    for bucket in directory.values():
+        countries = sorted(bucket["countries"])
+        technologies = sorted(bucket["technologies"])
+        hubs = sorted(bucket["hubs"])
+        for value in countries:
+            facet_countries.add(value)
+        for value in technologies:
+            facet_technologies.add(value)
+        if country_filter and country_filter not in countries:
+            continue
+        if technology_filter and technology_filter not in technologies:
+            continue
+        if query:
+            haystack = " ".join(
+                [
+                    _normalize_token(bucket["customer_name"]),
+                    _normalize_token(bucket["customer_key"]),
+                    " ".join(_normalize_token(c) for c in countries),
+                    " ".join(
+                        _normalize_token(p.get("project_code")) for p in bucket["projects"]
+                    ),
+                ]
+            )
+            if query not in haystack:
+                continue
+        items.append(
+            {
+                "customer_key": bucket["customer_key"],
+                "customer_name": bucket["customer_name"],
+                "countries": countries,
+                "hubs": hubs,
+                "technologies": technologies,
+                "projects": sorted(
+                    bucket["projects"],
+                    key=lambda item: (
+                        _safe_text(item.get("project_code")),
+                        _safe_text(item.get("sap_reference")),
+                    ),
+                ),
+                "project_count": len(bucket["projects"]),
+                "opportunity_count": bucket["opportunity_count"],
+                "statuses": dict(sorted(bucket["statuses"].items())),
+                "potential_gap_value": _round_or_none(bucket["potential_gap_value"]) or 0.0,
+                "potential_gap_qty": _round_or_none(bucket["potential_gap_qty"]) or 0.0,
+                "currency": bucket["currency"] or "EUR",
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            -(float(item.get("potential_gap_value") or 0.0)),
+            -(int(item.get("opportunity_count") or 0)),
+            _safe_text(item.get("customer_name")).lower(),
+        )
+    )
+    capped = items[: max(1, min(int(limit or 200), 500))]
+    return {
+        "items": capped,
+        "total": len(items),
+        "facets": {
+            "countries": sorted(facet_countries),
+            "technologies": sorted(facet_technologies),
+        },
+    }
+
+
 def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> dict[str, Any]:
     rows = (
         db.query(Client360Opportunity)
@@ -1495,7 +1958,20 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
         .order_by(Client360ImpactEvent.occurred_at.desc())
         .all()
     )
+    registry_records = _load_project_registry_records(db, workspace)
     customer_name = opportunities[0]["customer_name"] if opportunities else customer_id
+    customer_key = _customer_key_for(
+        opportunities[0].get("customer_key") if opportunities else None
+    ) or _customer_key_for(customer_id)
+    if not opportunities:
+        for record in registry_records:
+            record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+            if record_key == customer_key or customer_key in _normalize_token(
+                record.get("customer_name")
+            ):
+                customer_name = record.get("customer_name") or customer_name
+                customer_key = record_key or customer_key
+                break
     customer_norm = _normalize_token(customer_name)
     market_signals = [
         item
@@ -1512,23 +1988,55 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
     data_gaps = sorted({gap for item in opportunities for gap in item.get("data_gaps", [])})
     installed_base = build_installed_base_tree(opportunities)
     timeline = build_customer_timeline(opportunities, serialized_drafts, serialized_impacts)
+    projects = _customer_projects(
+        registry_records, customer_key=customer_key, customer_name=customer_name
+    )
+    machines = _customer_machines(
+        db,
+        workspace,
+        customer_key=customer_key,
+        customer_name=customer_name,
+        registry_records=registry_records,
+    )
+    purchases = _customer_purchases(
+        db, workspace, customer_key=customer_key, customer_name=customer_name
+    )
+    next_due = _customer_next_due(
+        db, workspace, customer_key=customer_key, customer_name=customer_name
+    )
+    countries = sorted(
+        {
+            *(item["country"] for item in opportunities if item.get("country")),
+            *(item["country"] for item in projects if item.get("country")),
+            *(item["country"] for item in machines if item.get("country")),
+        }
+    )
+    hubs = sorted({item["hub"] for item in opportunities if item.get("hub")})
+    technologies = sorted(
+        {
+            *(item["technology"] for item in opportunities if item.get("technology")),
+            *(item["technology"] for item in machines if item.get("technology")),
+        }
+    )
     aggregates = _customer_summary_aggregates(
         customer_name, opportunities, installed_base, timeline, data_gaps
     )
     ai_summary = _generate_customer_summary_content(db, workspace, aggregates)
     return {
         "customer": {
-            "id": customer_id,
+            "id": customer_key or customer_id,
             "name": customer_name,
-            "countries": sorted({item["country"] for item in opportunities if item.get("country")}),
-            "hubs": sorted({item["hub"] for item in opportunities if item.get("hub")}),
-            "technologies": sorted(
-                {item["technology"] for item in opportunities if item.get("technology")}
-            ),
+            "countries": countries,
+            "hubs": hubs,
+            "technologies": technologies,
         },
         "ai_summary": ai_summary,
         "installed_base": installed_base,
         "timeline": timeline,
+        "projects": projects,
+        "machines": machines,
+        "purchases": purchases,
+        "next_due": next_due,
         "opportunities": opportunities,
         "mail_drafts": serialized_drafts,
         "impact_events": serialized_impacts,
@@ -1929,6 +2437,15 @@ def _index_sales(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             float(current.get("sales_known_value") or 0)
             + float(record.get("sales_known_value") or 0)
         ) or None
+        # Keep the latest purchase date for deterministic due-date forecasts.
+        candidates = [
+            last_purchase_date_from_record(current),
+            last_purchase_date_from_record(record),
+        ]
+        latest = max((item for item in candidates if item is not None), default=None)
+        if latest is not None:
+            merged["last_document_date"] = latest.isoformat()
+            merged["last_purchase_date"] = latest.isoformat()
         index[key] = merged
     return index
 
@@ -2265,6 +2782,9 @@ def _build_opportunity_payload(
             "scope": scope,
         },
     )
+    forecast_meta = _as_dict(_as_dict(record.get("meta_data")).get("forecast"))
+    if forecast_meta:
+        opportunity.meta_data["forecast"] = forecast_meta
     opportunity.data_gaps = opportunity_data_gaps(opportunity)
     score, label, reasons = score_opportunity_details(opportunity)
     opportunity.confidence_score = score
@@ -2367,6 +2887,7 @@ def run_opportunity_engine(
                 skipped.get("installed_quantity_missing_for_generation", 0) + 1
             )
             continue
+        record = apply_next_due_to_record(record)
         payload, reason = _build_opportunity_payload(
             record,
             scope,
@@ -2547,6 +3068,14 @@ Contraintes strictes:
 """
 
 
+def _resolve_client360_mail_system_prompt(workspace: Workspace) -> tuple[str, str]:
+    """Return (effective_prompt, source) where source is default|workspace."""
+    override = _safe_text(_client360_mail_settings(workspace).get("system_prompt"))
+    if override:
+        return override, "workspace"
+    return _CLIENT360_MAIL_SYSTEM_PROMPT, "default"
+
+
 def _client360_mail_ai_config(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     workspace_settings = _as_dict(getattr(workspace, "settings", None))
     configured = _as_dict(workspace_settings.get("client360_pdr_mail"))
@@ -2715,6 +3244,7 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     )
     if not smtp:
         password_configured = bool(settings.smtp_password)
+    system_prompt, system_prompt_source = _resolve_client360_mail_system_prompt(workspace)
     return {
         "enabled": _safe_bool(smtp.get("enabled"), bool(cfg)) if smtp else bool(cfg),
         "configured": cfg is not None and not disabled_reason,
@@ -2734,6 +3264,9 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
         "starttls": _safe_bool(smtp.get("starttls"), False if smtp else not settings.smtp_ssl),
         "password_configured": password_configured,
         "password_env_var": _safe_text(smtp.get("password_env_var")),
+        "system_prompt": system_prompt,
+        "system_prompt_source": system_prompt_source,
+        "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
     }
 
 
@@ -2775,6 +3308,13 @@ def patch_client360_mail_settings(
     if "starttls" in smtp:
         smtp["starttls"] = _safe_bool(smtp.get("starttls"), False)
     mail_settings["smtp"] = smtp
+    if _safe_bool(patch.get("reset_system_prompt"), False):
+        mail_settings.pop("system_prompt", None)
+    elif "system_prompt" in patch and patch.get("system_prompt") is not None:
+        prompt = _safe_text(patch.get("system_prompt"))
+        if not prompt:
+            raise ValueError("system_prompt cannot be empty; use reset_system_prompt to restore default")
+        mail_settings["system_prompt"] = prompt
     workspace_settings["client360_pdr_mail"] = mail_settings
     workspace.settings = workspace_settings
     return client360_mail_settings_payload(workspace)
@@ -2921,12 +3461,13 @@ async def _generate_ai_mail_draft(
 ) -> dict[str, Any]:
     payload = _mail_prompt_payload(opportunity, include_prices=include_prices)
     user_prompt = _mail_user_prompt(payload)
-    prompt_hash = _prompt_hash(_CLIENT360_MAIL_SYSTEM_PROMPT, user_prompt)
+    system_prompt, system_prompt_source = _resolve_client360_mail_system_prompt(workspace)
+    prompt_hash = _prompt_hash(system_prompt, user_prompt)
     raw = await asyncio.wait_for(
         _complete_client360_mail_ai(
             provider=str(config["provider"]),
             model=str(config["model"]),
-            system_prompt=_CLIENT360_MAIL_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             workspace=workspace,
         ),
@@ -2951,6 +3492,7 @@ async def _generate_ai_mail_draft(
             "agent_route": config.get("agent_route"),
             "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
             "prompt_hash": prompt_hash,
+            "system_prompt_source": system_prompt_source,
             "human_validation_required": True,
         },
     }
@@ -3804,6 +4346,14 @@ def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dic
     targeted_customers = len(
         {_safe_text(item.get("customer_key")) for item in items if item.get("customer_key")}
     )
+    impact_counts = {
+        "response": responses,
+        "quote": quotes,
+        "order": orders,
+        "lost": sum(1 for event in events if event.impact_type == "lost"),
+        "no_response": sum(1 for event in events if event.impact_type == "no_response"),
+    }
+    expected = campaign_expected_value(items, impact_counts=impact_counts)
 
     return {
         "campaign": serialize_campaign(campaign),
@@ -3811,6 +4361,10 @@ def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dic
             "targeted_opportunities": len(items),
             "targeted_customers": targeted_customers,
             "potential_gap_value": potential_gap_value,
+            "expected_value": expected["expected_value"],
+            "expected_value_disclaimer": expected["disclaimer"],
+            "conversion_proxy": expected["conversion_proxy"],
+            "conversion_proxy_source": expected["conversion_proxy_source"],
             "drafts": len(drafts),
             "sent": sent,
             "responses": responses,

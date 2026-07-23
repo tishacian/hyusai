@@ -242,6 +242,75 @@ interface Client360TimelineEvent {
   mail_draft_id?: string | null;
 }
 
+interface Client360CustomerProject {
+  project_code?: string | null;
+  sap_reference?: string | null;
+  wbs_element?: string | null;
+  country?: string | null;
+}
+
+interface Client360CustomerMachine {
+  machine_label?: string | null;
+  technology?: string | null;
+  line_label?: string | null;
+  project_code?: string | null;
+  sap_reference?: string | null;
+  wbs_element?: string | null;
+  construction_year?: string | null;
+  country?: string | null;
+  customer_key?: string | null;
+}
+
+interface Client360CustomerPurchase {
+  part_reference: string;
+  part_description?: string | null;
+  sales_known_qty?: number | null;
+  sales_known_value?: number | null;
+  currency?: string | null;
+  last_document_date?: string | null;
+  order_line_count?: number | null;
+  unit_cost?: number | null;
+  delivery_time_weeks?: number | null;
+  po_count?: number | null;
+  cost_sum?: number | null;
+}
+
+interface Client360NextDueItem {
+  part_reference?: string | null;
+  part_family?: string | null;
+  part_description?: string | null;
+  next_due_at?: string | null;
+  recommended_quantity?: number | null;
+  confidence?: string | null;
+  customer_key?: string | null;
+  opportunity_id?: string | null;
+  [key: string]: unknown;
+}
+
+interface Client360DirectoryCustomer {
+  customer_key: string;
+  customer_name: string;
+  countries: string[];
+  hubs: string[];
+  technologies: string[];
+  projects: Client360CustomerProject[];
+  project_count: number;
+  opportunity_count: number;
+  statuses: Record<string, number>;
+  potential_gap_value: number;
+  potential_gap_qty: number;
+  currency?: string | null;
+}
+
+interface Client360CustomersResponse {
+  items: Client360DirectoryCustomer[];
+  total: number;
+  facets: {
+    countries: string[];
+    technologies: string[];
+  };
+}
+
 interface Client360CustomerResponse {
   customer: {
     id: string;
@@ -253,6 +322,10 @@ interface Client360CustomerResponse {
   ai_summary?: Client360AiSummary | null;
   installed_base?: Client360InstalledBaseTechnology[];
   timeline?: Client360TimelineEvent[];
+  projects?: Client360CustomerProject[];
+  machines?: Client360CustomerMachine[];
+  purchases?: Client360CustomerPurchase[];
+  next_due?: Client360NextDueItem[];
   opportunities: Client360Opportunity[];
   mail_drafts: Client360MailDraft[];
   impact_events: Client360ImpactEvent[];
@@ -351,6 +424,9 @@ interface Client360MailSettings {
   starttls: boolean;
   password_configured: boolean;
   password_env_var?: string | null;
+  system_prompt?: string;
+  system_prompt_source?: 'default' | 'workspace';
+  prompt_version?: string;
 }
 
 interface MailSendResponse {
@@ -577,53 +653,103 @@ interface Client360CampaignDraftsResult {
       @if (view() === 'customer') {
         <section class="split">
           <aside class="ck-surface list-panel">
-            @for (opp of opportunities(); track opp.id) {
-              <button type="button" [ngClass]="{ active: selectedOpportunity()?.id === opp.id }" (click)="selectOpportunity(opp)">
-                <strong>{{ opp.customer_name }}</strong>
-                <span>{{ opp.part_family }}</span>
+            <label class="directory-search">
+              Annuaire
+              <input
+                type="search"
+                [(ngModel)]="customerDirectoryQuery"
+                (keyup.enter)="loadCustomers()"
+                (ngModelChange)="onCustomerDirectoryQueryChange()"
+                placeholder="Rechercher un client"
+              />
+            </label>
+            @if (customerDirectoryFacets().countries.length || customerDirectoryFacets().technologies.length) {
+              <div class="directory-facets">
+                <label>
+                  Pays
+                  <select [(ngModel)]="customerDirectoryCountry" (ngModelChange)="loadCustomers()">
+                    <option value="">Tous</option>
+                    @for (country of customerDirectoryFacets().countries; track country) {
+                      <option [value]="country">{{ country }}</option>
+                    }
+                  </select>
+                </label>
+                <label>
+                  Techno
+                  <select [(ngModel)]="customerDirectoryTechnology" (ngModelChange)="loadCustomers()">
+                    <option value="">Toutes</option>
+                    @for (tech of customerDirectoryFacets().technologies; track tech) {
+                      <option [value]="tech">{{ tech }}</option>
+                    }
+                  </select>
+                </label>
+              </div>
+            }
+            @for (customer of directoryCustomers(); track customer.customer_key) {
+              <button
+                type="button"
+                [ngClass]="{ active: selectedDirectoryCustomerKey() === customer.customer_key }"
+                (click)="selectDirectoryCustomer(customer)"
+              >
+                <strong>{{ customer.customer_name }}</strong>
+                <span>
+                  {{ customer.countries.join(', ') || 'Pays a completer' }}
+                  · {{ customer.opportunity_count }} opp.
+                  · {{ formatCurrency(customer.potential_gap_value, customer.currency) }}
+                </span>
               </button>
+            }
+            @if (!directoryCustomers().length) {
+              <div class="empty compact"><span>Aucun client dans l'annuaire.</span></div>
             }
           </aside>
           <article class="ck-surface detail-panel">
-            @if (selectedOpportunity()) {
+            @if (selectedCustomer(); as fiche) {
               <div class="detail-head">
                 <div>
-                  <p class="ck-label c360-eyebrow">Fiche client PDR</p>
-                  <h2>{{ selectedOpportunity()?.customer_name }}</h2>
-                </div>
-                <div class="detail-actions">
-                  <div class="button-row">
-                    <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'validated')">
-                      <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
-                    </button>
-                    <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'dismissed')">
-                      <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
-                    </button>
-                    <button
-                      type="button"
-                      class="primary"
-                      [disabled]="isGeneratingDraft(selectedOpportunity())"
-                      [attr.aria-busy]="isGeneratingDraft(selectedOpportunity())"
-                      [ngClass]="{ 'is-loading': isGeneratingDraft(selectedOpportunity()) }"
-                      (click)="generateDraft(selectedOpportunity()!)"
-                    >
-                      @if (isGeneratingDraft(selectedOpportunity())) {
-                        <ck-glyph name="pulse" [size]="14" color="currentColor" /> Generation...
-                      } @else {
-                        <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
-                      }
-                    </button>
+                  <p class="ck-label c360-eyebrow">Fiche client 360</p>
+                  <h2>{{ fiche.customer.name }}</h2>
+                  <div class="chips">
+                    @for (country of fiche.customer.countries; track country) {
+                      <span>{{ country }}</span>
+                    }
+                    @for (hub of fiche.customer.hubs; track hub) {
+                      <span>{{ hub }}</span>
+                    }
+                    @for (tech of fiche.customer.technologies; track tech) {
+                      <span>{{ tech }}</span>
+                    }
                   </div>
-                  @if (isGeneratingDraft(selectedOpportunity())) {
-                    <div class="action-status" role="status" aria-live="polite">
-                      <ck-glyph name="pulse" [size]="12" color="currentColor" />
-                      Generation du brouillon IA en cours
-                    </div>
-                  }
                 </div>
+                @if (selectedOpportunity(); as selectedOpp) {
+                  <div class="detail-actions">
+                    <div class="button-row">
+                      <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpp, 'validated')">
+                        <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
+                      </button>
+                      <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpp, 'dismissed')">
+                        <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
+                      </button>
+                      <button
+                        type="button"
+                        class="primary"
+                        [disabled]="isGeneratingDraft(selectedOpp)"
+                        [attr.aria-busy]="isGeneratingDraft(selectedOpp)"
+                        [ngClass]="{ 'is-loading': isGeneratingDraft(selectedOpp) }"
+                        (click)="generateDraft(selectedOpp)"
+                      >
+                        @if (isGeneratingDraft(selectedOpp)) {
+                          <ck-glyph name="pulse" [size]="14" color="currentColor" /> Generation...
+                        } @else {
+                          <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
+                        }
+                      </button>
+                    </div>
+                  </div>
+                }
               </div>
 
-              @if (selectedCustomer()?.ai_summary; as summaryAi) {
+              @if (fiche.ai_summary; as summaryAi) {
                 <section class="c360-summary">
                   <div class="c360-summary-head">
                     <p class="ck-label c360-eyebrow">Resume IA</p>
@@ -641,10 +767,51 @@ interface Client360CampaignDraftsResult {
                 </section>
               }
 
+              <h3>Identite</h3>
+              <dl class="facts">
+                <div><dt>Client</dt><dd>{{ fiche.customer.name }}</dd></div>
+                <div><dt>Pays</dt><dd>{{ fiche.customer.countries.join(', ') || 'A completer' }}</dd></div>
+                <div><dt>Hubs</dt><dd>{{ fiche.customer.hubs.join(', ') || 'A completer' }}</dd></div>
+                <div><dt>Technologies</dt><dd>{{ fiche.customer.technologies.join(', ') || 'A completer' }}</dd></div>
+                <div><dt>Projets</dt><dd>{{ (fiche.projects ?? []).length }}</dd></div>
+                <div><dt>Opportunites</dt><dd>{{ fiche.opportunities.length }}</dd></div>
+              </dl>
+
+              <h3>Projets</h3>
+              @if ((fiche.projects ?? []).length) {
+                <div class="chips">
+                  @for (project of fiche.projects ?? []; track project.project_code || project.sap_reference || $index) {
+                    <button type="button" class="chip-button" (click)="focusProject(project)">
+                      {{ project.project_code || project.sap_reference || 'Projet' }}
+                      <small>{{ project.sap_reference && project.project_code ? project.sap_reference : (project.country || '') }}</small>
+                    </button>
+                  }
+                </div>
+              } @else {
+                <p class="hint">Aucun projet registre pour ce client.</p>
+              }
+
               <h3>Parc installe</h3>
-              @if ((selectedCustomer()?.installed_base ?? []).length) {
+              @if ((fiche.machines ?? []).length) {
                 <div class="c360-tree">
-                  @for (tech of selectedCustomer()?.installed_base ?? []; track tech.technology) {
+                  @for (machine of machinesForFocusedProject(); track machine.machine_label + (machine.project_code || '')) {
+                    <div class="c360-tree-machine">
+                      <p class="c360-tree-machine-head">
+                        <span>{{ machine.machine_label || 'Machine' }}</span>
+                        <span>{{ machine.technology || 'Techno a completer' }}</span>
+                      </p>
+                      <p class="hint">
+                        {{ machine.line_label || 'Ligne a completer' }}
+                        @if (machine.project_code) { · {{ machine.project_code }} }
+                        @if (machine.construction_year) { · {{ machine.construction_year }} }
+                      </p>
+                    </div>
+                  }
+                </div>
+              }
+              @if ((fiche.installed_base ?? []).length) {
+                <div class="c360-tree">
+                  @for (tech of fiche.installed_base ?? []; track tech.technology) {
                     <details class="c360-tree-node" open>
                       <summary>
                         <strong>{{ tech.technology }}</strong>
@@ -663,12 +830,12 @@ interface Client360CampaignDraftsResult {
                                 <span>{{ formatCurrency(machine.potential_gap_value, null) }}</span>
                               </p>
                               @for (part of machine.parts; track part.opportunity_id) {
-                                <div class="c360-tree-part">
+                                <button type="button" class="c360-tree-part linkish" (click)="selectOpportunityFromFiche(part.opportunity_id)">
                                   <span class="c360-tree-part-label">{{ part.part_family }}<small>{{ part.part_reference ? ' · ' + part.part_reference : '' }}</small></span>
                                   <span class="c360-tree-part-meta">
                                     Ecart {{ formatQty(part.potential_gap_qty) }} · {{ formatCurrency(part.potential_gap_value, part.currency) }}
                                   </span>
-                                </div>
+                                </button>
                               }
                             </div>
                           }
@@ -677,14 +844,125 @@ interface Client360CampaignDraftsResult {
                     </details>
                   }
                 </div>
-              } @else {
+              }
+              @if (!(fiche.machines ?? []).length && !(fiche.installed_base ?? []).length) {
                 <p class="hint">Aucun parc installe agrege pour ce client.</p>
               }
 
+              <h3>Achats / ventes</h3>
+              @if ((fiche.purchases ?? []).length) {
+                <div class="table-wrap compact-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Piece</th>
+                        <th>Qte</th>
+                        <th>Valeur</th>
+                        <th>Cout PO</th>
+                        <th>Delai</th>
+                        <th>Derniere commande</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (purchase of fiche.purchases ?? []; track purchase.part_reference) {
+                        <tr (click)="selectPurchasePart(purchase.part_reference)">
+                          <td>
+                            <strong>{{ purchase.part_reference }}</strong>
+                            <small>{{ purchase.part_description || '' }}</small>
+                          </td>
+                          <td>{{ formatQty(purchase.sales_known_qty) }}</td>
+                          <td>{{ formatCurrency(purchase.sales_known_value, purchase.currency) }}</td>
+                          <td>{{ formatCurrency(purchase.unit_cost, purchase.currency) }}</td>
+                          <td>{{ formatWeeks(purchase.delivery_time_weeks) }}</td>
+                          <td>{{ formatDate(purchase.last_document_date) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p class="hint">Aucun historique sales orders pour ce client.</p>
+              }
+
+              <h3>A prevoir</h3>
+              @if ((fiche.next_due ?? []).length) {
+                <div class="chips">
+                  @for (item of fiche.next_due ?? []; track item.part_reference || item.next_due_at || $index) {
+                    <span>
+                      {{ item.part_reference || item.part_family || 'Piece' }}
+                      · {{ formatDate(item.next_due_at) }}
+                    </span>
+                  }
+                </div>
+              } @else {
+                <p class="hint">Aucune echeance deterministe disponible (module prevision non branche).</p>
+              }
+
+              <h3>Opportunites</h3>
+              @if (fiche.opportunities.length) {
+                <div class="chips">
+                  @for (opp of fiche.opportunities; track opp.id) {
+                    <button
+                      type="button"
+                      class="chip-button"
+                      [ngClass]="{ active: selectedOpportunity()?.id === opp.id }"
+                      (click)="selectOpportunityFromFiche(opp.id)"
+                    >
+                      {{ opp.part_family || opp.part_reference || 'Opportunite' }}
+                      <small>{{ formatCurrency(opp.potential_gap_value, opp.currency) }}</small>
+                    </button>
+                  }
+                </div>
+                <div class="button-row" style="margin-top: 10px;">
+                  @if (selectedOpportunity(); as selectedOpp) {
+                    <button
+                      type="button"
+                      class="primary"
+                      [disabled]="isGeneratingDraft(selectedOpp)"
+                      (click)="generateDraft(selectedOpp)"
+                    >
+                      <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail pour l'opportunite
+                    </button>
+                  }
+                </div>
+              } @else {
+                <p class="hint">Aucune opportunite detectee pour ce client.</p>
+              }
+
+              @if (selectedOpportunity(); as selectedOpp) {
+                <h3>Detail opportunite selectionnee</h3>
+                <dl class="facts">
+                  <div><dt>Pays / hub</dt><dd>{{ selectedOpp.country || selectedOpp.hub || 'A completer' }}</dd></div>
+                  <div><dt>Technologie</dt><dd>{{ selectedOpp.technology || 'A completer' }}</dd></div>
+                  <div><dt>Piece</dt><dd>{{ selectedOpp.part_family }}</dd></div>
+                  <div><dt>Periodicite</dt><dd>{{ formatWeeks(selectedOpp.periodicity_weeks) }}</dd></div>
+                  <div><dt>Quantite annuelle</dt><dd>{{ formatQty(selectedOpp.annual_theoretical_qty) }}</dd></div>
+                  <div><dt>Achats SAP connus</dt><dd>{{ formatQty(selectedOpp.sales_known_qty) }}</dd></div>
+                  <div><dt>Ecart vs achats</dt><dd>{{ formatQty(selectedOpp.potential_gap_qty) }}</dd></div>
+                  <div><dt>Valeur potentielle</dt><dd>{{ formatCurrency(selectedOpp.potential_gap_value, selectedOpp.currency) }}</dd></div>
+                  <div><dt>Adressable pondere</dt><dd>{{ formatQty(selectedOpp.potential_addressable) }}</dd></div>
+                  <div><dt>Delai</dt><dd>{{ formatWeeks(selectedOpp.delivery_time_weeks) }}</dd></div>
+                  <div><dt>Echeance</dt><dd>{{ formatDate(selectedOpp.next_due_at) }}</dd></div>
+                  <div><dt>Action</dt><dd>{{ labelAction(selectedOpp.recommended_action) }}</dd></div>
+                </dl>
+                <h3>Donnees manquantes</h3>
+                <div class="chips">
+                  @for (gap of selectedOpp.data_gaps; track gap) {
+                    <span>{{ labelGap(gap) }}</span>
+                  }
+                </div>
+                <h3>Raisons du score</h3>
+                <div class="reason-list">
+                  @for (reason of selectedOpp.score_reasons; track reason.code) {
+                    <span [ngClass]="{ met: reason.met }">{{ reason.label }}</span>
+                  }
+                </div>
+              }
+
               <h3>Chronologie</h3>
-              @if ((selectedCustomer()?.timeline ?? []).length) {
+              @if ((fiche.timeline ?? []).length) {
                 <ol class="c360-timeline">
-                  @for (event of selectedCustomer()?.timeline ?? []; track $index) {
+                  @for (event of fiche.timeline ?? []; track $index) {
                     <li [ngClass]="timelineKindClass(event.kind)">
                       <span class="c360-timeline-when">{{ formatDateTime(event.at) }}</span>
                       <span class="c360-timeline-kind">{{ timelineKindLabel(event.kind) }}</span>
@@ -696,63 +974,17 @@ interface Client360CampaignDraftsResult {
                 <p class="hint">Aucun evenement chronologique enregistre.</p>
               }
 
-              <h3>Detail opportunite selectionnee</h3>
-              <dl class="facts">
-                <div><dt>Pays / hub</dt><dd>{{ selectedOpportunity()?.country || selectedOpportunity()?.hub || 'A completer' }}</dd></div>
-                <div><dt>Technologie</dt><dd>{{ selectedOpportunity()?.technology || 'A completer' }}</dd></div>
-                <div><dt>Piece</dt><dd>{{ selectedOpportunity()?.part_family }}</dd></div>
-                <div><dt>Periodicite</dt><dd>{{ formatWeeks(selectedOpportunity()?.periodicity_weeks) }}</dd></div>
-                <div><dt>Quantite annuelle</dt><dd>{{ formatQty(selectedOpportunity()?.annual_theoretical_qty) }}</dd></div>
-                <div><dt>Achats SAP connus</dt><dd>{{ formatQty(selectedOpportunity()?.sales_known_qty) }}</dd></div>
-                <div><dt>Ecart vs achats</dt><dd>{{ formatQty(selectedOpportunity()?.potential_gap_qty) }}</dd></div>
-                <div><dt>Valeur potentielle</dt><dd>{{ formatCurrency(selectedOpportunity()?.potential_gap_value, selectedOpportunity()?.currency) }}</dd></div>
-                <div><dt>Adressable pondere</dt><dd>{{ formatQty(selectedOpportunity()?.potential_addressable) }}</dd></div>
-                <div><dt>Delai</dt><dd>{{ formatWeeks(selectedOpportunity()?.delivery_time_weeks) }}</dd></div>
-                <div><dt>Echeance</dt><dd>{{ formatDate(selectedOpportunity()?.next_due_at) }}</dd></div>
-                <div><dt>Action</dt><dd>{{ labelAction(selectedOpportunity()?.recommended_action) }}</dd></div>
-              </dl>
-              <h3>Donnees manquantes</h3>
-              <div class="chips">
-                @for (gap of selectedOpportunity()?.data_gaps ?? []; track gap) {
-                  <span>{{ labelGap(gap) }}</span>
-                }
-              </div>
-              <h3>Raisons du score</h3>
-              <div class="reason-list">
-                @for (reason of selectedOpportunity()?.score_reasons ?? []; track reason.code) {
-                  <span [ngClass]="{ met: reason.met }">{{ reason.label }}</span>
-                }
-              </div>
-              @if (selectedOpportunity()?.metadata?.addressable_factors; as factors) {
-                <h3>Valorisation et ponderation</h3>
-                <dl class="facts">
-                  <div>
-                    <dt>Prix unitaire estime</dt>
-                    <dd>
-                      {{ formatCurrency(selectedOpportunity()?.metadata?.pricing?.unit_price, selectedOpportunity()?.currency) }}
-                      <small>{{ pricingSourceLabel(selectedOpportunity()?.metadata?.pricing?.source) }}</small>
-                    </dd>
-                  </div>
-                  <div><dt>Facteur adressable</dt><dd>{{ formatQty(factors.factor) }}</dd></div>
-                  <div><dt>Hub connu</dt><dd>{{ factors.hub_present ? 'Oui' : 'Non' }}</dd></div>
-                  <div><dt>Historique d'achat</dt><dd>{{ factors.existing_purchase_history ? 'Oui' : 'Non' }}</dd></div>
-                  <div><dt>Taux de conversion observe</dt><dd>{{ formatQty(factors.observed_conversion_rate) }}</dd></div>
-                </dl>
-                <p class="hint">
-                  Adressable pondere = ecart potentiel x facteur (base + hub + historique + taux de conversion observe).
-                </p>
-              }
               <h3>Signaux externes</h3>
               <div class="chips">
-                @for (signal of selectedCustomer()?.market_signals ?? []; track signal.id) {
+                @for (signal of fiche.market_signals; track signal.id) {
                   <span>{{ signal.label }}</span>
                 }
-                @if ((selectedCustomer()?.market_signals ?? []).length === 0) {
+                @if (fiche.market_signals.length === 0) {
                   <span>Pas de signal externe rattache</span>
                 }
               </div>
             } @else {
-              <div class="empty"><span>Selectionner une opportunite.</span></div>
+              <div class="empty"><span>Selectionner un client dans l'annuaire.</span></div>
             }
           </article>
         </section>
@@ -1086,6 +1318,65 @@ interface Client360CampaignDraftsResult {
                 }
               </button>
             </section>
+
+            <section class="ck-surface smtp-panel mail-prompt-panel">
+              <div class="panel-head">
+                <h3>Prompt de generation</h3>
+                <span
+                  class="status"
+                  [ngClass]="{ ok: mailSettings()?.system_prompt_source === 'workspace' }"
+                >
+                  {{ mailPromptSourceLabel() }}
+                </span>
+              </div>
+              <p class="hint mail-prompt-invariants">
+                Invariants : reponse JSON stricte (subject / body), aucune invention de
+                donnees, validation humaine avant envoi.
+                @if (mailSettings()?.prompt_version) {
+                  <span class="mono-slug"> {{ mailSettings()?.prompt_version }}</span>
+                }
+              </p>
+              <label>
+                System prompt effectif
+                <textarea
+                  class="small-textarea prompt-textarea"
+                  [(ngModel)]="mailSystemPrompt"
+                  rows="10"
+                ></textarea>
+              </label>
+              <div class="button-row mail-prompt-actions">
+                <button
+                  type="button"
+                  class="secondary"
+                  [disabled]="savingMailPrompt() || resettingMailPrompt()"
+                  [ngClass]="{ 'is-loading': savingMailPrompt() }"
+                  (click)="saveMailPrompt()"
+                >
+                  @if (savingMailPrompt()) {
+                    <ck-glyph name="pulse" [size]="14" color="currentColor" /> Enregistrement...
+                  } @else {
+                    <ck-glyph name="check" [size]="14" color="currentColor" /> Enregistrer le prompt
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="secondary"
+                  [disabled]="
+                    resettingMailPrompt() ||
+                    savingMailPrompt() ||
+                    mailSettings()?.system_prompt_source !== 'workspace'
+                  "
+                  [ngClass]="{ 'is-loading': resettingMailPrompt() }"
+                  (click)="resetMailPrompt()"
+                >
+                  @if (resettingMailPrompt()) {
+                    <ck-glyph name="pulse" [size]="14" color="currentColor" /> Reinitialisation...
+                  } @else {
+                    Reinitialiser
+                  }
+                </button>
+              </div>
+            </section>
           </aside>
         </section>
       }
@@ -1335,11 +1626,27 @@ interface Client360CampaignDraftsResult {
     .split { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
     .data-layout { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 12px; min-height: 420px; }
     .mail-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 620px; align-items: stretch; }
-    .list-panel, .detail-panel, .gap-panel, .impact-panel, .smtp-panel { border-radius: var(--ck-radius-md); padding: 12px; }
+    .list-panel, .detail-panel, .gap-panel, .impact-panel, .smtp-panel, .mail-prompt-panel { border-radius: var(--ck-radius-md); padding: 12px; }
     .list-panel { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
     .list-panel button { text-align: left; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); color: var(--ck-fg-2); padding: 10px; cursor: pointer; }
     .list-panel button.active { border-color: var(--ck-stroke-hot); color: var(--ck-signal-cool); }
     .list-panel span { display: block; margin-top: 4px; color: var(--ck-fg-4); font-size: 11px; }
+    .directory-search { margin-bottom: 4px; }
+    .directory-facets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 4px; }
+    .empty.compact { min-height: 80px; }
+    .chip-button {
+      display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      border-radius: var(--ck-radius-md); padding: 6px 10px; background: var(--ck-tint-faint);
+      border: 1px solid var(--ck-stroke-2); color: var(--ck-fg-2); font-size: 11px; cursor: pointer; text-align: left;
+    }
+    .chip-button small { color: var(--ck-fg-4); }
+    .chip-button.active { border-color: var(--ck-stroke-hot); color: var(--ck-signal-cool); }
+    .c360-tree-part.linkish {
+      width: 100%; border: 0; cursor: pointer; text-align: left;
+    }
+    .c360-tree-part.linkish:hover { border: 0; background: color-mix(in oklab, var(--ck-signal-cool) 12%, transparent); }
+    .compact-table table { min-width: 560px; }
+    .compact-table tbody tr { cursor: pointer; }
     .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
     .detail-head.compact { margin-bottom: 10px; }
     .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }
@@ -1397,7 +1704,10 @@ interface Client360CampaignDraftsResult {
     .reason-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
     .reason-list span.met { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
-    .impact-panel, .smtp-panel { display: flex; flex-direction: column; gap: 12px; }
+    .impact-panel, .smtp-panel, .mail-prompt-panel { display: flex; flex-direction: column; gap: 12px; }
+    .prompt-textarea { min-height: 220px; font: 500 12px/1.45 var(--ck-font-mono); }
+    .mail-prompt-invariants { margin: 0; }
+    .mail-prompt-actions { justify-content: flex-start; flex-wrap: wrap; }
     .impact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .impact-buttons button { min-height: 40px; font-size: 12px; }
     .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -1456,6 +1766,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly opportunitiesResponse = signal<Client360OpportunitiesResponse | null>(null);
   readonly selectedOpportunity = signal<Client360Opportunity | null>(null);
   readonly selectedCustomer = signal<Client360CustomerResponse | null>(null);
+  readonly customersResponse = signal<Client360CustomersResponse | null>(null);
+  readonly selectedDirectoryCustomerKey = signal<string | null>(null);
+  readonly focusedProjectCode = signal<string | null>(null);
   readonly currentDraft = signal<Client360MailDraft | null>(null);
   readonly draftBody = signal('');
   readonly draftSubject = signal('');
@@ -1469,6 +1782,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly generatingDraftOpportunityId = signal<string | null>(null);
   readonly sendingMailDraftId = signal<string | null>(null);
   readonly savingMailSettings = signal(false);
+  readonly savingMailPrompt = signal(false);
+  readonly resettingMailPrompt = signal(false);
   readonly mailSettings = signal<Client360MailSettings | null>(null);
   readonly mailStatus = signal<string | null>(null);
   readonly campaignsResponse = signal<Client360CampaignsResponse | null>(null);
@@ -1480,6 +1795,10 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly chatBusy = signal(false);
   readonly chatError = signal<string | null>(null);
   chatInput = '';
+  customerDirectoryQuery = '';
+  customerDirectoryCountry = '';
+  customerDirectoryTechnology = '';
+  private customerDirectorySearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   recipientEmail = '';
   smtpEnabled = true;
@@ -1491,6 +1810,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   smtpFromName = 'ANDRITZ Service';
   smtpSsl = true;
   smtpStarttls = false;
+  mailSystemPrompt = '';
 
   impactAttribution = 'unknown';
   impactReason = 'unknown';
@@ -1526,6 +1846,17 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   ];
 
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
+  readonly directoryCustomers = computed(() => this.customersResponse()?.items ?? []);
+  readonly customerDirectoryFacets = computed(
+    () => this.customersResponse()?.facets ?? { countries: [], technologies: [] },
+  );
+  readonly machinesForFocusedProject = computed(() => {
+    const machines = this.selectedCustomer()?.machines ?? [];
+    const projectCode = this.focusedProjectCode();
+    if (!projectCode) return machines;
+    const filtered = machines.filter((machine) => machine.project_code === projectCode);
+    return filtered.length ? filtered : machines;
+  });
   readonly sortKey = signal<'score' | 'value'>('score');
   readonly sortedOpportunities = computed(() => {
     const items = [...this.opportunities()];
@@ -1609,6 +1940,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.loadMailSettings(false, actionContext);
     this.loadMappings(false, actionContext);
     this.loadOpportunities(false, actionContext);
+    this.loadCustomers(actionContext);
     this.loadAlerts(actionContext);
   }
 
@@ -1639,6 +1971,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   openTab(tab: ViewKey): void {
     this.view.set(tab);
+    if (tab === 'customer' && !this.customersResponse()) {
+      this.loadCustomers();
+    }
     if (tab === 'data' && !this.mailAiResolved()) {
       this.loadSummary(true);
     }
@@ -1651,6 +1986,94 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (tab === 'campaigns' && !this.campaignsResponse()) {
       this.loadCampaigns(false);
     }
+  }
+
+  onCustomerDirectoryQueryChange(): void {
+    if (this.customerDirectorySearchTimer) {
+      clearTimeout(this.customerDirectorySearchTimer);
+    }
+    this.customerDirectorySearchTimer = setTimeout(() => this.loadCustomers(), 250);
+  }
+
+  loadCustomers(actionContext?: WorkspaceActionContext): void {
+    let params = new HttpParams().set('limit', '200');
+    if (this.customerDirectoryQuery.trim()) {
+      params = params.set('q', this.customerDirectoryQuery.trim());
+    }
+    if (this.customerDirectoryCountry) {
+      params = params.set('country', this.customerDirectoryCountry);
+    }
+    if (this.customerDirectoryTechnology) {
+      params = params.set('technology', this.customerDirectoryTechnology);
+    }
+    const request = this.http.get<Client360CustomersResponse>('/api/v1/client360/customers', {
+      params,
+      ...(actionContext ? this.workspaceHttpOptions(actionContext.scope) : {}),
+    }).subscribe({
+      next: (payload) => {
+        if (!this.workspaceActionContextIsCurrent(actionContext)) return;
+        this.customersResponse.set(payload);
+        const selectedKey = this.selectedDirectoryCustomerKey();
+        if (selectedKey && !payload.items.some((item) => item.customer_key === selectedKey)) {
+          return;
+        }
+        if (!selectedKey && payload.items.length && this.view() === 'customer' && !this.selectedCustomer()) {
+          this.selectDirectoryCustomer(payload.items[0]);
+        }
+      },
+      error: () => {
+        if (this.workspaceActionContextIsCurrent(actionContext)) {
+          this.customersResponse.set(null);
+          this.error.set('Impossible de charger l\'annuaire clients Client360');
+        }
+      },
+    });
+    this.trackActionRefreshRequest(request, actionContext);
+  }
+
+  selectDirectoryCustomer(customer: Client360DirectoryCustomer): void {
+    this.selectedDirectoryCustomerKey.set(customer.customer_key);
+    this.focusedProjectCode.set(null);
+    this.view.set('customer');
+    this.loading.set(true);
+    this.http
+      .get<Client360CustomerResponse>(`/api/v1/client360/customers/${encodeURIComponent(customer.customer_key)}`)
+      .subscribe({
+        next: (payload) => {
+          this.selectedCustomer.set(payload);
+          const firstOpp = payload.opportunities[0] ?? null;
+          this.selectedOpportunity.set(firstOpp);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.selectedCustomer.set(null);
+          this.selectedOpportunity.set(null);
+          this.loading.set(false);
+          this.error.set('Impossible de charger la fiche client');
+        },
+      });
+  }
+
+  focusProject(project: Client360CustomerProject): void {
+    this.focusedProjectCode.set(project.project_code || null);
+  }
+
+  selectOpportunityFromFiche(opportunityId: string | null | undefined): void {
+    if (!opportunityId) return;
+    const opp =
+      this.selectedCustomer()?.opportunities.find((item) => item.id === opportunityId) ||
+      this.opportunities().find((item) => item.id === opportunityId) ||
+      null;
+    if (!opp) return;
+    this.selectedOpportunity.set(opp);
+  }
+
+  selectPurchasePart(partReference: string | null | undefined): void {
+    if (!partReference) return;
+    const opp =
+      this.selectedCustomer()?.opportunities.find((item) => item.part_reference === partReference) ||
+      null;
+    if (opp) this.selectedOpportunity.set(opp);
   }
 
   sendChatMessage(): void {
@@ -1764,6 +2187,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.smtpSsl = settings.ssl !== false;
     this.smtpStarttls = Boolean(settings.starttls);
     this.smtpPassword = '';
+    this.mailSystemPrompt = settings.system_prompt || '';
   }
 
   saveMailSettings(): void {
@@ -1792,6 +2216,53 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.mailStatus.set("Impossible d'enregistrer le SMTP");
       },
     });
+  }
+
+  saveMailPrompt(): void {
+    const prompt = this.mailSystemPrompt.trim();
+    if (!prompt) {
+      this.mailStatus.set('Le prompt ne peut pas etre vide');
+      return;
+    }
+    this.savingMailPrompt.set(true);
+    this.mailStatus.set(null);
+    this.http
+      .patch<MailSettingsResponse>('/api/v1/client360/mail-settings', { system_prompt: prompt })
+      .subscribe({
+        next: (response) => {
+          this.mailSettings.set(response.mail_settings);
+          this.applyMailSettings(response.mail_settings);
+          this.savingMailPrompt.set(false);
+          this.mailStatus.set(
+            response.mail_settings.system_prompt_source === 'workspace'
+              ? 'Prompt personnalise enregistre'
+              : 'Prompt mis a jour',
+          );
+        },
+        error: () => {
+          this.savingMailPrompt.set(false);
+          this.mailStatus.set("Impossible d'enregistrer le prompt");
+        },
+      });
+  }
+
+  resetMailPrompt(): void {
+    this.resettingMailPrompt.set(true);
+    this.mailStatus.set(null);
+    this.http
+      .patch<MailSettingsResponse>('/api/v1/client360/mail-settings', { reset_system_prompt: true })
+      .subscribe({
+        next: (response) => {
+          this.mailSettings.set(response.mail_settings);
+          this.applyMailSettings(response.mail_settings);
+          this.resettingMailPrompt.set(false);
+          this.mailStatus.set('Prompt reinitialise au defaut');
+        },
+        error: () => {
+          this.resettingMailPrompt.set(false);
+          this.mailStatus.set('Impossible de reinitialiser le prompt');
+        },
+      });
   }
 
   syncFromCollection(dryRun = false): void {
@@ -2055,7 +2526,12 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   selectOpportunity(opp: Client360Opportunity): void {
     this.selectedOpportunity.set(opp);
+    this.selectedDirectoryCustomerKey.set(opp.customer_key);
+    this.focusedProjectCode.set(null);
     this.view.set('customer');
+    if (!this.customersResponse()) {
+      this.loadCustomers();
+    }
     this.http.get<Client360CustomerResponse>(`/api/v1/client360/customers/${encodeURIComponent(opp.customer_key)}`).subscribe({
       next: (payload) => this.selectedCustomer.set(payload),
       error: () => this.selectedCustomer.set(null),
@@ -2492,5 +2968,12 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   smtpPasswordPlaceholder(): string {
     return this.mailSettings()?.password_configured ? 'Secret configure' : 'Mot de passe SMTP';
+  }
+
+  mailPromptSourceLabel(): string {
+    const source = this.mailSettings()?.system_prompt_source;
+    if (source === 'workspace') return 'Personnalise';
+    if (source === 'default') return 'Defaut';
+    return 'Non charge';
   }
 }
