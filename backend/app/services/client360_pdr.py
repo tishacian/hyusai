@@ -1853,10 +1853,24 @@ def _customer_purchases(
 ) -> list[dict[str, Any]]:
     """Sales-order aggregates for the customer, enriched with PO cost/lead when present."""
     sales = _raw_source_records_by_roles(db, workspace, {"sales_orders"})
-    purchase_rows = _raw_source_records_by_roles(db, workspace, {"purchase_history"})
     matched = _records_matching_customer(
         sales, customer_key=customer_key, customer_name=customer_name
     )
+    if not matched:
+        return []
+    matched_ref_keys = {
+        _normalize_token(record.get("part_reference"))
+        for record in matched
+        if _safe_text(record.get("part_reference"))
+    }
+    # The purchase-history sources hold tens of thousands of materials; only
+    # the customer's own references are ever looked up, so filtering before
+    # indexing keeps the fiche latency bounded.
+    purchase_rows = [
+        row
+        for row in _raw_source_records_by_roles(db, workspace, {"purchase_history"})
+        if _normalize_token(row.get("part_reference")) in matched_ref_keys
+    ]
     cost_index = _index_purchase_costs(purchase_rows)
     lead_index = _index_purchase_lead_times(purchase_rows)
     by_ref_cost = _as_dict(cost_index.get("by_part_reference"))
