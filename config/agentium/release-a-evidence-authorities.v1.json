@@ -1,0 +1,13 @@
+{
+  "authorities": [
+    {
+      "issuer": "carakai-protected-runner-v1",
+      "producer": "protected_runner",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA5wj7LiQasbbXQS1VBU1M\nGi834oWuoKpgdZ5NdGC8KgOzWo2x/ajqIxUvhosZDxQ1RGu9n0etkRgia24DpwnD\nAkOvhmXOl6cxp/ZQkpmTOWNG5u+DlLtTqkBQSrz4+2uNb5J3AnssGlkIWnLkE1UY\nP3fIkARMiGRk7poDPx+reM087dAz7xAVggjTuEPlXtNGgRke9NWMW9ABHL0Cnjpj\n4/o14U0k/gDifyT31p2lRj95JQNVV87dYEYS3hOIlisczKDu6OM5fY7BzbB1NsUK\nXefrQwK05Hmcgkw6/wjpDfrD09WLRzRXpfqHM8deo+nnGYMZTWB5qats3+pOSFlB\necVoo9qcH8PcfOcpPPNVwKa9RmwcgsAH0+Z63viiZVeC7PPmnRrJsMcwp4IOya53\n6bOiRdTOZBmP0XwMk2zG36AsA3meRsEv6Cnj7n3BOU08v0b8zn0bFZdlVjd/6ELi\niN6tjRXQ8OSVdUB8qPjNWDpmWXxnQ1ZktGSX0ekG9MrRAgMBAAE=\n-----END PUBLIC KEY-----\n",
+      "public_key_sha256": "4b2becbda0d83839976524fa24752ef7f967590033159e40c8b6ae97abe791e3",
+      "signature_algorithm": "rsa-pkcs1v15-sha256"
+    }
+  ],
+  "kind": "agentium-release-a-evidence-authority-keyring",
+  "schema_version": 1
+}

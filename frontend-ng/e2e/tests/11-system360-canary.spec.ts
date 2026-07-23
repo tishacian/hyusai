@@ -21,6 +21,7 @@ const password = process.env['E2E_PASSWORD'];
 const expectedSha = process.env['E2E_EXPECTED_SHA'];
 const runnerAttestationPath = process.env['E2E_LOT6_RUNNER_ATTESTATION'];
 const behaviorAttestationPath = process.env['E2E_LOT6_BEHAVIOR_ATTESTATION'];
+const protectedRunner = process.env['E2E_PROTECTED_RUNNER_CANARIES'] === '1';
 const claimId = 'LOT6-SYSTEM360-PERSPECTIVES';
 const lenses = ['build', 'operate', 'steer', 'govern'] as const;
 const facets = ['overview', 'runs', 'design', 'context'] as const;
@@ -173,11 +174,13 @@ function ciIdentity(): Record<string, string> {
     ref: process.env['CI_COMMIT_REF_NAME'] ?? '',
     ref_protected: process.env['CI_COMMIT_REF_PROTECTED'] ?? '',
   };
-  if (process.env['CI']) {
+  if (process.env['CI'] && !protectedRunner) {
     for (const [key, value] of Object.entries(values)) {
       expect(value, `GitLab metadata ${key} is required for formal evidence`).toBeTruthy();
     }
     expect(values['ref_protected']).toBe('true');
+  } else if (protectedRunner) {
+    expect(values['commit_sha'], 'protected runner commit binding is required').toBe(expectedSha);
   }
   return values;
 }
@@ -443,7 +446,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
     await expect(page.locator('app-semantic-zoom-breadcrumb')).toContainText(capability!.name);
     await expect(page.locator('app-semantic-zoom-breadcrumb')).toContainText(system.name);
     const invariantChrome = await chromeSignature(page);
-    expect(invariantChrome.tabs).toEqual(['Overview', 'Runs', 'Design', 'Context']);
+    expect(invariantChrome['tabs']).toEqual(['Overview', 'Runs', 'Design', 'Context']);
     const canonicalPath = new URL(page.url()).pathname;
 
     await page.evaluate(() => {
@@ -536,9 +539,11 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
     );
     await expect(restrictedRow.locator('[data-state="restricted"]')).toBeVisible();
 
-    const screenshot = testInfo.outputPath('lot6-system360-canary.png');
-    await page.locator('app-system-view').screenshot({ path: screenshot, animations: 'disabled' });
-    await testInfo.attach('lot6-system360-canary', { path: screenshot, contentType: 'image/png' });
+    if (process.env['E2E_SAFE_CONTENT_FREE'] !== '1') {
+      const screenshot = testInfo.outputPath('lot6-system360-canary.png');
+      await page.locator('app-system-view').screenshot({ path: screenshot, animations: 'disabled' });
+      await testInfo.attach('lot6-system360-canary', { path: screenshot, contentType: 'image/png' });
+    }
 
     const alternateRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
