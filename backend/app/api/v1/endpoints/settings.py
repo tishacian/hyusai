@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
-from app.core.settings_manager import reload_app_settings
+from app.core.settings_manager import get_app_settings, reload_app_settings
 from app.db.base import get_db
 from app.models.workspace import Workspace
 from app.services.rag_preset_service import RagPresetService
@@ -70,12 +70,11 @@ async def get_settings(
       3. in-memory ``SettingsManager`` defaults
     """
     try:
-        preset = RagPresetService.get_or_create_workspace_default(
-            db, workspace_id=workspace.id
-        )
-        return SettingsResponse(
-            settings=dict(preset.config or {}), version="1.0"
-        )
+        # A GET must never create a tenant preset.  This is particularly
+        # important during deployment canaries, where opening Sentinel or
+        # Octocity must remain an observation rather than an implicit seed.
+        resolved = RagPresetService.resolve_for(db, workspace_id=workspace.id)
+        return SettingsResponse(settings=dict(resolved or {}), version="1.0")
     except Exception as preset_error:
         logger.debug(
             "Falling back to legacy app_settings",
@@ -83,14 +82,20 @@ async def get_settings(
         )
 
     try:
-        app_settings = SettingsService.get_settings(db)
-        return SettingsResponse(settings=app_settings, version="1.0")
+        app_settings = SettingsService.get_settings(db, create_if_missing=False)
+        return SettingsResponse(
+            settings={**get_app_settings(), **app_settings},
+            version="1.0",
+        )
     except Exception as e:
         error_str = str(e)
         if "no such column" in error_str.lower() or "rag_vector_db_type" in error_str:
-            from app.core.settings_manager import get_app_settings
             try:
-                app_settings = SettingsService.get_settings(db, ignore_missing_columns=True)
+                app_settings = SettingsService.get_settings(
+                    db,
+                    ignore_missing_columns=True,
+                    create_if_missing=False,
+                )
                 defaults = get_app_settings()
                 merged = {**defaults, **app_settings}
                 return SettingsResponse(settings=merged, version="1.0")

@@ -10,8 +10,10 @@ Group=ubuntu
 # WorkingDirectory MUST be backend/ so pydantic-settings resolves .env correctly.
 WorkingDirectory=/home/ubuntu/omnirag/backend
 EnvironmentFile=/home/ubuntu/omnirag/backend/.env
+Environment=STARTUP_RECONCILIATION=disabled
+Environment=AGENTIUM_DISABLE_DOTENV=1
 ExecStart=/home/ubuntu/omnirag/venv/bin/uvicorn app.main:app \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --port 8000 \
     --workers 2 \
     --proxy-headers \

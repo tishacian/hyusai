@@ -1,6 +1,6 @@
 """Application configuration"""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     # deployment job rejects non-SHA values outside local development.
     agentium_image_revision: str = "development"
     debug: bool = False
+
+    # Transactional deployments disable startup reconciliation so merely
+    # starting a candidate cannot mutate tenant state before the data gates.
+    startup_reconciliation: Literal["enabled", "disabled"] = "enabled"
 
     api_v1_prefix: str = "/api/v1"
 

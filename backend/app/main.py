@@ -48,13 +48,19 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting application")
 
-    # Create all tables (demo -- no Alembic migration needed)
+    startup_reconciliation_enabled = settings.startup_reconciliation == "enabled"
+
+    # Create all tables only in the legacy/demo startup mode. Transactional
+    # deployment runs Alembic explicitly while all writers are quiesced.
     import app.models  # noqa: F401  ensure models are registered
 
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created")
+    if startup_reconciliation_enabled:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables reconciled")
+    else:
+        logger.info("Database startup reconciliation disabled")
 
-    get_settings_manager()
+    get_settings_manager(create_if_missing=startup_reconciliation_enabled)
     logger.info("Settings manager initialized")
 
     orchestrator = AgentOrchestrator()
@@ -64,11 +70,13 @@ async def lifespan(app: FastAPI):
     await omnirag_agent.initialize()
     orchestrator.register_agent(omnirag_agent)
 
-    # Seed knowledge base with sample docs (idempotent)
-    try:
-        await seed_knowledge_base()
-    except Exception as e:
-        logger.warning("Knowledge base seeding failed (non-blocking)", error=str(e))
+    # Seed knowledge base with sample docs (idempotent) only outside a
+    # transactional deployment startup.
+    if startup_reconciliation_enabled:
+        try:
+            await seed_knowledge_base()
+        except Exception as e:
+            logger.warning("Knowledge base seeding failed (non-blocking)", error=str(e))
 
     # Warm the cross-encoder so the first balanced chat does not pay the
     # model load inside its rerank budget (opt-in: weights must be available).
@@ -80,46 +88,46 @@ async def lifespan(app: FastAPI):
         except Exception as e:  # noqa: BLE001
             logger.warning("Cross-encoder preload failed (non-blocking)", error=str(e))
 
-    # Seed canonical Skills + Capabilities registry (idempotent)
-    try:
-        from app.db.base import SessionLocal
-        from app.services.skills_registry import seed_skills_and_capabilities
+    # Seed canonical Skills + Capabilities registry (idempotent).
+    if startup_reconciliation_enabled:
+        try:
+            from app.db.base import SessionLocal
+            from app.services.skills_registry import seed_skills_and_capabilities
 
-        with SessionLocal() as _db:
-            report = seed_skills_and_capabilities(_db)
-        logger.info("Canonical registry seeded", **report)
-    except Exception as e:
-        logger.warning("Canonical registry seeding failed (non-blocking)", error=str(e))
+            with SessionLocal() as _db:
+                report = seed_skills_and_capabilities(_db)
+            logger.info("Canonical registry seeded", **report)
+        except Exception as e:
+            logger.warning("Canonical registry seeding failed (non-blocking)", error=str(e))
 
     # Seed Intelligence System per workspace (idempotent, Vague A commit 2).
-    try:
-        from app.db.base import SessionLocal
-        from app.services.systems.bootstrap import (
-            ensure_client360_pdr_system_for_all_workspaces,
-            ensure_expert_capture_system_for_all_workspaces,
-            ensure_fse_report_system_for_andritz,
-            ensure_intelligence_system_for_all_workspaces,
-            ensure_workspace_chat_system_for_all_workspaces,
-        )
-        from app.services.mission_room import ensure_sentinel_ci_workspace
+    if startup_reconciliation_enabled:
+        try:
+            from app.db.base import SessionLocal
+            from app.services.mission_room import ensure_sentinel_ci_workspace
+            from app.services.systems.bootstrap import (
+                ensure_client360_pdr_system_for_all_workspaces,
+                ensure_expert_capture_system_for_all_workspaces,
+                ensure_fse_report_system_for_andritz,
+                ensure_intelligence_system_for_all_workspaces,
+                ensure_workspace_chat_system_for_all_workspaces,
+            )
 
-        with SessionLocal() as _db:
-            sentinel_report = ensure_sentinel_ci_workspace(_db)
-            intel_report = ensure_intelligence_system_for_all_workspaces(_db)
-            expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
-            fse_report_report = ensure_fse_report_system_for_andritz(_db)
-            workspace_chat_report = ensure_workspace_chat_system_for_all_workspaces(_db)
-            client360_report = ensure_client360_pdr_system_for_all_workspaces(_db)
-        logger.info("Intelligence System seeded", **intel_report)
-        logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
-        logger.info("FSE intervention report System seeded", **fse_report_report)
-        logger.info("Workspace Chat System seeded", **workspace_chat_report)
-        logger.info("Client360 PDR System seeded", **client360_report)
-        logger.info("SENTINEL-CI demo workspace seeded", **sentinel_report)
-    except Exception as e:
-        logger.warning(
-            "System seeding failed (non-blocking)", error=str(e)
-        )
+            with SessionLocal() as _db:
+                sentinel_report = ensure_sentinel_ci_workspace(_db)
+                intel_report = ensure_intelligence_system_for_all_workspaces(_db)
+                expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
+                fse_report_report = ensure_fse_report_system_for_andritz(_db)
+                workspace_chat_report = ensure_workspace_chat_system_for_all_workspaces(_db)
+                client360_report = ensure_client360_pdr_system_for_all_workspaces(_db)
+            logger.info("Intelligence System seeded", **intel_report)
+            logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
+            logger.info("FSE intervention report System seeded", **fse_report_report)
+            logger.info("Workspace Chat System seeded", **workspace_chat_report)
+            logger.info("Client360 PDR System seeded", **client360_report)
+            logger.info("SENTINEL-CI demo workspace seeded", **sentinel_report)
+        except Exception as e:
+            logger.warning("System seeding failed (non-blocking)", error=str(e))
 
     logger.info("Application started", agents_count=len(orchestrator.agents))
 
@@ -127,7 +135,7 @@ async def lifespan(app: FastAPI):
     # mission-room demo is designed to stay responsive with stored signals and
     # deterministic fallbacks; long external RSS/LLM batches must not compete
     # with live executive screens by default.
-    if settings.intelligence_scheduler_enabled:
+    if startup_reconciliation_enabled and settings.intelligence_scheduler_enabled:
         try:
             from app.services.intelligence.scheduler import start_scheduler
 
@@ -135,7 +143,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Intelligence scheduler failed to start (non-blocking)", error=str(e))
     else:
-        logger.info("Intelligence scheduler disabled", reason="settings.intelligence_scheduler_enabled=false")
+        logger.info(
+            "Intelligence scheduler disabled",
+            reason=(
+                "startup_reconciliation=disabled"
+                if not startup_reconciliation_enabled
+                else "settings.intelligence_scheduler_enabled=false"
+            ),
+        )
 
     _loop_lag_task = asyncio.create_task(_record_event_loop_lag())
 
