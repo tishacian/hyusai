@@ -57,6 +57,11 @@ interface Client360SyncFromCollectionResult {
 
 const CLIENT360_UNIFIED_COLLECTION_SLUG = 'andritz-client360-installed-base';
 
+// Long fiche lists are paged client-side to keep the page height manageable.
+const FICHE_PURCHASES_PAGE = 15;
+const FICHE_OPPORTUNITIES_PAGE = 24;
+const FICHE_TIMELINE_PAGE = 12;
+
 interface Client360Opportunity {
   id: string;
   customer_key: string;
@@ -707,35 +712,42 @@ interface CampaignDraftsOutcome {
                 <button type="button" class="secondary" title="Vider la selection" (click)="clearDirectorySelection()">Effacer</button>
               </div>
             }
-            @for (customer of directoryCustomers(); track customer.customer_key) {
-              <div class="directory-row">
-                <input
-                  type="checkbox"
-                  [checked]="isDirectoryCustomerSelected(customer.customer_key)"
-                  (change)="toggleDirectoryCustomer(customer.customer_key)"
-                  [attr.aria-label]="'Selectionner ' + customer.customer_name + ' pour une campagne'"
-                  title="Selectionner pour une campagne"
-                />
-                <button
-                  type="button"
-                  [ngClass]="{ active: selectedDirectoryCustomerKey() === customer.customer_key }"
-                  (click)="selectDirectoryCustomer(customer)"
-                >
-                  <strong>{{ customer.customer_name }}</strong>
-                  <span>
-                    {{ customer.countries.join(', ') || 'Pays a completer' }}
-                    · {{ customer.opportunity_count }} opp.
-                    · {{ formatCurrency(customer.potential_gap_value, customer.currency) }}
-                  </span>
-                </button>
-              </div>
-            }
-            @if (!directoryCustomers().length) {
-              <div class="empty compact"><span>Aucun client dans l'annuaire.</span></div>
-            }
+            <div class="directory-list">
+              @for (customer of directoryCustomers(); track customer.customer_key) {
+                <div class="directory-row">
+                  <input
+                    type="checkbox"
+                    [checked]="isDirectoryCustomerSelected(customer.customer_key)"
+                    (change)="toggleDirectoryCustomer(customer.customer_key)"
+                    [attr.aria-label]="'Selectionner ' + customer.customer_name + ' pour une campagne'"
+                    title="Selectionner pour une campagne"
+                  />
+                  <button
+                    type="button"
+                    [ngClass]="{ active: selectedDirectoryCustomerKey() === customer.customer_key }"
+                    (click)="selectDirectoryCustomer(customer)"
+                  >
+                    <strong>{{ customer.customer_name }}</strong>
+                    <span>
+                      {{ customer.countries.join(', ') || 'Pays a completer' }}
+                      · {{ customer.opportunity_count }} opp.
+                      · {{ formatCurrency(customer.potential_gap_value, customer.currency) }}
+                    </span>
+                  </button>
+                </div>
+              }
+              @if (!directoryCustomers().length) {
+                <div class="empty compact"><span>Aucun client dans l'annuaire.</span></div>
+              }
+            </div>
           </aside>
           <article class="ck-surface detail-panel">
-            @if (selectedCustomer(); as fiche) {
+            @if (customerDetailLoading()) {
+              <div class="detail-loader" role="status">
+                <ck-glyph name="pulse" [size]="16" color="currentColor" />
+                <span>Chargement de la fiche client…</span>
+              </div>
+            } @else if (selectedCustomer(); as fiche) {
               <div class="detail-head">
                 <div>
                   <p class="ck-label c360-eyebrow">Fiche client 360</p>
@@ -795,6 +807,17 @@ interface CampaignDraftsOutcome {
                     </div>
                   }
                   <p class="hint">{{ summaryModelLabel(summaryAi) }}</p>
+                </section>
+              } @else if (customerSummaryLoading()) {
+                <section class="c360-summary">
+                  <div class="c360-summary-head">
+                    <p class="ck-label c360-eyebrow">Resume IA</p>
+                    <span class="pill">Generation…</span>
+                  </div>
+                  <p class="hint" role="status">
+                    <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                    Redaction du resume IA en cours — la fiche reste utilisable.
+                  </p>
                 </section>
               }
 
@@ -895,7 +918,7 @@ interface CampaignDraftsOutcome {
                       </tr>
                     </thead>
                     <tbody>
-                      @for (purchase of fiche.purchases ?? []; track purchase.part_reference) {
+                      @for (purchase of fichePurchases(); track purchase.part_reference) {
                         <tr (click)="selectPurchasePart(purchase.part_reference)">
                           <td>
                             <strong>{{ purchase.part_reference }}</strong>
@@ -911,6 +934,13 @@ interface CampaignDraftsOutcome {
                     </tbody>
                   </table>
                 </div>
+                @if ((fiche.purchases ?? []).length > fichePurchasesLimit()) {
+                  <div class="button-row show-more-row">
+                    <button type="button" class="secondary" (click)="showMoreFichePurchases()">
+                      Afficher plus ({{ (fiche.purchases ?? []).length - fichePurchasesLimit() }} restantes)
+                    </button>
+                  </div>
+                }
               } @else {
                 <p class="hint">Aucun historique sales orders pour ce client.</p>
               }
@@ -943,7 +973,7 @@ interface CampaignDraftsOutcome {
               <h3>Opportunites</h3>
               @if (fiche.opportunities.length) {
                 <div class="chips">
-                  @for (opp of fiche.opportunities; track opp.id) {
+                  @for (opp of ficheOpportunities(); track opp.id) {
                     <button
                       type="button"
                       class="chip-button"
@@ -952,6 +982,11 @@ interface CampaignDraftsOutcome {
                     >
                       {{ opp.part_family || opp.part_reference || 'Opportunite' }}
                       <small>{{ formatCurrency(opp.potential_gap_value, opp.currency) }}</small>
+                    </button>
+                  }
+                  @if (fiche.opportunities.length > ficheOpportunitiesLimit()) {
+                    <button type="button" class="chip-button" (click)="showMoreFicheOpportunities()">
+                      + {{ fiche.opportunities.length - ficheOpportunitiesLimit() }} autres…
                     </button>
                   }
                 </div>
@@ -1011,7 +1046,7 @@ interface CampaignDraftsOutcome {
               <h3>Chronologie</h3>
               @if ((fiche.timeline ?? []).length) {
                 <ol class="c360-timeline">
-                  @for (event of fiche.timeline ?? []; track $index) {
+                  @for (event of ficheTimeline(); track $index) {
                     <li [ngClass]="timelineKindClass(event.kind)">
                       <span class="c360-timeline-when">{{ formatDateTime(event.at) }}</span>
                       <span class="c360-timeline-kind">{{ timelineKindLabel(event.kind) }}</span>
@@ -1019,6 +1054,13 @@ interface CampaignDraftsOutcome {
                     </li>
                   }
                 </ol>
+                @if ((fiche.timeline ?? []).length > ficheTimelineLimit()) {
+                  <div class="button-row show-more-row">
+                    <button type="button" class="secondary" (click)="showMoreFicheTimeline()">
+                      Afficher plus ({{ (fiche.timeline ?? []).length - ficheTimelineLimit() }} restants)
+                    </button>
+                  </div>
+                }
               } @else {
                 <p class="hint">Aucun evenement chronologique enregistre.</p>
               }
@@ -1810,7 +1852,10 @@ interface CampaignDraftsOutcome {
     .c360-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .c360-summary .pill.ai_assisted { color: var(--ck-signal-cool); border-color: var(--ck-stroke-hot); }
     .c360-summary-text { margin: 0 0 8px; color: var(--ck-fg-2); line-height: 1.55; }
-    .c360-tree { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .c360-tree { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; max-height: 440px; overflow-y: auto; }
+    .directory-list { display: flex; flex-direction: column; gap: 6px; max-height: 64vh; overflow-y: auto; padding-right: 2px; }
+    .detail-loader { display: flex; align-items: center; gap: 8px; justify-content: center; min-height: 180px; color: var(--ck-fg-4); font-size: 12px; }
+    .show-more-row { margin-top: 8px; }
     .c360-tree-node, .c360-tree-line { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); padding: 6px 10px; }
     .c360-tree-line { margin: 6px 0 0; background: transparent; }
     .c360-tree summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; color: var(--ck-fg-2); font-size: 12px; }
@@ -1948,6 +1993,22 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly campaignBusy = signal(false);
   readonly campaignDraftsOutcome = signal<CampaignDraftsOutcome | null>(null);
   readonly directorySelection = signal<string[]>([]);
+  readonly customerDetailLoading = signal(false);
+  readonly customerSummaryLoading = signal(false);
+  readonly fichePurchasesLimit = signal(FICHE_PURCHASES_PAGE);
+  readonly ficheOpportunitiesLimit = signal(FICHE_OPPORTUNITIES_PAGE);
+  readonly ficheTimelineLimit = signal(FICHE_TIMELINE_PAGE);
+  readonly fichePurchases = computed(() =>
+    (this.selectedCustomer()?.purchases ?? []).slice(0, this.fichePurchasesLimit()),
+  );
+  readonly ficheOpportunities = computed(() =>
+    (this.selectedCustomer()?.opportunities ?? []).slice(0, this.ficheOpportunitiesLimit()),
+  );
+  readonly ficheTimeline = computed(() =>
+    (this.selectedCustomer()?.timeline ?? []).slice(0, this.ficheTimelineLimit()),
+  );
+  private customerDetailRequest: Subscription | null = null;
+  private customerSummaryRequest: Subscription | null = null;
   readonly campaignTargetCustomerKeys = signal<string[]>([]);
   readonly chatMessages = signal<Array<{ role: 'user' | 'assistant'; content: string; sources?: string[] }>>([]);
   readonly chatBusy = signal(false);
@@ -2088,6 +2149,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.customerDetailRequest?.unsubscribe();
+    this.customerSummaryRequest?.unsubscribe();
     this.unregisterWorkspaceReset();
     this.resetWorkspaceActions();
   }
@@ -2241,23 +2304,68 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.selectedDirectoryCustomerKey.set(customer.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
-    this.loading.set(true);
-    this.http
-      .get<Client360CustomerResponse>(`/api/v1/client360/customers/${encodeURIComponent(customer.customer_key)}`)
+    this.customerDetailRequest?.unsubscribe();
+    this.customerSummaryRequest?.unsubscribe();
+    this.customerDetailLoading.set(true);
+    this.customerSummaryLoading.set(false);
+    this.fichePurchasesLimit.set(FICHE_PURCHASES_PAGE);
+    this.ficheOpportunitiesLimit.set(FICHE_OPPORTUNITIES_PAGE);
+    this.ficheTimelineLimit.set(FICHE_TIMELINE_PAGE);
+    // Two-phase load: the fiche renders immediately without the AI summary,
+    // which is fetched asynchronously (it is the slow, LLM-backed part).
+    this.customerDetailRequest = this.http
+      .get<Client360CustomerResponse>(
+        `/api/v1/client360/customers/${encodeURIComponent(customer.customer_key)}`,
+        { params: new HttpParams().set('include_ai_summary', 'false') },
+      )
       .subscribe({
         next: (payload) => {
           this.selectedCustomer.set(payload);
           const firstOpp = payload.opportunities[0] ?? null;
           this.selectedOpportunity.set(firstOpp);
-          this.loading.set(false);
+          this.customerDetailLoading.set(false);
+          this.loadCustomerSummary(customer.customer_key);
         },
         error: () => {
           this.selectedCustomer.set(null);
           this.selectedOpportunity.set(null);
-          this.loading.set(false);
+          this.customerDetailLoading.set(false);
           this.error.set('Impossible de charger la fiche client');
         },
       });
+  }
+
+  private loadCustomerSummary(customerKey: string): void {
+    this.customerSummaryLoading.set(true);
+    this.customerSummaryRequest = this.http
+      .get<{ ai_summary: Client360AiSummary | null }>(
+        `/api/v1/client360/customers/${encodeURIComponent(customerKey)}/summary`,
+      )
+      .subscribe({
+        next: (payload) => {
+          this.customerSummaryLoading.set(false);
+          if (this.selectedDirectoryCustomerKey() !== customerKey) return;
+          const current = this.selectedCustomer();
+          if (current) {
+            this.selectedCustomer.set({ ...current, ai_summary: payload.ai_summary ?? null });
+          }
+        },
+        error: () => {
+          this.customerSummaryLoading.set(false);
+        },
+      });
+  }
+
+  showMoreFichePurchases(): void {
+    this.fichePurchasesLimit.update((limit) => limit + 50);
+  }
+
+  showMoreFicheOpportunities(): void {
+    this.ficheOpportunitiesLimit.update((limit) => limit + 100);
+  }
+
+  showMoreFicheTimeline(): void {
+    this.ficheTimelineLimit.update((limit) => limit + 50);
   }
 
   focusProject(project: Client360CustomerProject): void {

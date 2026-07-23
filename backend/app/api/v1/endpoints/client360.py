@@ -781,12 +781,35 @@ def client360_customers(
 @router.get("/customers/{customer_id}")
 def client360_customer(
     customer_id: str,
+    include_ai_summary: bool = Query(default=False),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    # Customer detail currently performs an optional AI summary; it is an
-    # execution boundary rather than a free read until that enrichment is split.
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run" if include_ai_summary else "read",
+        legacy_allowed=True,
+        resource_attrs={
+            "customer_id": customer_id,
+            "operation": "customer_summary" if include_ai_summary else "customer_detail",
+        },
+    )
+    return customer_payload(db, workspace, customer_id, include_ai_summary=include_ai_summary)
+
+
+@router.get("/customers/{customer_id}/summary")
+def client360_customer_summary(
+    customer_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    # Dedicated slow path: the UI loads the fiche without the AI summary first,
+    # then fetches this endpoint asynchronously.
     _enforce_client360_action(
         db,
         workspace=workspace,
@@ -796,7 +819,8 @@ def client360_customer(
         legacy_allowed=True,
         resource_attrs={"customer_id": customer_id, "operation": "customer_summary"},
     )
-    return customer_payload(db, workspace, customer_id)
+    payload = customer_payload(db, workspace, customer_id, include_ai_summary=True)
+    return {"customer": payload["customer"], "ai_summary": payload["ai_summary"]}
 
 
 @router.post("/mail-drafts")
