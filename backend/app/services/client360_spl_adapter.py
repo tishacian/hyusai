@@ -44,6 +44,9 @@ from app.services.client360_pdr import (
     _safe_text,
     classify_data_source,
     client360_scope,
+    customer_key_variants,
+    normalize_customer_key,
+    registry_customer_key,
 )
 from app.services.knowledge_collections import resolve_original_key
 from app.services.object_store import get_object_store
@@ -248,7 +251,7 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "project_code": codes[0],
             "project_codes": [code for code in codes if code],
             "customer_name": customer or None,
-            "customer_key": _normalize_token(customer) or None,
+            "customer_key": registry_customer_key(customer) or None,
             "sap_reference": sap_ref or None,
             "country": country or None,
             "role": "project_registry",
@@ -287,7 +290,7 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             return None
         return {
             "customer_name": customer or None,
-            "customer_key": _normalize_token(customer) or None,
+            "customer_key": normalize_customer_key(customer) or None,
             "part_reference": part_ref or None,
             "part_description": part_desc or None,
             "sales_known_qty": qty,
@@ -319,7 +322,7 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             return None
         return {
             "customer_name": customer or None,
-            "customer_key": _normalize_token(customer) or None,
+            "customer_key": normalize_customer_key(customer) or None,
             "country": country or None,
             "technology": technology or None,
             "machine_label": machine or None,
@@ -352,7 +355,7 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             return None
         return {
             "customer_name": customer or None,
-            "customer_key": _normalize_token(customer) or None,
+            "customer_key": normalize_customer_key(customer) or None,
             "country": country or None,
             "part_reference": part_ref or None,
             "part_description": part_desc or None,
@@ -567,8 +570,8 @@ def expand_project_registry_records(records: list[dict[str, Any]]) -> list[dict[
             item = {
                 "project_code": code,
                 "customer_name": record.get("customer_name"),
-                "customer_key": record.get("customer_key")
-                or _normalize_token(record.get("customer_name"))
+                "customer_key": registry_customer_key(record.get("customer_name"))
+                or record.get("customer_key")
                 or None,
                 "sap_reference": record.get("sap_reference"),
                 "country": record.get("country"),
@@ -586,8 +589,8 @@ def build_project_registry_index(records: list[dict[str, Any]]) -> dict[str, dic
     for record in records:
         payload = {
             "customer_name": record.get("customer_name"),
-            "customer_key": record.get("customer_key")
-            or _normalize_token(record.get("customer_name"))
+            "customer_key": registry_customer_key(record.get("customer_name"))
+            or record.get("customer_key")
             or None,
             "country": record.get("country"),
             "sap_reference": record.get("sap_reference"),
@@ -598,10 +601,18 @@ def build_project_registry_index(records: list[dict[str, Any]]) -> dict[str, dic
             key = _index_key(record.get(field))
             if key:
                 index[key] = payload
-        customer_key = _index_key(record.get("customer_key") or record.get("customer_name"))
-        if customer_key and payload.get("country"):
-            # Secondary lookup used by SPC Sold-name → country join.
-            index.setdefault(f"customer:{customer_key}", payload)
+        # Secondary lookups used by the SPC Sold-name → country join. Register
+        # every name variant (primary, parenthetical alias, full) so SAP legal
+        # names resolve against registry short names.
+        customer_keys = {
+            _index_key(variant)
+            for variant in customer_key_variants(record.get("customer_name"))
+        }
+        customer_keys.add(_index_key(record.get("customer_key")))
+        if payload.get("country"):
+            for customer_key in customer_keys:
+                if customer_key:
+                    index.setdefault(f"customer:{customer_key}", payload)
     return index
 
 
@@ -675,7 +686,9 @@ def aggregate_sales_orders_records(
     """Collapse sales order lines to customer × Material."""
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for record in records:
-        customer_key = _normalize_token(record.get("customer_key") or record.get("customer_name"))
+        customer_key = normalize_customer_key(
+            record.get("customer_key") or record.get("customer_name")
+        )
         part_ref = _safe_text(record.get("part_reference"))
         if not customer_key or not part_ref:
             continue
@@ -742,7 +755,9 @@ def aggregate_spc_records(
         qty = _safe_float(record.get("installed_quantity"))
         if qty is None or qty <= 0:
             continue
-        customer_key = _normalize_token(record.get("customer_key") or record.get("customer_name"))
+        customer_key = normalize_customer_key(
+            record.get("customer_key") or record.get("customer_name")
+        )
         part_ref = _safe_text(record.get("part_reference"))
         if not customer_key or not part_ref:
             continue
@@ -817,7 +832,7 @@ def _enrich_record_from_registry(
     out = dict(record)
     if not out.get("customer_name") and resolved.get("customer_name"):
         out["customer_name"] = resolved["customer_name"]
-        out["customer_key"] = resolved.get("customer_key") or _normalize_token(
+        out["customer_key"] = resolved.get("customer_key") or registry_customer_key(
             resolved["customer_name"]
         )
     if not out.get("country") and resolved.get("country"):

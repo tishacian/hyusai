@@ -711,6 +711,179 @@ def test_opportunity_engine_builds_prioritized_gap_from_mapped_real_records(db_s
     assert mapping.pdr_family == "wear belts"
 
 
+def test_canonicalize_source_record_keeps_forecast_anchor_fields() -> None:
+    from app.services.client360_pdr import _canonicalize_source_record
+
+    sales = _canonicalize_source_record(
+        {
+            "customer_name": "Septona S.A.",
+            "part_reference": "208177476",
+            "sales_known_qty": 1.0,
+            "sales_known_value": 1768.23,
+            "last_document_date": "2024-04-03 00:00:00",
+            "last_purchase_date": "2024-04-03 00:00:00",
+            "role": "sales_orders",
+        },
+        source_type="sap_sales_history",
+        evidence_refs=[],
+        source_id="src-1",
+    )
+    # Anchors used by compute_next_due must survive canonicalization.
+    assert sales["last_purchase_date"] == "2024-04-03 00:00:00"
+    assert sales["last_document_date"] == "2024-04-03 00:00:00"
+    assert sales["customer_key"] == "septona"
+
+    machine = _canonicalize_source_record(
+        {
+            "customer_name": "Septona S.A.",
+            "machine_label": "HFR200",
+            "construction_year": "2018",
+        },
+        source_type="installed_base",
+        evidence_refs=[],
+        source_id="src-2",
+    )
+    assert machine["construction_year"] == "2018"
+
+
+def test_opportunity_engine_computes_next_due_from_va05_material_sales(db_session) -> None:
+    """Septona-like case: family record with periodicity + VA05 customer×Material
+    sales carrying a last purchase date → deterministic next_due_at."""
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                label="SEPTONA - Client 360.xlsx",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "country": "Greece",
+                            "hub": "EMEA",
+                            "technology": "JETLACE HFR200",
+                            "part_family": "Injector Strip",
+                            "source_part_family": "Injector Strip",
+                            "source_part_label": "202507741 STRIP 3600-3600-3890-2J14 MM",
+                            "installed_quantity": 28.0,
+                            "recommended_quantity": 1.0,
+                            "periodicity_weeks": 6.0,
+                        }
+                    ]
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="sap_sales_history",
+                label="Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx",
+                status="ready",
+                meta_data={
+                    "role": "sales_orders",
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "part_reference": "202507741",
+                            "sales_known_qty": 3.0,
+                            "sales_known_value": 2517.6,
+                            "currency": "EUR",
+                            "last_document_date": "2024-04-03 00:00:00",
+                            "last_purchase_date": "2024-04-03 00:00:00",
+                            "role": "sales_orders",
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    opportunity = next(
+        row
+        for row in db_session.query(Client360Opportunity).all()
+        if row.part_family == "Injector Strip"
+    )
+    # Shared normalization folds "Septona S.A." to the registry key.
+    assert opportunity.customer_key == "septona"
+    assert opportunity.next_due_at is not None
+    assert opportunity.next_due_at >= datetime(2024, 4, 3)
+    forecast = opportunity.meta_data["forecast"]
+    assert forecast["anchor_source"] == "last_purchase"
+    assert forecast["anchor_date"].startswith("2024-04-03")
+
+
+def test_directory_unifies_registry_and_engine_customer_keys(db_session) -> None:
+    """Registry 'Septona (Alpha Leasing)' and SAP 'Septona S.A.' must land in one
+    directory bucket (projects + opportunities), even with persisted old-style keys."""
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="contact_hub",
+                label="Liste Projets _ Clients.xlsx",
+                status="ready",
+                meta_data={
+                    "role": "project_registry",
+                    "records": [
+                        {
+                            "project_code": "SEP100",
+                            "customer_name": "Septona (Alpha Leasing)",
+                            # Old-style persisted key (pre-shared-normalization).
+                            "customer_key": "septona alpha leasing",
+                            "sap_reference": "4500777",
+                            "country": "Greece",
+                            "role": "project_registry",
+                        }
+                    ],
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                label="SEPTONA - Client 360.xlsx",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "country": "Greece",
+                            "technology": "JETLACE HFR200",
+                            "part_family": "Injector Strip",
+                            "installed_quantity": 28.0,
+                            "recommended_quantity": 1.0,
+                            "periodicity_weeks": 6.0,
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    directory = list_customers(db_session, workspace)
+    septona_items = [
+        item for item in directory["items"] if item["customer_key"] == "septona"
+    ]
+    assert len(septona_items) == 1
+    assert septona_items[0]["project_count"] >= 1
+    assert septona_items[0]["opportunity_count"] >= 1
+
+
 def test_serialize_opportunity_values_gap_in_euros_from_direct_price(db_session) -> None:
     workspace = _seed_workspace(db_session)
     opportunity = _seed_opportunity(db_session, workspace)
