@@ -13,7 +13,11 @@ from app.services.client360_contract import CLIENT360_INSTALLED_BASE_COLLECTION_
 from app.services.client360_pdr import classify_data_source
 from app.models.client360 import Client360DataSource
 from app.services.client360_contract import CLIENT360_PILOT_DATASET_MARKER
-from app.services.client360_pdr import client360_scope
+from app.services.client360_pdr import (
+    client360_scope,
+    normalize_customer_key,
+    registry_customer_key,
+)
 from app.services.client360_spl_adapter import (
     aggregate_purchase_history_records,
     aggregate_sales_orders_records,
@@ -204,6 +208,126 @@ def test_map_project_registry_multi_codes() -> None:
     assert len(expanded) == 2
     assert {row["project_code"] for row in expanded} == {"SEP100", "XEP100"}
     assert all(row["customer_name"] == "Eruslu Tekstil" for row in expanded)
+
+
+def test_normalize_customer_key_folds_legal_forms_and_turkish_chars() -> None:
+    # Registry short names vs SAP legal names (real pairs from the Andritz VM).
+    assert normalize_customer_key("Septona S.A.") == "septona"
+    assert registry_customer_key("Septona (Alpha Leasing)") == "septona"
+    assert normalize_customer_key("MINET S.A.") == normalize_customer_key("Minet")
+    assert normalize_customer_key("Kurt Kumas Sanayi ve Ticaret A.S.") == normalize_customer_key(
+        "Kurt Kumas"
+    )
+    assert normalize_customer_key("Sanitars SPA") == normalize_customer_key("Sanitars")
+    assert normalize_customer_key("Yibin Grace Co., Ltd.") == normalize_customer_key("Yibin Grace")
+    assert normalize_customer_key("Quimicolor S.A.S.") == normalize_customer_key("Quimicolor")
+    # SPC vs VA05 spellings of the same customer must share one key.
+    assert normalize_customer_key("Karafiber Tekstil Sanayi Ve Ticaret A.S.") == (
+        normalize_customer_key("Karafiber Tekstil Sanayi Ve Ticaret")
+    )
+    # Leading corporate forms (Russian LLC/OOO/OAO conventions).
+    assert normalize_customer_key("LLC Cotton Club") == normalize_customer_key("cotton club")
+    assert normalize_customer_key("OOO Avangard") == normalize_customer_key("Avangard")
+    assert normalize_customer_key('OAO "Mogilevkhimvolokno"') == "mogilevkhimvolokno"
+    # Turkish dotless "ı" must fold to "i" (NFKD alone drops it entirely).
+    assert normalize_customer_key("Kadıköy Tekstil") == normalize_customer_key("Kadikoy Tekstil")
+    assert normalize_customer_key("ERUSLU SAĞLIK") == normalize_customer_key("Eruslu Saglik")
+    # Conservative: descriptive words are never stripped — distinct entities stay apart.
+    assert normalize_customer_key("Fibertex Nonwovens") != normalize_customer_key("Fibertex US")
+    assert normalize_customer_key("Eruslu Tekstil") != normalize_customer_key("Eruslu Saglik")
+    # Never strips below one token.
+    assert normalize_customer_key("S.A.") == "s a"
+
+
+def test_registry_and_sales_orders_rows_share_customer_key() -> None:
+    registry = map_row_for_role(
+        "project_registry",
+        {
+            "CONTRACT NAME": "SEP100",
+            "FINAL CUSTOMER": "Septona (Alpha Leasing)",
+            "SAP REFERENCE": "4500777",
+            "Site Country": "Greece",
+        },
+    )
+    sales = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Septona S.A.",
+            "Material": "132076556",
+            "Order Quantity": 2,
+            "Net Price": 1366.7,
+            "Offering": "SSPA",
+            "Document Date": "2024-04-03",
+        },
+    )
+    assert registry is not None and sales is not None
+    assert registry["customer_key"] == "septona"
+    assert sales["customer_key"] == "septona"
+
+
+def test_aggregate_sales_orders_groups_legal_name_variants() -> None:
+    rows = [
+        map_row_for_role(
+            "sales_orders",
+            {
+                "Sold-To Party Name": "Eruslu Tekstil  A. S.",
+                "Material": "MAT-1",
+                "Order Quantity": 2,
+                "Net Price": 50.0,
+                "Offering": "SSPA",
+                "Document Date": "2022-03-01",
+            },
+        ),
+        map_row_for_role(
+            "sales_orders",
+            {
+                "Sold-To Party Name": "Eruslu Tekstil",
+                "Material": "MAT-1",
+                "Order Quantity": 3,
+                "Net Price": 50.0,
+                "Offering": "SSPA",
+                "Document Date": "2023-05-10",
+            },
+        ),
+    ]
+    aggregated, meta = aggregate_sales_orders_records(rows)
+    assert meta["material_count"] == 1
+    assert len(aggregated) == 1
+    assert aggregated[0]["customer_key"] == "eruslu tekstil"
+    assert aggregated[0]["sales_known_qty"] == pytest.approx(5.0)
+    # Latest order drives the deterministic forecast anchor.
+    assert aggregated[0]["last_purchase_date"] == "2023-05-10"
+
+
+def test_aggregate_spc_joins_registry_country_via_legal_name_variant() -> None:
+    registry_row = map_row_for_role(
+        "project_registry",
+        {
+            "CONTRACT NAME": "SEP100",
+            "FINAL CUSTOMER": "Septona (Alpha Leasing)",
+            "SAP REFERENCE": "4500777",
+            "Site Country": "Greece",
+        },
+    )
+    index = build_project_registry_index(expand_project_registry_records([registry_row]))
+    aggregated, meta = aggregate_spc_records(
+        [
+            map_row_for_role(
+                "spc",
+                {
+                    "Sold name": "Septona S.A.",
+                    "Number": "208180630",
+                    "Title": "Machine TMS 1250",
+                    "Quantity": 2,
+                },
+            )
+        ],
+        registry_index=index,
+    )
+    assert len(aggregated) == 1
+    assert aggregated[0]["customer_key"] == "septona"
+    assert aggregated[0]["country"] == "Greece"
+    assert meta["registry_country_joins"] == 1
 
 
 def test_resolve_customer_for_project_from_registry() -> None:

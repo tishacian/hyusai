@@ -28,6 +28,8 @@ def test_parse_forecast_date_formats() -> None:
     assert parse_forecast_date("2024-03-15") == datetime(2024, 3, 15)
     assert parse_forecast_date("15/03/2024") == datetime(2024, 3, 15)
     assert parse_forecast_date(datetime(2024, 3, 15, 9, 0, 0)) == datetime(2024, 3, 15, 9, 0, 0)
+    # VA05 aggregation payload format (``Document Date`` cell via _safe_text).
+    assert parse_forecast_date("2024-04-03 00:00:00") == datetime(2024, 4, 3)
     assert parse_forecast_date(None) is None
     assert parse_forecast_date("") is None
 

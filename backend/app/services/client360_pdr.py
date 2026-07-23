@@ -283,6 +283,178 @@ def _mapping_key(*values: Any) -> str:
     return "|".join(part for part in (_normalize_token(value) for value in values) if part)
 
 
+# --- Shared customer-name normalization (registry / sales_orders / SPC join) ---
+#
+# The Andritz feeds spell the same customer differently: the project registry
+# uses short internal names ("Minet", "Kurt Kumas", "Septona (Alpha Leasing)")
+# while SAP exports (VA05 Sold-To, SPC Sold name) carry full legal names
+# ("MINET S.A.", "Kurt Kumas Sanayi ve Ticaret A.S.", "Septona S.A.").
+# ``normalize_customer_key`` folds both to one join key. Rules — deliberately
+# conservative (exact equality after folding, no fuzzy/containment matching):
+#
+# 1. Turkish letters are transliterated explicitly before the ASCII fold:
+#    NFKD drops dotless "ı" entirely ("Kadıköy" → "kadky"), silently breaking
+#    equality with the "i" spelling.
+# 2. Same accent/punctuation folding as ``_normalize_token``.
+# 3. Leading corporate-form tokens are stripped ("LLC Cotton Club" →
+#    "cotton club", "OOO Avangard" → "avangard").
+# 4. Trailing corporate-form tokens/phrases are stripped repeatedly
+#    ("Sanitars SPA" → "sanitars", "Kurt Kumas Sanayi ve Ticaret A.S." →
+#    "kurt kumas", "Yibin Grace Co., Ltd." → "yibin grace").
+# 5. Descriptive words (Tekstil, Nonwovens, Textile, Hygienics, …) are never
+#    stripped and at least one token always remains, so distinct entities such
+#    as "Fibertex Nonwovens" vs "Fibertex US" never collapse together.
+
+_TURKISH_ASCII_TRANSLATION = str.maketrans(
+    {
+        "ı": "i",
+        "İ": "i",
+        "ş": "s",
+        "Ş": "s",
+        "ğ": "g",
+        "Ğ": "g",
+        "ç": "c",
+        "Ç": "c",
+        "ö": "o",
+        "Ö": "o",
+        "ü": "u",
+        "Ü": "u",
+    }
+)
+
+_CUSTOMER_LEADING_LEGAL_TOKENS = {
+    "llc",
+    "ooo",
+    "oao",
+    "zao",
+    "pao",
+    "ao",
+    "jsc",
+    "pjsc",
+    "snc",
+    "uab",
+}
+
+# Multi-token legal phrases, matched (longest first) against the name tail.
+_CUSTOMER_TRAILING_LEGAL_PHRASES: tuple[tuple[str, ...], ...] = (
+    ("sanayi", "ve", "ticaret"),
+    ("san", "ve", "tic"),
+    ("gmbh", "co", "kg"),
+    ("s", "a", "s"),
+    ("s", "p", "a"),
+    ("s", "r", "l"),
+    ("s", "a"),
+    ("a", "s"),
+    ("s", "l"),
+)
+
+_CUSTOMER_TRAILING_LEGAL_TOKENS = {
+    "sa",
+    "as",
+    "ag",
+    "ab",
+    "nv",
+    "bv",
+    "oy",
+    "plc",
+    "llc",
+    "ltd",
+    "ltda",
+    "limited",
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "kg",
+    "gmbh",
+    "srl",
+    "spa",
+    "sarl",
+    "sas",
+    "sl",
+    "cie",
+    "company",
+    "pvt",
+    "kk",
+    # Turkish corporate qualifiers (Sanayi/Ticaret and abbreviations); "ve"
+    # ("and") is only ever stripped from the tail, after one of the others.
+    "sanayi",
+    "ticaret",
+    "san",
+    "tic",
+    "ve",
+    "ooo",
+    "oao",
+    "zao",
+    "pao",
+    "jsc",
+    "pjsc",
+}
+
+
+def _strip_customer_legal_tokens(tokens: list[str]) -> list[str]:
+    out = list(tokens)
+    while len(out) > 1 and out[0] in _CUSTOMER_LEADING_LEGAL_TOKENS:
+        out = out[1:]
+    changed = True
+    while changed and len(out) > 1:
+        changed = False
+        for phrase in _CUSTOMER_TRAILING_LEGAL_PHRASES:
+            size = len(phrase)
+            if len(out) > size and tuple(out[-size:]) == phrase:
+                out = out[:-size]
+                changed = True
+                break
+        if not changed and len(out) > 1 and out[-1] in _CUSTOMER_TRAILING_LEGAL_TOKENS:
+            out = out[:-1]
+            changed = True
+    return out
+
+
+def normalize_customer_key(value: Any) -> str:
+    """Canonical customer join key shared by registry, sales_orders and SPC."""
+    text = _safe_text(value)
+    if not text:
+        return ""
+    normalized = _normalize_token(text.translate(_TURKISH_ASCII_TRANSLATION))
+    if not normalized:
+        return ""
+    stripped = _strip_customer_legal_tokens(normalized.split(" "))
+    return " ".join(stripped) if stripped else normalized
+
+
+_REGISTRY_ALIAS_RE = re.compile(r"\(([^)]*)\)")
+
+
+def registry_customer_key(value: Any) -> str:
+    """Key for registry FINAL CUSTOMER names, which use a "Primary (Alias)"
+    convention for lessors / former names ("Septona (Alpha Leasing)",
+    "Selcuk Iplik (Karafiber)"). The primary part is the join key so the SAP
+    legal name ("Septona S.A.") folds to the same key."""
+    text = _safe_text(value)
+    primary = _REGISTRY_ALIAS_RE.sub(" ", text)
+    return normalize_customer_key(primary) or normalize_customer_key(text)
+
+
+def customer_key_variants(value: Any) -> list[str]:
+    """All normalized lookup variants of a registry customer name: primary
+    (outside parentheses), each parenthetical alias, and the full name."""
+    text = _safe_text(value)
+    candidates = [
+        _REGISTRY_ALIAS_RE.sub(" ", text),
+        *_REGISTRY_ALIAS_RE.findall(text),
+        text,
+    ]
+    variants: list[str] = []
+    for candidate in candidates:
+        candidate = re.sub(r"^(?:ex|via)\s+", "", candidate.strip(), flags=re.IGNORECASE)
+        key = normalize_customer_key(candidate)
+        if key and key not in variants:
+            variants.append(key)
+    return variants
+
+
 def _find_client360_system(db: DBSession, workspace: Workspace) -> System | None:
     rows = (
         db.query(System)
@@ -422,9 +594,11 @@ def _merge_record(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, A
 
 
 def _record_customer_key(record: dict[str, Any]) -> str:
+    # Prefer the raw name: persisted records may carry keys computed with an
+    # older normalization; re-deriving keeps all feeds on the shared key.
     return (
-        _safe_text(record.get("customer_key"))
-        or _normalize_token(record.get("customer_name"))
+        normalize_customer_key(record.get("customer_name"))
+        or normalize_customer_key(record.get("customer_key"))
         or "unknown_customer"
     )
 
@@ -1479,7 +1653,7 @@ def _record_role(record: dict[str, Any]) -> str:
 
 
 def _customer_key_for(value: Any) -> str:
-    return _normalize_token(value)
+    return normalize_customer_key(value)
 
 
 def _raw_source_records_by_roles(
@@ -1546,7 +1720,11 @@ def _load_project_registry_records(db: DBSession, workspace: Workspace) -> list[
     records: list[dict[str, Any]] = []
     for record in _raw_source_records_by_roles(db, workspace, {"project_registry"}):
         customer_name = _safe_text(record.get("customer_name"))
-        customer_key = _customer_key_for(record.get("customer_key") or customer_name)
+        # Name first: registry names carry the "Primary (Alias)" convention and
+        # persisted keys may predate the shared normalization.
+        customer_key = registry_customer_key(customer_name) or normalize_customer_key(
+            record.get("customer_key")
+        )
         if not customer_key and not record.get("project_code") and not record.get("sap_reference"):
             continue
         records.append(
@@ -2189,13 +2367,20 @@ def _canonicalize_source_record(
             "vendor_country",
             "po_count",
             "cost_sum",
+            # Forecast anchors: sales_orders aggregates carry the last purchase
+            # date and machine rows a construction year — dropping them here
+            # left every ``compute_next_due`` without an anchor.
+            "last_purchase_date",
+            "last_document_date",
+            "document_date",
+            "construction_year",
         }:
             if key in {"po_count", "cost_sum"}:
                 out[key] = _safe_float(value)
             else:
                 out[key] = _safe_text(value) or None
     if not out.get("customer_key") and out.get("customer_name"):
-        out["customer_key"] = _normalize_token(out.get("customer_name"))
+        out["customer_key"] = normalize_customer_key(out.get("customer_name"))
     if not out.get("source_part_reference") and out.get("part_reference"):
         out["source_part_reference"] = out.get("part_reference")
     if not out.get("source_part_family") and out.get("part_family"):
@@ -2296,7 +2481,7 @@ def _records_from_table_facts(db: DBSession, workspace: Workspace) -> list[dict[
         ):
             record["part_family"] = record["source_part_label"]
         if not record.get("customer_key") and record.get("customer_name"):
-            record["customer_key"] = _normalize_token(record.get("customer_name"))
+            record["customer_key"] = normalize_customer_key(record.get("customer_name"))
         if any(
             record.get(key)
             for key in (
@@ -2464,6 +2649,65 @@ def _sales_for_record(
         if key in sales_index:
             return sales_index[key]
     return {}
+
+
+_MATERIAL_TOKEN_RE = re.compile(r"\b\d{9}\b")
+
+
+def _index_material_families(records: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Material reference → part families (family rows embed SAP material
+    numbers in ``source_part_label``, e.g. ``"132076556 BEARING BALL …"``)."""
+    index: dict[str, set[str]] = {}
+    for record in records:
+        family = _safe_text(record.get("part_family") or record.get("source_part_family"))
+        if not family:
+            continue
+        materials = set(_MATERIAL_TOKEN_RE.findall(_safe_text(record.get("source_part_label"))))
+        part_ref = _safe_text(
+            record.get("part_reference") or record.get("source_part_reference")
+        )
+        if part_ref:
+            materials.add(part_ref)
+        for material in materials:
+            key = _normalize_token(material)
+            if key:
+                index.setdefault(key, set()).add(family)
+    return index
+
+
+def _index_sales_anchor_dates(
+    records: list[dict[str, Any]],
+    material_families: dict[str, set[str]],
+) -> dict[str, str]:
+    """Latest purchase date per customer × family (ISO strings).
+
+    Material-level sales (VA05 ``customer × Material`` aggregates) roll up to
+    the family via ``material_families`` so family-level records with a
+    periodicity get a real ``last_purchase`` forecast anchor.
+    """
+    anchors: dict[str, str] = {}
+    for record in records:
+        if record.get("sales_known_qty") is None and record.get("sales_known_value") is None:
+            continue
+        latest = last_purchase_date_from_record(record)
+        if latest is None:
+            continue
+        customer = _record_customer_key(record)
+        families: set[str] = set()
+        explicit = _safe_text(record.get("part_family") or record.get("source_part_family"))
+        if explicit:
+            families.add(explicit)
+        ref_key = _normalize_token(record.get("part_reference"))
+        if ref_key:
+            families.update(material_families.get(ref_key, ()))
+        for family in families:
+            key = _mapping_key(customer, family)
+            if not key:
+                continue
+            current = parse_forecast_date(anchors.get(key))
+            if current is None or latest > current:
+                anchors[key] = latest.isoformat()
+    return anchors
 
 
 def _unit_price_from_value_qty(value: Any, qty: Any) -> Optional[float]:
@@ -2851,6 +3095,8 @@ def run_opportunity_engine(
 
     periodicity_index = _index_periodicity(mapped_records)
     sales_index = _index_sales(mapped_records)
+    material_family_index = _index_material_families(mapped_records)
+    sales_anchor_index = _index_sales_anchor_dates(mapped_records, material_family_index)
     pricing_index = _index_pricing(mapped_records)
     purchase_cost_index = _index_purchase_costs(mapped_records)
     purchase_lead_index = _index_purchase_lead_times(mapped_records)
@@ -2867,6 +3113,12 @@ def run_opportunity_engine(
             )
             record = _merge_record(record, periodicity)
             record = _merge_record(record, _sales_for_record(record, sales_index))
+            if last_purchase_date_from_record(record) is None:
+                anchor = sales_anchor_index.get(
+                    _mapping_key(_record_customer_key(record), family)
+                )
+                if anchor:
+                    record["last_purchase_date"] = anchor
         if record.get("delivery_time_weeks") is None:
             ref_key = _normalize_token(record.get("part_reference"))
             lead = purchase_lead_index.get(ref_key) if ref_key else None
