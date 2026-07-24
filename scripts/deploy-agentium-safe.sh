@@ -3814,7 +3814,7 @@ assert_rw_mount() {
 
 assert_inode_margin() {
 	local path="$1" total free
-	read -r total free < <(df -Pi --output=itotal,iavail "$path" | awk 'NR == 2 { print $1, $2 }')
+	read -r total free < <(df --output=itotal,iavail "$path" | awk 'NR == 2 { print $1, $2 }')
 	[[ "$total" =~ ^[0-9]+$ && "$free" =~ ^[0-9]+$ && "$total" -gt 0 ]] || die "Inodes illisibles pour $path"
 	(( free * 100 >= total * 10 )) || die "$path a moins de 10% d'inodes libres"
 }

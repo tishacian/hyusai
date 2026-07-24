@@ -548,8 +548,8 @@ assert_capacity_mount() {
 	local path="$1" expected="$2" minimum="$3" source target total available total_inodes available_inodes required
 	source="$(findmnt -n -o SOURCE --target "$path")"
 	target="$(findmnt -n -o TARGET --target "$path")"
-	read -r total available < <(df -P -B1 --output=size,avail "$path" | awk 'NR == 2 {print $1, $2}')
-	read -r total_inodes available_inodes < <(df -Pi --output=inodes,iavail "$path" | awk 'NR == 2 {print $1, $2}')
+	read -r total available < <(df -B1 --output=size,avail "$path" | awk 'NR == 2 {print $1, $2}')
+	read -r total_inodes available_inodes < <(df --output=itotal,iavail "$path" | awk 'NR == 2 {print $1, $2}')
 	required=$(( (total + 9) / 10 ))
 	(( required < minimum )) && required="$minimum"
 	[[ "$source" == "$expected" && "$target" == "$path" ]] || die "$path doit être le mountpoint exact $expected"
