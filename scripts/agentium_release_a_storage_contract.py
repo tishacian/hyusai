@@ -58,7 +58,16 @@ APPLICATION_ANCHORS: Mapping[str, tuple[str, str]] = {
 # delta.  In particular, images, commands, networks and privileges remain exact.
 ALLOWED_ENVIRONMENT_DELTAS: Mapping[str, frozenset[str]] = {
     "agentium-pg": frozenset(),
-    "agentium-rabbitmq": frozenset(),
+    # First-boot seeds only: the broker was initialised long ago, the container
+    # is never recreated (identity_only_no_recreation) and the deployment
+    # principal is created through rabbitmqctl by the attested bootstrap, so a
+    # rendered delta on these two variables cannot reach the running broker.
+    "agentium-rabbitmq": frozenset(
+        {
+            "RABBITMQ_DEFAULT_USER",
+            "RABBITMQ_DEFAULT_PASS",
+        }
+    ),
     "agentium-qdrant": frozenset(
         {
             "QDRANT__SERVICE__API_KEY",

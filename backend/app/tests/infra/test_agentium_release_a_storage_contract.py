@@ -410,6 +410,42 @@ def test_qdrant_auth_rotation_is_the_only_allowed_runtime_delta() -> None:
     assert "read-only-secret-not-emitted" not in str(receipt)
 
 
+def test_rabbitmq_first_boot_seed_delta_is_inert_and_allowed() -> None:
+    # The rendered candidate carries the deployment-reserved principal while
+    # the live broker container keeps its historical first-boot seeds.  The
+    # broker is never recreated (identity_only_no_recreation) and the real
+    # principal is created through rabbitmqctl, so this delta cannot reach the
+    # running broker and must not fail the contract.
+    compose, containers, volumes, images = _fixtures()
+    compose["services"]["agentium-rabbitmq"]["environment"] = {
+        "RABBITMQ_DEFAULT_USER": "agentium_ra_principal-not-emitted",
+        "RABBITMQ_DEFAULT_PASS": "principal-secret-not-emitted",
+    }
+    containers["agentium-rabbitmq"][0]["Config"]["Env"].extend(
+        ["RABBITMQ_DEFAULT_USER=guest", "RABBITMQ_DEFAULT_PASS=guest"]
+    )
+
+    receipt = _verify(compose, containers, volumes, images)
+
+    assert receipt["result"] == "passed"
+    assert "principal-not-emitted" not in str(receipt)
+    assert "principal-secret-not-emitted" not in str(receipt)
+
+
+def test_rabbitmq_delta_beyond_first_boot_seeds_fails_closed() -> None:
+    compose, containers, volumes, images = _fixtures()
+    compose["services"]["agentium-rabbitmq"]["environment"] = {
+        "RABBITMQ_DEFAULT_USER": "agentium_ra_principal",
+        "RABBITMQ_ERLANG_COOKIE": "new-cookie",
+    }
+    containers["agentium-rabbitmq"][0]["Config"]["Env"].append(
+        "RABBITMQ_DEFAULT_USER=guest"
+    )
+
+    with pytest.raises(StorageContractError):
+        _verify(compose, containers, volumes, images)
+
+
 @pytest.mark.parametrize("difference", ["missing_admin", "missing_read_only", "same"])
 def test_qdrant_candidate_requires_two_distinct_auth_values(difference: str) -> None:
     compose, containers, volumes, images = _fixtures()
