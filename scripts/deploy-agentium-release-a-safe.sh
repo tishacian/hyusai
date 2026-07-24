@@ -385,7 +385,8 @@ PY
 }
 
 atomic_text() {
-	local target="$1" value="$2" temporary="$DEPLOY_DIR/.${target##*/}.$$"
+	local target="$1" value="$2" temporary
+	temporary="$DEPLOY_DIR/.${target##*/}.$$"
 	printf '%s\n' "$value" >"$temporary"
 	durable_replace "$temporary" "$target"
 }
@@ -448,7 +449,8 @@ assert_private_source() {
 }
 
 copy_private_once() {
-	local source="$1" target="$2" expected="$3" temporary="$DEPLOY_DIR/.${target##*/}.$$"
+	local source="$1" target="$2" expected="$3" temporary
+	temporary="$DEPLOY_DIR/.${target##*/}.$$"
 	[[ "$source" == /* && "$source" != *..* ]] || die "Source privée invalide"
 	[[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die "Digest privé invalide"
 	assert_private_source "$source"
@@ -464,7 +466,8 @@ copy_private_once() {
 }
 
 stage_git_file() {
-	local source="$1" target="$2" blob temporary="$DEPLOY_DIR/.${target##*/}.$$"
+	local source="$1" target="$2" blob temporary
+	temporary="$DEPLOY_DIR/.${target##*/}.$$"
 	blob="$(git -C "$CANDIDATE_REPO" rev-parse "${RELEASE_A_SHA}:${source}")"
 	if [[ -e "$target" || -L "$target" ]]; then
 		[[ -f "$target" && ! -L "$target" && "$(git hash-object "$target")" == "$blob" ]] || die "Helper figé divergent: $source"
@@ -1043,7 +1046,8 @@ ensure_candidate_image_override() {
 }
 
 record_file_backup() {
-	local source="$1" backup="$2" attrs="$3" temporary="$DEPLOY_DIR/.${backup##*/}.$$"
+	local source="$1" backup="$2" attrs="$3" temporary
+	temporary="$DEPLOY_DIR/.${backup##*/}.$$"
 	if [[ -e "$backup" || -L "$backup" ]]; then assert_private "$backup"; assert_private "$attrs"; return; fi
 	[[ -f "$source" && ! -L "$source" ]] || die "Fichier runtime absent: $source"
 	install -m 0600 "$source" "$temporary"
@@ -1857,7 +1861,8 @@ PY
 }
 
 capture_postgres_inventory() {
-	local output="$1" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local output="$1" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	compose_audit run --rm --no-deps -T --entrypoint python agentium-backend \
 		-m scripts.audit_post_canary_database snapshot --sha "$RELEASE_A_SHA" --deployment-id "$DEPLOYMENT_ID" >"$temporary"
 	chmod 0600 "$temporary"
@@ -2590,7 +2595,8 @@ reclose_attested_sftp_to_read_only() {
 }
 
 capture_sftp_postgres_inventory() {
-	local stage="$1" output="$2" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local stage="$1" output="$2" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	[[ "$stage" == active || "$stage" == revoked ]] || die "Stage PostgreSQL SFTP invalide"
 	assert_private "$FROZEN_SFTP_CANARY_LEDGER"
 	[[ ! -e "$temporary" && ! -L "$temporary" ]] || die "Capture PostgreSQL SFTP concurrente"
@@ -2657,7 +2663,8 @@ PY
 }
 
 capture_sftp_postgres_receipt() {
-	local output="$1" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local output="$1" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	assert_private "$POSTGRES_INVENTORY_AFTER"
 	assert_private "$SFTP_POSTGRES_ACTIVE"
 	assert_private "$SFTP_POSTGRES_FINAL"

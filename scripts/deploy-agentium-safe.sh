@@ -2669,7 +2669,8 @@ run_qdrant_host_contract() {
 }
 
 run_qdrant_client_probe() {
-	local container="$1" output="$2" expected_access="$3" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local container="$1" output="$2" expected_access="$3" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	[[ "$expected_access" == "read-only" || "$expected_access" == "admin" ]] || die "Accès Qdrant attendu invalide"
 	[[ "$container" == "agentium-backend" || "$container" == "agentium-worker-cpu" || "$container" == "agentium-p4-maintenance" ]] ||
 		die "Client Qdrant candidat non autorisé: $container"
@@ -4199,7 +4200,8 @@ initialize_metadata() {
 }
 
 verify_backup() {
-	local backup="$1" expected actual bytes ready="$backup.ready"
+	local backup="$1" expected actual bytes ready
+	ready="$backup.ready"
 	[[ -s "$backup" && -s "$backup.sha256" && -s "$ready" ]] || return 1
 	assert_private_state_file "$backup" || return 1
 	assert_private_state_file "$backup.sha256" || return 1
@@ -4227,7 +4229,8 @@ PY
 }
 
 create_backup() {
-	local label="$1" backup="$DEPLOY_DIR/postgres-${label}.dump" temporary digest bytes marker
+	local label="$1" backup temporary digest bytes marker
+	backup="$DEPLOY_DIR/postgres-${label}.dump"
 	if [[ -s "$backup.ready" ]]; then
 		verify_backup "$backup" || die "Backup publié invalide: $backup"
 		return
@@ -4273,7 +4276,8 @@ run_candidate_live_writer_audit() {
 }
 
 capture_candidate_database_inventory() {
-	local output="$1" mode="${2:-baseline}" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local output="$1" mode="${2:-baseline}" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	local -a command=(python -m scripts.audit_post_canary_database snapshot
 		--sha "$EXPECTED_SHA" --deployment-id "$DEPLOYMENT_ID")
 	[[ "$mode" == "baseline" || "$mode" == "controlled" ]] ||
@@ -4316,7 +4320,8 @@ PY
 }
 
 compare_controlled_canary_database() {
-	local final_inventory="$1" output="$2" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local final_inventory="$1" output="$2" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	local workspace_id
 	local -a workspace_args=()
 	for workspace_id in "${CANARY_WORKSPACE_IDS[@]}"; do
@@ -5554,7 +5559,8 @@ PY
 }
 
 analyze_workspace_app_backfill() {
-	local output="$1" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local output="$1" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	rm -f "$temporary"
 	capture_workspace_app_backfill_analysis "$temporary"
 	if [[ -e "$output" || -L "$output" ]]; then
@@ -5779,7 +5785,8 @@ stage_auxiliary_candidate_state() {
 }
 
 normalize_binding_contract() {
-	local raw="$1" output="$2" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local raw="$1" output="$2" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	python3 - "$raw" "$temporary" <<'PY'
 import json, sys
 from pathlib import Path
@@ -5803,7 +5810,8 @@ PY
 }
 
 capture_candidate_binding_contract() {
-	local output="$1" value raw="$DEPLOY_DIR/.${output##*/}.raw.$$"
+	local output="$1" value raw
+	raw="$DEPLOY_DIR/.${output##*/}.raw.$$"
 	local -a audit_args=()
 	while IFS= read -r value; do audit_args+=("$value"); done < <(candidate_audit_args)
 	run_candidate python -m scripts.audit_persisted_system_bindings "${audit_args[@]}" >"$raw"
@@ -5812,7 +5820,8 @@ capture_candidate_binding_contract() {
 }
 
 capture_running_binding_contract() {
-	local output="$1" value raw="$DEPLOY_DIR/.${output##*/}.raw.$$"
+	local output="$1" value raw
+	raw="$DEPLOY_DIR/.${output##*/}.raw.$$"
 	local -a audit_args=()
 	while IFS= read -r value; do audit_args+=("$value"); done < <(candidate_audit_args)
 	docker exec -w /app/backend agentium-backend \
@@ -5822,7 +5831,8 @@ capture_running_binding_contract() {
 }
 
 capture_sql_database_fingerprint() {
-	local output="$1" scope="$2" temporary="$DEPLOY_DIR/.${output##*/}.$$"
+	local output="$1" scope="$2" temporary
+	temporary="$DEPLOY_DIR/.${output##*/}.$$"
 	local table sequence row_count digest table_predicate row_expression
 	case "$scope" in
 	all) table_predicate="TRUE" ;;

@@ -462,7 +462,8 @@ PY
 }
 
 run_sftp_closed_boundary() {
-	local name="$1" output="$PROOFS_DIR/$name.json"
+	local name="$1" output
+	output="$PROOFS_DIR/$name.json"
 	prepare_output_file "$output"
 	say "Preuve SFTP fermée et Secure Deposit read-only: $name"
 	"$SFTP_BOUNDARY_HELPER" closed-boundary \
