@@ -8,6 +8,56 @@ from app.core.config import settings as app_config
 logger = get_logger(__name__)
 
 
+def default_settings() -> Dict[str, Any]:
+    """Process-wide default settings.
+
+    Module-level on purpose: read paths (preset resolution, audits) call this
+    without touching the ``SettingsManager`` singleton, whose initialization
+    may create the legacy ``app_settings`` row.
+    """
+    return {
+        "defaultModel": app_config.default_model,
+        "defaultProvider": app_config.default_provider,
+        "temperature": 0.3,
+        "maxTokens": 4000,
+        "topK": 5,
+        "preferredAgents": [],
+        "enableRAG": True,
+        "enableReasoning": True,
+        "enableSearch": False,
+        "ragTopK": 5,
+        "ragCandidatePoolK": 48,
+        "ragSynthesisK": 12,
+        "ragSourceDisplayK": 8,
+        "ragSimilarityThreshold": 0.2,  # Lowered from 0.7 - cosine similarity scores are typically 0.2-0.5 range
+        "ragCollectionName": "documents",
+        "ragUseHybridSearch": True,
+        "ragVectorWeight": 0.7,
+        "ragBM25Weight": 0.3,
+        "ragVectorDBType": app_config.default_vector_db_type,
+        "ragChunkingMethod": "recursive_character",  # Default: recursive_character (same as streaming-decision-process)
+        "ragChunkSize": 1000,
+        "ragChunkOverlap": 200,
+        "enableStreaming": True,
+        "streamingSpeed": "normal",
+        "theme": "light",
+        "fontSize": "medium",
+        "showReasoningTraces": True,
+        "showSources": True,
+        "autoExpandReasoning": False,
+        "apiUrl": "http://localhost:8000/api/v1",
+        "apiTimeout": 30000,
+        "enableCaching": True,
+        "cacheTTL": 3600,
+        "enableRateLimiting": True,
+        "rateLimitPerMinute": 60,
+        "ollamaBaseUrl": app_config.ollama_base_url,
+        "ollamaNumCtx": getattr(app_config, 'ollama_default_num_ctx', 32768),
+        "ollamaRopeScale": getattr(app_config, 'ollama_rope_scale', None),
+        "ollamaRopeAlpha": getattr(app_config, 'ollama_rope_alpha', None),
+    }
+
+
 class SettingsManager:
     """Manages application settings loaded from database"""
     
@@ -130,50 +180,9 @@ class SettingsManager:
         """Get a specific setting value"""
         return self._settings.get(key, default)
     
-    @staticmethod
-    def _get_default_settings() -> Dict[str, Any]:
+    def _get_default_settings(self) -> Dict[str, Any]:
         """Get default settings"""
-        return {
-            "defaultModel": app_config.default_model,
-            "defaultProvider": app_config.default_provider,
-            "temperature": 0.3,
-            "maxTokens": 4000,
-            "topK": 5,
-            "preferredAgents": [],
-            "enableRAG": True,
-            "enableReasoning": True,
-            "enableSearch": False,
-            "ragTopK": 5,
-            "ragCandidatePoolK": 48,
-            "ragSynthesisK": 12,
-            "ragSourceDisplayK": 8,
-                "ragSimilarityThreshold": 0.2,  # Lowered from 0.7 - cosine similarity scores are typically 0.2-0.5 range
-            "ragCollectionName": "documents",
-            "ragUseHybridSearch": True,
-            "ragVectorWeight": 0.7,
-            "ragBM25Weight": 0.3,
-            "ragVectorDBType": app_config.default_vector_db_type,
-            "ragChunkingMethod": "recursive_character",  # Default: recursive_character (same as streaming-decision-process)
-            "ragChunkSize": 1000,
-            "ragChunkOverlap": 200,
-            "enableStreaming": True,
-            "streamingSpeed": "normal",
-            "theme": "light",
-            "fontSize": "medium",
-            "showReasoningTraces": True,
-            "showSources": True,
-            "autoExpandReasoning": False,
-            "apiUrl": "http://localhost:8000/api/v1",
-            "apiTimeout": 30000,
-            "enableCaching": True,
-            "cacheTTL": 3600,
-            "enableRateLimiting": True,
-            "rateLimitPerMinute": 60,
-            "ollamaBaseUrl": app_config.ollama_base_url,
-            "ollamaNumCtx": getattr(app_config, 'ollama_default_num_ctx', 32768),
-            "ollamaRopeScale": getattr(app_config, 'ollama_rope_scale', None),
-            "ollamaRopeAlpha": getattr(app_config, 'ollama_rope_alpha', None),
-        }
+        return default_settings()
 
 
 # Global settings manager instance

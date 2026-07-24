@@ -251,12 +251,12 @@ class RagPresetService:
             return dict(candidates[0].config or {})
 
         # Ultimate fallback — process-wide defaults.
-        from app.core.settings_manager import SettingsManager
-
         # Resolution is a read path.  It must not manufacture the legacy
         # app_settings singleton when no preset exists, nor depend on how that
         # singleton was initialized earlier in the process.
-        return SettingsManager._get_default_settings()
+        from app.core.settings_manager import default_settings
+
+        return default_settings()
 
     @staticmethod
     def get_or_create_workspace_default(
