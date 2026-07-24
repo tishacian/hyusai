@@ -561,7 +561,11 @@ for service_name, service in services.items():
         if volume.get("type") != "bind":
             raise SystemExit("protected storage must remain an explicit bind mount")
         expected_source, expected_read_only = expected[service_name][target]
-        if source != expected_source or bool(volume.get("read_only", False)) is not expected_read_only:
+        read_only = bool(volume.get("read_only", False))
+        # The write-barrier override may render a mount read-only where the
+        # baseline expects it writable; stricter than expected is acceptable,
+        # writable where read-only is expected is not.
+        if source != expected_source or (expected_read_only and not read_only):
             raise SystemExit("protected storage source or access mode differs")
         observed[key] = True
 required = {
