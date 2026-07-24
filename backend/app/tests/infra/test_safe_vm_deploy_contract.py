@@ -1563,8 +1563,8 @@ def test_release_a_manifest_v3_is_an_independent_mandatory_revalidated_trust_gat
     assert '--release-a-sha "$release_a_sha"' in verify
     assert '--review-policy "$FROZEN_RELEASE_A_REVIEW_POLICY"' in verify
     assert '--manifest "$FROZEN_RELEASE_A_MANIFEST"' in verify
-    assert "agentium-release-a-diff-verification-v6" in receipt
-    assert "agentium-release-a-diff-manifest-v6" in receipt
+    assert "agentium-release-a-diff-verification-v7" in receipt
+    assert "agentium-release-a-diff-manifest-v7" in receipt
     assert "agentium-release-a-semantic-review-v1" in receipt
     assert 'review.get("approval") != "approved"' in receipt
     assert "assert_release_a_manifest_receipt_contract" in recorded
