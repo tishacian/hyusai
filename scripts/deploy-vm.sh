@@ -521,17 +521,17 @@ expected = {
     "agentium-backend": {
         "/data/object_store": (object_store, False),
         "/data/secure_deposit": (secure_deposit, False),
-        "/data/faiss_db": (faiss, True),
+        "/data/faiss_db": (faiss, False),
     },
     "agentium-worker-cpu": {
         "/data/object_store": (object_store, False),
         "/data/secure_deposit": (secure_deposit, True),
-        "/data/faiss_db": (faiss, True),
+        "/data/faiss_db": (faiss, False),
     },
     "agentium-p4-maintenance": {
         "/data/object_store": (object_store, False),
         "/data/secure_deposit": (secure_deposit, True),
-        "/data/faiss_db": (faiss, True),
+        "/data/faiss_db": (faiss, False),
     },
     "agentium-sftp": {
         "/data/secure_deposit": (secure_deposit, False),
