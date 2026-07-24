@@ -2803,7 +2803,7 @@ def private_json(path):
 expected_keys={"profile","result","base_sha","release_a_sha","manifest_sha256","review_policy_sha256","verified_at"}
 original,fresh=(private_json(path) for path in sys.argv[1:3])
 for label,payload in (("existing",original),("fresh",fresh)):
-    if not isinstance(payload,dict) or set(payload)!=expected_keys or payload.get("profile")!="agentium-release-a-diff-verification-v6" or payload.get("result")!="passed" or payload.get("release_a_sha")!=sys.argv[3]:
+    if not isinstance(payload,dict) or set(payload)!=expected_keys or payload.get("profile")!="agentium-release-a-diff-verification-v7" or payload.get("result")!="passed" or payload.get("release_a_sha")!=sys.argv[3]:
         raise SystemExit(f"{label} manifest receipt schema/identity differs")
     value=payload.get("verified_at")
     if not isinstance(value,str) or not value.endswith("Z"): raise SystemExit(f"{label} manifest receipt timestamp invalid")

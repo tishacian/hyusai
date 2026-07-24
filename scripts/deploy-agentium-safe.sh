@@ -1364,9 +1364,9 @@ receipt_keys = {
 }
 if not isinstance(receipt, dict) or set(receipt) != receipt_keys:
     raise SystemExit("Release A manifest receipt schema differs")
-if receipt.get("profile") != "agentium-release-a-diff-verification-v6" or receipt.get("result") != "passed":
+if receipt.get("profile") != "agentium-release-a-diff-verification-v7" or receipt.get("result") != "passed":
     raise SystemExit("Release A manifest receipt did not pass")
-if not isinstance(manifest, dict) or manifest.get("profile") != "agentium-release-a-diff-manifest-v6":
+if not isinstance(manifest, dict) or manifest.get("profile") != "agentium-release-a-diff-manifest-v7":
     raise SystemExit("Release A manifest identity differs")
 if not isinstance(review, dict) or review.get("profile") != "agentium-release-a-semantic-review-v1":
     raise SystemExit("Release A review identity differs")

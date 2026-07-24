@@ -1091,7 +1091,7 @@ def test_preplanted_manifest_receipt_is_freshly_reverified_and_rejected(
 
     release_sha = "c" * 40
     stable = {
-        "profile": "agentium-release-a-diff-verification-v6",
+        "profile": "agentium-release-a-diff-verification-v7",
         "result": "passed",
         "base_sha": "a" * 40,
         "release_a_sha": release_sha,
