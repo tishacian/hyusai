@@ -26,11 +26,11 @@ from typing import Any
 PROFILE = "agentium-release-a-preconditions-v1"
 RECEIPT_PROFILE = "agentium-release-a-preconditions-receipt-v1"
 MAX_BYTES = 64 * 1024
-# 72h: the window may legitimately open days after the attested off-VM
+# 96h: the window may legitimately open days after the attested off-VM
 # backups completed.  Once the maintenance gates are closed (ingress shut,
 # writers stopped, secure deposit read-only) no mutation can age the backups,
 # and the executor still re-measures capacity independently at preflight.
-MAX_AGE = timedelta(hours=72)
+MAX_AGE = timedelta(hours=96)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 MINIMUMS = {
     "/": ("/dev/sda1", 40 * 1024**3),

@@ -798,9 +798,10 @@ verify_candidate_storage_contract() {
 	assert_candidate_worktree
 	local temporary="$DEPLOY_DIR/.candidate-storage-contract.$$"
 	# The protected stateful services live behind Compose profiles (infra,
-	# sftp, realtime).  The rendered model must include them, otherwise the
-	# contract cannot see the very mounts it exists to verify.
-	compose --profile infra --profile sftp --profile realtime config --format json | "$FROZEN_STORAGE_CONTRACT_HELPER" verify >"$temporary"
+	# sftp, realtime, tools for the migrate job).  The rendered model must
+	# include them, otherwise the contract cannot see the very mounts it
+	# exists to verify.
+	compose --profile infra --profile sftp --profile realtime --profile tools config --format json | "$FROZEN_STORAGE_CONTRACT_HELPER" verify >"$temporary"
 	if [[ -e "$CANDIDATE_STORAGE_CONTRACT" || -L "$CANDIDATE_STORAGE_CONTRACT" ]]; then
 		assert_private "$CANDIDATE_STORAGE_CONTRACT"
 		cmp -s "$temporary" "$CANDIDATE_STORAGE_CONTRACT" || die "Contrat de stockage candidat divergent"
