@@ -1,7 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const chromiumExecutable = process.env['E2E_CHROMIUM_EXECUTABLE'];
+const hostResolverRules = process.env['E2E_HOST_RESOLVER_RULES'];
 const junitOutput = process.env['PLAYWRIGHT_JUNIT_OUTPUT_NAME'] ?? 'e2e/results/junit.xml';
+const launchOptions = chromiumExecutable || hostResolverRules
+  ? {
+      ...(chromiumExecutable ? { executablePath: chromiumExecutable } : {}),
+      ...(hostResolverRules
+        ? { args: [`--host-resolver-rules=${hostResolverRules}`] }
+        : {}),
+    }
+  : undefined;
 
 /**
  * Agentium E2E test config (Vague E / E2).
@@ -31,10 +40,10 @@ export default defineConfig({
   testDir: './e2e/tests',
   outputDir: './e2e/results',
   fullyParallel: false,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  forbidOnly: !!process.env['CI'],
+  retries: process.env['CI'] ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI
+  reporter: process.env['CI']
     ? [
         ['list'],
         ['junit', { outputFile: junitOutput, embedAnnotationsAsProperties: true }],
@@ -55,9 +64,7 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
-    ...(chromiumExecutable
-      ? { launchOptions: { executablePath: chromiumExecutable } }
-      : {}),
+    ...(launchOptions ? { launchOptions } : {}),
   },
 
   projects: [

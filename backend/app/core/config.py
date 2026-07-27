@@ -1,6 +1,7 @@
 """Application configuration"""
 
-from typing import Optional
+import os
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,12 @@ class Settings(BaseSettings):
     authorization_v2_trusted_project_id: str = ""
     authorization_v2_trusted_ref: str = "demo/agentic"
     debug: bool = False
+
+    # Production startup normally reconciles idempotent demo/catalogue state.
+    # Transactional VM deployments override this to ``disabled`` so merely
+    # starting a candidate cannot mutate PostgreSQL, Qdrant or tenant Systems
+    # before semantic before/after proofs have passed.
+    startup_reconciliation: Literal["enabled", "disabled"] = "enabled"
 
     api_v1_prefix: str = "/api/v1"
 
@@ -551,4 +558,19 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+def _settings_env_file() -> str | None:
+    """Disable implicit dotenv reads for an attested production runtime.
+
+    Docker and systemd inject the frozen environment explicitly.  Continuing
+    to read ``backend/.env`` from the working directory would otherwise allow
+    a later file edit to add configuration which isn't present in the
+    deployment's immutable runtime-env bundle.
+    """
+
+    mode = os.environ.get("AGENTIUM_DISABLE_DOTENV", "0")
+    if mode not in {"0", "1"}:
+        raise RuntimeError("AGENTIUM_DISABLE_DOTENV must be 0 or 1")
+    return None if mode == "1" else ".env"
+
+
+settings = Settings(_env_file=_settings_env_file())

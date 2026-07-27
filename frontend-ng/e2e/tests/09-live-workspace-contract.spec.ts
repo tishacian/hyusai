@@ -9,7 +9,9 @@ import { findOctocityForbiddenPresentationTerms } from '../../src/app/features/m
  * E2E_PASSWORD and must never be committed.
  *
  * Run against production/staging:
- *   E2E_LIVE_CONTRACT=1 E2E_WORKSPACE_SLUG=andritz \
+ *   E2E_LIVE_CONTRACT=1 \
+ *     E2E_EXPECTED_SHA=<deployed-40-hex-sha> E2E_SAFE_CONTENT_FREE=1 \
+ *     E2E_{SHOWCASE,ANDRITZ,SENTINEL,OCTOCITY}_WORKSPACE_{ID,SLUG}=... \
  *     E2E_USERNAME=... E2E_PASSWORD=... \
  *     npx playwright test 09-live-workspace-contract.spec.ts
  *
@@ -22,7 +24,8 @@ const liveContract = process.env['E2E_LIVE_CONTRACT'] === '1';
 const liveAllWorkspaces = process.env['E2E_LIVE_ALL_WORKSPACES'] === '1';
 const liveForceRefresh = process.env['E2E_LIVE_FORCE_REFRESH'] === '1';
 const liveNonAdmin = process.env['E2E_LIVE_NON_ADMIN'] === '1';
-const workspaceSlug = process.env['E2E_WORKSPACE_SLUG'] ?? 'andritz';
+const safeContentFree = process.env['E2E_SAFE_CONTENT_FREE'] === '1';
+const expectedSha = process.env['E2E_EXPECTED_SHA'];
 const username = process.env['E2E_USERNAME'];
 const password = process.env['E2E_PASSWORD'];
 const businessUsername = process.env['E2E_BUSINESS_USERNAME'];
@@ -36,6 +39,49 @@ const expectedAndritzMemberCount = Number.isInteger(configuredAndritzMemberCount
   : null;
 const previewStorageKey = 'agentium_business_navigation_preview_slugs';
 
+type WorkspaceRole = 'showcase' | 'andritz' | 'sentinel' | 'octocity';
+
+type WorkspaceTarget = {
+  role: WorkspaceRole;
+  id: string;
+  slug: string;
+};
+
+const workspaceTarget = (role: WorkspaceRole): WorkspaceTarget => {
+  const prefix = `E2E_${role.toUpperCase()}_WORKSPACE`;
+  const id = process.env[`${prefix}_ID`] ?? '';
+  const slug = process.env[`${prefix}_SLUG`] ?? '';
+  if (liveContract) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
+      throw new Error(`${prefix}_ID must be a canonical UUID`);
+    }
+    if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(slug)) {
+      throw new Error(`${prefix}_SLUG must be a canonical workspace slug`);
+    }
+  }
+  return { role, id, slug };
+};
+
+const workspaceTargets = {
+  showcase: workspaceTarget('showcase'),
+  andritz: workspaceTarget('andritz'),
+  sentinel: workspaceTarget('sentinel'),
+  octocity: workspaceTarget('octocity'),
+} satisfies Record<WorkspaceRole, WorkspaceTarget>;
+
+if (liveContract) {
+  const identities = Object.values(workspaceTargets);
+  if (new Set(identities.map(({ id }) => id)).size !== identities.length) {
+    throw new Error('workspace target UUIDs must be unique');
+  }
+  if (new Set(identities.map(({ slug }) => slug)).size !== identities.length) {
+    throw new Error('workspace target slugs must be unique');
+  }
+}
+
+const andritzTarget = workspaceTargets.andritz;
+const workspaceSlug = andritzTarget.slug;
+
 // A Playwright trace records network postData, including the login request.
 // Live credentials must never be serialized into retained failure artifacts.
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
@@ -44,7 +90,12 @@ type LoginResult = {
   ok: boolean;
   status: number;
   workspaceSlug?: string | null;
-  workspaces?: Array<{ slug?: string; role?: string; roleTemplate?: string | null }>;
+  workspaces?: Array<{
+    id?: string;
+    slug?: string;
+    role?: string;
+    roleTemplate?: string | null;
+  }>;
   detail?: unknown;
 };
 
@@ -53,10 +104,48 @@ type LoginCredentials = {
   password?: string;
 };
 
+type BuildInfo = {
+  revision?: string;
+  service?: string;
+  revision_verified?: boolean;
+};
+
+async function assertDeployedRevision(page: Page, testInfo: TestInfo): Promise<void> {
+  expect(expectedSha, 'E2E_EXPECTED_SHA must be the deployed full SHA').toMatch(/^[0-9a-f]{40}$/);
+  const revision = expectedSha as string;
+  if (!testInfo.annotations.some(
+    (annotation) => annotation.type === 'commit_sha' && annotation.description === revision,
+  )) {
+    testInfo.annotations.push({ type: 'commit_sha', description: revision });
+  }
+
+  const readBuildInfo = async (path: string): Promise<BuildInfo> => {
+    const response = await page.request.get(`${path}?canary=${Date.now()}`, {
+      headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+    });
+    expect(response.ok(), `${path} must be readable`).toBe(true);
+    return response.json() as Promise<BuildInfo>;
+  };
+  const [backend, frontend] = await Promise.all([
+    readBuildInfo('/api/v1/build-info'),
+    readBuildInfo('/build-info.json'),
+  ]);
+  expect(backend).toMatchObject({
+    revision,
+    service: 'backend',
+    revision_verified: true,
+  });
+  expect(frontend).toMatchObject({
+    revision,
+    service: 'frontend',
+    revision_verified: true,
+  });
+}
+
 async function login(
   page: Page,
   businessPreview: boolean,
-  targetWorkspaceSlug = workspaceSlug,
+  targetWorkspace: WorkspaceTarget = andritzTarget,
   rememberMe = false,
   credentials: LoginCredentials = { username, password },
 ): Promise<LoginResult> {
@@ -65,7 +154,7 @@ async function login(
 
   await page.goto('/auth/signin');
   const result = await page.evaluate(
-    async ({ email, secret, slug, previewKey, preview, persistSession }) => {
+    async ({ email, secret, target, previewKey, preview, persistSession }) => {
       const response = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,13 +169,13 @@ async function login(
       if (body.refresh_token) {
         localStorage.setItem('agentium_refresh_token', body.refresh_token);
       }
-      localStorage.setItem('agentium_workspace_slug', slug);
-      localStorage.setItem(previewKey, JSON.stringify(preview ? [slug] : []));
+      localStorage.setItem('agentium_workspace_slug', target.slug);
+      localStorage.setItem(previewKey, JSON.stringify(preview ? [target.slug] : []));
 
       const workspacesResponse = await fetch('/api/v1/auth/workspaces', {
         headers: {
           Authorization: `Bearer ${body.token}`,
-          'X-Workspace-Slug': slug,
+          'X-Workspace-Slug': target.slug,
         },
       });
       const workspaces = workspacesResponse.ok
@@ -99,10 +188,12 @@ async function login(
         workspaceSlug: body.workspace_slug ?? null,
         workspaces: Array.isArray(workspaces)
           ? workspaces.map((workspace: {
+              id?: string;
               slug?: string;
               role?: string;
               role_template?: string | null;
             }) => ({
+              id: workspace.id,
               slug: workspace.slug,
               role: workspace.role,
               roleTemplate: workspace.role_template,
@@ -113,7 +204,7 @@ async function login(
     {
       email: credentials.username as string,
       secret: credentials.password as string,
-      slug: targetWorkspaceSlug,
+      target: targetWorkspace,
       previewKey: previewStorageKey,
       preview: businessPreview,
       persistSession: rememberMe,
@@ -121,11 +212,17 @@ async function login(
   );
 
   expect(result.ok, `login failed with status ${result.status}`).toBe(true);
-  expect(result.workspaces?.some((workspace) => workspace.slug === targetWorkspaceSlug)).toBe(true);
+  expect(
+    result.workspaces?.filter(
+      (workspace) => workspace.id === targetWorkspace.id && workspace.slug === targetWorkspace.slug,
+    ),
+    `the authenticated membership must match the resolved ${targetWorkspace.role} target`,
+  ).toHaveLength(1);
   return result;
 }
 
 async function attachViewport(page: Page, testInfo: TestInfo, name: string): Promise<void> {
+  if (safeContentFree) return;
   const path = testInfo.outputPath(name);
   await page.screenshot({ path, animations: 'disabled' });
   await testInfo.attach(name, { path, contentType: 'image/png' });
@@ -147,8 +244,100 @@ async function missionPresentationCorpus(page: Page): Promise<string> {
   });
 }
 
+async function client360DryRunProjection(page: Page): Promise<{
+  status: number;
+  dryRun: boolean;
+  created: number | null;
+  updated: number | null;
+  recordsSeen: number | null;
+  candidateMappingsCreated: number | null;
+  opportunitiesDetected: number | null;
+  previewCount: number | null;
+}> {
+  return page.evaluate(async (slug) => {
+    const response = await fetch('/api/v1/client360/engines/opportunities/run', {
+      method: 'POST',
+      headers: {
+        Authorization: localStorage.getItem('agentium_token') ?? '',
+        'Content-Type': 'application/json',
+        'X-Workspace-Slug': slug,
+      },
+      body: JSON.stringify({ dry_run: true }),
+    });
+    const raw: unknown = await response.json().catch(() => null);
+    const body = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    const counter = (key: string): number | null =>
+      Number.isInteger(body[key]) && Number(body[key]) >= 0 ? Number(body[key]) : null;
+
+    // Deliberately project counters and booleans only. The engine preview can
+    // contain business data and must never cross into Playwright/JUnit output.
+    return {
+      status: response.status,
+      dryRun: body['dry_run'] === true,
+      created: counter('created'),
+      updated: counter('updated'),
+      recordsSeen: counter('records_seen'),
+      candidateMappingsCreated: counter('candidate_mappings_created'),
+      opportunitiesDetected: counter('opportunities_detected'),
+      previewCount: Array.isArray(body['preview']) ? body['preview'].length : null,
+    };
+  }, workspaceSlug);
+}
+
+async function crossTenantSystemIsolationProjection(
+  page: Page,
+  currentWorkspace: string,
+  foreignWorkspace: string,
+): Promise<{
+  foreignDiscoveryStatus: number;
+  foreignSystemDiscovered: boolean;
+  crossTenantReadStatus: number | null;
+}> {
+  return page.evaluate(async ({ currentSlug, foreignSlug }) => {
+    const token = localStorage.getItem('agentium_token') ?? '';
+    const foreignResponse = await fetch('/api/v1/systems?include_retired=true&limit=100', {
+      headers: { Authorization: token, 'X-Workspace-Slug': foreignSlug },
+    });
+    const raw: unknown = await foreignResponse.json().catch(() => null);
+    const record = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : null;
+    const systems = Array.isArray(raw)
+      ? raw
+      : Array.isArray(record?.['systems'])
+        ? record['systems']
+        : [];
+    const foreignId = systems
+      .map((row) => row && typeof row === 'object' && !Array.isArray(row)
+        ? row as Record<string, unknown>
+        : null)
+      .find((row) => row?.['status'] === 'active' && typeof row['id'] === 'string')?.['id'];
+    let crossTenantReadStatus: number | null = null;
+    if (typeof foreignId === 'string') {
+      const isolationResponse = await fetch(`/api/v1/systems/${encodeURIComponent(foreignId)}`, {
+        headers: { Authorization: token, 'X-Workspace-Slug': currentSlug },
+      });
+      crossTenantReadStatus = isolationResponse.status;
+      await isolationResponse.body?.cancel().catch(() => undefined);
+    }
+
+    // Never return the foreign ID, name, response body or workspace payload.
+    return {
+      foreignDiscoveryStatus: foreignResponse.status,
+      foreignSystemDiscovered: typeof foreignId === 'string',
+      crossTenantReadStatus,
+    };
+  }, { currentSlug: currentWorkspace, foreignSlug: foreignWorkspace });
+}
+
 test.describe('Lot 0 — live workspace experience contract', () => {
   test.skip(!liveContract, 'Set E2E_LIVE_CONTRACT=1 to exercise the deployed workspace');
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    await assertDeployedRevision(page, testInfo);
+  });
 
   test.afterEach(async ({ page }) => {
     const refreshToken = await page
@@ -166,7 +355,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     });
   });
 
-  test('Andritz business preview exposes exactly the three active apps', async ({ page }, testInfo) => {
+  test('Andritz business preview exposes the three-app shell', async ({ page }, testInfo) => {
     await login(page, true);
     await page.goto('/chat');
 
@@ -188,7 +377,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await attachViewport(page, testInfo, 'andritz-business-shell.png');
   });
 
-  test('the three Andritz apps survive deep links, history and reload', async ({ page }, testInfo) => {
+  test('the three Andritz surfaces survive deep links, history and reload', async ({ page }, testInfo) => {
     await login(page, true);
 
     const workspaceHeaders: Array<string | undefined> = [];
@@ -209,6 +398,21 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await page.goto('/client360');
     await expect(page.locator('app-client360-page')).toBeVisible();
     await expect(page.locator('body')).toContainText('Client360 PDR');
+    const client360DryRun = await client360DryRunProjection(page);
+    expect(client360DryRun).toMatchObject({
+      status: 200,
+      dryRun: true,
+      created: 0,
+      updated: 0,
+    });
+    for (const counter of [
+      client360DryRun.recordsSeen,
+      client360DryRun.candidateMappingsCreated,
+      client360DryRun.opportunitiesDetected,
+      client360DryRun.previewCount,
+    ]) {
+      expect(counter).toBeGreaterThanOrEqual(0);
+    }
     await attachViewport(page, testInfo, 'andritz-client360.png');
 
     await page.goto('/knowledge/capture');
@@ -234,7 +438,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       !liveForceRefresh,
       'Set E2E_LIVE_FORCE_REFRESH=1 on a candidate deployment that includes the scoped retry fix',
     );
-    await login(page, true, workspaceSlug, true);
+    await login(page, true, andritzTarget, true);
     await page.goto('/chat');
     await expect(page.getByRole('navigation', { name: 'Navigation métier' })).toBeVisible();
     await expect
@@ -394,12 +598,12 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       'E2E_BUSINESS_PASSWORD is required when E2E_LIVE_NON_ADMIN=1',
     ).toBeTruthy();
 
-    const loginResult = await login(page, false, workspaceSlug, false, {
+    const loginResult = await login(page, false, andritzTarget, false, {
       username: businessUsername,
       password: businessPassword,
     });
     const membership = loginResult.workspaces?.find(
-      (workspace) => workspace.slug === workspaceSlug,
+      (workspace) => workspace.id === andritzTarget.id && workspace.slug === workspaceSlug,
     );
     expect(membership).toBeDefined();
     expect(membership?.role).toBe('member');
@@ -447,7 +651,12 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       const systemsBody = await systemsResponse.json().catch(() => []);
       const systems = Array.isArray(systemsBody) ? systemsBody : systemsBody.systems ?? [];
       return {
-        statuses: [workspaceResponse.status, iamResponse.status, systemsResponse.status],
+        workspaceId: workspace.id,
+        statuses: [
+          workspaceResponse.status,
+          iamResponse.status,
+          systemsResponse.status,
+        ],
         mode: workspace.mode,
         navigationProfile: workspace.settings?.navigation_profile,
         features: {
@@ -469,6 +678,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       };
     }, workspaceSlug);
 
+    expect(baseline.workspaceId).toBe(andritzTarget.id);
     expect(baseline.statuses).toEqual([200, 200, 200]);
     expect(baseline.mode).toBe('builder');
     expect(baseline.navigationProfile).toEqual({
@@ -558,7 +768,9 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     const existingIds = initialAudit.ids;
 
     await page.goto('/workspace');
-    await expect(page).toHaveURL(/\/workspace\/andritz\/settings(?:[?#].*)?$/);
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/workspace/${encodeURIComponent(workspaceSlug)}/settings`,
+    );
 
     await expect
       .poll(
@@ -727,7 +939,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
 
   test('Showcase keeps the standard Agentium cockpit', async ({ page }, testInfo) => {
     test.skip(!liveAllWorkspaces, 'Set E2E_LIVE_ALL_WORKSPACES=1 to capture cross-workspace shells');
-    await login(page, false, 'agentium-showcase');
+    await login(page, false, workspaceTargets.showcase);
     await page.goto('/systems');
 
     await expect(page).toHaveURL(/\/systems(?:[?#].*)?$/);
@@ -746,7 +958,8 @@ test.describe('Lot 0 — live workspace experience contract', () => {
 
   for (const missionRoom of [
     {
-      slug: 'sentinel-ci',
+      role: 'sentinel' as const,
+      target: workspaceTargets.sentinel,
       assistant: 'AYA',
       appLabel: 'SENTINEL-CI',
       brandLines: ['REPUBLIQUE DE', "COTE D'IVOIRE"],
@@ -756,19 +969,20 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       screenshot: 'sentinel-mission-room.png',
     },
     {
-      slug: 'octocity-mission-room',
+      role: 'octocity' as const,
+      target: workspaceTargets.octocity,
       assistant: 'OCTAVE',
       appLabel: 'Octocity Mission Room',
       brandLines: ['AGENTIUM', 'MISSION ROOM'],
       brandEmblem: '/assets/brand/agentium-mark.svg',
       brandStyle: 'agentium',
       actionPacks: ['global_voice_v1', 'octave_mission_room_v1', 'octave_security_v1'],
-      screenshot: 'octocity-mission-room.png',
+      screenshot: 'octocity-workspace.png',
     },
   ]) {
-    test(`${missionRoom.slug} keeps its immersive Mission Room shell`, async ({ page }, testInfo) => {
+    test(`${missionRoom.role === 'sentinel' ? 'Sentinel' : 'Octocity'} workspace keeps its immersive Mission Room shell`, async ({ page }, testInfo) => {
       test.skip(!liveAllWorkspaces, 'Set E2E_LIVE_ALL_WORKSPACES=1 to capture cross-workspace shells');
-      await login(page, false, missionRoom.slug);
+      await login(page, false, missionRoom.target);
       await page.goto('/hypervisor');
 
       await expect(page).toHaveURL(/\/hypervisor\/mission-room\/cockpit(?:[?#].*)?$/);
@@ -811,6 +1025,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         const workspaceBody = await workspaceResponse.json().catch(() => ({}));
         const systems = Array.isArray(systemsBody) ? systemsBody : systemsBody.systems ?? [];
         return {
+          workspaceId: workspaceBody.id,
           statuses: [navigationResponse.status, systemsResponse.status, workspaceResponse.status],
           app: navigation.app,
           items: Array.isArray(navigation.items) ? navigation.items : [],
@@ -820,9 +1035,24 @@ test.describe('Lot 0 — live workspace experience contract', () => {
             .map((system: { id?: string }) => system.id)
             .filter(Boolean),
         };
-      }, missionRoom.slug);
+      }, missionRoom.target.slug);
 
+      const foreignWorkspace = missionRoom.role === 'sentinel'
+        ? workspaceTargets.octocity
+        : workspaceTargets.sentinel;
+      const isolation = await crossTenantSystemIsolationProjection(
+        page,
+        missionRoom.target.slug,
+        foreignWorkspace.slug,
+      );
+
+      expect(binding.workspaceId).toBe(missionRoom.target.id);
       expect(binding.statuses).toEqual([200, 200, 200]);
+      expect(isolation).toEqual({
+        foreignDiscoveryStatus: 200,
+        foreignSystemDiscovered: true,
+        crossTenantReadStatus: 404,
+      });
       expect(binding.app?.assistant_label).toBe(missionRoom.assistant);
       expect(binding.app?.label).toBe(missionRoom.appLabel);
       expect(binding.items.map((item: { key?: string }) => item.key)).toEqual([
@@ -837,13 +1067,13 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       expect(binding.items).toHaveLength(7);
       expect(binding.actionPacks).toEqual(missionRoom.actionPacks);
       for (const item of binding.items as Array<{ key?: string; system_id?: string | null }>) {
-        expect(item.system_id, `${missionRoom.slug}:${item.key} has no System binding`).toBeTruthy();
+        expect(item.system_id, `${missionRoom.role}:${item.key} has no System binding`).toBeTruthy();
         expect(
           binding.activeSystemIds,
-          `${missionRoom.slug}:${item.key} targets an inactive or foreign System`,
+          `${missionRoom.role}:${item.key} targets an inactive or foreign System`,
         ).toContain(item.system_id);
       }
-      if (missionRoom.slug === 'octocity-mission-room') {
+      if (missionRoom.role === 'octocity') {
         await expect(page.locator('app-mission-room')).not.toContainText(/SENTINEL/i);
         expect(JSON.stringify(binding)).not.toMatch(/SENTINEL|\bAYA\b/i);
         expect(binding.app?.brand).toEqual({

@@ -12,12 +12,19 @@ class SettingsService:
     """Service for managing application settings"""
     
     @staticmethod
-    def get_settings(db: Session, ignore_missing_columns: bool = False) -> Dict[str, Any]:
+    def get_settings(
+        db: Session,
+        ignore_missing_columns: bool = False,
+        *,
+        create_if_missing: bool = True,
+    ) -> dict[str, Any]:
         """Get current application settings from database"""
         try:
             db_settings = db.query(AppSettings).filter(AppSettings.id == "default").first()
             
             if not db_settings:
+                if not create_if_missing:
+                    return {}
                 # Create default settings if none exist
                 db_settings = AppSettings(id="default")
                 db.add(db_settings)
