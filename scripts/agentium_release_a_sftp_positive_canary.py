@@ -2,8 +2,9 @@
 """Produce a content-free positive SFTP canary for Agentium Release A.
 
 The canary proves password authentication and creation of a real SFTP
-subsystem. It deliberately performs only ``getcwd()`` and ``stat('.')``. It
-never enumerates, reads, creates, modifies, or removes remote content.
+subsystem. It deliberately performs only ``getcwd()`` and a single ``stat``
+of the absolute root path. It never enumerates, reads, creates, modifies, or
+removes remote content.
 
 The password and known-hosts inputs are snapshotted through no-follow file
 descriptors before any network operation. Runtime identities and credentials
@@ -46,8 +47,18 @@ MAX_PASSWORD_BYTES = 4096
 MAX_KNOWN_HOSTS_BYTES = 1024 * 1024
 MAX_PRIVATE_RECEIPT_BYTES = 256 * 1024
 MAX_READY_TO_AUTH_SECONDS = 300
-MAX_POSITIVE_TO_REVOKE_SECONDS = 300
-MAX_REVOKE_TO_LEDGER_SECONDS = 300
+# The positive->revoke and revoke->ledger windows must each fully span one
+# PostgreSQL inventory snapshot of the protected database.  That snapshot
+# streams and hashes every row of every public table, so its wall-clock cost
+# scales with data volume, not with any security property: on the production
+# database (knowledge_document_facts ~1.7M rows / 4 GB, audit_logs ~694k rows)
+# a single snapshot measures ~460 s.  The 300 s ceiling therefore made
+# record-sftp-final structurally impossible on a real corpus even though the
+# gates (ingress shut, writers stopped, read-only barriers) enforce isolation
+# independently.  1200 s (~2.5x the measured snapshot) leaves headroom for
+# corpus growth while keeping the evidence-staleness guard meaningful.
+MAX_POSITIVE_TO_REVOKE_SECONDS = 1200
+MAX_REVOKE_TO_LEDGER_SECONDS = 1200
 MAX_ATTEMPT_RECOVERY_SECONDS = 300
 RELEASE_A_ACCESS_ID_PREFIX = "ra1_"
 
@@ -392,7 +403,12 @@ async def _positive_sftp_probe(
                 raise SFTPPositiveCanaryError("host-key fingerprint mismatch")
             async with connection.start_sftp_client() as sftp:
                 await sftp.getcwd()
-                attributes = await sftp.stat(".")
+                # Stat the absolute root explicitly. A bare "." is composed by
+                # AsyncSSH against the working directory returned by getcwd()
+                # into the wire path "/.", which the Secure Deposit SFTP server
+                # does not normalise back to root; an absolute "/" is
+                # unambiguous and independent of the client working directory.
+                attributes = await sftp.stat("/")
                 if attributes is None:
                     raise SFTPPositiveCanaryError("SFTP stat proof is absent")
     except SFTPPositiveCanaryError:

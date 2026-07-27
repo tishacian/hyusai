@@ -47,7 +47,14 @@ MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
 MAX_LEDGER_BYTES = 1024 * 1024
 MAX_SFTP_LEDGER_BYTES = 64 * 1024
 MAX_SFTP_RECEIPT_BYTES = 64 * 1024
-MAX_SFTP_AUDIT_TO_RECEIPT_SECONDS = 300
+# Bounds staleness of the SFTP ledger receipt against the last audit event.
+# The receipt is emitted only after a full PostgreSQL inventory snapshot of the
+# protected database, whose cost scales with data volume (~460 s on the
+# production corpus).  Kept in lockstep with MAX_REVOKE_TO_LEDGER_SECONDS in
+# scripts/agentium_release_a_sftp_positive_canary.py so record-sftp-final is
+# feasible on a real corpus; the value is an evidence-freshness guard, not a
+# security boundary.
+MAX_SFTP_AUDIT_TO_RECEIPT_SECONDS = 1200
 MAX_CONTROLLED_INVOCATIONS = 10_000
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

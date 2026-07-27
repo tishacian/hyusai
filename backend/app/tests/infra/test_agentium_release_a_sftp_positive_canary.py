@@ -452,7 +452,7 @@ def test_positive_probe_is_password_only_content_free_and_schema_closed(
         "sftp_closed",
         "connection_closed",
     ]
-    assert operations[4] == ("stat", ".")
+    assert operations[4] == ("stat", "/")
     assert len(connections) == 1
     assert connections[0]["host"] == HOST
     assert connections[0]["username"] == USERNAME
