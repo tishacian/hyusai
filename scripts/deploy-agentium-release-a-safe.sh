@@ -2659,7 +2659,12 @@ for name,event_type in zip(names,types,strict=True):
     values.extend(str(row[key]) for key in ("event_type","event_id_sha256","event_digest_sha256","count","occurred_at"))
     times.append(datetime.fromisoformat(str(row["occurred_at"]).replace("Z","+00:00")))
 collected=datetime.fromisoformat(str(p["collected_at"]).replace("Z","+00:00")); values.append(str(p["collected_at"]))
-if any(value.tzinfo is None for value in (*times,collected)) or times!=sorted(times) or not times[-1]<=collected<=times[-1]+timedelta(minutes=5) or collected>datetime.now(timezone.utc)+timedelta(minutes=5): raise SystemExit("SFTP PostgreSQL chronology differs")
+# The receipt is emitted only after a full PostgreSQL inventory snapshot whose
+# wall-clock cost scales with data volume (~460s on the production corpus), so
+# the ledger-to-receipt staleness ceiling is 20 minutes here, in lockstep with
+# MAX_SFTP_AUDIT_TO_RECEIPT_SECONDS/MAX_REVOKE_TO_LEDGER_SECONDS (1200s).  The
+# +5min future-date tolerance stays a pure clock-skew guard.
+if any(value.tzinfo is None for value in (*times,collected)) or times!=sorted(times) or not times[-1]<=collected<=times[-1]+timedelta(minutes=20) or collected>datetime.now(timezone.utc)+timedelta(minutes=5): raise SystemExit("SFTP PostgreSQL chronology differs")
 digest=hashlib.sha256(b"agentium-release-a-sftp-ledger-v1")
 for value in values: digest.update(b"\0"); digest.update(value.encode("utf-8"))
 if digest.hexdigest()!=p["binding_sha256"]: raise SystemExit("SFTP PostgreSQL receipt binding differs")
