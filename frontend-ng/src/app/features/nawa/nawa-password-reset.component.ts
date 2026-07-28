@@ -20,7 +20,8 @@ import {
   type NawaScenarioPreset,
   type NawaStepState,
 } from './nawa-itsd.model';
-import { NawaItsdService, projectRun } from './nawa-itsd.service';
+import { NawaItsdService } from './nawa-itsd.service';
+import { projectRun } from './nawa-run-projection';
 
 /** Live progress cadence. The run budget is ~45 s (SPEC §6.4). */
 const POLL_MS = 1200;

@@ -41,6 +41,7 @@ const pureSpecs = [
   'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
   'src/app/features/hypervisor/hypervisor-impact.spec.ts',
+  'src/app/features/nawa/nawa-run-projection.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +

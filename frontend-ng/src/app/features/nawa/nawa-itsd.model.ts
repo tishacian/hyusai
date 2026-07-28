@@ -65,6 +65,11 @@ export const NAWA_SYSTEM_NAME_MATCH = 'password reset';
  * `task.quality_gate` and a bench node is `task.case_quality_guard`. No
  * fragment below may capture a bench node (`task.case_*`) or a sink, or the
  * simulation harness would animate the business steps.
+ *
+ * The `decision` nodes of each step are deliberately absent: the walker omits
+ * their `status` whether the branch won or was never taken, so the projection
+ * ignores them outright (see `nawa-run-projection.ts`) and listing them here
+ * would suggest they light a step up.
  */
 export interface NawaStep {
   index: number;
@@ -82,7 +87,7 @@ export const NAWA_STEPS: readonly NawaStep[] = [
     detail:
       "Call, e-mail or walk-in: the requester's own words are classified into an intent — reset, unlock, expiry, something else — with a confidence score.",
     kind: 'llm',
-    nodeIds: ['classify_intent', 'intent_route'],
+    nodeIds: ['classify_intent'],
   },
   {
     index: 2,
@@ -90,7 +95,7 @@ export const NAWA_STEPS: readonly NawaStep[] = [
     detail:
       'The proofs on file (staff ID, line-manager confirmation, security questions) are assessed against policy. On insufficient proof the assistant abstains explicitly and the request goes to a human gate. A grounding check then confirms the assessment is backed by evidence actually on file.',
     kind: 'gate',
-    nodeIds: ['verify_identity', 'identity_gate', 'quality_gate', 'execute_reset'],
+    nodeIds: ['verify_identity', 'identity_gate', 'quality_gate'],
   },
   {
     index: 3,
@@ -120,7 +125,7 @@ export const NAWA_STEPS: readonly NawaStep[] = [
     title: 'Ticket closure',
     detail: 'Simulated closure, then a write to the audit ledger.',
     kind: 'audit',
-    nodeIds: ['close_ticket', 'audit_ledger', 'closure_route'],
+    nodeIds: ['close_ticket', 'audit_ledger'],
   },
 ];
 
