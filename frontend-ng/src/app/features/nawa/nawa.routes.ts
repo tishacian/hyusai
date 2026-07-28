@@ -13,4 +13,9 @@ export const nawaRoutes: Routes = [
     loadComponent: () =>
       import('./nawa-password-reset.component').then((m) => m.NawaPasswordResetComponent),
   },
+  {
+    path: 'itsd/assistant',
+    loadComponent: () =>
+      import('./nawa-assistant.component').then((m) => m.NawaAssistantComponent),
+  },
 ];

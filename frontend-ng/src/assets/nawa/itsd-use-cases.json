@@ -267,8 +267,8 @@
       "monthly_volume": 80,
       "automated_minutes": 2,
       "legacy_minutes": 10,
-      "status": "planned",
-      "route": null,
+      "status": "live",
+      "route": "/nawa/itsd/assistant",
       "pattern_group": null
     },
     {

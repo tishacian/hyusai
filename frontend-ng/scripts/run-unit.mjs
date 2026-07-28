@@ -43,6 +43,10 @@ const pureSpecs = [
   'src/app/features/resources/resources.catalog.spec.ts',
   'src/app/features/hypervisor/hypervisor-impact.spec.ts',
   'src/app/features/nawa/nawa-run-projection.spec.ts',
+  'src/app/features/nawa/nawa-catalog-view.spec.ts',
+  'src/app/features/nawa/nawa-inbound-queue.spec.ts',
+  'src/app/features/nawa/nawa-conversation.spec.ts',
+  'src/app/features/nawa/nawa-assistant.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +

@@ -75,8 +75,14 @@ NAME_OVERRIDES = {
     39: "Automation Dashboard Data Extractor",
 }
 
-# The one use case wired end to end for the demo.
-LIVE_SR = 1
+# The use cases wired end to end, mapped to the surface that serves them. Both
+# are entries of the customer's own list rather than surfaces invented for a
+# demonstration: SR#1 is the password reset the agent executes, SR#18 is the
+# knowledge Q&A the assistant answers from the published service desk library.
+LIVE_ROUTES = {
+    1: "/nawa/itsd/password-reset",
+    18: "/nawa/itsd/assistant",
+}
 
 # Six variants of a single "directory object change with approval" pattern,
 # budgeted at 38 agents each in the source plan. The badge makes the
@@ -134,8 +140,8 @@ def extract(source: Path) -> dict:
                 "monthly_volume": number(sheet.cell(row, 6).value),
                 "automated_minutes": number(sheet.cell(row, 7).value),
                 "legacy_minutes": number(sheet.cell(row, 8).value),
-                "status": "live" if sr == LIVE_SR else "planned",
-                "route": "/nawa/itsd/password-reset" if sr == LIVE_SR else None,
+                "status": "live" if sr in LIVE_ROUTES else "planned",
+                "route": LIVE_ROUTES.get(sr),
                 "pattern_group": SAME_PATTERN_LABEL if sr in SAME_PATTERN_SR else None,
             }
         )
