@@ -405,15 +405,15 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
       display: block;
       border-radius: 6px;
     }
-    /* Height-constrained, never squared: a customer wordmark is wide. The dark
-       chip keeps a logo that ships without an alpha channel legible whatever
-       the cockpit theme. */
+    /* Height-constrained, never squared: a customer wordmark is wide. The radius
+       softens the opaque corners of a logo shipped without an alpha channel —
+       safe here because this bar only ever renders on the dark-pinned cockpit
+       chrome, never in the business shell where the theme can go light. */
     .tb-emblem-brand {
       display: block;
       height: 26px;
       width: auto;
       border-radius: 4px;
-      background: #000;
     }
     .tb-brand-copy {
       display: flex;
