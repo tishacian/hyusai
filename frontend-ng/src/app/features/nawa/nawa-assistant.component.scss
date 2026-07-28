@@ -9,19 +9,25 @@
 .as-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
+  // Load-bearing, not tidying. The height below fixes the BOX, but a grid row is
+  // auto-sized by default and grows past it, and overflow from an explicit-height
+  // box spills outside without making the box taller — so a long transcript used
+  // to hang below the app's own background, over the dark page underneath, in two
+  // halves. Capping the row is what sends the overflow to the scroller inside.
+  grid-template-rows: minmax(0, 1fr);
   gap: 22px;
-  align-items: start;
   padding: 22px 26px 26px;
-  // The composer is pinned at the bottom of the column, so the column owns the
-  // viewport height and the transcript scrolls inside it.
   height: calc(100dvh - 78px);
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 @media (max-width: 1080px) {
   .as-body {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
     height: auto;
+    overflow: visible;
   }
 }
 
@@ -31,6 +37,9 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  // A flex item will not shrink below its content unless told to, and without
+  // this the transcript's own scroller never engages.
+  min-height: 0;
   height: 100%;
   gap: 14px;
 }
@@ -227,6 +236,27 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  // The suggestions outgrow a laptop screen, and this column must not be what
+  // decides the page's height: it scrolls on its own.
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 1080px) {
+  .as-side {
+    height: auto;
+    overflow: visible;
+  }
+
+  // Single column: the transcript is above the composer and the page scrolls, so
+  // the composer would otherwise leave the viewport exactly when it is needed.
+  .as-composer {
+    position: sticky;
+    bottom: 12px;
+    z-index: 1;
+  }
 }
 
 .as-side-label {

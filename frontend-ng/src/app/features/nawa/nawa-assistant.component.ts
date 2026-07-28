@@ -19,12 +19,15 @@
  * comes from the run rather than from this file.
  */
 import {
+  afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
   computed,
+  ElementRef,
   inject,
   OnDestroy,
   signal,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
@@ -116,7 +119,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
 
     <div class="as-body">
       <section class="as-main">
-        <div class="as-transcript" #transcript>
+        <div class="as-transcript" #transcript (scroll)="onScroll()">
           @if (turns().length === 0 && !pending()) {
             <div class="as-empty">
               <strong>Tell the service desk what you need.</strong>
@@ -355,7 +358,27 @@ export class NawaAssistantComponent implements OnDestroy {
     this.turns().some((turn) => turn.kind === 'run' && !turn.settled),
   );
 
+  private readonly transcript = viewChild<ElementRef<HTMLElement>>('transcript');
+
+  /**
+   * Whether new content should pull the view down. It stops as soon as the
+   * reader scrolls up — a request being handled appends a bubble every second or
+   * so, and yanking the view back while someone is re-reading the identity
+   * verdict is worse than not following at all. Resumes when they return to the
+   * bottom.
+   */
+  private stick = true;
+
   constructor() {
+    // Reads the signals the transcript renders from, so it re-runs after the
+    // render that added the content, when the new height is measurable.
+    afterRenderEffect(() => {
+      this.turns();
+      this.pending();
+      const element = this.transcript()?.nativeElement;
+      if (element && this.stick) element.scrollTop = element.scrollHeight;
+    });
+
     this.itsd.catalog().subscribe((catalog) => this.catalogue.set(catalog.use_cases));
     // Resolved once: without it a reset request can be recognised but not
     // processed, and the screen says so rather than pretending.
@@ -376,6 +399,14 @@ export class NawaAssistantComponent implements OnDestroy {
   }
   protected asRun(turn: DeskTurn): RunTurn | null {
     return turn.kind === 'run' ? turn : null;
+  }
+
+  protected onScroll(): void {
+    const element = this.transcript()?.nativeElement;
+    if (!element) return;
+    // A band rather than an exact bottom: momentum scrolling and sub-pixel
+    // heights rarely land on zero.
+    this.stick = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
   }
 
   protected onEnter(event: Event): void {
