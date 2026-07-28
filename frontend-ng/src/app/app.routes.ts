@@ -111,6 +111,10 @@ export const routes: Routes = [
           import('./features/client360/client360.routes').then((m) => m.client360Routes),
       },
       {
+        path: 'nawa',
+        loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
+      },
+      {
         path: 'workspace',
         loadChildren: () =>
           import('./features/workspace/workspace.routes').then((m) => m.workspaceRoutes),

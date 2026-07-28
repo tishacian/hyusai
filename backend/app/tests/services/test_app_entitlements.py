@@ -91,8 +91,11 @@ def _seed_membership(db_session) -> tuple[Workspace, User, WorkspaceMember]:
 
 
 def test_normalize_app_entitlements_is_strict_deduplicated_and_canonical() -> None:
+    # Fed every known key in reverse, with duplicates: canonical order out.
+    # Derived from BUSINESS_APP_KEYS so registering a new app cannot rot this.
     assert normalize_app_entitlements(
         [KNOWLEDGE_CAPTURE_APP, CHAT_APP, CHAT_APP, CLIENT360_APP, FSE_REPORTS_APP]
+        + list(reversed(BUSINESS_APP_KEYS))
     ) == list(BUSINESS_APP_KEYS)
     assert normalize_app_entitlements(None) == []
     assert normalize_app_entitlements([KNOWLEDGE_CAPTURE_APP, CHAT_APP, CLIENT360_APP]) == [

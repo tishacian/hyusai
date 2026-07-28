@@ -1,0 +1,205 @@
+/**
+ * NAWA WE brand tokens — scoped to the Nawa feature only.
+ *
+ * The palette comes from the customer logo: black, anthracite, brick accent.
+ * These are plain custom properties declared on the component host, so nothing
+ * here can leak into the Agentium cockpit theme (SPEC §5.3: no global theming
+ * rework). The accent carries actions, the "Live" badge and step progress;
+ * completion is expressed with the bright neutral instead of a second hue, and
+ * only two warm derivatives are introduced for the alert states.
+ */
+:host {
+  --nawa-bg: #000000;
+  --nawa-surface: #1c1c1c;
+  --nawa-surface-2: #232323;
+  --nawa-line: rgba(255, 255, 255, 0.1);
+  --nawa-line-strong: rgba(255, 255, 255, 0.2);
+  --nawa-fg: #f5f2ef;
+  --nawa-fg-dim: rgba(245, 242, 239, 0.64);
+  --nawa-fg-faint: rgba(245, 242, 239, 0.36);
+  --nawa-accent: #c62f00;
+  --nawa-accent-bright: #e8543a;
+  --nawa-accent-soft: rgba(198, 47, 0, 0.16);
+  --nawa-accent-line: rgba(198, 47, 0, 0.5);
+  --nawa-warn: #d9a21b;
+  --nawa-radius: 10px;
+  --nawa-mono: var(--ck-font-mono, ui-monospace, 'SF Mono', monospace);
+
+  display: block;
+  min-height: 100%;
+  background: var(--nawa-bg);
+  color: var(--nawa-fg);
+  font-size: 13px;
+}
+
+// ---- brand header --------------------------------------------------------
+// The logo ships on an opaque black background with no alpha channel, so it
+// may only sit on a dark surface (SPEC §5.3).
+.nawa-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 22px;
+  background: var(--nawa-bg);
+  border-bottom: 1px solid var(--nawa-line);
+}
+
+.nawa-logo {
+  display: block;
+  height: 34px;
+  width: auto;
+  background: var(--nawa-bg);
+}
+
+.nawa-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.nawa-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+}
+
+.nawa-subtitle {
+  color: var(--nawa-fg-dim);
+  font: 650 10px/1.2 var(--nawa-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.nawa-header-spacer { flex: 1 1 auto; }
+
+.nawa-header-meta {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.nawa-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
+}
+
+.nawa-metric-value {
+  font-size: 17px;
+  font-weight: 720;
+  color: var(--nawa-fg);
+}
+
+.nawa-metric-label {
+  color: var(--nawa-fg-faint);
+  font: 650 9px/1.2 var(--nawa-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+// ---- shared primitives ---------------------------------------------------
+.nawa-body {
+  padding: 20px 22px 40px;
+}
+
+.nawa-card {
+  border: 1px solid var(--nawa-line);
+  border-radius: var(--nawa-radius);
+  background: var(--nawa-surface);
+}
+
+.nawa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--nawa-line-strong);
+  color: var(--nawa-fg-dim);
+  font: 700 9px/1 var(--nawa-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nawa-badge-live {
+  border-color: var(--nawa-accent-line);
+  background: var(--nawa-accent-soft);
+  color: var(--nawa-accent-bright);
+}
+
+.nawa-badge-pattern {
+  border-style: dashed;
+  color: var(--nawa-fg);
+}
+
+.nawa-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--nawa-accent);
+  background: var(--nawa-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 140ms ease;
+}
+
+.nawa-button:hover:not(:disabled) {
+  background: var(--nawa-accent-bright);
+  border-color: var(--nawa-accent-bright);
+}
+
+.nawa-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.nawa-button-ghost {
+  background: transparent;
+  border-color: var(--nawa-line-strong);
+  color: var(--nawa-fg);
+}
+
+.nawa-button-ghost:hover:not(:disabled) {
+  background: var(--nawa-surface-2);
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-fg);
+}
+
+.nawa-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--nawa-line-strong);
+  color: var(--nawa-fg-dim);
+  font-size: 11.5px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: 140ms ease;
+}
+
+.nawa-link:hover {
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-fg);
+  background: var(--nawa-surface-2);
+}
+
+.nawa-note {
+  color: var(--nawa-fg-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}

@@ -89,6 +89,7 @@ class WorkspaceApp(str, Enum):
     client360_pdr = "client360-pdr"
     knowledge_capture = "knowledge-capture"
     fse_reports = "fse-reports"
+    nawa_itsd = "nawa-itsd"
 
 
 class RuntimeStatus(str, Enum):
