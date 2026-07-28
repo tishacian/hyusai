@@ -12,10 +12,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   cleanPassage,
   documentTitle,
   elapsedLabel,
+  excerptFromDocument,
   projectTurn,
   SUGGESTED_QUESTIONS,
   type AssistantAnswerPayload,
@@ -203,6 +205,69 @@ test('the citation under an answer is windowed on that answer', () => {
 
   assert.equal(turn.citations.length, 1);
   assert.ok(turn.citations[0].passage.includes('never hands a temporary password'), turn.citations[0].passage);
+});
+
+// The published policy, read from the very file the ingestion sent to the index.
+// If the corpus moves or is reworded, this test is where it is felt.
+//
+// Resolved from the working directory, not from `import.meta.url`: the unit
+// runner bundles specs into a temp directory, where a path relative to the
+// module no longer reaches the assets tree. Both entry points — `npm run
+// test:unit` and tsx on this file — run from `frontend-ng`.
+const POLICY = readFileSync('src/assets/nawa/knowledge/password-and-account-policy.md', 'utf8');
+
+test('the excerpt comes from the published policy, verbatim', () => {
+  const answer =
+    'No. A temporary password is issued only to the requester and never to a line manager, ' +
+    'colleague, assistant, or any third party.';
+  const passage = excerptFromDocument(POLICY, answer);
+
+  assert.ok(passage.length > 40, passage);
+  assert.ok(/line manager/i.test(passage), `the supporting rule is missing: ${passage}`);
+  // Verbatim: what is shown must be findable in the file, once both are read as
+  // prose. The ellipses mark the cuts and are not part of the quotation.
+  const prose = POLICY.split('\n').map((l) => l.trim()).filter(Boolean).join(' ').replace(/\s{2,}/g, ' ');
+  const shown = passage.replace(/^…/, '').replace(/…$/, '');
+  assert.ok(prose.includes(shown), shown);
+});
+
+test('the excerpt never quotes the document control block or a heading', () => {
+  for (const answer of ['owner version effective policy document', 'temporary password line manager']) {
+    const passage = excerptFromDocument(POLICY, answer);
+    assert.ok(!/^#/.test(passage), passage);
+    assert.ok(!/document owner|^version\b/i.test(passage), passage);
+  }
+});
+
+test('a policy that says nothing the answer echoes yields no excerpt', () => {
+  // Empty, not a guess: the caller falls back to the retrieval's own snippet.
+  // "four" alone is a coincidence — the policy has "three of the four following
+  // groups" — and one shared word must not be enough to build a window on.
+  assert.equal(excerptFromDocument(POLICY, 'The canteen closes at four on Fridays.'), '');
+  assert.equal(excerptFromDocument(null, 'anything'), '');
+});
+
+test('the published policy wins over the retrieval snippet, which stays the fallback', () => {
+  const answer = 'A temporary password is never handed to a line manager.';
+  const withDocument = projectTurn('…', {
+    content: answer,
+    sources: [
+      {
+        filename: 'password-and-account-policy.md',
+        snippet: PASSWORD_CHUNK,
+        document_text: POLICY,
+      },
+    ],
+  });
+  assert.ok(/line manager/i.test(withDocument.citations[0].passage));
+
+  // Asset unavailable — offline, renamed, 404: the citation still shows what the
+  // retrieval returned rather than disappearing.
+  const withoutDocument = projectTurn('…', {
+    content: answer,
+    sources: [{ filename: 'password-and-account-policy.md', snippet: PASSWORD_CHUNK, document_text: null }],
+  });
+  assert.ok(withoutDocument.citations[0].passage.length > 40, withoutDocument.citations[0].passage);
 });
 
 test('file names are read as document titles', () => {

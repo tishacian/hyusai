@@ -25,6 +25,12 @@ export interface AssistantSourcePayload {
   snippet?: string | null;
   relevance_score?: number | null;
   collection?: string | null;
+  /**
+   * The published policy this source names, as served from the app's own assets.
+   * Filled in by the service after the answer arrives — the chat endpoint sends
+   * only a 200-character snippet of the document's opening.
+   */
+  document_text?: string | null;
 }
 
 /** The subset of `POST /chat/completion` this screen reads. */
@@ -157,44 +163,46 @@ function truncateAtWord(text: string): string {
  * was cut. What remains is verbatim and contiguous, so the reader can check it
  * against the source document.
  */
-export function cleanPassage(snippet: string | null | undefined, answer?: string): string {
-  const lines = String(snippet ?? '')
-    .replace(/^\s*parent context\s*:\s*/i, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => !!line);
+/**
+ * Words a sentence must share with the answer before it counts as the one the
+ * answer rests on. One is noise: asked about the canteen closing at four, the
+ * password policy matches on "four", from "three of the four following groups",
+ * and a window built on that reads as evidence while being a coincidence.
+ */
+const MIN_OVERLAP = 2;
 
-  while (lines.length > 1 && isFrontMatter(lines[0])) lines.shift();
-
-  const text = lines.join(' ').replace(/\s{2,}/g, ' ').trim();
-  if (text.length <= PASSAGE_CHARS) return text;
-
-  const want = contentWords(answer ?? '');
+/**
+ * The stretch of `text` that shares the most vocabulary with `answer`: the
+ * best-scoring sentence plus as many neighbours as the budget allows, forward
+ * first because the sentence that qualifies a rule usually follows it.
+ *
+ * Returns null when nothing clears `MIN_OVERLAP` — a window picked on noise
+ * would be worse than none, and each caller has its own better fallback.
+ */
+function supportingWindow(text: string, answer: string): string | null {
+  const want = contentWords(answer);
   const parts = sentences(text);
+  if (!want.size || parts.length < 2) return null;
+
   let best = -1;
-  let bestScore = 0;
-  if (want.size && parts.length > 1) {
-    parts.forEach((part, position) => {
-      let score = 0;
-      contentWords(part).forEach((word) => {
-        if (want.has(word)) score += 1;
-      });
-      // Strictly greater: on a tie the earlier sentence wins, so a passage whose
-      // opening does support the answer is still shown from its opening.
-      if (score > bestScore) {
-        bestScore = score;
-        best = position;
-      }
+  let bestScore = MIN_OVERLAP - 1;
+  parts.forEach((part, position) => {
+    let score = 0;
+    contentWords(part).forEach((word) => {
+      if (want.has(word)) score += 1;
     });
-  }
-  // Nothing in the passage echoes the answer: no window is better founded than
-  // the passage's own beginning, which is at least where the document starts.
-  if (best < 0) return truncateAtWord(text);
+    // Strictly greater: on a tie the earlier sentence wins, so a text whose
+    // opening does support the answer is still shown from its opening.
+    if (score > bestScore) {
+      bestScore = score;
+      best = position;
+    }
+  });
+  if (best < 0) return null;
 
   let first = best;
   let last = best;
   let length = parts[best].length;
-  // Grow forward first: the sentence that qualifies a rule usually follows it.
   for (let grew = true; grew; ) {
     grew = false;
     if (last + 1 < parts.length && length + parts[last + 1].length + 1 <= PASSAGE_CHARS) {
@@ -210,6 +218,61 @@ export function cleanPassage(snippet: string | null | undefined, answer?: string
   const window = truncateAtWord(parts.slice(first, last + 1).join(' '));
   const opened = first > 0 ? `…${window}` : window;
   return last < parts.length - 1 && !opened.endsWith('…') ? `${opened}…` : opened;
+}
+
+export function cleanPassage(snippet: string | null | undefined, answer?: string): string {
+  const lines = String(snippet ?? '')
+    .replace(/^\s*parent context\s*:\s*/i, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !!line);
+
+  while (lines.length > 1 && isFrontMatter(lines[0])) lines.shift();
+
+  const text = lines.join(' ').replace(/\s{2,}/g, ' ').trim();
+  if (text.length <= PASSAGE_CHARS) return text;
+  // Nothing in it echoes the answer: no window is better founded than the
+  // passage's own beginning, which is at least where the document starts.
+  return supportingWindow(text, answer ?? '') ?? truncateAtWord(text);
+}
+
+/**
+ * The published policy, as prose: markdown headings and the document-control
+ * block identify the file rather than saying anything, and a window that opened
+ * on either would read as evidence without being any.
+ */
+function plainText(markdown: string | null | undefined): string {
+  return String(markdown ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !!line && !line.startsWith('#') && !isFrontMatter(line))
+    .join(' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Where in the published policy the answer is supported.
+ *
+ * The retrieval's own snippet cannot serve here: the platform returns the
+ * parent context of the matched chunk, cut at 200 characters server side, so the
+ * sentence carrying a rule stated further down the section never arrives. What
+ * the retrieval does establish — which document answers the question — is what
+ * this uses, then locates the supporting sentence in the policy the front end
+ * serves from its own assets. That file IS the file that was indexed, so the
+ * excerpt is verbatim from the document the customer can open.
+ *
+ * Returns an empty string when the policy says nothing the answer echoes: the
+ * caller then falls back to the retrieval's snippet rather than to a guess.
+ */
+export function excerptFromDocument(
+  markdown: string | null | undefined,
+  answer: string,
+): string {
+  const text = plainText(markdown);
+  if (!text) return '';
+  if (text.length <= PASSAGE_CHARS) return text;
+  return supportingWindow(text, answer) ?? '';
 }
 
 /** `3113` → `3.1 s`; `840` → `840 ms`. Same rule as the run journal. */
@@ -230,7 +293,8 @@ export function projectTurn(
     .map((source, position) => ({
       index: position + 1,
       document: documentTitle(source.filename ?? source.title),
-      passage: cleanPassage(source.snippet, answer),
+      passage:
+        excerptFromDocument(source.document_text, answer) || cleanPassage(source.snippet, answer),
     }))
     .filter((citation) => !!citation.passage);
 

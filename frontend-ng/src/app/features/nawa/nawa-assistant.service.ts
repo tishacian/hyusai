@@ -12,7 +12,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, map, of, shareReplay, switchMap } from 'rxjs';
+import { Observable, forkJoin, map, of, shareReplay, switchMap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import type { AssistantAnswerPayload } from './nawa-assistant';
@@ -29,6 +29,7 @@ export class NawaAssistantService {
   private readonly canonical = inject(CanonicalApiService);
 
   private binding$: Observable<AssistantBinding | null> | null = null;
+  private readonly documents = new Map<string, Observable<string | null>>();
 
   /** The workspace's always-on chat System, resolved once per app load. */
   binding(): Observable<AssistantBinding | null> {
@@ -71,7 +72,54 @@ export class NawaAssistantService {
           })
           .pipe(catchError(() => of(null)));
       }),
+      switchMap((payload) => this.withDocuments(payload)),
     );
+  }
+
+  /**
+   * Attach each cited policy's full text, so the citation can show the sentence
+   * the answer rests on rather than the document's opening (see
+   * `excerptFromDocument`). The files served here are the ones that were
+   * indexed, so nothing is quoted that the customer cannot open.
+   *
+   * A file that fails to load is not an error: the citation falls back to the
+   * retrieval's own snippet, which is what shipped before this existed.
+   */
+  private withDocuments(
+    payload: AssistantAnswerPayload | null,
+  ): Observable<AssistantAnswerPayload | null> {
+    const sources = payload?.sources ?? [];
+    if (!payload || !sources.length) return of(payload);
+    return forkJoin(
+      sources.map((source) => this.document(source?.filename ?? source?.title)),
+    ).pipe(
+      map((texts) => ({
+        ...payload,
+        sources: sources.map((source, position) => ({
+          ...source,
+          document_text: texts[position],
+        })),
+      })),
+    );
+  }
+
+  /** One published policy, by file name, fetched once per app load. */
+  private document(filename: string | null | undefined): Observable<string | null> {
+    // Only ever a bare file name: the value comes from a server payload and is
+    // about to become a URL.
+    const name = String(filename ?? '').replace(/^.*\//, '');
+    if (!/^[a-z0-9._-]+\.md$/i.test(name)) return of(null);
+    this.documents.set(
+      name,
+      this.documents.get(name)
+        ?? this.http
+          .get(`assets/nawa/knowledge/${name}`, { responseType: 'text' })
+          .pipe(
+            catchError(() => of(null)),
+            shareReplay({ bufferSize: 1, refCount: false }),
+          ),
+    );
+    return this.documents.get(name)!;
   }
 }
 
