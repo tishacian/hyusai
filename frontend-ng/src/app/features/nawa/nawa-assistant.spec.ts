@@ -137,6 +137,74 @@ test('a long passage is cut at a word and marked as cut', () => {
   assert.ok(long.startsWith(passage.slice(0, 40)), 'what is shown stays verbatim');
 });
 
+// The chunk that actually shipped: a question about who may collect a temporary
+// password retrieves the password policy, whose chunk opens four sentences
+// earlier on character-length requirements. Showing that opening as the evidence
+// is what invites "your citation does not say that".
+const PASSWORD_CHUNK =
+  '1. Password requirements Corporate account passwords must be at least 12 characters long ' +
+  'and contain characters from three of the four following groups: upper case, lower case, ' +
+  'digits, symbols. Passwords expire every 180 days and the previous ten passwords cannot ' +
+  'be reused. Accounts lock for 30 minutes after five consecutive failed sign-ins. ' +
+  'A temporary password is issued to the account holder only. The service desk never hands ' +
+  'a temporary password to a line manager or to any other third party. ' +
+  'The account holder is required to choose a new password at first sign-in.';
+
+test('the excerpt shows the sentence the answer rests on, not the chunk opening', () => {
+  const answer =
+    'No. A temporary password is issued only to you, never to a line manager or any other ' +
+    'third party. A line manager may confirm your identity, but may not receive the password.';
+  const passage = cleanPassage(PASSWORD_CHUNK, answer);
+
+  assert.ok(
+    passage.includes('never hands a temporary password to a line manager'),
+    `the supporting sentence is missing: ${passage}`,
+  );
+  assert.ok(
+    !passage.includes('at least 12 characters'),
+    `the chunk opening is not what the answer rests on: ${passage}`,
+  );
+  // Verbatim and contiguous: what is shown must be findable as-is in the source.
+  const shown = passage.replace(/^…/, '').replace(/…$/, '');
+  assert.ok(PASSWORD_CHUNK.includes(shown), shown);
+  // Cut at the front, so the reader is told the passage starts earlier.
+  assert.ok(passage.startsWith('…'), passage.slice(0, 40));
+});
+
+test('an excerpt whose opening does support the answer keeps its opening', () => {
+  const answer = 'Corporate passwords must be at least 12 characters long and expire every 180 days.';
+  const passage = cleanPassage(PASSWORD_CHUNK, answer);
+
+  assert.ok(passage.startsWith('1. Password requirements'), passage.slice(0, 60));
+  assert.ok(!passage.startsWith('…'), 'nothing was elided before the beginning');
+});
+
+test('a passage that echoes nothing in the answer falls back to its beginning', () => {
+  const answer = 'Priority 2 tickets are responded to within four working hours.';
+  const passage = cleanPassage(PASSWORD_CHUNK, answer);
+
+  assert.ok(passage.startsWith('1. Password requirements'), passage.slice(0, 60));
+  assert.ok(passage.endsWith('…'), passage.slice(-20));
+});
+
+test('the excerpt obeys the same length budget as the prefix it replaces', () => {
+  for (const answer of ['line manager third party temporary password', 'expire reused digits symbols']) {
+    const passage = cleanPassage(PASSWORD_CHUNK, answer);
+    assert.ok(passage.length <= 302, `${answer} → ${passage.length}`);
+  }
+});
+
+test('the citation under an answer is windowed on that answer', () => {
+  const turn = projectTurn('Can my line manager collect my temporary password?', {
+    content: 'No. The service desk never hands a temporary password to a line manager [1].',
+    sources: [{ filename: 'password-and-account-policy.md', snippet: PASSWORD_CHUNK }],
+    duration_ms: 946,
+  });
+
+  assert.equal(turn.citations.length, 1);
+  assert.ok(turn.citations[0].passage.includes('never hands a temporary password'), turn.citations[0].passage);
+});
+
 test('file names are read as document titles', () => {
   assert.equal(documentTitle('joiners-movers-leavers.md'), 'Joiners Movers Leavers');
   assert.equal(documentTitle('remote-access-and-vpn.md'), 'Remote Access and Vpn');

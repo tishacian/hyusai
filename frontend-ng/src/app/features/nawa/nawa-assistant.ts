@@ -41,7 +41,10 @@ export interface AssistantCitation {
   index: number;
   /** Document title, readable — not the file name. */
   document: string;
-  /** The passage the answer leaned on, trimmed of the retrieval prefix. */
+  /**
+   * The window of the retrieved passage that carries what the answer asserts —
+   * verbatim, with an ellipsis at whichever end was cut.
+   */
   passage: string;
 }
 
@@ -106,15 +109,55 @@ function isFrontMatter(line: string): boolean {
   );
 }
 
+/** Words too common to indicate that two texts are about the same thing. */
+const STOP_WORDS = new Set([
+  'that', 'this', 'with', 'from', 'they', 'them', 'their', 'have', 'been', 'will',
+  'must', 'your', 'you', 'and', 'the', 'for', 'not', 'any', 'are', 'may', 'can',
+  'when', 'what', 'which', 'shall', 'should', 'about', 'into', 'other', 'than',
+  'then', 'also', 'only', 'each', 'both', 'does', 'done', 'over', 'more', 'most',
+]);
+
+function contentWords(text: string): Set<string> {
+  const words = String(text ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4 && !STOP_WORDS.has(word));
+  return new Set(words);
+}
+
+/** Verbatim sentences. Splits after `.`/`?`/`!`, and after a list item's break. */
+function sentences(text: string): string[] {
+  return text
+    .split(/(?<=[.?!])\s+|(?=\s[-•]\s)/)
+    .map((part) => part.trim())
+    .filter((part) => !!part);
+}
+
+function truncateAtWord(text: string): string {
+  if (text.length <= PASSAGE_CHARS) return text;
+  const cut = text.slice(0, PASSAGE_CHARS);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > PASSAGE_CHARS * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
 /**
  * Retrieval hands back passages prefixed with their own framing
  * (`Parent context:\n<heading>\n\n…`). The heading is useful, the label is not.
  *
- * Nothing here rewrites the evidence: the leading lines that are dropped are the
- * document's own identification, and the tail that is dropped is marked with an
- * ellipsis. What remains is verbatim.
+ * A chunk is far longer than what fits under an answer, and its opening
+ * sentences are usually not the ones the answer rests on — a question about who
+ * may collect a temporary password retrieves the password policy, whose chunk
+ * opens on character-length requirements. Showing that opening as the evidence
+ * invites the one objection this screen exists to prevent: your citation does
+ * not say that. So when the answer is known, the window shown is the sentence of
+ * the passage that shares the most vocabulary with it, plus its neighbours.
+ *
+ * Nothing here rewrites the evidence. The document's own identification is
+ * dropped, and everything elided is marked with an ellipsis, at whichever end it
+ * was cut. What remains is verbatim and contiguous, so the reader can check it
+ * against the source document.
  */
-export function cleanPassage(snippet: string | null | undefined): string {
+export function cleanPassage(snippet: string | null | undefined, answer?: string): string {
   const lines = String(snippet ?? '')
     .replace(/^\s*parent context\s*:\s*/i, '')
     .split('\n')
@@ -125,9 +168,48 @@ export function cleanPassage(snippet: string | null | undefined): string {
 
   const text = lines.join(' ').replace(/\s{2,}/g, ' ').trim();
   if (text.length <= PASSAGE_CHARS) return text;
-  const cut = text.slice(0, PASSAGE_CHARS);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${(lastSpace > PASSAGE_CHARS * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+
+  const want = contentWords(answer ?? '');
+  const parts = sentences(text);
+  let best = -1;
+  let bestScore = 0;
+  if (want.size && parts.length > 1) {
+    parts.forEach((part, position) => {
+      let score = 0;
+      contentWords(part).forEach((word) => {
+        if (want.has(word)) score += 1;
+      });
+      // Strictly greater: on a tie the earlier sentence wins, so a passage whose
+      // opening does support the answer is still shown from its opening.
+      if (score > bestScore) {
+        bestScore = score;
+        best = position;
+      }
+    });
+  }
+  // Nothing in the passage echoes the answer: no window is better founded than
+  // the passage's own beginning, which is at least where the document starts.
+  if (best < 0) return truncateAtWord(text);
+
+  let first = best;
+  let last = best;
+  let length = parts[best].length;
+  // Grow forward first: the sentence that qualifies a rule usually follows it.
+  for (let grew = true; grew; ) {
+    grew = false;
+    if (last + 1 < parts.length && length + parts[last + 1].length + 1 <= PASSAGE_CHARS) {
+      length += parts[++last].length + 1;
+      grew = true;
+    }
+    if (first > 0 && length + parts[first - 1].length + 1 <= PASSAGE_CHARS) {
+      length += parts[--first].length + 1;
+      grew = true;
+    }
+  }
+
+  const window = truncateAtWord(parts.slice(first, last + 1).join(' '));
+  const opened = first > 0 ? `…${window}` : window;
+  return last < parts.length - 1 && !opened.endsWith('…') ? `${opened}…` : opened;
 }
 
 /** `3113` → `3.1 s`; `840` → `840 ms`. Same rule as the run journal. */
@@ -148,7 +230,7 @@ export function projectTurn(
     .map((source, position) => ({
       index: position + 1,
       document: documentTitle(source.filename ?? source.title),
-      passage: cleanPassage(source.snippet),
+      passage: cleanPassage(source.snippet, answer),
     }))
     .filter((citation) => !!citation.passage);
 
