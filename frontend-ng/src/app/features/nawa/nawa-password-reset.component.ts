@@ -10,7 +10,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable, Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
-import type { Run, System } from '@app/core/canonical-api.service';
+import type { Run, RunHitlPayload, System } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ThemeService } from '@app/core/theme.service';
 import {
@@ -25,12 +25,21 @@ import {
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
 import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
+import { buildInboundQueue, type NawaInboundRequest } from './nawa-inbound-queue';
+import { projectConversation } from './nawa-conversation';
 import { projectRun } from './nawa-run-projection';
 
 /** Live progress cadence. The run budget is ~45 s (SPEC §6.4). */
 const POLL_MS = 1200;
 /** Safety cap so a stuck run cannot poll forever behind an open demo tab. */
 const MAX_POLLS = 400;
+
+/**
+ * Stated in the open, outside the technical view, on every screen: the customer
+ * is never left to discover from a chip that the privileged write is a dry run.
+ */
+const DRY_RUN_DISCLOSURE =
+  'Preview environment — directory changes run in dry-run, everything else runs for real.';
 
 const STEP_GLYPH: Record<NawaStepState, CkGlyphName> = {
   pending: 'pause',
@@ -75,10 +84,10 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
  * `/nawa/itsd/password-reset` — the one use case wired end to end.
  *
  * Drives the existing systems/runs API only: it resolves the System of the
- * active workspace, posts one run with the selected scenario, then polls the
- * run and projects its checkpoints onto the six business steps. Approving a
- * gate and reading the step-by-step trace both happen in the platform's own
- * screens, which this page links to (SPEC §7.1).
+ * active workspace, posts one run for the request the operator picked up, then
+ * polls the run and renders it as the exchange with the requester. The human
+ * gate is answered from this page (SPEC §7.1); the six-step trace and the
+ * journal sit behind the technical view, which is off for a business audience.
  */
 @Component({
   selector: 'app-nawa-password-reset',
@@ -92,7 +101,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
       <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
         <h1 class="nawa-title">{{ appName }} · Password Reset</h1>
-        <span class="nawa-subtitle">{{ subtitle }} — use case #1, simulation bench</span>
+        <span class="nawa-subtitle">{{ subtitle }}</span>
       </div>
       <div class="nawa-header-spacer"></div>
       <app-nawa-theme-toggle />
@@ -109,48 +118,60 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
 
     <div class="nawa-body pr-layout">
       <aside class="pr-panel nawa-card">
-        <h2 class="pr-panel-title">Scenario</h2>
-        <p class="nawa-note pr-panel-intro">
-          System actions are simulated; classification and drafting are real inferences. Fault
-          injection is announced, not hidden.
-        </p>
+        <div class="pr-panel-head">
+          <h2 class="pr-panel-title">Inbound requests</h2>
+          @if (queue().length) {
+            <span class="nawa-badge">{{ queue().length }} waiting</span>
+          }
+        </div>
 
         <div class="pr-panel-scroll">
-          <div class="pr-scenarios" role="radiogroup" aria-label="Scenario to run">
-            @for (option of scenarios(); track option.key) {
+          <div class="pr-queue" role="radiogroup" aria-label="Inbound requests">
+            @for (item of queue(); track item.entry.key) {
               <button
                 type="button"
                 role="radio"
-                class="pr-scenario"
-                [class.pr-scenario-on]="scenario().key === option.key"
-                [attr.aria-checked]="scenario().key === option.key"
+                class="pr-ticket"
+                [class.pr-ticket-on]="scenario().key === item.entry.key"
+                [attr.aria-checked]="scenario().key === item.entry.key"
                 [disabled]="busy()"
-                (click)="scenario.set(option)"
+                (click)="scenario.set(item.entry)"
               >
-                <span class="pr-scenario-head">
-                  <span class="pr-scenario-label">{{ option.label }}</span>
-                </span>
-                <span class="pr-scenario-proves">{{ option.proves }}</span>
+                @if (item.ticketRef || item.channel || item.receivedAt) {
+                  <span class="pr-ticket-meta">
+                    @if (item.ticketRef) {
+                      <span class="pr-ticket-ref">{{ item.ticketRef }}</span>
+                    }
+                    @if (item.channel) {
+                      <span>{{ item.channel }}</span>
+                    }
+                    @if (item.receivedAt) {
+                      <span class="pr-ticket-at">{{ item.receivedAt }}</span>
+                    }
+                  </span>
+                }
+                <span class="pr-ticket-subject">{{ item.subject || 'Untitled request' }}</span>
+                @if (item.requester) {
+                  <span class="pr-ticket-requester">{{ item.requester }}</span>
+                }
               </button>
             }
           </div>
 
           @if (preset(); as caller) {
             <div class="pr-input">
-              <span class="pr-input-label">Request received by the service desk</span>
-              <p class="pr-input-text">“{{ caller.request_text }}”</p>
               @if (caller.requester_name) {
                 <span class="pr-input-label">Requester</span>
                 <p class="pr-input-text">
                   {{ caller.requester_name }}
-                  @if (caller.channel) {
-                    · {{ caller.channel }}
+                  @if (caller.requester_upn) {
+                    <br />{{ caller.requester_upn }}
                   }
                 </p>
               }
-              @if (caller.identity_evidence) {
-                <span class="pr-input-label">Identity evidence collected</span>
-                @for (line of evidenceLines(caller.identity_evidence); track $index) {
+              @if (evidence().length) {
+                <span class="pr-input-label">Identity evidence on file</span>
+                @for (line of evidence(); track $index) {
                   <p class="pr-input-text">{{ line }}</p>
                 }
               }
@@ -165,7 +186,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
           (click)="launch()"
         >
           <ck-glyph name="play" [size]="13" />
-          {{ busy() ? 'Simulation running…' : 'Run the simulation' }}
+          {{ busy() ? 'Handling…' : 'Handle this request' }}
         </button>
 
         @switch (systemState()) {
@@ -179,7 +200,9 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
             </p>
           }
           @default {
-            <p class="nawa-note">System: {{ system()?.name }}</p>
+            @if (technical()) {
+              <p class="nawa-note">System: {{ system()?.name }}</p>
+            }
           }
         }
         @if (errorText()) {
@@ -188,6 +211,20 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
       </aside>
 
       <main class="pr-main">
+        <div class="pr-mode">
+          <p class="nawa-note pr-disclosure">{{ disclosure }}</p>
+          <button
+            type="button"
+            class="nawa-button nawa-button-ghost pr-mode-toggle"
+            [class.pr-mode-on]="technical()"
+            [attr.aria-pressed]="technical()"
+            (click)="technical.set(!technical())"
+          >
+            <ck-glyph name="sliders" [size]="12" />
+            Technical view
+          </button>
+        </div>
+
         @if (view().outcome; as outcome) {
           <section class="nawa-card pr-outcome" [attr.data-outcome]="outcome">
             <div class="pr-outcome-head">
@@ -203,8 +240,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
             <p class="pr-outcome-body">{{ outcomeBody(outcome) }}</p>
             @if (view().hasDiagnostics && outcome !== 'closed') {
               <p class="pr-outcome-trace">
-                The exact technical cause is kept in the execution journal below and in the run
-                trace.
+                The exact technical cause is kept in the technical view and in the run trace.
               </p>
             }
             @if (view().business?.replay_input; as replayInput) {
@@ -241,93 +277,195 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
           </section>
         }
 
-        <section class="nawa-card pr-steps">
-          <div class="pr-steps-head">
-            <h2>The six steps</h2>
-            @if (run()) {
-              <span class="nawa-badge">run {{ run()!.id.slice(0, 8) }} · {{ run()!.status }}</span>
+        <section class="nawa-card pr-thread">
+          <div class="pr-thread-head">
+            <h2>{{ active()?.subject || 'Request' }}</h2>
+            @if (active(); as ticket) {
+              <span class="pr-thread-meta">
+                @if (ticket.channel) {
+                  <span>{{ ticket.channel }}</span>
+                }
+                @if (ticket.receivedAt) {
+                  <span>received {{ ticket.receivedAt }}</span>
+                }
+                @if (ticket.ticketRef) {
+                  <span>{{ ticket.ticketRef }}</span>
+                }
+              </span>
             }
           </div>
 
-          <ol class="pr-step-list">
-            @for (item of view().steps; track item.step.index) {
-              <li class="pr-step" [attr.data-state]="item.state">
-                <span class="pr-step-marker">
-                  <ck-glyph [name]="stepGlyph(item.state)" [size]="12" />
-                </span>
-                <div class="pr-step-copy">
-                  <div class="pr-step-head">
-                    <span class="pr-step-title">{{ item.step.index }}. {{ item.step.title }}</span>
-                    <span class="nawa-badge pr-step-kind">{{ kindLabel(item.step.kind) }}</span>
-                    <span class="pr-step-state">{{ stepLabel(item.state) }}</span>
-                    @if (latencyLabel(item.latencyMs); as latency) {
-                      <span class="pr-step-latency">{{ latency }}</span>
-                    }
-                  </div>
-                  <p class="pr-step-detail">{{ item.step.detail }}</p>
-                  @if (item.state === 'failed') {
-                    <p class="pr-step-error">
-                      This action was not applied. The exact technical cause is kept in the
-                      execution journal below and in the run trace.
-                    </p>
+          <ol class="pr-messages">
+            @for (message of conversation(); track $index) {
+              <li class="pr-message" [attr.data-author]="message.author">
+                <div class="pr-message-head">
+                  <span class="pr-message-author">{{ authorLabel(message.author) }}</span>
+                  @if (message.at) {
+                    <span class="pr-message-at">{{ message.at }}</span>
                   }
                 </div>
+                <p class="pr-message-text" dir="auto">{{ message.text }}</p>
+              </li>
+            }
+            @if (busy()) {
+              <li class="pr-message pr-message-working" data-author="assistant">
+                <div class="pr-message-head">
+                  <span class="pr-message-author">{{ appName }}</span>
+                </div>
+                <p class="pr-message-text">
+                  <span class="pr-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="pr-working">{{ workingLabel() }}</span>
+                </p>
               </li>
             }
           </ol>
+
+          @if (gate(); as pending) {
+            <div class="pr-gate">
+              <div class="pr-gate-head">
+                <ck-glyph name="shield" [size]="13" />
+                <span class="pr-gate-title">
+                  {{ pending.decision_title || 'Approval required before any change' }}
+                </span>
+                @if (gateExpiry(pending); as expiry) {
+                  <span class="nawa-badge">{{ expiry }}</span>
+                }
+              </div>
+              <p class="pr-gate-note">
+                Nothing has been changed on the account. Your decision is recorded in the audit
+                ledger under your own account.
+              </p>
+              <div class="pr-gate-actions">
+                <button
+                  type="button"
+                  class="nawa-button"
+                  [disabled]="resolving()"
+                  (click)="decide('accept')"
+                >
+                  <ck-glyph name="check" [size]="12" />
+                  Approve the reset
+                </button>
+                <button
+                  type="button"
+                  class="nawa-button nawa-button-ghost"
+                  [disabled]="resolving()"
+                  (click)="decide('reject')"
+                >
+                  <ck-glyph name="x" [size]="12" />
+                  Refuse
+                </button>
+                @if (resolving()) {
+                  <span class="nawa-note">Recording the decision…</span>
+                }
+              </div>
+            </div>
+          }
+
+          @if (!conversation().length) {
+            <p class="nawa-note">
+              Pick a request in the queue, then handle it to follow the exchange here.
+            </p>
+          }
         </section>
 
-        @if (view().output.length) {
-          <section class="nawa-card pr-output">
-            <h2>Run output</h2>
-            <dl>
-              @for (entry of view().output; track entry.key) {
-                <div>
-                  <dt>{{ entry.key }}</dt>
-                  <dd>{{ entry.value }}</dd>
-                </div>
-              }
-            </dl>
+        @if (technical()) {
+          <section class="nawa-card pr-note">
+            <h2>Presenter note</h2>
+            <p class="pr-note-text">{{ scenario().proves }}</p>
           </section>
-        }
 
-        @if (view().activity.length) {
-          <section class="nawa-card pr-activity">
-            <h2>Execution journal</h2>
-            <ul>
-              @for (line of view().activity; track $index) {
-                <li [attr.data-tone]="line.tone">
-                  <span class="pr-activity-at">{{ line.at }}</span>
-                  <span>{{ line.text }}</span>
-                </li>
+          <section class="nawa-card pr-steps">
+            <div class="pr-steps-head">
+              <h2>The six steps</h2>
+              @if (run()) {
+                <span class="nawa-badge">
+                  run {{ run()!.id.slice(0, 8) }} · {{ run()!.status }}
+                </span>
               }
-            </ul>
-          </section>
-        }
+            </div>
 
-        @if (history().length) {
-          <section class="nawa-card pr-history">
-            <h2>Previous runs</h2>
-            <ul>
-              @for (item of history(); track item.id) {
-                <li>
-                  @if (platform()) {
-                    <a [routerLink]="['/runs', item.id]">{{ item.id.slice(0, 8) }}</a>
-                  } @else {
-                    <span>{{ item.id.slice(0, 8) }}</span>
-                  }
-                  <span class="pr-history-status" [attr.data-status]="item.status">
-                    {{ item.status }}
+            <ol class="pr-step-list">
+              @for (item of view().steps; track item.step.index) {
+                <li class="pr-step" [attr.data-state]="item.state">
+                  <span class="pr-step-marker">
+                    <ck-glyph [name]="stepGlyph(item.state)" [size]="12" />
                   </span>
-                  <span class="pr-history-at">{{ item.started_at || '' }}</span>
+                  <div class="pr-step-copy">
+                    <div class="pr-step-head">
+                      <span class="pr-step-title">
+                        {{ item.step.index }}. {{ item.step.title }}
+                      </span>
+                      <span class="nawa-badge pr-step-kind">{{ kindLabel(item.step.kind) }}</span>
+                      <span class="pr-step-state">{{ stepLabel(item.state) }}</span>
+                      @if (latencyLabel(item.latencyMs); as latency) {
+                        <span class="pr-step-latency">{{ latency }}</span>
+                      }
+                    </div>
+                    <p class="pr-step-detail">{{ item.step.detail }}</p>
+                    @if (item.state === 'failed') {
+                      <p class="pr-step-error">
+                        This action was not applied. The exact technical cause is kept in the
+                        execution journal below and in the run trace.
+                      </p>
+                    }
+                  </div>
                 </li>
               }
-            </ul>
-            <p class="nawa-note">
-              An earlier run is replayed from its own trace, with the platform's native Rerun
-              primitive.
-            </p>
+            </ol>
           </section>
+
+          @if (view().output.length) {
+            <section class="nawa-card pr-output">
+              <h2>Run output</h2>
+              <dl>
+                @for (entry of view().output; track entry.key) {
+                  <div>
+                    <dt>{{ entry.key }}</dt>
+                    <dd>{{ entry.value }}</dd>
+                  </div>
+                }
+              </dl>
+            </section>
+          }
+
+          @if (view().activity.length) {
+            <section class="nawa-card pr-activity">
+              <h2>Execution journal</h2>
+              <ul>
+                @for (line of view().activity; track $index) {
+                  <li [attr.data-tone]="line.tone">
+                    <span class="pr-activity-at">{{ line.at }}</span>
+                    <span>{{ line.text }}</span>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
+          @if (history().length) {
+            <section class="nawa-card pr-history">
+              <h2>Previous runs</h2>
+              <ul>
+                @for (item of history(); track item.id) {
+                  <li>
+                    @if (platform()) {
+                      <a [routerLink]="['/runs', item.id]">{{ item.id.slice(0, 8) }}</a>
+                    } @else {
+                      <span>{{ item.id.slice(0, 8) }}</span>
+                    }
+                    <span class="pr-history-status" [attr.data-status]="item.status">
+                      {{ item.status }}
+                    </span>
+                    <span class="pr-history-at">{{ item.started_at || '' }}</span>
+                  </li>
+                }
+              </ul>
+              <p class="nawa-note">
+                An earlier run is replayed from its own trace, with the platform's native Rerun
+                primitive.
+              </p>
+            </section>
+          }
         }
       </main>
     </div>
@@ -340,6 +478,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   protected readonly appName = NAWA_APP_NAME;
   protected readonly subtitle = NAWA_APP_SUBTITLE;
+  protected readonly disclosure = DRY_RUN_DISCLOSURE;
 
   /** Scoped on the host: the cockpit's own `html` stays pinned to dark. */
   protected readonly theme = inject(ThemeService).businessResolved;
@@ -362,12 +501,25 @@ export class NawaPasswordResetComponent implements OnDestroy {
   protected readonly errorText = signal<string | null>(null);
   protected readonly history = signal<Run[]>([]);
 
+  /**
+   * The step list, the journal, the raw output and the presenter notes. Off by
+   * default: those are delivery instruments, and in front of a business
+   * audience they are what makes a working app look like a test harness.
+   */
+  protected readonly technical = signal(false);
+
+  /** A decision was sent and the run has not left the gate yet. */
+  protected readonly resolving = signal(false);
+
   protected readonly view = computed(() => projectRun(this.run()));
+  protected readonly conversation = computed(() =>
+    projectConversation(this.run(), this.active()?.preset ?? null),
+  );
 
   /**
    * The panel is busy while the run progresses, not while it waits for a human.
    * The poll deliberately stays alive on an open gate, but an unanswered gate
-   * must not lock the operator out of the other scenarios.
+   * must not lock the operator out of the other requests.
    */
   protected readonly busy = computed(() => this.running() && this.run()?.status !== 'hitl_pending');
 
@@ -376,23 +528,72 @@ export class NawaPasswordResetComponent implements OnDestroy {
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   });
 
+  private readonly presets = computed<Record<string, unknown>>(() => {
+    const raw = this.settings()['scenario_presets'];
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  });
+
   /** Never offer a branch the installed flow does not implement. */
-  protected readonly scenarios = computed(() => {
+  private readonly offered = computed(() => {
     const declared = this.settings()['scenarios'];
     if (!Array.isArray(declared)) return [...NAWA_SCENARIOS];
     const allowed = new Set(declared.filter((item): item is string => typeof item === 'string'));
     return NAWA_SCENARIOS.filter((option) => allowed.has(option.scenario));
   });
 
-  /** The caller case the flow will load — same source, so it cannot drift. */
-  protected readonly preset = computed<NawaScenarioPreset | null>(() => {
-    const presets = this.settings()['scenario_presets'];
-    if (!presets || typeof presets !== 'object' || Array.isArray(presets)) return null;
-    const value = (presets as Record<string, unknown>)[this.scenario().scenario];
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as NawaScenarioPreset)
-      : null;
+  protected readonly queue = computed(() => buildInboundQueue(this.offered(), this.presets()));
+
+  protected readonly selected = computed(
+    () => this.queue().find((item) => item.entry.key === this.scenario().key) ?? null,
+  );
+
+  /**
+   * The ticket the conversation is about, which is not always the highlighted
+   * one: an open gate deliberately leaves the operator free to pick up another
+   * request, and the exchange must keep quoting the requester it belongs to.
+   * `input_ref.scenario` is the key the flow itself reads to load the case, so
+   * the two cannot drift — including on a remediation, which replays it.
+   */
+  protected readonly active = computed<NawaInboundRequest | null>(() => {
+    const scenario = this.run()?.input_ref?.['scenario'];
+    if (typeof scenario !== 'string') return this.selected();
+    return this.queue().find((item) => item.entry.scenario === scenario) ?? this.selected();
   });
+
+  /** The caller case the flow will load — same source, so it cannot drift. */
+  protected readonly preset = computed<NawaScenarioPreset | null>(
+    () => this.selected()?.preset ?? null,
+  );
+
+  /**
+   * What the agent actually filed, one line per item. `evidence_items` is the
+   * record the grounding check reads; `identity_evidence` is the narrative an
+   * older System carries instead.
+   */
+  protected readonly evidence = computed<string[]>(() => {
+    const caller = this.preset();
+    const items = caller?.evidence_items;
+    if (Array.isArray(items)) {
+      return items.filter((item): item is string => typeof item === 'string' && !!item.trim());
+    }
+    return (caller?.identity_evidence || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+  });
+
+  /** The gate payload, only while the run is actually paused on it. */
+  protected readonly gate = computed<RunHitlPayload | null>(() => {
+    const run = this.run();
+    return run?.status === 'hitl_pending' ? (run.hitl ?? {}) : null;
+  });
+
+  /** What the assistant is on, for the activity indicator. */
+  protected readonly workingLabel = computed(
+    () => this.view().steps.find((item) => item.state === 'running')?.step.title ?? 'Working…',
+  );
 
   protected readonly durationLabel = computed(() => {
     const ms = this.run()?.duration_ms;
@@ -417,16 +618,17 @@ export class NawaPasswordResetComponent implements OnDestroy {
       }
       this.system.set(system);
       this.systemState.set('ready');
-      const offered = this.scenarios();
-      if (offered.length && !offered.some((option) => option.key === this.scenario().key)) {
-        this.scenario.set(offered[0]);
+      const waiting = this.queue();
+      if (waiting.length && !waiting.some((item) => item.entry.key === this.scenario().key)) {
+        this.scenario.set(waiting[0].entry);
       }
       this.service.history(system.id).subscribe((runs) => this.history.set(runs.slice(0, 8)));
     });
   }
 
-  protected evidenceLines(value: string): string[] {
-    return value.split('\n').map((line) => line.trim()).filter(Boolean);
+  protected authorLabel(author: 'requester' | 'assistant'): string {
+    if (author === 'assistant') return this.appName;
+    return this.active()?.requester || 'Requester';
   }
 
   ngOnDestroy(): void {
@@ -443,6 +645,8 @@ export class NawaPasswordResetComponent implements OnDestroy {
    * Run the remediation the outcome itself carries. The input comes from
    * `outcome.replay_input` and is never displayed: the button states the
    * business action, and the operator triggers it once the incident is visible.
+   * This is the only way the directory-fallback lane is reachable — it is not an
+   * inbound request, so it is deliberately absent from the queue.
    */
   protected remediate(input: Record<string, string | number | boolean>): void {
     const system = this.system();
@@ -450,9 +654,36 @@ export class NawaPasswordResetComponent implements OnDestroy {
     this.start(this.service.launchWith(system.id, input));
   }
 
+  /**
+   * Answer the identity gate from here.
+   *
+   * The backend attributes the decision to the authenticated caller; `actor` in
+   * the request body is a deprecated field it ignores, so nothing about the
+   * author is sent from the browser.
+   *
+   * The response is an acknowledgement, not a Run: it carries the id, the status
+   * as it was BEFORE the resume, and the decision. Writing it onto `run` would
+   * drop the checkpoints and empty the conversation, so the poll — still alive
+   * on a paused run — is what brings the resumed run back.
+   */
+  protected decide(action: 'accept' | 'reject'): void {
+    const run = this.run();
+    if (!run || this.resolving()) return;
+    this.resolving.set(true);
+    this.errorText.set(null);
+    this.service.resolveHitl(run.id, action).subscribe((acknowledged) => {
+      if (acknowledged) return;
+      this.resolving.set(false);
+      this.errorText.set(
+        'The decision was not recorded. Check your rights on this workspace, then try again.',
+      );
+    });
+  }
+
   private start(request$: Observable<Run | null>): void {
     this.pollSub?.unsubscribe();
     this.errorText.set(null);
+    this.resolving.set(false);
     this.run.set(null);
     this.running.set(true);
 
@@ -471,8 +702,9 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   /**
    * Poll until the run is terminal. `hitl_pending` is deliberately NOT a stop
-   * condition: the operator approves the gate in the platform screen and this
-   * page must show the resume and the closure without a reload.
+   * condition: the operator answers the gate on this page and the resume runs in
+   * a background task, so the poll is what shows the run picking up again and
+   * closing without a reload.
    */
   private poll(runId: string): void {
     let polls = 0;
@@ -487,6 +719,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
       .subscribe({
         next: (run) => {
           if (run) this.run.set(run);
+          if (run && run.status !== 'hitl_pending') this.resolving.set(false);
           if (this.isTerminal(run?.status)) {
             this.running.set(false);
             const system = this.system();
@@ -497,6 +730,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
         },
         error: () => {
           this.running.set(false);
+          this.resolving.set(false);
           this.errorText.set('The connection was lost while following the run.');
         },
       });
@@ -504,6 +738,16 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   private isTerminal(status: Run['status'] | undefined): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
+  }
+
+  /** Countdown on a gate that auto-resolves, when the backend reported one. */
+  protected gateExpiry(gate: RunHitlPayload): string | null {
+    const seconds = gate.seconds_remaining;
+    if (typeof seconds !== 'number' || seconds <= 0) return null;
+    const action = gate.expiry_action || 'reject';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.round((seconds % 3600) / 60);
+    return `Auto-${action} in ${hours ? `${hours} h ${minutes} min` : `${minutes} min`}`;
   }
 
   protected stepGlyph(state: NawaStepState): CkGlyphName {
@@ -555,7 +799,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
           ? `Classification ruled out a reset and routed the request (branch "${branch}"): no password was changed.`
           : 'Classification ruled out a reset: the request goes to another use case and no password was changed.';
       case 'awaiting_approval':
-        return 'Identity proof is insufficient, so no privileged write has taken place. The gate is waiting for an operator decision, in the run trace or in the Flow Builder. This page resumes tracking as soon as the gate is answered.';
+        return 'Identity proof is insufficient, so no privileged write has taken place. The request is waiting for a decision, which is taken in the conversation below. Tracking resumes as soon as the decision is recorded.';
       case 'incident':
         return 'The reset was authorised but could not be applied to the directory: nothing was written and nothing was left half-applied. The ticket stays open and the request can still be applied through the manual directory procedure.';
       case 'quality_hold':

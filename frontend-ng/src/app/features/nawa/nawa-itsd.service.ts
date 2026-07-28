@@ -87,6 +87,16 @@ export class NawaItsdService {
     return this.canonical.getRun(runId);
   }
 
+  /**
+   * Answer the identity gate from the business app. Same endpoint the cockpit
+   * uses, so the decision lands in the ledger with its author either way — the
+   * point of doing it here is that a service desk supervisor never has to enter
+   * the platform's own screens to unblock a ticket.
+   */
+  resolveHitl(runId: string, action: 'accept' | 'reject', note?: string): Observable<Run | null> {
+    return this.canonical.resolveRunHitl(runId, { action, note });
+  }
+
   /** Recent runs of the System — feeds the replay/history strip. */
   history(systemId: string): Observable<Run[]> {
     return this.canonical.listRuns({ system_id: systemId });

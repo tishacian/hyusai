@@ -220,14 +220,25 @@ export const NAWA_SCENARIOS: readonly NawaScenario[] = [
   },
 ];
 
-/** Caller case the flow will actually use, read from `System.settings`. */
+/**
+ * Caller case the flow will actually use, read from `System.settings`.
+ *
+ * `ticket_ref`, `received_at` and `subject` exist so the inbound queue reads as
+ * a service desk queue rather than a scenario list. Every field is optional:
+ * the front must render against a System installed before they were authored.
+ */
 export interface NawaScenarioPreset {
   label?: string;
   channel?: string;
   requester_name?: string;
+  requester_upn?: string;
   preferred_language?: string;
   request_text?: string;
   identity_evidence?: string;
+  evidence_items?: string[];
+  ticket_ref?: string;
+  received_at?: string;
+  subject?: string;
 }
 
 /** Live status of one business step, derived from the run's checkpoints. */
