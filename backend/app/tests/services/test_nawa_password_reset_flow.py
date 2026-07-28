@@ -1025,3 +1025,132 @@ async def test_unknown_scenario_falls_back_to_the_nominal_case(db_session, monke
     assert summary["status"] == "completed", summary
     run = _reload(db_session, run)
     assert run.output_ref["outcome"]["code"] == "ticket_closed"
+
+
+# ---------------------------------------------------------------------------
+# 7 — Typed-request lane
+#
+# The business app lets an operator type a request in front of an audience. It
+# cannot be judged more leniently than a preset: same instruction blocks, same
+# graph, same guards. The prompts are assembled BEFORE the run because the
+# walker composes no strings, so these tests reproduce that assembly and prove
+# the typed words are what the model was actually asked about.
+# ---------------------------------------------------------------------------
+FREE_TEXT = SYSTEM_SETTINGS["free_text"]
+
+
+def _typed_case(**over: Any) -> Dict[str, Any]:
+    """Assemble a case from the settings templates, as the business app does."""
+    request = over.pop("request_text", FREE_TEXT["default_request_text"])
+    evidence = over.pop("identity_evidence", FREE_TEXT["default_identity_evidence"])
+    items = over.pop("evidence_items", FREE_TEXT["default_evidence_items"])
+    case = {
+        "label": FREE_TEXT["label"],
+        "channel": FREE_TEXT["channel"],
+        "requester_name": FREE_TEXT["requester_name"],
+        "requester_upn": FREE_TEXT["requester_upn"],
+        "preferred_language": FREE_TEXT["preferred_language"],
+        "request_text": request,
+        "identity_evidence": evidence,
+        "evidence_items": list(items),
+        "intent_prompt": FREE_TEXT["intent_prompt_template"].replace("{transcript}", request),
+        "identity_prompt": FREE_TEXT["identity_prompt_template"].replace("{evidence}", evidence),
+        "notice_prompt": FREE_TEXT["notice_prompt_template"].replace(
+            "{requester}", FREE_TEXT["requester_name"]
+        ),
+        "simulated_intent": FREE_TEXT["simulated_intent"],
+        "simulated_identity_verdict": FREE_TEXT["simulated_identity_verdict"],
+        "simulated_user_message": FREE_TEXT["simulated_user_message"],
+        "simulated_evidence_count": len(items),
+    }
+    case.update(over)
+    return case
+
+
+def test_the_typed_case_carries_every_field_the_graph_reads() -> None:
+    """Guard against a `case.X` read added to the flow but not to the composer.
+
+    The composer lives in the front end, so nothing but this test stands between
+    a new selector in the graph and a typed request that silently loses a field
+    on stage. It reads the graph rather than a list kept by hand.
+    """
+    read: set[str] = set()
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("node_id") == "intake" and isinstance(node.get("path"), list):
+                path = node["path"]
+                if len(path) == 2 and path[0] == "case":
+                    read.add(str(path[1]))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(LLM_FLOW)
+    walk(FALLBACK_FLOW)
+    assert read, "no case field is read any more — the assertion below would be vacuous"
+    assert read <= set(_typed_case()), sorted(read - set(_typed_case()))
+
+
+def test_the_templates_leave_no_placeholder_behind() -> None:
+    case = _typed_case(request_text="Reset please", identity_evidence="- Nothing filed.")
+    for field in ("intent_prompt", "identity_prompt", "notice_prompt"):
+        assert "{" not in case[field], (field, case[field][-120:])
+    assert "Reset please" in case["intent_prompt"]
+    assert "- Nothing filed." in case["identity_prompt"]
+    assert FREE_TEXT["requester_name"] in case["notice_prompt"]
+
+
+async def test_a_typed_request_is_classified_on_its_own_words_and_closes(
+    db_session, monkeypatch
+):
+    _install_full_registry(monkeypatch)
+    system = _mk_system(db_session, LLM_FLOW)
+    typed = "I cannot remember my password since my leave, please reset my account."
+    run = _mk_run(db_session, system, "free_text", case=_typed_case(request_text=typed))
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+
+    run = _reload(db_session, run)
+    out = run.output_ref
+    assert out["outcome"]["code"] == "ticket_closed"
+    assert out["outcome"]["reset_performed"] is True
+    assert "password_reset" in out["detected_intent"]
+    assert out["evidence_on_file"] == len(FREE_TEXT["default_evidence_items"])
+
+    # The words the operator typed are what the model was asked about — not the
+    # nominal preset's, which is the failure mode a silent fallback would hide.
+    prompts = [
+        str((inv.input_ref or {}).get("prompt", ""))
+        for inv in _invocations(db_session, run)
+        if inv.skill_slug == "azure_llm_v1"
+    ]
+    assert any(typed in prompt for prompt in prompts), prompts
+    assert not any("I forgot my password, can you reset it?" in prompt for prompt in prompts)
+
+
+async def test_a_typed_request_with_thin_evidence_still_stops_at_the_gate(
+    db_session, monkeypatch
+):
+    _install_full_registry(monkeypatch)
+    system = _mk_system(db_session, LLM_FLOW)
+    run = _mk_run(
+        db_session,
+        system,
+        "free_text",
+        case=_typed_case(
+            identity_evidence=(
+                "- Caller states their name.\n- No line-manager confirmation obtained."
+            ),
+            evidence_items=[],
+        ),
+    )
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "hitl_pending", summary
+    run = _reload(db_session, run)
+    assert "hitl_pause" in _checkpoint_kinds(run)
+    for nid in EXECUTION_NODES:
+        assert _node_status(run).get(nid) != "completed"

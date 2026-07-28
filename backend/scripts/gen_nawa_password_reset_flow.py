@@ -80,6 +80,8 @@ def preset(
     evidence: str,
     evidence_items: list,
     preferred_language: str,
+    received_at: str,
+    subject: str,
     simulated_intent: str,
     simulated_identity_verdict: str,
     simulated_user_message: str,
@@ -87,6 +89,14 @@ def preset(
     return {
         "label": label,
         "channel": channel,
+        # Queue metadata. The business app lists these cases as the requests
+        # waiting at the service desk, so it needs what a queue shows — arrival
+        # time and the triaged subject — and NOT the ``label`` above, which
+        # names the test case rather than the ticket. No ticket reference here
+        # on purpose: the closure emits its own, and a reference invented for
+        # the queue would contradict the one the run reports.
+        "received_at": received_at,
+        "subject": subject,
         "requester_name": requester_name,
         "requester_upn": requester_upn,
         "preferred_language": preferred_language,
@@ -128,6 +138,9 @@ SCENARIO_PRESETS = {
             "Security questions 2/2 correct, answers logged against ticket ITSD-2026-0729-0148.",
         ],
         preferred_language="en",
+        # Before 08:39, when the agent matched the staff ID against HR below.
+        received_at="08:34",
+        subject="Cannot sign in - password forgotten",
         simulated_intent="password_reset",
         simulated_identity_verdict=(
             "IDENTITY_VERIFIED Staff ID matched the HR record and the line manager confirmed the "
@@ -167,6 +180,10 @@ SCENARIO_PRESETS = {
             "Caller self-declared name and department, nothing checked against a record.",
         ],
         preferred_language="fr",
+        received_at="08:47",
+        # Triaged from the symptom the caller describes, not from what they ask
+        # for: the subject must not pre-empt the classification the agent makes.
+        subject="Cannot sign in after repeated attempts",
         simulated_intent="unlock_ad_account",
         simulated_identity_verdict=(
             "IDENTITY_INSUFFICIENT Only a self-declared name was provided."
@@ -191,6 +208,8 @@ SCENARIO_PRESETS = {
             "Security question 1/1 correct, logged against ticket ITSD-2026-0729-0148.",
         ],
         preferred_language="en",
+        received_at="09:02",
+        subject="Password reset request - requester travelling",
         simulated_intent="password_reset",
         simulated_identity_verdict=(
             "IDENTITY_INSUFFICIENT Only one security question was answered and neither a staff ID "
@@ -223,6 +242,9 @@ SCENARIO_PRESETS = {
             "Photo ID checked at the walk-in desk, badge scan BSCAN-2026-0729-0077.",
         ],
         preferred_language="en",
+        # Before 09:15, when the badge was scanned at the desk below.
+        received_at="09:11",
+        subject="Password reset at the walk-in desk",
         simulated_intent="password_reset",
         simulated_identity_verdict=(
             "IDENTITY_VERIFIED Badge staff ID matched the HR record and the line manager confirmed "
@@ -254,12 +276,73 @@ SCENARIO_PRESETS = {
         ),
         evidence_items=[],
         preferred_language="en",
+        received_at="09:26",
+        subject="Password reset request",
         simulated_intent="password_reset",
         simulated_identity_verdict=(
             "IDENTITY_VERIFIED A staff ID and a line-manager approval were both reported, so the "
             "policy appears satisfied."
         ),
         simulated_user_message="",
+    ),
+}
+
+# --------------------------------------------------------------------------
+# Typed-request lane.
+#
+# The five presets above are canned cases. This block is what the business app
+# needs to hand the flow a request somebody types in front of an audience.
+#
+# It has to carry the prompt TEMPLATES, placeholders included, because the
+# assembly cannot happen inside the run: the walker resolves node inputs by
+# reference and composes no strings, and the model skill takes a single
+# ``prompt`` with no separate instruction channel. So the app substitutes the
+# caller's words the same way this generator does for the presets - against the
+# same three constants, not against copies of them, which is what keeps a typed
+# request and a preset request judged by an identical instruction block.
+#
+# The defaults exist so the composer opens pre-filled: the point of the lane on
+# stage is to edit them - remove an evidence line and watch the gate open - not
+# to type three fields from scratch.
+# --------------------------------------------------------------------------
+FREE_TEXT = {
+    "label": "Request typed at the service desk",
+    "channel": "service_desk_form",
+    "requester_name": "Sara Al-Naimi",
+    "requester_upn": "sara.alnaimi@nawa.qa",
+    "preferred_language": "en",
+    "intent_prompt_template": INTENT_PROMPT,
+    "identity_prompt_template": IDENTITY_PROMPT,
+    "notice_prompt_template": NOTICE_PROMPT,
+    "default_request_text": (
+        "I forgot my password and I cannot sign in this morning. Could you reset it please?"
+    ),
+    "default_identity_evidence": (
+        "- Staff ID 44807 read out by the caller and matched against the HR record by the agent.\n"
+        "- Line manager Aisha Al-Marri confirmed the request by phone.\n"
+        "- Two security questions answered correctly."
+    ),
+    "default_evidence_items": [
+        "Staff ID 44807 matched against HR record HR-44807 by the desk agent.",
+        "Line-manager confirmation from Aisha Al-Marri, logged against the ticket.",
+        "Security questions 2/2 correct, answers logged against the ticket.",
+    ],
+    # A pasted document would push the instruction block out of the model's
+    # attention and cost minutes on stage. The app truncates at this length.
+    "max_request_chars": 600,
+    # Read only by the fully simulated twin, exactly like the presets': on that
+    # flow every model call is canned, so a typed request is echoed back with
+    # these instead of being classified.
+    "simulated_intent": "password_reset",
+    "simulated_identity_verdict": (
+        "IDENTITY_VERIFIED Staff ID matched the HR record and the line manager confirmed the "
+        "request, so two independent proofs are present."
+    ),
+    "simulated_user_message": (
+        "Your Nawa account password has been reset. A temporary password has been issued: "
+        "Nawa-Temp-7431. Sign in with it and you will be asked to choose a new password "
+        "immediately. The service desk never asks you for your password: do not share this "
+        "temporary password with anyone."
     ),
 }
 
@@ -493,12 +576,13 @@ NODES = [
             "menu": "Entry",
             "description": (
                 "Run input. Carries the scenario to inject on the simulation bench "
-                "(nominal | ambiguous | weak_identity)."
+                "(nominal | ambiguous | weak_identity | ad_unreachable | quality_guard), or "
+                "free_text plus a whole 'case' object for a request typed in the business app."
             ),
         },
         "config": {},
         "inputs": [],
-        "outputs": [port("scenario", "string")],
+        "outputs": [port("scenario", "string"), port("case", "object")],
     },
     {
         "id": "decision.case_selector",
@@ -515,11 +599,16 @@ NODES = [
                 "assessment downstream are real model calls on that payload. Unknown or absent "
                 "scenario falls back to the nominal case. The ad_unreachable_bypass branch loads "
                 "the same caller case as ad_unreachable but leaves the automation bridge out of "
-                "the run: it is the remediation path an operator takes after the incident."
+                "the run: it is the remediation path an operator takes after the incident. The "
+                "free_text branch takes the case from the run input instead of the settings, for "
+                "a request typed in the business app; everything downstream of it is identical."
             ),
         },
         "config": {
             "branches": [
+                # First: it is the only branch whose case does not come from the
+                # settings, so an unknown scenario must not reach it by accident.
+                {"label": "free_text", "condition": "scenario == 'free_text'"},
                 {
                     "label": "ad_unreachable_bypass",
                     "condition": "scenario == 'ad_unreachable' and bridge_fallback == True",
@@ -587,6 +676,33 @@ NODES = [
         640,
         1060,
     ),
+    {
+        # The only case node fed by the run rather than by the settings. The app
+        # assembles the case from the FREE_TEXT templates and posts it whole, so
+        # the eight fields the lanes downstream read keep the exact same names
+        # and the graph after this node is untouched.
+        "id": "task.case_free_text",
+        "type": "simulation",
+        "kind": "task",
+        "label": "Typed request \u00b7 case supplied by the business app",
+        "position": {"x": 640, "y": 1260},
+        "data": {
+            "menu": "Simulation bench",
+            "description": (
+                "Inbound case typed by an operator in the business app: verbatim words, requester "
+                "and collected evidence come from the run input, and the prompts were assembled "
+                "from the templates in the System settings before the run started. Nothing here "
+                "decides the outcome - the classification and the identity assessment downstream "
+                "are the same real model calls the preset lanes run."
+            ),
+        },
+        "config": {
+            "inputs_map": {"case": ref("run", "case")},
+            "outputs_map": {"case": "intake.case"},
+        },
+        "inputs": [],
+        "outputs": [port("case", "object")],
+    },
     {
         "id": "task.classify_intent",
         "type": "llm",
@@ -1277,11 +1393,18 @@ EDGES = [
         "kind": "branch",
         "branch_label": "quality_guard",
     },
+    {
+        "from": "decision.case_selector",
+        "to": "task.case_free_text",
+        "kind": "branch",
+        "branch_label": "free_text",
+    },
     {"from": "task.case_nominal", "to": "task.classify_intent", "kind": "data"},
     {"from": "task.case_ambiguous", "to": "task.classify_intent", "kind": "data"},
     {"from": "task.case_weak_identity", "to": "task.classify_intent", "kind": "data"},
     {"from": "task.case_ad_unreachable", "to": "task.classify_intent", "kind": "data"},
     {"from": "task.case_quality_guard", "to": "task.classify_intent", "kind": "data"},
+    {"from": "task.case_free_text", "to": "task.classify_intent", "kind": "data"},
     {"from": "task.classify_intent", "to": "decision.intent_route", "kind": "data"},
     {
         "from": "decision.intent_route",
@@ -1600,7 +1723,8 @@ ARTIFACT = {
         "every system gesture is SIMULATED in dry-run semantics - no directory is ever contacted. "
         "The run input 'scenario' selects which inbound case is injected on the simulation bench "
         "(nominal | ambiguous | weak_identity | ad_unreachable | quality_guard); it never selects "
-        "the outcome. Also carries "
+        "the outcome. 'free_text' takes the case from the run input instead, for a request typed "
+        "in the business app, and is judged by the same instruction blocks. Also carries "
         "fallback_flow_definition: the same graph with the three model calls replaced by canned "
         "outputs, for a sub-minute switch if the provider degrades during the demo. Assistant name "
         "is NAWA WE (Workspace Engine)."
@@ -1638,8 +1762,10 @@ ARTIFACT = {
             "weak_identity",
             "ad_unreachable",
             "quality_guard",
+            "free_text",
         ],
         "scenario_presets": SCENARIO_PRESETS,
+        "free_text": FREE_TEXT,
         "simulation": SIMULATION,
         "outcomes": OUTCOMES,
         "quality_gate": {"question": QUALITY_QUESTION},
