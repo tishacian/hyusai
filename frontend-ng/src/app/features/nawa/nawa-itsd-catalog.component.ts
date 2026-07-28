@@ -6,9 +6,12 @@ import { GlyphComponent } from '@app/shared/cockpit';
 import {
   NAWA_APP_NAME,
   NAWA_APP_SUBTITLE,
+  NAWA_LOGO,
   type NawaUseCase,
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
+import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
+import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
@@ -21,11 +24,12 @@ type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
   selector: 'app-nawa-itsd-catalog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, GlyphComponent],
+  imports: [FormsModule, RouterLink, GlyphComponent, NawaThemeToggleComponent],
   styleUrls: ['./nawa-theme.scss', './nawa-itsd-catalog.component.scss'],
+  host: { '[attr.data-theme]': 'theme()' },
   template: `
     <header class="nawa-header">
-      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="NAWA" />
+      <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
         <h1 class="nawa-title">{{ appName }} · IT Service Desk</h1>
         <span class="nawa-subtitle">{{ subtitle }} — IT operations automation</span>
@@ -45,6 +49,7 @@ type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
           <span class="nawa-metric-label">Same pattern</span>
         </div>
       </div>
+      <app-nawa-theme-toggle />
       @if (platform()) {
         <a class="nawa-link" routerLink="/systems">
           <ck-glyph name="cube" [size]="12" />
@@ -200,6 +205,10 @@ export class NawaItsdCatalogComponent {
 
   protected readonly appName = NAWA_APP_NAME;
   protected readonly subtitle = NAWA_APP_SUBTITLE;
+
+  /** Scoped on the host: the cockpit's own `html` stays pinned to dark. */
+  protected readonly theme = inject(ThemeService).businessResolved;
+  protected readonly logo = computed(() => NAWA_LOGO[this.theme()]);
 
   /** The pivot into the platform belongs to whoever administers the workspace. */
   protected readonly platform = computed(() =>

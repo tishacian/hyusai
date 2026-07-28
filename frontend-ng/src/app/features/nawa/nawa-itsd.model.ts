@@ -19,6 +19,16 @@ export const NAWA_APP_NAME = 'WE';
 export const NAWA_APP_SUBTITLE = 'Workspace Engine';
 export const NAWA_APP_FULL_NAME = 'NAWA WE';
 
+/**
+ * The customer delivered the wordmark as a JPEG on opaque black, unusable on a
+ * light surface. The second file is the same artwork with that field keyed out,
+ * so the light theme shows a wordmark rather than a black box.
+ */
+export const NAWA_LOGO = {
+  dark: '/assets/nawa/nawa-logo.png',
+  light: '/assets/nawa/nawa-logo-transparent.png',
+} as const;
+
 /** One row of `assets/nawa/itsd-use-cases.json`, produced by the extractor. */
 export interface NawaUseCase {
   sr: number;

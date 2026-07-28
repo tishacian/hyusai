@@ -12,9 +12,11 @@ import { switchMap, takeWhile } from 'rxjs/operators';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import type { Run, System } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ThemeService } from '@app/core/theme.service';
 import {
   NAWA_APP_NAME,
   NAWA_APP_SUBTITLE,
+  NAWA_LOGO,
   NAWA_SCENARIOS,
   type NawaOutcome,
   type NawaScenario,
@@ -22,6 +24,7 @@ import {
   type NawaStepState,
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
+import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
 import { projectRun } from './nawa-run-projection';
 
 /** Live progress cadence. The run budget is ~45 s (SPEC §6.4). */
@@ -81,16 +84,18 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   selector: 'app-nawa-password-reset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent],
+  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent],
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
+  host: { '[attr.data-theme]': 'theme()' },
   template: `
     <header class="nawa-header">
-      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="NAWA" />
+      <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
         <h1 class="nawa-title">{{ appName }} · Password Reset</h1>
         <span class="nawa-subtitle">{{ subtitle }} — use case #1, simulation bench</span>
       </div>
       <div class="nawa-header-spacer"></div>
+      <app-nawa-theme-toggle />
       @if (platform()) {
         @if (system(); as installed) {
           <a class="nawa-link" [routerLink]="['/systems', installed.id, 'flow']">
@@ -335,6 +340,10 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   protected readonly appName = NAWA_APP_NAME;
   protected readonly subtitle = NAWA_APP_SUBTITLE;
+
+  /** Scoped on the host: the cockpit's own `html` stays pinned to dark. */
+  protected readonly theme = inject(ThemeService).businessResolved;
+  protected readonly logo = computed(() => NAWA_LOGO[this.theme()]);
 
   /**
    * The business view is white-labelled: the links that leave for the platform's

@@ -34,9 +34,33 @@
   font-size: 13px;
 }
 
+/**
+ * Light palette. A service desk is used all day on lit office screens, so the
+ * business app offers what the cockpit cannot: the global `html` is pinned to
+ * dark for the admin chrome, but this feature scopes its own `data-theme` and
+ * only rewrites the tokens above.
+ *
+ * The accent darkens by one step because brick on white is louder than brick on
+ * black, and the hairlines flip from white-alpha to black-alpha — anything left
+ * in white-alpha would vanish.
+ */
+:host([data-theme='light']) {
+  --nawa-bg: #f7f5f3;
+  --nawa-surface: #ffffff;
+  --nawa-surface-2: #efebe7;
+  --nawa-line: rgba(28, 28, 28, 0.12);
+  --nawa-line-strong: rgba(28, 28, 28, 0.24);
+  --nawa-fg: #171412;
+  --nawa-fg-dim: rgba(23, 20, 18, 0.66);
+  --nawa-fg-faint: rgba(23, 20, 18, 0.44);
+  --nawa-accent: #b52a00;
+  --nawa-accent-bright: #d2451c;
+  --nawa-accent-soft: rgba(181, 42, 0, 0.1);
+  --nawa-accent-line: rgba(181, 42, 0, 0.42);
+  --nawa-warn: #a8760a;
+}
+
 // ---- brand header --------------------------------------------------------
-// The logo ships on an opaque black background with no alpha channel, so it
-// may only sit on a dark surface (SPEC §5.3).
 .nawa-header {
   display: flex;
   align-items: center;
@@ -46,11 +70,18 @@
   border-bottom: 1px solid var(--nawa-line);
 }
 
+// The customer shipped the wordmark as a JPEG on opaque black, which is why the
+// dark theme sets a matching plate behind it. The light theme swaps in the
+// keyed-out copy instead, so the header stays a wordmark and never a black box.
 .nawa-logo {
   display: block;
   height: 34px;
   width: auto;
   background: var(--nawa-bg);
+}
+
+:host([data-theme='light']) .nawa-logo {
+  background: transparent;
 }
 
 .nawa-header-copy {
