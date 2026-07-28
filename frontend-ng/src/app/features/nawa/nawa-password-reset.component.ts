@@ -204,24 +204,26 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                 {{ remediationLabel(outcome) }}
               </button>
             }
-            <div class="pr-outcome-links">
-              @if (run()) {
-                <a class="nawa-link" [routerLink]="['/runs', run()!.id]">
-                  <ck-glyph name="ledger" [size]="12" />
-                  Open the run trace
+            @if (platform) {
+              <div class="pr-outcome-links">
+                @if (run()) {
+                  <a class="nawa-link" [routerLink]="['/runs', run()!.id]">
+                    <ck-glyph name="ledger" [size]="12" />
+                    Open the run trace
+                  </a>
+                }
+                @if (system()) {
+                  <a class="nawa-link" [routerLink]="['/systems', system()!.id, 'flow']">
+                    <ck-glyph name="flow" [size]="12" />
+                    Open in the Flow Builder
+                  </a>
+                }
+                <a class="nawa-link" routerLink="/governance">
+                  <ck-glyph name="shield" [size]="12" />
+                  Audit ledger
                 </a>
-              }
-              @if (system()) {
-                <a class="nawa-link" [routerLink]="['/systems', system()!.id, 'flow']">
-                  <ck-glyph name="flow" [size]="12" />
-                  Open in the Flow Builder
-                </a>
-              }
-              <a class="nawa-link" routerLink="/governance">
-                <ck-glyph name="shield" [size]="12" />
-                Audit ledger
-              </a>
-            </div>
+              </div>
+            }
           </section>
         }
 
@@ -295,7 +297,11 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
             <ul>
               @for (item of history(); track item.id) {
                 <li>
-                  <a [routerLink]="['/runs', item.id]">{{ item.id.slice(0, 8) }}</a>
+                  @if (platform) {
+                    <a [routerLink]="['/runs', item.id]">{{ item.id.slice(0, 8) }}</a>
+                  } @else {
+                    <span>{{ item.id.slice(0, 8) }}</span>
+                  }
                   <span class="pr-history-status" [attr.data-status]="item.status">
                     {{ item.status }}
                   </span>
@@ -319,6 +325,12 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   protected readonly assistant = NAWA_ASSISTANT;
   protected readonly subtitle = NAWA_ASSISTANT_SUBTITLE;
+
+  /**
+   * Presenter escape hatch. The business view is white-labelled, so the links
+   * that leave for the platform's own screens are opt-in: `?platform=1`.
+   */
+  protected readonly platform = this.route.snapshot.queryParamMap.get('platform') === '1';
 
   protected readonly scenario = signal<NawaScenario>(NAWA_SCENARIOS[0]);
   protected readonly system = signal<System | null>(null);

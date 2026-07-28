@@ -16,6 +16,14 @@ export const routes: Routes = [
       import('./features/deposit/deposit-portal.component').then((m) => m.DepositPortalComponent),
   },
   {
+    // White-labelled customer app: it owns the whole page, so it is mounted
+    // outside the Agentium shell. Business stakeholders must see the Nawa brand
+    // only, never the platform title bar, side rail or workspace switcher.
+    path: 'nawa',
+    canActivate: [authGuard],
+    loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
+  },
+  {
     path: '',
     canActivate: [authGuard],
     canActivateChild: [navigationProfileGuard],
@@ -109,10 +117,6 @@ export const routes: Routes = [
         path: 'client360',
         loadChildren: () =>
           import('./features/client360/client360.routes').then((m) => m.client360Routes),
-      },
-      {
-        path: 'nawa',
-        loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
       },
       {
         path: 'workspace',
