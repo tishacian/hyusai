@@ -47,6 +47,7 @@ const pureSpecs = [
   'src/app/features/nawa/nawa-inbound-queue.spec.ts',
   'src/app/features/nawa/nawa-conversation.spec.ts',
   'src/app/features/nawa/nawa-assistant.spec.ts',
+  'src/app/features/nawa/nawa-intake.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +

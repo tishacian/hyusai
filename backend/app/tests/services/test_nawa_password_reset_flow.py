@@ -797,6 +797,74 @@ async def test_quality_guard_holds_the_privileged_write_on_an_ungrounded_assessm
     assert "hitl_pause" not in _checkpoint_kinds(run)
 
 
+async def test_a_single_proof_is_not_enough_for_an_unattended_reset(
+    db_session, monkeypatch
+):
+    """The published policy: identity needs at least two independent proofs.
+
+    This is the hole the typed-request lane opened. The assessment model states
+    IDENTITY_VERIFIED on one proof — "the staff number matched the HR record,
+    fulfilling one of the requirements" — and a guard that only refuses an empty
+    record would let an unattended privileged write proceed on a number the
+    caller read out. The threshold is the policy's, so the trace shows a refusal
+    the customer can check against their own rule.
+    """
+    _install_full_registry(monkeypatch)
+    system = _mk_system(db_session, LLM_FLOW)
+    run = _mk_run(
+        db_session,
+        system,
+        "free_text",
+        case=_typed_case(
+            identity_evidence=(
+                "- Staff number 40219 given by the requester and matched against the HR record.\n"
+                "- No one-time code given, so possession of the registered device is unproven."
+            ),
+            evidence_items=["Staff number 40219 matched against the HR record by the assistant."],
+        ),
+    )
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+
+    run = _reload(db_session, run)
+    out = run.output_ref
+    assert out["evidence_on_file"] == 1
+    assert out["outcome"]["code"] == "quality_hold_ungrounded_assessment"
+    assert out["outcome"]["reset_performed"] is False
+    assert "two independent proofs" in out["outcome"]["message"]
+    for nid in EXECUTION_NODES:
+        assert _node_status(run).get(nid) == "skipped", f"{nid} ran on a single proof"
+    # Withheld, and recorded as withheld: a refusal nobody can see is a refusal
+    # nobody can audit.
+    assert _node_status(run)["task.audit_withheld_quality"] == "completed"
+
+
+async def test_two_proofs_clear_the_rule_and_the_reset_completes(db_session, monkeypatch):
+    """The boundary from the other side, so the guard cannot be tightened into a
+    refusal of every typed request without a test going red."""
+    _install_full_registry(monkeypatch)
+    system = _mk_system(db_session, LLM_FLOW)
+    run = _mk_run(
+        db_session,
+        system,
+        "free_text",
+        case=_typed_case(
+            evidence_items=[
+                "Staff number 40219 matched against the HR record by the assistant.",
+                "One-time code from the registered authenticator verified by the assistant.",
+            ],
+        ),
+    )
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+    out = _reload(db_session, run).output_ref
+    assert out["evidence_on_file"] == 2
+    assert out["outcome"]["code"] == "ticket_closed"
+    assert out["outcome"]["reset_performed"] is True
+
+
 async def test_quality_guard_does_not_fire_when_the_evaluator_is_degraded(
     db_session, monkeypatch
 ):

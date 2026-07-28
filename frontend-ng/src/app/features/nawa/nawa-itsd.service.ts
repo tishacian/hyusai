@@ -72,6 +72,20 @@ export class NawaItsdService {
     return this.launchWith(systemId, { scenario: scenario.scenario, ...scenario.input });
   }
 
+  /**
+   * Launch the typed-request lane with a case composed outside the run.
+   *
+   * Separate from `launchWith` because the case is a nested object, not a flat
+   * bench selector: on this lane the flow reads the caller's words from the run
+   * input instead of loading a canned case from the System settings.
+   */
+  launchTyped(systemId: string, requestCase: Record<string, unknown>): Observable<Run | null> {
+    return this.canonical.triggerRun(systemId, {
+      input_ref: { scenario: 'free_text', case: requestCase, source: 'nawa_itsd_app' },
+      trigger: 'manual',
+    });
+  }
+
   /** Launch from a raw input, as carried by `outcome.replay_input`. */
   launchWith(
     systemId: string,

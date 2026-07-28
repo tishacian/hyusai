@@ -422,10 +422,10 @@ SIMULATION = {
                 "temporary_password_issued": False,
                 "requester_notified": False,
                 "withheld_reason": (
-                    "The identity assessment concluded that the requester was identified, but no "
-                    "verifiable proof was on file to support it. Nawa ITSD policy does not allow "
-                    "an unattended privileged reset on an unsupported assessment, so the reset "
-                    "was held before any change was made to the account."
+                    "The identity assessment concluded that the requester was identified, but "
+                    "fewer than the two independent proofs Nawa ITSD policy requires were on file "
+                    "for an unattended privileged reset, so the reset was held before any change "
+                    "was made to the account."
                 ),
                 "target_directory": "Nawa corporate directory (simulated)",
                 "ticket_id": "ITSD-2026-0729-0148",
@@ -508,15 +508,16 @@ OUTCOMES = {
     },
     "quality_hold": {
         "code": "quality_hold_ungrounded_assessment",
-        "label": "Held for review - the identity assessment is not backed by any filed evidence",
+        "label": "Held for review - the filed evidence does not meet the identity rule",
         # A governance decision, phrased as one. Nothing here reads as a
-        # malfunction, because nothing malfunctioned.
+        # malfunction, because nothing malfunctioned. Accurate at zero proofs and
+        # at one, since the rule is about how many are on file either way.
         "message": (
             "The reset was held before any change was made. The assessment concluded that the "
-            "requester was identified, but no verifiable proof was on file to support it, and "
-            "Nawa ITSD policy does not allow an unattended privileged reset on an unsupported "
-            "assessment. The account was not modified. Record the proofs the caller stated, or "
-            "route the request to a supervisor for approval."
+            "requester was identified, but Nawa ITSD policy requires at least two independent "
+            "proofs on file before an unattended privileged reset, and fewer were recorded. The "
+            "account was not modified. File the missing proof, or route the request to a "
+            "supervisor for approval."
         ),
         "reset_performed": False,
         "remediation": (
@@ -970,7 +971,35 @@ NODES = [
         "config": {
             "branches": [
                 {"label": "incident", "condition": "bridge_status == 'failed'"},
-                {"label": "quality_hold", "condition": "evidence_on_file == 0"},
+                # The published policy: "identity is established when at least two
+                # independent proofs are on file". So the threshold is the
+                # policy's, not a nominal non-zero check — a staff number the
+                # caller read out is one proof, and an UNATTENDED privileged
+                # reset on it alone is exactly what the rule forbids. The
+                # assessment model does state IDENTITY_VERIFIED on a single
+                # proof, which is why this is enforced here and not in a prompt.
+                #
+                # "Fewer than two" is spelled as the two values rather than as
+                # `< 2`, and that is not a style choice: the predicate evaluator
+                # evaluates every operand of an `and` before combining them
+                # (run_engine/condition.py), so a guarded `evidence_on_file !=
+                # None and evidence_on_file < 2` still runs the ordered
+                # comparison and fails the whole run on every lane where the
+                # quality node did not execute and the count is absent. Equality
+                # against a missing value is safe; ordering is not.
+                #
+                # `human_approved != True` because a supervisor's approval makes
+                # the write attended, which is the case this rule is not about:
+                # their decision carries the account, under their name, in the
+                # ledger. Without it, approving a thin request at the gate would
+                # be silently overruled here.
+                {
+                    "label": "quality_hold",
+                    "condition": (
+                        "(evidence_on_file == 0 or evidence_on_file == 1) "
+                        "and human_approved != True"
+                    ),
+                },
                 {
                     "label": "execute",
                     "condition": "identity_branch == 'verified' or human_approved == True",
