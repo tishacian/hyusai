@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService } from '@app/core/auth-api.service';
@@ -28,7 +29,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
       <div class="rounded-md border border-red-500/20 bg-red-500/5 p-5">
         <h3 class="font-semibold text-red-300">Delete my account</h3>
         <p class="text-sm text-gray-400 mt-1 mb-4">
-          This removes your user from Keycloak and Agentium. Transfer workspace ownerships first.
+          This removes your user from Keycloak and {{ brand() }}. Transfer workspace ownerships first.
         </p>
         <button
           type="button"
@@ -56,6 +57,8 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   `,
 })
 export class DangerComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(AuthApiService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authStore = inject(AuthStore);

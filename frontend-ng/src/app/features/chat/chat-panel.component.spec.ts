@@ -24,6 +24,7 @@ import {
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -37,6 +38,8 @@ class WorkspaceStub {
 
   current = () => ({ slug: this.slug, name: this.slug, settings: {} });
   currentSlug = () => this.slug;
+  /** Screen copy reads the brand; a workspace without one answers Agentium. */
+  brandName = () => DEFAULT_BRAND_NAME;
   contextEpoch = () => this.epoch;
   isDemoSafeMode = () => false;
 

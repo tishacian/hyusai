@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { catchError, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import {
@@ -40,7 +41,7 @@ interface EndpointCatalog {
       <header class="surface-head">
         <div>
           <p class="eyebrow">Governance · Surface Map</p>
-          <h1>Agentium surface map</h1>
+          <h1>{{ brand() }} surface map</h1>
           <p class="lead">
             UI routes, canonical API prefixes and compatibility surfaces in one place.
           </p>
@@ -329,6 +330,8 @@ interface EndpointCatalog {
   ],
 })
 export class SurfaceMapComponent implements OnInit {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(ApiService);
 
   readonly uiRoutes = AGENTIUM_SURFACE_ROUTES;

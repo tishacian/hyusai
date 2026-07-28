@@ -4240,6 +4240,8 @@ interface ProposalFact {
   `,
 })
 export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   @ViewChild('planOutlineEditor') private planOutlineEditor?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('planBuildOutlineEditor') private planBuildOutlineEditor?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('planDialogueAnswerEditor') private planDialogueAnswerEditor?: ElementRef<HTMLTextAreaElement>;
@@ -9763,7 +9765,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.voiceConnection.events$
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe((event) => this.handleVoiceSessionEvent(event));
-        this.setVoiceNotice('Session LiveKit prête. Connexion du pont vocal Agentium en cours.', 'info');
+        this.setVoiceNotice(`Session LiveKit prête. Connexion du pont vocal ${this.brand()} en cours.`, 'info');
         return this.voiceConnection;
       } catch (error) {
         if (openedConnection) {

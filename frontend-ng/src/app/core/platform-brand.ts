@@ -12,6 +12,9 @@
  * the governed workspace-experience projection.
  */
 
+/** The name the product goes by when no tenant brand is declared. */
+export const DEFAULT_BRAND_NAME = 'Agentium';
+
 export interface PlatformBrand {
   label: string;
   emblem: string;

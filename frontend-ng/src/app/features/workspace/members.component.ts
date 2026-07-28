@@ -63,7 +63,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <div>
               <h2 class="text-base font-semibold text-white">Invite member</h2>
               <p class="text-sm text-gray-400 mt-0.5">
-                Invite anyone by email. Existing Agentium users are added instantly; new addresses are provisioned in Keycloak and receive a password-setup email.
+                Invite anyone by email. Existing {{ brand() }} users are added instantly; new addresses are provisioned in Keycloak and receive a password-setup email.
               </p>
             </div>
           </div>
@@ -282,6 +282,8 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   `],
 })
 export class WorkspaceMembersComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly toastr = inject(ToastrService);

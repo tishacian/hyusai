@@ -1,6 +1,7 @@
-import { Injectable, effect, signal } from '@angular/core';
+import { Injectable, effect, inject, signal } from '@angular/core';
 
 import { FR_DICT, EN_DICT, type I18nKey } from './i18n.dict';
+import { WorkspaceService } from './workspace.service';
 
 const LOCALE_KEY = 'agentium_locale';
 
@@ -34,6 +35,8 @@ const LOCALES: readonly Locale[] = ['fr', 'en'] as const;
  */
 @Injectable({ providedIn: 'root' })
 export class I18nService {
+  private readonly workspace = inject(WorkspaceService);
+
   readonly locale = signal<Locale>(this.readInitialLocale());
 
   private readonly dicts: Record<Locale, Record<string, string>> = {
@@ -60,6 +63,10 @@ export class I18nService {
    * key verbatim when both EN and FR dictionaries miss it, which
    * surfaces untranslated strings directly in the UI so they're easy
    * to audit.
+   *
+   * `{brand}` is filled in for every key without the call site asking: copy
+   * that names the product must follow the active workspace's brand, and a
+   * white-labelled tenant would otherwise read the editor's name.
    */
   readonly t = (
     key: I18nKey | string,
@@ -68,10 +75,8 @@ export class I18nService {
     const locale = this.locale();
     const dict = this.dicts[locale] ?? this.dicts.fr;
     let value = dict[key] ?? this.dicts.fr[key] ?? key;
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        value = value.replace(`{${k}}`, String(v));
-      }
+    for (const [k, v] of Object.entries({ brand: this.workspace.brandName(), ...params })) {
+      value = value.replaceAll(`{${k}}`, String(v));
     }
     return value;
   };

@@ -289,7 +289,7 @@ const FIELD =
             <div class="flex-1">
               <h2 class="text-base font-semibold text-white">Navigation profile</h2>
               <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
-                Simplifies the workspace for business end users. Admins keep the full Agentium cockpit by default.
+                Simplifies the workspace for business end users. Admins keep the full {{ brand() }} cockpit by default.
               </p>
             </div>
           </div>
@@ -391,6 +391,8 @@ const FIELD =
   `,
 })
 export class WorkspaceGeneralComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly route = inject(ActivatedRoute);

@@ -811,6 +811,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   `],
 })
 export class ChatWorkspaceComponent implements OnInit {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly canonical = inject(CanonicalApiService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
@@ -879,7 +881,7 @@ export class ChatWorkspaceComponent implements OnInit {
 
   readonly executiveAssistant = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly businessSurface = computed(() => this.navigationProfile.businessShellActive());
-  readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'Agentium'));
+  readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || this.brand()));
   readonly assistantInitials = computed(() => this.assistantLabel().slice(0, 3).toUpperCase());
 
   readonly assistantSubtitle = computed(() => {

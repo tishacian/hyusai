@@ -41,7 +41,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           <a
             class="chat-focus-link"
             routerLink="/chat"
-            title="Open the standard Agentium chat route"
+            title="Open the standard {{ brand() }} chat route"
           >
             <app-icon name="panel-left" [size]="13" />
             Standard view
@@ -49,7 +49,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           <a
             class="chat-focus-link"
             routerLink="/"
-            title="Return to Agentium"
+            title="Return to {{ brand() }}"
           >
             <app-icon name="x" [size]="13" />
             Exit
@@ -187,6 +187,8 @@ import { type ChatStartMode } from './chat-overlay.service';
   `],
 })
 export class ChatFocusComponent implements OnInit {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly route = inject(ActivatedRoute);
   protected readonly workspace = inject(WorkspaceService);
 

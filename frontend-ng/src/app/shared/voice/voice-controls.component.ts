@@ -1,4 +1,5 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { FormsModule } from '@angular/forms';
 import { VoiceCaptureMode } from '@app/core/voice-capture-config';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -170,7 +171,7 @@ export interface SharedVoiceOracleStep {
       @if (transport === 'backend_ws') {
         <label
           class="voice-checkbox"
-          title="When enabled, Agentium ends the current voice turn after speech followed by a short silence."
+          title="When enabled, {{ brand() }} ends the current voice turn after speech followed by a short silence."
         >
           <input
             type="checkbox"
@@ -450,6 +451,8 @@ export interface SharedVoiceOracleStep {
   `],
 })
 export class VoiceControlsComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   @Input() runtimeOptions: SharedVoiceRuntimeOption[] = [];
   @Input() provider = 'cascade_openai';
   @Input() selectedRuntimeDescription = '';

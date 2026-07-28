@@ -72,7 +72,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
           <section class="ck-surface t-elevated rounded-md p-5">
             <h3 class="text-sm font-semibold text-white mb-2">Purpose</h3>
             <p class="text-xs text-gray-400">
-              This capability is the pact between the business outcome and the Agentium engine.
+              This capability is the pact between the business outcome and the {{ brand() }} engine.
               Use it to promise an outcome (SLO, measurable result), not a list of features.
             </p>
             <p class="text-xs text-gray-500 mt-2">
@@ -139,6 +139,8 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
   `,
 })
 export class CapabilityViewComponent implements OnInit, OnDestroy {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly route = inject(ActivatedRoute);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);

@@ -676,7 +676,7 @@ const STEP_ICONS: Record<string, string> = {
               Retrieval
               <span
                 class="control-info-dot"
-                title="Choose how Agentium searches indexed sources for this question. Auto follows workspace/source defaults."
+                title="Choose how {{ brand() }} searches indexed sources for this question. Auto follows workspace/source defaults."
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -703,7 +703,7 @@ const STEP_ICONS: Record<string, string> = {
               Reasoning
               <span
                 class="control-info-dot"
-                title="Choose the answer framing. Auto lets Agentium infer the best reasoning template from the question."
+                title="Choose the answer framing. Auto lets {{ brand() }} infer the best reasoning template from the question."
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -3257,6 +3257,8 @@ const STEP_ICONS: Record<string, string> = {
   `],
 })
 export class ChatPanelComponent implements AfterViewInit {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   @ViewChild('inputEl') private inputEl?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('messagesScroller') private messagesScroller?: ElementRef<HTMLDivElement>;
 
@@ -3474,7 +3476,7 @@ export class ChatPanelComponent implements AfterViewInit {
   });
 
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
-  readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
+  readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || this.brand());
   readonly workspaceContextLabel = computed(() => {
     const name = String(this.workspace.current()?.name || this.workspace.current()?.slug || 'workspace').trim();
     return name || 'workspace';
@@ -3647,7 +3649,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (this.activeKnowledgeScope()) {
       return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}.`;
     }
-    return 'Ask a workspace question. Agentium will route retrieval automatically and cite the sources used.';
+    return `Ask a workspace question. ${this.brand()} will route retrieval automatically and cite the sources used.`;
   });
   readonly inputPlaceholder = computed(() => {
     const configured = this.workspaceChatConfig().placeholder;
@@ -3777,7 +3779,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	        stage: 'thinking' as VoiceOracleStage,
 	        label: 'thinking',
 	        icon: 'activity',
-	        detail: 'Agentium received a transcript and is updating the background oracle.',
+	        detail: `${this.brand()} received a transcript and is updating the background oracle.`,
 	        state: mkState(2, 'thinking'),
 	      },
 	      {
@@ -3815,7 +3817,7 @@ export class ChatPanelComponent implements AfterViewInit {
           ? 'input fallback cascade'
           : 'no STT';
     const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
-	    const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium voice channel' : 'HTTP batch';
+	    const transport = this.voiceTransport() === 'backend_ws' ? `${this.brand()} voice channel` : 'HTTP batch';
 	    const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
 	      return this.isDemoMode()
@@ -4528,7 +4530,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
 	      return this.isDemoMode()
 	        ? 'Realtime voice requires the WebRTC lane, which is not wired into this chat control yet.'
-	        : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses Agentium backend WebSocket sessions.`;
+	        : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses ${this.brand()} backend WebSocket sessions.`;
 	    }
 	    if (this.isDemoMode()) return `${this.voiceRuntimeKind(this.voiceProvider())} runtime. Provider and model details are hidden in demo-safe presentation.`;
 	    return runtime?.description || this.voiceRuntimeDetail();
@@ -4537,7 +4539,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	  onVoiceProviderChange(slug: string): void {
 	    const runtime = this.voiceRuntimeOptions().find((item) => item.slug === slug);
 	    if (runtime && !this.isVoiceRuntimeSelectableInChat(runtime)) {
-	      this.toast.info('Realtime voice requires the WebRTC lane; this chat surface uses Agentium voice sessions for now.', 'Voice');
+	      this.toast.info(`Realtime voice requires the WebRTC lane; this chat surface uses ${this.brand()} voice sessions for now.`, 'Voice');
 	      return;
 	    }
 	    this.voiceProvider.set(slug || 'cascade_openai');
@@ -4566,7 +4568,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	      this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
 	    } else {
 	      this.voiceOracleStage.set('idle');
-	      this.voiceOracleMessage.set('Session mode: Agentium will emit transcript, oracle and runtime events for each voice turn.');
+	      this.voiceOracleMessage.set(`Session mode: ${this.brand()} will emit transcript, oracle and runtime events for each voice turn.`);
 	    }
 	  }
 
@@ -4579,7 +4581,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	  }
 
 	  voiceTransportHint(): string {
-	    return 'Batch records one audio segment over HTTP. Session opens a persistent Agentium voice channel; Cascade still finalizes by segment. Full realtime speech requires WebRTC.';
+	    return `Batch records one audio segment over HTTP. Session opens a persistent ${this.brand()} voice channel; Cascade still finalizes by segment. Full realtime speech requires WebRTC.`;
 	  }
 
 	  voiceSessionButtonTitle(): string {
@@ -4587,16 +4589,16 @@ export class ChatPanelComponent implements AfterViewInit {
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
 	      return 'Realtime voice requires WebRTC; this chat session control is not wired to WebRTC yet.';
 	    }
-	    if (!this.canUseVoiceSession()) return 'This voice runtime does not expose an Agentium voice session path.';
-	    return 'Use an Agentium voice session: text.partial, text.final, oracle events and runtime metrics.';
+	    if (!this.canUseVoiceSession()) return `This voice runtime does not expose the ${this.brand()} voice session path.`;
+	    return `Use the ${this.brand()} voice session: text.partial, text.final, oracle events and runtime metrics.`;
 	  }
 
 	  voiceRealtimeBlockedHint(): string | null {
 	    const runtime = this.selectedVoiceRuntime();
 	    if (!runtime || !this.voiceRuntimeNeedsWebRtc(runtime)) return null;
 	    return this.isDemoMode()
-	      ? 'Realtime voice requires the WebRTC lane. This chat control currently uses Agentium voice sessions.'
-	      : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses Agentium backend WebSocket sessions.`;
+	      ? `Realtime voice requires the WebRTC lane. This chat control currently uses ${this.brand()} voice sessions.`
+	      : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses ${this.brand()} backend WebSocket sessions.`;
 	  }
 
 	  voiceOraclePanelHint(): string {
@@ -7966,7 +7968,7 @@ export class ChatPanelComponent implements AfterViewInit {
   async startConversationLoop(): Promise<void> {
     if (!this.canUseVoiceSession()) {
       this.toast.error(
-        this.isDemoMode() ? 'Voice session loop is not available for this runtime.' : 'Selected runtime cannot open an Agentium voice session.',
+        this.isDemoMode() ? 'Voice session loop is not available for this runtime.' : `Selected runtime cannot open the ${this.brand()} voice session.`,
         'Voice',
       );
       return;

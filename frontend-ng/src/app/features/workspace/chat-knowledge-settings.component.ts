@@ -539,7 +539,7 @@ interface AssistantProfileDraft {
               <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Table Intelligence</p>
               <h3 class="text-base font-semibold text-white mt-1">Analytical spreadsheet profiles</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                Profiles tell Agentium how to interpret table facts for lookup, comparison and calculation. They guide
+                Profiles tell {{ brand() }} how to interpret table facts for lookup, comparison and calculation. They guide
                 query expansion and aggregation, while raw cells remain the proof source.
               </p>
             </div>
@@ -683,7 +683,7 @@ interface AssistantProfileDraft {
                 </article>
               } @empty {
                 <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
-                  No custom table profile. Agentium will use its generic provider-agnostic table interpretation profile.
+                  No custom table profile. {{ brand() }} will use its generic provider-agnostic table interpretation profile.
                 </div>
               }
             </div>
@@ -726,7 +726,7 @@ interface AssistantProfileDraft {
               </label>
               <div class="rounded border border-cyan-400/20 bg-cyan-500/5 px-4 py-3 text-xs leading-relaxed text-cyan-50/80">
                 V1 extracts structure and document facts. V1.5 exposes OCR evidence in the UI. V2 adds provider gating,
-                OpenAI Vision enrichment and service-first OCR without locking Agentium to one provider.
+                OpenAI Vision enrichment and service-first OCR without locking {{ brand() }} to one provider.
               </div>
             </div>
 
@@ -787,7 +787,7 @@ interface AssistantProfileDraft {
                 </article>
               } @empty {
                 <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
-                  No custom document profile. Agentium will use its generic provider-neutral document interpretation profile.
+                  No custom document profile. {{ brand() }} will use its generic provider-neutral document interpretation profile.
                 </div>
               }
             </div>
@@ -941,7 +941,7 @@ interface AssistantProfileDraft {
 
               <div class="divide-y divide-white/5">
                 @if (chatDraft.prompt_pack.length === 0) {
-                  <p class="px-4 py-5 text-sm text-gray-500">No custom prompts. The chat will use contextual Agentium suggestions.</p>
+                  <p class="px-4 py-5 text-sm text-gray-500">No custom prompts. The chat will use contextual {{ brand() }} suggestions.</p>
                 }
                 @for (prompt of chatDraft.prompt_pack; track prompt; let i = $index) {
                   <div class="p-4 grid gap-3 lg:grid-cols-[120px_1fr_180px_140px_40px] lg:items-end">
@@ -1182,7 +1182,7 @@ interface AssistantProfileDraft {
                 </label>
                 <label class="block min-w-56 flex-1">
                   <span class="field-label">Optional trigger word</span>
-                  <input class="ag-field" [(ngModel)]="voiceLoopDraft.trigger_word" [disabled]="!canEdit()" placeholder="Agentium" />
+                  <input class="ag-field" [(ngModel)]="voiceLoopDraft.trigger_word" [disabled]="!canEdit()" [placeholder]="brand()" />
                 </label>
               </div>
               <div class="grid gap-4 mt-4 lg:grid-cols-2">
@@ -2016,6 +2016,8 @@ interface AssistantProfileDraft {
   `],
 })
 export class ChatKnowledgeSettingsComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(ApiService);
   protected readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);

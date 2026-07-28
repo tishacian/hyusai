@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService, UserProfile } from '@app/core/auth-api.service';
@@ -21,7 +22,7 @@ const FIELD_CLASS =
         <div>
           <h2 class="text-base font-semibold text-white">Profile</h2>
           <p class="text-sm text-gray-400 mt-0.5">
-            Your identity across Agentium, shared with workspace members.
+            Your identity across {{ brand() }}, shared with workspace members.
           </p>
         </div>
       </div>
@@ -87,6 +88,8 @@ const FIELD_CLASS =
   `,
 })
 export class ProfileComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(AuthApiService);
   private readonly toastr = inject(ToastrService);
 

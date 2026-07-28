@@ -34,6 +34,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -96,7 +97,7 @@ type UiMode = 'guest_link' | 'oauth';
             <span class="text-[10px] font-mono text-gray-500">one per session_key</span>
           </header>
           <p class="text-[12px] text-gray-400 mb-4 leading-relaxed">
-            Has your client's IT consented an Entra ID app for Agentium on their tenant?
+            Has your client's IT consented an Entra ID app for {{ brand() }} on their tenant?
           </p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
@@ -462,6 +463,8 @@ type UiMode = 'guest_link' | 'oauth';
   `,
 })
 export class SharepointConnectorComponent implements OnInit, OnDestroy {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(SharepointApiService);
   private readonly toast = inject(ToastrService);
 

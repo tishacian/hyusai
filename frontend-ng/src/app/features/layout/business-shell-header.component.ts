@@ -19,7 +19,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       <div class="business-brand">
         <img src="/assets/brand/agentium-mark.svg" alt="" width="24" height="24" />
         <div class="business-cyan-copy">
-          <span class="business-cyan-title">{{ workspace.current()?.name || 'Agentium' }}</span>
+          <span class="business-cyan-title">{{ workspace.current()?.name || brand() }}</span>
           <span class="business-cyan-subtitle">Workspace métier</span>
         </div>
       </div>
@@ -361,6 +361,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
   `],
 })
 export class BusinessShellHeaderComponent {
+  /** Screen copy names the product by its brand in this workspace. */
+  protected readonly brand = inject(WorkspaceService).brandName;
   protected readonly workspace = inject(WorkspaceService);
   protected readonly navigation = inject(NavigationProfileService);
   protected readonly auth = inject(AuthStore);

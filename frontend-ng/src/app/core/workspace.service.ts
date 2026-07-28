@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
+import { DEFAULT_BRAND_NAME, platformBrand } from './platform-brand';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
@@ -174,6 +175,14 @@ export class WorkspaceService {
   );
   /** Same-workspace metadata/settings hydration; identity and epoch stay stable. */
   readonly contextRefresh$ = this.contextRefreshSubject.asObservable();
+  /**
+   * The name the product goes by on screen. A white-labelled workspace answers
+   * with its own; every other one answers Agentium. Screen copy that names the
+   * product reads this rather than hard-coding the editor.
+   */
+  readonly brandName = computed(
+    () => platformBrand(this.current()?.settings)?.label ?? DEFAULT_BRAND_NAME,
+  );
   readonly isAdmin = computed(() => {
     const role = this.current()?.role;
     const roleTemplate = this.current()?.role_template;
