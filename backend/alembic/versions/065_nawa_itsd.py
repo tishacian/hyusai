@@ -88,6 +88,15 @@ PLATFORM_BRAND = {
     "home": "/nawa/itsd",
 }
 
+# Presentation mode, identical in shape to what the Settings screen's toggle
+# writes and to what the Andritz workspace already carries. It suppresses the
+# provider and model disclosures in the cockpit — the chat runtime chip, the
+# model portal tabs, the provider fields on presets — for a workspace shown to a
+# customer whose own requirement is a sovereign deployment. It changes nothing
+# about where inference actually runs; it only stops the preview's own hosting
+# choice from being read as the answer to that question.
+PRESENTATION = {"demo_safe": True, "hide_provider_details": True}
+
 # The flow binds these by slug, and none of them is attached to a Capability,
 # so they resolve to nothing in this workspace's catalogue unless the workspace
 # names them itself. Harmless today (the release under demo performs no binding
@@ -374,6 +383,12 @@ def _write_workspace_settings(bind, workspaces, workspace_id, settings, now) -> 
     # An operator-authored brand is authoritative: we only fill the hole.
     if not isinstance(settings.get("platform_brand"), dict):
         settings["platform_brand"] = deepcopy(PLATFORM_BRAND)
+    # Same rule for the presentation mode, with one difference: the reader is a
+    # disjunction over several keys, so an operator who turned it on by any of
+    # them has already said yes and must not be overwritten.
+    if not settings.get("demo_safe") and not isinstance(settings.get("presentation"), dict):
+        settings["demo_safe"] = True
+        settings["presentation"] = deepcopy(PRESENTATION)
     _merge_catalog_override(settings)
     settings[MIGRATION_MARKER_KEY] = {"schema": 1, "applied_at": now.isoformat()}
     bind.execute(
@@ -545,6 +560,9 @@ def downgrade() -> None:
         # Only ever remove the brand we wrote: an operator-authored one is theirs.
         if settings.get("platform_brand") == PLATFORM_BRAND:
             settings.pop("platform_brand", None)
+        if settings.get("presentation") == PRESENTATION:
+            settings.pop("presentation", None)
+            settings.pop("demo_safe", None)
         catalog = settings.get("catalog")
         if isinstance(catalog, dict):
             catalog = dict(catalog)

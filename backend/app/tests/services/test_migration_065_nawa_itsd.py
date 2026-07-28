@@ -265,6 +265,8 @@ def test_upgrade_never_touches_the_feature_flags(bind):
         "catalog",
         "navigation_profile",
         "platform_brand",
+        "demo_safe",
+        "presentation",
         MIG.MIGRATION_MARKER_KEY,
     }
 
@@ -415,6 +417,70 @@ def test_upgrade_keeps_an_operator_authored_brand(bind):
     assert bind.execute(
         sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
     ).scalar_one()["platform_brand"] == authored
+
+
+def test_upgrade_hides_the_provider_disclosures_for_this_workspace_only(bind):
+    """The workspace is shown to a customer whose requirement is a sovereign
+    deployment. The cockpit's provider and model chips are the preview's own
+    hosting choice, not an answer to that requirement, so they are suppressed —
+    for this workspace, and for no other."""
+    tables = _schema(bind)
+    workspaces, members, _ent, _caps, _skills, _systems = tables
+    _seed_nawa(bind, tables, settings={})
+    bind.execute(
+        workspaces.insert(),
+        {"id": "workspace-other", "slug": "octocity", "settings": {"features": {}}},
+    )
+    bind.execute(members.insert(), {"id": 12, "workspace_id": "workspace-other"})
+
+    MIG.upgrade()
+
+    settings = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()
+    assert settings["demo_safe"] is True
+    assert settings["presentation"] == MIG.PRESENTATION
+    other = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-other")
+    ).scalar_one()
+    assert "demo_safe" not in other and "presentation" not in other
+
+
+def test_upgrade_keeps_an_operator_authored_presentation(bind):
+    """The frontend reads several keys as a disjunction, so an operator who set
+    any of them has already answered. Filling the others would be us deciding
+    what they left deliberately open."""
+    tables = _schema(bind)
+    workspaces, _members, _ent, _caps, _skills, _systems = tables
+    authored = {"hide_provider_details": False}
+    _seed_nawa(bind, tables, settings={"presentation": deepcopy(authored)})
+
+    MIG.upgrade()
+    settings = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()
+    assert settings["presentation"] == authored
+    assert "demo_safe" not in settings
+
+    # ...and what we did not write is not ours to remove either.
+    MIG.downgrade()
+    assert bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()["presentation"] == authored
+
+
+def test_downgrade_removes_the_presentation_it_wrote(bind):
+    tables = _schema(bind)
+    workspaces, _members, _ent, _caps, _skills, _systems = tables
+    _seed_nawa(bind, tables, settings={})
+
+    MIG.upgrade()
+    MIG.downgrade()
+
+    settings = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()
+    assert "presentation" not in settings and "demo_safe" not in settings
 
 
 def test_downgrade_removes_the_brand_it_wrote(bind):
