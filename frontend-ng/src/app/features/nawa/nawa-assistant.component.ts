@@ -427,6 +427,10 @@ export class NawaAssistantComponent implements OnDestroy {
     const query = text.trim();
     if (!query || this.pending()) return;
     this.draft.set('');
+    // Sending is a request to see the answer, so it always returns to the
+    // bottom — the rule about not fighting the reader is about content that
+    // arrives on its own, not about content they just asked for.
+    this.stick = true;
 
     const awaiting = this.awaitingIdentity();
     if (awaiting !== null) {
