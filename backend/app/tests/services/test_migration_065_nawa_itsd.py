@@ -258,12 +258,13 @@ def test_upgrade_never_touches_the_feature_flags(bind):
         sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
     ).scalar_one()
     assert settings["features"] == features
-    # The whole-settings write is a read-modify-write: only these three keys
-    # may ever appear or change.
+    # The whole-settings write is a read-modify-write: only these keys may ever
+    # appear or change.
     assert set(settings) == {
         "features",
         "catalog",
         "navigation_profile",
+        "platform_brand",
         MIG.MIGRATION_MARKER_KEY,
     }
 
@@ -368,6 +369,66 @@ def test_upgrade_preserves_an_existing_profile_and_other_workspaces(bind):
         .select_from(systems)
         .where(systems.c.workspace_id == "workspace-other")
     ).scalar_one() == 0
+
+
+def test_upgrade_brands_the_platform_chrome_for_this_workspace_only(bind):
+    """The title bar and the browser tab are shared by every workspace, so the
+    white-label switch is a per-workspace setting. Andritz must come out of this
+    migration exactly as it went in, still wearing the Agentium chrome."""
+    tables = _schema(bind)
+    workspaces, members, _ent, _caps, _skills, _systems = tables
+    _seed_nawa(bind, tables, settings={})
+    bind.execute(
+        workspaces.insert(),
+        {"id": "workspace-other", "slug": "andritz", "settings": {"features": {}}},
+    )
+    bind.execute(members.insert(), {"id": 11, "workspace_id": "workspace-other"})
+
+    MIG.upgrade()
+
+    brand = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()["platform_brand"]
+    assert brand == MIG.PLATFORM_BRAND
+    # Both fields are required by the frontend reader: half a declaration would
+    # mix the customer name with our mark.
+    assert brand["label"] and brand["emblem"]
+    other = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-other")
+    ).scalar_one()
+    assert "platform_brand" not in other
+
+
+def test_upgrade_keeps_an_operator_authored_brand(bind):
+    tables = _schema(bind)
+    workspaces, _members, _ent, _caps, _skills, _systems = tables
+    authored = {"label": "NAWA", "emblem": "/assets/nawa/other.png", "home": "/nawa/itsd"}
+    _seed_nawa(bind, tables, settings={"platform_brand": deepcopy(authored)})
+
+    MIG.upgrade()
+    assert bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()["platform_brand"] == authored
+
+    # ...and a brand we did not write is not ours to remove either.
+    MIG.downgrade()
+    assert bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()["platform_brand"] == authored
+
+
+def test_downgrade_removes_the_brand_it_wrote(bind):
+    tables = _schema(bind)
+    workspaces, _members, _ent, _caps, _skills, _systems = tables
+    _seed_nawa(bind, tables, settings={})
+
+    MIG.upgrade()
+    MIG.downgrade()
+
+    settings = bind.execute(
+        sa.select(workspaces.c.settings).where(workspaces.c.id == "workspace-nawa")
+    ).scalar_one()
+    assert "platform_brand" not in settings
 
 
 def test_upgrade_leaves_an_operator_authored_system_alone(bind):

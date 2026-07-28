@@ -11,6 +11,7 @@ import { Observable, Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import type { Run, System } from '@app/core/canonical-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
   NAWA_ASSISTANT,
   NAWA_ASSISTANT_SUBTITLE,
@@ -90,6 +91,14 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
         <span class="nawa-subtitle">{{ subtitle }} — use case #1, simulation bench</span>
       </div>
       <div class="nawa-header-spacer"></div>
+      @if (platform()) {
+        @if (system(); as installed) {
+          <a class="nawa-link" [routerLink]="['/systems', installed.id, 'flow']">
+            <ck-glyph name="flow" [size]="12" />
+            Flow Builder
+          </a>
+        }
+      }
       <a class="nawa-link" routerLink="/nawa/itsd">Back to the catalogue</a>
     </header>
 
@@ -204,7 +213,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                 {{ remediationLabel(outcome) }}
               </button>
             }
-            @if (platform) {
+            @if (platform()) {
               <div class="pr-outcome-links">
                 @if (run()) {
                   <a class="nawa-link" [routerLink]="['/runs', run()!.id]">
@@ -297,7 +306,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
             <ul>
               @for (item of history(); track item.id) {
                 <li>
-                  @if (platform) {
+                  @if (platform()) {
                     <a [routerLink]="['/runs', item.id]">{{ item.id.slice(0, 8) }}</a>
                   } @else {
                     <span>{{ item.id.slice(0, 8) }}</span>
@@ -322,15 +331,19 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
 export class NawaPasswordResetComponent implements OnDestroy {
   private readonly service = inject(NawaItsdService);
   private readonly route = inject(ActivatedRoute);
+  private readonly workspace = inject(WorkspaceService);
 
   protected readonly assistant = NAWA_ASSISTANT;
   protected readonly subtitle = NAWA_ASSISTANT_SUBTITLE;
 
   /**
-   * Presenter escape hatch. The business view is white-labelled, so the links
-   * that leave for the platform's own screens are opt-in: `?platform=1`.
+   * The business view is white-labelled: the links that leave for the platform's
+   * own screens belong to whoever administers the workspace. `?platform=1` is
+   * the presenter's escape hatch on a member account.
    */
-  protected readonly platform = this.route.snapshot.queryParamMap.get('platform') === '1';
+  protected readonly platform = computed(() =>
+    this.workspace.isAdmin() || this.route.snapshot.queryParamMap.get('platform') === '1',
+  );
 
   protected readonly scenario = signal<NawaScenario>(NAWA_SCENARIOS[0]);
   protected readonly system = signal<System | null>(null);

@@ -72,6 +72,19 @@ NAVIGATION_PROFILE = {
     "advanced_access": "admin_only",
 }
 
+# White-label identity of the platform chrome for this workspace: the title bar
+# and the browser tab carry the customer brand while the platform navigation and
+# its vocabulary (Build, Operate, Flow Builder, Skills) stay as they are. Read by
+# the frontend `platform_brand` reader, which refuses a half declaration; absent
+# the key, the chrome stays Agentium, which is every other workspace's case.
+# `home` is where the branded emblem returns, so an operator who pivoted into the
+# cockpit has one click back to the customer app.
+PLATFORM_BRAND = {
+    "label": "NAWA WE",
+    "emblem": "/assets/nawa/nawa-logo.png",
+    "home": "/nawa/itsd",
+}
+
 # The flow binds these by slug, and none of them is attached to a Capability,
 # so they resolve to nothing in this workspace's catalogue unless the workspace
 # names them itself. Harmless today (the release under demo performs no binding
@@ -342,7 +355,7 @@ def _merge_catalog_override(settings: dict[str, Any]) -> None:
     settings["catalog"] = catalog
 
 
-def _write_navigation_profile(bind, workspaces, workspace_id, settings, now) -> None:
+def _write_workspace_settings(bind, workspaces, workspace_id, settings, now) -> None:
     profile = settings.get("navigation_profile")
     if isinstance(profile, dict):
         # An operator-authored profile keeps its own shape; we only make sure
@@ -355,6 +368,9 @@ def _write_navigation_profile(bind, workspaces, workspace_id, settings, now) -> 
     else:
         profile = deepcopy(NAVIGATION_PROFILE)
     settings["navigation_profile"] = profile
+    # An operator-authored brand is authoritative: we only fill the hole.
+    if not isinstance(settings.get("platform_brand"), dict):
+        settings["platform_brand"] = deepcopy(PLATFORM_BRAND)
     _merge_catalog_override(settings)
     settings[MIGRATION_MARKER_KEY] = {"schema": 1, "applied_at": now.isoformat()}
     bind.execute(
@@ -418,7 +434,7 @@ def upgrade() -> None:
         ws = row._mapping
         workspace_id = ws["id"]
 
-        _write_navigation_profile(
+        _write_workspace_settings(
             bind, workspaces, workspace_id, _as_dict(ws["settings"]), now
         )
         if {"workspace_members", "workspace_member_app_entitlements"}.issubset(tables):
@@ -523,6 +539,9 @@ def downgrade() -> None:
                 if isinstance(s, str) and s != NAWA_APP_KEY
             ]
             settings["navigation_profile"] = profile
+        # Only ever remove the brand we wrote: an operator-authored one is theirs.
+        if settings.get("platform_brand") == PLATFORM_BRAND:
+            settings.pop("platform_brand", None)
         catalog = settings.get("catalog")
         if isinstance(catalog, dict):
             catalog = dict(catalog)

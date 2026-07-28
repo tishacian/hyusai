@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
+import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
 
 export const routes: Routes = [
   {
@@ -20,7 +21,7 @@ export const routes: Routes = [
     // outside the Agentium shell. Business stakeholders must see the Nawa brand
     // only, never the platform title bar, side rail or workspace switcher.
     path: 'nawa',
-    canActivate: [authGuard],
+    canActivate: [authGuard, workspaceHydrationGuard],
     loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
   },
   {

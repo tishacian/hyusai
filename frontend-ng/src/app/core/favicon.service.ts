@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
-import { filter, startWith } from 'rxjs';
+import { filter, merge, startWith } from 'rxjs';
 import { WorkspaceService } from './workspace.service';
+import { platformBrand } from './platform-brand';
 import {
   MISSION_ROOM_EXTENSION,
   missionRoomExtensionState,
@@ -10,10 +11,11 @@ import {
 const DEFAULT_FAVICON = '/assets/brand/favicon.svg';
 const DEFAULT_TITLE = 'Agentium';
 
-/** White-labelled customer app: the browser tab carries its brand, not ours. */
-const NAWA_ROUTE_ROOT = '/nawa';
-const NAWA_FAVICON = '/assets/nawa/nawa-logo.png';
-const NAWA_TITLE = 'NAWA WE';
+function faviconType(href: string): string {
+  if (href.endsWith('.png')) return 'image/png';
+  if (href.endsWith('.ico')) return 'image/x-icon';
+  return 'image/svg+xml';
+}
 
 @Injectable({ providedIn: 'root' })
 export class FaviconService {
@@ -25,29 +27,31 @@ export class FaviconService {
     if (this.initialized) return;
     this.initialized = true;
 
-    this.router.events
-      .pipe(
+    merge(
+      this.router.events.pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-        startWith(null),
-      )
-      .subscribe((event) => {
-        const url = event?.urlAfterRedirects || this.router.url || '/';
-        this.apply(url);
-      });
+      ),
+      // Membership settings hydrate after the first navigation. Without this a
+      // white-labelled workspace would wear our brand until the next one.
+      this.workspace.contextRefresh$,
+    )
+      .pipe(startWith(null))
+      .subscribe(() => this.apply(this.router.url || '/'));
   }
 
   private apply(url: string): void {
     const path = url.split('?')[0].split('#')[0];
-    const nawa = path === NAWA_ROUTE_ROOT || path.startsWith(`${NAWA_ROUTE_ROOT}/`);
-    const href = nawa ? NAWA_FAVICON : DEFAULT_FAVICON;
-    const type = nawa ? 'image/png' : 'image/svg+xml';
+    // A white-labelled workspace owns the tab everywhere it is browsed, the
+    // business app and the platform screens alike.
+    const brand = platformBrand(this.workspace.current()?.settings);
+    const href = brand?.emblem || DEFAULT_FAVICON;
     const link = this.ensureIconLink();
     if (link.getAttribute('href') !== href) {
       link.setAttribute('href', href);
     }
-    link.setAttribute('type', type);
-    if (nawa) {
-      document.title = NAWA_TITLE;
+    link.setAttribute('type', faviconType(href));
+    if (brand) {
+      document.title = brand.label;
       return;
     }
     document.title = (

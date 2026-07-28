@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { GlyphComponent } from '@app/shared/cockpit';
 import {
@@ -9,6 +9,7 @@ import {
   type NawaUseCase,
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
 
@@ -44,6 +45,12 @@ type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
           <span class="nawa-metric-label">Same pattern</span>
         </div>
       </div>
+      @if (platform()) {
+        <a class="nawa-link" routerLink="/systems">
+          <ck-glyph name="cube" [size]="12" />
+          Builder view
+        </a>
+      }
     </header>
 
     <div class="nawa-body">
@@ -188,9 +195,16 @@ type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
 })
 export class NawaItsdCatalogComponent {
   private readonly service = inject(NawaItsdService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly assistant = NAWA_ASSISTANT;
   protected readonly subtitle = NAWA_ASSISTANT_SUBTITLE;
+
+  /** The pivot into the platform belongs to whoever administers the workspace. */
+  protected readonly platform = computed(() =>
+    this.workspace.isAdmin() || this.route.snapshot.queryParamMap.get('platform') === '1',
+  );
 
   protected readonly filters: { key: CatalogFilter; label: string }[] = [
     { key: 'all', label: 'All' },

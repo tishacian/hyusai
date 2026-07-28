@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription, timer } from 'rxjs';
@@ -9,6 +9,7 @@ import { ApiService } from '@app/core/api.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { platformBrand } from '@app/core/platform-brand';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
 import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
@@ -31,6 +32,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
     LiveDotComponent,
     StatReadoutComponent,
     IconComponent,
+    RouterLink,
     SemanticZoomBreadcrumbComponent,
   ],
   template: `
@@ -46,34 +48,36 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
       [style.color]="'var(--ck-fg-1)'"
       [style.gap.px]="14"
     >
-      <!-- Brand cluster -->
-      <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="10" [style.flex]="'0 0 auto'">
-        <img
-          src="/assets/brand/agentium-mark.svg"
-          alt=""
-          width="26"
-          height="26"
-          [style.display]="'block'"
-          [style.borderRadius.px]="6"
-        />
-        <div [style.display]="'flex'" [style.flexDirection]="'column'" [style.lineHeight]="'1'">
-          <span
-            [style.fontFamily]="'var(--ck-font-sans)'"
-            [style.fontWeight]="600"
-            [style.fontSize.px]="14"
-            [style.letterSpacing]="'-0.01em'"
-            [style.color]="'var(--ck-fg-1)'"
-          >Agentium</span>
-          <span
-            class="ck-mono"
-            [style.fontSize.px]="9"
-            [style.letterSpacing]="'0.16em'"
-            [style.textTransform]="'uppercase'"
-            [style.marginTop.px]="2"
-            [style.color]="'var(--ck-fg-4)'"
-          >OS · v0.4.0</span>
+      <!-- Brand cluster. A white-labelled workspace carries its own identity
+           here and the emblem returns to its business app; the platform
+           navigation and its vocabulary are unchanged either way. -->
+      @if (brand(); as tenant) {
+        @if (tenant.home; as home) {
+          <a class="tb-brand" [routerLink]="home" [title]="tenant.label">
+            <img class="tb-emblem" [src]="tenant.emblem" alt="" width="26" height="26" />
+            <span class="tb-brand-copy">
+              <span class="tb-brand-name">{{ tenant.label }}</span>
+              <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
+            </span>
+          </a>
+        } @else {
+          <div class="tb-brand">
+            <img class="tb-emblem" [src]="tenant.emblem" alt="" width="26" height="26" />
+            <span class="tb-brand-copy">
+              <span class="tb-brand-name">{{ tenant.label }}</span>
+              <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
+            </span>
+          </div>
+        }
+      } @else {
+        <div class="tb-brand">
+          <img class="tb-emblem" src="/assets/brand/agentium-mark.svg" alt="" width="26" height="26" />
+          <span class="tb-brand-copy">
+            <span class="tb-brand-name">Agentium</span>
+            <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
+          </span>
         </div>
-      </div>
+      }
 
       <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
 
@@ -391,10 +395,47 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
       </div>
     </header>
   `,
+  styles: [`
+    .tb-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+      text-decoration: none;
+      color: inherit;
+    }
+    .tb-emblem {
+      display: block;
+      border-radius: 6px;
+    }
+    .tb-brand-copy {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+    .tb-brand-name {
+      font-family: var(--ck-font-sans);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: -0.01em;
+      color: var(--ck-fg-1);
+    }
+    .tb-brand-line {
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin-top: 2px;
+      color: var(--ck-fg-4);
+    }
+  `],
 })
 export class TitleBarComponent {
   protected readonly themeService = inject(ThemeService);
   protected readonly workspaceService = inject(WorkspaceService);
+  /** Tenant identity for this chrome, when the workspace declares one. */
+  protected readonly brand = computed(() =>
+    platformBrand(this.workspaceService.current()?.settings),
+  );
   protected readonly authStore = inject(AuthStore);
   protected readonly chatOverlay = inject(ChatOverlayService);
   protected readonly i18n = inject(I18nService);
