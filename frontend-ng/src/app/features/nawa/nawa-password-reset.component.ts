@@ -101,55 +101,57 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
           injection is announced, not hidden.
         </p>
 
-        <div class="pr-scenarios" role="radiogroup" aria-label="Scenario to run">
-          @for (option of scenarios(); track option.key) {
-            <button
-              type="button"
-              role="radio"
-              class="pr-scenario"
-              [class.pr-scenario-on]="scenario().key === option.key"
-              [attr.aria-checked]="scenario().key === option.key"
-              [disabled]="running()"
-              (click)="scenario.set(option)"
-            >
-              <span class="pr-scenario-head">
-                <span class="pr-scenario-label">{{ option.label }}</span>
-              </span>
-              <span class="pr-scenario-proves">{{ option.proves }}</span>
-            </button>
-          }
-        </div>
-
-        @if (preset(); as caller) {
-          <div class="pr-input">
-            <span class="pr-input-label">Request received by the service desk</span>
-            <p class="pr-input-text">“{{ caller.request_text }}”</p>
-            @if (caller.requester_name) {
-              <span class="pr-input-label">Requester</span>
-              <p class="pr-input-text">
-                {{ caller.requester_name }}
-                @if (caller.channel) {
-                  · {{ caller.channel }}
-                }
-              </p>
-            }
-            @if (caller.identity_evidence) {
-              <span class="pr-input-label">Identity evidence collected</span>
-              @for (line of evidenceLines(caller.identity_evidence); track $index) {
-                <p class="pr-input-text">{{ line }}</p>
-              }
+        <div class="pr-panel-scroll">
+          <div class="pr-scenarios" role="radiogroup" aria-label="Scenario to run">
+            @for (option of scenarios(); track option.key) {
+              <button
+                type="button"
+                role="radio"
+                class="pr-scenario"
+                [class.pr-scenario-on]="scenario().key === option.key"
+                [attr.aria-checked]="scenario().key === option.key"
+                [disabled]="busy()"
+                (click)="scenario.set(option)"
+              >
+                <span class="pr-scenario-head">
+                  <span class="pr-scenario-label">{{ option.label }}</span>
+                </span>
+                <span class="pr-scenario-proves">{{ option.proves }}</span>
+              </button>
             }
           </div>
-        }
+
+          @if (preset(); as caller) {
+            <div class="pr-input">
+              <span class="pr-input-label">Request received by the service desk</span>
+              <p class="pr-input-text">“{{ caller.request_text }}”</p>
+              @if (caller.requester_name) {
+                <span class="pr-input-label">Requester</span>
+                <p class="pr-input-text">
+                  {{ caller.requester_name }}
+                  @if (caller.channel) {
+                    · {{ caller.channel }}
+                  }
+                </p>
+              }
+              @if (caller.identity_evidence) {
+                <span class="pr-input-label">Identity evidence collected</span>
+                @for (line of evidenceLines(caller.identity_evidence); track $index) {
+                  <p class="pr-input-text">{{ line }}</p>
+                }
+              }
+            </div>
+          }
+        </div>
 
         <button
           type="button"
           class="nawa-button pr-launch"
-          [disabled]="!system() || running()"
+          [disabled]="!system() || busy()"
           (click)="launch()"
         >
           <ck-glyph name="play" [size]="13" />
-          {{ running() ? 'Simulation running…' : 'Run the simulation' }}
+          {{ busy() ? 'Simulation running…' : 'Run the simulation' }}
         </button>
 
         @switch (systemState()) {
@@ -185,7 +187,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
               }
             </div>
             <p class="pr-outcome-body">{{ outcomeBody(outcome) }}</p>
-            @if (view().hasDiagnostics) {
+            @if (view().hasDiagnostics && outcome !== 'closed') {
               <p class="pr-outcome-trace">
                 The exact technical cause is kept in the execution journal below and in the run
                 trace.
@@ -195,7 +197,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
               <button
                 type="button"
                 class="nawa-button pr-remediate"
-                [disabled]="running()"
+                [disabled]="busy()"
                 (click)="remediate(replayInput)"
               >
                 <ck-glyph name="play" [size]="13" />
@@ -242,8 +244,8 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                     <span class="pr-step-title">{{ item.step.index }}. {{ item.step.title }}</span>
                     <span class="nawa-badge pr-step-kind">{{ kindLabel(item.step.kind) }}</span>
                     <span class="pr-step-state">{{ stepLabel(item.state) }}</span>
-                    @if (item.latencyMs !== null) {
-                      <span class="pr-step-latency">{{ item.latencyMs }} ms</span>
+                    @if (latencyLabel(item.latencyMs); as latency) {
+                      <span class="pr-step-latency">{{ latency }}</span>
                     }
                   </div>
                   <p class="pr-step-detail">{{ item.step.detail }}</p>
@@ -328,6 +330,13 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   protected readonly view = computed(() => projectRun(this.run()));
 
+  /**
+   * The panel is busy while the run progresses, not while it waits for a human.
+   * The poll deliberately stays alive on an open gate, but an unanswered gate
+   * must not lock the operator out of the other scenarios.
+   */
+  protected readonly busy = computed(() => this.running() && this.run()?.status !== 'hitl_pending');
+
   private readonly settings = computed<Record<string, unknown>>(() => {
     const raw = this.system()?.settings;
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -355,6 +364,12 @@ export class NawaPasswordResetComponent implements OnDestroy {
     const ms = this.run()?.duration_ms;
     return typeof ms === 'number' ? `${(ms / 1000).toFixed(1)} s` : null;
   });
+
+  /** A step's own latency, rounded: the raw float reads as debug output. */
+  protected latencyLabel(ms: number | null): string | null {
+    if (ms === null) return null;
+    return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
+  }
 
   private pollSub: Subscription | null = null;
 
@@ -386,7 +401,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
 
   protected launch(): void {
     const system = this.system();
-    if (!system || this.running()) return;
+    if (!system || this.busy()) return;
     this.start(this.service.launch(system.id, this.scenario()));
   }
 
@@ -397,7 +412,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
    */
   protected remediate(input: Record<string, string | number | boolean>): void {
     const system = this.system();
-    if (!system || this.running()) return;
+    if (!system || this.busy()) return;
     this.start(this.service.launchWith(system.id, input));
   }
 

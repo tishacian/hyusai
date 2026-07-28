@@ -65,6 +65,20 @@ interface Checkpoint {
 }
 
 /**
+ * The automated route to the directory is deliberately not provisioned in this
+ * workspace, so the connector refuses with its own wording, which names our
+ * platform instead of the directory the scenario is about. The journal states the
+ * cause from the directory's side; the raw text stays in the native run trace and
+ * in the audit ledger, which is where an auditor looks for it.
+ */
+const PLATFORM_ROUTE_ERROR = /connector is not enabled|not provisioned for this workspace/i;
+const DIRECTORY_ROUTE_CAUSE = 'the corporate directory did not answer on the automated route';
+
+function causeText(text: string): string {
+  return PLATFORM_ROUTE_ERROR.test(text) ? DIRECTORY_ROUTE_CAUSE : text.slice(0, 160);
+}
+
+/**
  * What one step learned from its nodes, independently of their arrival order.
  *
  * The walker emits `node_end` in dependency order, not step order: on the
@@ -150,7 +164,7 @@ export function projectRun(run: Run | null): NawaRunView {
           at,
           text: `${raw.label || raw.node_id || 'step'} · ${raw.status || 'done'}${
             raw.chosen_branch ? ` · branch ${raw.chosen_branch}` : ''
-          }${raw.error ? ` · ${raw.error.slice(0, 120)}` : ''}`,
+          }${raw.error ? ` · ${causeText(raw.error)}` : ''}`,
           tone: state === 'failed' ? 'bad' : state === 'skipped' ? 'warn' : 'good',
         });
         break;
@@ -195,7 +209,7 @@ export function projectRun(run: Run | null): NawaRunView {
     hasDiagnostics = true;
     activity.push({
       at: '',
-      text: `Diagnostic · ${key.slice('diagnostic_'.length)}: ${String(value).slice(0, 160)}`,
+      text: `Diagnostic · ${key.slice('diagnostic_'.length)}: ${causeText(String(value))}`,
       tone: 'warn',
     });
   }

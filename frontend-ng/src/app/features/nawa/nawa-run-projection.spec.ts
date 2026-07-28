@@ -192,7 +192,7 @@ test('each lane resolves to its business outcome code', () => {
   assert.equal(project('quality_guard').outcome, 'quality_hold');
 });
 
-test('the raw provider error never reaches the on-screen evidence', () => {
+test('the raw provider error never reaches the screen', () => {
   for (const key of Object.keys(FIXTURES)) {
     const view = project(key);
     const shown = JSON.stringify(view.output).toLowerCase();
@@ -201,9 +201,13 @@ test('the raw provider error never reaches the on-screen evidence', () => {
       assert.ok(!entry.key.startsWith('diagnostic_'), `${key}: ${entry.key} reached the panel`);
       assert.notEqual(entry.key, 'evaluations', `${key}: evaluations reached the panel`);
     }
+    const journal = JSON.stringify(view.activity).toLowerCase();
+    assert.ok(!journal.includes('not enabled'), `${key}: the connector error reached the journal`);
   }
-  // ...and it is still reachable where an auditor looks for it.
+  // ...and the incident still states a cause, from the directory's side.
   const incident = project('ad_unreachable');
   assert.ok(incident.hasDiagnostics);
-  assert.ok(incident.activity.some((line) => line.text.includes('not enabled')));
+  assert.ok(
+    incident.activity.some((line) => line.text.includes('did not answer on the automated route')),
+  );
 });
