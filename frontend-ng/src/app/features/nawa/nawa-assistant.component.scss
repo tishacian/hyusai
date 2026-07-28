@@ -120,24 +120,6 @@
   border-radius: var(--nawa-radius);
 }
 
-.as-pending-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--nawa-accent);
-  animation: as-pulse 1.1s ease-in-out infinite;
-}
-
-@keyframes as-pulse {
-  0%,
-  100% {
-    opacity: 0.28;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 // ---- provenance ----------------------------------------------------------
 
 .as-meta {

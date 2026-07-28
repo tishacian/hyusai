@@ -9,7 +9,7 @@ import {
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable, Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
-import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { GlyphComponent, ThinkingOrbComponent, type CkGlyphName } from '@app/shared/cockpit';
 import type { Run, RunHitlPayload, System } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ThemeService } from '@app/core/theme.service';
@@ -93,7 +93,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   selector: 'app-nawa-password-reset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent],
+  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent, ThinkingOrbComponent],
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
@@ -313,7 +313,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                   <span class="pr-message-author">{{ appName }}</span>
                 </div>
                 <p class="pr-message-text">
-                  <span class="pr-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <ck-thinking-orb state="working" [size]="20" [label]="workingLabel()" />
                   <span class="pr-working">{{ workingLabel() }}</span>
                 </p>
               </li>

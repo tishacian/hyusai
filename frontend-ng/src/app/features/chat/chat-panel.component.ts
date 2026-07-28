@@ -52,7 +52,11 @@ import { persistWorkspaceEvalContext } from '@app/core/evaluation-context.storag
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
-import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
+import {
+  RuntimeStatusBadgeComponent,
+  ThinkingOrbComponent,
+  type CkOrbState,
+} from '@app/shared/cockpit';
 import {
   SharedVoiceOracleStep,
   SharedVoiceRuntimeOption,
@@ -486,6 +490,7 @@ const STEP_ICONS: Record<string, string> = {
     RouterLink,
     IconComponent,
     RuntimeStatusBadgeComponent,
+    ThinkingOrbComponent,
     VoiceControlsComponent,
     DocumentPreviewComponent,
   ],
@@ -1883,12 +1888,7 @@ const STEP_ICONS: Record<string, string> = {
                   class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/[0.04] ring-1 ring-white/5"
                   aria-live="polite"
                 >
-                  <app-icon
-                    name="loader-2"
-                    [size]="13"
-                    class="text-cyan-400"
-                    [class.animate-spin]="progress.spinning"
-                  />
+                  <ck-thinking-orb [state]="progress.orb" [size]="20" [label]="progress.label" />
                   <span>{{ progress.label }}</span>
                 </div>
               </div>
@@ -3316,7 +3316,7 @@ export class ChatPanelComponent implements AfterViewInit {
    * meaningful progress instead of a blank bubble during the 25-55s retrieval
    * + synthesis window.
    */
-  readonly streamProgress = computed<{ label: string; spinning: boolean } | null>(() => {
+  readonly streamProgress = computed<{ label: string; orb: CkOrbState } | null>(() => {
     if (!this.streaming()) return null;
     // Once tokens arrive the bubble renders them — drop the placeholder.
     if (this.streamBuffer().length > 0) return null;
@@ -3326,7 +3326,7 @@ export class ChatPanelComponent implements AfterViewInit {
       [...steps].reverse().find((s) => s.type === t);
 
     // Synthesis is active but no text has landed yet → the model is writing.
-    if (byType('synthesis')) return { label: 'Rédaction de la réponse…', spinning: true };
+    if (byType('synthesis')) return { label: 'Rédaction de la réponse…', orb: 'composing' };
 
     const retrieve = byType('retrieve');
     if (retrieve && (retrieve.status === 'completed' || retrieve.status === 'warning')) {
@@ -3335,13 +3335,13 @@ export class ChatPanelComponent implements AfterViewInit {
         n != null
           ? `${n} passage${n > 1 ? 's' : ''} trouvé${n > 1 ? 's' : ''} · analyse en cours…`
           : 'Passages analysés…';
-      return { label, spinning: true };
+      return { label, orb: 'solving' };
     }
-    if (byType('thought')) return { label: 'Analyse des passages…', spinning: true };
+    if (byType('thought')) return { label: 'Analyse des passages…', orb: 'solving' };
     if (retrieve || byType('embedding') || byType('query_analysis')) {
-      return { label: 'Recherche dans les documents…', spinning: true };
+      return { label: 'Recherche dans les documents…', orb: 'searching' };
     }
-    return { label: 'Préparation de la requête…', spinning: true };
+    return { label: 'Préparation de la requête…', orb: 'working' };
   });
   readonly autoscrollSignature = computed(() => {
     const messages = this.messages();

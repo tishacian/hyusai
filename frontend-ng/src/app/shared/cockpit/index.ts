@@ -33,3 +33,9 @@ export {
   type CkPanelPosition,
   type CkPanelRef,
 } from './panel.component';
+export {
+  ThinkingOrbComponent,
+  type CkOrbSize,
+  type CkOrbState,
+  type CkOrbTheme,
+} from './thinking-orb/thinking-orb.component';

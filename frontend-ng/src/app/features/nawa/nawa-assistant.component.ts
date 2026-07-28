@@ -32,7 +32,7 @@ import {
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
-import { GlyphComponent } from '@app/shared/cockpit';
+import { GlyphComponent, ThinkingOrbComponent } from '@app/shared/cockpit';
 import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import type { Run, System } from '@app/core/canonical-api.service';
@@ -93,7 +93,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
   selector: 'app-nawa-assistant',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent],
+  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent, ThinkingOrbComponent],
   styleUrls: ['./nawa-theme.scss', './nawa-assistant.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
@@ -215,7 +215,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
                   }
                   @if (!processed.settled) {
                     <div class="as-pending">
-                      <span class="as-pending-dot"></span>
+                      <ck-thinking-orb state="working" [size]="20" />
                       Working on the request…
                     </div>
                   }
@@ -258,7 +258,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
 
           @if (pending() && !hasOpenRun()) {
             <div class="as-pending">
-              <span class="as-pending-dot"></span>
+              <ck-thinking-orb state="searching" [size]="20" />
               Searching the service desk library…
             </div>
           }
