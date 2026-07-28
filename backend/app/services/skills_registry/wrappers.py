@@ -2597,14 +2597,56 @@ async def _capture_structuring_v1(
 async def _audit_log_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    event_id = str(uuid.uuid4())
+    """Persist a compliance event through the shared audit writer.
+
+    Uses ``emit_audit_event`` — the same path ``chain.version.created`` and
+    ``system.updated`` take — so the row lands where the governance screens
+    read it (``GET /api/v1/audit``, which filters strictly on
+    ``workspace_id``) rather than merely in the database.
+
+    This skill never reports success it did not achieve. It raises when the
+    row cannot be written, and it raises when there is no workspace to
+    attribute the record to: an audit entry nobody can read is not an audit
+    entry, and reporting ``recorded`` for one is the same lie as reporting it
+    for a write that never happened. Raising is loud without being fatal — the
+    walker marks the node failed in the trace and carries on, so a ledger
+    outage costs a red node, not the run.
+    """
+    from app.services.audit_logger import emit_audit_event
+
+    ctx = ctx or {}
+    event_type = str(payload.get("event_type") or "").strip()
+    if not event_type:
+        raise ValueError("audit_log_v1 requires an event_type")
+    details = payload.get("details")
+    if details is not None and not isinstance(details, dict):
+        raise ValueError("audit_log_v1 details must be an object")
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError(
+            "audit_log_v1 cannot record an event with no workspace to attribute it to"
+        )
+
+    event_id = emit_audit_event(
+        workspace_id=str(workspace_id),
+        event_type=event_type,
+        actor=str(
+            payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"
+        ),
+        details=details or {},
+        trace_id=ctx.get("run_id"),
+        agent_id=ctx.get("system_id"),
+        severity=str(payload.get("severity") or "info"),
+    )
+    if event_id is None:
+        raise RuntimeError(f"audit ledger write failed for event_type={event_type!r}")
+
     logger.info(
-        "audit_log_v1: event",
+        "audit_log_v1: event recorded",
         event_id=event_id,
-        event_type=payload.get("event_type"),
-        workspace_id=(ctx or {}).get("workspace_id"),
+        event_type=event_type,
+        workspace_id=workspace_id,
         ts=datetime.utcnow().isoformat(),
-        details=payload.get("details") or {},
     )
     return {"id": event_id, "status": "recorded"}
 

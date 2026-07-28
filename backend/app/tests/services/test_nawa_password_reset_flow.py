@@ -832,7 +832,126 @@ async def test_quality_guard_does_not_fire_when_the_evaluator_is_degraded(
 
 
 # ---------------------------------------------------------------------------
-# 7 — The fallback variant: same outcomes, zero provider calls
+# 7 — The ledger, written by the real skill and read the way the screens read it
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "scenario, event_key",
+    [
+        ("nominal", "completed"),
+        ("quality_guard", "withheld"),
+        ("ad_unreachable", "withheld"),
+    ],
+)
+async def test_the_flow_writes_a_ledger_entry_the_governance_screens_can_read(
+    db_session, monkeypatch, scenario, event_key
+):
+    """End to end with the REAL audit skill: what the flow claims to record
+    must come back out of the query the audit endpoint runs."""
+    from app.models.audit import AuditLog
+    from app.models.workspace import Workspace
+    from app.services.skills_registry.wrappers import _audit_log_v1
+
+    workspace = Workspace(id=str(uuid.uuid4()), name="nawa", slug="nawa-ledger-e2e")
+    db_session.add(workspace)
+    db_session.commit()
+
+    _install_registry(
+        monkeypatch,
+        {
+            "azure_llm_v1": _fake_azure_llm,
+            "response_eval_v1": _fake_response_eval,
+            "rpa_dispatch_v1": _fake_rpa_dispatch,
+            "audit_log_v1": _audit_log_v1,
+        },
+    )
+    system = _mk_system(db_session, LLM_FLOW)
+    system.workspace_id = workspace.id
+    db_session.commit()
+    run = _mk_run(db_session, system, scenario)
+    run.workspace_id = workspace.id
+    db_session.commit()
+
+    assert (await execute_run_dag(run.id))["status"] == "completed"
+
+    db_session.expire_all()
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.workspace_id == workspace.id)
+        .order_by(AuditLog.timestamp.desc())
+        .all()
+    )
+    assert len(rows) == 1, "exactly one ledger entry per run, on every lane"
+    row = rows[0]
+    assert row.event_type == (
+        SYSTEM_SETTINGS["simulation"]["audit_event_type"]
+        if event_key == "completed"
+        else "itsd.password_reset.withheld"
+    )
+    # Attribution: without these three the entry is unreadable or misfiled.
+    assert row.workspace_id == workspace.id
+    assert row.trace_id == run.id
+    assert row.agent_id == system.id
+    assert row.details["action"] == "reset_user_password"
+
+    if event_key == "completed":
+        # The id in the outcome now references a row that exists.
+        run = _reload(db_session, run)
+        assert run.output_ref["audit_event_id"] == row.id
+    else:
+        assert row.details["disposition"] == "withheld"
+        assert row.details["account_modified"] is False
+
+
+async def test_a_ledger_outage_is_visible_in_the_trace_but_does_not_sink_the_run(
+    db_session, monkeypatch
+):
+    """The audit node sits at the end of the nominal lane. A ledger outage
+    must be loud — a failed node, no event id in the outcome — without
+    destroying a run whose privileged work already completed."""
+    from app.models.workspace import Workspace
+    from app.services.skills_registry.wrappers import _audit_log_v1
+
+    workspace = Workspace(id=str(uuid.uuid4()), name="nawa", slug="nawa-ledger-down")
+    db_session.add(workspace)
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.audit_logger.emit_audit_event", lambda **_kwargs: None
+    )
+
+    _install_registry(
+        monkeypatch,
+        {
+            "azure_llm_v1": _fake_azure_llm,
+            "response_eval_v1": _fake_response_eval,
+            "rpa_dispatch_v1": _fake_rpa_dispatch,
+            "audit_log_v1": _audit_log_v1,
+        },
+    )
+    system = _mk_system(db_session, LLM_FLOW)
+    system.workspace_id = workspace.id
+    db_session.commit()
+    run = _mk_run(db_session, system, "nominal")
+    run.workspace_id = workspace.id
+    db_session.commit()
+
+    assert (await execute_run_dag(run.id))["status"] == "completed"
+    run = _reload(db_session, run)
+    assert run.output_ref["outcome"]["code"] == "ticket_closed"
+    # No id is better than an id that references nothing.
+    assert not run.output_ref.get("audit_event_id")
+
+    failed = [
+        cp
+        for cp in run.checkpoints
+        if cp.get("kind") == "node_end"
+        and cp.get("node_id") == "task.audit_ledger"
+        and cp.get("status") == "failed"
+    ]
+    assert failed, "the ledger failure must be visible in the execution trace"
+
+
+# ---------------------------------------------------------------------------
+# 8 — The fallback variant: same outcomes, zero provider calls
 # ---------------------------------------------------------------------------
 async def test_fallback_variant_reaches_the_same_outcomes_without_a_provider(
     db_session, monkeypatch

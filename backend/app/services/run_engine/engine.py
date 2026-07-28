@@ -487,6 +487,9 @@ def _build_initial_ctx(
         "system_id": system.id,
         "capability_id": capability.id if capability else None,
         "workspace_id": run.workspace_id,
+        # Lets a skill tie what it writes back to the run that caused it —
+        # the audit wrapper files it as the row's trace_id.
+        "run_id": run.id,
         "input": input_ref,
         # Tenant identity is server-owned. ``Run.input_ref`` is caller input
         # on the public Systems API and must never select a physical corpus.
