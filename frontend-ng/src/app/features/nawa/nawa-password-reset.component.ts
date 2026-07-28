@@ -13,8 +13,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import type { Run, System } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import {
-  NAWA_ASSISTANT,
-  NAWA_ASSISTANT_SUBTITLE,
+  NAWA_APP_NAME,
+  NAWA_APP_SUBTITLE,
   NAWA_SCENARIOS,
   type NawaOutcome,
   type NawaScenario,
@@ -85,9 +85,9 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
   template: `
     <header class="nawa-header">
-      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="Nawa" />
+      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="NAWA" />
       <div class="nawa-header-copy">
-        <h1 class="nawa-title">{{ assistant }} · Password Reset</h1>
+        <h1 class="nawa-title">{{ appName }} · Password Reset</h1>
         <span class="nawa-subtitle">{{ subtitle }} — use case #1, simulation bench</span>
       </div>
       <div class="nawa-header-spacer"></div>
@@ -333,8 +333,8 @@ export class NawaPasswordResetComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
 
-  protected readonly assistant = NAWA_ASSISTANT;
-  protected readonly subtitle = NAWA_ASSISTANT_SUBTITLE;
+  protected readonly appName = NAWA_APP_NAME;
+  protected readonly subtitle = NAWA_APP_SUBTITLE;
 
   /**
    * The business view is white-labelled: the links that leave for the platform's

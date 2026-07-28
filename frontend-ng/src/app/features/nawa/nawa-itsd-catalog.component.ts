@@ -4,8 +4,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { GlyphComponent } from '@app/shared/cockpit';
 import {
-  NAWA_ASSISTANT,
-  NAWA_ASSISTANT_SUBTITLE,
+  NAWA_APP_NAME,
+  NAWA_APP_SUBTITLE,
   type NawaUseCase,
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
@@ -25,9 +25,9 @@ type CatalogFilter = 'all' | 'live' | 'planned' | 'pattern';
   styleUrls: ['./nawa-theme.scss', './nawa-itsd-catalog.component.scss'],
   template: `
     <header class="nawa-header">
-      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="Nawa" />
+      <img class="nawa-logo" src="/assets/nawa/nawa-logo.png" alt="NAWA" />
       <div class="nawa-header-copy">
-        <h1 class="nawa-title">{{ assistant }} · IT Service Desk</h1>
+        <h1 class="nawa-title">{{ appName }} · IT Service Desk</h1>
         <span class="nawa-subtitle">{{ subtitle }} — IT operations automation</span>
       </div>
       <div class="nawa-header-spacer"></div>
@@ -198,8 +198,8 @@ export class NawaItsdCatalogComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly assistant = NAWA_ASSISTANT;
-  protected readonly subtitle = NAWA_ASSISTANT_SUBTITLE;
+  protected readonly appName = NAWA_APP_NAME;
+  protected readonly subtitle = NAWA_APP_SUBTITLE;
 
   /** The pivot into the platform belongs to whoever administers the workspace. */
   protected readonly platform = computed(() =>

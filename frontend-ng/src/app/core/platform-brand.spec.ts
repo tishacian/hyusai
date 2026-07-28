@@ -28,17 +28,17 @@ test('the immersive workspace-app brand never rebrands the platform chrome', () 
 
 test('a label and an emblem together carry the tenant identity', () => {
   const brand = platformBrand({
-    platform_brand: { label: 'NAWA WE', emblem: '/assets/nawa/nawa-logo.png', home: '/nawa/itsd' },
+    platform_brand: { label: 'NAWA', emblem: '/assets/nawa/nawa-logo.png', home: '/nawa/itsd' },
   });
   assert.deepEqual(brand, {
-    label: 'NAWA WE',
+    label: 'NAWA',
     emblem: '/assets/nawa/nawa-logo.png',
     home: '/nawa/itsd',
   });
 });
 
 test('half a declaration is refused rather than mixed with our own brand', () => {
-  assert.equal(platformBrand({ platform_brand: { label: 'NAWA WE' } }), null);
+  assert.equal(platformBrand({ platform_brand: { label: 'NAWA' } }), null);
   assert.equal(platformBrand({ platform_brand: { emblem: '/assets/nawa/nawa-logo.png' } }), null);
   assert.equal(platformBrand({ platform_brand: { label: '  ', emblem: '  ' } }), null);
 });
@@ -53,14 +53,14 @@ test('a malformed setting cannot break the chrome', () => {
 test('the return route is kept only when it is an in-app absolute path', () => {
   const external = platformBrand({
     platform_brand: {
-      label: 'NAWA WE',
+      label: 'NAWA',
       emblem: '/assets/nawa/nawa-logo.png',
       home: 'https://elsewhere.example/phish',
     },
   });
   assert.equal(external?.home, null);
   const relative = platformBrand({
-    platform_brand: { label: 'NAWA WE', emblem: '/assets/nawa/nawa-logo.png', home: 'nawa/itsd' },
+    platform_brand: { label: 'NAWA', emblem: '/assets/nawa/nawa-logo.png', home: 'nawa/itsd' },
   });
   assert.equal(relative?.home, null);
 });

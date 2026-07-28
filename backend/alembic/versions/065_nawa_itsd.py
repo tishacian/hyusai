@@ -79,8 +79,11 @@ NAVIGATION_PROFILE = {
 # the key, the chrome stays Agentium, which is every other workspace's case.
 # `home` is where the branded emblem returns, so an operator who pivoted into the
 # cockpit has one click back to the customer app.
+#
+# The label is the platform's tenant name, NAWA — not the business app, which is
+# named WE (Workspace Engine) and titles its own screens.
 PLATFORM_BRAND = {
-    "label": "NAWA WE",
+    "label": "NAWA",
     "emblem": "/assets/nawa/nawa-logo.png",
     "home": "/nawa/itsd",
 }

@@ -52,21 +52,18 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
            here and the emblem returns to its business app; the platform
            navigation and its vocabulary are unchanged either way. -->
       @if (brand(); as tenant) {
+        <!-- A tenant emblem is a wordmark: it already says the name, so the copy
+             beside it must not repeat it. The label lives in the alt text and
+             the browser tab instead. -->
         @if (tenant.home; as home) {
           <a class="tb-brand" [routerLink]="home" [title]="tenant.label">
-            <img class="tb-emblem" [src]="tenant.emblem" alt="" width="26" height="26" />
-            <span class="tb-brand-copy">
-              <span class="tb-brand-name">{{ tenant.label }}</span>
-              <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
-            </span>
+            <img class="tb-emblem-brand" [src]="tenant.emblem" [alt]="tenant.label" />
+            <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
           </a>
         } @else {
           <div class="tb-brand">
-            <img class="tb-emblem" [src]="tenant.emblem" alt="" width="26" height="26" />
-            <span class="tb-brand-copy">
-              <span class="tb-brand-name">{{ tenant.label }}</span>
-              <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
-            </span>
+            <img class="tb-emblem-brand" [src]="tenant.emblem" [alt]="tenant.label" />
+            <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
           </div>
         }
       } @else {
@@ -407,6 +404,16 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
     .tb-emblem {
       display: block;
       border-radius: 6px;
+    }
+    /* Height-constrained, never squared: a customer wordmark is wide. The dark
+       chip keeps a logo that ships without an alpha channel legible whatever
+       the cockpit theme. */
+    .tb-emblem-brand {
+      display: block;
+      height: 26px;
+      width: auto;
+      border-radius: 4px;
+      background: #000;
     }
     .tb-brand-copy {
       display: flex;

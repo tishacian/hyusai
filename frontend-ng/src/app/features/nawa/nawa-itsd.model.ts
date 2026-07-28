@@ -7,9 +7,17 @@
  * points with the backend flow are reviewable in a single place.
  */
 
-/** Assistant name shown across the surface. Never a competitor name. */
-export const NAWA_ASSISTANT = 'NAWA WE';
-export const NAWA_ASSISTANT_SUBTITLE = 'Workspace Engine';
+/**
+ * The app is named WE, for Workspace Engine. The customer wordmark sits to its
+ * left and already reads NAWA, so the lockup is "NAWA" + "WE" and the text does
+ * not repeat the brand. `NAWA WE` stays the full name in running prose, where
+ * "WE" alone would read as the pronoun.
+ *
+ * Never a competitor name.
+ */
+export const NAWA_APP_NAME = 'WE';
+export const NAWA_APP_SUBTITLE = 'Workspace Engine';
+export const NAWA_APP_FULL_NAME = 'NAWA WE';
 
 /** One row of `assets/nawa/itsd-use-cases.json`, produced by the extractor. */
 export interface NawaUseCase {

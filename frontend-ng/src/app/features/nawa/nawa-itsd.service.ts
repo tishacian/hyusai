@@ -10,6 +10,7 @@ import { Observable, of, shareReplay } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import {
+  NAWA_APP_FULL_NAME,
   NAWA_SYSTEM_NAME_MATCH,
   type NawaCatalog,
   type NawaScenario,
@@ -19,7 +20,7 @@ const CATALOG_URL = '/assets/nawa/itsd-use-cases.json';
 
 const EMPTY_CATALOG: NawaCatalog = {
   meta: {
-    assistant: 'NAWA WE',
+    assistant: NAWA_APP_FULL_NAME,
     source_workbook: '',
     source_sheet: '',
     generated_by: '',
