@@ -395,3 +395,31 @@
   margin-top: 10px;
   align-self: flex-start;
 }
+
+// ---- voice ---------------------------------------------------------------
+// The microphone sits inside the composer, the mute beside the theme switch:
+// one is part of writing a request, the other is a preference about the room.
+
+.as-mic {
+  flex: 0 0 auto;
+  gap: 7px;
+  white-space: nowrap;
+}
+.as-mic-live {
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-accent-bright);
+}
+.as-voice-toggle {
+  gap: 7px;
+  white-space: nowrap;
+}
+.as-voice-on {
+  border-color: var(--nawa-accent-line);
+  color: var(--nawa-accent-bright);
+}
+.as-voice-note {
+  flex: 0 0 auto;
+  margin: 8px 2px 0;
+  color: var(--nawa-fg-dim);
+  font-size: 12px;
+}

@@ -45,6 +45,9 @@ import {
 import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
 import { NawaAssistantService } from './nawa-assistant.service';
 import { NawaItsdService } from './nawa-itsd.service';
+import { VoiceDictationService, DictationUnavailable } from '@app/shared/voice/voice-dictation.service';
+import { VoiceTtsPlaybackService } from '@app/core/voice-tts-playback.service';
+import { spokenAnswer, spokenOutcome, spokenService } from './nawa-speech';
 import { projectTurn, SUGGESTED_QUESTIONS, type AssistantTurn } from './nawa-assistant';
 import { projectConversation, type NawaMessage } from './nawa-conversation';
 import {
@@ -104,6 +107,22 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
         <span class="nawa-subtitle">{{ subtitle }} — knowledge assistant</span>
       </div>
       <div class="nawa-header-spacer"></div>
+      @if (micUsable) {
+        <button
+          type="button"
+          class="nawa-button-ghost as-voice-toggle"
+          [class.as-voice-on]="voice()"
+          (click)="toggleVoice()"
+          [attr.aria-pressed]="voice()"
+        >
+          @if (speaking()) {
+            <ck-thinking-orb state="composing" [size]="20" label="Speaking" />
+          } @else {
+            <ck-glyph [name]="voice() ? 'play' : 'pause'" [size]="12" />
+          }
+          {{ voice() ? 'Voice on' : 'Voice off' }}
+        </button>
+      }
       <app-nawa-theme-toggle />
       <a class="nawa-link" routerLink="/nawa/itsd">
         <ck-glyph name="focus" [size]="12" />
@@ -275,6 +294,26 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
             rows="2"
             aria-label="Write to the service desk"
           ></textarea>
+          @if (micUsable) {
+            <button
+              type="button"
+              class="nawa-button-ghost as-mic"
+              [class.as-mic-live]="micState() === 'listening'"
+              [disabled]="pending() || micState() === 'transcribing'"
+              (click)="speak()"
+            >
+              @if (micState() === 'listening') {
+                <ck-thinking-orb state="listening" [size]="20" label="Listening" />
+                Tap to send
+              } @else if (micState() === 'transcribing') {
+                <ck-thinking-orb state="composing" [size]="20" label="Transcribing" />
+                One moment
+              } @else {
+                <ck-glyph name="pulse" [size]="13" />
+                Speak
+              }
+            </button>
+          }
           <button
             type="button"
             class="nawa-button"
@@ -285,6 +324,10 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
             {{ awaitingIdentity() ? 'Send' : 'Ask' }}
           </button>
         </div>
+
+        @if (voiceNote(); as note) {
+          <p class="as-voice-note" role="status">{{ note }}</p>
+        }
       </section>
 
       <aside class="as-side">
@@ -349,6 +392,18 @@ export class NawaAssistantComponent implements OnDestroy {
   /** Set between recognising a reset request and receiving the proofs for it. */
   protected readonly awaitingIdentity = signal<string | null>(null);
 
+  // ---- voice -------------------------------------------------------------
+  private readonly dictation = inject(VoiceDictationService);
+  private readonly speaker = inject(VoiceTtsPlaybackService).createController('nawa-assistant');
+
+  /** Whether answers are read aloud. Speaking to the desk turns it on. */
+  protected readonly voice = signal(false);
+  protected readonly micState = this.dictation.state;
+  protected readonly micUsable = this.dictation.supported();
+  protected readonly speaking = this.speaker.speaking;
+  /** A microphone problem, said in words rather than swallowed. */
+  protected readonly voiceNote = signal<string | null>(null);
+
   private readonly catalogue = signal<readonly NawaUseCase[]>([]);
   private readonly system = signal<System | null>(null);
   private pollSub: Subscription | null = null;
@@ -387,6 +442,10 @@ export class NawaAssistantComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.pollSub?.unsubscribe();
+    // Leaving the page must silence it: a voice still reading, or a microphone
+    // still holding the recording indicator, outlives the screen otherwise.
+    this.speaker.cancel('left_screen');
+    this.dictation.cancel();
   }
 
   // Narrowing helpers. The template asks for a kind and gets it typed, which is
@@ -453,6 +512,7 @@ export class NawaAssistantComponent implements OnDestroy {
           next: '',
         },
       ]);
+      this.say(IDENTITY_REQUEST);
       return;
     }
     if (match) {
@@ -469,6 +529,7 @@ export class NawaAssistantComponent implements OnDestroy {
           next: PLANNED_NEXT_STEP,
         },
       ]);
+      this.say(spokenService(plannedReply(match), procedureSteps(match.useCase).length));
       return;
     }
     this.askLibrary(query);
@@ -492,6 +553,7 @@ export class NawaAssistantComponent implements OnDestroy {
             };
         this.turns.update((list) => [...list, { kind: 'knowledge' as const, ...turn }]);
         this.pending.set(false);
+        this.say(spokenAnswer(turn.answer, turn.citations.length));
       },
       error: () => this.pending.set(false),
     });
@@ -546,6 +608,63 @@ export class NawaAssistantComponent implements OnDestroy {
     });
   }
 
+  /**
+   * Hold the microphone, release, and the desk hears the request.
+   *
+   * Releasing sends straight away rather than filling the box and waiting for a
+   * second click: someone who spoke a request has already finished asking, and
+   * a spoken question deserves a spoken answer, so speaking also turns the
+   * voice on.
+   */
+  protected async speak(): Promise<void> {
+    if (this.micState() === 'transcribing') return;
+
+    if (this.micState() === 'listening') {
+      try {
+        const said = await this.dictation.stop('en');
+        if (!said) {
+          this.voiceNote.set('I did not catch that. Try again, or type it.');
+          return;
+        }
+        this.voice.set(true);
+        this.ask(said);
+      } catch (error) {
+        this.voiceNote.set(
+          error instanceof DictationUnavailable
+            ? error.message
+            : 'The microphone could not be used. Type the request instead.',
+        );
+      }
+      return;
+    }
+
+    this.voiceNote.set(null);
+    // Talking over the answer stops it, the way it would with a person.
+    this.speaker.cancel('user_speaking');
+    try {
+      await this.dictation.start();
+    } catch (error) {
+      this.voiceNote.set(
+        error instanceof DictationUnavailable
+          ? error.message
+          : 'The microphone could not be started.',
+      );
+    }
+  }
+
+  /** Mute or unmute the answers. Muting cuts the sentence in progress. */
+  protected toggleVoice(): void {
+    const next = !this.voice();
+    this.voice.set(next);
+    if (!next) this.speaker.cancel('muted');
+  }
+
+  /** Read a line aloud, if the requester asked to be answered aloud. */
+  private say(text: string): void {
+    if (!this.voice() || !text.trim()) return;
+    this.speaker.playText(text, { surface: 'nawa_assistant' });
+  }
+
   /** Answer the gate from here; the poll brings the resumed run back. */
   protected decide(turn: RunTurn, action: 'accept' | 'reject'): void {
     if (!turn.runId || this.resolving()) return;
@@ -565,20 +684,33 @@ export class NawaAssistantComponent implements OnDestroy {
 
   private absorb(index: number, run: Run, requestText: string): void {
     const settled = run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled';
+    const before = this.turns()[index];
+    const messages = projectConversation(run, { request_text: requestText });
     this.patch(index, {
-      messages: projectConversation(run, { request_text: requestText }),
+      messages,
       gateOpen: run.status === 'hitl_pending',
       runId: run.id,
       settled,
     });
     if (settled) this.pending.set(false);
     if (run.status !== 'hitl_pending') this.resolving.set(false);
+
+    // A run produces a line at every step. Only the two moments where it stops
+    // and waits for a person are worth interrupting them for: the gate opening,
+    // and the outcome. Reading every step aloud would talk over itself.
+    const held = before?.kind === 'run' ? before : null;
+    const gateJustOpened = run.status === 'hitl_pending' && !held?.gateOpen;
+    const justSettled = settled && !held?.settled;
+    if (!gateJustOpened && !justSettled) return;
+    const spoken = [...messages].reverse().find((message) => message.author !== 'requester');
+    if (spoken) this.say(spokenOutcome(spoken.text));
   }
 
   private settle(index: number, note: string): void {
     this.patch(index, { settled: true, gateOpen: false, note });
     this.pending.set(false);
     this.resolving.set(false);
+    this.say(spokenOutcome(note));
   }
 
   private patch(index: number, changes: Partial<RunTurn>): void {

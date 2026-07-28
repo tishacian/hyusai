@@ -63,6 +63,24 @@ test('requests reach the service they belong to', () => {
   }
 });
 
+test('what a microphone actually returns still reaches the right service', () => {
+  // These are verbatim transcriptions, not typed sentences: the speech engine
+  // contracts "I am" to "I'm", ends on a full stop, and keeps the spoken padding
+  // ("actually", "this morning") a person drops when typing. The router scores
+  // on stems, so the padding dilutes the match — this is where a voice front end
+  // quietly starts answering from the library instead of acting.
+  const table: ReadonlyArray<readonly [string, string]> = [
+    ["I forgot my password and I'm locked out of my account.", 'password-reset'],
+    ["Hi, I need an email account created for a new joiner please.", 'email-creation'],
+    ["I'd like to get Power BI installed on my laptop if that's possible.", 'software-installation'],
+    ["Could you give me VPN access? I'm working from home tomorrow.", 'providing-vpn-avd-access-for-users'],
+  ];
+  for (const [utterance, slug] of table) {
+    const match = routeIntake(utterance, CATALOGUE);
+    assert.equal(match?.useCase.slug ?? null, slug, utterance);
+  }
+});
+
 test('questions about the rules stay with the library', () => {
   const questions = [
     'How many failed sign-ins lock an account, and how long does it stay locked?',
@@ -73,6 +91,12 @@ test('questions about the rules stay with the library', () => {
     'How long is a leaver mailbox kept?',
     'What software am I allowed to install myself?',
     'Who approves a shared mailbox request?',
+    // Politeness is not a request. These read exactly like the spoken requests
+    // above — "could you", "can you" — and differ only in the verb: they ask to
+    // be told something, not to have something done.
+    'Could you tell me what the policy is for password resets?',
+    'Can you explain how long a leaver mailbox is kept?',
+    'Would you clarify who signs off on VPN access?',
   ];
   for (const question of questions) {
     assert.equal(routeIntake(question, CATALOGUE), null, question);

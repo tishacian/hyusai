@@ -692,10 +692,11 @@ export class ApiService {
     blob: Blob,
     filename = 'recording.webm',
     provider?: string | null,
+    language = 'fr',
   ): Observable<{ text: string; provider?: string; model?: string; fallback?: boolean }> {
     const form = new FormData();
     form.append('file', blob, filename);
-    let params = new HttpParams().set('language', 'fr');
+    let params = new HttpParams().set('language', language);
     if (provider) params = params.set('provider', provider);
     const options = { params };
     return this.http.post<{ text: string; provider?: string; model?: string; fallback?: boolean }>(

@@ -48,8 +48,14 @@ export interface NawaIntakeMatch {
  */
 const REQUEST_MARKERS = [
   /\bi (?:forgot|lost|can'?t|cannot|am unable to|need|want|require|would like)\b/i,
+  /\bi'?(?:d|ll) (?:like|need|want)\b/i,
   /\bi'?(?:m|ve) (?:locked|lost|forgotten|unable)\b/i,
-  /\b(?:please|could you|can you|kindly) (?:reset|create|unlock|add|remove|grant|set up|provide|reactivate|block|disable|install|assign|update|change)\b/i,
+  // Spoken requests are more polite and more indirect than typed ones, so the
+  // verbs of service belong here — but not the verbs of enquiry. "Could you give
+  // me VPN access" is a request; "could you tell me what the policy is" is the
+  // library's question, and adding `tell`, `explain` or `confirm` would turn
+  // every polite question into an action.
+  /\b(?:please|could you|can you|kindly|would you) (?:reset|create|unlock|add|remove|grant|set up|provide|give|get|send|enable|restore|arrange|reactivate|block|disable|install|assign|update|change)\b/i,
   // "my" and "our", never "a": "what evidence do you need before you reset a
   // password" is the library's question and must not become a reset.
   /\b(?:reset|unlock|create|set up|deactivate|block) (?:my|our)\b/i,
@@ -170,6 +176,27 @@ function aliasScore(utterance: string, slug: string): number {
  * – Creation", which shares the same two words but is also about a group the
  * requester never mentioned.
  */
+/**
+ * Pairs where the two services are not competing: performing the first resolves
+ * the second. Someone who says "I forgot my password and I'm locked out" has
+ * named a cause and its symptom, and a reset clears both — sending them to the
+ * library because the two scored evenly would be the desk being pedantic about
+ * a distinction the requester does not have. Spoken requests hit this constantly
+ * where typed ones do not, because people say more out loud.
+ */
+const SUBSUMES: ReadonlyArray<readonly [string, string]> = [
+  ['password-reset', 'unlock-ad-account'],
+];
+
+/** The slug that resolves the other, when the two are such a pair. */
+function subsumes(left: string, right: string): string | null {
+  for (const [resolver, resolved] of SUBSUMES) {
+    if (left === resolver && right === resolved) return resolver;
+    if (right === resolver && left === resolved) return resolver;
+  }
+  return null;
+}
+
 export function routeIntake(
   utterance: string,
   useCases: readonly NawaUseCase[],
@@ -208,13 +235,21 @@ export function routeIntake(
 
   const [best, next] = scored;
   if (!best || best.score < SCORE_FLOOR) return null;
-  if (next && next.score > 0 && best.score < next.score * MARGIN) return null;
+
+  let chosen = best;
+  if (next && next.score > 0 && best.score < next.score * MARGIN) {
+    // Two services this close usually means the request was ambiguous, and the
+    // library is the honest answer. Unless one of them resolves the other.
+    const resolver = subsumes(best.useCase.slug, next.useCase.slug);
+    if (!resolver) return null;
+    chosen = resolver === best.useCase.slug ? best : next;
+  }
 
   return {
-    useCase: best.useCase,
-    live: best.useCase.status === 'live' && !!best.useCase.route,
-    sameFamily: best.useCase.pattern_group
-      ? useCases.filter((entry) => entry.pattern_group === best.useCase.pattern_group).length - 1
+    useCase: chosen.useCase,
+    live: chosen.useCase.status === 'live' && !!chosen.useCase.route,
+    sameFamily: chosen.useCase.pattern_group
+      ? useCases.filter((entry) => entry.pattern_group === chosen.useCase.pattern_group).length - 1
       : 0,
   };
 }
