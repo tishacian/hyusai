@@ -1467,7 +1467,7 @@ const STEP_ICONS: Record<string, string> = {
                   } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
                     <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
                   } @else {
-                    <app-icon name="loader" [size]="11" class="animate-spin text-sky-300 shrink-0" />
+                    <ck-thinking-orb state="searching" [size]="20" [label]="deepRetrievalLabel(deepInfo)" />
                   }
                   <span class="font-medium text-sky-300">{{ deepRetrievalLabel(deepInfo) }}</span>
                   @if (deepInfo.deepStage) {
@@ -1948,7 +1948,7 @@ const STEP_ICONS: Record<string, string> = {
                 } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
                   <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
                 } @else {
-                  <app-icon name="loader" [size]="11" class="animate-spin text-sky-300 shrink-0" />
+                  <ck-thinking-orb state="searching" [size]="20" [label]="deepRetrievalLabel(deepInfo)" />
                 }
                 <span class="font-medium text-sky-300">{{ deepRetrievalLabel(deepInfo) }}</span>
                 @if (deepInfo.deepStage) {

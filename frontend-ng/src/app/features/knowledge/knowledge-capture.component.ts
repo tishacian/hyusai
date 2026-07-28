@@ -25,6 +25,7 @@ import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-play
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { DocumentPreviewComponent, DocumentPreviewViewChange } from '@app/shared/document-preview/document-preview.component';
+import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
 type CaptureVoiceConnection = VoiceSessionConnection | LiveKitConversationConnection;
@@ -551,7 +552,14 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, NgTemplateOutlet, IconComponent, DocumentPreviewComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    NgTemplateOutlet,
+    IconComponent,
+    DocumentPreviewComponent,
+    ThinkingOrbComponent,
+  ],
   styles: [
     `
       @keyframes kc-timer-blink {
@@ -2992,7 +3000,7 @@ interface ProposalFact {
                   </label>
                   @if (extractingPlanSource()) {
                     <span class="inline-flex items-center gap-2 text-sm text-brand-100">
-                      <app-icon name="loader-2" [size]="14" class="animate-spin" /> Extraction...
+                      <ck-thinking-orb state="solving" [size]="20" label="Extraction" /> Extraction...
                     </span>
                   }
                 </div>
@@ -3309,7 +3317,7 @@ interface ProposalFact {
               </div>
               @if (planDialogueLoading()) {
                 <p class="flex items-center gap-2 text-[11px] leading-relaxed text-brand-200/90">
-                  <span class="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-brand-200/40 border-t-brand-200 animate-spin"></span>
+                  <ck-thinking-orb state="solving" [size]="20" label="L’assistant analyse votre description" />
                   L’assistant analyse votre description et met à jour le plan de sujets…
                 </p>
               } @else if (planDialogueReadyHint(s); as hint) {
@@ -3348,7 +3356,7 @@ interface ProposalFact {
             @if (captureBackgroundIndexing(); as idx) {
               @if (idx.visible) {
                 <div class="flex items-center gap-3 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
-                  <app-icon name="loader-2" [size]="13" class="text-brand-300 animate-spin shrink-0" />
+                  <ck-thinking-orb state="shaping" [size]="20" label="Indexation en arrière-plan" />
                   <div class="min-w-0 flex-1">
                     <p class="text-[11px] text-gray-300">Indexation en arrière-plan — {{ idx.indexed }}/{{ idx.total }} vue(s)/doc(s)</p>
                     <div class="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/5">

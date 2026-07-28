@@ -23,6 +23,7 @@ import {
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from './chat-panel.component';
+import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { type ChatStartMode } from './chat-overlay.service';
 
 /**
@@ -92,7 +93,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   selector: 'app-chat-workspace',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, TagComponent, ChatPanelComponent],
+  imports: [FormsModule, IconComponent, TagComponent, ChatPanelComponent, ThinkingOrbComponent],
   template: `
     <div class="t-shell" [class.t-inline]="inline()" [class.t-executive-shell]="executiveAssistant()">
       <!-- Header — system picker + mode badge -->
@@ -226,7 +227,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               <div class="t-drop-hint">PDF · DOCX · XLSX · CSV · TXT · MD · JSON</div>
               @if (uploading()) {
                 <div class="t-drop-progress">
-                  <app-icon name="loader-2" [size]="12" class="animate-spin" />
+                  <ck-thinking-orb state="shaping" [size]="20" label="Indexing" />
                   Indexing {{ uploadingCount() }}…
                 </div>
               }
