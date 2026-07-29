@@ -52,6 +52,7 @@ from app.services.mission_room import (
 )
 from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
+from app.services.system_catalog_bindings import resolve_persisted_system_catalog_bindings
 from app.services.workspace_maps import (
     OCTOCITY_MAP_FIXTURE_PROFILE,
     OCTOCITY_MAP_SLUG,
@@ -438,6 +439,14 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session, mon
         "octave_mission_room_v1",
         "octave_security_v1",
     ]
+    assert workspace.settings["catalog"] == {
+        "enabled_capabilities": [
+            "executive_instruction_drafting",
+            "government_mission_room",
+            "open_intelligence_watch",
+            "territorial_action_map",
+        ]
+    }
     assert workspace.settings["mission_room"]["profile"] == OCTOCITY_MISSION_ROOM_PROFILE
     assert (
         workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
@@ -454,6 +463,12 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session, mon
     )
 
     systems = db_session.query(System).filter_by(workspace_id=workspace.id).all()
+    for system in systems:
+        resolve_persisted_system_catalog_bindings(
+            db_session,
+            workspace=workspace,
+            system=system,
+        )
     system_names = {row.name for row in systems}
     assert {
         "OCTAVE Mission Room",

@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     # Exact source revision baked into every deployable image. The protected
     # deployment job rejects non-SHA values outside local development.
     agentium_image_revision: str = "development"
+    # Trust anchor for authorization-v2 promotion attestations.  A workspace
+    # document cannot nominate its own issuer.
+    authorization_v2_trusted_oidc_issuer: str = "https://gitlab.com"
+    # Empty is intentionally fail-closed: enforcement cannot become effective
+    # until deployment names the one protected GitLab project allowed to
+    # attest promotions.  The ref is separately pinned as defence in depth.
+    authorization_v2_trusted_project_id: str = ""
+    authorization_v2_trusted_ref: str = "demo/agentic"
     debug: bool = False
 
     # Production startup normally reconciles idempotent demo/catalogue state.
@@ -302,7 +310,9 @@ class Settings(BaseSettings):
     # integrated through HTTP/WebSocket contracts rather than heavy in-process
     # model dependencies.
     voice_runtime_default_provider: str = "cascade_openai"
-    voice_runtime_allowed_providers: str = "cascade_openai,openai_realtime,local_stt,local_tts,local_realtime,realtime_gpu"
+    voice_runtime_allowed_providers: str = (
+        "cascade_openai,openai_realtime,local_stt,local_tts,local_realtime,realtime_gpu"
+    )
     voice_runtime_fallback_providers: str = "cascade_openai"
     voice_realtime_default_transport: str = "backend_ws"
     voice_realtime_webrtc_enabled: bool = False
@@ -532,7 +542,9 @@ class Settings(BaseSettings):
     secure_deposit_session_secret: str = ""
     secure_deposit_session_ttl_seconds: int = 7200
     secure_deposit_default_max_file_size_mb: int = 100
-    secure_deposit_allowed_extensions: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg,tif,tiff,webp"
+    secure_deposit_allowed_extensions: str = (
+        "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg,tif,tiff,webp"
+    )
     secure_deposit_storage_dir: str = "./data/secure_deposit"
     secure_deposit_archive_promotion_max_files: int = 50
     secure_deposit_sftp_host: str = "0.0.0.0"

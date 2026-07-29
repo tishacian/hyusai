@@ -18,6 +18,8 @@ Vague E / E3.1 — versioning + DAG validation:
   history and restore flow.
 """
 
+import copy
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -29,10 +31,11 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
-from app.core.iam.dependencies import enforce_permission
+from app.core.iam.dependencies import evaluate_permission
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.capability import Capability
+from app.models.context import Context
 from app.models.policy import ControlPolicy
 from app.models.run import Run
 from app.models.run_schedule import RunSchedule
@@ -47,15 +50,121 @@ from app.services.chains import dag_validator, export_service, version_service
 from app.services.chat_execution_policy import (
     migration_059_system_id,
 )
+from app.services.context_bindings import ContextBindingError, validate_context_id
+from app.services.iam.config_service import is_iam_enforced_for_workspace
+from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import legacy_object_action_allowed
 from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import resolve_membrane_spec
+from app.services.run_access import readable_run_page
 from app.services.run_engine import schedule_run, triggers
 from app.services.run_engine import scheduler as run_scheduler
 from app.services.run_engine.webhooks import generate_hook_secret, serialize_hook
+from app.services.system_catalog_bindings import (
+    ResolvedSystemCatalogBindings,
+    SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
+    resolve_system_catalog_bindings,
+)
 from app.services.system_perspective import build_system_perspective
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
+
+_MANAGED_SYSTEM_SETTING_FIELDS = {
+    "_lot6_system360_rollout_v1": "LOT6_SYSTEM360_ROLLOUT_STATE_MANAGED",
+    "_lot7_projection_rollout_v1": "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED",
+    "_lot8_value_loop_rollout_v1": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
+}
+_MANAGED_SYSTEM_EXPERIENCE_FIELDS = {
+    "system_360_canary": "LOT6_SYSTEM360_ROLLOUT_STATE_MANAGED",
+    "value_loop_canary": "LOT8_VALUE_LOOP_ROLLOUT_STATE_MANAGED",
+}
+
+
+def _managed_system_settings_error(*, code: str, path: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": f"{path} is managed internally",
+        },
+    )
+
+
+def _settings_with_managed_system_fields_preserved(
+    current: object,
+    requested: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep rollout markers and evidence outside generic System writes.
+
+    ``System.settings`` remains a replacement payload for ordinary product
+    configuration. Rollout state and canary selection are different: only the
+    seed/rollout services may create, change, or remove them. Omitting one from
+    a generic replacement therefore preserves the current server-owned value.
+    """
+
+    current_settings = (
+        copy.deepcopy(dict(current)) if isinstance(current, Mapping) else {}
+    )
+    next_settings = copy.deepcopy(dict(requested))
+
+    for field, code in _MANAGED_SYSTEM_SETTING_FIELDS.items():
+        current_has_field = field in current_settings
+        requested_has_field = field in next_settings
+        if requested_has_field and (
+            not current_has_field
+            or next_settings[field] != current_settings[field]
+        ):
+            raise _managed_system_settings_error(
+                code=code,
+                path=f"system.settings.{field}",
+            )
+        if current_has_field:
+            next_settings[field] = copy.deepcopy(current_settings[field])
+
+    current_experience_raw = current_settings.get("experience")
+    current_experience = (
+        dict(current_experience_raw)
+        if isinstance(current_experience_raw, Mapping)
+        else {}
+    )
+    requested_has_experience = "experience" in next_settings
+    requested_experience_raw = next_settings.get("experience")
+    requested_experience = (
+        copy.deepcopy(dict(requested_experience_raw))
+        if isinstance(requested_experience_raw, Mapping)
+        else {}
+    )
+    current_has_managed_experience = any(
+        field in current_experience for field in _MANAGED_SYSTEM_EXPERIENCE_FIELDS
+    )
+    if (
+        requested_has_experience
+        and not isinstance(requested_experience_raw, Mapping)
+        and current_has_managed_experience
+    ):
+        raise _managed_system_settings_error(
+            code="SYSTEM_EXPERIENCE_ROLLOUT_STATE_MANAGED",
+            path="system.settings.experience",
+        )
+    for field, code in _MANAGED_SYSTEM_EXPERIENCE_FIELDS.items():
+        current_has_field = field in current_experience
+        requested_has_field = field in requested_experience
+        if requested_has_field and (
+            not current_has_field
+            or requested_experience[field] != current_experience[field]
+        ):
+            raise _managed_system_settings_error(
+                code=code,
+                path=f"system.settings.experience.{field}",
+            )
+        if current_has_field:
+            requested_experience[field] = copy.deepcopy(current_experience[field])
+
+    if requested_has_experience or current_has_managed_experience:
+        next_settings["experience"] = requested_experience
+    return next_settings
 
 
 def _is_migration_managed_agentic_system(
@@ -92,6 +201,91 @@ def _require_managed_system_admin(
             status_code=403,
             detail="Admin/owner access required for the production Agentic System",
         )
+
+
+def _enforce_system_read(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    system: System,
+) -> None:
+    """Apply the additive v2 read decision after tenant-scoped lookup."""
+
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={
+            "system_id": system.id,
+            "capability_id": system.capability_id,
+        },
+    )
+
+
+def _enforce_system_collection_read(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> None:
+    """Resolve the role-scoped collection boundary before returning counts."""
+
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"scope": "collection"},
+    )
+
+
+def _enforce_system_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    system: System,
+    **resource_attrs: Any,
+) -> None:
+    """Preserve the managed-System guard, then resolve granular admin.
+
+    Ordinary Systems historically allowed the mutation once workspace access
+    had succeeded. That remains the legacy decision in compat/shadow. The
+    candidate admin policy becomes authoritative only for an explicit v2
+    enforce rollout.
+    """
+
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=system,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="admin",
+        ),
+        resource_attrs={
+            "system_id": system.id,
+            "capability_id": system.capability_id,
+            **resource_attrs,
+        },
+    )
 
 
 def _require_reserved_agentic_identity_admin(
@@ -147,6 +341,80 @@ def _validate_control_policy_tenant(
     )
     if exists_in_workspace is None:
         raise HTTPException(400, "ControlPolicy must belong to the current workspace")
+
+
+def _validate_context_tenant(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    context_id: Optional[str],
+) -> Optional[Context]:
+    try:
+        return validate_context_id(
+            db,
+            workspace_id=workspace_id,
+            context_id=context_id,
+        )
+    except ContextBindingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _resolve_catalog_bindings_http(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system_id: Optional[str],
+    capability_id: Optional[str],
+    skill_ids: list[str] | None,
+    adaptive_policy_id: Optional[str],
+) -> ResolvedSystemCatalogBindings:
+    """Translate the shared tenant/catalog contract into a safe API error."""
+
+    try:
+        return resolve_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system_id=system_id,
+            capability_id=capability_id,
+            skill_ids=skill_ids,
+            adaptive_policy_id=adaptive_policy_id,
+        )
+    except SystemCatalogBindingError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_system_catalog_binding",
+                "code": exc.code,
+                "field": exc.field,
+                "message": str(exc),
+            },
+        ) from exc
+
+
+def _resolve_persisted_catalog_bindings_http(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+) -> ResolvedSystemCatalogBindings:
+    """Translate the persisted runtime contract into a safe API error."""
+
+    try:
+        return resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    except SystemCatalogBindingError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_system_catalog_binding",
+                "code": exc.code,
+                "field": exc.field,
+                "message": str(exc),
+            },
+        ) from exc
 
 
 # ---------------- Pydantic ----------------
@@ -382,8 +650,10 @@ async def list_systems(
     include_retired: bool = False,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_system_collection_read(db, user=user, workspace=workspace)
     q = db.query(System).filter(System.workspace_id == workspace.id)
     if capability_id:
         # A malformed FK must not turn a capability id from another tenant
@@ -420,8 +690,27 @@ async def create_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="admin",
+        ),
+        resource_attrs={"capability_id": body.capability_id},
+    )
+    system_settings = _settings_with_managed_system_fields_preserved(
+        {},
+        body.settings or {},
+    )
     if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
-        body.settings, body.flow_definition
+        system_settings, body.flow_definition
     ):
         _require_reserved_agentic_identity_admin(
             db,
@@ -432,6 +721,20 @@ async def create_system(
         db,
         workspace_id=workspace.id,
         policy_id=body.control_policy_id,
+    )
+    _validate_context_tenant(
+        db,
+        workspace_id=workspace.id,
+        context_id=body.context_id,
+    )
+    system_id = str(uuid4())
+    _resolve_catalog_bindings_http(
+        db,
+        workspace=workspace,
+        system_id=system_id,
+        capability_id=body.capability_id,
+        skill_ids=body.skill_ids,
+        adaptive_policy_id=body.adaptive_policy_id,
     )
     # Validate the initial flow_definition the same way PATCH does so
     # a chain can't be born invalid. Empty flow_definition is valid
@@ -449,14 +752,14 @@ async def create_system(
 
     actor = _actor_display_name(user)
     s = System(
-        id=str(uuid4()),
+        id=system_id,
         workspace_id=workspace.id,
         name=body.name,
         objective=body.objective,
         capability_id=body.capability_id,
         skill_ids=body.skill_ids,
         flow_definition=body.flow_definition,
-        settings=body.settings or {},
+        settings=system_settings,
         execution_mode=body.execution_mode.value,
         execution_profile=body.execution_profile or None,
         coordination_pattern=body.coordination_pattern,
@@ -496,11 +799,13 @@ async def create_system(
 async def get_system(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     return _serialize(s)
 
 
@@ -543,6 +848,7 @@ async def get_system_perspective(
     )
     if system is None or not _system_360_enabled(workspace, system):
         raise HTTPException(404, "System perspective not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
     return build_system_perspective(
         db,
         workspace=workspace,
@@ -557,6 +863,7 @@ async def get_system_perspective(
 async def get_system_flow_manifest(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Runtime manifest consumed by the no-code Flow Builder.
@@ -568,6 +875,7 @@ async def get_system_flow_manifest(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     return serialize_flow_manifest(db, s)
 
 
@@ -608,14 +916,14 @@ def _sync_membrane_collection_allowlist(
     ``collection_allowlist`` is set to the connected ``asset`` collection slugs
     (``[]`` when there are none — neutral, never over-restrictive).
 
-    SAFETY (cannot block legitimate retrieval): this writes DECLARATIVE metadata
-    only. The DAG retrieval path (``retrieve_rag_context``) enforces the inbound
-    allowlist via the WORKSPACE ``source_policy``, not this ControlPolicy, so the
-    synced list is never consulted on that path; and even where it is consulted,
-    ``_apply_membrane_inbound_collections`` falls back to the full collection set
-    on an empty intersection. We only UPDATE an EXISTING ``membrane_spec`` (never
-    fabricate one) so a system that had a derived spec is not silently promoted
-    to an authoritative one for the capability/outbound facets.
+    This writes declarative metadata only. The DAG retrieval path
+    (``retrieve_rag_context``) currently resolves its allowlist from the
+    Workspace ``source_policy``, not this ControlPolicy. Where an authoritative
+    v2 ControlPolicy is consumed, an empty intersection intentionally blocks in
+    ``enforce`` and only observes in ``shadow``; it never broadens to every
+    collection. We only UPDATE an EXISTING ``membrane_spec`` (never fabricate
+    one) so a System with a derived spec is not silently promoted to an
+    authoritative contract for the capability/outbound facets.
     """
     policy_id = getattr(system, "control_policy_id", None)
     if not policy_id:
@@ -657,17 +965,26 @@ async def update_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    # The same row carries server-owned rollout receipts. Lock and refresh it
+    # before merging a generic settings replacement so a concurrent rollout
+    # cannot be reverted by a stale, otherwise legitimate System update.
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .first()
+    )
     if not s:
         raise HTTPException(404, "System not found")
-    _require_managed_system_admin(
-        db,
-        user=user,
-        workspace=workspace,
-        system=s,
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s)
 
     updates = body.model_dump(exclude_unset=True, mode="json")
+    if "settings" in updates:
+        updates["settings"] = _settings_with_managed_system_fields_preserved(
+            s.settings,
+            updates["settings"] or {},
+        )
     changed_fields = sorted(
         key for key, value in updates.items() if getattr(s, key, None) != value
     )
@@ -687,6 +1004,20 @@ async def update_system(
             workspace_id=workspace.id,
             policy_id=updates["control_policy_id"],
         )
+    if "context_id" in updates:
+        _validate_context_tenant(
+            db,
+            workspace_id=workspace.id,
+            context_id=updates["context_id"],
+        )
+    _resolve_catalog_bindings_http(
+        db,
+        workspace=workspace,
+        system_id=s.id,
+        capability_id=updates.get("capability_id", s.capability_id),
+        skill_ids=updates.get("skill_ids", s.skill_ids),
+        adaptive_policy_id=updates.get("adaptive_policy_id", s.adaptive_policy_id),
+    )
     new_flow = updates.get("flow_definition") if "flow_definition" in updates else None
 
     issues: list = []
@@ -747,6 +1078,7 @@ async def update_system(
 async def get_system_event_trigger(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Current event-trigger piloting state for a System (Phase 3).
@@ -757,6 +1089,7 @@ async def get_system_event_trigger(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     return _event_trigger_state(s, db=db)
 
 
@@ -778,11 +1111,12 @@ async def update_system_event_trigger(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
-    _require_managed_system_admin(
+    _enforce_system_admin(
         db,
         user=user,
         workspace=workspace,
         system=s,
+        mutation="event_trigger",
     )
 
     updates: dict[str, Any] = {}
@@ -832,12 +1166,7 @@ async def delete_system(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
-    _require_managed_system_admin(
-        db,
-        user=user,
-        workspace=workspace,
-        system=s,
-    )
+    _enforce_system_admin(db, user=user, workspace=workspace, system=s)
     db.delete(s)
     db.commit()
     return None
@@ -867,12 +1196,13 @@ async def trigger_run(
         workspace=workspace,
         system=s,
     )
-    capability = (
-        db.query(Capability).filter(Capability.id == s.capability_id).first()
-        if s.capability_id
-        else None
+    catalog_bindings = _resolve_persisted_catalog_bindings_http(
+        db,
+        workspace=workspace,
+        system=s,
     )
-    enforce_permission(
+    capability = catalog_bindings.capability
+    legacy_decision = evaluate_permission(
         db,
         user=user,
         workspace=workspace,
@@ -885,6 +1215,24 @@ async def trigger_run(
             "capability": capability.slug if capability else None,
         },
         audit_prefix="system",
+        audit_denials=False,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=(
+            legacy_decision.allowed
+            if is_iam_enforced_for_workspace(workspace)
+            else True
+        ),
+        resource_attrs={
+            "system_id": s.id,
+            "capability_id": s.capability_id,
+            "capability": capability.slug if capability else None,
+        },
     )
 
     control = None
@@ -954,6 +1302,7 @@ async def list_system_versions(
     limit: int = 100,
     offset: int = 0,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Paginated history of ``flow_definition`` snapshots for a system.
@@ -965,6 +1314,7 @@ async def list_system_versions(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     rows, total = version_service.list_versions(
         db=db,
         system_id=system_id,
@@ -986,6 +1336,7 @@ async def get_system_version(
     system_id: str,
     version_number: int,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Full version payload including ``flow_definition``. Used by the
@@ -995,6 +1346,7 @@ async def get_system_version(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     v = version_service.get_version(
         db=db,
         system_id=system_id,
@@ -1025,11 +1377,12 @@ async def rollback_system_version(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
-    _require_managed_system_admin(
+    _enforce_system_admin(
         db,
         user=user,
         workspace=workspace,
         system=s,
+        mutation="version_rollback",
     )
     try:
         new_version = version_service.rollback_to_version(
@@ -1080,6 +1433,7 @@ async def export_system(
     s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     if not s:
         raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=s)
     actor = _actor_display_name(user)
     payload = export_service.serialize_for_export(db=db, system=s, exported_by=actor)
     emit_audit_event(
@@ -1107,6 +1461,21 @@ async def import_system(
     are reported under ``unresolved_skills`` in the response — the
     import still succeeds, the operator rebinds manually afterwards.
     """
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="admin",
+        ),
+        resource_attrs={"mutation": "import"},
+    )
     try:
         create_kwargs, report = export_service.prepare_import(
             db=db,
@@ -1132,9 +1501,18 @@ async def import_system(
             },
         )
 
+    imported_system_id = str(uuid4())
+    _resolve_catalog_bindings_http(
+        db,
+        workspace=workspace,
+        system_id=imported_system_id,
+        capability_id=None,
+        skill_ids=create_kwargs.get("skill_ids"),
+        adaptive_policy_id=None,
+    )
     actor = _actor_display_name(user)
     s = System(
-        id=str(uuid4()),
+        id=imported_system_id,
         workspace_id=workspace.id,
         name=create_kwargs["name"],
         objective=create_kwargs["objective"],
@@ -1185,14 +1563,23 @@ async def list_system_runs(
     system_id: str,
     limit: int = 50,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    rows = (
-        db.query(Run)
-        .filter(Run.workspace_id == workspace.id, Run.system_id == system_id)
-        .order_by(Run.started_at.desc())
-        .limit(limit)
-        .all()
+    system = _get_system_or_404(
+        db, system_id=system_id, workspace_id=workspace.id
+    )
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    rows = readable_run_page(
+        db,
+        query=(
+            db.query(Run)
+            .filter(Run.workspace_id == workspace.id, Run.system_id == system_id)
+            .order_by(Run.started_at.desc())
+        ),
+        limit=limit,
+        user=user,
+        workspace=workspace,
     )
     return {
         "runs": [
@@ -1228,9 +1615,13 @@ def _get_system_or_404(db: DBSession, *, system_id: str, workspace_id: str) -> S
 async def list_system_schedules(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    system = _get_system_or_404(
+        db, system_id=system_id, workspace_id=workspace.id
+    )
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
     rows = (
         db.query(RunSchedule)
         .filter(RunSchedule.workspace_id == workspace.id, RunSchedule.system_id == system_id)
@@ -1249,7 +1640,9 @@ async def create_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="schedule_create"
+    )
     try:
         next_fire = run_scheduler.validate_cron_expr(body.cron_expr, body.timezone)
     except ValueError as exc:
@@ -1289,7 +1682,9 @@ async def update_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="schedule_update"
+    )
     row = (
         db.query(RunSchedule)
         .filter(
@@ -1332,7 +1727,9 @@ async def delete_system_schedule(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="schedule_delete"
+    )
     row = (
         db.query(RunSchedule)
         .filter(
@@ -1353,9 +1750,13 @@ async def delete_system_schedule(
 async def list_system_hooks(
     system_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    system = _get_system_or_404(
+        db, system_id=system_id, workspace_id=workspace.id
+    )
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
     rows = (
         db.query(WebhookHook)
         .filter(WebhookHook.workspace_id == workspace.id, WebhookHook.system_id == system_id)
@@ -1374,9 +1775,14 @@ async def create_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="hook_create"
+    )
     secret = (body.secret or "").strip() or generate_hook_secret()
-    event_type = (body.event_type or triggers.EVENT_WEBHOOK_RECEIVED).strip() or triggers.EVENT_WEBHOOK_RECEIVED
+    event_type = (
+        (body.event_type or triggers.EVENT_WEBHOOK_RECEIVED).strip()
+        or triggers.EVENT_WEBHOOK_RECEIVED
+    )
     row = WebhookHook(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -1410,7 +1816,9 @@ async def update_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="hook_update"
+    )
     row = (
         db.query(WebhookHook)
         .filter(
@@ -1447,7 +1855,9 @@ async def delete_system_hook(
     db: DBSession = Depends(get_db),
 ):
     s = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
-    _require_managed_system_admin(db, user=user, workspace=workspace, system=s)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=s, mutation="hook_delete"
+    )
     row = (
         db.query(WebhookHook)
         .filter(

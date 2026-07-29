@@ -17,9 +17,27 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.context import Context
+from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.context_bindings import ContextBindingError, validate_system_id
 
 router = APIRouter()
+
+
+def _validate_system_tenant(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    system_id: Optional[str],
+) -> Optional[System]:
+    try:
+        return validate_system_id(
+            db,
+            workspace_id=workspace_id,
+            system_id=system_id,
+        )
+    except ContextBindingError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 class ContextBody(BaseModel):
@@ -131,6 +149,11 @@ async def create_context(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
+    _validate_system_tenant(
+        db,
+        workspace_id=workspace.id,
+        system_id=body.system_id,
+    )
     payload = body.model_dump(exclude={"ephemeral", "ttl_hours"})
     ttl_expires_at: Optional[datetime] = None
     if body.ephemeral:
@@ -196,7 +219,14 @@ async def update_context(
     c = db.query(Context).filter(Context.id == ctx_id, Context.workspace_id == workspace.id).first()
     if not c:
         raise HTTPException(404, "Context not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    if "system_id" in updates:
+        _validate_system_tenant(
+            db,
+            workspace_id=workspace.id,
+            system_id=updates["system_id"],
+        )
+    for k, v in updates.items():
         setattr(c, k, v)
     c.version = (c.version or 1) + 1
     db.commit()

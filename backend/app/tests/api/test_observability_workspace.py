@@ -12,6 +12,7 @@ from app.models.evaluation import EvaluationScore
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.chat_run_ledger import enrich_chat_run_ledger
@@ -21,6 +22,10 @@ def _client(db_session, workspace: Workspace) -> TestClient:
     app = FastAPI()
     app.include_router(observability.router, prefix="/api/v1/observability")
     app.dependency_overrides[observability.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[observability.get_current_user] = lambda: User(
+        id=f"observer-{workspace.id}",
+        username=f"observer-{workspace.slug}",
+    )
     app.dependency_overrides[observability.get_db] = lambda: db_session
     return TestClient(app)
 

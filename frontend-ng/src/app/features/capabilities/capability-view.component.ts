@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import {
   CkObjectHeaderComponent,
@@ -15,10 +15,20 @@ import {
 } from '@app/shared/cockpit/object-header.component';
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
+import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
+import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { LensService } from '@app/core/lens';
+import {
+  ObjectPerspectiveGateRevokedError,
+  ObjectPerspectiveStore,
+} from '@app/core/object-perspective.store';
+import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import {
+  WorkspaceViewContext,
+  type WorkspaceViewRequest,
+} from '@app/core/workspace-view-context';
 
 /**
  * `CapabilityViewComponent` — detail page for a single Capability.
@@ -44,6 +54,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
     CkTabsComponent,
     CkTabComponent,
     CkPanelComponent,
+    ObjectPerspectiveComponent,
   ],
   template: `
     <ck-object-header
@@ -68,7 +79,17 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
       ariaLabel="Capability facets"
     >
       <ck-tab id="overview" label="Overview">
-        <div class="space-y-4">
+        @if (projectionEnabled()) {
+          <ck-object-perspective
+            objectLabel="Capability"
+            [lens]="activeLens()"
+            facet="overview"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+          <div class="space-y-4">
           <section class="ck-surface t-elevated rounded-md p-5">
             <h3 class="text-sm font-semibold text-white mb-2">Purpose</h3>
             <p class="text-xs text-gray-400">
@@ -91,11 +112,22 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
               </a>
             </div>
           </section>
-        </div>
+          </div>
+        }
       </ck-tab>
 
       <ck-tab id="systems" label="Systems">
-        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
+        @if (projectionEnabled()) {
+          <ck-object-perspective
+            objectLabel="Capability"
+            [lens]="activeLens()"
+            facet="systems"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+          <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Systems that implement this capability will be listed here.
           <div class="mt-3">
             <a
@@ -105,21 +137,44 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
               Open Systems catalog
             </a>
           </div>
-        </div>
+          </div>
+        }
       </ck-tab>
 
       <ck-tab id="outcomes" label="Outcomes">
-        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
-          Aggregated Outcome rollup across every run of every system bound to
-          this capability. Wires to the canonical "runs.outcome" block.
-        </div>
+        @if (projectionEnabled()) {
+          <ck-object-perspective
+            objectLabel="Capability"
+            [lens]="activeLens()"
+            facet="outcomes"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+          <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
+            Aggregated Outcome rollup across every run of every system bound to
+            this capability. Wires to the canonical "runs.outcome" block.
+          </div>
+        }
       </ck-tab>
 
       <ck-tab id="policies" label="Policies">
-        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
-          Adaptive and Control policies targeting this capability. Open the
-          side panel for a quick edit.
-        </div>
+        @if (projectionEnabled()) {
+          <ck-object-perspective
+            objectLabel="Capability"
+            [lens]="activeLens()"
+            facet="policies"
+            [perspective]="activePerspective()"
+            [loading]="perspectivesLoading()"
+            [error]="perspectivesError()"
+          />
+        } @else {
+          <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
+            Adaptive and Control policies targeting this capability. Open the
+            side panel for a quick edit.
+          </div>
+        }
       </ck-tab>
     </ck-tabs>
 
@@ -142,11 +197,19 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   /** Screen copy names the product by its brand in this workspace. */
   protected readonly brand = inject(WorkspaceService).brandName;
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly perspectiveStore = inject(ObjectPerspectiveStore);
   readonly lensService = inject(LensService);
   private routeSubscription: Subscription | null = null;
+  private facetRouteSubscription: Subscription | null = null;
   private requestSubscription: Subscription | null = null;
+  private perspectiveSubscription: Subscription | null = null;
+  private featureRefreshSubscription: Subscription | null = null;
+  private projectionFeatureEnabled = false;
+  private projectionActivationInFlight = false;
+  private requestedFacet: string | null = null;
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,
     () => this.resetWorkspaceState(),
@@ -159,15 +222,39 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   readonly policiesPanelOpen = signal(false);
 
   readonly lens = this.lensService.lens;
+  readonly perspectives = signal<Partial<Record<ObjectLens, ObjectPerspectiveResponse>>>({});
+  readonly perspectivesLoading = signal(false);
+  readonly perspectivesError = signal(false);
+  readonly projectionEnabled = computed(() => this.workspaceFeature('capability_360_projection_v1'));
+  readonly activeLens = computed<ObjectLens>(() => {
+    const lens = this.lens();
+    return isObjectLens(lens) ? lens : 'build';
+  });
+  readonly activePerspective = computed(() => this.perspectives()[this.activeLens()] ?? null);
 
-  readonly kpis = computed<CkObjectKpi[]>(() => [
-    { label: 'Systems', value: '—', hint: 'Number of Systems bound to this Capability.' },
-    { label: 'ROI', value: '—', tone: 'neutral', hint: 'Aggregated ROI — upcoming.' },
-    { label: 'Yield', value: '—', tone: 'neutral', hint: 'Composite success rate across runs.' },
-    { label: 'Policies', value: '—', tone: 'neutral', hint: 'Active Adaptive + Control policies.' },
-  ]);
+  readonly kpis = computed<CkObjectKpi[]>(() => {
+    if (!this.projectionEnabled()) {
+      return [
+        { label: 'Systems', value: '—', hint: 'Number of Systems bound to this Capability.' },
+        { label: 'ROI', value: '—', tone: 'neutral', hint: 'Aggregated ROI — upcoming.' },
+        { label: 'Yield', value: '—', tone: 'neutral', hint: 'Composite success rate across runs.' },
+        { label: 'Policies', value: '—', tone: 'neutral', hint: 'Active Adaptive + Control policies.' },
+      ];
+    }
+    const header = this.perspectives()['build']?.header;
+    return [
+      { label: 'Systems', value: this.factValue(header?.['system_count']), hint: 'Number of Systems bound to this Capability.' },
+      { label: 'ROI', value: this.factValue(header?.['roi'], '%'), tone: 'neutral', hint: 'Measured aggregate ROI.' },
+      { label: 'Yield', value: this.factValue(header?.['success_rate'], '%'), tone: 'neutral', hint: 'Composite success rate across runs.' },
+      { label: 'Policies', value: '—', tone: 'neutral', hint: 'Open the Policies facet for authoritative bindings.' },
+    ];
+  });
 
   ngOnInit(): void {
+    this.projectionFeatureEnabled = this.projectionEnabled();
+    this.featureRefreshSubscription = this.workspace.contextRefresh$.subscribe(
+      () => this.onProjectionFeatureRefresh(),
+    );
     this.routeSubscription = this.route.paramMap.pipe(
       map((params) => params.get('capabilityId') ?? ''),
       distinctUntilChanged(),
@@ -176,19 +263,46 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
       this.resetCapabilityResult();
       this.reloadCurrentCapability();
     });
+    this.facetRouteSubscription = this.route.queryParamMap.pipe(
+      map((params) => params.get('facet')),
+      distinctUntilChanged(),
+    ).subscribe((facet) => {
+      this.requestedFacet = facet;
+      this.applyRequestedFacet(facet);
+    });
   }
 
   ngOnDestroy(): void {
     this.routeSubscription?.unsubscribe();
     this.routeSubscription = null;
+    this.facetRouteSubscription?.unsubscribe();
+    this.facetRouteSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
+    this.featureRefreshSubscription?.unsubscribe();
+    this.featureRefreshSubscription = null;
     this.workspaceView.destroy();
   }
 
   onTabChange(id: string): void {
-    this.activeTab.set(id as CapabilityTabId);
+    if (!isCapabilityFacet(id)) return;
+    this.requestedFacet = id;
+    this.activeTab.set(id);
+    if (!this.projectionEnabled()) return;
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  private applyRequestedFacet(facet: string | null): void {
+    if (!this.projectionEnabled()) return;
+    this.activeTab.set(isCapabilityFacet(facet) ? facet : 'overview');
   }
 
   private reloadCurrentCapability(): void {
+    this.projectionFeatureEnabled = this.projectionEnabled();
     const capabilityId = this.capabilityId || this.route.snapshot.paramMap.get('capabilityId') || '';
     if (!capabilityId) {
       this.title.set('Capability');
@@ -207,25 +321,119 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
       },
     });
     this.requestSubscription = subscription.closed ? null : subscription;
+    this.loadPerspectives(capabilityId, request);
+  }
+
+  private loadPerspectives(capabilityId: string, request: WorkspaceViewRequest): void {
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
+    if (!this.projectionEnabled()) {
+      this.perspectives.set({});
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(false);
+      return;
+    }
+    this.perspectivesLoading.set(true);
+    this.perspectivesError.set(false);
+    const subscription = this.perspectiveStore.loadAll({
+      objectType: 'capability',
+      objectId: capabilityId,
+      window: '30d',
+    }).subscribe({
+      next: (payloads) => {
+        if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
+        this.perspectives.set(payloads);
+        this.perspectivesLoading.set(false);
+        this.perspectivesError.set(Object.keys(payloads).length !== 4);
+        this.projectionActivationInFlight = false;
+      },
+      error: (error: unknown) => {
+        if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
+        this.perspectives.set({});
+        this.perspectivesLoading.set(false);
+        this.perspectivesError.set(
+          !(error instanceof ObjectPerspectiveGateRevokedError),
+        );
+        if (!(error instanceof ObjectPerspectiveGateRevokedError)) {
+          this.projectionActivationInFlight = false;
+        }
+      },
+    });
+    this.perspectiveSubscription = subscription.closed ? null : subscription;
   }
 
   private resetCapabilityResult(): void {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
     this.workspaceView.invalidate();
     this.title.set(
       this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability',
     );
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
+    this.projectionActivationInFlight = false;
+    this.applyRequestedFacet(this.requestedFacet);
   }
 
   private resetWorkspaceState(): void {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
+    this.perspectiveSubscription?.unsubscribe();
+    this.perspectiveSubscription = null;
     this.title.set(
       this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability',
     );
     this.policiesPanelOpen.set(false);
+    this.perspectives.set({});
+    this.perspectivesLoading.set(false);
+    this.perspectivesError.set(false);
+    this.projectionActivationInFlight = false;
+  }
+
+  private onProjectionFeatureRefresh(): void {
+    const enabled = this.projectionEnabled();
+    const activated = enabled && !this.projectionFeatureEnabled;
+    this.projectionFeatureEnabled = enabled;
+    if (!enabled) {
+      this.perspectiveSubscription?.unsubscribe();
+      this.perspectiveSubscription = null;
+      this.perspectives.set({});
+      this.perspectivesLoading.set(false);
+      this.perspectivesError.set(false);
+      return;
+    }
+    if (activated && !this.projectionActivationInFlight) {
+      this.projectionActivationInFlight = true;
+      this.reloadCurrentCapability();
+    }
+  }
+
+  private workspaceFeature(key: string): boolean {
+    return this.workspace.current()?.effective_features?.[key] === true;
+  }
+
+  private factValue(fact: { state?: string; value?: unknown } | undefined, suffix = ''): string {
+    if (!fact || fact.state !== 'available' || fact.value == null) return '—';
+    if (typeof fact.value === 'number') {
+      const value = Number.isInteger(fact.value) ? String(fact.value) : fact.value.toFixed(2);
+      return `${value}${suffix}`;
+    }
+    return String(fact.value);
   }
 }
 
 type CapabilityTabId = 'overview' | 'systems' | 'outcomes' | 'policies';
+
+const CAPABILITY_FACETS: readonly CapabilityTabId[] = [
+  'overview',
+  'systems',
+  'outcomes',
+  'policies',
+];
+
+function isCapabilityFacet(value: string | null): value is CapabilityTabId {
+  return value !== null && (CAPABILITY_FACETS as readonly string[]).includes(value);
+}

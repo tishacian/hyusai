@@ -53,7 +53,12 @@ export class NavigationProfileService {
   readonly workspaceExperienceV2Enabled = computed(() =>
     this.featureEnabled('workspace_experience_v2'),
   );
-  readonly appEntitlementsEnabled = computed(() => this.featureEnabled('app_entitlements_v1'));
+  readonly workspaceAppPlatformEnabled = computed(() =>
+    this.featureEnabled('workspace_app_platform_v1'),
+  );
+  readonly appEntitlementsEnabled = computed(() =>
+    this.featureEnabled('app_entitlements_v1') || this.workspaceAppPlatformEnabled(),
+  );
   readonly preview = computed(() => {
     const slug = this.workspace.currentSlug();
     return Boolean(
@@ -65,6 +70,9 @@ export class NavigationProfileService {
   });
   private readonly workspaceExperienceV2 = computed(() =>
     this.resolveWorkspaceExperience('/chat'),
+  );
+  readonly workspaceAppUnavailable = computed(() =>
+    this.workspaceExperienceV2()?.shellKind === 'workspace_app_unavailable',
   );
   readonly businessShellActive = computed(() => {
     const experience = this.workspaceExperienceV2();
@@ -141,13 +149,17 @@ export class NavigationProfileService {
 
   resolveWorkspaceExperience(requestedRoute: string): WorkspaceExperienceV2 | null {
     const workspace = this.workspace.current();
-    if (!workspace || !this.workspaceExperienceV2Enabled()) return null;
+    if (
+      !workspace
+      || (!this.workspaceExperienceV2Enabled() && !this.workspaceAppPlatformEnabled())
+    ) return null;
     return resolveWorkspaceExperienceV2({
       workspace: {
         slug: workspace.slug,
         mode: workspace.mode,
         settings: workspace.settings,
         appEntitlements: workspace.app_entitlements,
+        appRuntime: workspace.workspace_app_runtime,
       },
       scenario: {
         role: workspace.role,

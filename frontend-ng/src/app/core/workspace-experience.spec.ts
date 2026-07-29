@@ -10,6 +10,8 @@ import {
   WORKSPACE_EXPERIENCE_ADAPTERS,
   WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS,
   WORKSPACE_EXPERIENCE_RESOLVER_VERSION,
+  WORKSPACE_APP_REPAIR_ROUTE,
+  WORKSPACE_APP_UNAVAILABLE_ROUTE,
   applyObservedLegacyRouteDecision,
   compareWorkspaceExperienceWithMissionNavigation,
   compareWorkspaceExperiences,
@@ -25,6 +27,10 @@ import {
   type WorkspaceExperienceInput,
   type WorkspaceExperienceV2,
 } from './workspace-experience';
+import type {
+  WorkspaceAppRuntimeMissionRoom,
+  WorkspaceAppRuntimeProjection,
+} from './workspace.service';
 
 const BUSINESS_SETTINGS = {
   navigation_profile: {
@@ -112,6 +118,56 @@ function input(
   scenario: WorkspaceExperienceInput['scenario'],
 ): WorkspaceExperienceInput {
   return { workspace: { slug, mode, settings }, scenario };
+}
+
+function runtimeInstallation(
+  appId: string,
+  surfaceId: string,
+  route: string,
+  brandingNamespace: string,
+) {
+  return {
+    app_id: appId,
+    version: '1.0.0',
+    manifest_digest: `sha256:${appId}`,
+    category: appId.startsWith('andritz.') ? 'business_app' : 'workspace_extension',
+    routes: [route],
+    primary_surface_id: surfaceId,
+    default_route: route === '/hypervisor/mission-room'
+      ? '/hypervisor/mission-room/cockpit'
+      : route,
+    branding_namespace: brandingNamespace,
+    api_prefixes: ['/api/v1/runtime-test'],
+    action_packs: [],
+    entitlement_keys: [surfaceId],
+  };
+}
+
+function authoritativeRuntime(options: {
+  shell: 'standard' | 'business' | 'immersive';
+  installations?: ReturnType<typeof runtimeInstallation>[];
+  missionRoom?: WorkspaceAppRuntimeMissionRoom | null;
+}): WorkspaceAppRuntimeProjection {
+  const installations = options.installations ?? [];
+  return {
+    schema_version: 1,
+    mode: 'authoritative',
+    enabled: true,
+    valid: true,
+    rollout_phase: 'active',
+    rollout_ref: `sha256:${'a'.repeat(64)}`,
+    installations,
+    experience: {
+      shell: options.shell,
+      routes: [...new Set(installations.flatMap((item) => item.routes))],
+      primary_surface_ids: installations.map((item) => item.primary_surface_id),
+      default_routes: Object.fromEntries(installations.map((item) => [item.app_id, item.default_route])),
+      branding_namespaces: [...new Set(installations.map((item) => item.branding_namespace))],
+      api_prefixes: [...new Set(installations.flatMap((item) => item.api_prefixes))],
+      action_packs: [],
+      mission_room: options.missionRoom ?? null,
+    },
+  };
 }
 
 function assertParity(
@@ -217,6 +273,371 @@ test('app entitlement payload is ignored until its feature flag is enabled', () 
   assert.deepEqual(experience.primarySurfaceIds, BUSINESS_PRIMARY_SURFACE_IDS);
   assert.equal(experience.homeRoute, '/chat');
   assert.equal(experience.routeResolution.resolvedRoute, '/chat');
+});
+
+test('workspace app runtime is a strict no-op while its feature flag is off', () => {
+  const legacyInput = input('sentinel', 'demo', SENTINEL_SETTINGS, {
+    role: 'member',
+    requestedRoute: '/hypervisor',
+  });
+  const runtimeInput: WorkspaceExperienceInput = {
+    ...legacyInput,
+    workspace: {
+      ...legacyInput.workspace,
+      appRuntime: authoritativeRuntime({
+        shell: 'business',
+        installations: [runtimeInstallation('andritz.client360-pdr', 'client360-pdr', '/client360', 'andritz')],
+      }),
+    },
+  };
+
+  assert.deepEqual(
+    resolveWorkspaceExperienceV2(runtimeInput),
+    resolveWorkspaceExperienceV2(legacyInput),
+  );
+});
+
+test('authoritative business installations own surfaces and routes without legacy fallback', () => {
+  const experience = resolveWorkspaceExperienceV2({
+    workspace: {
+      slug: 'renamed-business-workspace',
+      mode: 'builder',
+      settings: {
+        ...OCTOCITY_SETTINGS,
+        features: {
+          workspace_app_platform_v1: true,
+          app_entitlements_v1: true,
+        },
+        navigation_profile: {
+          key: 'business_end_user',
+          default_route: '/chat',
+          primary_surfaces: [...BUSINESS_PRIMARY_SURFACE_IDS],
+        },
+      },
+      appEntitlements: ['client360-pdr', 'knowledge-capture'],
+      appRuntime: authoritativeRuntime({
+        shell: 'business',
+        installations: [
+          runtimeInstallation('andritz.client360-pdr', 'client360-pdr', '/client360', 'andritz'),
+          runtimeInstallation('andritz.knowledge-capture', 'knowledge-capture', '/knowledge/capture', 'andritz'),
+        ],
+      }),
+    },
+    scenario: { role: 'member', requestedRoute: '/chat' },
+  });
+
+  assert.equal(experience.shellKind, 'business');
+  assert.equal(experience.homeRoute, '/client360');
+  assert.deepEqual(experience.primarySurfaceIds, ['client360-pdr', 'knowledge-capture']);
+  assert.equal(experience.routeResolution.resolvedRoute, '/client360');
+  assert.equal(experience.missionRoom, null);
+  assert.equal(experience.workspaceApp.profile, null);
+  assert.deepEqual(experience.issues, []);
+  assert.ok(experience.provenance.every((value) => !/octocity|octave/i.test(value)));
+});
+
+test('authoritative business installations require grants even when the legacy entitlement flag is off', () => {
+  const experience = resolveWorkspaceExperienceV2({
+    workspace: {
+      slug: 'renamed-business-workspace',
+      mode: 'builder',
+      settings: { features: { workspace_app_platform_v1: true } },
+      appEntitlements: [],
+      appRuntime: authoritativeRuntime({
+        shell: 'business',
+        installations: [
+          runtimeInstallation('andritz.chat', 'chat', '/chat', 'andritz'),
+        ],
+      }),
+    },
+    scenario: { role: 'member', requestedRoute: '/chat' },
+  });
+
+  assert.equal(experience.shellKind, 'business');
+  assert.deepEqual(experience.primarySurfaceIds, []);
+  assert.equal(experience.homeRoute, '/account/profile');
+  assert.equal(experience.routeResolution.resolvedRoute, '/account/profile');
+  assert.equal(experience.routeResolution.redirectReason, 'business_profile_disallowed');
+});
+
+test('three Andritz installations expose four entitled surfaces without a fourth app', () => {
+  const knowledge = {
+    ...runtimeInstallation(
+      'andritz.knowledge-capture',
+      'knowledge-capture',
+      '/knowledge/capture',
+      'andritz',
+    ),
+    routes: ['/knowledge/capture', '/knowledge/interventions'],
+    entitlement_keys: ['knowledge-capture', 'fse-reports'],
+  };
+  const appRuntime = authoritativeRuntime({
+    shell: 'business',
+    installations: [
+      runtimeInstallation('andritz.chat', 'chat', '/chat', 'andritz'),
+      runtimeInstallation('andritz.client360-pdr', 'client360-pdr', '/client360', 'andritz'),
+      knowledge,
+    ],
+  });
+  const experience = resolveWorkspaceExperienceV2({
+    workspace: {
+      slug: 'renamed-andritz',
+      mode: 'builder',
+      settings: {
+        features: {
+          workspace_app_platform_v1: true,
+          app_entitlements_v1: true,
+        },
+      },
+      appEntitlements: [...BUSINESS_PRIMARY_SURFACE_IDS],
+      appRuntime,
+    },
+    scenario: { role: 'member', requestedRoute: '/knowledge/interventions' },
+  });
+
+  assert.equal(appRuntime.installations.length, 3);
+  assert.equal(appRuntime.installations.some((item) => item.app_id === 'andritz.fse-reports'), false);
+  assert.deepEqual(experience.primarySurfaceIds, BUSINESS_PRIMARY_SURFACE_IDS);
+  assert.equal(experience.routeResolution.resolvedRoute, '/knowledge/interventions');
+  assert.deepEqual(experience.issues, []);
+});
+
+test('authoritative Mission Room projection isolates Sentinel and Octocity from crossed legacy terms', () => {
+  const sentinelMission: WorkspaceAppRuntimeMissionRoom = {
+    profile: 'sentinel_government_v1',
+    assistant_profile: 'vigie_executive',
+    label: 'SENTINEL-CI',
+    assistant_label: 'AYA',
+    brand_style: 'sentinel',
+    navigation_keys: [...MISSION_ROOM_NAVIGATION_KEYS],
+    app_id: 'sentinel.mission-room',
+    version: '1.0.0',
+    manifest_digest: 'sha256:sentinel.mission-room',
+    default_route: '/hypervisor/mission-room/cockpit',
+    primary_surface_id: 'mission-room',
+  };
+  const octocityMission: WorkspaceAppRuntimeMissionRoom = {
+    profile: 'octocity_institutional_v1',
+    assistant_profile: 'octave_executive',
+    label: 'Octocity Mission Room',
+    assistant_label: 'OCTAVE',
+    brand_style: 'agentium',
+    navigation_keys: [...MISSION_ROOM_NAVIGATION_KEYS],
+    app_id: 'octocity.mission-room',
+    version: '1.0.0',
+    manifest_digest: 'sha256:octocity.mission-room',
+    default_route: '/hypervisor/mission-room/cockpit',
+    primary_surface_id: 'mission-room',
+  };
+  const cases = [
+    {
+      settings: OCTOCITY_SETTINGS,
+      mission: sentinelMission,
+      appId: 'sentinel.mission-room',
+      namespace: 'sentinel',
+      forbidden: /octocity|octave/i,
+    },
+    {
+      settings: SENTINEL_SETTINGS,
+      mission: octocityMission,
+      appId: 'octocity.mission-room',
+      namespace: 'octocity',
+      forbidden: /sentinel|aya|vigie/i,
+    },
+  ];
+
+  for (const current of cases) {
+    const installation = runtimeInstallation(
+      current.appId,
+      'mission-room',
+      '/hypervisor/mission-room',
+      current.namespace,
+    );
+    const experience = resolveWorkspaceExperienceV2({
+      workspace: {
+        slug: 'renamed-mission-workspace',
+        mode: 'demo',
+        settings: {
+          ...current.settings,
+          features: { workspace_app_platform_v1: true },
+        },
+        appRuntime: authoritativeRuntime({
+          shell: 'immersive',
+          installations: [installation],
+          missionRoom: current.mission,
+        }),
+      },
+      scenario: { role: 'member', requestedRoute: '/hypervisor' },
+    });
+
+    assert.equal(experience.shellKind, 'workspace_app_immersive');
+    assert.equal(experience.homeRoute, '/hypervisor/mission-room/cockpit');
+    assert.equal(experience.missionRoom?.profile, current.mission.profile);
+    assert.equal(experience.missionRoom?.assistantLabel, current.mission.assistant_label);
+    assert.equal(experience.routeResolution.resolvedRoute, '/hypervisor/mission-room/cockpit');
+    assert.doesNotMatch(JSON.stringify(experience), current.forbidden);
+  }
+});
+
+test('runtime bootstrap transports the generic provider contract and rejects malformed endpoints', () => {
+  const providerEndpoints = [
+    'GET /overview',
+    'GET /navigation',
+    'GET /cockpit',
+    'GET /briefing',
+    'GET /timeline',
+    'GET /projects',
+    'GET /decisions',
+    'GET /library',
+    'GET /search',
+    'GET /map',
+    'GET /monitor',
+    'GET /news',
+    'POST /actions/draft',
+  ];
+  const installation = {
+    ...runtimeInstallation(
+      'mission-room.extension',
+      'mission-room',
+      '/hypervisor/mission-room',
+      'mission-room',
+    ),
+    version: '1.2.0',
+    manifest_digest: 'sha256:mission-room.extension:1.2.0',
+    api_prefixes: ['/api/v1/mission-room'],
+  };
+  const mission: WorkspaceAppRuntimeMissionRoom = {
+    profile: 'generic',
+    assistant_profile: 'default',
+    label: 'Mission Room',
+    assistant_label: 'Assistant',
+    brand_style: 'agentium',
+    navigation_keys: [...MISSION_ROOM_NAVIGATION_KEYS],
+    app_id: installation.app_id,
+    version: installation.version,
+    manifest_digest: installation.manifest_digest,
+    default_route: installation.default_route,
+    primary_surface_id: installation.primary_surface_id,
+    provider_kind: 'workspace_objects_v1',
+    provider_endpoints: providerEndpoints,
+  };
+  const runtime = authoritativeRuntime({
+    shell: 'immersive',
+    installations: [installation],
+    missionRoom: mission,
+  });
+  const value: WorkspaceExperienceInput = {
+    workspace: {
+      slug: 'generic-board',
+      mode: 'demo',
+      settings: { features: { workspace_app_platform_v1: true } },
+      appRuntime: runtime,
+    },
+    scenario: { role: 'member', requestedRoute: '/hypervisor' },
+  };
+
+  const resolved = resolveWorkspaceExperienceV2(value);
+  assert.equal(resolved.shellKind, 'workspace_app_immersive');
+  assert.equal(runtime.experience?.mission_room?.provider_kind, 'workspace_objects_v1');
+  assert.deepEqual(runtime.experience?.mission_room?.provider_endpoints, providerEndpoints);
+
+  const malformed = structuredClone(runtime);
+  if (malformed.experience?.mission_room) {
+    malformed.experience.mission_room.provider_endpoints = ['GET /overview', 7] as unknown as string[];
+  }
+  const failed = resolveWorkspaceExperienceV2({
+    ...value,
+    workspace: { ...value.workspace, appRuntime: malformed },
+  });
+  assert.equal(failed.shellKind, 'workspace_app_unavailable');
+  assert.ok(failed.issues.some((item) => item.code === 'workspace_app_runtime_mission_room_invalid'));
+});
+
+test('enabled platform fails closed to an isolated unavailable shell when runtime authority is absent or invalid', () => {
+  const validShape = authoritativeRuntime({
+    shell: 'business',
+    installations: [
+      runtimeInstallation('andritz.client360-pdr', 'client360-pdr', '/client360', 'andritz'),
+    ],
+  });
+  for (const appRuntime of [
+    undefined,
+    {
+      mode: 'authoritative',
+      enabled: true,
+      valid: false,
+      installations: [],
+      experience: null,
+    } as WorkspaceAppRuntimeProjection,
+    { ...validShape, schema_version: 2 },
+    { ...validShape, rollout_phase: 'disabled' as const },
+    { ...validShape, rollout_ref: `sha256:${'A'.repeat(64)}` },
+    { ...validShape, installations: [] },
+  ]) {
+    const experience = resolveWorkspaceExperienceV2({
+      workspace: {
+        slug: 'renamed-workspace',
+        mode: 'demo',
+        settings: {
+          ...SENTINEL_SETTINGS,
+          features: { workspace_app_platform_v1: true },
+        },
+        appRuntime,
+      },
+      scenario: { role: 'member', requestedRoute: '/hypervisor' },
+    });
+    assert.equal(experience.shellKind, 'workspace_app_unavailable');
+    assert.equal(experience.homeRoute, WORKSPACE_APP_UNAVAILABLE_ROUTE);
+    assert.equal(experience.routeResolution.resolvedRoute, WORKSPACE_APP_UNAVAILABLE_ROUTE);
+    assert.equal(experience.routeResolution.redirectReason, 'workspace_extension_unavailable');
+    assert.deepEqual(experience.primarySurfaceIds, []);
+    assert.deepEqual(experience.cockpitVerbs, []);
+    assert.deepEqual(experience.chrome, {
+      titleBar: false,
+      sideRail: false,
+      objectIndex: false,
+      commandBar: false,
+      commandPalette: false,
+      businessHeader: false,
+      missionRail: false,
+    });
+    assert.equal(experience.business.configured, false);
+    assert.equal(experience.workspaceApp.configured, false);
+    assert.equal(experience.missionRoom, null);
+    assert.ok(experience.issues.some((item) => item.kind === 'error'));
+  }
+});
+
+test('invalid runtime keeps the unavailable page terminal and grants only admins the isolated repair route', () => {
+  const makeExperience = (role: 'member' | 'admin', requestedRoute: string) => (
+    resolveWorkspaceExperienceV2({
+      workspace: {
+        slug: 'renamed-workspace',
+        mode: 'demo',
+        settings: {
+          ...SENTINEL_SETTINGS,
+          navigation_profile: BUSINESS_SETTINGS.navigation_profile,
+          features: { workspace_app_platform_v1: true },
+        },
+      },
+      scenario: { role, requestedRoute },
+    })
+  );
+
+  const terminal = makeExperience('member', WORKSPACE_APP_UNAVAILABLE_ROUTE);
+  assert.equal(terminal.routeResolution.resolvedRoute, WORKSPACE_APP_UNAVAILABLE_ROUTE);
+  assert.equal(terminal.routeResolution.redirectReason, 'none');
+
+  const deniedRepair = makeExperience('member', WORKSPACE_APP_REPAIR_ROUTE);
+  assert.equal(deniedRepair.routeResolution.resolvedRoute, WORKSPACE_APP_UNAVAILABLE_ROUTE);
+  assert.equal(deniedRepair.routeResolution.redirectReason, 'workspace_extension_unavailable');
+
+  const adminRepair = makeExperience('admin', WORKSPACE_APP_REPAIR_ROUTE);
+  assert.equal(adminRepair.routeResolution.resolvedRoute, WORKSPACE_APP_REPAIR_ROUTE);
+  assert.equal(adminRepair.routeResolution.redirectReason, 'none');
+  assert.equal(adminRepair.shellKind, 'workspace_app_unavailable');
+  assert.deepEqual(adminRepair.cockpitVerbs, []);
+  assert.equal(adminRepair.missionRoom, null);
 });
 
 test('Andritz admin remains standard while admin preview restores business', () => {

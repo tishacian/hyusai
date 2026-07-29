@@ -18,13 +18,14 @@ from typing import Any, Dict, List, Optional
 from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
 from app.schemas.canonical import Outcome, ValueSource
+from app.services.projection_integrity import measured_cost_summary
 
 
 @dataclass
 class DerivedOutcome:
     """Internal DTO the engine writes back to the Run row."""
 
-    cost: float
+    cost: Optional[float]
     value: float
     confidence: Optional[float]
     efficiency: Optional[float]
@@ -52,7 +53,7 @@ def derive_outcome(
     completed = [i for i in invocations if i.status == "completed"]
     failed = [i for i in invocations if i.status == "failed"]
 
-    cost = float(sum((i.cost or 0.0) for i in invocations))
+    cost, _ = measured_cost_summary(invocations)
     confidence = _extract_confidence(completed)
     decision = _derive_decision(completed, failed, control_hitl_threshold, confidence)
     value, source = _estimate_value(capability, decision, confidence)
@@ -200,8 +201,12 @@ def _confidence_factor(roi_model: Dict[str, Any], confidence: Optional[float]) -
     return max(0.0, min(1.0, 1.0 - weight * (1.0 - confidence)))
 
 
-def _compute_efficiency(value: float, cost: float, duration_ms: float) -> Optional[float]:
-    if cost <= 0:
+def _compute_efficiency(
+    value: float,
+    cost: Optional[float],
+    duration_ms: float,
+) -> Optional[float]:
+    if cost is None or cost <= 0:
         return None
     roi = (value - cost) / cost if cost else 0.0
     speed = 1.0 / (1.0 + duration_ms / 5000.0)

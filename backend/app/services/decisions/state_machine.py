@@ -104,6 +104,7 @@ def apply(
     *,
     actor: Optional[str] = None,
     patch: Optional[Dict[str, Any]] = None,
+    commit: bool = True,
 ) -> Decision:
     current = decision.status or DecisionState.proposed.value
     if current != DecisionState.accepted.value:
@@ -114,5 +115,8 @@ def apply(
     decision.applied_at = datetime.utcnow()
     decision.applied_by = actor
     decision.applied_patch = patch or {}
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return decision

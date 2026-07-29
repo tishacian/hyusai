@@ -13,6 +13,7 @@ import {
 } from 'rxjs';
 import { AuthApiService } from './auth-api.service';
 import { TokenStorageService } from './token-storage.service';
+import { AuthStore } from '../store/auth.store';
 
 /**
  * Coordinates access-token renewal across every authenticated transport.
@@ -26,6 +27,7 @@ import { TokenStorageService } from './token-storage.service';
 export class AuthRefreshCoordinator {
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authApi = inject(AuthApiService);
+  private readonly authStore = inject(AuthStore);
   private readonly router = inject(Router);
 
   private refreshRequest$: Observable<string> | null = null;
@@ -78,6 +80,7 @@ export class AuthRefreshCoordinator {
 
   private expireSession(): void {
     this.tokenStorage.clear();
+    this.authStore.clear();
     void this.router.navigate(['/auth/signin'], {
       queryParams: { redirectURL: this.router.url },
     });

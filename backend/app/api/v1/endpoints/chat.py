@@ -76,6 +76,8 @@ from app.services.mission_room import (
     source_index,
 )
 from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
+from app.services.run_outcome_provenance import record_runtime_auto_outcome
+from app.services.system_engine_authorization import enforce_system_engine_run
 from app.services.systems.bootstrap import (
     WORKSPACE_CHAT_VARIANT,
     resolve_workspace_chat_source_policy,
@@ -944,6 +946,33 @@ def _persist_chat_run(
         )
         db.add(run)
         db.flush()
+        control = None
+        if system_id:
+            system = (
+                db.query(System)
+                .filter(
+                    System.id == system_id,
+                    System.workspace_id == workspace_id,
+                )
+                .one_or_none()
+            )
+            if system is not None:
+                # Reuse the canonical execution snapshot instead of allowing
+                # the chat surface to invent a parallel provenance format.
+                from app.services.run_engine.engine import (
+                    _load_control_policy,
+                    _snapshot_run_flow,
+                )
+
+                control = _load_control_policy(db, system)
+                if control is not None:
+                    _snapshot_run_flow(
+                        db,
+                        run,
+                        system,
+                        first_start=True,
+                        control=control,
+                    )
         enrich_chat_run_ledger(
             db,
             run,
@@ -952,6 +981,8 @@ def _persist_chat_run(
             extra_output=extra_output or {},
             create_invocations_if_missing=True,
         )
+        if run.value_source == "auto" and control is not None:
+            record_runtime_auto_outcome(run, db=db)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
@@ -1709,6 +1740,7 @@ async def _try_registry_chat_action(
     assistant_profile: Optional[str],
     session_id: Optional[str] = None,
     knowledge_scope: Optional[str] = None,
+    system_id: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     return await handle_registry_chat_action(
         db,
@@ -1718,6 +1750,7 @@ async def _try_registry_chat_action(
         assistant_profile=assistant_profile,
         session_id=session_id,
         knowledge_scope=knowledge_scope,
+        system_id=system_id,
     )
 
 
@@ -2266,6 +2299,7 @@ async def chat_completion(
                 "canonical_answer_score": match_score,
             }
 
+        registry_system_id = _resolve_system_id(db, workspace.id, request.agent_id)
         registry_action = await _try_registry_chat_action(
             db,
             workspace,
@@ -2274,6 +2308,7 @@ async def chat_completion(
             assistant_profile=request.assistant_profile,
             session_id=request.session_id,
             knowledge_scope=request.knowledge_scope,
+            system_id=registry_system_id,
         )
         if registry_action:
             content = registry_action["content"]
@@ -2281,7 +2316,7 @@ async def chat_completion(
             run_id = _persist_chat_run(
                 db,
                 workspace_id=workspace.id,
-                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                system_id=registry_system_id,
                 query=validated_query,
                 response_text=content,
                 sources=registry_action.get("sources") or [],
@@ -2536,6 +2571,13 @@ async def chat_completion(
         )
         agentic_fallback_metadata: Optional[dict[str, Any]] = None
         if execution_decision.is_agentic:
+            enforce_system_engine_run(
+                db,
+                user=user,
+                workspace=workspace,
+                system=execution_decision.executor_system,
+                source="chat.completion",
+            )
             history, previous_salient_entities = _load_chat_conversation_state(
                 db,
                 session_id=request.session_id,
@@ -3494,6 +3536,7 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
+            registry_system_id = _resolve_system_id(db, workspace.id, request.agent_id)
             registry_action = await _try_registry_chat_action(
                 db,
                 workspace,
@@ -3502,6 +3545,7 @@ async def chat_stream(
                 assistant_profile=request.assistant_profile,
                 session_id=request.session_id,
                 knowledge_scope=request.knowledge_scope,
+                system_id=registry_system_id,
             )
             if registry_action:
                 content = registry_action["content"]
@@ -3528,7 +3572,7 @@ async def chat_stream(
                 run_id = _persist_chat_run(
                     db,
                     workspace_id=workspace.id,
-                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    system_id=registry_system_id,
                     query=validated_query,
                     response_text=content,
                     sources=registry_action.get("sources") or [],
@@ -3982,6 +4026,25 @@ async def chat_stream(
                 _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
             agentic_fallback_metadata: Optional[dict[str, Any]] = None
             if execution_decision.is_agentic:
+                try:
+                    enforce_system_engine_run(
+                        db,
+                        user=user,
+                        workspace=workspace,
+                        system=execution_decision.executor_system,
+                        source="chat.stream",
+                    )
+                except HTTPException:
+                    db.rollback()
+                    yield _sse_data(
+                        _error_chunk(
+                            "SYSTEM_ENGINE_RUN_DENIED",
+                            "System execution is not authorized",
+                            recoverable=False,
+                        )
+                    )
+                    yield _sse_done()
+                    return
                 conversation_history, previous_salient_entities = _load_chat_conversation_state(
                     db, session_id=request.session_id
                 )

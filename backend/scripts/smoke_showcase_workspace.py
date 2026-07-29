@@ -79,7 +79,16 @@ def main() -> int:
 
     checks = [
         ("workspaces", "/api/v1/auth/workspaces", lambda d: any(w.get("slug") == args.workspace_slug for w in (d if isinstance(d, list) else d.get("workspaces", [])))),
-        ("systems", "/api/v1/systems", lambda d: len(d.get("systems", [])) >= 4 and any(s.get("name") == "Translation Suite" for s in d.get("systems", []))),
+        (
+            "systems",
+            "/api/v1/systems",
+            lambda d: len(d.get("systems", [])) >= 5
+            and any(s.get("name") == "Translation Suite" for s in d.get("systems", []))
+            and any(
+                s.get("name") == "SAP HANA Maintenance Copilot"
+                for s in d.get("systems", [])
+            ),
+        ),
         ("runs", "/api/v1/runs", lambda d: len(d.get("runs", [])) >= 14),
         ("recommendations", "/api/v1/hypervisor/recommendations", lambda d: len(d.get("items", [])) >= 2),
         ("component health", "/api/v1/evaluation/component-health", lambda d: len(d.get("components", [])) >= 5),

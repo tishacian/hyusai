@@ -30,29 +30,32 @@ connector round trip.
 Next step: implement E4.2/E4.3 or add an explicit backend demo mode for
 SharePoint jobs.
 
-### Showcase Seed Is Reset-First
+### Showcase Seed Is Append-Only
 
-`python -m scripts.seed_showcase_workspace --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" --reset`
-is the supported path.
-Running the seed repeatedly without `--reset` may append story rows such as
-runs, audit events, chat messages, and SharePoint jobs.
-
-Impact: demos should use `--reset` for a clean, known story.
-
-Next step: add fine-grained upserts for run/audit/job story rows if we need
-incremental reseeding.
+`python -m scripts.seed_showcase_workspace --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}"`
+is the supported path. Repeated execution is idempotent for story facts and
+creates a new `SystemVersion` only when effective configuration changes. The
+command exposes no reset option and never deletes Runs, Decisions, audits or
+historical versions.
 
 ### Showcase Capability Slugs Are Global
 
 `Capability.slug` is globally unique in the database. The showcase uses
 reserved slugs:
 
-- `showcase_contract_risk`
+- `video_contract_risk`
 - `showcase_tender_response`
 - `showcase_compliance_loop`
+- `showcase_translation_suite`
+- `showcase_hana_maintenance`
 
 Impact: one showcase workspace per environment is safe. Multiple parallel
 showcase tenants would collide.
+
+The append-only guarantee in this document concerns
+`seed_showcase_workspace.py`. The bounded video fixture refresh and the
+external SAP HANA demo-dataset loader remain disposable-data utilities and are
+not admissible as Lot 8 evidence.
 
 Next step: either keep one global showcase or migrate capabilities to a
 workspace-scoped uniqueness model.
@@ -63,7 +66,7 @@ On the VM, the six synthetic documents are ingested into FAISS successfully.
 If `--skip-ingest` is used, the Knowledge and document-search parts of the
 showcase become weaker, while the rest of the seeded story remains usable.
 
-Impact: use `--reset` without `--skip-ingest` for full demos.
+Impact: run the idempotent seed without `--skip-ingest` for full demos.
 
 Next step: keep document-search in `smoke_showcase_workspace.py` as the
 guardrail.

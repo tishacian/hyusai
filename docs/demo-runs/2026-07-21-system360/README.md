@@ -10,7 +10,7 @@ préparées pour la démonstration du 21 juillet 2026.
   `cfa3f616050bb5f75c9a3709219b52939e7ec0bd`.
 - Le runner Playwright utilisait une copie locale du harness avec des
   durcissements E2E non committés : sélecteurs moins ambigus, attentes de rendu,
-  captures par lens, quatrième app Andritz FSE et garde console.
+  captures par lens, surface FSE de Knowledge Capture et garde console.
 - Les champs GitLab CI des JSON sont vides. Ces fichiers sont donc des
   **observations locales liées au SHA applicatif**, pas des attestations CI
   protégées et pas une preuve formelle `runner_verified` ou `deployed_verified`.

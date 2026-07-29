@@ -262,6 +262,77 @@ def validate_evidence(
     return dict(evidence)
 
 
+def validate_user_validation_evidence(
+    evidence: Mapping[str, Any],
+    *,
+    path: Path,
+    sha: str,
+    identity: Mapping[str, str],
+) -> dict[str, Any]:
+    """Validate the minimum five-profile, four-question product gate.
+
+    Human validation cannot be inferred from browser checks.  The structured
+    study result must itself be collected by the authenticated protected job,
+    and the thresholds are re-evaluated here instead of trusting a free-form
+    ``passed`` label.
+    """
+
+    validated = validate_evidence(
+        evidence,
+        path=path,
+        kind="user_validation",
+        sha=sha,
+        identity=identity,
+    )
+    study = validated.get("study")
+    if not isinstance(study, Mapping):
+        raise TrustedComplianceError(f"{path}: user validation study is missing")
+    profiles = study.get("profiles")
+    required_profiles = {
+        "builder",
+        "operator",
+        "decision_owner",
+        "governor",
+        "transverse",
+    }
+    if not isinstance(profiles, list) or required_profiles - {
+        str(value) for value in profiles
+    }:
+        raise TrustedComplianceError(
+            f"{path}: user validation must cover the five required profiles"
+        )
+    try:
+        participant_count = int(study.get("participant_count", 0))
+        confidence_mean = float(study.get("confidence_mean", 0))
+        critical_confusions = int(
+            study.get("critical_identity_or_lens_confusions", -1)
+        )
+    except (TypeError, ValueError) as exc:
+        raise TrustedComplianceError(
+            f"{path}: user validation aggregate values are invalid"
+        ) from exc
+    successes = study.get("successes_per_question")
+    if (
+        participant_count < 5
+        or confidence_mean < 4.0
+        or critical_confusions != 0
+        or not isinstance(successes, Mapping)
+        or len(successes) != 4
+    ):
+        raise TrustedComplianceError(f"{path}: user validation thresholds were not met")
+    try:
+        success_counts = [int(value) for value in successes.values()]
+    except (TypeError, ValueError) as exc:
+        raise TrustedComplianceError(
+            f"{path}: successes_per_question contains an invalid value"
+        ) from exc
+    if any(value < 4 for value in success_counts):
+        raise TrustedComplianceError(
+            f"{path}: every validation question requires at least four successes"
+        )
+    return validated
+
+
 def derive_formal_report(
     *,
     static_report: Mapping[str, Any],
@@ -271,6 +342,7 @@ def derive_formal_report(
     deployments: Sequence[Mapping[str, Any]],
     behaviors: Sequence[Mapping[str, Any]],
     artifact_hashes: Mapping[str, str],
+    user_validations: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Apply the one-way state machine to authenticated evidence only."""
 
@@ -299,8 +371,14 @@ def derive_formal_report(
         behavior = deployed and any(
             item.get("claims", {}).get(claim_id) == "passed" for item in behaviors
         )
+        user_validated = behavior and any(
+            item.get("claims", {}).get(claim_id) == "passed"
+            for item in user_validations
+        )
         state = (
-            "behavior_verified"
+            "user_validated"
+            if user_validated
+            else "behavior_verified"
             if behavior
             else "deployed_verified"
             if deployed
@@ -330,6 +408,13 @@ def derive_formal_report(
                         if item.get("claims", {}).get(claim_id) == "passed"
                     }
                 ),
+                "user_validation_jobs": sorted(
+                    {
+                        str(item.get("ci", {}).get("job_id"))
+                        for item in user_validations
+                        if item.get("claims", {}).get(claim_id) == "passed"
+                    }
+                ),
             }
         )
     return {
@@ -351,6 +436,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--runner-attestation", type=Path, action="append", default=[])
     parser.add_argument("--deployment-attestation", type=Path, action="append", default=[])
     parser.add_argument("--behavior-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--user-attestation", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--oidc-token-env", default="AGENTIUM_ATTESTATION_ID_TOKEN")
     parser.add_argument("--audience", default=None)
@@ -380,6 +466,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             *args.runner_attestation,
             *args.deployment_attestation,
             *args.behavior_attestation,
+            *args.user_attestation,
         ]
         hashes = {str(path): _artifact_digest(path) for path in paths}
         runners = [
@@ -400,6 +487,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             for path in args.behavior_attestation
         ]
+        user_validations = [
+            validate_user_validation_evidence(
+                _load_json(path), path=path, sha=sha, identity=identity
+            )
+            for path in args.user_attestation
+        ]
         report = derive_formal_report(
             static_report=_load_json(args.static_report),
             sha=sha,
@@ -408,17 +501,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             deployments=deployments,
             behaviors=behaviors,
             artifact_hashes=hashes,
+            user_validations=user_validations,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         behavior_count = sum(
-            item["state"] == "behavior_verified" for item in report["claims"]
+            item["state"] in {"behavior_verified", "user_validated"}
+            for item in report["claims"]
+        )
+        user_count = sum(
+            item["state"] == "user_validated" for item in report["claims"]
         )
         print(
             f"Trusted compliance report written for {sha[:12]} "
-            f"({behavior_count} behavior-verified claim(s))"
+            f"({behavior_count} behavior-verified claim(s), "
+            f"{user_count} user-validated claim(s))"
         )
         return 0
     except TrustedComplianceError as exc:

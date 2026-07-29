@@ -7,9 +7,87 @@ import { firstValueFrom, of, Subject } from 'rxjs';
 import {
   BUSINESS_WORKSPACE_APPS,
   WorkspaceService,
+  isWorkspaceAppEntitlement,
+  normalizeWorkspaceAppEntitlements,
+  toggleWorkspaceAppEntitlement,
+  workspaceAppEntitlementOptions,
   type WorkspaceDetail,
   type WorkspaceInfo,
 } from './workspace.service';
+
+test('runtime entitlement catalog accepts a future key and keeps the four Andritz labels compatible', () => {
+  const options = workspaceAppEntitlementOptions({
+    settings: { features: { workspace_app_platform_v1: true } },
+    workspace_app_runtime: {
+      mode: 'authoritative',
+      enabled: true,
+      valid: true,
+      installations: [
+        {
+          app_id: 'andritz.chat', version: '1.0.0', manifest_digest: 'chat', category: 'business_app',
+          routes: ['/chat'], primary_surface_id: 'chat', default_route: '/chat', branding_namespace: 'andritz',
+          api_prefixes: ['/api/v1/chat'], action_packs: [], entitlement_keys: ['chat'],
+        },
+        {
+          app_id: 'andritz.client360-pdr', version: '1.0.0', manifest_digest: 'client360', category: 'business_app',
+          routes: ['/client360'], primary_surface_id: 'client360-pdr', default_route: '/client360', branding_namespace: 'andritz',
+          api_prefixes: ['/api/v1/client360'], action_packs: [], entitlement_keys: ['client360-pdr'],
+        },
+        {
+          app_id: 'andritz.knowledge-capture', version: '1.0.0', manifest_digest: 'knowledge', category: 'business_app',
+          routes: ['/knowledge/capture'], primary_surface_id: 'knowledge-capture', default_route: '/knowledge/capture', branding_namespace: 'andritz',
+          api_prefixes: ['/api/v1/knowledge-capture'], action_packs: [], entitlement_keys: ['knowledge-capture', 'fse-reports'],
+        },
+        {
+          app_id: 'future.workspace-surface', version: '2.0.0', manifest_digest: 'future', category: 'business_app',
+          routes: ['/future'], primary_surface_id: 'future-surface', default_route: '/future', branding_namespace: 'future',
+          api_prefixes: ['/api/v1/future'], action_packs: [], entitlement_keys: ['future-surface'],
+          display_name: 'Future Workspace Surface',
+        },
+      ],
+      experience: null,
+    },
+  });
+
+  assert.deepEqual(options, [
+    { key: 'chat', label: 'Recherche', appId: 'andritz.chat' },
+    { key: 'client360-pdr', label: 'Client360 PDR', appId: 'andritz.client360-pdr' },
+    { key: 'knowledge-capture', label: 'Capture de connaissances', appId: 'andritz.knowledge-capture' },
+    { key: 'fse-reports', label: "Rapports d'intervention FSE", appId: 'andritz.knowledge-capture' },
+    { key: 'future-surface', label: 'Future Workspace Surface', appId: 'future.workspace-surface' },
+  ]);
+  assert.equal(isWorkspaceAppEntitlement('future-surface'), true);
+  assert.equal(isWorkspaceAppEntitlement('Future Surface'), false);
+  assert.deepEqual(
+    normalizeWorkspaceAppEntitlements(['future-surface', 'future-surface', '../invalid', '', 7]),
+    ['future-surface'],
+  );
+});
+
+test('toggling a known entitlement preserves valid active keys absent from the runtime catalog', () => {
+  const options = BUSINESS_WORKSPACE_APPS.map((item) => ({
+    ...item,
+    appId: null,
+  }));
+  assert.deepEqual(
+    toggleWorkspaceAppEntitlement(
+      ['chat', 'future-surface'],
+      'chat',
+      false,
+      options,
+    ),
+    ['future-surface'],
+  );
+  assert.deepEqual(
+    toggleWorkspaceAppEntitlement(
+      ['future-surface'],
+      'client360-pdr',
+      true,
+      options,
+    ),
+    ['client360-pdr', 'future-surface'],
+  );
+});
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -77,6 +155,79 @@ test('workspace switch clears registered context before publishing one new slug/
     assert.equal(workspace.isRequestScopeCurrent(oldScope), false);
     assert.equal(workspace.switchWorkspace('sentinel-ci'), false);
     assert.equal(observations.length, 1, 'a no-op switch does not reset context twice');
+  } finally {
+    restoreStorage();
+  }
+});
+
+test('workspace app platform authority enables member entitlement administration without the legacy flag', async () => {
+  const restoreStorage = installStorage();
+  try {
+    const workspaces: WorkspaceInfo[] = [{
+      ...WORKSPACES[0],
+      settings: { features: { workspace_app_platform_v1: true } },
+    }];
+    const injector = Injector.create({
+      providers: [
+        WorkspaceService,
+        { provide: HttpClient, useValue: { get: () => of(workspaces) } },
+      ],
+    });
+    const workspace = injector.get(WorkspaceService);
+    await firstValueFrom(workspace.loadWorkspaces());
+
+    assert.equal(workspace.appEntitlementsEnabled(), true);
+  } finally {
+    restoreStorage();
+  }
+});
+
+test('same-slug workspace recreation invalidates the old identity atomically', async () => {
+  const restoreStorage = installStorage();
+  try {
+    const recreated = WORKSPACES.map((workspace) => workspace.slug === 'andritz'
+      ? { ...workspace, id: 'workspace-a-recreated', name: 'Andritz recreated' }
+      : workspace);
+    let reads = 0;
+    const injector = Injector.create({
+      providers: [
+        WorkspaceService,
+        {
+          provide: HttpClient,
+          useValue: { get: () => of(reads++ === 0 ? WORKSPACES : recreated) },
+        },
+      ],
+    });
+    const workspace = injector.get(WorkspaceService);
+    await firstValueFrom(workspace.loadWorkspaces());
+    const oldScope = workspace.captureRequestScope();
+    const resetObservations: Array<{
+      id: string | undefined;
+      slug: string | null;
+      epoch: number;
+    }> = [];
+    workspace.registerContextReset(() => resetObservations.push({
+      id: workspace.current()?.id,
+      slug: workspace.currentSlug(),
+      epoch: workspace.contextEpoch(),
+    }));
+
+    await firstValueFrom(workspace.loadWorkspaces(true));
+
+    assert.deepEqual(resetObservations, [{
+      id: 'workspace-a',
+      slug: 'andritz',
+      epoch: 0,
+    }], 'old tenant state is cleared before the recreated identity is published');
+    assert.equal(workspace.currentSlug(), 'andritz');
+    assert.equal(workspace.current()?.id, 'workspace-a-recreated');
+    assert.equal(workspace.contextEpoch(), 1);
+    assert.equal(workspace.isRequestScopeCurrent(oldScope), false);
+    assert.deepEqual(workspace.captureRequestScope(), {
+      workspaceSlug: 'andritz',
+      workspaceId: 'workspace-a-recreated',
+      epoch: 1,
+    });
   } finally {
     restoreStorage();
   }
@@ -270,5 +421,42 @@ test('a storage write failure cannot split the workspace transaction', async () 
     } else {
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
+  }
+});
+
+test('effective feature revocation is synchronous, same-epoch and idempotent', async () => {
+  const restoreStorage = installStorage();
+  try {
+    const workspaces: WorkspaceInfo[] = WORKSPACES.map((workspace) => ({
+      ...workspace,
+      effective_features: workspace.slug === 'andritz'
+        ? { capability_360_projection_v1: true }
+        : {},
+    }));
+    const injector = Injector.create({
+      providers: [
+        WorkspaceService,
+        { provide: HttpClient, useValue: { get: () => of(workspaces) } },
+      ],
+    });
+    const workspace = injector.get(WorkspaceService);
+    let refreshes = 0;
+    workspace.contextRefresh$.subscribe(() => refreshes += 1);
+    await firstValueFrom(workspace.loadWorkspaces());
+    const epoch = workspace.contextEpoch();
+
+    workspace.revokeEffectiveFeature('capability_360_projection_v1');
+
+    assert.equal(
+      workspace.current()?.effective_features?.['capability_360_projection_v1'],
+      false,
+    );
+    assert.equal(workspace.contextEpoch(), epoch, 'metadata revocation preserves identity');
+    assert.equal(refreshes, 2, 'hydration and revocation each emit one metadata refresh');
+
+    workspace.revokeEffectiveFeature('capability_360_projection_v1');
+    assert.equal(refreshes, 2, 'repeating the same revocation is a no-op');
+  } finally {
+    restoreStorage();
   }
 });

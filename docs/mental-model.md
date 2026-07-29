@@ -19,14 +19,21 @@ _This block is generated from `config/agentium/product-compliance.v1.json`. Run 
 | 4 | `LOT4-BUSINESS-SHELL-MISSION-EXTENSION` — Andritz shell and Mission Room are resolver-owned extensions | 🟠 Static verified |
 | 4 | `LOT4-SENTINEL-OCTOCITY-ISOLATION` — Sentinel and Octocity keep isolated branding and action packs | 🟠 Static verified |
 | 4 | `LOT4-ANDRITZ-APP-ENTITLEMENTS` — Andritz app entitlements are explicit and fully backfilled | 🟠 Static verified |
-| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | 🟠 Static verified |
+| 5 | `LOT5-WORKSPACE-BLUEPRINT-V2` — Workspace Blueprint v2 migrates portable experience safely | 🟡 Partial |
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | 🟠 Static verified |
-| 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟠 Static verified |
+| 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | 🟠 Static verified |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | 🟠 Static verified |
+| 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | 🟠 Static verified |
+| 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | 🟠 Static verified |
+| 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | 🟠 Static verified |
+| 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | 🟠 Static verified |
+| 8 | `LOT8-AUTHORITATIVE-VALUE-LOOP` — System value scenarios follow one governed evidence lifecycle | 🟠 Static verified |
+| 9 | `LOT9-WORKSPACE-APP-LIFECYCLE` — Workspace Apps use content-addressed lifecycle and runtime authority | 🟠 Static verified |
+| 9 | `LOT9-IMMUTABLE-SUPPLY-CHAIN` — Release contract binds source, images and semantic evidence by digest | 🟠 Static verified |
 
-These are static repository states. External runner/deployment JSON is recorded as untrusted evidence and cannot promote a formal delivery state; see [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).
+These are static repository states. JSON passed to the static generator cannot promote them; higher formal states exist only in the immutable report produced by the authenticated CI collector. See [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).
 <!-- END GENERATED: AGENTIUM PRODUCT COMPLIANCE -->
 
 ---
@@ -704,12 +711,12 @@ ROI: +733%
 → Action: Increase budget
 ```
 
-> **◻️ Implementation claim — non attesté (historical v0.4.0)** — `/hypervisor` route delivers:
+> **◻️ Historical claim — legacy preview retired** — `/hypervisor` route delivered:
 > - `/hypervisor/aggregate` — portfolio ROI with per-capability & per-system breakdown.
-> - `/hypervisor/what-if` (POST, 4 canonical levers: `resource`, `velocity`, `autonomy`, `risk_tolerance`) — projected cost / value / confidence deltas.
+> - `/hypervisor/what-if` — now route-compatible but explicitly returns `not_configured`; it no longer manufactures projected deltas.
 > - `/hypervisor/decisions` (+ `/:id`) — paginated feed of recommendations with filter + detail drawer. UI: `frontend-ng/src/app/features/hypervisor/hypervisor.component.ts`.
 >
-> **◻️ Implementation claim — non attesté** — Decision accept/reject/apply and policy/System mutation paths exist in `backend/app/services/decisions/state_machine.py`, `backend/app/services/decisions/enactment.py` and the Hypervisor API. This is static code evidence only: no SHA-bound behavioral runner or canary in the compliance contract currently attests the end-to-end enactment path.
+> **◻️ Implementation claim — preuve runtime non attestée** — Decision accept/reject remain available. The generic Hypervisor `apply` actuator is retired and returns `LEGACY_DECISION_ACTUATOR_DISABLED`; it cannot mutate policy or System state. The sole authoritative actuator is the System value loop described in §44.
 
 ---
 
@@ -2649,7 +2656,7 @@ The Hypervisor must support direct actions such as:
 
 A COMEX tool is only truly used when decisions can be enacted from the same interface.
 
-> **◻️ Implementation claim — non attesté** — the Hypervisor apply path calls the Decision state machine and `backend/app/services/decisions/enactment.py`, which contains mutations for `ControlPolicy`, `AdaptivePolicy`, Capability allocation and System status. Static inspection establishes that the path exists; the current compliance contract does not yet include SHA-bound behavioral evidence proving the complete UI → API → mutation loop.
+> **◻️ Implementation claim — preuve runtime non attestée** — the legacy Hypervisor apply path is retired and returns `not_configured` through `LEGACY_DECISION_ACTUATOR_DISABLED`; it no longer calls generic enactment mutations. The authoritative, bounded and auditable action path is the System value loop in §44.
 
 ---
 
@@ -3289,7 +3296,7 @@ ROI: +8%
 Risk: +3%
 ```
 
-> **◻️ Implementation claim — non attesté** — Steering simulate + Hypervisor what-if both render impact preview before apply.
+> **◻️ Implementation claim — preuve runtime non attestée** — legacy Steering/Hypervisor lever previews are retired and expose `not_configured`. The §44 System value loop persists an explicit simulation, model, assumptions, provenance and confidence before approval; without that contract, no preview is displayed.
 
 ---
 
@@ -4220,13 +4227,360 @@ when present, else the global default).
 
 ---
 
+## 43. Lot 7 — Projections du graphe objet et autorisation progressive · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+Cette section fixe le modèle produit du Lot 7 après la clôture de P4. Elle ne
+déclare aucun état formel : le bloc généré en tête de document et les artefacts
+du collecteur de conformité restent les seules autorités sur le niveau de
+preuve atteint.
+
+### 43.1 Capability, Run et SkillInvocation restent trois objets distincts
+
+Les quatre lenses objet (`build`, `operate`, `steer`, `govern`) s’étendent dans
+l’ordre `Capability → Run → SkillInvocation`. Un `Skill` du catalogue décrit un
+composant de conception ; une `SkillInvocation` décrit son exécution réelle
+sous un `Run`. Ils ne partagent ni identifiant, ni route canonique, ni preuve
+d’exécution.
+
+Chaque projecteur doit conserver l’identité, le header et les facettes entre
+les lenses, isoler strictement le workspace et qualifier les absences de donnée
+sans fabriquer de valeur. Son activation dépend à la fois d’un flag et d’un
+gate serveur ordonné, lié au System canari découvert par marqueur. Un flag seul
+n’est jamais une autorité suffisante.
+
+Pour une activation finalisée, le runtime recalcule le digest du reçu, recharge
+l'`AuditLog` exact et exige l'égalité de son type, acteur et détails. Il
+reconfronte aussi l'identité runner persistée aux ancres OIDC courantes et au
+SHA servi. Un audit altéré, une preuve transplantée ou une rotation d'ancres
+qui ne reconnaît plus le producteur ferme la projection.
+
+La composition exécutable d’un System passe par un resolver tenant unique. Il
+valide Capability, Skills et AdaptivePolicy à la création, à l’import Blueprint,
+au déclenchement API ou événementiel, au scheduler et dans les moteurs
+séquentiel/DAG, reprises comprises. Une référence globale n’est visible que si
+le catalogue du workspace l’autorise explicitement ; une référence hors tenant
+ou devenue invisible échoue avant la création d’un Run ou d’une invocation.
+
+### 43.2 L’autorisation progresse par action et par workspace
+
+Le decision plane compare la décision historique et la décision candidate aux
+frontières explicites. `compat` conserve la décision historique, `shadow`
+observe les écarts sans changer l’expérience et `enforce` rend la décision
+candidate autoritaire uniquement pour le groupe d’actions attesté.
+
+Client360 résout son autorité depuis un unique System actif et sa Capability
+canonique. Un préflight en lecture seule lie cette autorité, la configuration
+IAM et le SHA runtime avant toute bascule. Une autorité absente ou ambiguë
+échoue fermée ; un rôle affiché côté frontend n’est jamais une permission.
+
+Les gardes structurels restent des plafonds que le decision plane ne peut pas
+élargir. En particulier, le HITL du System Agentic managed conserve son
+exigence admin/owner : `run.approve` peut la restreindre après promotion, mais
+un reviewer autorisé par le manifeste ne peut jamais la contourner.
+
+Blueprint v2 transporte l’identité de Context et System par clés opaques
+stables, ainsi que leurs liaisons bidirectionnelles et les scopes de presets.
+Les noms ne sont qu’un chemin de compatibilité pour les anciens exports : ils
+ne sont adoptés que s’ils sont uniques, sinon l’import échoue sans deviner.
+
+Un mismatch shadow intentionnel n’est explicable que par une review
+content-addressée, créée par un administrateur de policy authentifié et
+persistée dans l’audit du workspace. Elle couvre l’intégralité des observations
+en écart d’un manifeste exhaustif, avec action et motif. Le collecteur et le
+promoteur rechargent la review et reconstruisent chaque ligne depuis
+`AuditLog` ; une agrégation libre ou une review partielle n’a aucune autorité.
+
+Une configuration `enforce` n'est pas non plus une autorité autoportée. Sa
+promotion écrit un reçu serveur `lot7.authorization.enforce_promoted` dont le
+document content-addressé lie la promotion exacte, le groupe d'actions et la
+source shadow. L'attestation conserve seulement `audit_id` et `artifact_ref`.
+Le decision plane recharge ce reçu dans le même workspace, reconstruit les
+observations et la review éventuelle depuis le ledger, puis reconfronte le
+runner aux ancres OIDC courantes. Toute absence, transplantation ou dérive
+rend le mode `invalid_enforce` et ferme la frontière.
+La promotion rejoue cette validation avant commit ; un reçu que le ledger ne
+peut pas relire annule atomiquement la policy et son attestation.
+
+### 43.3 Une absence de télémétrie n’est pas un zéro
+
+Les budgets coût, tokens et latence transportent une couverture explicite. Les
+usages provider réellement rapportés alimentent le ledger ; une mesure absente,
+partielle ou indisponible reste distincte d’un zéro contractuel. Les retries,
+loops et descendants délégués appartiennent au même périmètre de mesure et un
+enfant sans ledger crée un gap explicite.
+
+### 43.4 Andritz reste une préparation shadow réversible
+
+Le Lot 7 ne fait pas passer Andritz en `enforce`. Le contrat statique couvre la
+découverte par famille canonique, le dry-run, la création append-only d’une
+policy shadow, une nouvelle SystemVersion de transition et un rollback
+drift-checked vers la policy source préservée.
+
+La mutation de préparation exige également que le statut DB autoritaire du
+rollout Showcase Lot 6 soit `ready=true` ; sa preuve content-addressée est
+reportée puis persistée. Ce prérequis forward-only n’est jamais consulté par le
+rollback, qui doit rester disponible même si Showcase se dégrade.
+
+Ce contrat ne constitue pas une preuve de non-régression métier. Les gardes
+Andritz, le golden retrieval, le shell à trois applications et les contrôles
+d’isolation Sentinel/Octocity restent des gates opérationnels séparés avant
+toute activation Andritz.
+
+### 43.5 Règle de preuve et de rollout
+
+P4 reste un prérequis clos et n’est pas rouvert par ce lot. Chaque type d’objet
+avance séparément : analyse statique, exécution des tests, vérification sur
+l’environnement cible, preuve comportementale, puis validation sans coaching
+par des utilisateurs représentatifs. Une étape ne déduit jamais la suivante.
+
+Avant la finalisation de chaque probation, une observation pilote structurée
+doit couvrir sans coaching les quatre questions Build, Operate, Steer et
+Govern en 60 secondes au plus chacune, avec succès, confiance d’au moins 4/5
+et zéro confusion critique. Elle est liée au SHA, au lease, au workspace et
+aux trois objets, puis persistée par adresse de contenu. Ce gate pilote ne vaut
+pas campagne `user_validated`.
+
+Le gate utilisateur formel couvre au minimum cinq participants représentant
+les profils builder, operator, decision owner, governor et transverse. Chacune
+des quatre questions Build/Operate/Steer/Govern requiert au moins quatre succès,
+la confiance moyenne doit être au moins 4/5 et aucune confusion critique
+d’identité ou de lens n’est acceptée. Le collecteur authentifié recalcule ces
+seuils ; un libellé libre `passed` n’est pas une preuve.
+
+Le rollback des projections suit l’ordre inverse
+`SkillInvocation → Run → Capability`. Les policies et SystemVersions restent
+append-only ; seule l’autorité active est restaurée.
+
+---
+
+## 44. Lot 8 — Boucle de valeur autoritaire · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+La boucle System suit un seul cycle :
+
+`Outcome → Decision → Simulate → Approve → Act → Measure`
+
+Une simulation conserve son modèle, ses hypothèses, sa provenance et sa
+confiance ; elle ne devient jamais une mesure. Le forecast est calculé depuis
+le patch canonique et une borne explicitement déclarée par champ. Le patch, son
+digest et la borne retenue sont persistés ; un modèle absent ou ambigu échoue
+avec `SIMULATION_NOT_CONFIGURED`, sans fallback générique. Steer ne projette
+que des simulations persistées. L’action est idempotente,
+permissionnée par le decision plane, admise par une Membrane v2 en mode
+`enforce`, puis auditée. Sans actuator réel et borné, Steer rend
+`not_configured` au lieu d’afficher un levier décoratif. Une mesure ne peut être
+créée qu’après l’action et depuis un Run postérieur appartenant au même System.
+Le Run observé doit porter le snapshot serveur exact du ControlPolicy exécuté ;
+la dérive de policy, de Membrane ou d'actuator échoue fermée. Une valeur
+opérateur écrite par le canari lui-même n'est jamais une provenance de mesure.
+La baseline exige elle aussi un Run frais et indépendant, dont la provenance
+serveur est exactement `runtime_auto` ; seed, canari et opérateur sont refusés.
+Le collecteur recharge le Run et vérifie que son exécution appartient à la
+fenêtre de preuve. Cette provenance est écrite par engine, DAG/agentic ou chat
+classique à la complétion avec l'audit exact
+`run.outcome.runtime_auto.recorded`. Le reçu lie Run, tenant, System,
+ControlPolicy exécuté, flow, révision runtime, acteur, instant et hash de la
+valeur ; le JSON embarqué seul, un Run legacy ou un audit transplanté n'a aucune
+autorité. Un échec d'audit annule la complétion.
+
+L'approbation persiste également le snapshot canonique complet de la simulation
+et son SHA-256. Act recalcule modèle, hypothèses, projection, recommandation,
+provenance et confiance avant tout effet ; une mutation post-approbation ou un
+reçu legacy sans pin échoue fermé. Le frontend ne propose une baseline que si
+le backend la déclare explicitement éligible.
+
+Une valeur opérateur peut compter comme mesure post-action seulement si son
+reçu v2 `{audit_id, artifact_ref}` est lié à l'`AuditLog` exact
+`run.outcome.operator_override.recorded` du même workspace. Valeur précédente,
+valeur courante et note restent absentes de l'audit : leurs hashes incluent
+`audit_id`, `run_id` et le champ. Le runtime recharge l'audit en base et
+reconfronte son acteur, son horodatage, ses détails, le digest du reçu et les
+hashes du Run courant. Toute absence, altération ou transplantation ferme la
+provenance. L'override, son reçu et l'audit sont atomiques ; un échec d'audit
+rollback l'ensemble. Cette mécanique ne rend jamais un Outcome opérateur
+éligible comme baseline.
+
+Le backend expose la lifecycle System-scopée, Hypervisor agrège sans confondre
+portfolio et System, et Steer porte la projection locale. Les mutations
+reprennent le verrou tenant et rafraîchissent le membership avant tout verrou
+métier afin qu’une révocation concurrente ne puisse pas utiliser une autorité
+ORM périmée.
+Le service conserve ensuite un ordre global
+`Workspace → System → ControlPolicy → ValueScenario`, rafraîchit chaque ligne
+autoritaire et revalide gate, Membrane, actuator et policy avant tout reçu ou
+effet. Un rejeu idempotent déjà terminé peut relire son reçu après une dérive ;
+il ne rejoue jamais l'action. La transition append-only du ControlPolicy lie
+désormais l'`audit_id` et le `request_sha256` de l'ActionExecution et revalide
+audit, acteur, scénario, Decision, instant et états avant/après : une transition
+JSON plausible ne peut pas prolonger le gate.
+
+Steer n'ouvre l'actuator que depuis le contrat backend complet
+`value_loop_enabled`, affiche la raison lorsque cette autorité n'est plus
+valide et conserve le parcours à six étapes. Hypervisor compte les Capabilities
+depuis leur agrégat propre, jamais depuis `runs_count`.
+
+L’affichage et les APIs ne dépendent pas du booléen brut. Le marqueur
+structurel désigne uniquement l'unique cible temporaire de préparation et de
+preuve du workspace. L’activation durable appartient ensuite au System : elle
+est liée à son `system_id`, aux références SHA-256, à son audit exact et au SHA
+runtime courant. Le marqueur peut alors être déplacé vers le prochain System
+sans révoquer les activations déjà attestées. Un changement de runtime sans
+nouvelle preuve rend chaque gate concerné faux. Le rollout reste explicite,
+réversible, ciblable par `--system-id` et limité à un workspace ; Andritz n’est
+pas inclus implicitement.
+À chaque accès, le runtime recharge les cinq records de la boucle, le reçu
+`AuditLog` exact de l'activation et les ancres OIDC courantes. La fenêtre de
+canari possède elle aussi son reçu serveur exact et une seule fenêtre peut être
+ouverte par workspace ; aucune forme JSON valide ne remplace ces autorités
+persistées. La désactivation d'un System conserve le flag du workspace tant
+qu'un autre System possède encore une activation ou une preuve valide.
+La fenêtre de canari et l’activation exigent aussi le mode Authorization v2
+exact `enforce`, avec attestations valides pour les lectures System, Run et
+Decision, l’exécution System, l’administration ControlPolicy et toutes les
+actions `value_scenario`. Une action en `compat`, `shadow` ou
+`invalid_enforce` ferme également le gate runtime.
+Une fenêtre de canari auditée et limitée à deux heures rompt le cycle initial
+entre gate et production de preuve, sans promouvoir de claim. Playwright y
+produit une observation expurgée ; seul le collecteur serveur protégé peut la
+lier au digest du JUnit Playwright original, aux cinq records et au vrai Run
+post-action pour fabriquer le contrat d’activation. L'apply exige le même job
+GitLab OIDC protégé que le producteur de la preuve, lié à l'issuer, au projet,
+à la ref, au SHA, au pipeline et au job. Un JSON conforme rejoué localement n'a
+aucune autorité. `not_measured` reste toujours non promotable.
+
+La migration `074_relational_integrity` preflight tout drift avant DDL, puis
+ferme par clés composites le lignage tenant/System/scénario entre simulations,
+actions, mesures, Runs et ControlPolicies ; le lien cyclique vers la simulation
+approuvée est différé au commit. La révision `075_simulation_approval_pin`
+ajoute le snapshot et son digest sans fabriquer de preuve legacy ; la révision
+`076_decision_scenario_lineage` lie Decision au triplet exact
+workspace/scénario/System, interdit le contournement NULL et refuse un downgrade
+qui retirerait une autorité active. Le seed Showcase ne réécrit aucune version :
+chaque réconciliation effective crée une nouvelle `SystemVersion`
+`showcase_seed_reconcile`, un audit limité aux noms de champs, conserve les
+faits existants et reste idempotent. Il n'active aucun gate et préserve les
+autorités de rollout déjà présentes.
+
+Le présent état du dépôt n'apporte que des preuves statiques. L'exécution
+PostgreSQL réelle de 074–076, le job GitLab protégé avec artefacts OCI et preuve
+d'environnement, le canari Playwright authentifié et la validation utilisateur
+restent absents.
+
+---
+
+## 45. Lot 9 — Workspace App Platform · ◻️ Contrat d’implémentation — preuve runtime non attestée
+
+Une Workspace App est choisie par le triplet immuable
+`app_id + version SemVer + manifest_digest`. Le manifeste fermé décrit
+compatibilité de famille/profil, routes, surfaces, shell, branding, action
+packs, entitlements, migrations et backfills. Un lockfile versionné fige le
+digest de chaque version publiée : toute modification du contenu exige une
+nouvelle version.
+
+La lifecycle `install → upgrade → rollback → uninstall` utilise un plan
+content-addressé, une clé d’idempotence tenant-scopée, le verrou Workspace et un
+audit obligatoire dans la même transaction. Elle refuse les conflits de
+famille, profil, groupe exclusif, route ou shell. Blueprint v2 transporte les
+installations exactes et évalue leur compatibilité contre l’expérience
+prospective ; expérience et apps sont annulées ensemble en cas d’échec.
+Après commit, la compensation n'est plus une simple indication du plan : une
+route dédiée dérive l'unique opération inverse depuis le reçu source, exige son
+digest exact, verrouille l'installation, refuse tout drift et écrit le reçu
+inverse et son audit atomiquement. Le client ne peut fournir ni version, ni
+configuration, ni manifeste de remplacement.
+
+Les préfixes API sont aussi des frontières d'autorité. La lifecycle refuse au
+plan comme au replan verrouillé toute égalité ou relation parent/enfant sur une
+frontière `/`, et le runtime revalide l'ensemble installé. Les siblings
+seulement lexicaux, comme `/chat` et `/chatbot`, restent distincts. Un conflit
+échoue avec `api_prefix_conflict` avant mutation ou reçu.
+
+Andritz conserve exactement trois applications : Chat, Client360 et Knowledge
+Capture. FSE Reports est une surface de Knowledge Capture avec sa route, son
+entitlement et son API historiques. Mission Room reste une extension ; ses
+variantes générique, Sentinel et Octocity sont mutuellement exclusives. Le
+catalogue public, le branding, les assistants et les action packs sont filtrés
+par famille et profil structurels, jamais par slug ou nom.
+
+Le flag `workspace_app_platform_v1` est OFF tant que le backfill et le preflight
+ne sont pas validés. L'activation directe est interdite : le protocole est
+`bootstrap → preflight → collect → stage → post-canary → collect → finalize`.
+`stage` ouvre une probation bornée ; expiration, drift ou échec du post-canary
+imposent `abort`. Les writes `stage` et `finalize` exigent chacun le même job
+GitLab OIDC protégé que la preuve consommée, et l'attestation lie le digest du
+JUnit Playwright original, le SHA runtime, le workspace, la probation et la
+liste exacte des installations/configurations.
+
+Le marqueur `settings.experience.workspace_app_platform_canary = "v1"` est
+server-owned : le PATCH générique ne peut ni le forger, ni le remplacer, ni le
+supprimer et son omission le préserve. Chaque probation et activation recharge
+son `AuditLog` exact et revalide le runner persisté contre les ancres OIDC
+courantes ; une preuve seulement plausible ou devenue non fiable échoue
+fermée.
+
+Les canaris preflight et post-activation dérivent désormais le shell installé
+`standard|business|immersive` et sa frontière d'entrée, sans slug, app ou
+entitlement métier fixé. Le collecteur puis le rollout re-dérivent
+`runtime_shell`, `entry_policy` et `declared_entitlement_count` depuis le
+runtime. Business exige un entitlement primaire réellement exercé ; standard
+et immersive rendent cette vérification non applicable et refusent tout
+entitlement qu'ils ne sauraient enforce.
+
+Une fois l’autorité active, bootstrap, portes d’entrée, shell, Mission Room et
+action packs viennent uniquement des installations dont le digest est reconnu.
+Un état invalide échoue fermé sans retour aux settings legacy : le frontend
+rend un shell `workspace_app_unavailable` sans application, cockpit ni Mission
+Room, avec une console de réparation réservée aux admins. Chaque résolution
+reconfronte le SHA servi et le hash de l'ensemble
+`{app_id, version, manifest_digest, configuration}` à l'attestation. Tant que
+l'autorité est active, une nouvelle mutation lifecycle est refusée ; la
+séquence obligatoire est `deactivate → lifecycle/Blueprint → nouvelle preuve
+staged`. Le rollback désactive le flag et conserve l’état additif.
+
+Les manifestes actuels déclarent leurs prérequis de migrations et backfills,
+mais la lifecycle générique n'orchestrera une future migration métier d'upgrade
+qu'après ajout d'étapes ordonnées, de receipts et de compensation. Ce point
+reste explicitement hors du claim courant.
+
+La migration `074_relational_integrity` lie chaque opération Workspace App à
+l'installation exacte du même workspace et de la même app, puis chaque reçu
+d'étape à cette lignée. Son preflight refuse tout DDL en présence de drift et
+elle impose aussi l'unicité des clés Blueprint globales de Systems et Contexts.
+La lifecycle et le runtime introspectent ces contraintes exactes avant de
+prendre autorité ; publier une garde uniquement déclarative dans un manifeste
+ne suffit pas. Blueprint peut restaurer une version plus ancienne dans un autre
+workspace seulement à partir du manifeste verrouillé et de la configuration
+canonique contenus dans son contrat v2, sans relâcher le rollback public.
+
+La supply chain cible trois images backend/frontend/worker construites une fois,
+testées et sélectionnées par digest. Son schéma v2 exige, pour chaque image, une
+signature Cosign et deux attestations DSSE Cosign : SBOM CycloneDX/SPDX et
+provenance SLSA v1. Leur unique sujet OCI, predicate type, payload
+content-addressé, issuer et identité doivent tous correspondre exactement.
+Les SBOM doivent être peuplés et liés au composant ; la provenance lie le dépôt
+HTTPS, la ref, la révision résolue, le builder, l'invocation et le byproduct
+SBOM. Un reçu de déploiement est obligatoire et reconfronte les trois images
+aux build-info réellement servis, au SHA, à l'environnement et à l'identité de
+déploiement ; un compteur de builds auto-déclaré n'est jamais une preuve.
+Le mode offline est seulement structurel et sémantique : il ne prétend pas
+vérifier cryptographiquement les signatures enregistrées. Le mode live doit
+être demandé explicitement et lance neuf commandes Cosign, trois signatures et
+six attestations, toutes sur les digests et ancres attendus.
+
+L'audit courant ne contient encore ni exécution PostgreSQL réelle de 074, ni
+interrogation registry ou vérification Cosign réelle, ni artefacts GitLab/OCI et
+preuve d'environnement, ni Playwright authentifié, ni validation utilisateur.
+Aucun claim des Lots 7 à 9 ne dépasse donc la preuve statique calculée par la
+matrice.
+
+---
+
 ## Appendix A — Gap ledger (what to build next)
 
 Aggregated from the status annotations above, sorted by product impact.
 
 ### Tier 1 — Highest leverage
 
-1. **Behaviorally attest Hypervisor Decision → policy enactment.** The state-machine and mutation code paths exist; add runner-bound end-to-end proof for the UI → API → ControlPolicy / AdaptivePolicy / System mutation loop (§23.6).
+1. **Behaviorally attest the authoritative System value loop.** The legacy Hypervisor apply actuator is retired; produce runner-bound proof for `Outcome → Decision → Simulate → Approve → Act → Measure`, including the bounded ControlPolicy transition and post-action measurement (§44).
 2. **First-class pricing contract.** `execution_mode`, `execution_profile` and `coordination_pattern` already exist; `pricing_mode` still needs a canonical persisted home and mode-aware metering semantics (§20.6).
 3. **Per-Run value declaration + efficiency score.** Turns §24's Decision Unit from conceptual to operational.
 
@@ -4264,4 +4618,4 @@ Aggregated from the status annotations above, sorted by product impact.
 
 ---
 
-_Last reconciled: 2026-07-15 (canonical contracts and evidence wording). Update this document when either the vision or the repository implementation state changes — never let them drift._
+_Last reconciled: 2026-07-22 (Lots 7–9: object graph, value loop and Workspace App lifecycle contracts). Update this document when either the vision or the repository implementation state changes — never let them drift._

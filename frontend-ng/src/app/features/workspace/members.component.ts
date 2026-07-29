@@ -6,10 +6,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
-  BUSINESS_WORKSPACE_APPS,
   WorkspaceMemberDetail,
   WorkspaceService,
+  toggleWorkspaceAppEntitlement,
   type WorkspaceAppEntitlement,
+  workspaceAppEntitlementOptions,
 } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
@@ -90,7 +91,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                   Application access
                 </legend>
                 <div class="flex flex-wrap gap-x-5 gap-y-2">
-                  @for (app of appOptions; track app.key) {
+                  @for (app of inviteAppOptions(); track app.key) {
                     <label class="inline-flex items-center gap-2 text-sm text-gray-200">
                       <input
                         type="checkbox"
@@ -170,7 +171,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                   <div class="text-sm text-gray-400 truncate">{{ m.email }}</div>
                   @if (appEntitlementsEnabled()) {
                     <div class="mt-1 flex flex-wrap gap-1" aria-label="Application access">
-                      @for (app of appOptions; track app.key) {
+                      @for (app of memberAppOptions(m); track app.key) {
                         @if ((m.app_entitlements || []).includes(app.key)) {
                           <span class="rounded border border-cyan-400/20 bg-cyan-500/[0.07] px-1.5 py-0.5 text-[10px] text-cyan-200">
                             {{ app.label }}
@@ -305,15 +306,25 @@ export class WorkspaceMembersComponent {
 
   inviteEmail = '';
   inviteRole: 'admin' | 'member' = 'member';
-  inviteAppEntitlements: WorkspaceAppEntitlement[] = BUSINESS_WORKSPACE_APPS.map((app) => app.key);
-  readonly appOptions = BUSINESS_WORKSPACE_APPS;
+  inviteAppEntitlements: WorkspaceAppEntitlement[] = [];
+  readonly inviteAppOptions = computed(() => workspaceAppEntitlementOptions(
+    this.workspaceService.current(),
+  ));
   readonly appEntitlementsEnabled = this.workspaceService.appEntitlementsEnabled;
+  private inviteOptionsFingerprint = '';
 
   readonly canAdmin = computed(() => {
     return this.workspaceService.isAdmin();
   });
 
   constructor() {
+    effect(() => {
+      const options = this.inviteAppOptions();
+      const fingerprint = `${this.workspaceService.current()?.id || ''}:${options.map((item) => item.key).join('|')}`;
+      if (fingerprint === this.inviteOptionsFingerprint) return;
+      this.inviteOptionsFingerprint = fingerprint;
+      this.inviteAppEntitlements = options.map((item) => item.key);
+    });
     effect(() => {
       const slug = this.routeSlug();
       if (slug) this.load(slug);
@@ -355,7 +366,7 @@ export class WorkspaceMembersComponent {
           );
         }
         this.inviteEmail = '';
-        this.inviteAppEntitlements = BUSINESS_WORKSPACE_APPS.map((app) => app.key);
+        this.inviteAppEntitlements = this.inviteAppOptions().map((app) => app.key);
         this.load(slug);
       },
       error: (err) => {
@@ -377,12 +388,19 @@ export class WorkspaceMembersComponent {
 
   setInviteApp(app: WorkspaceAppEntitlement, event: Event): void {
     const enabled = (event.target as HTMLInputElement).checked;
-    const selected = new Set(this.inviteAppEntitlements);
-    if (enabled) selected.add(app);
-    else selected.delete(app);
-    this.inviteAppEntitlements = BUSINESS_WORKSPACE_APPS
-      .map((option) => option.key)
-      .filter((key) => selected.has(key));
+    this.inviteAppEntitlements = toggleWorkspaceAppEntitlement(
+      this.inviteAppEntitlements,
+      app,
+      enabled,
+      this.inviteAppOptions(),
+    );
+  }
+
+  memberAppOptions(member: WorkspaceMemberDetail) {
+    return workspaceAppEntitlementOptions(
+      this.workspaceService.current(),
+      member.app_entitlements || [],
+    );
   }
 
   changeRole(member: WorkspaceMemberDetail, ev: Event): void {

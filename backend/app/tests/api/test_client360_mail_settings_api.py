@@ -5,8 +5,14 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import client360
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER
+from app.models.capability import Capability
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.client360_contract import (
+    CLIENT360_CAPABILITY_SLUG,
+    CLIENT360_SYSTEM_VARIANT,
+)
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -37,11 +43,30 @@ def _seed(db_session):
         email="client360-mail-contributor@example.test",
         role="user",
     )
+    capability = Capability(
+        id="capability-client360-mail-api",
+        workspace_id=workspace.id,
+        slug=CLIENT360_CAPABILITY_SLUG,
+        name="Client360 Opportunity Engine",
+        tier="client",
+    )
+    system = System(
+        id="system-client360-mail-api",
+        workspace_id=workspace.id,
+        name="Client360 mail authority",
+        objective="Exercise workspace-scoped SMTP configuration.",
+        capability_id=capability.id,
+        status="active",
+        settings={"system_type": CLIENT360_SYSTEM_VARIANT},
+        flow_definition={"variant": CLIENT360_SYSTEM_VARIANT},
+    )
     db_session.add_all(
         [
             workspace,
             owner,
             contributor,
+            capability,
+            system,
             WorkspaceMember(
                 workspace_id=workspace.id,
                 user_id=owner.id,

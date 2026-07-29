@@ -27,4 +27,8 @@ test('Mission Room extension preserves its exact public route table', () => {
   for (const route of children.slice(1)) {
     assert.equal(typeof route.loadComponent, 'function');
   }
+  for (const route of children.slice(1, 4)) {
+    assert.equal(route.canMatch?.length, 1, `${route.path} must be provider-gated`);
+  }
+  assert.equal(children[4].canMatch, undefined, 'core provider host remains available');
 });

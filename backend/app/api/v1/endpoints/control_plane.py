@@ -11,19 +11,197 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.impact import _aggregate_for_scope
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
+from app.models.capability import Capability
 from app.models.policy import AdaptivePolicy, ControlPolicy
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.chat_execution_policy import (
     migration_059_control_policy_id,
 )
+from app.services.capability_access import resolve_capability_read
+from app.services.iam.decision_plane import (
+    ActionResolution,
+    emit_shadow_diff_summary,
+    enforce_action,
+    resolve_action,
+)
 from app.services.membrane.spec import MembraneSpec
+from app.services.system_access import resolve_system_read
 
 router = APIRouter()
+
+
+def _policy_resource_attrs(
+    *,
+    policy_id: str | None,
+    scope: str | None,
+    target_id: str | None,
+) -> dict[str, str | None]:
+    normalized = "portfolio" if scope in {None, "workspace", "portfolio"} else scope
+    attrs: dict[str, str | None] = {
+        "policy_id": policy_id,
+        "scope": normalized,
+        "target_id": target_id,
+    }
+    if normalized in {"system", "capability"}:
+        attrs[f"{normalized}_id"] = target_id
+    return attrs
+
+
+def _enforce_policy_action(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    resource_kind: str,
+    action: str,
+    policy_id: str | None = None,
+    scope: str | None = None,
+    target_id: str | None = None,
+) -> None:
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind=resource_kind,
+        action=action,
+        legacy_allowed=True,
+        resource_attrs=_policy_resource_attrs(
+            policy_id=policy_id,
+            scope=scope,
+            target_id=target_id,
+        ),
+    )
+
+
+def _readable_policy_rows(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    resource_kind: str,
+    rows: list[ControlPolicy] | list[AdaptivePolicy],
+) -> list[ControlPolicy] | list[AdaptivePolicy]:
+    """Compose row-level policy authorization with target visibility.
+
+    Policy attributes are resolved for every row so a future candidate rule can
+    grant or deny one policy without a coarse, attribute-free pre-check masking
+    that decision. Shadow differences are emitted once as a bounded summary.
+    """
+
+    visible: list[ControlPolicy] | list[AdaptivePolicy] = []
+    resolutions: list[tuple[str, ActionResolution]] = []
+    for row in rows:
+        resolution = resolve_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind=resource_kind,
+            action="read",
+            legacy_allowed=True,
+            resource_attrs=_policy_resource_attrs(
+                policy_id=row.id,
+                scope=row.scope,
+                target_id=row.target_id,
+            ),
+            audit_shadow_diff=False,
+            audit_shadow_evidence=False,
+        )
+        resolutions.append((row.id, resolution))
+        if resolution.effective_allowed and _policy_target_is_readable(
+            db,
+            workspace=workspace,
+            user=user,
+            scope=row.scope,
+            target_id=row.target_id,
+        ):
+            visible.append(row)
+    emit_shadow_diff_summary(
+        workspace=workspace,
+        user=user,
+        resource_kind=resource_kind,
+        action="read",
+        resolutions=resolutions,
+    )
+    return visible
+
+
+def _policy_target_is_readable(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    scope: str | None,
+    target_id: str | None,
+) -> bool:
+    normalized = "portfolio" if scope in {None, "workspace", "portfolio"} else scope
+    if normalized == "portfolio":
+        return target_id in {None, ""}
+    if not target_id:
+        return False
+    if normalized == "system":
+        system = (
+            db.query(System)
+            .filter(System.id == target_id, System.workspace_id == workspace.id)
+            .one_or_none()
+        )
+        return bool(
+            system is not None
+            and resolve_system_read(
+                db,
+                system=system,
+                user=user,
+                workspace=workspace,
+                audit_shadow_diff=False,
+                audit_shadow_evidence=False,
+            ).effective_allowed
+        )
+    if normalized == "capability":
+        capability = (
+            db.query(Capability)
+            .filter(
+                Capability.id == target_id,
+                (
+                    (Capability.workspace_id == workspace.id)
+                    | (Capability.workspace_id.is_(None))
+                ),
+            )
+            .one_or_none()
+        )
+        return bool(
+            capability is not None
+            and resolve_capability_read(
+                db,
+                capability=capability,
+                user=user,
+                workspace=workspace,
+                audit_shadow_diff=False,
+                audit_shadow_evidence=False,
+            ).effective_allowed
+        )
+    return False
+
+
+def _require_policy_target(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    scope: str | None,
+    target_id: str | None,
+) -> None:
+    if not _policy_target_is_readable(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=scope,
+        target_id=target_id,
+    ):
+        raise HTTPException(status_code=404, detail="Policy target not found")
 
 
 def _require_managed_policy_admin(
@@ -59,7 +237,7 @@ def _require_managed_policy_admin(
 # ---- Control policies ----
 class ControlPolicyBody(BaseModel):
     name: str = "default"
-    scope: str = "system"
+    scope: Literal["portfolio", "capability", "system"] = "portfolio"
     target_id: Optional[str] = None
     max_cost_per_decision: Optional[float] = None
     max_latency_ms: Optional[float] = None
@@ -91,6 +269,10 @@ class ControlPolicyBody(BaseModel):
 
     @model_validator(mode="after")
     def _validate_enforced_membrane_scope(self):
+        if self.scope in {"capability", "system"} and not self.target_id:
+            raise ValueError("target_id is required for capability or system scope")
+        if self.scope == "portfolio" and self.target_id:
+            raise ValueError("target_id must be absent for portfolio scope")
         raw = self.extra.get("membrane_spec") if isinstance(self.extra, dict) else None
         if not isinstance(raw, dict):
             return self
@@ -140,6 +322,7 @@ async def list_policies(
     scope: Optional[str] = None,
     target_id: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     q = db.query(ControlPolicy).filter(ControlPolicy.workspace_id == workspace.id)
@@ -147,15 +330,39 @@ async def list_policies(
         q = q.filter(ControlPolicy.scope == scope)
     if target_id:
         q = q.filter(ControlPolicy.target_id == target_id)
-    return {"policies": [_serialize_cp(p) for p in q.all()]}
+    rows = _readable_policy_rows(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="control_policy",
+        rows=q.all(),
+    )
+    return {"policies": [_serialize_cp(p) for p in rows]}
 
 
 @router.post("/policies")
 async def create_policy(
     body: ControlPolicyBody,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="control_policy",
+        action="admin",
+        scope=body.scope,
+        target_id=body.target_id,
+    )
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=body.scope,
+        target_id=body.target_id,
+    )
     p = ControlPolicy(id=str(uuid4()), workspace_id=workspace.id, **body.model_dump())
     db.add(p)
     db.commit()
@@ -184,7 +391,44 @@ async def update_policy(
         workspace=workspace,
         policy=p,
     )
-    for k, v in body.model_dump(exclude_unset=True).items():
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="control_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    changes = body.model_dump(exclude_unset=True)
+    next_scope = changes.get("scope", p.scope)
+    next_target_id = changes.get("target_id", p.target_id)
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=next_scope,
+        target_id=next_target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="control_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=next_scope,
+        target_id=next_target_id,
+    )
+    for k, v in changes.items():
         setattr(p, k, v)
     db.commit()
     db.refresh(p)
@@ -196,11 +440,19 @@ class AdaptivePolicyBody(BaseModel):
     name: str = "default"
     enabled: bool = False
     adaptation_level: str = "moderate"
-    scope: Optional[str] = None
+    scope: Literal["portfolio", "capability", "system"] = "portfolio"
     target_id: Optional[str] = None
     triggers: Dict[str, Any] = {}
     allowed_actions: List[str] = []
     constraints: Dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def _validate_target(self):
+        if self.scope in {"capability", "system"} and not self.target_id:
+            raise ValueError("target_id is required for capability or system scope")
+        if self.scope == "portfolio" and self.target_id:
+            raise ValueError("target_id must be absent for portfolio scope")
+        return self
 
 
 class AdaptivePolicyPatch(BaseModel):
@@ -209,7 +461,7 @@ class AdaptivePolicyPatch(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
     adaptation_level: Optional[str] = None
-    scope: Optional[str] = None
+    scope: Optional[Literal["portfolio", "capability", "system"]] = None
     target_id: Optional[str] = None
     triggers: Optional[Dict[str, Any]] = None
     allowed_actions: Optional[List[str]] = None
@@ -239,6 +491,7 @@ async def list_adaptive(
     scope: Optional[str] = None,
     target_id: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     q = db.query(AdaptivePolicy).filter(AdaptivePolicy.workspace_id == workspace.id)
@@ -246,15 +499,39 @@ async def list_adaptive(
         q = q.filter(AdaptivePolicy.scope == scope)
     if target_id:
         q = q.filter(AdaptivePolicy.target_id == target_id)
-    return {"policies": [_serialize_ap(p) for p in q.all()]}
+    rows = _readable_policy_rows(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        rows=q.all(),
+    )
+    return {"policies": [_serialize_ap(p) for p in rows]}
 
 
 @router.post("/adaptive")
 async def create_adaptive(
     body: AdaptivePolicyBody,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        action="admin",
+        scope=body.scope,
+        target_id=body.target_id,
+    )
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=body.scope,
+        target_id=body.target_id,
+    )
     p = AdaptivePolicy(id=str(uuid4()), workspace_id=workspace.id, **body.model_dump())
     db.add(p)
     db.commit()
@@ -278,10 +555,48 @@ async def update_adaptive(
     policy_id: str,
     body: AdaptivePolicyPatch,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     p = _find_adaptive(db, workspace.id, policy_id)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    changes = body.model_dump(exclude_unset=True)
+    next_scope = changes.get("scope", p.scope)
+    next_target_id = changes.get("target_id", p.target_id)
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=next_scope,
+        target_id=next_target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=next_scope,
+        target_id=next_target_id,
+    )
+    for k, v in changes.items():
         setattr(p, k, v)
     db.commit()
     db.refresh(p)
@@ -293,10 +608,28 @@ async def toggle_adaptive(
     policy_id: str,
     body: Optional[AdaptiveToggleBody] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Flip the ``enabled`` flag. Explicit value wins, otherwise invert."""
     p = _find_adaptive(db, workspace.id, policy_id)
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
     target = body.enabled if (body and body.enabled is not None) else (not bool(p.enabled))
     p.enabled = bool(target)
     db.commit()
@@ -308,9 +641,27 @@ async def toggle_adaptive(
 async def delete_adaptive(
     policy_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     p = _find_adaptive(db, workspace.id, policy_id)
+    _require_policy_target(
+        db,
+        workspace=workspace,
+        user=user,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
+    _enforce_policy_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="adaptive_policy",
+        action="admin",
+        policy_id=p.id,
+        scope=p.scope,
+        target_id=p.target_id,
+    )
     db.delete(p)
     db.commit()
     return None
@@ -324,8 +675,10 @@ class SimulateBody(BaseModel):
 
     @model_validator(mode="after")
     def _require_system_target(self):
-        if self.scope == "system" and not self.target_id:
-            raise ValueError("target_id is required when scope=system")
+        if self.scope in {"capability", "system"} and not self.target_id:
+            raise ValueError("target_id is required for capability or system scope")
+        if self.scope == "portfolio" and self.target_id:
+            raise ValueError("target_id must be absent for portfolio scope")
         return self
 
 
@@ -333,54 +686,30 @@ class SimulateBody(BaseModel):
 async def simulate(
     body: SimulateBody,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    period = "rolling_30d"
-    base = _aggregate_for_scope(
+    enforce_action(
         db,
-        workspace.id,
-        scope=body.scope,
-        target_id=body.target_id,
-        period=period,
-    )
-    resource = float(body.levers.get("resource", 0.5))  # 0=lean, 1=deep
-    velocity = float(body.levers.get("velocity", 0.5))  # 0=thorough, 1=rapid
-    autonomy = float(body.levers.get("autonomy", 0.5))  # 0=hitl, 1=full
-
-    cost_factor = 0.6 + 0.8 * resource  # lean cuts cost ~40%, deep adds ~40%
-    value_factor = 0.85 + 0.30 * resource  # deep increases value
-    latency_factor = 1.6 - 1.0 * velocity  # rapid cuts latency
-    risk_factor = 0.4 + 0.6 * autonomy  # full autonomy increases risk
-
-    projected_cost = base["total_cost"] * cost_factor
-    projected_value = base["estimated_value"] * value_factor
-    projected_roi = (
-        ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+        user=user,
+        workspace=workspace,
+        resource_kind="value_scenario",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"scope": body.scope, "target_id": body.target_id},
     )
     return {
         "kind": "simulation",
+        "state": "not_configured",
         "measured": False,
         "scope": body.scope,
         "target_id": body.target_id,
-        "model": {"id": "control-plane-levers", "version": 1},
-        "assumptions": {
-            "resource": "controls cost and estimated-value multipliers",
-            "velocity": "controls the latency index",
-            "autonomy": "controls the risk index",
-        },
-        "provenance": {
-            "source": "runs",
-            "period": period,
-            "scope": body.scope,
-            "target_id": body.target_id,
-        },
+        "model": None,
+        "assumptions": None,
+        "provenance": None,
         "confidence": None,
-        "base": base,
-        "projected": {
-            "total_cost": projected_cost,
-            "estimated_value": projected_value,
-            "roi": projected_roi,
-            "latency_index": latency_factor,
-            "risk_index": risk_factor,
-        },
+        "base": None,
+        "projected": None,
+        "reason": "authoritative_value_loop_required",
+        "replacement": "/systems/{system_id}/value-loop",
     }

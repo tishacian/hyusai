@@ -60,7 +60,7 @@ MARKDOWN_TEXT_META_RE = re.compile(r"([\\`*_\[\]#|>~])")
 SAFE_REPOSITORY_PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 SAFE_SUFFIX_RE = re.compile(r"^\.[A-Za-z0-9._-]+$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-CLAIM_ID_RE = re.compile(r"^LOT[0-6]-[A-Z0-9][A-Z0-9-]*$")
+CLAIM_ID_RE = re.compile(r"^LOT(?:0|[1-9][0-9]*)-[A-Z0-9][A-Z0-9-]*$")
 
 
 class ComplianceError(ValueError):
@@ -925,8 +925,8 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
             raise ComplianceError(f"Duplicate claim id: {claim_id}")
         seen_ids.add(claim_id)
         lot = claim.get("lot")
-        if not isinstance(lot, int) or isinstance(lot, bool) or not 0 <= lot <= 6:
-            raise ComplianceError(f"{prefix}.lot must be an integer from 0 through 6")
+        if not isinstance(lot, int) or isinstance(lot, bool) or lot < 0:
+            raise ComplianceError(f"{prefix}.lot must be a non-negative integer")
         if not claim_id.startswith(f"LOT{lot}-"):
             raise ComplianceError(f"{prefix}.id must agree with lot {lot}")
         seen_lots.add(lot)
@@ -1004,10 +1004,11 @@ def validate_manifest(manifest: Any, root: Path = REPO_ROOT) -> dict[str, Any]:
                     raise ComplianceError(
                         f"{proof_prefix}.runner must be one of {', '.join(sorted(RUNNERS))}"
                     )
-    if seen_lots != set(range(7)):
-        missing = ", ".join(str(lot) for lot in sorted(set(range(7)) - seen_lots))
+    expected_lots = set(range(max(seen_lots, default=-1) + 1))
+    if seen_lots != expected_lots:
+        missing = ", ".join(str(lot) for lot in sorted(expected_lots - seen_lots))
         raise ComplianceError(
-            f"Manifest must represent Lots 0 through 6; missing: {missing}"
+            f"Manifest Lots must form a contiguous sequence from 0; missing: {missing}"
         )
     return manifest
 
@@ -1199,17 +1200,19 @@ def render_matrix(manifest: dict[str, Any], results: list[ClaimResult]) -> str:
 
     lines.extend(
         [
-            "## Runner and deployment attestations",
+            "## Static and authenticated evidence levels",
             "",
-            "Repository proofs, runner results, and deployment evidence are deliberately independent. External JSON is treated as untrusted evidence until an authenticated CI collector derives it:",
+            "Repository proofs, runner results, environment evidence, behavioral evidence and user validation are deliberately independent. JSON passed to this static generator remains untrusted; only the authenticated CI collector can derive a higher formal state:",
             "",
             "- `python3 scripts/agentium_compliance.py --check` verifies the committed manifest and generated documentation.",
             "- `--runner-attestation <json> --sha <40-hex-sha>` records claimed runner evidence for an exact commit; it never sets `runner_verified` or `shipped`.",
             "- `--deployment-attestation <json> --sha <40-hex-sha>` records a claimed environment; it never sets `deployed`.",
             "- The requested SHA must equal Git `HEAD`, `CI_COMMIT_SHA` when present, and a completely clean checkout; evidence for another or dirty ref is rejected.",
             "- `--report-json <path|->` emits the combined machine-readable view. Neither external evidence type mutates this matrix.",
+            "- `scripts/agentium_trusted_compliance.py` verifies the protected GitLab OIDC identity and derives `runner_verified → deployed_verified → behavior_verified → user_validated` from separate SHA- and job-bound artifacts.",
+            "- `--user-attestation` is accepted only after behavioral proof and must cover five required profiles, at least four successes for each of four questions, mean confidence of at least 4/5 and zero critical identity or lens confusion.",
             "",
-            "Formal promotion is intentionally disabled until a trusted CI collector derives proof coverage from immutable job identities and artifacts. A decorative mechanism therefore cannot self-declare `Shipped` or `Deployed` through a hand-written JSON file, branch name, manifest field, or documentation badge.",
+            "Formal promotion is intentionally disabled in this static generator. The trusted collector writes a separate immutable CI artifact and never edits this matrix or the mental model. A decorative mechanism therefore cannot self-declare `Shipped` or `Deployed` through a hand-written JSON file, branch name, manifest field, or documentation badge.",
             "",
         ]
     )
@@ -1237,7 +1240,7 @@ def render_mental_block(manifest: dict[str, Any], results: list[ClaimResult]) ->
     lines.extend(
         [
             "",
-            "These are static repository states. External runner/deployment JSON is recorded as untrusted evidence and cannot promote a formal delivery state; see [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).",
+            "These are static repository states. JSON passed to the static generator cannot promote them; higher formal states exist only in the immutable report produced by the authenticated CI collector. See [`docs/agentium-compliance-matrix.md`](agentium-compliance-matrix.md).",
             end,
         ]
     )

@@ -104,7 +104,6 @@ async def lifespan(app: FastAPI):
     if startup_reconciliation_enabled:
         try:
             from app.db.base import SessionLocal
-            from app.services.mission_room import ensure_sentinel_ci_workspace
             from app.services.systems.bootstrap import (
                 ensure_client360_pdr_system_for_all_workspaces,
                 ensure_expert_capture_system_for_all_workspaces,
@@ -112,6 +111,7 @@ async def lifespan(app: FastAPI):
                 ensure_intelligence_system_for_all_workspaces,
                 ensure_workspace_chat_system_for_all_workspaces,
             )
+            from app.services.mission_room import ensure_sentinel_ci_workspace
 
             with SessionLocal() as _db:
                 sentinel_report = ensure_sentinel_ci_workspace(_db)

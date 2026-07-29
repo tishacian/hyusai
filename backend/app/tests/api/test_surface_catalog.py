@@ -75,6 +75,37 @@ def test_endpoint_catalog_covers_the_real_api_router():
     )
 
 
+def test_workspace_app_governance_routes_are_admin_catalog_surfaces():
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api/v1")
+
+    body = build_endpoint_catalog(app.openapi())
+    expected_paths = {
+        "/api/v1/governance/workspace-apps/apply",
+        "/api/v1/governance/workspace-apps/compensate",
+        "/api/v1/governance/workspace-apps/installations",
+        "/api/v1/governance/workspace-apps/manifests",
+        "/api/v1/governance/workspace-apps/plan",
+    }
+    entries = {
+        entry["path"]: entry
+        for entry in body["entries"]
+        if entry["path"] in expected_paths
+    }
+
+    assert set(entries) == expected_paths
+    for entry in entries.values():
+        assert entry["domain"] == "Governance"
+        assert entry["mental_object"] == "Workspace App"
+        assert entry["status"] == "canonical"
+        assert entry["audience"] == "admin"
+        assert entry["owner"] == "Platform"
+        assert entry["ui_routes"] == [
+            "/governance/workspace-apps",
+            "/workspace-app-repair",
+        ]
+
+
 def test_catalog_marks_known_compatibility_surfaces():
     body = _catalog_client().get("/api/v1/catalog/endpoints").json()
     entries = body["entries"]

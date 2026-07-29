@@ -8,6 +8,7 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 from app.api.v1.endpoints import control_plane, systems
+from app.models.context import Context
 from app.models.policy import ControlPolicy
 from app.models.system import System
 from app.models.user import User
@@ -130,6 +131,108 @@ async def test_member_cannot_create_shadow_canonical_agentic_identity(db_session
 
 
 @pytest.mark.asyncio
+async def test_generic_system_writes_cannot_forge_or_erase_rollout_authority(
+    db_session,
+):
+    workspace = _workspace(db_session, slug=f"rollout-authority-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    rollout_state = {
+        "schema_version": 1,
+        "prepared": {"system_id": "system-id"},
+        "proof_window": None,
+        "activations": [],
+        "deactivations": [],
+        "policy_transitions": [],
+    }
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Rollout-owned System",
+        objective="test",
+        settings={
+            "experience": {
+                "system_360_canary": "v1",
+                "value_loop_canary": "v1",
+                "ordinary": "keep-if-requested",
+            },
+            "_lot6_system360_rollout_v1": {"schema_version": 1},
+            "_lot7_projection_rollout_v1": {"schema_version": 1},
+            "_lot8_value_loop_rollout_v1": rollout_state,
+            "ordinary": {"before": True},
+        },
+        flow_definition={},
+    )
+    db_session.add(system)
+    db_session.commit()
+
+    attacks = (
+        {"_lot8_value_loop_rollout_v1": {**rollout_state, "proof_window": {}}},
+        {"_lot7_projection_rollout_v1": {"schema_version": 2}},
+        {"_lot6_system360_rollout_v1": {}},
+        {"experience": {"value_loop_canary": "v2"}},
+        {"experience": {"system_360_canary": "forged"}},
+    )
+    for payload in attacks:
+        with pytest.raises(HTTPException) as exc_info:
+            await systems.update_system(
+                system.id,
+                systems.SystemUpdate(settings=payload),
+                systems.SystemUpdateOptions(),
+                workspace,
+                admin,
+                db_session,
+            )
+        assert exc_info.value.status_code == 409
+
+    await systems.update_system(
+        system.id,
+        systems.SystemUpdate(
+            settings={
+                "ordinary": {"after": True},
+                "experience": {"ordinary": "changed"},
+            }
+        ),
+        systems.SystemUpdateOptions(),
+        workspace,
+        admin,
+        db_session,
+    )
+    db_session.refresh(system)
+    assert system.settings["ordinary"] == {"after": True}
+    assert system.settings["experience"] == {
+        "ordinary": "changed",
+        "system_360_canary": "v1",
+        "value_loop_canary": "v1",
+    }
+    assert system.settings["_lot6_system360_rollout_v1"] == {"schema_version": 1}
+    assert system.settings["_lot7_projection_rollout_v1"] == {"schema_version": 1}
+    assert system.settings["_lot8_value_loop_rollout_v1"] == rollout_state
+
+
+@pytest.mark.asyncio
+async def test_generic_system_create_rejects_rollout_markers(db_session):
+    workspace = _workspace(db_session, slug=f"rollout-create-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+
+    for settings_payload in (
+        {"experience": {"value_loop_canary": "v1"}},
+        {"experience": {"system_360_canary": "v1"}},
+        {"_lot8_value_loop_rollout_v1": {"schema_version": 1}},
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await systems.create_system(
+                systems.SystemCreate(
+                    name="Forged rollout System",
+                    settings=settings_payload,
+                ),
+                workspace,
+                admin,
+                db_session,
+            )
+        assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_family_drift_does_not_release_managed_system_or_policy_admin_boundary(db_session):
     workspace = _workspace(db_session, slug=f"family-drift-{uuid4().hex[:8]}")
     member = _user(db_session)
@@ -224,6 +327,54 @@ async def test_system_cannot_bind_control_policy_from_another_workspace(db_sessi
     assert exc_info.value.status_code == 400
     db_session.refresh(system)
     assert system.control_policy_id is None
+
+
+@pytest.mark.asyncio
+async def test_system_create_and_update_reject_context_from_another_workspace(db_session):
+    workspace = _workspace(db_session, slug=f"context-owner-{uuid4().hex[:8]}")
+    other = _workspace(db_session, slug=f"context-other-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    foreign_context = Context(
+        id=str(uuid4()),
+        workspace_id=other.id,
+        name="Foreign business context",
+        business_constraints={"tenant_secret": "must-not-cross"},
+    )
+    local_system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Local System",
+        objective="test",
+        settings={},
+        flow_definition={},
+    )
+    db_session.add_all([foreign_context, local_system])
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as create_error:
+        await systems.create_system(
+            systems.SystemCreate(
+                name="Cross-tenant Context System",
+                context_id=foreign_context.id,
+            ),
+            workspace,
+            admin,
+            db_session,
+        )
+    assert create_error.value.status_code == 400
+
+    with pytest.raises(HTTPException) as update_error:
+        await systems.update_system(
+            local_system.id,
+            systems.SystemUpdate(context_id=foreign_context.id),
+            systems.SystemUpdateOptions(),
+            workspace,
+            admin,
+            db_session,
+        )
+    assert update_error.value.status_code == 400
+    db_session.refresh(local_system)
+    assert local_system.context_id is None
 
 
 @pytest.mark.asyncio

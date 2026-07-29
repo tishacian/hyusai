@@ -55,7 +55,7 @@ et CI post-déploiement automatisée (`vague-e-plan.md`).
 **Objectif.** Tenant `agentium-showcase` cohérent, peuplé, réinitialisable, pour démo par
 persona (executive, ops, governance, builder).
 
-**Livrables.** `backend/scripts/seed_showcase_workspace.py` (idempotent avec `--reset`),
+**Livrables.** `backend/scripts/seed_showcase_workspace.py` (désormais idempotent et append-only),
 `backend/scripts/smoke_showcase_workspace.py`, documentation
 [`showcase-workspace.md`](./showcase-workspace.md),
 [`showcase-demo-walkthrough.md`](./showcase-demo-walkthrough.md),

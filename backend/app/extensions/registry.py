@@ -11,10 +11,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_workspace
+from app.db.base import get_db
 from app.models.workspace import Workspace
+from app.services.workspace_app_runtime import (
+    WorkspaceAppRuntimeError,
+    installed_app_ids,
+    mission_room_provider_request_allowed,
+    resolve_mission_room_provider_runtime,
+    workspace_app_api_path_allowed,
+    workspace_app_platform_enabled,
+)
 
 MISSION_ROOM_EXTENSION_ID = "mission-room"
 WORKSPACE_EXTENSION_NOT_FOUND_CODE = "not_found"
@@ -75,9 +85,43 @@ def require_workspace_extension(
     extension = workspace_extension_registry.get(extension_id)
 
     def dependency(
+        request: Request,
         workspace: Workspace = Depends(get_current_workspace),
+        db: DBSession = Depends(get_db),
     ) -> Workspace:
-        if not extension.enabled_for(workspace):
+        if workspace_app_platform_enabled(workspace):
+            try:
+                if extension_id == MISSION_ROOM_EXTENSION_ID:
+                    # Installation alone is not sufficient.  Provider
+                    # readiness and route ownership are separate contracts:
+                    # the generic provider owns only its explicitly declared
+                    # core routes, while specialized shared-prefix routes stay
+                    # private to their historical provider apps.
+                    runtime = resolve_mission_room_provider_runtime(workspace, db=db)
+                    projection = runtime.mission_room or {}
+                    provider_app_id = str(projection.get("app_id") or "")
+                    enabled = (
+                        bool(provider_app_id)
+                        and workspace_app_api_path_allowed(
+                            workspace,
+                            request.url.path,
+                            db=db,
+                            app_ids=(provider_app_id,),
+                        )
+                        and mission_room_provider_request_allowed(
+                            runtime,
+                            request.method,
+                            request.url.path,
+                        )
+                    )
+                else:
+                    installed = installed_app_ids(workspace, db=db)
+                    enabled = extension_id in installed
+            except WorkspaceAppRuntimeError:
+                enabled = False
+        else:
+            enabled = extension.enabled_for(workspace)
+        if not enabled:
             # Keep this response identical for disabled and unavailable
             # extensions: callers must not learn deployment topology.
             raise HTTPException(

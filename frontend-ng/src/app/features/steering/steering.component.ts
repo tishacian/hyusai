@@ -1,7 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Subject, debounceTime, switchMap } from 'rxjs';
-import { toSignal } from '@angular/core/rxjs-interop';
 import {
   CanonicalApiService,
   type Capability,
@@ -19,6 +17,7 @@ import {
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact';
 
 /**
  * Steering Cockpit — the control plane.
@@ -88,7 +87,8 @@ import {
           </div>
         </section>
 
-        <!-- Projection + levers -->
+        @if (legacyPreviewEnabled) {
+        <!-- Retired legacy projection + levers (kept gate-off during migration). -->
         <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <!-- Levers -->
           <div class="lg:col-span-2 ck-surface rounded-md" style="padding:24px 28px;">
@@ -305,6 +305,20 @@ import {
             </div>
           </div>
         </section>
+        } @else {
+          <section class="ck-surface rounded-md" style="padding:22px 26px; border-color:var(--ck-signal-warn);">
+            <div class="flex items-center gap-2 mb-2">
+              <ck-glyph name="shield" [size]="14" />
+              <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.16em; color:var(--ck-fg-2);">
+                AUTHORITATIVE VALUE LOOP
+              </h3>
+            </div>
+            <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
+              Portfolio levers are not configured. Open a System in Steer to create, simulate,
+              approve, act and measure a governed value scenario.
+            </p>
+          </section>
+        }
 
         <!-- Active policies -->
         <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -426,7 +440,8 @@ import {
           </div>
         </section>
 
-        <!-- Simulate before/after -->
+        @if (legacyPreviewEnabled) {
+        <!-- Retired legacy before/after preview. -->
         <section class="ck-surface rounded-md" style="padding:22px 26px;">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
@@ -449,30 +464,30 @@ import {
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">COST</div>
                 <div class="flex items-baseline gap-2">
                   <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">
-                    {{ formatCurrency(sim()!.base.total_cost ?? 0) }}
+                    {{ formatCurrency(sim()!.base.total_cost ?? null) }}
                   </span>
                   <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
                   <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
                     {{ formatCurrency(sim()!.projected.total_cost) }}
                   </span>
                 </div>
-                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(-(sim()!.projected.total_cost - (sim()!.base.total_cost ?? 0)))">
-                  {{ formatSigned(sim()!.projected.total_cost - (sim()!.base.total_cost ?? 0)) }}
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(negateDelta(impactDelta(sim()!.projected.total_cost, sim()!.base.total_cost)))">
+                  {{ formatSigned(impactDelta(sim()!.projected.total_cost, sim()!.base.total_cost)) }}
                 </div>
               </div>
               <div>
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">VALUE</div>
                 <div class="flex items-baseline gap-2">
                   <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">
-                    {{ formatCurrency(sim()!.base.estimated_value ?? 0) }}
+                    {{ formatCurrency(sim()!.base.estimated_value ?? null) }}
                   </span>
                   <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
                   <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
                     {{ formatCurrency(sim()!.projected.estimated_value) }}
                   </span>
                 </div>
-                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(sim()!.projected.estimated_value - (sim()!.base.estimated_value ?? 0))">
-                  {{ formatSigned(sim()!.projected.estimated_value - (sim()!.base.estimated_value ?? 0)) }}
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(impactDelta(sim()!.projected.estimated_value, sim()!.base.estimated_value))">
+                  {{ formatSigned(impactDelta(sim()!.projected.estimated_value, sim()!.base.estimated_value)) }}
                 </div>
               </div>
               <div>
@@ -486,8 +501,8 @@ import {
                     {{ formatRoi(sim()!.projected.roi ?? null) }}
                   </span>
                 </div>
-                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(((sim()!.projected.roi ?? 0) - (sim()!.base.roi ?? 0)))">
-                  {{ formatSigned(((sim()!.projected.roi ?? 0) - (sim()!.base.roi ?? 0)) * 100) }} pp
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(impactDelta(sim()!.projected.roi, sim()!.base.roi))">
+                  {{ formatPercentagePointDelta(sim()!.projected.roi, sim()!.base.roi) }}
                 </div>
               </div>
               <div>
@@ -506,6 +521,7 @@ import {
             </div>
           }
         </section>
+        }
       </div>
     </ck-page-frame>
   `,
@@ -521,6 +537,7 @@ export class SteeringComponent implements OnInit {
   readonly adaptivePolicies = signal<AdaptivePolicy[]>([]);
   readonly pendingAdaptiveId = signal<string | null>(null);
   readonly creatingAdaptive = signal(false);
+  readonly legacyPreviewEnabled = false;
 
   // Levers are plain signals so templates can drive them via [ngModel].
   // Canonical 4-axis ControlPlaneVector (mental model §23.8).
@@ -529,48 +546,25 @@ export class SteeringComponent implements OnInit {
   readonly autonomy = signal(0.3);
   readonly riskTolerance = signal(0.4);
 
-  private readonly leverPulse = new Subject<void>();
-
   readonly netDelta = computed(() => {
     const s = this.sim();
-    if (!s) return 0;
-    const baseNet = (s.base.estimated_value ?? 0) - (s.base.total_cost ?? 0);
-    const projNet = (s.projected.estimated_value ?? 0) - (s.projected.total_cost ?? 0);
+    if (
+      !s
+      || s.base.estimated_value == null
+      || s.base.total_cost == null
+      || s.projected.estimated_value == null
+      || s.projected.total_cost == null
+    ) return null;
+    const baseNet = s.base.estimated_value - s.base.total_cost;
+    const projNet = s.projected.estimated_value - s.projected.total_cost;
     return projNet - baseNet;
   });
 
   readonly projectedRoi = computed(() => this.sim()?.projected.roi ?? null);
 
-  constructor() {
-    // Debounce slider changes and fire the simulate call.
-    const sims = this.leverPulse.pipe(
-      debounceTime(200),
-      switchMap(() =>
-        this.canonical.simulate({
-          scope: this.targetCapability() ? 'capability' : 'portfolio',
-          target_id: this.targetCapability()?.id ?? null,
-          levers: {
-            resource: this.resource(),
-            velocity: this.velocity(),
-            autonomy: this.autonomy(),
-            risk_tolerance: this.riskTolerance(),
-          },
-        }),
-      ),
-    );
-    // Wire via toSignal so the component updates without manual subscription.
-    const simSignal = toSignal(sims, { initialValue: null });
-    effect(() => {
-      const v = simSignal();
-      if (v) this.sim.set(v);
-    });
-  }
-
   ngOnInit(): void {
     this.canonical.listCapabilities().subscribe((caps) => this.capabilities.set(caps));
     this.refreshPolicies();
-    // First projection.
-    this.leverPulse.next();
   }
 
   private refreshPolicies(): void {
@@ -585,11 +579,10 @@ export class SteeringComponent implements OnInit {
   selectCapability(c: Capability | null): void {
     this.targetCapability.set(c);
     this.refreshPolicies();
-    this.leverPulse.next();
   }
 
   onLeverChanged(): void {
-    this.leverPulse.next();
+    // Legacy preview is intentionally retired; no network request is issued.
   }
 
   reset(): void {
@@ -597,7 +590,6 @@ export class SteeringComponent implements OnInit {
     this.velocity.set(0.5);
     this.autonomy.set(0.3);
     this.riskTolerance.set(0.4);
-    this.leverPulse.next();
   }
 
   apply(): void {
@@ -611,7 +603,9 @@ export class SteeringComponent implements OnInit {
       // Canonical scopes: portfolio | capability | system. Never 'workspace'.
       scope: target ? 'capability' : 'portfolio',
       target_id: target?.id ?? null,
-      max_cost_per_decision: s.projected.total_cost > 0 && s.base.runs_count
+      max_cost_per_decision: s.projected.total_cost != null
+        && s.projected.total_cost > 0
+        && s.base.runs_count
         ? (s.projected.total_cost / s.base.runs_count) * 1.2
         : null,
       max_latency_ms: Math.round(8000 * s.projected.latency_index),
@@ -675,7 +669,8 @@ export class SteeringComponent implements OnInit {
     return `$${v.toFixed(2)}`;
   }
 
-  protected formatSigned(v: number): string {
+  protected formatSigned(v: number | null): string {
+    if (v == null) return '—';
     const sign = v > 0 ? '+' : v < 0 ? '-' : '';
     const abs = Math.abs(v);
     if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
@@ -692,10 +687,33 @@ export class SteeringComponent implements OnInit {
     return v.toFixed(2);
   }
 
-  protected deltaColor(v: number): string {
+  protected deltaColor(v: number | null): string {
+    if (v == null) return 'var(--ck-fg-3)';
     if (v > 0) return 'var(--ck-signal-pos)';
     if (v < 0) return 'var(--ck-signal-neg)';
     return 'var(--ck-fg-2)';
+  }
+
+  protected impactDelta(
+    projected: number | null | undefined,
+    base: number | null | undefined,
+  ): number | null {
+    return measuredImpactDelta(projected, base);
+  }
+
+  protected negateDelta(value: number | null): number | null {
+    return value == null ? null : -value;
+  }
+
+  protected formatPercentagePointDelta(
+    projected: number | null | undefined,
+    base: number | null | undefined,
+  ): string {
+    const delta = measuredImpactDelta(projected, base);
+    if (delta == null) return '—';
+    const points = delta * 100;
+    const sign = points > 0 ? '+' : points < 0 ? '-' : '';
+    return `${sign}${Math.abs(points).toFixed(1)} pp`;
   }
 
   protected roiTone(v: number | null): 'pos' | 'cool' | 'neg' | 'neutral' {

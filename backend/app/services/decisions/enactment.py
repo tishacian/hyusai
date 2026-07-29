@@ -16,13 +16,15 @@ Supported actions (declared via ``decision.rationale.action``):
 - ``deploy``   : set System.status = 'active' (or clone a draft to active).
 
 The enactment returns a patch dict that is written onto
-``Decision.applied_patch`` by the state machine ``apply`` call. The
-function is intentionally *forgiving*: when the rationale is incomplete
-or the target no longer exists, it records a ``noop`` patch rather than
-raising, so the operator UI can still mark the decision as handled.
+``Decision.applied_patch`` by the state machine ``apply`` call.  It never
+commits: the caller owns the transaction that also records the state
+transition and its audit row.  Missing targets, unsupported actions and empty
+patches fail closed; an ``applied`` Decision must always correspond to a real
+workspace-scoped mutation.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session as DBSession
@@ -33,29 +35,31 @@ from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.system import System
 
 
+class DecisionEnactmentError(ValueError):
+    """Raised before a Decision can be marked applied without a real act."""
+
+
 def enact_decision(db: DBSession, decision: Decision) -> Dict[str, Any]:
     """Translate the decision into concrete policy/system writes.
 
     Returns a patch dict (stored on ``Decision.applied_patch``) describing
-    what was mutated. On failure, the patch carries ``{"status": "noop"}``
-    plus a reason string.
+    what was mutated.  The function flushes but never commits.
     """
     rationale: Dict[str, Any] = decision.rationale or {}
     action = (rationale.get("action") or decision.kind or "").lower()
 
-    try:
-        if action in ("scale", "reduce"):
-            return _enact_scale(db, decision, rationale, reduce=(action == "reduce"))
-        if action == "adjust":
-            return _enact_adjust(db, decision, rationale)
-        if action == "pause":
-            return _enact_status(db, decision, "paused")
-        if action == "deploy":
-            return _enact_status(db, decision, "active")
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "noop", "reason": f"enactment_error: {exc!r}"}
-
-    return {"status": "noop", "reason": f"unsupported_action: {action!r}"}
+    if action in ("scale", "reduce"):
+        patch = _enact_scale(db, decision, rationale, reduce=(action == "reduce"))
+    elif action == "adjust":
+        patch = _enact_adjust(db, decision, rationale)
+    elif action == "pause":
+        patch = _enact_status(db, decision, "paused")
+    elif action == "deploy":
+        patch = _enact_status(db, decision, "active")
+    else:
+        raise DecisionEnactmentError(f"unsupported decision action: {action!r}")
+    db.flush()
+    return patch
 
 
 # ---------------------------------------------------------------------------
@@ -69,12 +73,14 @@ def _enact_scale(
     reduce: bool,
 ) -> Dict[str, Any]:
     factor = _as_float(rationale.get("factor"), default=(0.85 if reduce else 1.15))
+    if not math.isfinite(factor) or factor <= 0:
+        raise DecisionEnactmentError("scale factor must be a positive finite number")
     if reduce:
         factor = min(factor, 1.0) if factor < 1.0 else 1.0 / factor
 
     cap = _resolve_capability(db, decision)
     if cap is None:
-        return {"status": "noop", "reason": "capability_not_found"}
+        raise DecisionEnactmentError("capability target was not found in the workspace")
 
     patch: Dict[str, Any] = {
         "action": "scale" if not reduce else "reduce",
@@ -103,7 +109,8 @@ def _enact_scale(
             "after": new_roi["value_per_outcome"],
         }
 
-    db.commit()
+    if not patch["changes"]:
+        raise DecisionEnactmentError("scale action has no configured value to mutate")
     return patch
 
 
@@ -114,14 +121,19 @@ def _enact_adjust(
 ) -> Dict[str, Any]:
     updates: Dict[str, Any] = rationale.get("policy_updates") or {}
     if not updates:
-        return {"status": "noop", "reason": "empty_policy_updates"}
+        raise DecisionEnactmentError("adjust action requires policy_updates")
 
     target_scope = decision.scope or "system"
     target_id = decision.target_id
 
+    _validate_scoped_target(db, decision)
     policy = (
         db.query(ControlPolicy)
-        .filter(ControlPolicy.scope == target_scope, ControlPolicy.target_id == target_id)
+        .filter(
+            ControlPolicy.workspace_id == decision.workspace_id,
+            ControlPolicy.scope == target_scope,
+            ControlPolicy.target_id == target_id,
+        )
         .order_by(ControlPolicy.updated_at.desc())
         .first()
     )
@@ -145,16 +157,23 @@ def _enact_adjust(
     for key, value in updates.items():
         if key not in editable:
             continue
+        value = _validated_policy_value(key, value)
         before = getattr(policy, key)
         setattr(policy, key, value)
         applied[key] = {"before": before, "after": value}
 
     # AdaptivePolicy trigger updates are accepted under the same umbrella.
     triggers: Dict[str, Any] = rationale.get("adaptive_triggers") or {}
+    if not isinstance(triggers, dict):
+        raise DecisionEnactmentError("adaptive_triggers must be an object")
     if triggers:
         adaptive = (
             db.query(AdaptivePolicy)
-            .filter(AdaptivePolicy.scope == target_scope, AdaptivePolicy.target_id == target_id)
+            .filter(
+                AdaptivePolicy.workspace_id == decision.workspace_id,
+                AdaptivePolicy.scope == target_scope,
+                AdaptivePolicy.target_id == target_id,
+            )
             .order_by(AdaptivePolicy.updated_at.desc())
             .first()
         )
@@ -172,7 +191,8 @@ def _enact_adjust(
         adaptive.triggers = merged
         applied["adaptive_triggers"] = {"before": before_triggers, "after": merged}
 
-    db.commit()
+    if not applied:
+        raise DecisionEnactmentError("adjust action contains no supported policy mutation")
     return {
         "action": "adjust",
         "scope": target_scope,
@@ -184,13 +204,19 @@ def _enact_adjust(
 
 def _enact_status(db: DBSession, decision: Decision, status: str) -> Dict[str, Any]:
     if (decision.scope or "") != "system" or not decision.target_id:
-        return {"status": "noop", "reason": "status_action_requires_system_scope"}
-    sys_row = db.query(System).filter(System.id == decision.target_id).first()
+        raise DecisionEnactmentError("status action requires a System target")
+    sys_row = (
+        db.query(System)
+        .filter(
+            System.id == decision.target_id,
+            System.workspace_id == decision.workspace_id,
+        )
+        .first()
+    )
     if sys_row is None:
-        return {"status": "noop", "reason": "system_not_found"}
+        raise DecisionEnactmentError("system target was not found in the workspace")
     before = sys_row.status
     sys_row.status = status
-    db.commit()
     return {
         "action": "pause" if status == "paused" else "deploy",
         "system_id": sys_row.id,
@@ -203,12 +229,71 @@ def _enact_status(db: DBSession, decision: Decision, status: str) -> Dict[str, A
 # ---------------------------------------------------------------------------
 def _resolve_capability(db: DBSession, decision: Decision) -> Optional[Capability]:
     if decision.scope == "capability" and decision.target_id:
-        return db.query(Capability).filter(Capability.id == decision.target_id).first()
+        return (
+            db.query(Capability)
+            .filter(
+                Capability.id == decision.target_id,
+                Capability.workspace_id == decision.workspace_id,
+            )
+            .first()
+        )
     rationale = decision.rationale or {}
     cap_id = rationale.get("capability_id")
     if cap_id:
-        return db.query(Capability).filter(Capability.id == cap_id).first()
+        return (
+            db.query(Capability)
+            .filter(
+                Capability.id == cap_id,
+                Capability.workspace_id == decision.workspace_id,
+            )
+            .first()
+        )
     return None
+
+
+def _validate_scoped_target(db: DBSession, decision: Decision) -> None:
+    if decision.scope == "system" and decision.target_id:
+        exists = (
+            db.query(System.id)
+            .filter(
+                System.id == decision.target_id,
+                System.workspace_id == decision.workspace_id,
+            )
+            .first()
+        )
+    elif decision.scope == "capability" and decision.target_id:
+        exists = (
+            db.query(Capability.id)
+            .filter(
+                Capability.id == decision.target_id,
+                Capability.workspace_id == decision.workspace_id,
+            )
+            .first()
+        )
+    else:
+        raise DecisionEnactmentError("adjust action requires a System or Capability target")
+    if exists is None:
+        raise DecisionEnactmentError("decision target was not found in the workspace")
+
+
+def _validated_policy_value(key: str, value: Any) -> Any:
+    if key in {"max_cost_per_decision", "max_latency_ms"}:
+        parsed = _as_float(value, default=-1.0)
+        if not math.isfinite(parsed) or parsed < 0:
+            raise DecisionEnactmentError(f"{key} must be a non-negative number")
+        return parsed
+    if key == "mandatory_hitl_if_confidence_below":
+        parsed = _as_float(value, default=-1.0)
+        if not math.isfinite(parsed) or not 0.0 <= parsed <= 1.0:
+            raise DecisionEnactmentError(f"{key} must be between 0 and 1")
+        return parsed
+    if key in {"allowed_models", "allowed_skills"}:
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) or not item.strip() for item in value
+        ):
+            raise DecisionEnactmentError(f"{key} must be a list of non-empty strings")
+        return list(dict.fromkeys(item.strip() for item in value))
+    raise DecisionEnactmentError(f"unsupported policy field: {key}")
 
 
 def _as_float(v: Any, default: float) -> float:

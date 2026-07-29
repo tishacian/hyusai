@@ -89,6 +89,7 @@ export class GovernanceShellComponent {
     { label: 'Canonical answers', glyph: 'focus', route: '/governance/canonical-answers' },
     { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
     { label: 'Blueprints',      glyph: 'layers', route: '/governance/blueprints' },
+    { label: 'Workspace Apps',  glyph: 'layers', route: '/governance/workspace-apps', adminOnly: true },
     { label: 'Surface map',     glyph: 'layers', route: '/governance/surface-map' },
   ];
 

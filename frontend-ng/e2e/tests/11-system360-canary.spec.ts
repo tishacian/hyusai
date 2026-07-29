@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
@@ -11,17 +11,20 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * slug, Capability slug or object id is embedded in this test.
  *
  * Traces, automatic screenshots and video stay disabled because the login
- * transaction contains live credentials.  The sole attached screenshot is
- * captured after authentication and contains no token or credential field.
+ * transaction contains live credentials. Interactive runs may attach one
+ * post-login screenshot; safe-deployment runs retain no media.
  */
 
 const enabled = process.env['E2E_LOT6_CANARY'] === '1';
 const username = process.env['E2E_USERNAME'];
 const password = process.env['E2E_PASSWORD'];
 const expectedSha = process.env['E2E_EXPECTED_SHA'];
+const expectedShowcaseWorkspaceId = process.env['E2E_SHOWCASE_WORKSPACE_ID'] ?? '';
+const expectedShowcaseWorkspaceSlug = process.env['E2E_SHOWCASE_WORKSPACE_SLUG'] ?? '';
 const runnerAttestationPath = process.env['E2E_LOT6_RUNNER_ATTESTATION'];
 const behaviorAttestationPath = process.env['E2E_LOT6_BEHAVIOR_ATTESTATION'];
 const protectedRunner = process.env['E2E_PROTECTED_RUNNER_CANARIES'] === '1';
+const playwrightRuntimeAttestationPath = process.env['E2E_PLAYWRIGHT_RUNTIME_ATTESTATION'];
 const claimId = 'LOT6-SYSTEM360-PERSPECTIVES';
 const lenses = ['build', 'operate', 'steer', 'govern'] as const;
 const facets = ['overview', 'runs', 'design', 'context'] as const;
@@ -32,6 +35,17 @@ const factStates = [
   'restricted',
   'unavailable',
 ] as const;
+
+if (enabled) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+    expectedShowcaseWorkspaceId,
+  )) {
+    throw new Error('E2E_SHOWCASE_WORKSPACE_ID must be a canonical UUID');
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(expectedShowcaseWorkspaceSlug)) {
+    throw new Error('E2E_SHOWCASE_WORKSPACE_SLUG must be a canonical workspace slug');
+  }
+}
 
 type Lens = (typeof lenses)[number];
 type Facet = (typeof facets)[number];
@@ -192,6 +206,20 @@ function writeJson(path: string | undefined, value: unknown): void {
   }
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+function playwrightRuntime(): Record<string, unknown> {
+  expect(playwrightRuntimeAttestationPath, 'SHA-bound Playwright runtime proof is required').toBeTruthy();
+  const payload = JSON.parse(readFileSync(playwrightRuntimeAttestationPath as string, 'utf8')) as Record<string, unknown>;
+  expect(payload['schema_version']).toBe(1);
+  expect(payload['kind']).toBe('agentium_playwright_runtime');
+  expect(payload['result']).toBe('passed');
+  expect(payload['candidate_sha']).toBe(expectedSha);
+  expect(payload['paths_serialized']).toBe(false);
+  for (const key of ['package_lock_sha256', 'installed_lock_sha256', 'playwright_cli_sha256', 'chromium_executable_sha256']) {
+    expect(String(payload[key] ?? '')).toMatch(/^[0-9a-f]{64}$/);
+  }
+  return payload;
 }
 
 async function login(page: Page): Promise<WorkspaceSummary[]> {
@@ -359,6 +387,8 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       'exactly one authorized workspace and System pair must carry the v1 canary marker',
     ).toHaveLength(1);
     const { workspace: primary, system } = discoveries[0];
+    expect(primary.id).toBe(expectedShowcaseWorkspaceId);
+    expect(primary.slug).toBe(expectedShowcaseWorkspaceSlug);
     const alternate = memberships.find((workspace) => workspace.id !== primary.id);
     expect(alternate, 'the canary principal needs a second workspace to prove atomic purge').toBeTruthy();
     await page.evaluate((slug) => localStorage.setItem('agentium_workspace_slug', slug), primary.slug);
@@ -578,6 +608,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       ci,
       checks,
       build_info: { backend: backendBuild, frontend: frontendBuild },
+      playwright_runtime: playwrightRuntime(),
     };
     writeJson(runnerAttestationPath, {
       ...common,

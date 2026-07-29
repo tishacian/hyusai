@@ -35,7 +35,7 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-07-20"
+CATALOG_VERSION = "2026-07-22"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
@@ -67,6 +67,59 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "Platform",
         ("/governance/blueprints",),
         notes="Export/import workspace structure and configuration without members, secrets or raw data.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/apply",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Apply an exact, content-addressed Workspace App lifecycle plan with an idempotency key.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/compensate",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes=(
+            "Apply the server-derived inverse of an exact committed Workspace App "
+            "lifecycle receipt."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/installations",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Authoritative Workspace App installation state for the current workspace.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/manifests",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Compatible content-addressed Workspace App manifests visible to workspace administrators.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/governance/workspace-apps/plan",
+        "Governance",
+        "Workspace App",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/workspace-apps", "/workspace-app-repair"),
+        notes="Read-only deterministic plan for a Workspace App lifecycle operation.",
     ),
     SurfaceMetadata(
         "/api/v1/mission-room",
@@ -219,7 +272,11 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "canonical",
         "workspace-user",
         "Knowledge Capture",
-        ("/knowledge/capture", "/systems/:id/capture"),
+        (
+            "/knowledge/capture",
+            "/knowledge/interventions",
+            "/systems/:id/capture",
+        ),
         notes="Expert Knowledge Capture workbench; system-scoped or capability-level entry.",
     ),
     SurfaceMetadata(

@@ -25,6 +25,7 @@ import { authInterceptor } from './auth.interceptor';
 import { TokenStorageService } from './token-storage.service';
 import { WorkspaceFetchService } from './workspace-fetch.service';
 import { WorkspaceService } from './workspace.service';
+import { AuthStore } from '../store/auth.store';
 
 class TokenStorageStub {
   token = 'Bearer expired-token';
@@ -54,6 +55,8 @@ class TokenStorageStub {
   }
 }
 
+const noopAuthStore = () => ({ clear: () => undefined });
+
 test('401 refresh retry preserves the active X-Workspace-Slug', async () => {
   const tokenStorage = new TokenStorageStub();
   const seen: HttpRequest<unknown>[] = [];
@@ -76,6 +79,7 @@ test('401 refresh retry preserves the active X-Workspace-Slug', async () => {
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       { provide: Router, useValue: router },
@@ -114,6 +118,7 @@ test('an explicit workspace header wins over the current workspace and survives 
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -159,6 +164,7 @@ test('a wrapped 500 auth error preserves the historical refresh retry', async ()
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -226,6 +232,7 @@ test('concurrent 401 retries preserve the workspace on every queued request', as
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       { provide: Router, useValue: router },
@@ -291,6 +298,7 @@ test('HttpClient and direct fetch share one refresh while retaining distinct wor
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       WorkspaceFetchService,
       { provide: TokenStorageService, useValue: tokenStorage },
       {
@@ -393,6 +401,7 @@ test('a late 401 reuses the token refreshed by an earlier request', async () => 
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       { provide: AuthApiService, useValue: authApi },
       {
@@ -455,9 +464,14 @@ test('a failed shared refresh rejects every concurrent request and expires once'
   }>();
   let refreshCalls = 0;
   let navigations = 0;
+  let authInvalidations = 0;
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      {
+        provide: AuthStore,
+        useValue: { clear: () => { authInvalidations += 1; } },
+      },
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -504,6 +518,7 @@ test('a failed shared refresh rejects every concurrent request and expires once'
     assert.equal((outcome as PromiseRejectedResult).reason, refreshError);
   }
   assert.equal(tokenStorage.clearCalls, 1, 'the shared refresh expires the session once');
+  assert.equal(authInvalidations, 1, 'the shared refresh invalidates the auth context once');
   assert.equal(navigations, 1, 'the shared refresh triggers one signin redirect');
 });
 
@@ -519,6 +534,7 @@ test('cancelling the refresh leader does not strand a concurrent follower', () =
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -589,6 +605,7 @@ test('a started refresh survives cancellation and a later 401 joins it', () => {
   const injector = Injector.create({
     providers: [
       AuthRefreshCoordinator,
+      { provide: AuthStore, useValue: noopAuthStore() },
       { provide: TokenStorageService, useValue: tokenStorage },
       {
         provide: AuthApiService,
@@ -649,6 +666,7 @@ for (const retryStatus of [401, 403, 500]) {
     const injector = Injector.create({
       providers: [
         AuthRefreshCoordinator,
+        { provide: AuthStore, useValue: noopAuthStore() },
         { provide: TokenStorageService, useValue: tokenStorage },
         {
           provide: AuthApiService,

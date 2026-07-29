@@ -2706,6 +2706,42 @@ async def retrieve_rag_context(
     doc_svc: Any | None = None,
     fallback_reason: str | None = None,
 ) -> dict[str, Any]:
+    """Run retrieval and attach request-local embedding provider evidence."""
+
+    from app.services.embedding.embedder import capture_embedding_provider_usage
+    from app.services.evaluation.judge import provider_usage_evidence
+
+    with capture_embedding_provider_usage() as embedding_usage:
+        result = await _retrieve_rag_context(
+            request,
+            doc_svc=doc_svc,
+            fallback_reason=fallback_reason,
+        )
+    if not isinstance(result, dict):
+        return result
+    metrics = result.setdefault("metrics", {})
+    if isinstance(metrics, dict):
+        calls = embedding_usage.get("calls") or []
+        # This marker proves that every canonical Embedder attempt in this
+        # retrieval was observed.  Zero calls is therefore a real non-token
+        # execution (for example an inner DocumentService cache hit), not an
+        # inferred zero from the configured provider name.
+        metrics["embedding_provider_usage_scope"] = "canonical_request_v1"
+        metrics["embedding_provider_calls"] = len(calls)
+        # The scope contains one row per real OpenAI attempt, including failed
+        # oversized batches and fallback retries.  ``provider_usage_evidence``
+        # emits a metering ``usage`` only when every attempt reported counters.
+        if calls:
+            metrics.update(provider_usage_evidence(embedding_usage))
+    return result
+
+
+async def _retrieve_rag_context(
+    request: dict[str, Any],
+    *,
+    doc_svc: Any | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
     """Run retrieval only and return a stable, serialisable context payload."""
     started = time.time()
     profile = get_retrieval_profile(request)

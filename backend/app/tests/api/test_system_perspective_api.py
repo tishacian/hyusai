@@ -8,7 +8,7 @@ from app.api.v1.endpoints import systems
 from app.models.audit import AuditLog
 from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -77,6 +77,36 @@ def test_perspective_returns_requested_lens_for_marked_system(db_session):
     assert payload["identity"]["system_id"] == system.id
 
 
+def test_system_detail_and_perspective_share_canonical_read_decision(
+    db_session,
+    monkeypatch,
+):
+    workspace, _other, user, system, _foreign = _seed(db_session)
+    calls: list[tuple[str, str, bool]] = []
+
+    def _record(*_args, **kwargs):
+        calls.append(
+            (
+                kwargs["resource_kind"],
+                kwargs["action"],
+                kwargs["legacy_allowed"],
+            )
+        )
+
+    monkeypatch.setattr(systems, "enforce_action", _record)
+    client = _client(db_session, workspace, user)
+
+    assert client.get(f"/systems/{system.id}").status_code == 200
+    assert client.get(
+        f"/systems/{system.id}/perspective",
+        params={"lens": "govern"},
+    ).status_code == 200
+    assert calls == [
+        ("system", "read", True),
+        ("system", "read", True),
+    ]
+
+
 def test_perspective_is_fail_closed_across_workspaces(db_session):
     workspace, _other, user, _system, foreign = _seed(db_session)
     response = _client(db_session, workspace, user).get(
@@ -142,3 +172,64 @@ def test_patch_audits_only_changed_field_names(db_session):
         "fields": ["objective", "settings"],
     }
     assert "must-never-enter-audit" not in str(event.details)
+
+
+def test_system_govern_reports_granular_v2_modes_over_real_legacy_decisions(
+    db_session,
+    attest_authorization_v2,
+):
+    workspace, _other, user, system, _foreign = _seed(db_session)
+    user.role = None
+    membership = db_session.query(WorkspaceMember).filter_by(
+        workspace_id=workspace.id,
+        user_id=user.id,
+    ).one()
+    membership.role = "member"
+    membership.role_template = "workspace_viewer"
+    config = WorkspaceIAMConfig(
+        workspace_id=workspace.id,
+        version=1,
+        role_flags={},
+        capability_overrides={
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "compat",
+                "modes": {"system.engine.run": "shadow"},
+            }
+        },
+        updated_by_user_id=user.id,
+    )
+    db_session.add(config)
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    payload = client.get(
+        f"/systems/{system.id}/perspective",
+        params={"lens": "govern"},
+    ).json()
+    actions = payload["facets"]["overview"]["blocks"][0]["facts"][1]["value"]
+    engine = actions["system.engine.run"]
+    assert engine["mode"] == "shadow"
+    assert engine["legacy_allowed"] is True
+    assert engine["candidate_allowed"] is False
+    assert engine["effective_allowed"] is True
+    assert actions["system.admin"]["legacy_allowed"] is True
+    assert actions["system.admin"]["effective_allowed"] is True
+
+    config.capability_overrides = {
+        "authorization_v2": {
+            "policy_version": 2,
+            "default_mode": "compat",
+            "modes": {"system.engine.run": "enforce"},
+        }
+    }
+    attest_authorization_v2(config, ["system.engine.run"])
+    db_session.commit()
+    enforced = client.get(
+        f"/systems/{system.id}/perspective",
+        params={"lens": "govern"},
+    ).json()
+    actions = enforced["facets"]["overview"]["blocks"][0]["facts"][1]["value"]
+    assert actions["system.engine.run"]["mode"] == "enforce"
+    assert actions["system.engine.run"]["effective_allowed"] is False
+    assert actions["system.engine.run"]["allowed"] is False

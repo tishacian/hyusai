@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
@@ -12,14 +12,20 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.db.base import SessionLocal, get_db
-from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
+from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.intelligence.batch import get_dashboard_data, run_batch
 from app.services.intelligence.feed_manager import get_articles
-from app.services.intelligence.batch import run_batch, get_dashboard_data
 from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
+from app.services.skill_invocation_snapshot import (
+    SkillInvocationCostEvidence,
+    capture_skill_execution_evidence,
+    resolve_skill_invocation_cost,
+)
+from app.services.system_engine_authorization import enforce_system_engine_run
 
 router = APIRouter()
 
@@ -228,18 +234,30 @@ async def trigger_batch(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     body: AnalyzeRequest | None = Body(default=None),
+    db: DBSession = Depends(get_db),
 ):
     body = body or AnalyzeRequest()
+    authorized_system = _preferred_intelligence_system(db, workspace.id, body.system_id)
+    if authorized_system is not None:
+        enforce_system_engine_run(
+            db,
+            user=user,
+            workspace=workspace,
+            system=authorized_system,
+            source="intelligence.analyze",
+        )
+    authorized_system_id = authorized_system.id if authorized_system is not None else body.system_id
 
     async def stream():
         db = SessionLocal()
         run: Run | None = None
         invocation: SkillInvocation | None = None
+        invocation_cost: SkillInvocationCostEvidence | None = None
         events: list[dict] = []
         started = time.monotonic()
         had_error = False
         try:
-            system = _preferred_intelligence_system(db, workspace.id, body.system_id)
+            system = _preferred_intelligence_system(db, workspace.id, authorized_system_id)
             if body.system_id and not system:
                 event = {
                     "type": "batch_error",
@@ -267,13 +285,28 @@ async def trigger_batch(
                 )
                 db.add(run)
                 db.commit()
+                execution_evidence = capture_skill_execution_evidence(
+                    db,
+                    workspace_id=workspace.id,
+                    skill_slug="intelligence_batch_v1",
+                )
+                invocation_cost = resolve_skill_invocation_cost(
+                    db,
+                    workspace_id=workspace.id,
+                    skill_id=execution_evidence.skill_id,
+                    skill_slug=execution_evidence.skill_slug,
+                )
                 invocation = SkillInvocation(
                     id=str(uuid.uuid4()),
                     run_id=run.id,
-                    skill_slug="intelligence_batch_v1",
+                    skill_id=execution_evidence.skill_id,
+                    skill_slug=execution_evidence.skill_slug,
+                    execution_snapshot=execution_evidence.execution_snapshot,
                     input_ref={"target_id": body.target_id, "workspace_id": workspace.id},
                     status="running",
                     started_at=datetime.utcnow(),
+                    metrics={"cost_evidence": invocation_cost.evidence},
+                    cost_measured=False,
                 )
                 db.add(invocation)
                 db.commit()
@@ -336,12 +369,18 @@ async def trigger_batch(
                 }
                 invocation.completed_at = datetime.utcnow()
                 invocation.latency_ms = duration_ms
+                invocation.cost = invocation_cost.cost if invocation_cost else 0.0
+                invocation.cost_measured = bool(
+                    invocation_cost and invocation_cost.cost_measured
+                )
                 run.status = "failed" if had_error else "completed"
                 run.completed_at = datetime.utcnow()
                 run.duration_ms = duration_ms
                 run.decision = "needs_review" if had_error else "brief_ready"
                 run.confidence = 0.62 if had_error else 0.82
-                run.cost_internal = 0.0
+                run.cost_internal = (
+                    invocation.cost if invocation.cost_measured is True else None
+                )
                 run.efficiency = 1.0 if not had_error else 0.0
                 run.output_ref = {
                     "rag_context": {

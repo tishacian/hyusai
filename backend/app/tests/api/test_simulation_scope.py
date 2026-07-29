@@ -21,39 +21,52 @@ from app.api.v1.endpoints import control_plane, hypervisor
 async def test_system_simulation_routes_target_to_system_scope(
     monkeypatch, module, body_type, endpoint, period
 ):
-    observed = {}
-
-    def fake_aggregate(db, workspace_id, *, scope, target_id, period):
-        observed.update(
-            db=db,
-            workspace_id=workspace_id,
-            scope=scope,
-            target_id=target_id,
-            period=period,
-        )
-        return {"total_cost": 10.0, "estimated_value": 25.0}
-
-    monkeypatch.setattr(module, "_aggregate_for_scope", fake_aggregate)
+    monkeypatch.setattr(module, "enforce_action", lambda *_args, **_kwargs: None)
     db = object()
     payload = await endpoint(
         body_type(scope="system", target_id="system-123", levers={}),
         workspace=SimpleNamespace(id="workspace-123"),
+        user=SimpleNamespace(id="user-123"),
         db=db,
     )
 
-    assert observed == {
-        "db": db,
-        "workspace_id": "workspace-123",
-        "scope": "system",
-        "target_id": "system-123",
-        "period": period,
-    }
     assert payload["kind"] == "simulation"
+    assert payload["state"] == "not_configured"
     assert payload["measured"] is False
-    assert payload["provenance"]["scope"] == "system"
-    assert payload["provenance"]["target_id"] == "system-123"
-    assert payload["model"]["version"] == 1
+    assert payload["scope"] == "system"
+    assert payload["target_id"] == "system-123"
+    assert payload["model"] is None
+    assert payload["provenance"] is None
     assert payload["confidence"] is None
+    assert payload["reason"] == "authoritative_value_loop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module", "body_type", "endpoint"),
+    [
+        (control_plane, control_plane.SimulateBody, control_plane.simulate),
+        (hypervisor, hypervisor.WhatIfRequest, hypervisor.simulate_what_if),
+    ],
+)
+async def test_simulation_routes_preserve_missing_measurements(
+    monkeypatch,
+    module,
+    body_type,
+    endpoint,
+):
+    monkeypatch.setattr(module, "enforce_action", lambda *_args, **_kwargs: None)
+
+    payload = await endpoint(
+        body_type(scope="portfolio", levers={}),
+        workspace=SimpleNamespace(id="workspace-empty"),
+        user=SimpleNamespace(id="user-empty"),
+        db=object(),
+    )
+
+    assert payload["state"] == "not_configured"
+    assert payload["base"] is None
+    assert payload["projected"] is None
 
 
 @pytest.mark.parametrize("body_type", [control_plane.SimulateBody, hypervisor.WhatIfRequest])

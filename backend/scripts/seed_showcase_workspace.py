@@ -3,23 +3,26 @@
 Usage:
     cd backend
     python -m scripts.seed_showcase_workspace \
-      --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}" --reset
+      --owner-email "${AGENTIUM_EMAIL:?AGENTIUM_EMAIL is required}"
 
-The script is deliberately idempotent. With ``--reset`` it removes only
-the target showcase workspace and rows scoped to it, then recreates the
-demo story from scratch. No customer data is used.
+The script is deliberately idempotent and append-only for historical facts.
+It reconciles current configuration through new SystemVersions and never
+deletes the target workspace, Runs, Decisions, audits or previous versions.
+No customer data is used.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import copy
+import hashlib
+import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -35,27 +38,23 @@ from app.models.capability import Capability
 from app.models.context import Context
 from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
-from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.evaluation_preset import EvaluationPreset
 from app.models.knowledge_collection import (
     KnowledgeCollection,
-    KnowledgeCollectionSource,
-    WorkerJob,
 )
 from app.models.knowledge_guide import KnowledgeGuide
-from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.policy import AdaptivePolicy, ControlPolicy
-from app.models.rag_preset import RagPreset
 from app.models.run import Run, SkillInvocation
 from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_version import SystemVersion
-from app.models.user import Session as ChatSession
 from app.models.user import Message, User
-from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
+from app.models.user import Session as ChatSession
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.audit_logger import emit_audit_event
+from app.services.chains.version_service import record_new_version
 from app.services.evaluation.canonical_answer_service import (
     create_canonical_answer,
 )
@@ -71,9 +70,14 @@ from app.services.rag.knowledge_scopes import normalize_knowledge_scopes
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
+from app.services.seed_catalog_safety import (
+    owned_capability_for_seed,
+    require_showcase_workspace_for_seed,
+    visible_capability_for_seed,
+)
+from app.services.skill_invocation_snapshot import capture_skill_execution_evidence
 from app.services.skills_registry import seed_skills_and_capabilities
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
-
 
 SHOWCASE_SOURCE = "showcase_seed"
 SYSTEM360_AUDIT_EVENT_TYPE = "system.contract_risk.claims_audited"
@@ -92,6 +96,177 @@ CAPTURE_CAPABILITY_SLUG = "expert_knowledge_capture"
 CAPTURE_CONTEXT_NAME = "Showcase Knowledge Capture Context"
 CAPTURE_SYSTEM_NAME = "Knowledge Capture"
 SHOWCASE_SEED_ACTOR = "system:showcase-seed"
+SHOWCASE_CONFIGURATION_AUDIT_EVENT = "showcase.seed.system_configuration.changed"
+SHOWCASE_CONFIGURATION_TRANSITION_KIND = "showcase_seed_reconcile"
+CONTRACT_RISK_SYSTEM_NAME = "Contract Risk Copilot"
+
+# Positive allowlist of the Lot 6-8 state that a seed refresh is allowed to
+# observe for change detection. Values are hashed into SystemVersion evidence;
+# only these stable field names are ever copied into the audit log.
+_SHOWCASE_SYSTEM_CONFIGURATION_PATHS = (
+    "system.objective",
+    "system.capability_id",
+    "system.skill_ids",
+    "system.flow_definition",
+    "system.execution_mode",
+    "system.execution_profile",
+    "system.coordination_pattern",
+    "system.control_policy_id",
+    "system.adaptive_policy_id",
+    "system.context_id",
+    "system.status",
+    "system.created_by",
+    "system.default_prompt_type",
+    "system.default_model",
+    "system.retrieval_mode_default",
+    "system.settings.experience.system_360_canary",
+    "system.settings.experience.value_loop_canary",
+    "system.settings.showcase_seed",
+    "system.settings.surface",
+    "system.settings.system_type",
+    "system.settings.brand",
+    "system.settings.event_trigger",
+    "system.settings.value_loop",
+    "system.settings.steering_model",
+    "system.settings.translation_suite",
+    "system.settings.hana_demo",
+    "system.settings._lot6_system360_rollout_v1",
+    "system.settings._lot7_projection_rollout_v1",
+    "system.settings._lot8_value_loop_rollout_v1",
+)
+_SHOWCASE_CONTROL_POLICY_CONFIGURATION_PATHS = (
+    "control_policy.scope",
+    "control_policy.target_id",
+    "control_policy.max_cost_per_decision",
+    "control_policy.max_latency_ms",
+    "control_policy.mandatory_hitl_if_confidence_below",
+    "control_policy.allowed_models",
+    "control_policy.allowed_skills",
+    "control_policy.extra.showcase_seed",
+    "control_policy.extra.membrane_spec",
+)
+_SHOWCASE_CONTEXT_CONFIGURATION_PATHS = (
+    "context.system_id",
+    "context.data_refs",
+    "context.memory_refs",
+    "context.history_refs",
+    "context.environment_state",
+    "context.business_constraints",
+    "context.permissions",
+    "context.ephemeral",
+)
+
+
+class ShowcaseSeedAmbiguityError(RuntimeError):
+    """Raised when a seed-owned object cannot be selected deterministically."""
+
+
+def _lock_workspace_for_seed(db: DBSession, workspace_id: str) -> Workspace:
+    """Serialize seed reconciliation, including first-row creation races."""
+
+    locked = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace_id)
+        .populate_existing()
+        .with_for_update(of=Workspace)
+        .one_or_none()
+    )
+    if locked is None:
+        raise RuntimeError("Showcase workspace disappeared during reconciliation")
+    return locked
+
+
+def _exactly_zero_or_one(rows: list[Any], *, description: str) -> Any | None:
+    """Fail closed instead of mutating an arbitrary duplicate.
+
+    Presentation names are intentionally not unique at the database layer. The
+    Showcase seed still owns exactly one object for each of its stable names,
+    so finding two candidates is corruption/ambiguity, not an invitation to
+    use ``.first()``.
+    """
+
+    if len(rows) > 1:
+        raise ShowcaseSeedAmbiguityError(
+            f"Ambiguous Showcase seed state: found {len(rows)} {description} rows"
+        )
+    return rows[0] if rows else None
+
+
+def _locked_control_policy_by_names(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    names: Iterable[str],
+    description: str,
+) -> ControlPolicy | None:
+    rows = (
+        db.query(ControlPolicy)
+        .filter(
+            ControlPolicy.workspace_id == workspace_id,
+            ControlPolicy.name.in_(tuple(names)),
+        )
+        .populate_existing()
+        .with_for_update(of=ControlPolicy)
+        .limit(2)
+        .all()
+    )
+    return _exactly_zero_or_one(rows, description=description)
+
+
+def _locked_adaptive_policy_by_names(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    names: Iterable[str],
+    description: str,
+) -> AdaptivePolicy | None:
+    rows = (
+        db.query(AdaptivePolicy)
+        .filter(
+            AdaptivePolicy.workspace_id == workspace_id,
+            AdaptivePolicy.name.in_(tuple(names)),
+        )
+        .populate_existing()
+        .with_for_update(of=AdaptivePolicy)
+        .limit(2)
+        .all()
+    )
+    return _exactly_zero_or_one(rows, description=description)
+
+
+def _locked_context_by_name(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    name: str,
+) -> Context | None:
+    rows = (
+        db.query(Context)
+        .filter(Context.workspace_id == workspace_id, Context.name == name)
+        .populate_existing()
+        .with_for_update(of=Context)
+        .limit(2)
+        .all()
+    )
+    return _exactly_zero_or_one(rows, description=f"{name} Context")
+
+
+def _locked_context_by_id(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    context_id: str | None,
+) -> Context | None:
+    if context_id is None:
+        return None
+    return (
+        db.query(Context)
+        .filter(Context.workspace_id == workspace_id, Context.id == context_id)
+        .populate_existing()
+        .with_for_update(of=Context)
+        .one_or_none()
+    )
+
 
 # Generic business_interpretation grounding with a domain-neutral disclaimer
 # (not tied to any industrial client). Demonstrates the universal default.
@@ -351,7 +526,12 @@ CAPABILITIES = [
         "industry": "enterprise",
         "input_unit": "contract",
         "output_unit": "risk_brief",
-        "skill_slugs": ["semantic_search_v1", "llm_rag_answer_v1", "claim_audit_v1", "audit_log_v1"],
+        "skill_slugs": [
+            "semantic_search_v1",
+            "llm_rag_answer_v1",
+            "claim_audit_v1",
+            "audit_log_v1",
+        ],
         "pricing": {"unit": "per_contract", "unit_price": 1.2, "currency": "EUR"},
         "value_per_outcome": 38.0,
         "sla": {"max_latency_ms": 3500, "success_rate": 0.95},
@@ -448,7 +628,6 @@ def parse_args() -> argparse.Namespace:
         default="alice@acme.test",
         help="Demo persona provisioned as a workspace member so the documented smoke runs out of the box; set empty to skip",
     )
-    parser.add_argument("--reset", action="store_true")
     parser.add_argument("--skip-ingest", action="store_true")
     return parser.parse_args()
 
@@ -458,8 +637,6 @@ def main() -> int:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        if args.reset:
-            reset_workspace(db, args.workspace_slug)
         workspace = ensure_workspace(db, args.workspace_slug, args.workspace_name)
         owner = ensure_member(db, workspace, args.owner_email, role="owner")
         if args.smoke_user and args.smoke_user != args.owner_email:
@@ -501,51 +678,6 @@ def main() -> int:
         return 0
     finally:
         db.close()
-
-
-def reset_workspace(db: DBSession, slug: str) -> None:
-    ws = db.query(Workspace).filter(Workspace.slug == slug).first()
-    if not ws:
-        return
-    workspace_id = ws.id
-    system_ids = [row.id for row in db.query(System).filter(System.workspace_id == workspace_id).all()]
-    run_ids = [row.id for row in db.query(Run).filter(Run.workspace_id == workspace_id).all()]
-    db.query(Message).filter(Message.session_id.in_(
-        [s.id for s in db.query(ChatSession).filter(ChatSession.workspace_id == workspace_id).all()]
-    )).delete(synchronize_session=False)
-    db.query(ChatSession).filter(ChatSession.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(SkillInvocation).filter(SkillInvocation.run_id.in_(run_ids)).delete(synchronize_session=False)
-    db.query(EvaluationFeedback).filter(EvaluationFeedback.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(CanonicalAnswer).filter(CanonicalAnswer.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(Decision).filter(Decision.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(EvaluationScore).filter(EvaluationScore.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(AuditLog).filter(AuditLog.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(SharePointSyncJob).filter(SharePointSyncJob.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace_id).delete(synchronize_session=False)
-    # Knowledge baseline + capture rows (Workstream 5). Delete children before
-    # the knowledge_collections parent to stay FK-safe.
-    db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(WorkerJob).filter(WorkerJob.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(KnowledgeGuide).filter(KnowledgeGuide.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(SystemVersion).filter(SystemVersion.system_id.in_(system_ids)).delete(synchronize_session=False)
-    db.query(Run).filter(Run.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(System).filter(System.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(Context).filter(Context.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(ControlPolicy).filter(ControlPolicy.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(AdaptivePolicy).filter(AdaptivePolicy.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(EvaluationPreset).filter(EvaluationPreset.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(Capability).filter(Capability.workspace_id == workspace_id).delete(synchronize_session=False)
-    # Workspace-scoped config/intelligence rows with a direct FK to workspaces.
-    db.query(RagPreset).filter(RagPreset.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(SafetyFilter).filter(SafetyFilter.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(SemanticTarget).filter(SemanticTarget.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(FeedSource).filter(FeedSource.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(WorkspaceIAMConfig).filter(WorkspaceIAMConfig.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).delete(synchronize_session=False)
-    db.query(Workspace).filter(Workspace.id == workspace_id).delete(synchronize_session=False)
-    db.commit()
-    print(f"Reset showcase workspace {slug}")
 
 
 def _maybe_configure_hana_connector(db: DBSession, workspace: Workspace) -> None:
@@ -602,6 +734,14 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
                     # keeps its current values below.
                     "cockpit_router_axes_v4": False,
                     "system_360_projection_v1": False,
+                    # Lot 7 projectors are independently validated and rolled
+                    # out by object type.  A seed must never activate them.
+                    "capability_360_projection_v1": False,
+                    "run_360_projection_v1": False,
+                    "skill_invocation_360_projection_v1": False,
+                    # Lot 8 is prepared structurally but never activated by
+                    # a seed. Rollout owns this feature transition.
+                    "value_loop_v1": False,
                     "flow_v3_dag_authoritative": False,
                     "sap_hana_connector": True,
                     "rpa_bridge": True,
@@ -623,6 +763,7 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
         db.commit()
         db.refresh(ws)
     else:
+        require_showcase_workspace_for_seed(ws)
         ws.name = name
         ws.mode = "portfolio"
         current_settings = dict(ws.settings or {})
@@ -650,6 +791,10 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
             "showcase_seed": True,
             "persona_nav": "full",
             "features": {
+                "capability_360_projection_v1": False,
+                "run_360_projection_v1": False,
+                "skill_invocation_360_projection_v1": False,
+                "value_loop_v1": False,
                 **current_features,
                 "cockpit_router_axes_v3": True,
                 "sap_hana_connector": True,
@@ -676,11 +821,7 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
 
 
 def ensure_member(db: DBSession, workspace: Workspace, email: str, role: str = "owner") -> User:
-    user = (
-        db.query(User)
-        .filter((User.email == email) | (User.username == email))
-        .first()
-    )
+    user = db.query(User).filter((User.email == email) | (User.username == email)).first()
     if not user:
         user = User(
             id=str(uuid4()),
@@ -707,10 +848,14 @@ def ensure_member(db: DBSession, workspace: Workspace, email: str, role: str = "
 
 
 def ensure_eval_preset(db: DBSession, workspace: Workspace) -> None:
-    preset = db.query(EvaluationPreset).filter(
-        EvaluationPreset.workspace_id == workspace.id,
-        EvaluationPreset.scope == "workspace",
-    ).first()
+    preset = (
+        db.query(EvaluationPreset)
+        .filter(
+            EvaluationPreset.workspace_id == workspace.id,
+            EvaluationPreset.scope == "workspace",
+        )
+        .first()
+    )
     config = {
         **DEFAULT_EVAL_CONFIG,
         "enabled": True,
@@ -721,19 +866,21 @@ def ensure_eval_preset(db: DBSession, workspace: Workspace) -> None:
         preset.name = "Showcase evaluation loop"
         preset.config = config
     else:
-        db.add(EvaluationPreset(
-            id=str(uuid4()),
-            workspace_id=workspace.id,
-            scope="workspace",
-            scope_id=None,
-            name="Showcase evaluation loop",
-            is_default=True,
-            config=config,
-        ))
+        db.add(
+            EvaluationPreset(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                scope="workspace",
+                scope_id=None,
+                name="Showcase evaluation loop",
+                is_default=True,
+                config=config,
+            )
+        )
     db.commit()
 
 
-def skill_ids_for(db: DBSession, slugs: Iterable[str]) -> List[str]:
+def skill_ids_for(db: DBSession, slugs: Iterable[str]) -> list[str]:
     rows = db.query(Skill).filter(Skill.slug.in_(list(slugs))).all()
     by_slug = {row.slug: row.id for row in rows}
     return [by_slug[slug] for slug in slugs if slug in by_slug]
@@ -742,7 +889,7 @@ def skill_ids_for(db: DBSession, slugs: Iterable[str]) -> List[str]:
 def system360_membrane_v2_template(
     *,
     object_store_prefix: str = "system-360/pending",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return the canonical five-facet Membrane v2 for the Showcase canary.
 
     The staged production bootstrap imports this factory so the seed and the
@@ -774,7 +921,10 @@ def system360_membrane_v2_template(
             "allowed_skills": contract_skills,
             "allowed_models": ["gpt-4o-mini"],
             "allowed_delegations": [],
-            "allowed_actions": ["system.engine.run"],
+            "allowed_actions": [
+                "system.engine.run",
+                "control_policy.guardrails.patch.v1",
+            ],
         },
         "provenance": {
             "require_citations": True,
@@ -791,10 +941,230 @@ def system360_membrane_v2_template(
     }
 
 
-def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capability]:
-    out: Dict[str, Capability] = {}
+def _tracked_showcase_configuration(
+    system: System,
+    *,
+    control_policy: ControlPolicy | None,
+    context: Context | None = None,
+) -> dict[str, Any]:
+    """Return the in-memory Lot 6-8 change-detection envelope.
+
+    This structure is never persisted. Its values are reduced to SHA-256 in
+    the allowlisted ``SystemVersion.configuration_snapshot``. The keys are
+    fixed here so arbitrary settings or policy fields cannot leak into audit
+    details through a recursive diff.
+    """
+
+    settings = dict(system.settings) if isinstance(system.settings, dict) else {}
+    experience = (
+        dict(settings.get("experience")) if isinstance(settings.get("experience"), dict) else {}
+    )
+    state: dict[str, Any] = {
+        "system.objective": system.objective,
+        "system.capability_id": system.capability_id,
+        "system.skill_ids": copy.deepcopy(system.skill_ids),
+        "system.flow_definition": copy.deepcopy(system.flow_definition),
+        "system.execution_mode": system.execution_mode,
+        "system.execution_profile": copy.deepcopy(system.execution_profile),
+        "system.coordination_pattern": system.coordination_pattern,
+        "system.control_policy_id": system.control_policy_id,
+        "system.adaptive_policy_id": system.adaptive_policy_id,
+        "system.context_id": system.context_id,
+        "system.status": system.status,
+        "system.created_by": system.created_by,
+        "system.default_prompt_type": system.default_prompt_type,
+        "system.default_model": system.default_model,
+        "system.retrieval_mode_default": system.retrieval_mode_default,
+    }
+
+    for marker in ("system_360_canary", "value_loop_canary"):
+        if marker in experience:
+            state[f"system.settings.experience.{marker}"] = copy.deepcopy(experience[marker])
+    for key in (
+        "showcase_seed",
+        "surface",
+        "system_type",
+        "brand",
+        "event_trigger",
+        "value_loop",
+        "steering_model",
+        "translation_suite",
+        "hana_demo",
+        "_lot6_system360_rollout_v1",
+        "_lot7_projection_rollout_v1",
+        "_lot8_value_loop_rollout_v1",
+    ):
+        if key in settings:
+            state[f"system.settings.{key}"] = copy.deepcopy(settings[key])
+
+    if control_policy is not None:
+        state.update(
+            {
+                "control_policy.scope": control_policy.scope,
+                "control_policy.target_id": control_policy.target_id,
+                "control_policy.max_cost_per_decision": (
+                    float(control_policy.max_cost_per_decision)
+                    if control_policy.max_cost_per_decision is not None
+                    else None
+                ),
+                "control_policy.max_latency_ms": (
+                    float(control_policy.max_latency_ms)
+                    if control_policy.max_latency_ms is not None
+                    else None
+                ),
+                "control_policy.mandatory_hitl_if_confidence_below": (
+                    float(control_policy.mandatory_hitl_if_confidence_below)
+                    if control_policy.mandatory_hitl_if_confidence_below is not None
+                    else None
+                ),
+                "control_policy.allowed_models": copy.deepcopy(control_policy.allowed_models),
+                "control_policy.allowed_skills": copy.deepcopy(control_policy.allowed_skills),
+            }
+        )
+        extra = dict(control_policy.extra) if isinstance(control_policy.extra, dict) else {}
+        if "showcase_seed" in extra:
+            state["control_policy.extra.showcase_seed"] = copy.deepcopy(extra["showcase_seed"])
+        if "membrane_spec" in extra:
+            state["control_policy.extra.membrane_spec"] = copy.deepcopy(extra["membrane_spec"])
+
+    if context is not None:
+        state.update(
+            {
+                "context.system_id": context.system_id,
+                "context.data_refs": copy.deepcopy(context.data_refs),
+                "context.memory_refs": copy.deepcopy(context.memory_refs),
+                "context.history_refs": copy.deepcopy(context.history_refs),
+                "context.environment_state": copy.deepcopy(context.environment_state),
+                "context.business_constraints": copy.deepcopy(context.business_constraints),
+                "context.permissions": copy.deepcopy(context.permissions),
+                "context.ephemeral": context.ephemeral,
+            }
+        )
+
+    allowed = set(_SHOWCASE_SYSTEM_CONFIGURATION_PATHS)
+    allowed.update(_SHOWCASE_CONTROL_POLICY_CONFIGURATION_PATHS)
+    allowed.update(_SHOWCASE_CONTEXT_CONFIGURATION_PATHS)
+    if not set(state).issubset(allowed):  # pragma: no cover - construction guard
+        raise RuntimeError("Showcase configuration tracker exceeded its allowlist")
+    return state
+
+
+def _seed_configuration_sha256(state: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        dict(state),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _showcase_configuration_changed_fields(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> list[str]:
+    missing = object()
+    return sorted(
+        field
+        for field in set(before) | set(after)
+        if before.get(field, missing) != after.get(field, missing)
+    )
+
+
+def _membrane_enforcement_mode(control_policy: ControlPolicy | None) -> str:
+    if control_policy is None or not isinstance(control_policy.extra, dict):
+        return "compat"
+    membrane = control_policy.extra.get("membrane_spec")
+    if not isinstance(membrane, dict):
+        return "compat"
+    mode = membrane.get("enforcement_mode")
+    return mode if mode in {"compat", "shadow", "enforce"} else "compat"
+
+
+def _append_showcase_configuration_version(
+    db: DBSession,
+    *,
+    system: System,
+    control_policy: ControlPolicy | None,
+    context: Context | None = None,
+    before: Mapping[str, Any],
+) -> SystemVersion | None:
+    """Append one atomic version + field-name-only audit for an effective edit."""
+
+    after = _tracked_showcase_configuration(
+        system,
+        control_policy=control_policy,
+        context=context,
+    )
+    changed_fields = _showcase_configuration_changed_fields(before, after)
+    if not changed_fields:
+        return None
+
+    db.flush()
+    previous_policy_id = before.get("system.control_policy_id")
+    if not isinstance(previous_policy_id, str):
+        previous_policy_id = None
+    snapshot = {
+        "schema_version": 1,
+        "bindings": {
+            "control_policy_id": system.control_policy_id,
+            "adaptive_policy_id": system.adaptive_policy_id,
+            "context_id": system.context_id,
+        },
+        "transition": {
+            "kind": SHOWCASE_CONFIGURATION_TRANSITION_KIND,
+            "previous_control_policy_id": previous_policy_id,
+            "enforcement_mode": _membrane_enforcement_mode(control_policy),
+            "source_contract_sha256": _seed_configuration_sha256(before),
+            "target_contract_sha256": _seed_configuration_sha256(after),
+        },
+    }
+    version = record_new_version(
+        db=db,
+        system=system,
+        flow_definition=dict(system.flow_definition or {}),
+        configuration_snapshot=snapshot,
+        created_by="showcase-seed",
+        audit_actor=SHOWCASE_SEED_ACTOR,
+        message="Showcase seed configuration reconciliation",
+        # Seed reconciliation must never erase a historical version, even if
+        # the product-level rolling window is configured very small.
+        purge=False,
+    )
+    if version is None:  # pragma: no cover - impossible unless the tracker drifts
+        raise RuntimeError("effective Showcase configuration mutation produced no SystemVersion")
+
+    # This event is part of the same transaction as the System/Policy write and
+    # version row. Only stable field names are recorded; before/after values,
+    # settings, membrane bodies, prompts and credentials are deliberately absent.
+    db.add(
+        AuditLog(
+            id=str(uuid4()),
+            workspace_id=system.workspace_id,
+            event_type=SHOWCASE_CONFIGURATION_AUDIT_EVENT,
+            actor=SHOWCASE_SEED_ACTOR,
+            details={
+                "system_id": system.id,
+                "version_id": version.id,
+                "version_number": version.version_number,
+                "changed_fields": changed_fields,
+                "changed_field_count": len(changed_fields),
+            },
+            severity="info",
+        )
+    )
+    db.flush()
+    return version
+
+
+def ensure_capabilities(db: DBSession, workspace: Workspace) -> dict[str, Capability]:
+    out: dict[str, Capability] = {}
     for entry in CAPABILITIES:
-        cap = db.query(Capability).filter(Capability.slug == entry["slug"]).first()
+        cap = owned_capability_for_seed(
+            db,
+            workspace=workspace,
+            slug=entry["slug"],
+        )
         payload = {
             "workspace_id": workspace.id,
             "name": entry["name"],
@@ -808,7 +1178,9 @@ def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capabi
             "value_per_outcome": entry["value_per_outcome"],
             "confidence_threshold": entry.get("confidence_threshold", 0.82),
             "sla": entry.get("sla", {"target_latency_ms": 3500, "availability": "99.9%"}),
-            "roi_model": entry.get("roi_model", {"seed": SHOWCASE_SOURCE, "value_driver": "time_saved"}),
+            "roi_model": entry.get(
+                "roi_model", {"seed": SHOWCASE_SOURCE, "value_driver": "time_saved"}
+            ),
             "is_seeded": "Y",
         }
         if cap:
@@ -822,11 +1194,14 @@ def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capabi
     return out
 
 
-def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
-    control = db.query(ControlPolicy).filter(
-        ControlPolicy.workspace_id == workspace.id,
-        ControlPolicy.name == "Showcase HITL guardrail",
-    ).first()
+def ensure_policies(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+    workspace = _lock_workspace_for_seed(db, workspace.id)
+    control = _locked_control_policy_by_names(
+        db,
+        workspace_id=workspace.id,
+        names=("Showcase HITL guardrail",),
+        description="Showcase HITL guardrail policy",
+    )
     if not control:
         control = ControlPolicy(
             id=str(uuid4()),
@@ -838,19 +1213,56 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             extra={"showcase_seed": True},
         )
         db.add(control)
-    contract_control = db.query(ControlPolicy).filter(
-        ControlPolicy.workspace_id == workspace.id,
-        ControlPolicy.name == "Contract Risk System 360 membrane",
-    ).first()
+    contract_control = _locked_control_policy_by_names(
+        db,
+        workspace_id=workspace.id,
+        names=("Contract Risk System 360 membrane",),
+        description="Contract Risk System 360 membrane policy",
+    )
+    bound_contract_system: System | None = None
+    bound_contract_context: Context | None = None
+    contract_configuration_before: dict[str, Any] | None = None
+    if contract_control is not None:
+        bound_contract_system = (
+            db.query(System)
+            .filter(
+                System.workspace_id == workspace.id,
+                System.name == CONTRACT_RISK_SYSTEM_NAME,
+                System.control_policy_id == contract_control.id,
+            )
+            .populate_existing()
+            .with_for_update(of=System)
+            .limit(2)
+            .all()
+        )
+        bound_contract_system = _exactly_zero_or_one(
+            bound_contract_system,
+            description="Contract Risk System bound to its membrane policy",
+        )
+        if bound_contract_system is not None:
+            bound_contract_context = _locked_context_by_id(
+                db,
+                workspace_id=workspace.id,
+                context_id=bound_contract_system.context_id,
+            )
+            if bound_contract_system.context_id is not None and bound_contract_context is None:
+                raise RuntimeError("Contract Risk Context disappeared before policy reconciliation")
+            contract_configuration_before = _tracked_showcase_configuration(
+                bound_contract_system,
+                control_policy=contract_control,
+                context=bound_contract_context,
+            )
     membrane_template = system360_membrane_v2_template()
     contract_skills = list(membrane_template["capabilities"]["allowed_skills"])
-    existing_membrane: Optional[Dict[str, Any]] = None
+    existing_membrane: Optional[dict[str, Any]] = None
+    existing_extra: dict[str, Any] = {}
     if contract_control:
         existing_extra = contract_control.extra if isinstance(contract_control.extra, dict) else {}
         existing_spec = existing_extra.get("membrane_spec")
         if isinstance(existing_spec, dict) and existing_spec.get("version") == 2:
             existing_membrane = copy.deepcopy(existing_spec)
     contract_extra = {
+        **existing_extra,
         "showcase_seed": True,
         # A seed refresh never rolls back, advances or rewrites a v2 contract
         # already owned by the staged rollout.
@@ -878,10 +1290,12 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             extra=contract_extra,
         )
         db.add(contract_control)
-    adaptive = db.query(AdaptivePolicy).filter(
-        AdaptivePolicy.workspace_id == workspace.id,
-        AdaptivePolicy.name == "Showcase quality adaptation",
-    ).first()
+    adaptive = _locked_adaptive_policy_by_names(
+        db,
+        workspace_id=workspace.id,
+        names=("Showcase quality adaptation",),
+        description="Showcase quality adaptation policy",
+    )
     if not adaptive:
         adaptive = AdaptivePolicy(
             id=str(uuid4()),
@@ -895,10 +1309,15 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             constraints={"showcase_seed": True},
         )
         db.add(adaptive)
-    translation_control = db.query(ControlPolicy).filter(
-        ControlPolicy.workspace_id == workspace.id,
-        ControlPolicy.name.in_(["Translation Suite sovereign guardrail", "PMI Translation sovereign guardrail"]),
-    ).first()
+    translation_control = _locked_control_policy_by_names(
+        db,
+        workspace_id=workspace.id,
+        names=(
+            "Translation Suite sovereign guardrail",
+            "PMI Translation sovereign guardrail",
+        ),
+        description="Translation Suite sovereign guardrail policy",
+    )
     translation_extra = {
         "showcase_seed": True,
         "brand": "PMI Sovereign Stack",
@@ -950,10 +1369,15 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             extra=translation_extra,
         )
         db.add(translation_control)
-    translation_adaptive = db.query(AdaptivePolicy).filter(
-        AdaptivePolicy.workspace_id == workspace.id,
-        AdaptivePolicy.name.in_(["Translation Suite replay adaptation", "PMI Translation replay adaptation"]),
-    ).first()
+    translation_adaptive = _locked_adaptive_policy_by_names(
+        db,
+        workspace_id=workspace.id,
+        names=(
+            "Translation Suite replay adaptation",
+            "PMI Translation replay adaptation",
+        ),
+        description="Translation Suite replay adaptation policy",
+    )
     translation_triggers = {
         "cdc_e1_violation": "replay_topic_with_strict_placeholders",
         "j2450_above": 1.0,
@@ -994,6 +1418,15 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             constraints=translation_constraints,
         )
         db.add(translation_adaptive)
+    db.flush()
+    if bound_contract_system is not None and contract_configuration_before is not None:
+        _append_showcase_configuration_version(
+            db,
+            system=bound_contract_system,
+            control_policy=contract_control,
+            context=bound_contract_context,
+            before=contract_configuration_before,
+        )
     db.commit()
     return {
         "control": control,
@@ -1004,19 +1437,23 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
     }
 
 
-def flow_hitl() -> Dict[str, Any]:
+def flow_hitl() -> dict[str, Any]:
     return {
         "schema_version": 2,
         "nodes": [
             {"id": "src", "kind": "source"},
-            {"id": "h", "kind": "hitl", "config": {"prompt": "Approve compliance-sensitive answer?"}},
+            {
+                "id": "h",
+                "kind": "hitl",
+                "config": {"prompt": "Approve compliance-sensitive answer?"},
+            },
             {"id": "sink", "kind": "sink"},
         ],
         "edges": [{"from": "src", "to": "h"}, {"from": "h", "to": "sink"}],
     }
 
 
-def flow_debug() -> Dict[str, Any]:
+def flow_debug() -> dict[str, Any]:
     return {
         "schema_version": 2,
         "nodes": [
@@ -1043,7 +1480,7 @@ def flow_debug() -> Dict[str, Any]:
     }
 
 
-def flow_hana_maintenance() -> Dict[str, Any]:
+def flow_hana_maintenance() -> dict[str, Any]:
     """PIH demo: HANA open orders → grounded LLM synthesis.
 
     Canonical definition lives in ``scripts.seed_hana_demo_flow`` so the
@@ -1054,7 +1491,7 @@ def flow_hana_maintenance() -> Dict[str, Any]:
     return _flow()
 
 
-def _hana_demo_settings() -> Dict[str, Any]:
+def _hana_demo_settings() -> dict[str, Any]:
     from scripts.seed_hana_demo_flow import DEMO_OPEN_ORDERS_SQL
 
     return {
@@ -1069,11 +1506,11 @@ def _hana_demo_settings() -> Dict[str, Any]:
 PROJECT_MT_PROMPT_ROOT = "/Users/thib/Developer/PAPAI/project-mt/OM/generic_code"
 
 
-def _project_mt_sources(*relative_paths: str) -> List[str]:
+def _project_mt_sources(*relative_paths: str) -> list[str]:
     return [f"{PROJECT_MT_PROMPT_ROOT}/{path}" for path in relative_paths]
 
 
-def translation_prompt_contract(stage: str) -> Dict[str, Any]:
+def translation_prompt_contract(stage: str) -> dict[str, Any]:
     base_builder = {
         "source_repo": PROJECT_MT_PROMPT_ROOT,
         "assembly_mode": "showcase_editable_prompt_contract",
@@ -1095,11 +1532,11 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
     common_output = [
         "Keep tenant data, prompts, translation memory and reviewer corrections inside the sovereign runtime boundary.",
         "Preserve DITA/XML structure, root attributes, profiling attributes, numbers, dates, cite tags and translate=no fragments.",
-        "Preserve every <ph conkeyref=\"...\"/> placeholder at the same structural position unless the node is explicitly reporting a violation.",
+        'Preserve every <ph conkeyref="..."/> placeholder at the same structural position unless the node is explicitly reporting a violation.',
         "Emit auditable state with batch_id, topic_id, target_lang, agent_identity, model_ref, prompt_hash and deterministic token counters.",
     ]
 
-    contracts: Dict[str, Dict[str, Any]] = {
+    contracts: dict[str, dict[str, Any]] = {
         "flow": {
             "base_system_prompt": (
                 "Translation Suite orchestrates sovereign DITA translation batches through archive ingest, "
@@ -1150,7 +1587,12 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
             },
             "rag_user_prompt_builder": {
                 "retrieval_scope": "archive_manifest_only",
-                "evidence_required": ["manifest_hash", "topic_inventory", "language_folder", "tenant_scope"],
+                "evidence_required": [
+                    "manifest_hash",
+                    "topic_inventory",
+                    "language_folder",
+                    "tenant_scope",
+                ],
             },
             "answer_shaping_instructions": common_output
             + [
@@ -1173,11 +1615,22 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                     "assets/embedding_api.py",
                     "prompts/glossary_automotive.json",
                 ),
-                "inputs": ["topic_id", "source_lang", "target_lang", "k_examples", "translation_history_base"],
+                "inputs": [
+                    "topic_id",
+                    "source_lang",
+                    "target_lang",
+                    "k_examples",
+                    "translation_history_base",
+                ],
             },
             "rag_user_prompt_builder": {
                 "retrieval_scope": "reviewed_translation_memory",
-                "assembly_order": ["exact_examples", "near_examples", "topic_local_glossary", "locale_hints"],
+                "assembly_order": [
+                    "exact_examples",
+                    "near_examples",
+                    "topic_local_glossary",
+                    "locale_hints",
+                ],
                 "max_examples": 2,
             },
             "answer_shaping_instructions": common_output
@@ -1189,7 +1642,7 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
         "translation_label_index_resolve_v1": {
             "system_prompt": (
                 "You are the label and index resolver for Translation Suite. Resolve REFERENT, INDEX and "
-                "TEXTES-LOCA-GAMA library findings before translation. Preserve opaque <ph conkeyref=\"...\"/> "
+                'TEXTES-LOCA-GAMA library findings before translation. Preserve opaque <ph conkeyref="..."/> '
                 "placeholders byte-for-byte, keep @@ immutable markers only when the source carries an equivalent "
                 "marker, and classify indexterm text as translatable content unless protected by conkeyref, cite "
                 "or translate=no."
@@ -1223,7 +1676,7 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                 "locale. Strictly follow reviewed examples when a match exists. If no match exists, translate "
                 "with automotive service terminology, complete semantic fidelity and no additions. Preserve all "
                 "XML/DITA tags, root topic attributes, profiling attributes, numbers and dates. Preserve every "
-                "<ph conkeyref=\"REFERENT/...\"/>, <ph conkeyref=\"GAMA/...\"/> and <ph conkeyref=\"OPTIONS/...\"/> "
+                '<ph conkeyref="REFERENT/..."/>, <ph conkeyref="GAMA/..."/> and <ph conkeyref="OPTIONS/..."/> '
                 "placeholder exactly, without adding the literal term beside it. Use {topic_local_glossary_json} "
                 "consistently within the topic. Output only translated DITA XML; no Markdown, no explanation."
             ),
@@ -1235,11 +1688,22 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                     "assets/topic_glossary.py",
                     "assets/prompt_overlays.py",
                 ),
-                "inputs": ["source_xml", "source_lang", "target_lang", "topic_local_glossary_json", "example_prompt"],
+                "inputs": [
+                    "source_xml",
+                    "source_lang",
+                    "target_lang",
+                    "topic_local_glossary_json",
+                    "example_prompt",
+                ],
             },
             "rag_user_prompt_builder": {
                 "retrieval_scope": "f1_pivot_examples",
-                "assembly_order": ["topic_local_glossary_json", "locale_variant_instruction", "locale_translation_hints", "example_prompt"],
+                "assembly_order": [
+                    "topic_local_glossary_json",
+                    "locale_variant_instruction",
+                    "locale_translation_hints",
+                    "example_prompt",
+                ],
             },
             "answer_shaping_instructions": common_output
             + [
@@ -1254,8 +1718,8 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                 "following reviewed examples, tone, terminology and locale hints. Do not return {source_lang}; "
                 "the output must be 100% {target_lang} except content explicitly protected by conkeyref, cite or "
                 "translate=no. Preserve XML/DITA tags, root topic attributes, profiling attributes, numbers and "
-                "dates. Opaque <ph conkeyref=\"...\"/> placeholders are never translated, duplicated, moved, dropped "
-                "or replaced by their literal glossary token. Editorial <ph brand=\"...\">text</ph> elements are "
+                'dates. Opaque <ph conkeyref="..."/> placeholders are never translated, duplicated, moved, dropped '
+                'or replaced by their literal glossary token. Editorial <ph brand="...">text</ph> elements are '
                 "content: keep the wrapper and brand attribute exactly, but translate the inner text. Preserve "
                 "paragraph text around placeholders; never collapse a paragraph to a placeholder-only paragraph "
                 "when the source contains safety-critical surrounding text. CDC E1 STRICT: every REFERENT "
@@ -1284,7 +1748,12 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
             },
             "rag_user_prompt_builder": {
                 "retrieval_scope": "f2_target_locale_examples",
-                "assembly_order": ["pivot_xml", "target_locale_memory", "locale_hints", "cdc_e1_guard_context"],
+                "assembly_order": [
+                    "pivot_xml",
+                    "target_locale_memory",
+                    "locale_hints",
+                    "cdc_e1_guard_context",
+                ],
                 "parallelism_key": "target_lang",
             },
             "answer_shaping_instructions": common_output
@@ -1311,7 +1780,13 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                     "assets/QA_agents.py",
                     "assets/QA_coherence_agent.py",
                 ),
-                "inputs": ["source_xml", "target_xml", "source_lang", "target_lang", "j2450_registry"],
+                "inputs": [
+                    "source_xml",
+                    "target_xml",
+                    "source_lang",
+                    "target_lang",
+                    "j2450_registry",
+                ],
             },
             "rag_user_prompt_builder": {
                 "retrieval_scope": "qa_examples_and_j2450_findings",
@@ -1362,7 +1837,9 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
             ),
             "system_prompt_builder": {
                 **base_builder,
-                "source_files": _project_mt_sources("assets/post_guards.py", "assets/metrics.py", "assets/topic_metrics.py"),
+                "source_files": _project_mt_sources(
+                    "assets/post_guards.py", "assets/metrics.py", "assets/topic_metrics.py"
+                ),
                 "inputs": ["qa_report", "guardrail_report", "manifest", "replay_lineage"],
             },
             "answer_shaping_instructions": common_output
@@ -1380,8 +1857,15 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
             ),
             "system_prompt_builder": {
                 **base_builder,
-                "source_files": _project_mt_sources("assets/metrics.py", "assets/history_preparation_and_validation.py"),
-                "inputs": ["accepted_manifest", "qa_summary", "guardrail_summary", "reviewer_identity"],
+                "source_files": _project_mt_sources(
+                    "assets/metrics.py", "assets/history_preparation_and_validation.py"
+                ),
+                "inputs": [
+                    "accepted_manifest",
+                    "qa_summary",
+                    "guardrail_summary",
+                    "reviewer_identity",
+                ],
             },
             "answer_shaping_instructions": common_output
             + [
@@ -1402,7 +1886,12 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                     "assets/history_preparation_and_validation.py",
                     "assets/metrics.py",
                 ),
-                "inputs": ["approved_manifest", "artifact_hashes", "delivery_channel", "reviewer_decision"],
+                "inputs": [
+                    "approved_manifest",
+                    "artifact_hashes",
+                    "delivery_channel",
+                    "reviewer_decision",
+                ],
             },
             "answer_shaping_instructions": common_output
             + [
@@ -1424,7 +1913,12 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
                     "assets/history_preparation_and_validation.py",
                     "assets/smart_rate_limiter.py",
                 ),
-                "inputs": ["blocked_run_id", "blocking_findings", "replay_overrides", "max_replays_per_topic"],
+                "inputs": [
+                    "blocked_run_id",
+                    "blocking_findings",
+                    "replay_overrides",
+                    "max_replays_per_topic",
+                ],
             },
             "answer_shaping_instructions": common_output
             + [
@@ -1436,7 +1930,7 @@ def translation_prompt_contract(stage: str) -> Dict[str, Any]:
     return contracts.get(stage, contracts["flow"])
 
 
-def flow_translation_suite() -> Dict[str, Any]:
+def flow_translation_suite() -> dict[str, Any]:
     def task(
         node_id: str,
         label: str,
@@ -1444,9 +1938,9 @@ def flow_translation_suite() -> Dict[str, Any]:
         description: str,
         *,
         agent_identity: str,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[dict[str, Any]] = None,
         prompt_key: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "id": node_id,
             "kind": "task",
@@ -1525,8 +2019,14 @@ def flow_translation_suite() -> Dict[str, Any]:
             "config": {
                 "default_branch": "accept",
                 "branches": [
-                    {"label": "accept", "condition": "ctx.verdict in ['ACCEPT_4D', 'ACCEPT_4D_WITH_VARIANCES']"},
-                    {"label": "remediate", "condition": "ctx.verdict in ['NEEDS_REVIEW', 'BLOCK_RELEASE']"},
+                    {
+                        "label": "accept",
+                        "condition": "ctx.verdict in ['ACCEPT_4D', 'ACCEPT_4D_WITH_VARIANCES']",
+                    },
+                    {
+                        "label": "remediate",
+                        "condition": "ctx.verdict in ['NEEDS_REVIEW', 'BLOCK_RELEASE']",
+                    },
                 ],
             },
             "data": {
@@ -1588,13 +2088,18 @@ def flow_translation_suite() -> Dict[str, Any]:
             {"from": "release_gate", "to": "cdt_gate", "kind": "branch", "branch_label": "accept"},
             {"from": "cdt_gate", "to": "package_delivery"},
             {"from": "package_delivery", "to": "sink"},
-            {"from": "release_gate", "to": "remediation", "kind": "branch", "branch_label": "remediate"},
+            {
+                "from": "release_gate",
+                "to": "remediation",
+                "kind": "branch",
+                "branch_label": "remediate",
+            },
             {"from": "remediation", "to": "sink"},
         ],
     }
 
 
-def translation_agent_identities() -> Dict[str, Dict[str, Any]]:
+def translation_agent_identities() -> dict[str, dict[str, Any]]:
     return {
         "agent.translation.ingest": {
             "role": "archive_ingest",
@@ -1644,7 +2149,7 @@ def translation_agent_identities() -> Dict[str, Dict[str, Any]]:
     }
 
 
-def translation_rbac_matrix() -> Dict[str, List[str]]:
+def translation_rbac_matrix() -> dict[str, list[str]]:
     return {
         "viewer": ["translation_batch.read", "audit_log.read"],
         "operator": [
@@ -1664,7 +2169,7 @@ def translation_rbac_matrix() -> Dict[str, List[str]]:
     }
 
 
-def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> Dict[str, Any]:
+def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> dict[str, Any]:
     return {
         "brand": "PMI Sovereign Stack",
         "white_label": True,
@@ -1739,7 +2244,12 @@ def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> Dict[s
             "persist_checkpoints": True,
             "replay_lineage": True,
             "token_counters": ["prompt_tokens", "completion_tokens", "retrieval_tokens"],
-            "delivery_evidence": ["manifest", "j2450_report", "cdc_guard_report", "simulated_sftp_receipt"],
+            "delivery_evidence": [
+                "manifest",
+                "j2450_report",
+                "cdc_guard_report",
+                "simulated_sftp_receipt",
+            ],
         },
         "scaling": {
             "max_concurrent_language_jobs": 4,
@@ -1764,7 +2274,7 @@ def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> Dict[s
     }
 
 
-def flow_contract_risk_system360() -> Dict[str, Any]:
+def flow_contract_risk_system360() -> dict[str, Any]:
     """Executable v3-strict Contract Risk vertical slice.
 
     Every input selector is a typed VariableRef.  The ``contract`` namespace
@@ -1863,8 +2373,20 @@ def flow_contract_risk_system360() -> Dict[str, Any]:
             },
         ],
         "edges": [
-            {"from": "retrieve", "to": "answer", "kind": "data", "from_port": "results", "to_port": "context"},
-            {"from": "answer", "to": "claim_audit", "kind": "data", "from_port": "answer", "to_port": "answer"},
+            {
+                "from": "retrieve",
+                "to": "answer",
+                "kind": "data",
+                "from_port": "results",
+                "to_port": "context",
+            },
+            {
+                "from": "answer",
+                "to": "claim_audit",
+                "kind": "data",
+                "from_port": "answer",
+                "to_port": "answer",
+            },
             {"from": "claim_audit", "to": "audit_log", "kind": "data", "to_port": "details"},
         ],
     }
@@ -1873,9 +2395,10 @@ def flow_contract_risk_system360() -> Dict[str, Any]:
 def ensure_systems(
     db: DBSession,
     workspace: Workspace,
-    capabilities: Dict[str, Capability],
-    policies: Dict[str, Any],
-) -> Dict[str, System]:
+    capabilities: dict[str, Capability],
+    policies: dict[str, Any],
+) -> dict[str, System]:
+    workspace = _lock_workspace_for_seed(db, workspace.id)
     specs = [
         {
             "key": "contract",
@@ -1933,12 +2456,78 @@ def ensure_systems(
             "coordination_pattern": "graph",
         },
     ]
-    out: Dict[str, System] = {}
+    # Keep the lock order stable (Workspace -> ControlPolicy -> System) across
+    # policy and System reconciliation to avoid cross-writer deadlocks.
+    contract_control = (
+        db.query(ControlPolicy)
+        .filter(
+            ControlPolicy.id == policies["contract_control"].id,
+            ControlPolicy.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .with_for_update(of=ControlPolicy)
+        .one_or_none()
+    )
+    if contract_control is None:
+        raise RuntimeError("Contract Risk membrane policy disappeared before seeding")
+    policies["contract_control"] = contract_control
+
+    # Serialize every workspace System before deriving the seed's before-state.
+    # This covers both the five seed-owned Systems and any other System from
+    # which a stray canary marker may need to be removed.
+    existing_systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .all()
+    )
+    systems_by_name: dict[str, list[System]] = {}
+    for existing in existing_systems:
+        systems_by_name.setdefault(existing.name, []).append(existing)
     for spec in specs:
-        system = db.query(System).filter(
-            System.workspace_id == workspace.id,
-            System.name == spec["name"],
-        ).first()
+        _exactly_zero_or_one(
+            systems_by_name.get(spec["name"], []),
+            description=f"{spec['name']} System",
+        )
+
+    existing_contract_system = _exactly_zero_or_one(
+        systems_by_name.get(CONTRACT_RISK_SYSTEM_NAME, []),
+        description=f"{CONTRACT_RISK_SYSTEM_NAME} System",
+    )
+    contract_context = (
+        _locked_context_by_id(
+            db,
+            workspace_id=workspace.id,
+            context_id=existing_contract_system.context_id,
+        )
+        if existing_contract_system is not None
+        else None
+    )
+    if (
+        existing_contract_system is not None
+        and existing_contract_system.context_id is not None
+        and contract_context is None
+    ):
+        raise RuntimeError("Contract Risk Context disappeared before System seeding")
+
+    out: dict[str, System] = {}
+    configuration_before: dict[str, dict[str, Any]] = {
+        candidate.id: _tracked_showcase_configuration(
+            candidate,
+            control_policy=(
+                contract_control if candidate.name == CONTRACT_RISK_SYSTEM_NAME else None
+            ),
+            context=(contract_context if candidate.name == CONTRACT_RISK_SYSTEM_NAME else None),
+        )
+        for candidate in existing_systems
+    }
+    version_candidates = {candidate.id: candidate for candidate in existing_systems}
+    for spec in specs:
+        system = _exactly_zero_or_one(
+            systems_by_name.get(spec["name"], []),
+            description=f"{spec['name']} System",
+        )
         cap = capabilities[spec["capability"]]
         if spec["key"] == "translation":
             policies["translation_control"].target_id = cap.id
@@ -1952,22 +2541,90 @@ def ensure_systems(
                 "showcase_seed": True,
                 "surface": "system",
                 "system_type": "translation_suite" if spec["key"] == "translation" else spec["key"],
-                "brand": "PMI Sovereign Stack" if spec["key"] == "translation" else "Agentium Showcase",
+                "brand": "PMI Sovereign Stack"
+                if spec["key"] == "translation"
+                else "Agentium Showcase",
                 # Showcase opt-in: workspace features.enable_event_triggers +
                 # per-System live mode. Global enable_event_triggers stays OFF.
                 "event_trigger": {"mode": "live"},
                 **(
                     {
-                        "experience": {"system_360_canary": "v1"},
+                        "experience": {
+                            "system_360_canary": "v1",
+                            "value_loop_canary": "v1",
+                        },
+                        "value_loop": {
+                            "actuators": {
+                                "control_policy.guardrails.patch.v1": {
+                                    "enabled": True,
+                                    "fields": {
+                                        "max_cost_per_decision": {"min": 0, "max": 50},
+                                        "max_latency_ms": {"min": 100, "max": 30_000},
+                                        "mandatory_hitl_if_confidence_below": {
+                                            "min": 0,
+                                            "max": 1,
+                                        },
+                                    },
+                                }
+                            }
+                        },
                         "steering_model": {
                             "version": "contract-risk-v1",
-                            "cost_multiplier": 0.9,
-                            "value_multiplier": 1.1,
                             "confidence": 0.7,
                             "assumptions": [
                                 "Evidence mix remains comparable to the selected window.",
                                 "Projected values are simulated and are not measurements.",
                             ],
+                            "forecasts": {
+                                "max_cost_per_decision": [
+                                    {
+                                        "minimum": 0,
+                                        "maximum": 10,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 0.92,
+                                        "value_multiplier": 1.04,
+                                    },
+                                    {
+                                        "minimum": 10,
+                                        "maximum": 50,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 1.0,
+                                        "value_multiplier": 1.08,
+                                    },
+                                ],
+                                "max_latency_ms": [
+                                    {
+                                        "minimum": 100,
+                                        "maximum": 5_000,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 1.08,
+                                        "value_multiplier": 1.1,
+                                    },
+                                    {
+                                        "minimum": 5_000,
+                                        "maximum": 30_000,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 0.95,
+                                        "value_multiplier": 1.0,
+                                    },
+                                ],
+                                "mandatory_hitl_if_confidence_below": [
+                                    {
+                                        "minimum": 0,
+                                        "maximum": 0.5,
+                                        "include_maximum": False,
+                                        "cost_multiplier": 0.95,
+                                        "value_multiplier": 1.03,
+                                    },
+                                    {
+                                        "minimum": 0.5,
+                                        "maximum": 1,
+                                        "include_maximum": True,
+                                        "cost_multiplier": 1.08,
+                                        "value_multiplier": 1.12,
+                                    },
+                                ],
+                            },
                         },
                     }
                     if spec["key"] == "contract"
@@ -1980,7 +2637,8 @@ def ensure_systems(
                 ),
                 **(_hana_demo_settings() if spec["key"] == "hana" else {}),
             },
-            "execution_mode": spec.get("execution_mode") or ("human_augmented" if spec["key"] == "compliance" else "real_time_decision"),
+            "execution_mode": spec.get("execution_mode")
+            or ("human_augmented" if spec["key"] == "compliance" else "real_time_decision"),
             "execution_profile": (
                 {
                     "showcase_seed": True,
@@ -1989,7 +2647,11 @@ def ensure_systems(
                     "replay_supported": True,
                     "resubmission_supported": True,
                     "scaling": {"max_concurrent_language_jobs": 4, "gpu_pool": "sovereign-aigrid"},
-                    "token_budget": {"input_tokens": 18_500_000, "output_tokens": 9_200_000, "determinism": "temperature_0"},
+                    "token_budget": {
+                        "input_tokens": 18_500_000,
+                        "output_tokens": 9_200_000,
+                        "determinism": "temperature_0",
+                    },
                 }
                 if spec["key"] == "translation"
                 else (
@@ -2002,14 +2664,20 @@ def ensure_systems(
                     else {"showcase_seed": True, "persona": spec["key"]}
                 )
             ),
-            "coordination_pattern": spec.get("coordination_pattern") or ("graph" if spec["flow"] else "single_agent"),
+            "coordination_pattern": spec.get("coordination_pattern")
+            or ("graph" if spec["flow"] else "single_agent"),
             "control_policy_id": (
                 policies["translation_control"].id
                 if spec["key"] == "translation"
-                else policies["contract_control"].id if spec["key"] == "contract"
-                else policies["control"].id if spec["key"] == "compliance" else None
+                else policies["contract_control"].id
+                if spec["key"] == "contract"
+                else policies["control"].id
+                if spec["key"] == "compliance"
+                else None
             ),
-            "adaptive_policy_id": policies["translation_adaptive"].id if spec["key"] == "translation" else policies["adaptive"].id,
+            "adaptive_policy_id": policies["translation_adaptive"].id
+            if spec["key"] == "translation"
+            else policies["adaptive"].id,
             "status": "active",
             "created_by": "showcase-seed",
             "default_prompt_type": spec["prompt"],
@@ -2026,23 +2694,49 @@ def ensure_systems(
                     **existing_settings["experience"],
                     **seeded_settings["experience"],
                 }
+            if isinstance(existing_settings.get("value_loop"), dict) and isinstance(
+                seeded_settings.get("value_loop"), dict
+            ):
+                seeded_value_loop = dict(seeded_settings["value_loop"])
+                existing_value_loop = dict(existing_settings["value_loop"])
+                seeded_actuators = (
+                    dict(seeded_value_loop.get("actuators"))
+                    if isinstance(seeded_value_loop.get("actuators"), dict)
+                    else {}
+                )
+                existing_actuators = (
+                    dict(existing_value_loop.get("actuators"))
+                    if isinstance(existing_value_loop.get("actuators"), dict)
+                    else {}
+                )
+                seeded_settings["value_loop"] = {
+                    **seeded_value_loop,
+                    **existing_value_loop,
+                    "actuators": {**seeded_actuators, **existing_actuators},
+                }
             payload["settings"] = {**existing_settings, **seeded_settings}
-            if (
-                spec["key"] == "contract"
-                and isinstance(existing_settings.get("_lot6_system360_rollout_v1"), dict)
+            if spec["key"] == "contract" and isinstance(
+                existing_settings.get("_lot6_system360_rollout_v1"), dict
             ):
                 # Once staged, only the rollout/backfill may move the active
                 # flow between append-only versions.
                 payload["flow_definition"] = system.flow_definition
+            system_changed = False
             for key, value in payload.items():
-                setattr(system, key, value)
-            system.updated_at = datetime.utcnow()
+                if getattr(system, key) != value:
+                    setattr(system, key, value)
+                    system_changed = True
+            if system_changed:
+                system.updated_at = datetime.utcnow()
         else:
-            system = System(id=str(uuid4()), workspace_id=workspace.id, name=spec["name"], **payload)
+            system = System(
+                id=str(uuid4()), workspace_id=workspace.id, name=spec["name"], **payload
+            )
             db.add(system)
             db.flush()
+            configuration_before[system.id] = {}
+            version_candidates[system.id] = system
         if spec["key"] == "contract":
-            contract_control = policies["contract_control"]
             contract_control.target_id = system.id
             extra = dict(contract_control.extra) if isinstance(contract_control.extra, dict) else {}
             raw_membrane = extra.get("membrane_spec")
@@ -2053,56 +2747,119 @@ def ensure_systems(
             membrane["provenance"] = provenance
             extra["membrane_spec"] = membrane
             contract_control.extra = extra
-        ensure_system_version(db, workspace, system, spec["flow"])
         out[spec["key"]] = system
 
     # Canary discovery is marker-based.  Keep the invariant structural even
     # when an operator previously copied the marker onto another Showcase
     # System: exactly the Contract System owns it after reconciliation.
     contract_id = out["contract"].id
-    for candidate in db.query(System).filter(System.workspace_id == workspace.id).all():
-        candidate_settings = dict(candidate.settings) if isinstance(candidate.settings, dict) else {}
+    for candidate in version_candidates.values():
+        candidate_settings = (
+            dict(candidate.settings) if isinstance(candidate.settings, dict) else {}
+        )
         raw_experience = candidate_settings.get("experience")
         experience = dict(raw_experience) if isinstance(raw_experience, dict) else {}
         if candidate.id == contract_id:
             experience["system_360_canary"] = "v1"
+            experience["value_loop_canary"] = "v1"
         else:
             experience.pop("system_360_canary", None)
+            experience.pop("value_loop_canary", None)
         if experience:
             candidate_settings["experience"] = experience
         else:
             candidate_settings.pop("experience", None)
         candidate.settings = candidate_settings
+
+    # Append configuration evidence only after marker reconciliation so one
+    # seed invocation produces at most one SystemVersion per System here. A
+    # policy-only reconciliation performed earlier by ``ensure_policies`` is a
+    # separate atomic mutation and therefore has its own version.
+    seeded_system_ids = {seeded.id for seeded in out.values()}
+    for candidate in version_candidates.values():
+        configuration_version = _append_showcase_configuration_version(
+            db,
+            system=candidate,
+            control_policy=(contract_control if candidate.id == contract_id else None),
+            context=(contract_context if candidate.id == contract_id else None),
+            before=configuration_before[candidate.id],
+        )
+        if configuration_version is None and candidate.id in seeded_system_ids:
+            ensure_system_version(
+                db,
+                workspace,
+                candidate,
+                dict(candidate.flow_definition or {}),
+            )
     db.commit()
     return out
 
 
-def ensure_system_version(db: DBSession, workspace: Workspace, system: System, flow: Dict[str, Any]) -> None:
-    latest = (
-        db.query(SystemVersion)
-        .filter(SystemVersion.system_id == system.id)
-        .order_by(SystemVersion.version_number.desc())
-        .first()
-    )
-    canonical_flow = flow or {}
-    if latest and latest.flow_definition == canonical_flow:
-        return
-    db.add(SystemVersion(
-        id=str(uuid4()),
-        workspace_id=workspace.id,
-        system_id=system.id,
-        version_number=(latest.version_number + 1) if latest else 1,
-        flow_definition=canonical_flow,
-        message="Showcase System 360 baseline" if latest else "Showcase seed baseline",
+def ensure_system_version(
+    db: DBSession, workspace: Workspace, system: System, flow: dict[str, Any]
+) -> None:
+    if system.workspace_id != workspace.id:
+        raise RuntimeError("Cannot seed a SystemVersion across workspace boundaries")
+    record_new_version(
+        db=db,
+        system=system,
+        flow_definition=flow or {},
         created_by="showcase-seed",
-    ))
+        audit_actor=SHOWCASE_SEED_ACTOR,
+        message="Showcase seed flow reconciliation",
+        # Seeding is reconciliation, never retention policy. Historical rows
+        # must remain available even when the interactive editor window is 1.
+        purge=False,
+    )
 
 
-def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, System]) -> Context:
-    context = db.query(Context).filter(
-        Context.workspace_id == workspace.id,
-        Context.name == "Showcase Enterprise Context",
-    ).first()
+def ensure_context(db: DBSession, workspace: Workspace, systems: dict[str, System]) -> Context:
+    workspace = _lock_workspace_for_seed(db, workspace.id)
+    expected_policy_id = systems["contract"].control_policy_id
+    contract_policy = (
+        db.query(ControlPolicy)
+        .filter(
+            ControlPolicy.id == expected_policy_id,
+            ControlPolicy.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .with_for_update(of=ControlPolicy)
+        .one_or_none()
+    )
+    if contract_policy is None:
+        raise RuntimeError("Contract Risk membrane policy disappeared before context seeding")
+    contract_system = (
+        db.query(System)
+        .filter(
+            System.id == systems["contract"].id,
+            System.workspace_id == workspace.id,
+        )
+        .populate_existing()
+        .with_for_update(of=System)
+        .one_or_none()
+    )
+    if contract_system is None:
+        raise RuntimeError("Contract Risk System disappeared before context seeding")
+    if contract_system.control_policy_id != contract_policy.id:
+        raise RuntimeError("Contract Risk System policy binding changed during context seeding")
+    systems["contract"] = contract_system
+    bound_context_before = _locked_context_by_id(
+        db,
+        workspace_id=workspace.id,
+        context_id=contract_system.context_id,
+    )
+    if contract_system.context_id is not None and bound_context_before is None:
+        raise RuntimeError("Contract Risk Context disappeared before context seeding")
+    contract_configuration_before = _tracked_showcase_configuration(
+        contract_system,
+        control_policy=contract_policy,
+        context=bound_context_before,
+    )
+    context = _locked_context_by_name(
+        db,
+        workspace_id=workspace.id,
+        name="Showcase Enterprise Context",
+    )
     payload = {
         "system_id": systems["contract"].id,
         "data_refs": [f"showcase/{name}" for name in DOCS],
@@ -2121,14 +2878,20 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
         for key, value in payload.items():
             setattr(context, key, value)
     else:
-        context = Context(id=str(uuid4()), workspace_id=workspace.id, name="Showcase Enterprise Context", **payload)
+        context = Context(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Showcase Enterprise Context",
+            **payload,
+        )
         db.add(context)
     db.flush()
-    systems["contract"].context_id = context.id
-    translation_context = db.query(Context).filter(
-        Context.workspace_id == workspace.id,
-        Context.name == "PMI Sovereign Translation Context",
-    ).first()
+    contract_system.context_id = context.id
+    translation_context = _locked_context_by_name(
+        db,
+        workspace_id=workspace.id,
+        name="PMI Sovereign Translation Context",
+    )
     translation_payload = {
         "system_id": systems["translation"].id,
         "data_refs": [
@@ -2186,11 +2949,18 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
         db.add(translation_context)
     db.flush()
     systems["translation"].context_id = translation_context.id
+    _append_showcase_configuration_version(
+        db,
+        system=contract_system,
+        control_policy=contract_policy,
+        context=context,
+        before=contract_configuration_before,
+    )
     db.commit()
     return context
 
 
-def write_docs(workspace_slug: str) -> List[Path]:
+def write_docs(workspace_slug: str) -> list[Path]:
     root = Path("/tmp") / "agentium_showcase_docs" / workspace_slug
     root.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -2201,7 +2971,7 @@ def write_docs(workspace_slug: str) -> List[Path]:
     return paths
 
 
-def ingest_docs_best_effort(workspace_slug: str, paths: List[Path]) -> None:
+def ingest_docs_best_effort(workspace_slug: str, paths: list[Path]) -> None:
     async def _run() -> None:
         try:
             from app.services.rag.document_service import DocumentService
@@ -2217,7 +2987,7 @@ def ingest_docs_best_effort(workspace_slug: str, paths: List[Path]) -> None:
 
 
 # --- Workstream 5 helpers -----------------------------------------------------
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
@@ -2225,10 +2995,10 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def write_notices_docs(workspace_slug: str) -> List[Path]:
+def write_notices_docs(workspace_slug: str) -> list[Path]:
     root = Path("/tmp") / "agentium_showcase_notices" / workspace_slug
     root.mkdir(parents=True, exist_ok=True)
-    paths: List[Path] = []
+    paths: list[Path] = []
     for name, content in NOTICES_DOCS.items():
         path = root / name
         path.write_text(content, encoding="utf-8")
@@ -2266,13 +3036,13 @@ def ingest_notices_best_effort(
     db: DBSession,
     workspace: Workspace,
     collection: KnowledgeCollection,
-    paths: List[Path],
+    paths: list[Path],
 ) -> None:
-    async def _run() -> List[Dict[str, Any]]:
+    async def _run() -> list[dict[str, Any]]:
         from app.services.rag.document_service import DocumentService
 
         svc = DocumentService(collection_name=collection.slug, workspace_slug=workspace.slug)
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for path in paths:
             res = await svc.ingest_document(
                 str(path),
@@ -2315,7 +3085,9 @@ def ingest_notices_best_effort(
 
 
 def _notices_guide_markdown() -> str:
-    return (_repo_root() / "docs" / "showcase-notices-knowledge-guide.md").read_text(encoding="utf-8")
+    return (_repo_root() / "docs" / "showcase-notices-knowledge-guide.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def publish_notices_guide(db: DBSession, workspace: Workspace, *, collection_slug: str) -> str:
@@ -2354,7 +3126,7 @@ def publish_notices_guide(db: DBSession, workspace: Workspace, *, collection_slu
     return guide.guide_key
 
 
-def _showcase_profile_defaults(scope_key: str) -> Dict[str, Any]:
+def _showcase_profile_defaults(scope_key: str) -> dict[str, Any]:
     return {
         "key": SHOWCASE_ADVISOR_PROFILE,
         "label": "Showcase Advisor",
@@ -2542,7 +3314,9 @@ def ensure_capture_system(
             setattr(system, key, value)
         system.updated_at = datetime.utcnow()
     else:
-        system = System(id=str(uuid4()), workspace_id=workspace.id, name=CAPTURE_SYSTEM_NAME, **payload)
+        system = System(
+            id=str(uuid4()), workspace_id=workspace.id, name=CAPTURE_SYSTEM_NAME, **payload
+        )
         db.add(system)
         db.flush()
     ensure_system_version(db, workspace, system, {})
@@ -2554,7 +3328,7 @@ def seed_knowledge_and_capture(
     workspace: Workspace,
     *,
     skip_ingest: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Workstream 5: universal retrieval baseline + Knowledge Capture wiring.
 
     Idempotent and reset-safe. Creates the synthetic notices collection, the
@@ -2579,8 +3353,10 @@ def seed_knowledge_and_capture(
     db.commit()
 
     capture_system_id: Optional[str] = None
-    capability = (
-        db.query(Capability).filter(Capability.slug == CAPTURE_CAPABILITY_SLUG).first()
+    capability = visible_capability_for_seed(
+        db,
+        workspace=workspace,
+        slug=CAPTURE_CAPABILITY_SLUG,
     )
     if capability is None:
         print(
@@ -2623,10 +3399,10 @@ def seed_story(
     db: DBSession,
     workspace: Workspace,
     owner: User,
-    systems: Dict[str, System],
-    capabilities: Dict[str, Capability],
+    systems: dict[str, System],
+    capabilities: dict[str, Capability],
     context: Optional[Context] = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     completed_seed = (
         db.query(AuditLog)
         .filter(
@@ -2637,7 +3413,7 @@ def seed_story(
     )
     if completed_seed is not None:
         # Demo fixtures are immutable evidence, not measurements to refresh on
-        # every seed invocation. ``--reset`` remains the explicit rebuild path.
+        # every seed invocation. Historical evidence is never rebuilt in place.
         return {
             "runs": db.query(Run).filter(Run.workspace_id == workspace.id).count(),
             "evals": db.query(EvaluationScore)
@@ -2645,20 +3421,84 @@ def seed_story(
             .count(),
         }
 
-    runs: List[Run] = []
-    evals: List[EvaluationScore] = []
+    runs: list[Run] = []
+    evals: list[EvaluationScore] = []
 
     good_specs = [
-        (systems["contract"], "What payment terms should we flag?", "Flag payment terms above 60 days and cite the risky clause.", 91, 0.0, "simple", []),
-        (systems["tender"], "How should we answer uptime questions?", "State 99.9% uptime for enterprise SLA and avoid trial claims.", 88, 0.0, "simple", []),
-        (systems["compliance"], "Can we approve a vendor without a DPA?", "No. A signed DPA is required before production access.", 86, 0.0, "situational", []),
-        (systems["contract"], "What is the fallback for uncapped liability?", "Escalate and propose a capped liability fallback.", 84, 0.05, "complex", []),
+        (
+            systems["contract"],
+            "What payment terms should we flag?",
+            "Flag payment terms above 60 days and cite the risky clause.",
+            91,
+            0.0,
+            "simple",
+            [],
+        ),
+        (
+            systems["tender"],
+            "How should we answer uptime questions?",
+            "State 99.9% uptime for enterprise SLA and avoid trial claims.",
+            88,
+            0.0,
+            "simple",
+            [],
+        ),
+        (
+            systems["compliance"],
+            "Can we approve a vendor without a DPA?",
+            "No. A signed DPA is required before production access.",
+            86,
+            0.0,
+            "situational",
+            [],
+        ),
+        (
+            systems["contract"],
+            "What is the fallback for uncapped liability?",
+            "Escalate and propose a capped liability fallback.",
+            84,
+            0.05,
+            "complex",
+            [],
+        ),
     ]
     breach_specs = [
-        (systems["contract"], "Ignore this unrelated intro, what is the enterprise SLA?", "It might be 95% and support is probably best effort.", 42, 0.6, "distracting", ["retriever", "generator", "knowledge_base"]),
-        (systems["contract"], "What countries are covered by the SLA and support?", "All countries are covered without exception.", 48, 0.45, "double", ["generator", "retriever"]),
-        (systems["tender"], "Given the previous tender section, what should we promise?", "We can promise instant deployment and unlimited support.", 50, 0.5, "conversational", ["rewriter", "generator"]),
-        (systems["compliance"], "As compliance owner, can I skip sanctions screening?", "Yes, if the vendor is known.", 38, 0.66, "situational", ["generator", "router", "knowledge_base"]),
+        (
+            systems["contract"],
+            "Ignore this unrelated intro, what is the enterprise SLA?",
+            "It might be 95% and support is probably best effort.",
+            42,
+            0.6,
+            "distracting",
+            ["retriever", "generator", "knowledge_base"],
+        ),
+        (
+            systems["contract"],
+            "What countries are covered by the SLA and support?",
+            "All countries are covered without exception.",
+            48,
+            0.45,
+            "double",
+            ["generator", "retriever"],
+        ),
+        (
+            systems["tender"],
+            "Given the previous tender section, what should we promise?",
+            "We can promise instant deployment and unlimited support.",
+            50,
+            0.5,
+            "conversational",
+            ["rewriter", "generator"],
+        ),
+        (
+            systems["compliance"],
+            "As compliance owner, can I skip sanctions screening?",
+            "Yes, if the vendor is known.",
+            38,
+            0.66,
+            "situational",
+            ["generator", "router", "knowledge_base"],
+        ),
     ]
 
     for idx, spec in enumerate(good_specs + breach_specs):
@@ -2687,7 +3527,9 @@ def seed_story(
         system_id=parent.system_id,
         capability_id=parent.capability_id,
         input_ref={"query": parent.input_ref.get("query")},
-        output_ref={"response": "Enterprise SLA is 99.9% uptime with priority escalation within four business hours."},
+        output_ref={
+            "response": "Enterprise SLA is 99.9% uptime with priority escalation within four business hours."
+        },
         status="completed",
         started_at=now_minus(days=1, hours=5),
         completed_at=now_minus(days=1, hours=5),
@@ -2729,7 +3571,11 @@ def seed_story(
         system_id=systems["contract"].id,
         capability_id=systems["contract"].capability_id,
         input_ref={"query": "What is the enterprise SLA?"},
-        output_ref={"response": canonical.answer, "canonical_answer_id": canonical.id, "canonical_answer_score": 1.0},
+        output_ref={
+            "response": canonical.answer,
+            "canonical_answer_id": canonical.id,
+            "canonical_answer_score": 1.0,
+        },
         status="completed",
         started_at=now_minus(days=0, hours=6),
         completed_at=now_minus(days=0, hours=6),
@@ -2772,7 +3618,7 @@ def create_run_eval(
     composite: float,
     hallucination: float,
     question_type: str,
-    failed_components: List[str],
+    failed_components: list[str],
     started_at: datetime,
     value: float,
     cost: float,
@@ -2782,16 +3628,36 @@ def create_run_eval(
     breach = bool(failed_components or composite < 70 or hallucination > 0.3)
     reasons = []
     if composite < 70:
-        reasons.append({"metric": "composite_score", "observed": composite, "threshold": 70.0, "direction": "below"})
+        reasons.append(
+            {
+                "metric": "composite_score",
+                "observed": composite,
+                "threshold": 70.0,
+                "direction": "below",
+            }
+        )
     if hallucination > 0.3:
-        reasons.append({"metric": "hallucination_rate", "observed": hallucination, "threshold": 0.3, "direction": "above"})
+        reasons.append(
+            {
+                "metric": "hallucination_rate",
+                "observed": hallucination,
+                "threshold": 0.3,
+                "direction": "above",
+            }
+        )
     run = Run(
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=system.id,
         capability_id=system.capability_id,
         input_ref={"query": query, "context_id": workspace.slug},
-        output_ref={"response": response, "sources": [{"filename": "sla-enterprise-policy.md"}, {"filename": "contract-risk-policy.md"}]},
+        output_ref={
+            "response": response,
+            "sources": [
+                {"filename": "sla-enterprise-policy.md"},
+                {"filename": "contract-risk-policy.md"},
+            ],
+        },
         status="completed",
         started_at=started_at,
         completed_at=completed,
@@ -2807,7 +3673,11 @@ def create_run_eval(
     run.evaluation_scores = {
         "composite_score": composite,
         "hallucination_rate": hallucination,
-        "scores": {"task_success": composite, "relevance": composite, "hallucination": max(0, 100 - hallucination * 100)},
+        "scores": {
+            "task_success": composite,
+            "relevance": composite,
+            "hallucination": max(0, 100 - hallucination * 100),
+        },
         "threshold_breach": breach,
         "reasons": reasons,
         "question_type": question_type,
@@ -2865,7 +3735,7 @@ def translation_checkpoints(
     verdict: str,
     started_at: datetime,
     blocked_topic: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     stages = [
         ("archive_ingest", "created", 6),
         ("memory_retrieve", "retrieved", 11),
@@ -2888,7 +3758,9 @@ def translation_checkpoints(
                 "progress": progress,
                 "timestamp": (started_at + timedelta(minutes=idx * 3)).isoformat(),
                 "verdict": verdict if stage in {"release_gate", "package_delivery"} else None,
-                "blocked_topic": blocked_topic if blocked_topic and stage in {"post_guards", "release_gate"} else None,
+                "blocked_topic": blocked_topic
+                if blocked_topic and stage in {"post_guards", "release_gate"}
+                else None,
             }
         )
     return checkpoints
@@ -2899,7 +3771,7 @@ def translation_output_summary(
     verdict: str,
     replayed_topics: int = 0,
     blocked_topic: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     accepted = verdict.startswith("ACCEPT")
     return {
         "verdict": verdict,
@@ -2918,7 +3790,9 @@ def translation_output_summary(
             "manifest": "manifest://pmi/kangoo3/accept_4d_manifest.json",
             "j2450_report": "report://pmi/kangoo3/j2450_summary.pdf",
             "cdc_guard_report": "report://pmi/kangoo3/cdc_e1_guardrails.json",
-            "delivery_package": "sftp://simulated/pmi/kangoo3/ACCEPT_4D/package.zip" if accepted else None,
+            "delivery_package": "sftp://simulated/pmi/kangoo3/ACCEPT_4D/package.zip"
+            if accepted
+            else None,
         },
         "sovereignty": {
             "external_llm_egress": False,
@@ -2943,13 +3817,15 @@ def create_translation_run(
     cost: float,
     trigger: str,
     parent_run_id: Optional[str] = None,
-    replay_overrides: Optional[Dict[str, Any]] = None,
+    replay_overrides: Optional[dict[str, Any]] = None,
     blocked_topic: Optional[str] = None,
     replayed_topics: int = 0,
 ) -> tuple[Run, EvaluationScore]:
     completed_at = started_at + timedelta(minutes=duration_minutes)
     score_id = str(uuid4())
-    failed_components = [] if verdict.startswith("ACCEPT") else ["guardrail", "post_processing", "delivery_gate"]
+    failed_components = (
+        [] if verdict.startswith("ACCEPT") else ["guardrail", "post_processing", "delivery_gate"]
+    )
     composite = 96.0 if verdict.startswith("ACCEPT") else 61.0
     hallucination = 0.0 if verdict.startswith("ACCEPT") else 0.04
     config = translation_config_snapshot()
@@ -2983,7 +3859,9 @@ def create_translation_run(
         cost_internal=cost,
         efficiency=(value / cost) if cost else None,
         value_source="auto",
-        checkpoints=translation_checkpoints(verdict=verdict, started_at=started_at, blocked_topic=blocked_topic),
+        checkpoints=translation_checkpoints(
+            verdict=verdict, started_at=started_at, blocked_topic=blocked_topic
+        ),
         flow_snapshot=system.flow_definition,
     )
     run.evaluation_scores = {
@@ -3022,10 +3900,26 @@ def create_translation_run(
             "supported": 6,
             "unsupported": 0 if verdict.startswith("ACCEPT") else 1,
             "claims": [
-                {"claim": "No external LLM egress", "supported": True, "source": "translation-suite-model-routing.md"},
-                {"claim": "CDC E1 conkeyref preservation passed", "supported": verdict.startswith("ACCEPT"), "source": "translation-suite-dita-guardrails.md"},
-                {"claim": "J2450 QA agents converged", "supported": verdict.startswith("ACCEPT"), "source": "translation-suite-j2450-qa.md"},
-                {"claim": "Delivery requires CDT approval", "supported": True, "source": "translation-suite-sovereign-runbook.md"},
+                {
+                    "claim": "No external LLM egress",
+                    "supported": True,
+                    "source": "translation-suite-model-routing.md",
+                },
+                {
+                    "claim": "CDC E1 conkeyref preservation passed",
+                    "supported": verdict.startswith("ACCEPT"),
+                    "source": "translation-suite-dita-guardrails.md",
+                },
+                {
+                    "claim": "J2450 QA agents converged",
+                    "supported": verdict.startswith("ACCEPT"),
+                    "source": "translation-suite-j2450-qa.md",
+                },
+                {
+                    "claim": "Delivery requires CDT approval",
+                    "supported": True,
+                    "source": "translation-suite-sovereign-runbook.md",
+                },
             ],
         },
         metadata_={
@@ -3060,16 +3954,82 @@ def seed_translation_invocations(
     config = run.input_ref.get("configuration", {}) if isinstance(run.input_ref, dict) else {}
     accepted = verdict.startswith("ACCEPT")
     stages = [
-        ("translation_archive_ingest_v1", "agent.translation.ingest", 420_000, 0.48, {"topics": 184, "archive_hash": config.get("batch", {}).get("manifest_sha256")}),
-        ("translation_memory_retrieve_v1", "agent.translation.memory", 680_000, 0.92, {"examples": 368, "cache_hit_rate": 0.71}),
-        ("translation_label_index_resolve_v1", "agent.translation.structure", 540_000, 0.36, {"labels_resolved": 1_248, "protected_placeholders": 3_912}),
-        ("translation_pivot_normalize_v1", "agent.translation.f1_pivot", 2_940_000, 18.75, {"pivot_lang": "en-GB", "segments": 8_620}),
-        ("translation_fanout_v1", "agent.translation.f2_fanout", 8_820_000, 96.40, {"target_langs": len(TRANSLATION_TARGET_LANGS), "parallel_topics": 5}),
-        ("translation_j2450_qa_v1", "agent.translation.qa_supervisor", 2_160_000, 24.10, {"agents": ["WT", "SE", "OM", "SA", "SP", "PE", "ME"], "loop_count": 3 if accepted else 5}),
-        ("translation_post_guard_v1", "agent.translation.guardrails", 780_000, 2.20, {"cdc_e1_violations": 0 if accepted else 1, "blocked_topic": blocked_topic}),
-        ("translation_cdt_gate_v1", "human.translation.reviewer", 180_000, 0.0, {"approval": "approved" if accepted else "review_required", "replayed_topics": replayed_topics}),
-        ("translation_package_delivery_v1", "agent.translation.delivery", 520_000, 1.85, {"delivery_status": "simulated_sftp_receipt" if accepted else "frozen"}),
-        ("audit_log_v1", "agent.translation.delivery_gate", 40_000, 0.01, {"event_type": "translation_suite.run.completed", "verdict": verdict}),
+        (
+            "translation_archive_ingest_v1",
+            "agent.translation.ingest",
+            420_000,
+            0.48,
+            {"topics": 184, "archive_hash": config.get("batch", {}).get("manifest_sha256")},
+        ),
+        (
+            "translation_memory_retrieve_v1",
+            "agent.translation.memory",
+            680_000,
+            0.92,
+            {"examples": 368, "cache_hit_rate": 0.71},
+        ),
+        (
+            "translation_label_index_resolve_v1",
+            "agent.translation.structure",
+            540_000,
+            0.36,
+            {"labels_resolved": 1_248, "protected_placeholders": 3_912},
+        ),
+        (
+            "translation_pivot_normalize_v1",
+            "agent.translation.f1_pivot",
+            2_940_000,
+            18.75,
+            {"pivot_lang": "en-GB", "segments": 8_620},
+        ),
+        (
+            "translation_fanout_v1",
+            "agent.translation.f2_fanout",
+            8_820_000,
+            96.40,
+            {"target_langs": len(TRANSLATION_TARGET_LANGS), "parallel_topics": 5},
+        ),
+        (
+            "translation_j2450_qa_v1",
+            "agent.translation.qa_supervisor",
+            2_160_000,
+            24.10,
+            {
+                "agents": ["WT", "SE", "OM", "SA", "SP", "PE", "ME"],
+                "loop_count": 3 if accepted else 5,
+            },
+        ),
+        (
+            "translation_post_guard_v1",
+            "agent.translation.guardrails",
+            780_000,
+            2.20,
+            {"cdc_e1_violations": 0 if accepted else 1, "blocked_topic": blocked_topic},
+        ),
+        (
+            "translation_cdt_gate_v1",
+            "human.translation.reviewer",
+            180_000,
+            0.0,
+            {
+                "approval": "approved" if accepted else "review_required",
+                "replayed_topics": replayed_topics,
+            },
+        ),
+        (
+            "translation_package_delivery_v1",
+            "agent.translation.delivery",
+            520_000,
+            1.85,
+            {"delivery_status": "simulated_sftp_receipt" if accepted else "frozen"},
+        ),
+        (
+            "audit_log_v1",
+            "agent.translation.delivery_gate",
+            40_000,
+            0.01,
+            {"event_type": "translation_suite.run.completed", "verdict": verdict},
+        ),
     ]
     started = run.started_at or datetime.utcnow()
     for idx, (slug, agent_identity, latency_ms, cost, output) in enumerate(stages):
@@ -3077,43 +4037,65 @@ def seed_translation_invocations(
         status = "completed"
         if not accepted and slug == "translation_package_delivery_v1":
             status = "cancelled"
-        db.add(SkillInvocation(
-            id=str(uuid4()),
-            run_id=run.id,
+        execution_evidence = capture_skill_execution_evidence(
+            db,
+            workspace_id=run.workspace_id,
             skill_slug=slug,
-            input_ref={
-                "batch_id": config.get("batch", {}).get("batch_id", "PMI-KANGOO3-2026-06"),
-                "target_langs": config.get("batch", {}).get("target_langs", TRANSLATION_TARGET_LANGS),
-                "agent_identity": agent_identity,
-                "rbac_scope": translation_agent_identities().get(agent_identity, {}).get("credential_scope"),
-                "policy": "Translation Suite sovereign guardrail",
-            },
-            output_ref={
-                "status": status,
-                "verdict": verdict,
-                "showcase_seed": True,
-                **output,
-            },
-            status=status,
-            started_at=stage_started,
-            completed_at=stage_started + timedelta(milliseconds=latency_ms),
-            latency_ms=float(latency_ms),
-            cost=cost,
-            metrics={
-                "prompt_tokens": 120_000 + idx * 18_000,
-                "completion_tokens": 54_000 + idx * 7_500,
-                "deterministic": True,
-                "external_egress": False,
-            },
-            trace={
-                "tool_call_id": f"pmi-ts-{run.id[:8]}-{idx + 1:02d}",
-                "agent_identity": agent_identity,
-                "rbac_scope": translation_agent_identities().get(agent_identity, {}).get("credential_scope"),
-                "checkpoint_index": idx,
-                "stateful_replay_key": f"{run.id}:{slug}",
-                "source_architecture_ref": "project-mt/OM/generic_code",
-            },
-        ))
+        )
+        db.add(
+            SkillInvocation(
+                id=str(uuid4()),
+                run_id=run.id,
+                skill_id=execution_evidence.skill_id,
+                skill_slug=execution_evidence.skill_slug,
+                execution_snapshot=execution_evidence.execution_snapshot,
+                input_ref={
+                    "batch_id": config.get("batch", {}).get("batch_id", "PMI-KANGOO3-2026-06"),
+                    "target_langs": config.get("batch", {}).get(
+                        "target_langs", TRANSLATION_TARGET_LANGS
+                    ),
+                    "agent_identity": agent_identity,
+                    "rbac_scope": translation_agent_identities()
+                    .get(agent_identity, {})
+                    .get("credential_scope"),
+                    "policy": "Translation Suite sovereign guardrail",
+                },
+                output_ref={
+                    "status": status,
+                    "verdict": verdict,
+                    "showcase_seed": True,
+                    **output,
+                },
+                status=status,
+                started_at=stage_started,
+                completed_at=stage_started + timedelta(milliseconds=latency_ms),
+                latency_ms=float(latency_ms),
+                cost=cost,
+                cost_measured=False,
+                metrics={
+                    "prompt_tokens": 120_000 + idx * 18_000,
+                    "completion_tokens": 54_000 + idx * 7_500,
+                    "deterministic": True,
+                    "external_egress": False,
+                    "cost_evidence": {
+                        "schema_version": 1,
+                        "state": "not_measured",
+                        "reason": "synthetic_seed",
+                        "source": SHOWCASE_SOURCE,
+                    },
+                },
+                trace={
+                    "tool_call_id": f"pmi-ts-{run.id[:8]}-{idx + 1:02d}",
+                    "agent_identity": agent_identity,
+                    "rbac_scope": translation_agent_identities()
+                    .get(agent_identity, {})
+                    .get("credential_scope"),
+                    "checkpoint_index": idx,
+                    "stateful_replay_key": f"{run.id}:{slug}",
+                    "source_architecture_ref": "project-mt/OM/generic_code",
+                },
+            )
+        )
 
 
 def seed_translation_jobs(
@@ -3121,7 +4103,7 @@ def seed_translation_jobs(
     workspace: Workspace,
     owner: User,
     system: System,
-    runs: Dict[str, Run],
+    runs: dict[str, Run],
 ) -> None:
     actor_id = owner.id
     job_specs = [
@@ -3164,130 +4146,190 @@ def seed_translation_jobs(
     ]
     for kind, title, run, status, stage, progress, result in job_specs:
         created_at = (run.started_at or datetime.utcnow()) - timedelta(minutes=5)
-        db.add(WorkspaceJob(
-            id=str(uuid4()),
-            workspace_id=workspace.id,
-            system_id=system.id,
-            run_id=run.id,
-            kind=kind,
-            title=title,
-            status=status,
-            progress=progress,
-            stage=stage,
-            input_ref={
-                "configuration": translation_config_snapshot(),
-                "run_id": run.id,
-            },
-            result={
-                "showcase_seed": True,
-                "brand": "PMI Sovereign Stack",
-                "dod": [
-                    "archive_parsed",
-                    "translation_complete",
-                    "j2450_report",
-                    "dita_validated",
-                    "archive_packaged",
-                    "cdt_notified",
-                    "delivered_to_4d",
+        db.add(
+            WorkspaceJob(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                system_id=system.id,
+                run_id=run.id,
+                kind=kind,
+                title=title,
+                status=status,
+                progress=progress,
+                stage=stage,
+                input_ref={
+                    "configuration": translation_config_snapshot(),
+                    "run_id": run.id,
+                },
+                result={
+                    "showcase_seed": True,
+                    "brand": "PMI Sovereign Stack",
+                    "dod": [
+                        "archive_parsed",
+                        "translation_complete",
+                        "j2450_report",
+                        "dita_validated",
+                        "archive_packaged",
+                        "cdt_notified",
+                        "delivered_to_4d",
+                    ],
+                    **result,
+                },
+                events=[
+                    {
+                        "status": "created",
+                        "at": created_at.isoformat(),
+                        "actor": "agent.translation.batch",
+                    },
+                    {
+                        "status": "queued",
+                        "at": (created_at + timedelta(minutes=1)).isoformat(),
+                        "actor": "agent.translation.batch",
+                    },
+                    {
+                        "status": "running",
+                        "at": (created_at + timedelta(minutes=2)).isoformat(),
+                        "actor": "agent.translation.f2_fanout",
+                    },
+                    {
+                        "status": stage,
+                        "at": (run.completed_at or datetime.utcnow()).isoformat(),
+                        "actor": "agent.translation.delivery_gate",
+                    },
                 ],
-                **result,
-            },
-            events=[
-                {"status": "created", "at": created_at.isoformat(), "actor": "agent.translation.batch"},
-                {"status": "queued", "at": (created_at + timedelta(minutes=1)).isoformat(), "actor": "agent.translation.batch"},
-                {"status": "running", "at": (created_at + timedelta(minutes=2)).isoformat(), "actor": "agent.translation.f2_fanout"},
-                {"status": stage, "at": (run.completed_at or datetime.utcnow()).isoformat(), "actor": "agent.translation.delivery_gate"},
-            ],
-            created_by_user_id=actor_id,
-            created_at=created_at,
-            queued_at=created_at + timedelta(minutes=1),
-            started_at=created_at + timedelta(minutes=2),
-            completed_at=run.completed_at,
-            updated_at=run.completed_at or datetime.utcnow(),
-        ))
+                created_by_user_id=actor_id,
+                created_at=created_at,
+                queued_at=created_at + timedelta(minutes=1),
+                started_at=created_at + timedelta(minutes=2),
+                completed_at=run.completed_at,
+                updated_at=run.completed_at or datetime.utcnow(),
+            )
+        )
 
 
 def seed_translation_decisions(
     db: DBSession,
     workspace: Workspace,
     owner: User,
-    runs: Dict[str, Run],
+    runs: dict[str, Run],
 ) -> None:
     actor = owner.email or owner.username or "showcase-seed"
-    db.add(Decision(
-        id=str(uuid4()),
-        workspace_id=workspace.id,
-        scope="run",
-        target_id=runs["blocked"].id,
-        kind="guardrail_block",
-        status="applied",
-        title="CDC E1 guardrail blocked delivery and opened replay",
-        rationale={
-            "source": SHOWCASE_SOURCE,
-            "brand": "PMI Sovereign Stack",
-            "blocked_topic": "KANGOO3-OM-0423.dita",
-            "violation": "conkeyref placeholder mismatch",
-            "active_suggestion": {
-                "action_type": "rerun_failed_topics",
-                "overrides": {
-                    "mode": "pivot_repair",
-                    "preserve_conkeyref_byte_equal": True,
-                    "target_topics": ["KANGOO3-OM-0423.dita", "KANGOO3-OM-0440.dita", "KANGOO3-OM-0451.dita"],
+    db.add(
+        Decision(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            scope="run",
+            target_id=runs["blocked"].id,
+            kind="guardrail_block",
+            status="applied",
+            title="CDC E1 guardrail blocked delivery and opened replay",
+            rationale={
+                "source": SHOWCASE_SOURCE,
+                "brand": "PMI Sovereign Stack",
+                "blocked_topic": "KANGOO3-OM-0423.dita",
+                "violation": "conkeyref placeholder mismatch",
+                "active_suggestion": {
+                    "action_type": "rerun_failed_topics",
+                    "overrides": {
+                        "mode": "pivot_repair",
+                        "preserve_conkeyref_byte_equal": True,
+                        "target_topics": [
+                            "KANGOO3-OM-0423.dita",
+                            "KANGOO3-OM-0440.dita",
+                            "KANGOO3-OM-0451.dita",
+                        ],
+                    },
+                    "confidence": 0.92,
                 },
-                "confidence": 0.92,
             },
-        },
-        impact_estimate={"risk_avoided": "blocked defective 4D package", "resubmission_sla_hours": 4},
-        approved_by=actor,
-        approved_at=runs["blocked"].completed_at,
-        applied_by="agent.translation.delivery_gate",
-        applied_at=runs["blocked"].completed_at,
-        applied_patch={"new_run_id": runs["replay"].id, "parent_run_id": runs["blocked"].id},
-    ))
-    db.add(Decision(
-        id=str(uuid4()),
-        workspace_id=workspace.id,
-        scope="run",
-        target_id=runs["delivery"].id,
-        kind="delivery_release",
-        status="applied",
-        title="CDT approved ACCEPT_4D delivery manifest",
-        rationale={
-            "source": SHOWCASE_SOURCE,
-            "brand": "PMI Sovereign Stack",
-            "verdict": "ACCEPT_4D",
-            "human_gate": "human.translation.reviewer",
-            "audit_export_ready": True,
-        },
-        impact_estimate={"value_estimated": runs["delivery"].value_estimated, "lsp_cycle_time_reduced_days": 11},
-        approved_by=actor,
-        approved_at=runs["delivery"].completed_at,
-        applied_by="agent.translation.delivery",
-        applied_at=runs["delivery"].completed_at,
-        applied_patch={"delivery_receipt": "sftp://simulated/pmi/kangoo3/receipt.json"},
-    ))
+            impact_estimate={
+                "risk_avoided": "blocked defective 4D package",
+                "resubmission_sla_hours": 4,
+            },
+            approved_by=actor,
+            approved_at=runs["blocked"].completed_at,
+            applied_by="agent.translation.delivery_gate",
+            applied_at=runs["blocked"].completed_at,
+            applied_patch={"new_run_id": runs["replay"].id, "parent_run_id": runs["blocked"].id},
+        )
+    )
+    db.add(
+        Decision(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            scope="run",
+            target_id=runs["delivery"].id,
+            kind="delivery_release",
+            status="applied",
+            title="CDT approved ACCEPT_4D delivery manifest",
+            rationale={
+                "source": SHOWCASE_SOURCE,
+                "brand": "PMI Sovereign Stack",
+                "verdict": "ACCEPT_4D",
+                "human_gate": "human.translation.reviewer",
+                "audit_export_ready": True,
+            },
+            impact_estimate={
+                "value_estimated": runs["delivery"].value_estimated,
+                "lsp_cycle_time_reduced_days": 11,
+            },
+            approved_by=actor,
+            approved_at=runs["delivery"].completed_at,
+            applied_by="agent.translation.delivery",
+            applied_at=runs["delivery"].completed_at,
+            applied_patch={"delivery_receipt": "sftp://simulated/pmi/kangoo3/receipt.json"},
+        )
+    )
 
 
 def seed_translation_audit(
     db: DBSession,
     workspace: Workspace,
     owner: User,
-    runs: Dict[str, Run],
+    runs: dict[str, Run],
 ) -> None:
     actor = owner.email or owner.username or "showcase-seed"
     events = [
-        ("translation_suite.batch.configured", runs["accepted"], {"target_lang_count": len(TRANSLATION_TARGET_LANGS), "external_llm_egress": False}),
-        ("translation_suite.agent.tool_call_audited", runs["accepted"], {"skill_slug": "translation_j2450_qa_v1", "agent_identity": "agent.translation.qa_supervisor"}),
-        ("translation_suite.guardrail.blocked", runs["blocked"], {"blocked_topic": "KANGOO3-OM-0423.dita", "verdict": "BLOCK_RELEASE"}),
-        ("translation_suite.run.replayed", runs["replay"], {"parent_run_id": runs["blocked"].id, "new_run_id": runs["replay"].id}),
-        ("translation_suite.delivery.accepted", runs["delivery"], {"verdict": "ACCEPT_4D", "receipt": "sftp://simulated/pmi/kangoo3/receipt.json"}),
+        (
+            "translation_suite.batch.configured",
+            runs["accepted"],
+            {"target_lang_count": len(TRANSLATION_TARGET_LANGS), "external_llm_egress": False},
+        ),
+        (
+            "translation_suite.agent.tool_call_audited",
+            runs["accepted"],
+            {
+                "skill_slug": "translation_j2450_qa_v1",
+                "agent_identity": "agent.translation.qa_supervisor",
+            },
+        ),
+        (
+            "translation_suite.guardrail.blocked",
+            runs["blocked"],
+            {"blocked_topic": "KANGOO3-OM-0423.dita", "verdict": "BLOCK_RELEASE"},
+        ),
+        (
+            "translation_suite.run.replayed",
+            runs["replay"],
+            {"parent_run_id": runs["blocked"].id, "new_run_id": runs["replay"].id},
+        ),
+        (
+            "translation_suite.delivery.accepted",
+            runs["delivery"],
+            {"verdict": "ACCEPT_4D", "receipt": "sftp://simulated/pmi/kangoo3/receipt.json"},
+        ),
     ]
     for event_type, run, details in events:
         emit_audit_event(
             workspace_id=workspace.id,
             event_type=event_type,
             actor=actor,
-            details={**details, "run_id": run.id, "showcase_seed": True, "brand": "PMI Sovereign Stack"},
+            details={
+                **details,
+                "run_id": run.id,
+                "showcase_seed": True,
+                "brand": "PMI Sovereign Stack",
+            },
             trace_id=run.id,
             agent_id=details.get("agent_identity") or "agent.translation.delivery_gate",
             db=db,
@@ -3299,9 +4341,9 @@ def seed_translation_story(
     workspace: Workspace,
     owner: User,
     system: System,
-) -> Dict[str, Any]:
-    runs: List[Run] = []
-    evals: List[EvaluationScore] = []
+) -> dict[str, Any]:
+    runs: list[Run] = []
+    evals: list[EvaluationScore] = []
 
     accepted, accepted_score = create_translation_run(
         db,
@@ -3354,7 +4396,11 @@ def seed_translation_story(
         parent_run_id=blocked.id,
         replay_overrides={
             "mode": "pivot_repair",
-            "target_topics": ["KANGOO3-OM-0423.dita", "KANGOO3-OM-0440.dita", "KANGOO3-OM-0451.dita"],
+            "target_topics": [
+                "KANGOO3-OM-0423.dita",
+                "KANGOO3-OM-0440.dita",
+                "KANGOO3-OM-0451.dita",
+            ],
             "preserve_conkeyref_byte_equal": True,
             "temperature": 0,
         },
@@ -3390,30 +4436,51 @@ def seed_translation_story(
     return {"runs": runs, "evals": evals, "run_map": run_map}
 
 
-def seed_invocations(db: DBSession, runs: List[Run]) -> None:
+def seed_invocations(db: DBSession, runs: list[Run]) -> None:
     for run in runs:
         for idx, slug in enumerate(["semantic_search_v1", "llm_rag_answer_v1", "claim_audit_v1"]):
-            db.add(SkillInvocation(
-                id=str(uuid4()),
-                run_id=run.id,
+            execution_evidence = capture_skill_execution_evidence(
+                db,
+                workspace_id=run.workspace_id,
                 skill_slug=slug,
-                input_ref={"query": run.input_ref.get("query")},
-                output_ref={"status": "ok", "showcase_seed": True},
-                status="completed",
-                started_at=run.started_at + timedelta(milliseconds=idx * 250),
-                completed_at=run.started_at + timedelta(milliseconds=(idx + 1) * 250),
-                latency_ms=250 + idx * 120,
-                cost=0.02 + idx * 0.03,
-                metrics={"showcase_seed": True},
-            ))
+            )
+            db.add(
+                SkillInvocation(
+                    id=str(uuid4()),
+                    run_id=run.id,
+                    skill_id=execution_evidence.skill_id,
+                    skill_slug=execution_evidence.skill_slug,
+                    execution_snapshot=execution_evidence.execution_snapshot,
+                    input_ref={"query": run.input_ref.get("query")},
+                    output_ref={"status": "ok", "showcase_seed": True},
+                    status="completed",
+                    started_at=run.started_at + timedelta(milliseconds=idx * 250),
+                    completed_at=run.started_at + timedelta(milliseconds=(idx + 1) * 250),
+                    latency_ms=250 + idx * 120,
+                    cost=0.02 + idx * 0.03,
+                    cost_measured=False,
+                    metrics={
+                        "showcase_seed": True,
+                        "cost_evidence": {
+                            "schema_version": 1,
+                            "state": "not_measured",
+                            "reason": "synthetic_seed",
+                            "source": SHOWCASE_SOURCE,
+                        },
+                    },
+                )
+            )
 
 
-def active_suggestion(component: str) -> Dict[str, Any]:
+def active_suggestion(component: str) -> dict[str, Any]:
     if component == "retriever":
         overrides = {"rag_pipeline_mode": "hybrid", "top_k": 8, "temperature": 0.1}
         title = "Retry with deeper hybrid retrieval"
     else:
-        overrides = {"system_prompt": "Answer only from the retrieved policy context.", "temperature": 0.1}
+        overrides = {
+            "system_prompt": "Answer only from the retrieved policy context.",
+            "temperature": 0.1,
+        }
         title = "Retry with stricter grounding"
     return {
         "version": 1,
@@ -3430,36 +4497,38 @@ def active_suggestion(component: str) -> Dict[str, Any]:
 def seed_review_decisions(
     db: DBSession,
     workspace: Workspace,
-    runs: List[Run],
-    evals: List[EvaluationScore],
+    runs: list[Run],
+    evals: list[EvaluationScore],
     replay: Run,
     canonical: CanonicalAnswer,
 ) -> None:
     breached = [score for score in evals if score.failed_components]
     for idx, score in enumerate(breached[:2]):
         run = next(r for r in runs if r.id == score.run_id)
-        db.add(Decision(
-            id=str(uuid4()),
-            workspace_id=workspace.id,
-            scope="run",
-            target_id=run.id,
-            kind="review_required",
-            status="proposed",
-            title=f"Showcase review · {score.failed_components[0]} breach",
-            rationale={
-                "source": SHOWCASE_SOURCE,
-                "run_id": run.id,
-                "evaluation_id": score.id,
-                "composite_score": score.composite_score,
-                "hallucination_rate": score.hallucination_rate,
-                "question_type": score.question_type,
-                "failed_components": score.failed_components,
-                "topic": score.topic,
-                "reasons": run.evaluation_scores.get("reasons", []),
-                "suggestion": "Apply the active suggestion or save a canonical answer.",
-                "active_suggestion": active_suggestion(score.failed_components[0]),
-            },
-        ))
+        db.add(
+            Decision(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                scope="run",
+                target_id=run.id,
+                kind="review_required",
+                status="proposed",
+                title=f"Showcase review · {score.failed_components[0]} breach",
+                rationale={
+                    "source": SHOWCASE_SOURCE,
+                    "run_id": run.id,
+                    "evaluation_id": score.id,
+                    "composite_score": score.composite_score,
+                    "hallucination_rate": score.hallucination_rate,
+                    "question_type": score.question_type,
+                    "failed_components": score.failed_components,
+                    "topic": score.topic,
+                    "reasons": run.evaluation_scores.get("reasons", []),
+                    "suggestion": "Apply the active suggestion or save a canonical answer.",
+                    "active_suggestion": active_suggestion(score.failed_components[0]),
+                },
+            )
+        )
 
     applied_parent = next(r for r in runs if r.id == replay.parent_run_id)
     applied = Decision(
@@ -3478,7 +4547,11 @@ def seed_review_decisions(
         },
         applied_at=replay.completed_at,
         applied_by="showcase-seed",
-        applied_patch={"action_type": "rerun_with_overrides", "new_run_id": replay.id, "parent_run_id": applied_parent.id},
+        applied_patch={
+            "action_type": "rerun_with_overrides",
+            "new_run_id": replay.id,
+            "parent_run_id": applied_parent.id,
+        },
         approved_by="showcase-seed",
         approved_at=replay.started_at,
     )
@@ -3499,7 +4572,7 @@ def seed_review_decisions(
     canonical.source_feedback_id = fb.id
 
 
-def seed_chat_session(db: DBSession, workspace: Workspace, owner: User, runs: List[Run]) -> None:
+def seed_chat_session(db: DBSession, workspace: Workspace, owner: User, runs: list[Run]) -> None:
     session = ChatSession(
         id=str(uuid4()),
         user_id=owner.id,
@@ -3511,18 +4584,52 @@ def seed_chat_session(db: DBSession, workspace: Workspace, owner: User, runs: Li
     )
     db.add(session)
     for run in runs:
-        db.add(Message(id=str(uuid4()), session_id=session.id, role="user", content=run.input_ref.get("query", ""), meta_data={"run_id": run.id}))
-        db.add(Message(id=str(uuid4()), session_id=session.id, role="assistant", content=run.output_ref.get("response", ""), meta_data={"run_id": run.id, "showcase_seed": True}))
+        db.add(
+            Message(
+                id=str(uuid4()),
+                session_id=session.id,
+                role="user",
+                content=run.input_ref.get("query", ""),
+                meta_data={"run_id": run.id},
+            )
+        )
+        db.add(
+            Message(
+                id=str(uuid4()),
+                session_id=session.id,
+                role="assistant",
+                content=run.output_ref.get("response", ""),
+                meta_data={"run_id": run.id, "showcase_seed": True},
+            )
+        )
 
 
-def seed_audit(db: DBSession, workspace: Workspace, owner: User, replay: Run, canonical: CanonicalAnswer) -> None:
+def seed_audit(
+    db: DBSession, workspace: Workspace, owner: User, replay: Run, canonical: CanonicalAnswer
+) -> None:
     actor = owner.email or owner.username or "showcase-seed"
     for event_type, details in [
         ("showcase.workspace.seeded", {"workspace_slug": workspace.slug}),
-        ("run.replayed", {"parent_run_id": replay.parent_run_id, "new_run_id": replay.id, "overrides": replay.replay_overrides}),
-        ("canonical_answer.created", {"canonical_answer_id": canonical.id, "source_run_id": canonical.source_run_id}),
-        ("canonical_answer.hit", {"canonical_answer_id": canonical.id, "hit_count": canonical.hit_count}),
-        ("sharepoint.sync.completed", {"session_key": "showcase-guest-link", "files_downloaded": 6, "ingested_count": 6}),
+        (
+            "run.replayed",
+            {
+                "parent_run_id": replay.parent_run_id,
+                "new_run_id": replay.id,
+                "overrides": replay.replay_overrides,
+            },
+        ),
+        (
+            "canonical_answer.created",
+            {"canonical_answer_id": canonical.id, "source_run_id": canonical.source_run_id},
+        ),
+        (
+            "canonical_answer.hit",
+            {"canonical_answer_id": canonical.id, "hit_count": canonical.hit_count},
+        ),
+        (
+            "sharepoint.sync.completed",
+            {"session_key": "showcase-guest-link", "files_downloaded": 6, "ingested_count": 6},
+        ),
     ]:
         emit_audit_event(
             workspace_id=workspace.id,
@@ -3534,25 +4641,27 @@ def seed_audit(db: DBSession, workspace: Workspace, owner: User, replay: Run, ca
 
 
 def seed_sharepoint_job(db: DBSession, workspace: Workspace) -> None:
-    db.add(SharePointSyncJob(
-        id=str(uuid4()),
-        workspace_id=workspace.id,
-        session_key="showcase-guest-link",
-        auth_mode="session",
-        state="completed",
-        status="completed",
-        progress="done",
-        files_total=6,
-        files_downloaded=6,
-        bytes_total=184_320,
-        ingested_count=6,
-        ingest_failed_count=0,
-        collection_name="documents",
-        output_dir="/tmp/agentium_showcase_docs",
-        folder_server_relative_url="/sites/showcase/Shared Documents/Agentium",
-        created_at=now_minus(days=2),
-        updated_at=now_minus(days=2),
-    ))
+    db.add(
+        SharePointSyncJob(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            session_key="showcase-guest-link",
+            auth_mode="session",
+            state="completed",
+            status="completed",
+            progress="done",
+            files_total=6,
+            files_downloaded=6,
+            bytes_total=184_320,
+            ingested_count=6,
+            ingest_failed_count=0,
+            collection_name="documents",
+            output_dir="/tmp/agentium_showcase_docs",
+            folder_server_relative_url="/sites/showcase/Shared Documents/Agentium",
+            created_at=now_minus(days=2),
+            updated_at=now_minus(days=2),
+        )
+    )
 
 
 if __name__ == "__main__":

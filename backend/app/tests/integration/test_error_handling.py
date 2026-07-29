@@ -6,6 +6,9 @@ import os
 from app.services.rag.document_service import DocumentService
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_nonexistent_file():
     """Test handling of non-existent file"""
@@ -209,4 +212,3 @@ async def test_very_large_top_k():
     results = await service.search("content", top_k=1000)
     assert isinstance(results, list)
     # Should return available results, not fail
-

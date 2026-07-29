@@ -20,6 +20,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   'capability',
   'system',
   'run',
+  'skill_invocation',
   'skill',
 ];
 
@@ -198,6 +199,7 @@ export class MiniRailComponent {
    * mini-rail items that refer to a parent or equal scope.
    */
   private readonly deepestResolvedScope = computed<CockpitScopeType | null>(() => {
+    if (this.navigation.skillInvocationId()) return 'skill_invocation';
     if (this.navigation.skillRef()) return 'skill';
     if (this.navigation.runId()) return 'run';
     if (this.navigation.systemId()) return 'system';
@@ -239,6 +241,9 @@ export class MiniRailComponent {
     if (deepest === 'system') return `· ${this.navigation.systemLabel() || 'System'}`;
     if (deepest === 'capability') return `· ${this.navigation.capabilityLabel() || 'Capability'}`;
     if (deepest === 'run') return `· ${this.navigation.runLabel() || 'Run'}`;
+    if (deepest === 'skill_invocation') {
+      return `· ${this.navigation.skillInvocationLabel() || 'SkillInvocation'}`;
+    }
     if (deepest === 'skill') return `· ${this.navigation.skillLabel() || 'Skill'}`;
     return `· ${deepest}`;
   });
@@ -247,10 +252,12 @@ export class MiniRailComponent {
     const cap = this.navigation.capabilityId();
     const sys = this.navigation.systemId();
     const run = this.navigation.runId();
+    const invocation = this.navigation.skillInvocationId();
     const parts: string[] = [];
     if (cap) parts.push('Capability in scope');
     if (sys) parts.push('System in scope');
     if (run) parts.push('Run in scope');
+    if (invocation) parts.push('SkillInvocation in scope');
     return parts.join(' › ');
   });
 

@@ -9,13 +9,14 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.run import Run
+from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.run_access import readable_runs
 
 router = APIRouter()
 
@@ -24,6 +25,7 @@ router = APIRouter()
 async def live_telemetry(
     window_minutes: int = Query(60, ge=1, le=1440),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Return throughput/latency/yield for the current workspace.
@@ -33,20 +35,22 @@ async def live_telemetry(
     """
     since = datetime.utcnow() - timedelta(minutes=window_minutes)
 
-    # Run exposes ``duration_ms`` (wall-clock of the run). ``latency_ms``
-    # only lives on SkillInvocation — an earlier refactor conflated the
-    # two and the endpoint 500'd on every poll.
-    total, completed, avg_latency = db.query(
-        func.count(Run.id),
-        func.sum(case((Run.status == "completed", 1), else_=0)),
-        func.avg(Run.duration_ms),
-    ).filter(
-        Run.workspace_id == workspace.id,
-        Run.started_at >= since,
-    ).one()
-
-    count = int(total or 0)
-    completed_count = int(completed or 0)
+    # Authorization is applied before aggregation: counts must never reveal a
+    # Run that the same user could not open through the canonical Runs API.
+    runs = readable_runs(
+        db,
+        runs=(
+            db.query(Run)
+            .filter(Run.workspace_id == workspace.id, Run.started_at >= since)
+            .order_by(Run.started_at.desc(), Run.id.asc())
+            .all()
+        ),
+        user=user,
+        workspace=workspace,
+    )
+    count = len(runs)
+    completed_count = sum(1 for run in runs if run.status == "completed")
+    durations = [float(run.duration_ms) for run in runs if run.duration_ms is not None]
 
     throughput_rpm: Optional[float]
     if count == 0:
@@ -55,7 +59,7 @@ async def live_telemetry(
         throughput_rpm = count / max(1.0, float(window_minutes))
 
     latency_ms: Optional[float] = (
-        float(avg_latency) if avg_latency is not None and count > 0 else None
+        sum(durations) / len(durations) if durations else None
     )
 
     yield_pct: Optional[float]

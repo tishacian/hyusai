@@ -84,6 +84,16 @@ def _mk_system(
     skill_slugs: Optional[List[str]] = None,
 ) -> System:
     """Create a System row with the given v2 flow and optional skill ids."""
+    if skill_slugs is None:
+        # Executable flow slugs are part of the authoritative System binding.
+        # Keep fixtures honest by deriving the explicit binding from the graph
+        # they exercise; production never performs this implicit backfill.
+        skill_slugs = [
+            str((node.get("config") or {}).get("skill_slug"))
+            for node in (flow.get("nodes") or [])
+            if node.get("kind") in {"task", "retry", "loop"}
+            and (node.get("config") or {}).get("skill_slug")
+        ]
     skill_ids: List[str] = []
     if skill_slugs:
         rows = db.query(Skill).filter(Skill.slug.in_(skill_slugs)).all()

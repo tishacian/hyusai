@@ -82,7 +82,10 @@ const NAVIGATION_PRIVACY_TEMPLATES = [
   '/governance/chat-history',
   '/governance/surface-map',
   '/governance/blueprints',
+  '/governance/workspace-apps',
   '/governance/canonical-answers',
+  '/workspace-app-unavailable',
+  '/workspace-app-repair',
   '/observability/quality',
   '/observability/performance',
 ].sort((left, right) => {

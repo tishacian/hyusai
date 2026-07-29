@@ -41,6 +41,11 @@ from app.core.logging import get_logger
 from app.db.base import SessionLocal
 from app.models.run import Run
 from app.models.system import System
+from app.models.workspace import Workspace
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
+)
 
 logger = get_logger(__name__)
 
@@ -392,6 +397,7 @@ def _journal_simulated_run(
         id=str(uuid4()),
         workspace_id=workspace_id or system.workspace_id,
         system_id=system.id,
+        capability_id=system.capability_id,
         input_ref=_trigger_input_ref(
             event_kind, dedup_key, payload, mode="dry_run", simulated=True
         ),
@@ -574,6 +580,7 @@ def _create_triggered_run(
         id=str(uuid4()),
         workspace_id=workspace_id or system.workspace_id,
         system_id=system.id,
+        capability_id=system.capability_id,
         input_ref=_trigger_input_ref(
             event_kind, dedup_key, payload, mode=TRIGGER_MODE_LIVE, simulated=False
         ),
@@ -732,7 +739,14 @@ def emit_event(
             return [{"status": "no_target", "event_kind": event_kind, "workspace_id": workspace_id}]
         results: List[Dict[str, Any]] = []
         for target_id in system_ids:
-            system = db.query(System).filter(System.id == target_id).first()
+            system = (
+                db.query(System)
+                .filter(
+                    System.id == target_id,
+                    System.workspace_id == workspace_id,
+                )
+                .first()
+            )
             if not system:
                 continue
             results.append(
@@ -767,6 +781,42 @@ def _process_target(
     other case (default ``dry_run``) journals a ``simulated`` run. Governance
     and dedup are enforced identically in both modes.
     """
+    if system.workspace_id != workspace_id:
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": "catalog_binding_invalid:system_workspace_mismatch",
+        }
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace_id
+        else None
+    )
+    if workspace_id and workspace is None:
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": "catalog_binding_invalid:workspace_not_found",
+        }
+    try:
+        resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    except SystemCatalogBindingError as exc:
+        logger.warning(
+            "triggers: catalog binding rejected before journaling",
+            system_id=system.id,
+            event_kind=event_kind,
+            reason=exc.code,
+        )
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": f"catalog_binding_invalid:{exc.code}",
+        }
+
     verdict = evaluate_governance(event_kind, system.flow_definition or {})
     if not verdict.eligible:
         logger.info(

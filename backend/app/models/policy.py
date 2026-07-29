@@ -7,7 +7,7 @@ during a Run (switch skill, fall back to cheaper model, escalate HITL…).
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, Boolean, DateTime, Float, JSON, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, String, UniqueConstraint
 
 from app.db.base import Base
 
@@ -33,6 +33,15 @@ class ControlPolicy(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "target_id",
+            "id",
+            name="uq_control_policies_ws_target_id",
+        ),
+    )
+
 
 class AdaptivePolicy(Base):
     __tablename__ = "adaptive_policies"
@@ -42,7 +51,9 @@ class AdaptivePolicy(Base):
 
     name = Column(String(200), nullable=False, default="default")
     enabled = Column(Boolean, default=False)
-    adaptation_level = Column(String(20), default="moderate")  # off | conservative | moderate | aggressive
+    adaptation_level = Column(
+        String(20), default="moderate"
+    )  # off | conservative | moderate | aggressive
 
     # Canonical scope binding: policies apply to a portfolio, capability or
     # specific system. `target_id` points at the capability/system (nullable
@@ -50,8 +61,10 @@ class AdaptivePolicy(Base):
     scope = Column(String(20), nullable=True)
     target_id = Column(String(36), nullable=True)
 
-    triggers = Column(JSON, default=dict)        # e.g. {confidence_below: 0.7, latency_above_ms: 5000}
-    allowed_actions = Column(JSON, default=list) # e.g. ["switch_model","escalate_hitl","fallback_skill"]
+    triggers = Column(JSON, default=dict)  # e.g. {confidence_below: 0.7, latency_above_ms: 5000}
+    allowed_actions = Column(
+        JSON, default=list
+    )  # e.g. ["switch_model","escalate_hitl","fallback_skill"]
     constraints = Column(JSON, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

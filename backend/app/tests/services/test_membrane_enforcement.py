@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services.membrane.enforcement import (
     EgressDisposition,
+    MeasurementCoverage,
     MembraneEnforcementError,
     ValveUsage,
     collect_valve_usage,
@@ -149,7 +150,14 @@ def test_valves_consume_tokens_failures_and_all_attempt_kinds() -> None:
             "circuit_breaker": {"failure_threshold": 2, "max_attempts": 3},
         },
     )
-    usage = ValveUsage(tokens=101, failures=2, retries=1, loops=1, autocorrections=1)
+    usage = ValveUsage(
+        tokens=101,
+        token_coverage=MeasurementCoverage.COMPLETE,
+        failures=2,
+        retries=1,
+        loops=1,
+        autocorrections=1,
+    )
     decision = evaluate_valves(spec, usage)
     assert decision.allowed is False
     assert set(decision.breaches) == {
@@ -165,6 +173,7 @@ def test_valve_usage_is_aggregated_from_persisted_attempt_traces() -> None:
             {
                 "status": "completed",
                 "cost": 0.25,
+                "cost_measured": True,
                 "output_ref": {"usage": {"prompt_tokens": 10, "completion_tokens": 5}},
                 "metrics": {"total_tokens": 15},
                 "trace": {"membrane_attempt_kind": "task"},
@@ -172,6 +181,7 @@ def test_valve_usage_is_aggregated_from_persisted_attempt_traces() -> None:
             {
                 "status": "failed",
                 "cost": 0.5,
+                "cost_measured": True,
                 "output_ref": {"token_usage": {"total_tokens": 20}},
                 "trace": {
                     "membrane_attempt_kind": "retry",
@@ -181,6 +191,7 @@ def test_valve_usage_is_aggregated_from_persisted_attempt_traces() -> None:
             {
                 "status": "completed",
                 "cost": 0.1,
+                "cost_measured": True,
                 "metrics": {"usage": {"input_tokens": 4, "output_tokens": 6}},
                 "trace": {"membrane_attempt_kind": "loop"},
             },
@@ -194,6 +205,164 @@ def test_valve_usage_is_aggregated_from_persisted_attempt_traces() -> None:
     assert usage.loops == 1
     assert usage.autocorrections == 1
     assert usage.attempts == 4
+    assert usage.cost_coverage is MeasurementCoverage.COMPLETE
+    assert usage.token_coverage is MeasurementCoverage.COMPLETE
+
+
+def test_unmeasured_cost_is_not_summed_and_v2_enforce_fails_closed() -> None:
+    usage = collect_valve_usage(
+        [
+            {
+                "status": "completed",
+                "cost": 9.5,
+                "cost_measured": False,
+                "metrics": {"total_tokens": 0},
+                "latency_ms": 1,
+            }
+        ]
+    )
+    assert usage.cost == 0
+    assert usage.legacy_unverified_cost == 9.5
+    assert usage.cost_coverage is MeasurementCoverage.UNAVAILABLE
+
+    enforce = evaluate_valves(
+        _spec("enforce", valves={"max_cost_per_decision": 10}),
+        usage,
+    )
+    assert enforce.allowed is False
+    assert enforce.breaches == ("cost_measurement_unavailable",)
+
+    shadow = evaluate_valves(
+        _spec("shadow", valves={"max_cost_per_decision": 10}),
+        usage,
+    )
+    assert shadow.allowed is True
+    assert shadow.would_block is True
+    assert shadow.breaches == ("cost_measurement_unavailable",)
+
+
+def test_compat_keeps_legacy_unverified_cost_threshold_behavior() -> None:
+    usage = collect_valve_usage(
+        [{"cost": 9.5, "cost_measured": False}],
+        duration_ms=0,
+    )
+    compat = evaluate_valves(
+        _spec(
+            "compat",
+            valves={"max_cost_per_decision": 5, "hard_abort": True},
+        ),
+        usage,
+    )
+    assert compat.allowed is False
+    assert compat.breaches == ("max_cost_per_decision",)
+
+
+def test_missing_tokens_are_distinct_from_an_explicit_zero() -> None:
+    missing = collect_valve_usage(
+        [{"cost": 0, "cost_measured": True, "latency_ms": 0}],
+    )
+    assert missing.tokens == 0
+    assert missing.token_coverage is MeasurementCoverage.UNAVAILABLE
+    missing_decision = evaluate_valves(
+        _spec("enforce", valves={"token_budget": 1}),
+        missing,
+    )
+    assert missing_decision.allowed is False
+    assert missing_decision.breaches == ("token_measurement_unavailable",)
+
+    reported_zero = collect_valve_usage(
+        [
+            {
+                "cost": 0,
+                "cost_measured": True,
+                "metrics": {"usage": {"input_tokens": 0, "output_tokens": 0}},
+                "latency_ms": 0,
+            }
+        ],
+    )
+    assert reported_zero.tokens == 0
+    assert reported_zero.token_coverage is MeasurementCoverage.COMPLETE
+    assert evaluate_valves(
+        _spec("enforce", valves={"token_budget": 1}),
+        reported_zero,
+    ).allowed is True
+
+
+def test_one_sided_or_explicitly_partial_tokens_never_become_complete() -> None:
+    usage = collect_valve_usage(
+        [
+            {
+                "cost": 0,
+                "cost_measured": True,
+                "output_ref": {"usage": {"prompt_tokens": 10}},
+                # A mirrored total must not override the authoritative partial
+                # marker persisted by the provider ledger.
+                "metrics": {
+                    "total_tokens": 10,
+                    "token_evidence": {
+                        "measurement_coverage": "partial",
+                        "reported_total": 10,
+                    },
+                },
+                "latency_ms": 0,
+            }
+        ]
+    )
+
+    assert usage.tokens == 0
+    assert usage.token_coverage is MeasurementCoverage.UNAVAILABLE
+    decision = evaluate_valves(
+        _spec("enforce", valves={"token_budget": 10}),
+        usage,
+    )
+    assert decision.allowed is False
+    assert decision.breaches == ("token_measurement_unavailable",)
+
+
+def test_partial_measurement_coverage_never_becomes_a_compliant_zero() -> None:
+    usage = collect_valve_usage(
+        [
+            {
+                "cost": 0,
+                "cost_measured": True,
+                "metrics": {"total_tokens": 0},
+                "latency_ms": 0,
+            }
+        ],
+        measurement_gaps=1,
+    )
+    assert usage.cost == 0
+    assert usage.tokens == 0
+    assert usage.cost_coverage is MeasurementCoverage.PARTIAL
+    assert usage.token_coverage is MeasurementCoverage.PARTIAL
+    decision = evaluate_valves(
+        _spec("enforce", valves={"max_cost_per_decision": 1, "token_budget": 1}),
+        usage,
+    )
+    assert decision.allowed is False
+    assert decision.breaches == (
+        "cost_measurement_unavailable",
+        "token_measurement_unavailable",
+    )
+
+
+def test_latency_budget_uses_explicit_measurement_coverage() -> None:
+    row = {"cost": 0, "cost_measured": True, "metrics": {"total_tokens": 0}}
+    unavailable = collect_valve_usage([row])
+    assert unavailable.latency_coverage is MeasurementCoverage.UNAVAILABLE
+    blocked = evaluate_valves(
+        _spec("enforce", valves={"max_latency_ms": 1}),
+        unavailable,
+    )
+    assert blocked.allowed is False
+    assert blocked.breaches == ("latency_measurement_unavailable",)
+
+    measured_zero = collect_valve_usage([row], duration_ms=0)
+    assert measured_zero.latency_coverage is MeasurementCoverage.COMPLETE
+    assert evaluate_valves(
+        _spec("enforce", valves={"max_latency_ms": 1}),
+        measured_zero,
+    ).allowed is True
 
 
 class _MemoryStore:

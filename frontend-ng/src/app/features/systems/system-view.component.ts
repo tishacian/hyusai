@@ -6,7 +6,7 @@ import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { RunOutcomeCardComponent, ImpactPreviewComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import { RunOutcomeCardComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -27,8 +27,10 @@ import {
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
 import { SystemPerspectiveComponent } from './system-perspective.component';
+import { SystemValueLoopComponent } from './system-value-loop.component';
 import {
   SYSTEM_OBJECT_LENSES,
+  systemPerspectiveAuthorizesValueLoop,
   type PerspectiveFact,
   type SystemPerspectiveResponse,
 } from './system-perspective.models';
@@ -119,13 +121,13 @@ interface ContextConfigRow {
     StatReadoutComponent,
     StatusPulseComponent,
     RunOutcomeCardComponent,
-    ImpactPreviewComponent,
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
     CkPanelComponent,
     NewsLabComponent,
     SystemPerspectiveComponent,
+    SystemValueLoopComponent,
   ],
   template: `
     <ck-object-header
@@ -205,6 +207,13 @@ interface ContextConfigRow {
             [loading]="perspectivesLoading()"
             [error]="perspectivesError()"
           />
+          @if (activeObjectLens() === 'steer' && valueLoopEnabled()) {
+            <app-system-value-loop
+              [systemId]="systemId"
+              [workspaceKey]="workspaceRequestKey()"
+              [runs]="runs()"
+            />
+          }
         } @else {
         @if (isExpertKnowledgeCapture()) {
           <div class="space-y-5">
@@ -330,14 +339,6 @@ interface ContextConfigRow {
         @if (kpisLoading()) {
           <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
         }
-
-        <!-- Universal Impact Preview — projects what would happen if the
-             system's control-plane levers were shifted. -->
-        <ck-impact-preview
-          scope="system"
-          [targetId]="systemId"
-          label="System what-if · preview before you apply"
-        />
 
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="ck-surface t-elevated rounded-md p-6">
@@ -962,6 +963,17 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       experience['system_360_canary'] === 'v1'
     );
   });
+  readonly valueLoopEnabled = computed(() => {
+    return this.system360Enabled()
+      && systemPerspectiveAuthorizesValueLoop(
+        this.perspectives().steer,
+        this.systemId,
+        this.systemSnapshot()?.workspace_id,
+      );
+  });
+  readonly workspaceRequestKey = computed(() =>
+    `${this.workspace.contextEpoch()}:${this.workspace.current()?.id || ''}:${this.workspace.currentSlug() || ''}`,
+  );
   readonly activePerspective = computed(
     () => this.perspectives()[this.activeObjectLens()] ?? null,
   );

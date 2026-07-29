@@ -22,14 +22,20 @@ from app.api.v1.endpoints import chat, client360, knowledge_capture, sessions
 from app.core.auth import get_current_user
 from app.core.iam.roles import legacy_role_for_template
 from app.db.base import get_db
+from app.models.capability import Capability
 from app.models.client360 import Client360Opportunity
 from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
+from app.models.system import System
 from app.models.user import Session as ChatSession
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
+)
+from app.services.client360_contract import (
+    CLIENT360_CAPABILITY_SLUG,
+    CLIENT360_SYSTEM_VARIANT,
 )
 from app.services.iam.app_entitlements import (
     BUSINESS_APP_KEYS,
@@ -109,6 +115,26 @@ def _seed_andritz_contract(db_session) -> AndritzContractState:
         is_active=True,
     )
     db_session.add_all([workspace, other_workspace, *users.values()])
+    db_session.flush()
+
+    capability = Capability(
+        id="capability-andritz-client360-contract",
+        workspace_id=workspace.id,
+        slug=CLIENT360_CAPABILITY_SLUG,
+        name="Client360 Opportunity Engine",
+        tier="client",
+    )
+    system = System(
+        id="system-andritz-client360-contract",
+        workspace_id=workspace.id,
+        name="Client360 contract authority",
+        objective="Exercise the existing Andritz Client360 surface contract.",
+        capability_id=capability.id,
+        status="active",
+        settings={"system_type": CLIENT360_SYSTEM_VARIANT},
+        flow_definition={"variant": CLIENT360_SYSTEM_VARIANT},
+    )
+    db_session.add_all([capability, system])
     db_session.flush()
 
     memberships: dict[str, WorkspaceMember] = {}

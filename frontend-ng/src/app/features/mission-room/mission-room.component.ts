@@ -30,6 +30,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import {
   OCTOCITY_MISSION_ROOM_PROFILE,
+  SENTINEL_MISSION_ROOM_PROFILE,
   missionRoomExtensionState,
 } from './mission-room.extension';
 import { WorkspaceMapComponent } from './workspace-map.component';
@@ -1151,6 +1152,22 @@ export class MissionSourcePillComponent {
 
       <div class="rail-spacer"></div>
 
+      @if (workspaces.length > 1) {
+        <label class="rail-workspace">
+          <span>Workspace</span>
+          <select
+            data-testid="mission-workspace-switch"
+            [value]="currentWorkspaceSlug || ''"
+            (change)="requestWorkspaceChange($event)"
+            aria-label="Changer de workspace"
+          >
+            @for (workspace of workspaces; track workspace.id) {
+              <option [value]="workspace.slug">{{ workspace.name }}</option>
+            }
+          </select>
+        </label>
+      }
+
       <div class="rail-clock">
         <strong>{{ abidjanClockTime() }}</strong>
         <span>{{ abidjanClockDate() }} · {{ timezoneLabel }}</span>
@@ -1349,6 +1366,28 @@ export class MissionSourcePillComponent {
         font-weight: 700;
       }
       .rail-spacer { flex: 1 1 auto; min-height: 4px; }
+      .rail-workspace {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+      .rail-workspace span {
+        color: var(--mission-text-faint, var(--ck-fg-4));
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+      .rail-workspace select {
+        width: 100%;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        border-radius: var(--mission-radius-sm, 7px);
+        color: var(--mission-text, var(--ck-fg-1));
+        background: var(--mission-inset, var(--ck-bg-inset));
+        font: inherit;
+        font-size: 10.5px;
+      }
       .rail-summary {
         padding: 9px 10px;
         border: 1px solid var(--mission-border, var(--ck-stroke-2));
@@ -1425,11 +1464,15 @@ export class MissionRailComponent {
   @Input() brandLines: string[] = ['REPUBLIQUE DE', "COTE D'IVOIRE"];
   @Input() brandEmblem = '/assets/brand/sentinel-ci-emblem.png?v=20260518-1';
   @Input() brandStyle = 'sentinel';
+  @Input() missionProfile: string | null = null;
   @Input() timezoneLabel = 'Abidjan UTC+0';
   @Input() ayaState: 'listening' | 'ready' = 'ready';
   @Input() ayaStateLabel = 'Briefing pret';
   @Input() alertBadges: Partial<Record<MissionView, number>> = {};
+  @Input() workspaces: readonly WorkspaceMeta[] = [];
+  @Input() currentWorkspaceSlug: string | null = null;
   @Output() assistantRequest = new EventEmitter<void>();
+  @Output() workspaceChange = new EventEmitter<string>();
 
   private readonly clockTimeZone = 'Africa/Abidjan';
   private readonly clockNow = signal(new Date());
@@ -1481,28 +1524,28 @@ export class MissionRailComponent {
 
   readonly abidjanClockTime = computed(() => this.timeFormatter.format(this.clockNow()));
   readonly abidjanClockDate = computed(() => {
-    const formatter = this.isAgentiumBrand() ? this.englishDateFormatter : this.frenchDateFormatter;
+    const formatter = this.isOctocityPresentation() ? this.englishDateFormatter : this.frenchDateFormatter;
     return this.capitalizeClockLabel(formatter.format(this.clockNow()));
   });
 
   get assistantOpenLabel(): string {
-    return this.isAgentiumBrand() ? `Open ${this.assistantName}` : `Ouvrir ${this.assistantName}`;
+    return this.isOctocityPresentation() ? `Open ${this.assistantName}` : `Ouvrir ${this.assistantName}`;
   }
 
   get searchLabel(): string {
-    return this.isAgentiumBrand() ? 'Search dossier' : 'Recherche dossier';
+    return this.isOctocityPresentation() ? 'Search dossier' : 'Recherche dossier';
   }
 
   get searchAriaLabel(): string {
-    return this.isAgentiumBrand() ? `Search a ${this.brandLabel} dossier` : `Rechercher un dossier ${this.brandLabel}`;
+    return this.isOctocityPresentation() ? `Search a ${this.brandLabel} dossier` : `Rechercher un dossier ${this.brandLabel}`;
   }
 
   get railSectionLabel(): string {
-    return this.isAgentiumBrand() ? 'Mission path' : 'Parcours Mission';
+    return this.isOctocityPresentation() ? 'Mission path' : 'Parcours Mission';
   }
 
   get operatorToolsLabel(): string {
-    return this.isAgentiumBrand() ? 'Operator tools' : 'Outils operateur';
+    return this.isOctocityPresentation() ? 'Operator tools' : 'Outils operateur';
   }
 
   ngOnInit(): void {
@@ -1526,7 +1569,7 @@ export class MissionRailComponent {
   }
 
   railLabel(item: MissionNavigationItem): string {
-    const overrides = this.isAgentiumBrand() ? this.agentiumRailLabelOverrides : this.railLabelOverrides;
+    const overrides = this.isOctocityPresentation() ? this.agentiumRailLabelOverrides : this.railLabelOverrides;
     return overrides[item.key] || item.label;
   }
 
@@ -1535,8 +1578,13 @@ export class MissionRailComponent {
     return count && count > 0 ? count : null;
   }
 
-  private isAgentiumBrand(): boolean {
-    return this.brandStyle === 'agentium' || String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  requestWorkspaceChange(event: Event): void {
+    const slug = (event.target as HTMLSelectElement | null)?.value;
+    if (slug && slug !== this.currentWorkspaceSlug) this.workspaceChange.emit(slug);
+  }
+
+  private isOctocityPresentation(): boolean {
+    return this.missionProfile === OCTOCITY_MISSION_ROOM_PROFILE;
   }
 }
 
@@ -1560,7 +1608,11 @@ export class MissionRailComponent {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="mission-shell" [class.agentium-theme]="missionBrandStyle() === 'agentium'">
+    <section
+      class="mission-shell"
+      [class.agentium-theme]="missionBrandStyle() === 'agentium'"
+      [attr.data-workspace-app-brand-style]="missionBrandStyle()"
+    >
       <app-mission-rail
         [items]="navigation()?.items || fallbackNav"
         [activeView]="currentView()"
@@ -1570,11 +1622,15 @@ export class MissionRailComponent {
         [brandLines]="missionBrandLines()"
         [brandEmblem]="missionBrandEmblem()"
         [brandStyle]="missionBrandStyle()"
+        [missionProfile]="missionExtension().profile"
         [timezoneLabel]="missionTimezoneLabel()"
         [ayaState]="ayaRailState()"
         [ayaStateLabel]="ayaRailStateLabel()"
         [alertBadges]="railAlertBadges()"
+        [workspaces]="workspace.workspaces()"
+        [currentWorkspaceSlug]="workspace.currentSlug()"
         (assistantRequest)="openAssistant()"
+        (workspaceChange)="selectWorkspace($event)"
       />
 
       <main class="mission-main ck-scroll">
@@ -5395,6 +5451,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   });
 
   readonly missionExtension = computed(() => missionRoomExtensionState(this.workspace.current()));
+  /** Defensive provider boundary; routing normally selects the generic host first. */
+  readonly genericProvider = computed(() => this.missionExtension().genericProvider);
   readonly octocityProfile = computed(() =>
     this.missionExtension().profile === OCTOCITY_MISSION_ROOM_PROFILE,
   );
@@ -5402,18 +5460,53 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const slug = this.workspace.currentSlug();
     return slug ? `/workspace/${encodeURIComponent(slug)}` : '/workspace';
   });
-  readonly assistantName = computed(() =>
-    this.navigation()?.app?.assistant_label
-    || this.missionExtension().assistantLabel
-    || (this.octocityProfile() ? 'OCTAVE' : 'AYA'),
-  );
+
+  selectWorkspace(slug: string): void {
+    if (!slug || slug === this.workspace.currentSlug()) return;
+    if (!this.workspace.switchWorkspace(slug)) return;
+    // The WorkspaceService atomically clears tenant context and advances its
+    // epoch. NavigationResolver remains the sole owner of the destination.
+    void this.router.navigateByUrl('/');
+  }
+
+  readonly assistantName = computed(() => {
+    const extension = this.missionExtension();
+    if (extension.authority !== 'legacy') {
+      return extension.assistantLabel || 'Assistant';
+    }
+    return this.navigation()?.app?.assistant_label
+      || extension.assistantLabel
+      || (this.octocityProfile() ? 'OCTAVE' : 'AYA');
+  });
   readonly assistantProfileKey = computed(() => {
+    const extension = this.missionExtension();
+    if (extension.authority !== 'legacy') {
+      return extension.assistantProfile || 'default';
+    }
     const defaultProfile = this.workspace.current()?.settings?.['assistant_profile_default'];
     if (typeof defaultProfile === 'string' && defaultProfile.trim()) return defaultProfile;
-    const profile = this.navigation()?.app?.profile || this.missionExtension().profile;
+    const profile = this.navigation()?.app?.profile || extension.profile;
     return profile === OCTOCITY_MISSION_ROOM_PROFILE ? 'octave_executive' : 'vigie_executive';
   });
   readonly missionBrand = computed<MissionBrand>(() => {
+    const extension = this.missionExtension();
+    if (extension.authority === 'fail_closed') {
+      return {
+        label: 'Mission Room',
+        lines: ['AGENTIUM', 'MISSION ROOM'],
+        emblem: '/assets/brand/agentium-mark.svg',
+        style: 'agentium',
+      };
+    }
+    if (extension.authority === 'workspace_app_runtime') {
+      const agentium = extension.brandStyle === 'agentium';
+      return {
+        label: extension.label || 'Mission Room',
+        lines: agentium ? ['AGENTIUM', 'MISSION ROOM'] : undefined,
+        emblem: agentium ? '/assets/brand/agentium-mark.svg' : undefined,
+        style: extension.brandStyle || 'agentium',
+      };
+    }
     const navBrand = this.navigation()?.app?.brand;
     if (navBrand && Object.keys(navBrand).length) return navBrand;
     const settingsBrand = this.workspace.current()?.settings?.['workspace_app_brand'];
@@ -5428,7 +5521,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }
     return {};
   });
-  readonly missionBrandLabel = computed(() => this.missionBrand().label || this.navigation()?.app?.label || 'SENTINEL-CI');
+  readonly missionBrandLabel = computed(() => {
+    const extension = this.missionExtension();
+    if (extension.authority !== 'legacy') {
+      return this.missionBrand().label || extension.label || 'Mission Room';
+    }
+    return this.missionBrand().label || this.navigation()?.app?.label || 'SENTINEL-CI';
+  });
   readonly missionBrandLines = computed(() => {
     const lines = this.missionBrand().lines;
     if (Array.isArray(lines) && lines.length) return lines;
@@ -5437,16 +5536,20 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly missionBrandEmblem = computed(() => this.missionBrand().emblem || '/assets/brand/sentinel-ci-emblem.png?v=20260518-1');
   readonly missionBrandStyle = computed(() => this.missionBrand().style || 'sentinel');
   readonly missionTimezoneLabel = computed(() => {
+    const extension = this.missionExtension();
+    if (extension.authority !== 'legacy') {
+      return extension.profile === SENTINEL_MISSION_ROOM_PROFILE ? 'Abidjan UTC+0' : 'UTC';
+    }
     const calendar = this.workspace.current()?.settings?.['calendar'];
     const timezone = calendar && typeof calendar === 'object' ? String((calendar as Record<string, unknown>)['timezone'] || '') : '';
     if (timezone === 'UTC' || this.octocityProfile()) return 'UTC';
     return 'Abidjan UTC+0';
   });
   readonly securityCollectionLabel = computed(() =>
-    this.missionBrandStyle() === 'agentium' ? 'Collection octocity-security-briefs' : 'Collection sentinel-ci-security-briefs',
+    this.octocityProfile() ? 'Collection octocity-security-briefs' : 'Collection sentinel-ci-security-briefs',
   );
   readonly securityCollectionDescription = computed(() =>
-    this.missionBrandStyle() === 'agentium'
+    this.octocityProfile()
       ? `Briefs posture Northern Belt, syntheses conseil et dossiers rumeur utilises par ${this.assistantName()} S3.`
       : `Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par ${this.assistantName()} S3.`,
   );
@@ -5543,6 +5646,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    if (this.genericProvider()) {
+      this.loading.set(false);
+      return;
+    }
     window.addEventListener('agentium:calendar-updated', this.calendarUpdateListener);
     window.addEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
     window.addEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
@@ -5720,6 +5827,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   private loadMissionRoomDetails(continuation?: WorkspaceContinuationContext): void {
+    if (this.genericProvider()) return;
     if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
     const workspaceOptions = this.workspaceApiOptions(continuation);
     const request = forkJoin({
@@ -5750,7 +5858,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       }
       if (monitor) {
         this.monitor.set(monitor);
-        this.hydrateVisualCaptureImages(monitor);
+        this.hydrateVisualCaptureImages(monitor, continuation);
       }
       if (news) this.news.set(news);
       if (timeline) {
@@ -5769,6 +5877,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   private loadMeetingDecisionsLog(continuation?: WorkspaceContinuationContext): void {
+    if (this.genericProvider()) return;
     if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
     const workspaceSlug = continuation?.scope.workspaceSlug || this.workspace.currentSlug();
     if (!workspaceSlug) {
@@ -5858,7 +5967,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   securityDocUsage(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
     const key = `${doc.id} ${doc.title} ${doc.kind}`.toLowerCase();
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       if (key.includes('conseil')) return 'Support de préparation coordination avant la revue Northern Belt de 15h.';
       if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti Garde Civique et mise au point territoriale.';
       if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Northern Belt.';
@@ -5941,7 +6050,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   reputationItemRiskLabel(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string {
     if (item.kind === 'critique' || item.tone === 'negative') return 'Risque : cadrage budget défense avant Conseil 15h.';
     if (/nawa|liora/i.test(item.title)) {
-      return this.missionBrandStyle() === 'agentium'
+      return this.octocityProfile()
         ? 'Opportunité : valoriser la réponse territoriale et bio-composites.'
         : 'Opportunité : valoriser la réponse territoriale et cacao.';
     }
@@ -6057,7 +6166,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const analyzed = health?.analyzed || this.kpiNumber('analyzed_articles') || this.allNewsSignals().length;
     const highRisk = health?.high_risk
       || this.allNewsSignals().filter((signal) => this.pressRiskRank(signal.risk_level) >= 3).length;
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       return `${analyzed} articles analyzed · ${highRisk} high-risk signals`;
     }
     return `${analyzed} articles analyses · ${highRisk} signaux haut risque`;
@@ -6153,7 +6262,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openMaritimeMonitor(): void {
-    const agentium = this.missionBrandStyle() === 'agentium';
+    const octocity = this.octocityProfile();
     const evidence = this.maritimeIntelligence()?.active_evidence;
     this.mapCommandState.set(evidence?.['map_focus'] || {
       active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
@@ -6161,7 +6270,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       focus_marker: {
         longitude: -4.0083,
         latitude: 5.2512,
-        label: agentium ? 'Port Meridian · maritime' : "Port d'Abidjan · maritime",
+        label: octocity ? 'Port Meridian · maritime' : "Port d'Abidjan · maritime",
         zone_id: 'zone-sud',
         tone: 'maritime',
       },
@@ -6171,7 +6280,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {
     const sections = this.news()?.geo_sections || [];
-    const labels: Record<string, string> = this.missionBrandStyle() === 'agentium'
+    const labels: Record<string, string> = this.octocityProfile()
       ? { ci: 'France operations', cedeao: 'European coordination', africa: 'Strategic context', world: 'International' }
       : { ci: "Cote d'Ivoire", cedeao: 'CEDEAO', africa: 'Afrique', world: 'International' };
     return (['ci', 'cedeao', 'africa', 'world'] as const).map((key) => ({
@@ -6183,62 +6292,62 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   newsEyebrowLabel(): string {
-    return this.missionBrandStyle() === 'agentium' ? 'Open intelligence' : 'Alerte presse';
+    return this.octocityProfile() ? 'Open intelligence' : 'Alerte presse';
   }
 
   missionRoomRoleLabel(): string {
-    return this.missionBrandStyle() === 'agentium'
+    return this.octocityProfile()
       ? 'Mission Room · Coordination Director'
       : 'Mission Room · Vice Premier Ministre';
   }
 
   missionRoomGreetingFallback(): string {
-    return this.missionBrandStyle() === 'agentium'
+    return this.octocityProfile()
       ? 'Good morning, Coordination Director.'
       : 'Bonjour, Monsieur le Vice Premier Ministre.';
   }
 
   missionRoomHeroTitle(): string {
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       return 'Good morning, Coordination Director.';
     }
     return this.cockpit()?.title || this.missionRoomGreetingFallback();
   }
 
   missionRoomDateLabel(): string {
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       return 'Wednesday, July 1, 2026';
     }
     return this.cockpit()?.date_label || this.currentAbidjanDateLabel();
   }
 
   missionRoomVisionLabel(): string {
-    return this.missionBrandStyle() === 'agentium'
+    return this.octocityProfile()
       ? 'Consolidated executive view'
       : 'Vision executive consolidee';
   }
 
   strategicMapEyebrowLabel(): string {
-    return this.missionBrandStyle() === 'agentium' ? 'Strategic map' : 'Carte strategique';
+    return this.octocityProfile() ? 'Strategic map' : 'Carte strategique';
   }
 
   strategicMapQuestion(): string {
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       return 'Which real-world signals require a governed decision this month?';
     }
     return this.missionMap()?.question || '';
   }
 
   talkingPointsEyebrowLabel(): string {
-    return this.missionBrandStyle() === 'agentium' ? 'Executive language' : 'Elements de langage';
+    return this.octocityProfile() ? 'Executive language' : 'Elements de langage';
   }
 
   recommendedPositionLabel(): string {
-    return this.missionBrandStyle() === 'agentium' ? 'Recommended position' : 'Position recommandee';
+    return this.octocityProfile() ? 'Recommended position' : 'Position recommandee';
   }
 
   pressArticleListToggleLabel(): string {
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       return this.pressArticleListOpen()
         ? 'Back to synthesis'
         : `View all signals (${this.regionArticleCount()})`;
@@ -6474,7 +6583,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       { zone: 'Nord', level: 'critique', bars: 4, summary: 'Incident frontière · arbitrage attendu', tone: 'critical' },
       { zone: 'Ouest', level: 'surveillance', bars: 3, summary: 'Rumeur locale en progression', tone: 'elevated' },
       { zone: 'Centre', level: 'stable', bars: 2, summary: 'Projets sous controle', tone: 'stable' },
-      { zone: 'Sud', level: 'operationnel', bars: 1, summary: this.missionBrandStyle() === 'agentium' ? 'Meridian nominal' : 'Abidjan nominal', tone: 'stable' },
+      { zone: 'Sud', level: 'operationnel', bars: 1, summary: this.octocityProfile() ? 'Meridian nominal' : 'Abidjan nominal', tone: 'stable' },
     ];
   }
 
@@ -6563,10 +6672,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       }));
     }
     return [
-      { key: 'ci', label: this.missionBrandStyle() === 'agentium' ? 'Asteria' : "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
-      { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Alliance Aurora' : 'CEDEAO', count: 2, top_signal: this.missionBrandStyle() === 'agentium' ? 'Coordination Northern Belt' : 'Coordination frontière Burkina', signals: [] },
-      { key: 'africa', label: this.missionBrandStyle() === 'agentium' ? 'Atlantic Arc' : 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
-      { key: 'world', label: 'Monde', count: 1, top_signal: this.missionBrandStyle() === 'agentium' ? 'Lecture diplomatique Aurora-AS' : 'Lecture diplomatique France-CI', signals: [] },
+      { key: 'ci', label: this.octocityProfile() ? 'Asteria' : "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
+      { key: 'cedeao', label: this.octocityProfile() ? 'Alliance Aurora' : 'CEDEAO', count: 2, top_signal: this.octocityProfile() ? 'Coordination Northern Belt' : 'Coordination frontière Burkina', signals: [] },
+      { key: 'africa', label: this.octocityProfile() ? 'Atlantic Arc' : 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
+      { key: 'world', label: 'Monde', count: 1, top_signal: this.octocityProfile() ? 'Lecture diplomatique Aurora-AS' : 'Lecture diplomatique France-CI', signals: [] },
     ];
   }
 
@@ -6593,11 +6702,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }
     return [
       { key: 'satellite', label: 'Imagerie satellite', subtitle: 'Couverture Nord · indicative', metric: '2 zones', confidence: 68, tone: 'monitoring' },
-      { key: 'maritime', label: 'Trafic maritime AIS', subtitle: this.missionBrandStyle() === 'agentium' ? 'Port Meridian · corridor actif' : 'Port Abidjan · corridor actif', metric: '5 navires', confidence: 66, tone: 'elevated' },
-      { key: 'adsb', label: 'Espace aerien ADS-B', subtitle: this.missionBrandStyle() === 'agentium' ? 'Perimetre Northern Belt · veille' : 'Perimetre Sahel · veille', metric: 'nominal', confidence: 61, tone: 'stable' },
+      { key: 'maritime', label: 'Trafic maritime AIS', subtitle: this.octocityProfile() ? 'Port Meridian · corridor actif' : 'Port Abidjan · corridor actif', metric: '5 navires', confidence: 66, tone: 'elevated' },
+      { key: 'adsb', label: 'Espace aerien ADS-B', subtitle: this.octocityProfile() ? 'Perimetre Northern Belt · veille' : 'Perimetre Sahel · veille', metric: 'nominal', confidence: 61, tone: 'stable' },
       { key: 'osint', label: 'OSINT multilingue', subtitle: 'Presse africaine qualifiee', metric: `${this.kpiNumber('analyzed_articles') || 80} articles`, confidence: 72, tone: 'stable' },
       { key: 'mobile', label: 'Signal reseau mobile', subtitle: 'Nord · faible densite', metric: '3 clusters', confidence: 58, tone: 'monitoring' },
-      { key: 'economy', label: 'Economie reelle', subtitle: this.missionBrandStyle() === 'agentium' ? 'Douanes Meridian · retard BTP' : 'Douanes Abidjan · retard BTP', metric: '2 signaux', confidence: 64, tone: 'elevated' },
+      { key: 'economy', label: 'Economie reelle', subtitle: this.octocityProfile() ? 'Douanes Meridian · retard BTP' : 'Douanes Abidjan · retard BTP', metric: '2 signaux', confidence: 64, tone: 'elevated' },
       { key: 'terrain', label: 'Capteurs terrain', subtitle: '16 capteurs Nord', metric: 'actif', confidence: 62, tone: 'critical' },
       { key: 'cyber', label: 'Veille cyber', subtitle: 'Canaux habilites', metric: 'stable', confidence: 70, tone: 'stable' },
     ];
@@ -6701,7 +6810,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       const optionB = options.find((item) => item.recommended) || options[1];
       return {
         title: `Arbitrage ${zone?.name || 'Zone Nord'}`,
-        subtitle: `Comparaison risque, cout, deploiement, reputation et lecture ${this.missionBrandStyle() === 'agentium' ? 'Aurora' : 'CEDEAO'}.`,
+        subtitle: `Comparaison risque, cout, deploiement, reputation et lecture ${this.octocityProfile() ? 'Aurora' : 'CEDEAO'}.`,
         option_a_label: optionA.label,
         option_b_label: optionB.label,
         recommended: optionB.recommended ? 'b' : 'a',
@@ -6710,7 +6819,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
           { key: 'cost', label: 'Cout / effort', option_a: 100 - (optionA.cost_score ?? 35), option_b: 100 - (optionB.cost_score ?? 58) },
           { key: 'deploy', label: 'Delai deploiement', option_a: optionA.time_sensitivity ?? 48, option_b: optionB.time_sensitivity ?? 72 },
           { key: 'reputation', label: 'Reputation Etat', option_a: optionA.impact_score ?? 44, option_b: optionB.impact_score ?? 71 },
-          { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+          { key: 'cedeao', label: this.octocityProfile() ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
         ],
       };
     }
@@ -6725,7 +6834,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         { key: 'cost', label: 'Cout / effort', option_a: 65, option_b: 42 },
         { key: 'deploy', label: 'Delai deploiement', option_a: 78, option_b: 55 },
         { key: 'reputation', label: 'Reputation Etat', option_a: 48, option_b: 71 },
-        { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+        { key: 'cedeao', label: this.octocityProfile() ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
       ],
     };
   }
@@ -7290,7 +7399,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   ministerialRisk(level: string): string {
     const normalized = (level || '').toLowerCase();
-    if (this.missionBrandStyle() === 'agentium') {
+    if (this.octocityProfile()) {
       if (normalized === 'critical' || normalized === 'high') return 'priority';
       if (normalized === 'medium') return 'watch';
       return 'monitoring';
@@ -7369,29 +7478,47 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   captureVisualSource(source: VisualSource): void {
     if (!source?.id) return;
-    this.api.post<{ capture?: { id?: string } }>(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe((result) => {
-      const captureId = result?.capture?.id;
-      this.router.navigate(['/hypervisor/mission-room/monitor'], {
-        queryParams: captureId ? { capture: captureId, panel: 'visual' } : { panel: 'visual' },
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<{ capture?: { id?: string } }>(
+        `/visual-intelligence/sources/${source.id}/capture`,
+        {},
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe((result) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+        const captureId = result?.capture?.id;
+        void this.router.navigate(['/hypervisor/mission-room/monitor'], {
+          queryParams: captureId ? { capture: captureId, panel: 'visual' } : { panel: 'visual' },
+        });
+        this.loadAll(true, continuation);
       });
-      this.loadAll();
-    });
+    this.workspaceActionRequests.add(request);
   }
 
-  private hydrateVisualCaptureImages(monitor: MissionMonitor): void {
+  private hydrateVisualCaptureImages(
+    monitor: MissionMonitor,
+    continuation?: WorkspaceContinuationContext,
+  ): void {
+    if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
     const captures = (monitor.visual?.captures || [])
       .filter((capture) => capture.status === 'analyzed' || capture.status === 'captured')
       .slice(0, 4);
     const existing = this.visualCaptureImages();
     captures.forEach((capture) => {
       if (!capture.id || existing[capture.id]) return;
-      this.api.getBlob(`/visual-intelligence/captures/${capture.id}/image`).subscribe({
+      const request = this.api.getBlob(
+        `/visual-intelligence/captures/${capture.id}/image`,
+        this.workspaceApiOptions(continuation),
+      ).subscribe({
         next: (blob) => {
+          if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
           const url = URL.createObjectURL(blob);
           this.visualObjectUrls.push(url);
           this.visualCaptureImages.update((images) => ({ ...images, [capture.id]: url }));
         },
       });
+      this.trackWorkspaceActionRequest(request, continuation);
     });
   }
 
@@ -7712,7 +7839,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const start = this.newAgendaStart || '2026-04-15T09:45';
     const startDate = new Date(start);
     const endDate = new Date(startDate.getTime() + 45 * 60 * 1000);
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .post<AgendaItem>('/calendar/events', {
         title,
         start_at: start.length === 16 ? `${start}:00` : start,
@@ -7720,12 +7848,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         location: this.newAgendaLocation || 'Cabinet ministeriel',
         priority: 'medium',
         category: 'cabinet',
-      })
+      }, this.workspaceApiOptions(continuation))
       .subscribe((event) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.newAgendaTitle = '';
         this.selectedAgendaEvent.set(event);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   moveSelectedAgendaEvent(minutes: number): void {
@@ -7736,15 +7866,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const duration = Math.max(30 * 60 * 1000, end.getTime() - start.getTime());
     const nextStart = new Date(start.getTime() + minutes * 60 * 1000);
     const nextEnd = new Date(nextStart.getTime() + duration);
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .patch<AgendaItem>(`/calendar/events/${event.id}`, {
         start_at: this.localIso(nextStart),
         end_at: this.localIso(nextEnd),
-      })
+      }, this.workspaceApiOptions(continuation))
       .subscribe((updated) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.selectedAgendaEvent.set(updated);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   private localIso(value: Date): string {
@@ -7755,12 +7888,19 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   cancelSelectedAgendaEvent(): void {
     const event = this.selectedAgendaEvent();
     if (!event?.id) return;
-    this.api
-      .post<AgendaItem>(`/calendar/events/${event.id}/cancel`, { reason: 'Arbitrage cabinet depuis Mission Room' })
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<AgendaItem>(
+        `/calendar/events/${event.id}/cancel`,
+        { reason: 'Arbitrage cabinet depuis Mission Room' },
+        this.workspaceApiOptions(continuation),
+      )
       .subscribe((cancelled) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.selectedAgendaEvent.set(cancelled);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   agendaSubItems(event: AgendaItem): AgendaSubItem[] {
@@ -7825,27 +7965,33 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.selectedAgendaEvent.set(nextEvent);
     if (!event.id) return;
     const nextMetadata = nextEvent.metadata || {};
-    this.api
-      .patch<AgendaItem>(`/calendar/events/${event.id}`, { metadata: nextMetadata })
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .patch<AgendaItem>(
+        `/calendar/events/${event.id}`,
+        { metadata: nextMetadata },
+        this.workspaceApiOptions(continuation),
+      )
       .pipe(catchError(() => of(null)))
       .subscribe((updated) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         if (updated) this.selectedAgendaEvent.set(updated);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   startMeeting(event: AgendaItem): void {
     if (!event.id) return;
     const eventId = event.id;
-    const scope = this.workspace.captureRequestScope();
-    const generation = this.workspaceContinuationGeneration;
+    const continuation = this.captureWorkspaceContinuation();
     // Mirror ``aya.start_meeting`` server-side so a follow-up voice
     // ``aya.log_decision`` finds an active meeting. The navigation runs
     // regardless so the meeting view always opens.
     const request = this.api
-      .post(`/meetings/${eventId}/start`, {}, { workspaceSlug: scope.workspaceSlug })
+      .post(`/meetings/${eventId}/start`, {}, this.workspaceApiOptions(continuation))
       .pipe(catchError(() => of(null)))
       .subscribe(() => {
-        if (!this.workspaceContinuationIsCurrent(scope, generation)) return;
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', eventId]);
       });
     this.workspaceActionRequests.add(request);
@@ -7900,10 +8046,38 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.workspaceActionRequests.unsubscribe();
     this.workspaceActionRequests = new Subscription();
     this.loading.set(false);
+    this.navigation.set(null);
+    this.cockpit.set(null);
+    this.briefing.set(null);
+    this.projects.set(null);
+    this.missionMap.set(null);
+    this.monitor.set(null);
+    this.news.set(null);
+    this.timeline.set(null);
+    this.decisions.set(null);
+    this.library.set(null);
+    this.search.set(null);
+    this.selectedProject.set(null);
+    this.selectedZone.set(null);
+    this.selectedArbitrationCard.set(null);
+    this.selectedSource.set(null);
+    this.meetingDecisionsLog.set([]);
+    this.mapCommandState.set(null);
+    this.activePortWebcam.set(null);
+    this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.visualObjectUrls.length = 0;
+    this.visualCaptureImages.set({});
+    this.selectedPressArticle.set(null);
+    this.strategicVessels.set([]);
+    this.selectedStrategicVessel.set(null);
     this.draft.set(null);
     this.selectedAgendaEvent.set(null);
     this.agendaPendingPatch.set(null);
     this.agendaPatchSubmitting.set(false);
+    this.searchQueryValue = '';
+    this.newAgendaTitle = '';
+    this.newAgendaStart = this.defaultAgendaStartValue();
+    this.newAgendaLocation = 'Cabinet Vice Premier Ministre';
   }
 
   createDraft(targetId: string, targetType: string): void {
@@ -7923,8 +8097,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   runSearch(): void {
-    this.api
-      .get<MissionSearch>('/mission-room/search', { q: this.searchQueryValue.trim() })
-      .subscribe((payload) => this.search.set(payload));
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .get<MissionSearch>(
+        '/mission-room/search',
+        { q: this.searchQueryValue.trim() },
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe((payload) => {
+        if (this.workspaceContinuationContextIsCurrent(continuation)) {
+          this.search.set(payload);
+        }
+      });
+    this.workspaceActionRequests.add(request);
   }
 }

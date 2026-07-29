@@ -31,6 +31,10 @@ from app.services.maritime_tracking import (
     serialize_vessel,
 )
 from app.services.scenario_engine import generate_scenarios
+from app.services.workspace_app_runtime import (
+    resolve_mission_room_provider_runtime,
+    workspace_app_platform_enabled,
+)
 from app.services.workspace_jobs import transition_job
 
 SENTINEL_MAP_SLUG = "sentinel-ci-strategic-map"
@@ -742,6 +746,10 @@ OCTOCITY_RENDERER_LAYERS = [
 
 
 def _is_octocity_workspace(workspace: Workspace) -> bool:
+    if workspace_app_platform_enabled(workspace):
+        runtime = resolve_mission_room_provider_runtime(workspace)
+        mission_room = runtime.mission_room or {}
+        return mission_room.get("profile") == OCTOCITY_MISSION_ROOM_PROFILE
     settings = workspace.settings if isinstance(workspace.settings, dict) else {}
     mission_room = (
         settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}

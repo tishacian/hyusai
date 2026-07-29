@@ -525,8 +525,8 @@ Message final :
 Ne pas cacher ces points si on pose la question :
 
 - Le job SharePoint du showcase est simulé.
-- Le seed vitrine doit être relancé avec `--reset` pour garder une story
-  propre.
+- Le seed vitrine est idempotent et réconcilie la configuration sans effacer
+  les Runs, Decisions, audits ou versions historiques.
 - Les canonical answers peuvent être listées et supprimées, mais pas encore
   éditées depuis l’UI.
 - Le workspace vitrine est unique dans l’environnement : les capability

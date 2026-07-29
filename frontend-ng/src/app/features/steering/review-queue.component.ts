@@ -288,17 +288,9 @@ import {
                       }
                       @if (item.run) {
                         @if (activeSuggestion(item) && item.decision.status === 'proposed') {
-                          <button
-                            type="button"
-                            (click)="applySuggestion(item)"
-                            [disabled]="!!pendingId() || applyingSuggestionId() === item.decision.id"
-                            class="ck-mono"
-                            style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; background:var(--ck-signal-warm); color:var(--ck-on-signal); font-weight:600;"
-                            [style.opacity]="(!!pendingId() || applyingSuggestionId() === item.decision.id) ? '0.5' : '1'"
-                            title="Apply the active suggestion — creates a replay with the suggested overrides and marks this decision applied"
-                          >
-                            {{ applyingSuggestionId() === item.decision.id ? 'APPLYING…' : 'APPLY' }}
-                          </button>
+                          <span class="ck-mono" style="font-size:9px; color:var(--ck-signal-warn); letter-spacing:0.1em;">
+                            AUTO-ACTUATOR NOT CONFIGURED
+                          </span>
                         }
                         <button
                           type="button"
@@ -465,7 +457,6 @@ export class SteeringReviewQueueComponent implements OnInit {
   readonly items = signal<ReviewQueueItem[]>([]);
   readonly loading = signal(false);
   readonly pendingId = signal<string | null>(null);
-  readonly applyingSuggestionId = signal<string | null>(null);
   readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
   readonly componentFilter = signal<string | null>(null);
 
@@ -585,34 +576,6 @@ export class SteeringReviewQueueComponent implements OnInit {
         this.refresh();
       },
       error: () => this.pendingId.set(null),
-    });
-  }
-
-  applySuggestion(item: ReviewQueueItem): void {
-    if (this.pendingId() || this.applyingSuggestionId()) return;
-    this.applyingSuggestionId.set(item.decision.id);
-    this.canonical.applyActiveSuggestion(item.decision.id, { actor: 'demo-user' }).subscribe({
-      next: (res) => {
-        this.applyingSuggestionId.set(null);
-        if (!res) {
-          this.toast.error('Active suggestion could not be applied', 'Suggestion');
-          return;
-        }
-        const replay = res.replay;
-        if (replay?.run_id) {
-          this.toast.success(
-            `Replay ${replay.run_id.slice(0, 8)} created from suggestion`,
-            'Suggestion applied',
-          );
-        } else {
-          this.toast.success('Suggestion applied', 'Evaluation');
-        }
-        this.refresh();
-      },
-      error: () => {
-        this.applyingSuggestionId.set(null);
-        this.toast.error('Active suggestion failed', 'Suggestion');
-      },
     });
   }
 

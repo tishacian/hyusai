@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import actions
 from app.core.iam.roles import WORKSPACE_OWNER
+from app.models.capability import Capability
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.action_plans import list_action_items
@@ -16,6 +20,7 @@ from app.services.actions import (
     handle_transverse_chat_action,
     resolve_action,
 )
+from app.services.actions import registry as action_registry
 from app.services.actions.contracts import ACTION_PACK_IDS
 from app.services.actions.registry import PACKS
 
@@ -382,6 +387,265 @@ def test_aya_confirmed_legacy_action_executes(db_session):
     assert len(list_action_items(db_session, workspace)) == 1
 
 
+def test_chat_manifest_execution_resolves_its_declared_permission(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(
+        "sentinel-chat-authz",
+        settings={
+            "family": "sentinel_ci",
+            "mission_room": {"profile": "sentinel_government_v1"},
+        },
+    )
+    user = User(
+        id="user-chat-authz",
+        username="chat-authz",
+        email="chat-authz@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    calls: list[dict] = []
+
+    def _resolve(*_args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            effective_allowed=True,
+            reason="candidate_allowed",
+            mode="shadow",
+            policy_id="aya_voice_command:action.execute",
+        )
+
+    monkeypatch.setattr(action_registry, "resolve_manifest_permission", _resolve)
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query="statut des actions",
+        assistant_profile="vigie_executive",
+    )
+
+    assert result is not None
+    assert result["action_manifest_id"] == "aya.action_plan_status"
+    assert len(calls) == 1
+    assert calls[0]["required_permission"] == "action.execute"
+    assert calls[0]["capability_manifest"] == "aya_voice_command"
+    assert calls[0]["action_id"] == "aya.action_plan_status"
+
+
+def test_chat_manifest_execution_stops_when_candidate_is_denied_in_enforce(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(
+        "sentinel-chat-denied",
+        settings={
+            "family": "sentinel_ci",
+            "mission_room": {"profile": "sentinel_government_v1"},
+        },
+    )
+    user = User(
+        id="user-chat-denied",
+        username="chat-denied",
+        email="chat-denied@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        action_registry,
+        "resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="role_denied",
+            mode="enforce",
+            policy_id="aya_voice_command:action.execute",
+        ),
+    )
+    executed: list[str] = []
+    monkeypatch.setattr(
+        action_registry,
+        "execute_action",
+        lambda *_args, **_kwargs: executed.append("executed"),
+    )
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query="statut des actions",
+        assistant_profile="vigie_executive",
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert result["authorization"]["mode"] == "enforce"
+    assert executed == []
+
+
+@pytest.mark.parametrize("mode", ["compat", "shadow"])
+def test_unmanifested_chat_fallback_remains_compatible_before_enforce(
+    db_session,
+    monkeypatch,
+    mode,
+):
+    workspace = _workspace("legacy-chat-fallback")
+    user = User(
+        id=f"user-legacy-chat-{mode}",
+        username=f"legacy-chat-{mode}",
+        email=f"legacy-chat-{mode}@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        action_registry,
+        "resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=True,
+            reason="legacy_allowed",
+            mode=mode,
+            policy_id="agentium_actions:action.execute",
+        ),
+    )
+    calls: list[str] = []
+
+    def _fallback(*_args, query: str, **_kwargs):
+        calls.append(query)
+        return {"action": "legacy", "applied": True, "content": "legacy result"}
+
+    monkeypatch.setattr(action_registry, "handle_action_plan_chat_action", _fallback)
+    query = "état des instructions hors manifeste"
+    assert (
+        resolve_action(
+            workspace,
+            text=query,
+            surface="chat",
+            assistant_profile="vigie_executive",
+        ).matched
+        is False
+    )
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query=query,
+        assistant_profile="vigie_executive",
+    )
+
+    assert result == {"action": "legacy", "applied": True, "content": "legacy result"}
+    assert calls == [query]
+
+
+def test_unmanifested_chat_fallback_cannot_act_in_enforce(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace("enforce-chat-fallback")
+    user = User(
+        id="user-enforce-chat-fallback",
+        username="enforce-chat-fallback",
+        email="enforce-chat-fallback@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        action_registry,
+        "resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=True,
+            reason="candidate_allowed",
+            mode="enforce",
+            policy_id="agentium_actions:action.execute",
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        action_registry,
+        "handle_action_plan_chat_action",
+        lambda *_args, **_kwargs: calls.append("executed"),
+    )
+    query = "état des instructions hors manifeste"
+    assert (
+        resolve_action(
+            workspace,
+            text=query,
+            surface="chat",
+            assistant_profile="vigie_executive",
+        ).matched
+        is False
+    )
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query=query,
+        assistant_profile="vigie_executive",
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert result["authorization"] == {
+        "mode": "enforce",
+        "reason": "manifest_required_in_enforce",
+        "policy_id": "agentium_actions:action.execute",
+    }
+    assert calls == []
+
+
+def test_unmanifested_chat_fallback_fails_closed_when_enforce_attestation_drifts(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace("invalid-enforce-chat-fallback")
+    user = User(
+        id="user-invalid-enforce-chat-fallback",
+        username="invalid-enforce-chat-fallback",
+        email="invalid-enforce-chat-fallback@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        action_registry,
+        "resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="authorization_enforcement_attestation_invalid",
+            mode="invalid_enforce",
+            policy_id="agentium_actions:action.execute",
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        action_registry,
+        "handle_action_plan_chat_action",
+        lambda *_args, **_kwargs: calls.append("executed"),
+    )
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query="état des instructions hors manifeste",
+        assistant_profile="vigie_executive",
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert result["authorization"] == {
+        "mode": "invalid_enforce",
+        "reason": "authorization_enforcement_attestation_invalid",
+        "policy_id": "agentium_actions:action.execute",
+    }
+    assert calls == []
+
+
 def test_aya_voice_side_effect_resolves_as_confirmable():
     workspace = _workspace(
         "sentinel-ci",
@@ -448,6 +712,86 @@ def test_actions_api_exposes_effective_actions(db_session):
     ids = {item["action_id"] for item in response.json()["actions"]}
     assert "andritz.find_parameter_value" in ids
     assert "aya.action_plan_status" not in ids
+
+
+def test_action_execute_binds_manifest_permission_to_scoped_system(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace("andritz-action-scope", settings={"family": "andritz"})
+    client = _actions_api_client(
+        db_session,
+        workspace,
+        user_id="andritz-action-scope-owner",
+    )
+    capability = Capability(
+        id="capability-action-scope",
+        workspace_id=workspace.id,
+        slug="action_scope_capability",
+        name="Action scope capability",
+    )
+    system = System(
+        id="system-action-scope",
+        workspace_id=workspace.id,
+        capability_id=capability.id,
+        name="Action scope system",
+        objective="Bind an action authorization to its real object",
+        status="active",
+        flow_definition={"nodes": [], "edges": []},
+    )
+    other_workspace = _workspace("other-action-scope")
+    other_system = System(
+        id="system-other-action-scope",
+        workspace_id=other_workspace.id,
+        name="Other workspace system",
+        objective="Must stay invisible",
+        status="active",
+        flow_definition={"nodes": [], "edges": []},
+    )
+    db_session.add_all([capability, system, other_workspace, other_system])
+    db_session.commit()
+    calls: list[dict] = []
+
+    def _allow(*_args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            effective_allowed=True,
+            reason="candidate_allowed",
+            mode="shadow",
+            policy_id="agentium_actions:action.execute",
+        )
+
+    monkeypatch.setattr(actions, "resolve_manifest_permission", _allow)
+    response = client.post(
+        "/api/v1/actions/execute",
+        json={
+            "action_id": "andritz.find_parameter_value",
+            "surface": "chat",
+            "system_id": system.id,
+            "confirm": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["resource_attrs"] == {
+        "workspace_id": workspace.id,
+        "system_id": system.id,
+        "capability_id": capability.id,
+        "capability": "expert_knowledge_capture",
+        "action_id": "andritz.find_parameter_value",
+    }
+    assert (
+        client.post(
+            "/api/v1/actions/execute",
+            json={
+                "action_id": "andritz.find_parameter_value",
+                "surface": "chat",
+                "system_id": other_system.id,
+                "confirm": True,
+            },
+        ).status_code
+        == 404
+    )
 
 
 def test_actions_api_exposes_sentinel_voice_pack_for_vigie(db_session):

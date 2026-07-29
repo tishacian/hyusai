@@ -9,8 +9,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from copy import deepcopy
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,11 +19,15 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 
-from app.db.base import SessionLocal, engine as db_engine
-from app.models.capability import Capability
+from app.db.base import SessionLocal
+from app.db.base import engine as db_engine
 from app.models.run import Run
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_run_system_catalog_bindings,
+)
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -573,12 +577,12 @@ async def resume_subflow_parent(
     from .dag import (
         DagGraph,
         WalkerState,
-        _load_adaptive_policy,
         _load_control_policy,
         _settle_node,
         _settle_subflow_output,
         _walk,
         _workspace_strict_dag_enabled,
+        validate_graph_skill_bindings,
     )
 
     owner = str(resume_owner or f"inline:{parent_run_id}")
@@ -707,6 +711,62 @@ async def resume_subflow_parent(
             _revoke_tasks(revoke_ids)
             return {"id": parent.id, "status": "failed", "error": parent.error}
 
+        # A successful join is about to re-enter executable graph code. Prove
+        # its immutable task/retry/loop slugs before claiming the parent or
+        # invoking any Skill. Pure terminal failure propagation above remains
+        # available even for legacy orphaned parent fixtures.
+        system = (
+            db.query(System)
+            .filter(
+                System.id == parent.system_id,
+                System.workspace_id == parent.workspace_id,
+            )
+            .first()
+        )
+        if system is None:
+            parent.status = "failed"
+            parent.error = "system_not_found"
+            db.commit()
+            return {"id": parent.id, "status": "failed", "error": parent.error}
+        workspace = (
+            db.query(Workspace)
+            .filter(Workspace.id == (system.workspace_id or parent.workspace_id))
+            .first()
+            if (system.workspace_id or parent.workspace_id)
+            else None
+        )
+        graph = DagGraph.from_flow_definition(
+            parent.flow_snapshot or system.flow_definition or {}
+        )
+        graph.strict_authoritative = (
+            graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
+        )
+        try:
+            catalog_bindings = resolve_run_system_catalog_bindings(
+                db,
+                workspace=workspace,
+                system=system,
+                run=parent,
+            )
+            validate_graph_skill_bindings(graph, catalog_bindings)
+        except SystemCatalogBindingError as exc:
+            now = datetime.utcnow()
+            parent.status = "failed"
+            parent.error = f"system_catalog_binding_invalid:{exc.code}"
+            parent.completed_at = now
+            parent.checkpoints = [
+                *(parent.checkpoints or []),
+                {
+                    "kind": "run_end",
+                    "t": now.isoformat(),
+                    "status": "failed",
+                    "error": parent.error,
+                    "resume_owner": owner,
+                },
+            ]
+            db.commit()
+            return {"id": parent.id, "status": "failed", "error": parent.error}
+
         claimed_at = datetime.utcnow().isoformat()
         generation = int(meta.get("resume_generation") or 0) + 1
         meta.update(
@@ -738,23 +798,6 @@ async def resume_subflow_parent(
         _revoke_tasks(revoke_ids)
         _maybe_crash_after_claim(parent, resume_owner=owner)
 
-        system = (
-            db.query(System)
-            .filter(System.id == parent.system_id, System.workspace_id == parent.workspace_id)
-            .first()
-        )
-        if system is None:
-            parent.status = "failed"
-            parent.error = "system_not_found"
-            db.commit()
-            return {"id": parent.id, "status": "failed", "error": parent.error}
-        workspace = (
-            db.query(Workspace).filter(Workspace.id == (system.workspace_id or parent.workspace_id)).first()
-            if (system.workspace_id or parent.workspace_id)
-            else None
-        )
-        graph = DagGraph.from_flow_definition(parent.flow_snapshot or system.flow_definition or {})
-        graph.strict_authoritative = graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = asyncio.get_running_loop().time()
         # The coordinator has already resolved this fan-out wave under the
@@ -784,20 +827,15 @@ async def resume_subflow_parent(
                     target_id,
                 )
             _settle_node(graph, state, node_id, outcome)
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).first()
-            if system.capability_id
-            else None
-        )
         return await _walk(
             db,
             parent,
             graph,
             state,
             system=system,
-            capability=capability,
+            capability=catalog_bindings.capability,
             control=_load_control_policy(db, system),
-            adaptive=_load_adaptive_policy(db, system),
+            adaptive=catalog_bindings.adaptive_policy,
         )
     finally:
         try:
@@ -996,6 +1034,7 @@ def retry_ambiguous_dispatches(parent_run_id: str) -> dict[str, str]:
     single owner of RabbitMQ publication.
     """
     from app.models.run_dispatch_outbox import RunDispatchOutbox
+
     from .dispatch_outbox import SUBFLOW_RUN, enqueue_dispatch, reconcile_dispatch_outbox
 
     db: DBSession = SessionLocal()

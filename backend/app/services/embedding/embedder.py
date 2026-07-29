@@ -1,15 +1,95 @@
 """Embedding generation service -- OpenAI-first for demo."""
 import asyncio
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any
 
 import numpy as np
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.evaluation.judge import (
+    new_provider_usage_accumulator,
+    normalize_provider_usage,
+)
 
 logger = get_logger(__name__)
 
 _OPENAI_EMBEDDING_MAX_BATCH_INPUTS = 256
 _OPENAI_EMBEDDING_MAX_BATCH_ESTIMATED_TOKENS = 240_000
+_OPENAI_USAGE_FIELDS = (
+    "prompt_tokens",
+    "input_tokens",
+    "completion_tokens",
+    "output_tokens",
+    "total_tokens",
+)
+_EMBEDDING_PROVIDER_USAGE: ContextVar[dict[str, Any] | None] = ContextVar(
+    "embedding_provider_usage",
+    default=None,
+)
+
+
+@contextmanager
+def capture_embedding_provider_usage() -> Iterator[dict[str, Any]]:
+    """Capture real embedding-provider attempts in the current async context.
+
+    The Embedder API intentionally keeps returning only vectors.  Retrieval can
+    open this request-local scope around the complete pipeline and receive one
+    provider-call ledger without putting mutable telemetry on the shared
+    Embedder instance.  Child asyncio tasks inherit the scope; concurrent
+    retrieval requests remain isolated by ``ContextVar``.
+    """
+
+    accumulator = new_provider_usage_accumulator()
+    token = _EMBEDDING_PROVIDER_USAGE.set(accumulator)
+    try:
+        yield accumulator
+    finally:
+        _EMBEDDING_PROVIDER_USAGE.reset(token)
+
+
+def _openai_usage_payload(response: Any) -> dict[str, Any] | None:
+    """Project native OpenAI embedding usage without deriving any counter."""
+
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    if isinstance(usage, Mapping):
+        raw = dict(usage)
+    elif callable(getattr(usage, "model_dump", None)):
+        raw = dict(usage.model_dump())
+    elif callable(getattr(usage, "dict", None)):
+        raw = dict(usage.dict())
+    else:
+        raw = {
+            field: value
+            for field in _OPENAI_USAGE_FIELDS
+            if (value := getattr(usage, field, None)) is not None
+        }
+    counters = {
+        field: raw[field]
+        for field in _OPENAI_USAGE_FIELDS
+        if field in raw and raw[field] is not None
+    }
+    return {"usage": counters} if counters else None
+
+
+def _openai_retry_count(source: Any) -> int:
+    """Read the SDK's final request retry counter without retaining headers."""
+
+    request = getattr(source, "http_request", None) or getattr(source, "request", None)
+    if request is None:
+        http_response = getattr(source, "http_response", None)
+        request = getattr(http_response, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return 0
+    try:
+        return max(0, int(headers.get("x-stainless-retry-count", 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 class Embedder:
@@ -93,18 +173,36 @@ class Embedder:
         loop = asyncio.get_running_loop()
 
         async def embed_openai_batch(batch: list[str]) -> np.ndarray:
-            def _call() -> np.ndarray:
-                response = self._client.embeddings.create(
-                    input=batch, model=self.model_name
+            def _call() -> tuple[Any, int]:
+                embeddings = self._client.embeddings
+                raw_embeddings = getattr(embeddings, "with_raw_response", None)
+                raw_create = getattr(raw_embeddings, "create", None)
+                if callable(raw_create):
+                    raw_response = raw_create(input=batch, model=self.model_name)
+                    return raw_response.parse(), _openai_retry_count(raw_response)
+                return (
+                    embeddings.create(input=batch, model=self.model_name),
+                    0,
                 )
+
+            attempt = self._begin_openai_attempt()
+            try:
+                response, retry_count = await loop.run_in_executor(None, _call)
+                final_attempt = attempt
+                # The OpenAI SDK retries inside one ``create`` call.  Its final
+                # request carries the exact retry count.  Every preceding HTTP
+                # attempt lacks usage and therefore remains explicitly
+                # unreported; only the final response can complete a row.
+                for _ in range(retry_count):
+                    final_attempt = self._begin_openai_attempt()
+                self._complete_openai_attempt(final_attempt, response)
                 ordered = sorted(
                     response.data, key=lambda item: getattr(item, "index", 0)
                 )
                 return np.array([item.embedding for item in ordered], dtype=np.float32)
-
-            try:
-                return await loop.run_in_executor(None, _call)
             except Exception as e:
+                for _ in range(_openai_retry_count(e)):
+                    self._begin_openai_attempt()
                 if len(batch) > 1:
                     mid = max(1, len(batch) // 2)
                     logger.warning(
@@ -132,6 +230,33 @@ class Embedder:
             if embeddings
             else np.empty((0, self.get_dimension()), dtype=np.float32)
         )
+
+    def _begin_openai_attempt(self) -> dict[str, Any] | None:
+        accumulator = _EMBEDDING_PROVIDER_USAGE.get()
+        if accumulator is None:
+            return None
+        attempt = {
+            "provider": "openai",
+            "model": self.model_name,
+            "reported": False,
+        }
+        accumulator.setdefault("calls", []).append(attempt)
+        return attempt
+
+    def _complete_openai_attempt(
+        self,
+        attempt: dict[str, Any] | None,
+        response: Any,
+    ) -> None:
+        if attempt is None:
+            return
+        try:
+            usage = normalize_provider_usage(_openai_usage_payload(response))
+            if usage is not None:
+                attempt["reported"] = True
+                attempt["usage"] = usage
+        except Exception as exc:  # noqa: BLE001 - telemetry cannot break embeddings.
+            logger.warning("OpenAI embedding usage capture failed", error=str(exc))
 
     @classmethod
     def _openai_batches(cls, texts: list[str]) -> list[list[str]]:

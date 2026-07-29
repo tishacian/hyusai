@@ -22,53 +22,50 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
-from app.core.logging import get_logger
 from app.core.iam.dependencies import (
     current_membership,
     enforce_permission,
     require_any_app_entitlement,
 )
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
-from app.services.iam.manifest import REVIEW_ROLES
+from app.core.logging import get_logger
 from app.db.base import get_db
 from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
 from app.models.system import System
 from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
-from app.services.iam.config_service import effective_role_flags, load_iam_config
-from app.services.iam.app_entitlements import FSE_REPORTS_APP, KNOWLEDGE_CAPTURE_APP
 from app.services.capture_report_export import build_capture_report_export
 from app.services.capture_templates import (
     get_capture_template,
     list_capture_templates,
     template_id_from_system_settings,
 )
-from app.services.object_store import get_object_store
-from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
-from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
+from app.services.iam.app_entitlements import FSE_REPORTS_APP, KNOWLEDGE_CAPTURE_APP
+from app.services.iam.config_service import effective_role_flags, load_iam_config
+from app.services.iam.decision_plane import enforce_action
+from app.services.iam.manifest import REVIEW_ROLES
 from app.services.knowledge_capture import (
     amend_capture_event,
     amend_capture_plan,
     answer_proposal_open_question,
     append_turn,
-    archive_capture_session,
-    capture_document_collection_slug,
-    create_chat_correction_proposal,
-    delete_capture_session,
-    session_is_archived,
     apply_proposal_report_instruction,
     apply_session_closure_action,
     approve_capture_plan,
+    archive_capture_session,
     build_capture_documents_collection,
     build_capture_feed,
     build_chat_correction_acknowledgement,
     build_open_questions,
     build_quality_backlog,
     build_session_closure_sheet,
+    capture_document_collection_slug,
     create_capture_plan,
+    create_chat_correction_proposal,
     create_update_proposal,
     defer_quality_item,
+    delete_capture_session,
     export_session_proposal_markdown,
     extend_capture_session,
     finalize_capture,
@@ -78,8 +75,8 @@ from app.services.knowledge_capture import (
     get_hint_queue,
     get_plan_topics,
     get_session,
-    is_free_conversation_session,
     is_expert_review_required,
+    is_free_conversation_session,
     list_capture_events,
     list_published_fiches,
     pause_capture_session,
@@ -87,27 +84,28 @@ from app.services.knowledge_capture import (
     process_conversation_step,
     process_plan_dialogue_turn,
     publish_proposal_to_knowledge,
-    resume_capture_session,
     record_capture_document_view,
     register_capture_documents,
+    resume_capture_session,
     review_proposal,
     run_capture_finalize_index,
     serialize_event,
     serialize_proposal,
     serialize_session,
     session_has_proposal_material,
+    session_is_archived,
     set_capture_documents_full_share,
     set_capture_documents_share_level,
     start_session,
-    update_capture_view_anchor,
     summarize_chat_correction_theme,
-    warm_capture_context_cache,
+    update_capture_session_flags,
+    update_capture_view_anchor,
     update_oracle_question_statuses,
+    update_plan_topics,
     update_proposal_open_question_statuses,
     update_proposal_report_content,
-    update_capture_session_flags,
-    update_plan_topics,
     validate_plan_topics,
+    warm_capture_context_cache,
 )
 from app.services.knowledge_collections import (
     create_or_get_collection,
@@ -115,6 +113,9 @@ from app.services.knowledge_collections import (
     update_collection_status,
     upsert_collection_source,
 )
+from app.services.object_store import get_object_store
+from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
+from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
 from app.services.voice_runtime import list_voice_runtime_providers
 
 router = APIRouter(
@@ -1684,14 +1685,27 @@ async def review_capture_proposal(
 ) -> Dict[str, Any]:
     try:
         existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        attrs = _proposal_attrs(existing, session)
         enforce_permission(
             db,
             user=user,
             workspace=workspace,
             resource_kind="knowledge_proposal",
             action="review_decide",
-            resource_attrs=_proposal_attrs(existing, session),
+            resource_attrs=attrs,
             audit_prefix="kc",
+        )
+        enforce_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="decision",
+            action="approve",
+            legacy_allowed=True,
+            resource_attrs={
+                "decision_id": proposal_id,
+                "owner_user_id": attrs.get("owner_user_id"),
+            },
         )
         if body.status == "accepted":
             enforce_permission(
@@ -1708,7 +1722,7 @@ async def review_capture_proposal(
             workspace_id=workspace.id,
             proposal_id=proposal_id,
             status=body.status,
-            reviewer=body.reviewer or _actor_label(user),
+            reviewer=_actor_label(user),
             review_notes=body.review_notes,
             reviewer_user_id=user.id,
         )
@@ -2488,14 +2502,26 @@ async def publish_capture_proposal(
 ) -> Dict[str, Any]:
     try:
         existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        attrs = _proposal_attrs(existing, session)
         enforce_permission(
             db,
             user=user,
             workspace=workspace,
             resource_kind="knowledge_proposal",
             action="trigger_ingestion",
-            resource_attrs=_proposal_attrs(existing, session),
+            resource_attrs=attrs,
             audit_prefix="kc",
+        )
+        enforce_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="publish",
+            legacy_allowed=True,
+            resource_attrs={
+                "owner_user_id": attrs.get("owner_user_id"),
+            },
         )
         return await publish_proposal_to_knowledge(
             db,
@@ -2613,6 +2639,21 @@ async def submit_chat_correction(
     document_id: Optional[str] = None
     if not is_expert_review_required(source_policy):
         try:
+            attrs = _proposal_attrs(proposal, session)
+            enforce_action(
+                db,
+                user=user,
+                workspace=workspace,
+                resource_kind="knowledge_proposal",
+                action="publish",
+                # Auto-publication existed before the granular plane. Compat
+                # and shadow therefore preserve it; only an explicit enforce
+                # decision can keep the correction in review.
+                legacy_allowed=True,
+                resource_attrs={
+                    "owner_user_id": attrs.get("owner_user_id"),
+                },
+            )
             review_proposal(
                 db,
                 workspace_id=workspace.id,

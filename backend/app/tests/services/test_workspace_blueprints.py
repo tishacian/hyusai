@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -18,6 +19,7 @@ from app.models.workspace import (
     WorkspaceMember,
     WorkspaceMemberAppEntitlement,
 )
+from app.models.workspace_app import WorkspaceAppInstallation, WorkspaceAppOperation
 from app.services import workspace_blueprints
 from app.services.iam.app_entitlements import (
     APP_ENTITLEMENTS_FEATURE,
@@ -25,6 +27,11 @@ from app.services.iam.app_entitlements import (
     WORKSPACE_EXPERIENCE_FEATURE,
 )
 from app.services.iam.config_service import load_iam_config, patch_iam_config
+from app.services.workspace_app_lifecycle import (
+    apply_workspace_app_lifecycle,
+    plan_workspace_app_lifecycle,
+)
+from app.services.workspace_app_manifests import BUILTIN_WORKSPACE_APP_MANIFESTS
 
 
 def _workspace(
@@ -55,7 +62,12 @@ def _user(db_session) -> User:
 
 
 def _reference_workspace(db_session) -> tuple[Workspace, User]:
-    workspace = _workspace(db_session, id_="ws-source", slug="andritz")
+    workspace = _workspace(
+        db_session,
+        id_="ws-source",
+        slug="andritz",
+        settings={"family": "andritz"},
+    )
     user = _user(db_session)
     skill = Skill(
         id="skill-rag",
@@ -179,6 +191,37 @@ def _add_member(
     db_session.add_all([user, membership])
     db_session.flush()
     return membership
+
+
+def _install_builtin_app(
+    db_session,
+    *,
+    workspace: Workspace,
+    app_id: str,
+    version: str,
+) -> WorkspaceAppInstallation:
+    manifest = BUILTIN_WORKSPACE_APP_MANIFESTS[(app_id, version)]
+    plan = plan_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        operation="install",
+        app_id=app_id,
+        target_version=version,
+        expected_manifest_digest=manifest.digest,
+    )
+    result = apply_workspace_app_lifecycle(
+        db_session,
+        workspace_id=workspace.id,
+        operation="install",
+        app_id=app_id,
+        target_version=version,
+        expected_manifest_digest=manifest.digest,
+        expected_plan_sha256=plan.plan_sha256,
+        actor="blueprint-test",
+        idempotency_key=f"blueprint-test-{workspace.id}-{app_id}-{version}",
+        commit=False,
+    )
+    return result.installation
 
 
 def test_export_workspace_blueprint_excludes_sensitive_data(db_session):
@@ -509,6 +552,879 @@ def test_v1_realistic_structural_export_round_trips_only_after_dry_run_token(
     assert target_iam.capability_overrides == {"expert_knowledge_capture": {"can_publish": False}}
 
 
+def test_experience_contract_v1_remains_readable_and_preserves_app_installations(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    blueprint["experience"]["contract_version"] = 1
+    blueprint["experience"].pop("workspace_apps")
+    target = _workspace(
+        db_session,
+        id_="ws-contract-v1-target",
+        slug="contract-v1-target",
+        settings={"family": "andritz"},
+    )
+    installation = _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+
+    dry_run, report = _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+
+    assert dry_run["experience"]["workspace_apps"]["mode"] == "preserve_target"
+    assert report["experience"]["workspace_apps"]["operations"] == []
+    db_session.refresh(installation)
+    assert installation.state == "installed"
+    assert installation.version == "1.0.0"
+
+
+def test_contract_v2_workspace_apps_round_trip_exact_manifests_and_configuration(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.knowledge-capture",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-app-roundtrip-target",
+        slug="app-roundtrip-target",
+        settings={"family": "andritz"},
+    )
+
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+    )
+
+    assert blueprint["experience"]["contract_version"] == 2
+    assert [
+        item["app_id"] for item in blueprint["experience"]["workspace_apps"]["installations"]
+    ] == ["andritz.chat", "andritz.knowledge-capture"]
+    assert set(blueprint["experience"]["workspace_apps"]["installations"][0]) == {
+        "app_id",
+        "version",
+        "manifest_digest",
+        "config",
+    }
+    assert "settings" not in blueprint["experience"]["workspace_apps"]
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "install",
+        "install",
+    ]
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(WorkspaceAppOperation)
+        .filter(WorkspaceAppOperation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+
+    report = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=False,
+        expected_plan_token=dry_run["plan_token"],
+    )
+    installed = (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(
+            WorkspaceAppInstallation.workspace_id == target.id,
+            WorkspaceAppInstallation.state == "installed",
+        )
+        .order_by(WorkspaceAppInstallation.app_id.asc())
+        .all()
+    )
+    assert [row.app_id for row in installed] == [
+        "andritz.chat",
+        "andritz.knowledge-capture",
+    ]
+    assert [row.version for row in installed] == ["1.0.0", "1.0.0"]
+    assert installed[1].configuration == {
+        "api_contract": "andritz.knowledge-capture.v1",
+    }
+    assert len(report["experience"]["workspace_apps"]["applied"]) == 2
+
+
+def test_contract_v2_replace_portable_plans_apps_against_prospective_family(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    source.settings = {
+        "family": "andritz",
+        "features": {APP_ENTITLEMENTS_FEATURE: True},
+    }
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.knowledge-capture",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-prospective-andritz-target",
+        slug="prospective-andritz-target",
+        settings={"family": "generic", "runtime_state": {"keep": True}},
+    )
+    membership = _add_member(
+        db_session,
+        workspace=target,
+        user_id="user-2",
+        username="prospective-member",
+    )
+    original_settings = deepcopy(target.settings)
+
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+        experience_policy="replace_portable",
+        entitlement_policy="grant_all_existing_members",
+    )
+
+    assert dry_run["can_apply"] is True
+    assert dry_run["experience"]["workspace_apps"]["conflicts"] == []
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "install",
+        "install",
+    ]
+    assert target.settings == original_settings
+    assert db_session.is_modified(target, include_collections=True) is False
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+
+    report = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=False,
+        experience_policy="replace_portable",
+        entitlement_policy="grant_all_existing_members",
+        expected_plan_token=dry_run["plan_token"],
+    )
+
+    db_session.refresh(target)
+    assert target.settings["family"] == "andritz"
+    assert target.settings["runtime_state"] == {"keep": True}
+    assert [
+        row.app_id
+        for row in (
+            db_session.query(WorkspaceAppInstallation)
+            .filter(
+                WorkspaceAppInstallation.workspace_id == target.id,
+                WorkspaceAppInstallation.state == "installed",
+            )
+            .order_by(WorkspaceAppInstallation.app_id.asc())
+            .all()
+        )
+    ] == ["andritz.chat", "andritz.knowledge-capture"]
+    assert len(report["experience"]["workspace_apps"]["applied"]) == 2
+    assert dry_run["experience"]["app_access"]["required_apps"] == [
+        "chat",
+        "knowledge-capture",
+        "fse-reports",
+    ]
+    assert report["experience"]["app_access"]["grants_created"] == 3
+    assert {
+        row.app_key
+        for row in db_session.query(WorkspaceMemberAppEntitlement)
+        .filter(WorkspaceMemberAppEntitlement.workspace_member_id == membership.id)
+        .all()
+    } == {"chat", "knowledge-capture", "fse-reports"}
+
+
+def test_contract_v2_reused_app_cannot_end_in_incompatible_experience(db_session):
+    source, user = _reference_workspace(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    blueprint["experience"]["profile"]["family"] = "generic"
+    target = _workspace(
+        db_session,
+        id_="ws-incompatible-final-target",
+        slug="incompatible-final-target",
+        settings={"family": "andritz"},
+    )
+    installed = _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+        experience_policy="replace_portable",
+    )
+
+    assert dry_run["can_apply"] is False
+    assert any(
+        item.get("reason") == "workspace_family_incompatible"
+        and item.get("path") == "/experience/workspace_apps/installations/andritz.chat"
+        for item in dry_run["experience"]["workspace_apps"]["conflicts"]
+    )
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="experience conflicts",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=False,
+            experience_policy="replace_portable",
+            expected_plan_token=dry_run["plan_token"],
+        )
+
+    db_session.refresh(target)
+    db_session.refresh(installed)
+    assert target.settings["family"] == "andritz"
+    assert installed.state == "installed"
+
+
+def test_contract_v2_rejects_entitlement_for_absent_app_without_dormant_grant(
+    db_session,
+):
+    source = _workspace(
+        db_session,
+        id_="ws-absent-entitlement-source",
+        slug="absent-entitlement-source",
+        settings={
+            "family": "andritz",
+            "features": {APP_ENTITLEMENTS_FEATURE: True},
+        },
+    )
+    user = _user(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    blueprint["experience"]["app_access"]["required_apps"] = ["chat"]
+    target = _workspace(
+        db_session,
+        id_="ws-absent-entitlement-target",
+        slug="absent-entitlement-target",
+        settings={"family": "andritz"},
+    )
+    membership = _add_member(
+        db_session,
+        workspace=target,
+        user_id="user-2",
+        username="absent-entitlement-member",
+    )
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintError,
+        match="exactly match the entitlement_keys",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
+            entitlement_policy="grant_all_existing_members",
+        )
+
+    assert (
+        db_session.query(WorkspaceMemberAppEntitlement)
+        .filter(WorkspaceMemberAppEntitlement.workspace_member_id == membership.id)
+        .count()
+        == 0
+    )
+    # A later lifecycle install cannot wake a grant that the invalid
+    # Blueprint was never allowed to persist.
+    _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    assert (
+        db_session.query(WorkspaceMemberAppEntitlement)
+        .filter(WorkspaceMemberAppEntitlement.workspace_member_id == membership.id)
+        .count()
+        == 0
+    )
+
+
+def test_contract_v2_installed_app_grants_exact_manifest_entitlements(db_session):
+    source = _workspace(
+        db_session,
+        id_="ws-exact-entitlement-source",
+        slug="exact-entitlement-source",
+        settings={
+            "family": "andritz",
+            "features": {APP_ENTITLEMENTS_FEATURE: True},
+        },
+    )
+    user = _user(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.knowledge-capture",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-exact-entitlement-target",
+        slug="exact-entitlement-target",
+        settings={"family": "andritz"},
+    )
+    membership = _add_member(
+        db_session,
+        workspace=target,
+        user_id="user-2",
+        username="exact-entitlement-member",
+    )
+
+    dry_run, report = _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+        entitlement_policy="grant_all_existing_members",
+    )
+
+    assert dry_run["experience"]["app_access"]["required_apps"] == [
+        "knowledge-capture",
+        "fse-reports",
+    ]
+    assert dry_run["experience"]["app_access"]["installed_entitlement_keys"] == [
+        "knowledge-capture",
+        "fse-reports",
+    ]
+    assert report["experience"]["app_access"]["grants_created"] == 2
+    assert [
+        row.app_key
+        for row in db_session.query(WorkspaceMemberAppEntitlement)
+        .filter(WorkspaceMemberAppEntitlement.workspace_member_id == membership.id)
+        .order_by(WorkspaceMemberAppEntitlement.app_key.asc())
+        .all()
+    ] == ["fse-reports", "knowledge-capture"]
+
+
+def test_contract_v2_locked_entitlement_revalidation_rolls_back_global_apply(
+    db_session,
+    monkeypatch,
+):
+    source = _workspace(
+        db_session,
+        id_="ws-locked-entitlement-source",
+        slug="locked-entitlement-source",
+        settings={
+            "family": "andritz",
+            "features": {APP_ENTITLEMENTS_FEATURE: True},
+        },
+    )
+    user = _user(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-locked-entitlement-target",
+        slug="locked-entitlement-target",
+        settings={"family": "generic", "runtime_state": {"keep": True}},
+    )
+    membership = _add_member(
+        db_session,
+        workspace=target,
+        user_id="user-2",
+        username="locked-entitlement-member",
+    )
+    db_session.commit()
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+        experience_policy="replace_portable",
+        entitlement_policy="grant_all_existing_members",
+    )
+
+    # Simulate lifecycle drift after the valid locked plan: app access must
+    # inspect installed digests again and abort the entire composition.
+    monkeypatch.setattr(
+        workspace_blueprints,
+        "_apply_workspace_apps_plan",
+        lambda **_kwargs: None,
+    )
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="changed after",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=False,
+            experience_policy="replace_portable",
+            entitlement_policy="grant_all_existing_members",
+            expected_plan_token=dry_run["plan_token"],
+        )
+
+    db_session.expire_all()
+    restored = db_session.query(Workspace).filter(Workspace.id == target.id).one()
+    assert restored.settings == {"family": "generic", "runtime_state": {"keep": True}}
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(WorkspaceMemberAppEntitlement)
+        .filter(WorkspaceMemberAppEntitlement.workspace_member_id == membership.id)
+        .count()
+        == 0
+    )
+
+
+def test_contract_v2_second_app_failure_rolls_back_experience_and_first_app(
+    db_session,
+    monkeypatch,
+):
+    # Keep this fixture intentionally structural: its committed precondition
+    # must survive the deliberate transaction rollback without leaving the
+    # fixed graph IDs used by the rest of this module in the test database.
+    source = _workspace(
+        db_session,
+        id_="ws-atomic-app-failure-source",
+        slug="atomic-app-failure-source",
+        settings={"family": "andritz"},
+    )
+    user = _user(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.knowledge-capture",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-atomic-app-failure-target",
+        slug="atomic-app-failure-target",
+        settings={"family": "generic", "runtime_state": {"keep": True}},
+    )
+    # Preserve the source and target fixtures across the deliberate lifecycle
+    # rollback, just as they would already exist before an API transaction.
+    db_session.commit()
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+        experience_policy="replace_portable",
+    )
+    original_planner = workspace_blueprints.plan_workspace_app_lifecycle
+
+    def _tamper_second_plan(*args, **kwargs):
+        plan = original_planner(*args, **kwargs)
+        if kwargs.get("app_id") == "andritz.knowledge-capture":
+            return replace(plan, plan_sha256="f" * 64)
+        return plan
+
+    monkeypatch.setattr(
+        workspace_blueprints,
+        "plan_workspace_app_lifecycle",
+        _tamper_second_plan,
+    )
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="changed after dry-run",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=False,
+            experience_policy="replace_portable",
+            expected_plan_token=dry_run["plan_token"],
+        )
+
+    db_session.expire_all()
+    restored = db_session.query(Workspace).filter(Workspace.id == target.id).one()
+    assert restored.settings == {"family": "generic", "runtime_state": {"keep": True}}
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(WorkspaceAppOperation)
+        .filter(WorkspaceAppOperation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+
+
+def test_contract_v2_authoritative_dry_run_plans_removal_without_mutation(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-authoritative-removal",
+        slug="authoritative-removal",
+        settings={"family": "andritz"},
+    )
+    installation = _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+    )
+
+    assert [item["action"] for item in dry_run["experience"]["workspace_apps"]["operations"]] == [
+        "uninstall"
+    ]
+    db_session.refresh(installation)
+    assert installation.state == "installed"
+
+    workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=False,
+        expected_plan_token=dry_run["plan_token"],
+    )
+    db_session.refresh(installation)
+    assert installation.state == "uninstalled"
+
+
+def test_contract_v2_cross_workspace_restore_converges_to_older_manifest(db_session):
+    source = _workspace(
+        db_session,
+        id_="ws-blueprint-restore-source",
+        slug="blueprint-restore-source",
+        settings={"family": "generic"},
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-blueprint-restore-target",
+        slug="blueprint-restore-target",
+        settings={"family": "generic"},
+    )
+    user = _user(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="mission-room.extension",
+        version="1.0.0",
+    )
+    target_installation = _install_builtin_app(
+        db_session,
+        workspace=target,
+        app_id="mission-room.extension",
+        version="1.1.0",
+    )
+    db_session.commit()
+
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    dry_run = workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=True,
+    )
+
+    [operation] = dry_run["experience"]["workspace_apps"]["operations"]
+    assert operation["action"] == "rollback"
+    assert operation["request"]["allow_unrecorded_rollback"] is True
+
+    workspace_blueprints.apply_workspace_blueprint(
+        db=db_session,
+        workspace=target,
+        blueprint=blueprint,
+        actor=user,
+        dry_run=False,
+        expected_plan_token=dry_run["plan_token"],
+    )
+
+    db_session.refresh(target_installation)
+    assert target_installation.version == "1.0.0"
+    assert target_installation.configuration == {
+        "assistant_profile": "default",
+        "profile": "generic",
+    }
+    restore = (
+        db_session.query(WorkspaceAppOperation)
+        .filter(
+            WorkspaceAppOperation.workspace_id == target.id,
+            WorkspaceAppOperation.operation == "rollback",
+        )
+        .one()
+    )
+    assert restore.lifecycle_phase == "normal"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("version", "9.9.9", "unknown built-in"),
+        ("manifest_digest", "0" * 64, "digest mismatch"),
+    ],
+)
+def test_contract_v2_unknown_workspace_app_version_or_digest_fails_closed(
+    db_session,
+    field,
+    value,
+    message,
+):
+    source, user = _reference_workspace(db_session)
+    _install_builtin_app(
+        db_session,
+        workspace=source,
+        app_id="andritz.chat",
+        version="1.0.0",
+    )
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    blueprint["experience"]["workspace_apps"]["installations"][0][field] = value
+    target = _workspace(
+        db_session,
+        id_=f"ws-invalid-app-{field}",
+        slug=f"invalid-app-{field}",
+        settings={"family": "andritz"},
+    )
+
+    with pytest.raises(workspace_blueprints.WorkspaceBlueprintError, match=message):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
+        )
+
+    assert (
+        db_session.query(WorkspaceAppInstallation)
+        .filter(WorkspaceAppInstallation.workspace_id == target.id)
+        .count()
+        == 0
+    )
+
+
+def test_blueprint_never_transports_authorization_enforce_authority_cross_workspace(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    source_attestation = {
+        "workspace_id": source.id,
+        "revision": "a" * 40,
+        "evidence_sha256": "b" * 64,
+    }
+    patch_iam_config(
+        db_session,
+        workspace_id=source.id,
+        capability_overrides={
+            "portable_override": {"enabled": True},
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "enforce",
+                "modes": {
+                    "system.read": "enforce",
+                    "run.read": "shadow",
+                },
+                "enforcement_attestations": {"system.read": source_attestation},
+                "enforcement_history": [{"operation": "promote", "actor": "source"}],
+            },
+        },
+        updated_by_user_id=user.id,
+    )
+    db_session.flush()
+
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+
+    exported_policy = blueprint["iam"]["capability_overrides"]["authorization_v2"]
+    assert exported_policy["default_mode"] == "shadow"
+    assert exported_policy["modes"] == {
+        "system.read": "shadow",
+        "run.read": "shadow",
+    }
+    assert "enforcement_attestations" not in exported_policy
+    assert "enforcement_history" not in exported_policy
+    assert source.id not in json.dumps(blueprint["iam"], sort_keys=True)
+
+    # A hand-crafted payload cannot bypass the export-side downgrade.
+    exported_policy["policy_version"] = 1
+    exported_policy["modes"]["run.read"] = "enforce"
+    exported_policy["enforcement_attestations"] = {
+        "run.read": source_attestation,
+    }
+    exported_policy["enforcement_history"] = [{"operation": "promote", "actor": "forged-source"}]
+
+    target = _workspace(db_session, id_="ws-blueprint-auth-target", slug="auth-target")
+    target_attestation = {
+        "workspace_id": target.id,
+        "revision": "c" * 40,
+        "evidence_sha256": "d" * 64,
+    }
+    patch_iam_config(
+        db_session,
+        workspace_id=target.id,
+        capability_overrides={
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "compat",
+                "modes": {"system.admin": "enforce"},
+                "enforcement_attestations": {"system.admin": target_attestation},
+                "enforcement_history": [{"operation": "promote", "actor": "target"}],
+            }
+        },
+        updated_by_user_id=user.id,
+    )
+    db_session.flush()
+
+    _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+
+    target_config = load_iam_config(db_session, target.id, create=False)
+    assert target_config is not None
+    applied = target_config.capability_overrides
+    assert applied["portable_override"] == {"enabled": True}
+    applied_policy = applied["authorization_v2"]
+    assert applied_policy["policy_version"] == 2
+    assert applied_policy["default_mode"] == "shadow"
+    assert applied_policy["modes"] == {
+        "system.read": "shadow",
+        "run.read": "shadow",
+        "system.admin": "enforce",
+    }
+    assert applied_policy["enforcement_attestations"] == {"system.admin": target_attestation}
+    assert applied_policy["enforcement_history"] == [{"operation": "promote", "actor": "target"}]
+    encoded = json.dumps(applied, sort_keys=True)
+    assert source.id not in encoded
+    assert "forged-source" not in encoded
+
+
 def test_andritz_round_trip_backfills_all_members_before_entitlement_activation(db_session):
     source, user = _reference_workspace(db_session)
     source.mode = "operator"
@@ -556,6 +1472,17 @@ def test_andritz_round_trip_backfills_all_members_before_entitlement_activation(
             }
         ],
     }
+    for app_id in (
+        "andritz.chat",
+        "andritz.client360-pdr",
+        "andritz.knowledge-capture",
+    ):
+        _install_builtin_app(
+            db_session,
+            workspace=source,
+            app_id=app_id,
+            version="1.0.0",
+        )
     db_session.flush()
     blueprint = workspace_blueprints.export_workspace_blueprint(
         db=db_session,
@@ -919,6 +1846,425 @@ def test_system_status_and_execution_mode_are_canonicalized_before_activation(db
             actor=user,
             dry_run=True,
             activate_systems=True,
+        )
+
+
+def _as_legacy_object_identity_blueprint(blueprint: dict) -> dict:
+    legacy = deepcopy(blueprint)
+    for context in legacy.get("contexts") or []:
+        context.pop("stable_key", None)
+        context.pop("system_key", None)
+    for system in legacy.get("systems") or []:
+        system.pop("stable_key", None)
+        system.pop("context_key", None)
+    for kind in ("rag", "evaluation"):
+        for preset in (legacy.get("presets") or {}).get(kind) or []:
+            preset.pop("scope_key", None)
+    return legacy
+
+
+def test_blueprint_keys_are_generated_while_display_names_remain_non_unique(db_session):
+    workspace = _workspace(db_session, id_="ws-generated-keys", slug="generated-keys")
+    contexts = [
+        Context(workspace_id=workspace.id, name="Homonym", ephemeral=False),
+        Context(workspace_id=workspace.id, name="Homonym", ephemeral=False),
+    ]
+    systems = [
+        System(workspace_id=workspace.id, name="Homonym", objective="First"),
+        System(workspace_id=workspace.id, name="Homonym", objective="Second"),
+    ]
+    db_session.add_all([*contexts, *systems])
+    db_session.flush()
+
+    assert all(row.blueprint_key for row in [*contexts, *systems])
+    assert len({row.blueprint_key for row in contexts}) == 2
+    assert len({row.blueprint_key for row in systems}) == 2
+
+
+def test_blueprint_v2_round_trip_preserves_homonyms_bidirectional_edges_and_preset_scope(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    primary_context = db_session.query(Context).filter(Context.id == "ctx-andritz").one()
+    primary_system = db_session.query(System).filter(System.id == "sys-capture").one()
+    primary_context.system_id = primary_system.id
+
+    second_context = Context(
+        id="ctx-andritz-second",
+        workspace_id=source.id,
+        blueprint_key="context-stable-second",
+        name=primary_context.name,
+        data_refs=["collection:second"],
+        ephemeral=False,
+    )
+    second_system = System(
+        id="sys-capture-second",
+        workspace_id=source.id,
+        blueprint_key="system-stable-second",
+        name=primary_system.name,
+        objective="A distinct System with the same display name.",
+        capability_id=primary_system.capability_id,
+        context_id=second_context.id,
+        skill_ids=list(primary_system.skill_ids or []),
+        flow_definition=deepcopy(primary_system.flow_definition),
+        execution_mode=primary_system.execution_mode,
+        execution_profile=deepcopy(primary_system.execution_profile),
+        status="active",
+    )
+    second_context.system_id = second_system.id
+    primary_preset = RagPreset(
+        id="preset-system-primary",
+        workspace_id=source.id,
+        name="System scoped primary",
+        scope="system",
+        scope_id=primary_system.id,
+        config={"topK": 3},
+    )
+    second_preset = RagPreset(
+        id="preset-system-second",
+        workspace_id=source.id,
+        name="System scoped second",
+        scope="system",
+        scope_id=second_system.id,
+        config={"topK": 7},
+    )
+    db_session.add_all([second_context, second_system, primary_preset, second_preset])
+    db_session.flush()
+
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    contexts_by_key = {item["stable_key"]: item for item in blueprint["contexts"]}
+    systems_by_key = {item["stable_key"]: item for item in blueprint["systems"]}
+    assert len(contexts_by_key) == 2
+    assert len(systems_by_key) == 2
+    assert contexts_by_key[primary_context.blueprint_key]["system_key"] == (
+        primary_system.blueprint_key
+    )
+    assert contexts_by_key[second_context.blueprint_key]["system_key"] == (
+        second_system.blueprint_key
+    )
+    assert systems_by_key[primary_system.blueprint_key]["context_key"] == (
+        primary_context.blueprint_key
+    )
+    assert systems_by_key[second_system.blueprint_key]["context_key"] == (
+        second_context.blueprint_key
+    )
+    assert {
+        item["name"]: item["scope_key"]
+        for item in blueprint["presets"]["rag"]
+        if item["scope"] == "system"
+    } == {
+        "System scoped primary": primary_system.blueprint_key,
+        "System scoped second": second_system.blueprint_key,
+    }
+
+    target = _workspace(db_session, id_="ws-keyed-roundtrip", slug="keyed-roundtrip")
+    _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+    target_contexts = {
+        row.blueprint_key: row
+        for row in db_session.query(Context).filter(Context.workspace_id == target.id).all()
+    }
+    target_systems = {
+        row.blueprint_key: row
+        for row in db_session.query(System).filter(System.workspace_id == target.id).all()
+    }
+    assert [row.name for row in target_contexts.values()] == [
+        primary_context.name,
+        primary_context.name,
+    ]
+    assert [row.name for row in target_systems.values()] == [
+        primary_system.name,
+        primary_system.name,
+    ]
+    for source_context in (primary_context, second_context):
+        imported = target_contexts[source_context.blueprint_key]
+        source_system = primary_system if source_context is primary_context else second_system
+        assert imported.system_id == target_systems[source_system.blueprint_key].id
+    for source_system in (primary_system, second_system):
+        imported = target_systems[source_system.blueprint_key]
+        source_context = primary_context if source_system is primary_system else second_context
+        assert imported.context_id == target_contexts[source_context.blueprint_key].id
+
+    scoped_presets = (
+        db_session.query(RagPreset)
+        .filter(RagPreset.workspace_id == target.id, RagPreset.scope == "system")
+        .all()
+    )
+    assert {row.name: row.scope_id for row in scoped_presets} == {
+        "System scoped primary": target_systems[primary_system.blueprint_key].id,
+        "System scoped second": target_systems[second_system.blueprint_key].id,
+    }
+
+
+def test_keyed_blueprint_creates_legitimate_homonym_instead_of_adopting_by_name(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(db_session, id_="ws-keyed-homonym", slug="keyed-homonym")
+    existing_context = Context(
+        id="target-context-homonym",
+        workspace_id=target.id,
+        blueprint_key="target-context-key",
+        name=blueprint["contexts"][0]["name"],
+        ephemeral=False,
+    )
+    existing_system = System(
+        id="target-system-homonym",
+        workspace_id=target.id,
+        blueprint_key="target-system-key",
+        name=blueprint["systems"][0]["name"],
+        objective="Existing unrelated homonym",
+    )
+    db_session.add_all([existing_context, existing_system])
+    db_session.flush()
+
+    _dry_run, report = _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+
+    assert report["created"]["contexts"] == 1
+    assert report["created"]["systems"] == 1
+    assert report["reused"]["contexts"] == 0
+    assert report["reused"]["systems"] == 0
+    assert db_session.query(Context).filter(Context.workspace_id == target.id).count() == 2
+    assert db_session.query(System).filter(System.workspace_id == target.id).count() == 2
+
+
+def test_legacy_unkeyed_blueprint_creates_deterministic_keys_and_is_idempotent(
+    db_session,
+):
+    source, user = _reference_workspace(db_session)
+    blueprint = _as_legacy_object_identity_blueprint(
+        workspace_blueprints.export_workspace_blueprint(
+            db=db_session,
+            workspace=source,
+            exported_by=user,
+        )
+    )
+    target = _workspace(db_session, id_="ws-legacy-new", slug="legacy-new")
+
+    _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+    context = db_session.query(Context).filter(Context.workspace_id == target.id).one()
+    system = db_session.query(System).filter(System.workspace_id == target.id).one()
+    assert context.blueprint_key == workspace_blueprints._legacy_blueprint_key(
+        "context",
+        context.name,
+    )
+    assert system.blueprint_key == workspace_blueprints._legacy_blueprint_key(
+        "system",
+        system.name,
+    )
+
+    _dry_run, second = _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+    assert second["created"]["contexts"] == 0
+    assert second["created"]["systems"] == 0
+    assert second["reused"]["contexts"] == 1
+    assert second["reused"]["systems"] == 1
+
+
+def test_legacy_unkeyed_blueprint_adopts_exactly_one_named_target_object(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = _as_legacy_object_identity_blueprint(
+        workspace_blueprints.export_workspace_blueprint(
+            db=db_session,
+            workspace=source,
+            exported_by=user,
+        )
+    )
+    target = _workspace(db_session, id_="ws-legacy-adopt", slug="legacy-adopt")
+    context = Context(
+        id="legacy-adopt-context",
+        workspace_id=target.id,
+        name=blueprint["contexts"][0]["name"],
+        ephemeral=False,
+    )
+    system = System(
+        id="legacy-adopt-system",
+        workspace_id=target.id,
+        name=blueprint["systems"][0]["name"],
+        objective="Pre-existing legacy target",
+    )
+    db_session.add_all([context, system])
+    db_session.flush()
+    original_context_key = context.blueprint_key
+    original_system_key = system.blueprint_key
+
+    _dry_run, report = _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+
+    assert report["reused"]["contexts"] == 1
+    assert report["reused"]["systems"] == 1
+    assert context.blueprint_key == original_context_key
+    assert system.blueprint_key == original_system_key
+
+
+def test_legacy_unkeyed_blueprint_rejects_ambiguous_target_homonyms(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = _as_legacy_object_identity_blueprint(
+        workspace_blueprints.export_workspace_blueprint(
+            db=db_session,
+            workspace=source,
+            exported_by=user,
+        )
+    )
+    target = _workspace(db_session, id_="ws-legacy-ambiguous", slug="legacy-ambiguous")
+    name = blueprint["contexts"][0]["name"]
+    db_session.add_all(
+        [
+            Context(id="legacy-ambiguous-1", workspace_id=target.id, name=name, ephemeral=False),
+            Context(id="legacy-ambiguous-2", workspace_id=target.id, name=name, ephemeral=False),
+        ]
+    )
+    db_session.flush()
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="matches more than one target object",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
+        )
+
+
+def test_legacy_unkeyed_blueprint_rejects_ambiguous_payload_entries(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = _as_legacy_object_identity_blueprint(
+        workspace_blueprints.export_workspace_blueprint(
+            db=db_session,
+            workspace=source,
+            exported_by=user,
+        )
+    )
+    blueprint["contexts"].append(deepcopy(blueprint["contexts"][0]))
+    target = _workspace(db_session, id_="ws-legacy-payload", slug="legacy-payload")
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="ambiguous inside the Blueprint",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
+        )
+
+
+def test_keyed_blueprint_refuses_to_reuse_system_with_hidden_catalog_binding(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-hidden-catalog-binding",
+        slug="hidden-catalog-binding",
+        settings={"family": "generic"},
+    )
+    hidden = Capability(
+        id="cap-hidden-government",
+        workspace_id=None,
+        slug="hidden_government_capability",
+        name="Hidden government capability",
+        tier="industry",
+        industry="government",
+        skill_ids=["skill-rag"],
+    )
+    existing = System(
+        id="system-hidden-catalog-binding",
+        workspace_id=target.id,
+        name="Existing keyed System",
+        objective="Must not be adopted through an invisible catalog binding.",
+        capability_id=hidden.id,
+        skill_ids=["skill-rag"],
+        flow_definition={"nodes": [], "edges": []},
+        status="draft",
+    )
+    db_session.add_all([hidden, existing])
+    db_session.flush()
+    blueprint["systems"][0]["stable_key"] = existing.blueprint_key
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintConflictError,
+        match="invalid catalog binding: capability_not_visible",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
+        )
+
+
+def test_key_reference_cannot_bind_to_object_outside_blueprint(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    context_key = blueprint["contexts"][0]["stable_key"]
+    blueprint["contexts"] = []
+    target = _workspace(db_session, id_="ws-key-ref-scope", slug="key-ref-scope")
+    db_session.add(
+        Context(
+            id="same-key-but-not-imported",
+            workspace_id=target.id,
+            blueprint_key=context_key,
+            name="Existing same key",
+            ephemeral=False,
+        )
+    )
+    db_session.flush()
+
+    with pytest.raises(
+        workspace_blueprints.WorkspaceBlueprintError,
+        match="does not resolve inside this Blueprint",
+    ):
+        workspace_blueprints.apply_workspace_blueprint(
+            db=db_session,
+            workspace=target,
+            blueprint=blueprint,
+            actor=user,
+            dry_run=True,
         )
 
 

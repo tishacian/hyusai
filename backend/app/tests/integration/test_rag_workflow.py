@@ -7,6 +7,9 @@ from app.services.rag.document_service import DocumentService
 from app.services.tracing.rag_tracer import get_tracer
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.fixture
 def sample_documents():
     """Create sample documents for testing"""
@@ -216,4 +219,3 @@ async def test_large_document():
     finally:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-

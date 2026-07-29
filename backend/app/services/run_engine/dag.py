@@ -41,11 +41,11 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
 from app.models.capability import Capability
-from app.models.context import Context
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.context_bindings import ContextBindingError, context_in_workspace
 from app.services.membrane.enforcement import (
     EgressDisposition,
     MembraneEnforcementError,
@@ -54,6 +54,11 @@ from app.services.membrane.enforcement import (
 )
 from app.services.membrane.spec import resolve_membrane_spec
 from app.services.outcome.derive import derive_outcome
+from app.services.system_catalog_bindings import (
+    ResolvedSystemCatalogBindings,
+    SystemCatalogBindingError,
+    resolve_run_system_catalog_bindings,
+)
 
 from .condition import ConditionError
 from .condition import evaluate as evaluate_condition
@@ -325,6 +330,61 @@ class DagGraph:
         return [nid for nid, ins in self.in_edges.items() if not ins]
 
 
+_SKILL_EXECUTING_NODE_KINDS = frozenset({"task", "retry", "loop"})
+
+
+def validate_graph_skill_bindings(
+    graph: DagGraph,
+    catalog_bindings: ResolvedSystemCatalogBindings,
+) -> None:
+    """Prove every executable node is part of the resolved System contract.
+
+    The in-memory skill registry is an implementation mechanism, not an
+    authority source.  A flow snapshot can outlive (or be edited independently
+    from) ``System.skill_ids``; accepting its free-form ``skill_slug`` would
+    otherwise let task, retry and loop nodes invoke a catalog entry which the
+    workspace/System resolver did not authorise.
+
+    Skill-less authoring stubs and legacy pass-through nodes remain valid.  A
+    node that *does* name a skill must match one, and only one, visible Skill
+    already returned by ``resolve_run_system_catalog_bindings``.
+    """
+
+    bound_by_slug: Dict[str, int] = {}
+    for skill in catalog_bindings.skills:
+        slug = skill.slug
+        if isinstance(slug, str):
+            bound_by_slug[slug] = bound_by_slug.get(slug, 0) + 1
+
+    for node in graph.nodes.values():
+        if node.kind not in _SKILL_EXECUTING_NODE_KINDS:
+            continue
+        slug = node.skill_slug
+        if slug is None or slug == "":
+            # Portless/legacy non-skill nodes are intentional pass-throughs.
+            continue
+        field = f"flow_definition.nodes.{node.id}.config.skill_slug"
+        if not isinstance(slug, str) or not slug.strip():
+            raise SystemCatalogBindingError(
+                "Executable DAG node has an invalid Skill slug",
+                code="flow_skill_binding_invalid",
+                field=field,
+            )
+        matches = bound_by_slug.get(slug, 0)
+        if matches == 0:
+            raise SystemCatalogBindingError(
+                "Executable DAG node Skill is not bound to the System",
+                code="flow_skill_not_bound",
+                field=field,
+            )
+        if matches != 1:
+            raise SystemCatalogBindingError(
+                "Executable DAG node Skill binding is ambiguous",
+                code="flow_skill_binding_ambiguous",
+                field=field,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Walker state
 # ---------------------------------------------------------------------------
@@ -436,6 +496,23 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             if (system.workspace_id or run.workspace_id)
             else None
         )
+        if run.workspace_id and workspace is None:
+            return _fail(
+                db,
+                run,
+                "system_catalog_binding_invalid:workspace_not_found",
+            )
+        try:
+            catalog_bindings = resolve_run_system_catalog_bindings(
+                db,
+                workspace=workspace,
+                system=system,
+                run=run,
+            )
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
+        if run.capability_id is None:
+            run.capability_id = system.capability_id
 
         # Prefer a pre-existing immutable snapshot (replay/retry); a new Run
         # falls back to the current System graph and snapshots it below.
@@ -446,12 +523,12 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         )
         if not graph.nodes:
             return _fail(db, run, "empty_flow")
+        try:
+            validate_graph_skill_bindings(graph, catalog_bindings)
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
 
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).first()
-            if system.capability_id
-            else None
-        )
+        capability = catalog_bindings.capability
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
@@ -473,9 +550,16 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
                 action="system.engine.run",
             )
 
+        first_start = run.status == "pending"
         run.status = "running"
         run.started_at = run.started_at or datetime.utcnow()
-        _snapshot_run_flow(db, run, system)
+        _snapshot_run_flow(
+            db,
+            run,
+            system,
+            first_start=first_start,
+            control=control,
+        )
         db.commit()
 
         initial_ctx = _build_initial_ctx(db, run, system, capability)
@@ -589,6 +673,23 @@ async def resume_run_dag(
             if (system.workspace_id or run.workspace_id)
             else None
         )
+        if run.workspace_id and workspace is None:
+            return _fail(
+                db,
+                run,
+                "system_catalog_binding_invalid:workspace_not_found",
+            )
+        try:
+            catalog_bindings = resolve_run_system_catalog_bindings(
+                db,
+                workspace=workspace,
+                system=system,
+                run=run,
+            )
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
+        if run.capability_id is None:
+            run.capability_id = system.capability_id
 
         # HITL resumes obey the immutable execution contract.
         flow = run.flow_snapshot or system.flow_definition or {}
@@ -596,14 +697,14 @@ async def resume_run_dag(
         graph.strict_authoritative = (
             graph.io_mode == "strict" and _workspace_strict_dag_enabled(workspace)
         )
+        try:
+            validate_graph_skill_bindings(graph, catalog_bindings)
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
         state = WalkerState.from_payload(pause_cp.get("state") or {})
         state.start_monotonic = time.monotonic()
 
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).first()
-            if system.capability_id
-            else None
-        )
+        capability = catalog_bindings.capability
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
@@ -1292,11 +1393,29 @@ async def resume_run_dag_debug(
         else:
             return {"error": "invalid_action", "action": action}
 
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).first()
-            if system.capability_id
-            else None
-        )
+        if run.workspace_id and workspace is None:
+            return _fail(
+                db,
+                run,
+                "system_catalog_binding_invalid:workspace_not_found",
+            )
+        try:
+            catalog_bindings = resolve_run_system_catalog_bindings(
+                db,
+                workspace=workspace,
+                system=system,
+                run=run,
+            )
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
+        if run.capability_id is None:
+            run.capability_id = system.capability_id
+        try:
+            validate_graph_skill_bindings(graph, catalog_bindings)
+        except SystemCatalogBindingError as exc:
+            return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
+
+        capability = catalog_bindings.capability
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
@@ -2667,11 +2786,20 @@ def _seed_pool(
         },
     )
 
-    context = (
-        db.query(Context).filter(Context.id == system.context_id).first()
-        if system.context_id
-        else None
-    )
+    if system.workspace_id != run.workspace_id:
+        raise RuntimeError("run_system_workspace_mismatch")
+    try:
+        context = (
+            context_in_workspace(
+                db,
+                workspace_id=run.workspace_id,
+                context_id=system.context_id,
+            )
+            if system.context_id
+            else None
+        )
+    except ContextBindingError as exc:
+        raise RuntimeError("system_context_binding_invalid") from exc
     context_payload: Dict[str, Any] = {
         "id": getattr(context, "id", None),
         "name": getattr(context, "name", None),

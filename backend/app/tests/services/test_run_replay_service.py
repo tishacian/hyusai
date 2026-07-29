@@ -7,7 +7,7 @@ VM smoke test ``/tmp/e152_smoke.py``.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Dict, List
 from uuid import uuid4
 
@@ -15,6 +15,9 @@ import pytest
 
 from app.models.audit import AuditLog
 from app.models.run import Run
+from app.models.system import System
+from app.models.system_version import SystemVersion
+from app.models.workspace import Workspace
 from app.services.runs import replay_service
 
 
@@ -262,6 +265,102 @@ async def test_replay_persists_new_run_and_audits(
     assert audit.details["parent_run_id"] == parent.id
     assert audit.details["new_run_id"] == new_run.id
     assert audit.details["source_decision_id"] == "dec-1"
+
+
+@pytest.mark.asyncio
+async def test_terminal_replay_copies_only_validated_parent_execution_evidence(
+    db_session, stub_orchestrator, monkeypatch
+) -> None:
+    monkeypatch.setattr(replay_service.settings, "agentium_image_revision", "e" * 40)
+    monkeypatch.setattr(
+        "app.services.runs.replay_service.schedule_eval", lambda _id: None
+    )
+    workspace = Workspace(
+        id=str(uuid4()),
+        slug=f"replay-evidence-{uuid4().hex[:8]}",
+        name="Replay evidence",
+    )
+    foreign_workspace = Workspace(
+        id=str(uuid4()),
+        slug=f"foreign-replay-{uuid4().hex[:8]}",
+        name="Foreign replay evidence",
+    )
+    flow = {"nodes": [{"id": "chat"}], "edges": []}
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="System-scoped chat",
+        objective="test",
+        flow_definition=flow,
+    )
+    parent_started_at = datetime.utcnow() - timedelta(minutes=2)
+    version = SystemVersion(
+        id=str(uuid4()),
+        system_id=system.id,
+        workspace_id=workspace.id,
+        version_number=1,
+        flow_definition=flow,
+        created_at=parent_started_at - timedelta(seconds=1),
+        created_by="test",
+    )
+    parent = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="completed",
+        trigger="chat",
+        input_ref={
+            "query": "what changed?",
+            "execution": {
+                "snapshot_at": parent_started_at.isoformat(timespec="microseconds")
+                + "Z"
+            },
+        },
+        output_ref={"response": "before"},
+        flow_snapshot=flow,
+        flow_version_id=version.id,
+        started_at=parent_started_at,
+        completed_at=parent_started_at + timedelta(seconds=1),
+    )
+    db_session.add_all([workspace, foreign_workspace, system, version, parent])
+    db_session.commit()
+
+    replay, _ = await replay_service.replay_run_async(
+        db=db_session,
+        parent=parent,
+        workspace_slug=workspace.slug,
+        overrides={},
+    )
+
+    assert replay.flow_snapshot == flow
+    assert replay.flow_snapshot is not parent.flow_snapshot
+    assert replay.flow_version_id == version.id
+    assert replay.input_ref["execution"]["snapshot_at"].endswith("Z")
+    assert replay.input_ref["execution"]["runtime_revision"] == "e" * 40
+
+    foreign_version = SystemVersion(
+        id=str(uuid4()),
+        system_id=system.id,
+        workspace_id=foreign_workspace.id,
+        version_number=2,
+        flow_definition=flow,
+        created_at=parent_started_at - timedelta(seconds=1),
+        created_by="test",
+    )
+    db_session.add(foreign_version)
+    db_session.flush()
+    parent.flow_version_id = foreign_version.id
+    db_session.commit()
+
+    unbound_replay, _ = await replay_service.replay_run_async(
+        db=db_session,
+        parent=parent,
+        workspace_slug=workspace.slug,
+        overrides={},
+    )
+
+    assert unbound_replay.flow_snapshot == flow
+    assert unbound_replay.flow_version_id is None
 
 
 @pytest.mark.asyncio

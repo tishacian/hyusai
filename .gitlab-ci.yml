@@ -16,6 +16,64 @@ agentium-compliance:
   rules:
     - when: always
 
+# System history concurrency belongs to Lot 7 and requires PostgreSQL row
+# locks, but no broker.  Keep this proof independent from the completed P4
+# RabbitMQ gate so either topology can fail and be diagnosed on its own.
+agentium-lot7-postgresql-system-version:
+  stage: test
+  image: python:3.12-bookworm
+  needs: []
+  services:
+    - name: postgres:16-bookworm
+      alias: postgres
+  variables:
+    POSTGRES_DB: test_lot7_system_versions
+    POSTGRES_USER: lot7_system_versions
+    POSTGRES_PASSWORD: lot7_system_versions_ci_only
+    DATABASE_URL: postgresql://lot7_system_versions:lot7_system_versions_ci_only@postgres:5432/test_lot7_system_versions
+    PYTEST_ALLOW_DESTRUCTIVE_DATABASE_RESET: "1"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  cache:
+    key: agentium-lot7-postgresql-python312
+    paths:
+      - .cache/pip/
+  before_script:
+    - python3 -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
+    - mkdir -p backend/test-results/lot7-postgresql
+  script:
+    - |
+      python3 - <<'PY'
+      import socket
+      import time
+      deadline = time.monotonic() + 60
+      while True:
+          try:
+              with socket.create_connection(("postgres", 5432), timeout=2):
+                  break
+          except OSError:
+              if time.monotonic() >= deadline:
+                  raise SystemExit("postgres:5432 did not become ready")
+              time.sleep(1)
+      PY
+    - |
+      cd backend
+      alembic upgrade head
+      python3 -m pytest -m postgresql \
+        app/tests/integration/test_system_version_postgresql.py \
+        --junitxml=test-results/lot7-postgresql/junit.xml -q
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - backend/test-results/lot7-postgresql/
+    reports:
+      junit: backend/test-results/lot7-postgresql/junit.xml
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true"'
+      when: on_success
+      allow_failure: false
+    - when: never
+
 # P4 can only be declared complete after this protected broker-backed gate.
 # The integration test refuses SQLite/eager execution and exercises a real
 # PostgreSQL + RabbitMQ + Celery worker topology, including redelivery.

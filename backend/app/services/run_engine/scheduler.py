@@ -19,6 +19,11 @@ from app.db.base import SessionLocal
 from app.models.run import Run
 from app.models.run_schedule import RunSchedule
 from app.models.system import System
+from app.models.workspace import Workspace
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
+)
 
 logger = get_logger(__name__)
 
@@ -91,7 +96,14 @@ def _dispatch_run(run_id: str) -> None:
 
 
 def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optional[str]:
-    system = db.query(System).filter(System.id == sched.system_id).first()
+    system = (
+        db.query(System)
+        .filter(
+            System.id == sched.system_id,
+            System.workspace_id == sched.workspace_id,
+        )
+        .first()
+    )
     if system is None or system.status != "active":
         logger.info(
             "scheduler: skip inactive/missing system",
@@ -103,10 +115,42 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
         sched.next_fire_at = nxt
         return None
 
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == sched.workspace_id).first()
+        if sched.workspace_id
+        else None
+    )
+    try:
+        if sched.workspace_id and workspace is None:
+            raise SystemCatalogBindingError(
+                "Workspace is missing for scheduled System",
+                code="workspace_not_found",
+                field="workspace_id",
+            )
+        resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    except SystemCatalogBindingError as exc:
+        logger.warning(
+            "scheduler: catalog binding rejected before run creation",
+            schedule_id=sched.id,
+            system_id=sched.system_id,
+            reason=exc.code,
+        )
+        sched.next_fire_at = compute_next_fire_at(
+            sched.cron_expr,
+            sched.timezone,
+            from_dt=now,
+        )
+        return None
+
     run = Run(
         id=str(uuid4()),
         workspace_id=sched.workspace_id,
         system_id=sched.system_id,
+        capability_id=system.capability_id,
         input_ref={
             **(sched.input_payload if isinstance(sched.input_payload, dict) else {}),
             "_schedule": {

@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime, time, timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -51,6 +51,10 @@ from app.services.visual_intelligence import (
 )
 from app.services.visual_intelligence import (
     ensure_visual_intelligence_seed,
+)
+from app.services.workspace_app_runtime import (
+    resolve_mission_room_provider_runtime,
+    workspace_app_platform_enabled,
 )
 from app.services.workspace_calendar import (
     ensure_calendar_seed,
@@ -190,15 +194,51 @@ _OCTOCITY_FORBIDDEN_TERMS = (
 )
 
 
-def mission_room_profile(workspace: Workspace | None) -> str:
+def authoritative_mission_room_projection(
+    workspace: Workspace | None,
+    *,
+    db: DBSession | None = None,
+) -> dict[str, Any] | None:
+    """Return the installed provider contract when platform authority is on.
+
+    This boundary deliberately has no settings fallback. Provider-less generic
+    versions and invalid installations raise through the runtime resolver. A
+    provider-capable generic version is dispatched by the API to the separate
+    workspace-object service, so this fixture module never becomes its
+    accidental provider.
+    """
+
+    if workspace is None or not workspace_app_platform_enabled(workspace):
+        return None
+    runtime = resolve_mission_room_provider_runtime(workspace, db=db)
+    projection = runtime.mission_room
+    if not isinstance(projection, Mapping):
+        # The strict runtime resolver normally makes this unreachable; keep the
+        # service boundary fail-closed if its contract ever regresses.
+        raise RuntimeError("authoritative Mission Room projection is missing")
+    return dict(projection)
+
+
+def mission_room_profile(
+    workspace: Workspace | None,
+    *,
+    db: DBSession | None = None,
+) -> str:
+    authoritative = authoritative_mission_room_projection(workspace, db=db)
+    if authoritative is not None:
+        return str(authoritative["profile"])
     settings = workspace.settings if workspace is not None else None
     mission_room = (settings or {}).get("mission_room") if isinstance(settings, dict) else None
     profile = (mission_room or {}).get("profile") if isinstance(mission_room, dict) else None
     return str(profile or "")
 
 
-def is_octocity_mission_room(workspace: Workspace | None) -> bool:
-    return mission_room_profile(workspace) == OCTOCITY_MISSION_ROOM_PROFILE
+def is_octocity_mission_room(
+    workspace: Workspace | None,
+    *,
+    db: DBSession | None = None,
+) -> bool:
+    return mission_room_profile(workspace, db=db) == OCTOCITY_MISSION_ROOM_PROFILE
 
 
 def present_text_for_workspace(workspace: Workspace | None, value: str) -> str:
@@ -215,16 +255,26 @@ def present_payload_for_workspace(workspace: Workspace | None, payload: Any) -> 
     """Recursively anonymize Mission Room payload values for the Octocity profile."""
     if not is_octocity_mission_room(workspace):
         return payload
+
+    return _present_octocity_payload(payload)
+
+
+def _present_octocity_payload(payload: Any) -> Any:
+    """Apply the already-resolved Octocity presentation without DB re-reads."""
+
     if isinstance(payload, str):
-        return present_text_for_workspace(workspace, payload)
+        text = payload
+        for old, new in _OCTOCITY_TEXT_REPLACEMENTS:
+            text = text.replace(old, new)
+        return text
     if isinstance(payload, dict):
         return {
-            key: present_payload_for_workspace(workspace, value) for key, value in payload.items()
+            key: _present_octocity_payload(value) for key, value in payload.items()
         }
     if isinstance(payload, list):
-        return [present_payload_for_workspace(workspace, item) for item in payload]
+        return [_present_octocity_payload(item) for item in payload]
     if isinstance(payload, tuple):
-        return tuple(present_payload_for_workspace(workspace, item) for item in payload)
+        return tuple(_present_octocity_payload(item) for item in payload)
     return payload
 
 
@@ -3523,27 +3573,62 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         .all()
     )
     systems_by_variant = _system_map(db, workspace)
-    settings = workspace.settings if isinstance(workspace.settings, dict) else {}
-    mission_room_settings = (
-        settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}
-    )
-    navigation_items = _validated_navigation_items(
-        workspace,
-        mission_room_settings.get("navigation"),
-    )
-    brand = (
-        mission_room_settings.get("brand")
-        if isinstance(mission_room_settings.get("brand"), dict)
-        else settings.get("workspace_app_brand")
-        if isinstance(settings.get("workspace_app_brand"), dict)
-        else {}
-    )
-    app_label = str(settings.get("workspace_app_label") or brand.get("label") or "SENTINEL-CI")
-    assistant_label = str(
-        mission_room_settings.get("assistant_label")
-        or mission_room_settings.get("label")
-        or SENTINEL_ASSISTANT_NAME
-    )
+    authoritative = authoritative_mission_room_projection(workspace, db=db)
+    if authoritative is not None:
+        profile = str(authoritative["profile"])
+        defaults = (
+            OCTOCITY_NAVIGATION_ITEMS
+            if profile == OCTOCITY_MISSION_ROOM_PROFILE
+            else NAVIGATION_ITEMS
+        )
+        defaults_by_key = {str(item["key"]): dict(item) for item in defaults}
+        navigation_items = [
+            defaults_by_key[key]
+            for key in authoritative["navigation_keys"]
+            if key in defaults_by_key
+        ]
+        app_label = str(authoritative["label"])
+        assistant_label = str(authoritative["assistant_label"])
+        brand = {
+            "label": app_label,
+            "style": str(authoritative["brand_style"]),
+        }
+        shell = "immersive"
+        default_route = str(authoritative["default_route"])
+        default_view = default_route.rstrip("/").rsplit("/", 1)[-1] or "cockpit"
+    else:
+        # Gate-off compatibility remains byte-for-byte settings driven.
+        settings = workspace.settings if isinstance(workspace.settings, dict) else {}
+        mission_room_settings = (
+            settings.get("mission_room")
+            if isinstance(settings.get("mission_room"), dict)
+            else {}
+        )
+        navigation_items = _validated_navigation_items(
+            workspace,
+            mission_room_settings.get("navigation"),
+        )
+        brand = (
+            mission_room_settings.get("brand")
+            if isinstance(mission_room_settings.get("brand"), dict)
+            else settings.get("workspace_app_brand")
+            if isinstance(settings.get("workspace_app_brand"), dict)
+            else {}
+        )
+        app_label = str(
+            settings.get("workspace_app_label")
+            or brand.get("label")
+            or "SENTINEL-CI"
+        )
+        assistant_label = str(
+            mission_room_settings.get("assistant_label")
+            or mission_room_settings.get("label")
+            or SENTINEL_ASSISTANT_NAME
+        )
+        profile = mission_room_profile(workspace)
+        shell = settings.get("workspace_app_shell") or "immersive"
+        default_route = settings.get("default_route") or MISSION_ROOM_ROUTE
+        default_view = settings.get("workspace_app_default_view") or "cockpit"
     api_by_view = {
         "cockpit": "/api/v1/mission-room/cockpit",
         "monitor": "/api/v1/mission-room/monitor",
@@ -3584,11 +3669,11 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         "app": {
             "label": app_label,
             "assistant_label": assistant_label,
-            "shell": settings.get("workspace_app_shell") or "immersive",
-            "default_route": settings.get("default_route") or MISSION_ROOM_ROUTE,
-            "default_view": settings.get("workspace_app_default_view") or "cockpit",
+            "shell": shell,
+            "default_route": default_route,
+            "default_view": default_view,
             "brand": brand,
-            "profile": mission_room_profile(workspace),
+            "profile": profile,
         },
         "items": items,
         "exit_routes": [
@@ -7041,6 +7126,7 @@ def draft_instruction_payload(
     target_type: str,
     instruction_type: str = "dircab_instruction",
     db: Optional[DBSession] = None,
+    require_audit: bool = False,
 ) -> dict[str, Any]:
     project = next((p for p in PROJECTS if p["id"] == target_id), None)
     zone = next((z for z in MAP_ZONES if z["id"] == target_id), None)
@@ -7119,13 +7205,17 @@ def draft_instruction_payload(
             "channel": "email_draft" if is_press_response else "cabinet_instruction",
         },
     }
-    emit_audit_event(
+    audit_id = emit_audit_event(
         db=db,
         workspace_id=workspace.id,
         event_type="mission_room.instruction.drafted",
         actor=actor,
         details=payload,
     )
+    if require_audit and audit_id is None:
+        if db is not None:
+            db.rollback()
+        raise RuntimeError("Mission Room draft audit could not be persisted")
     return payload
 
 
@@ -8490,6 +8580,17 @@ def _octocity_settings() -> dict[str, Any]:
     return {
         "family": "generic",
         "demo_profile": "octocity_mission_room",
+        # Octocity intentionally reuses only these four global government
+        # Capabilities. Keep the exception slug-scoped so the workspace does
+        # not inherit the complete Sentinel/government catalog.
+        "catalog": {
+            "enabled_capabilities": [
+                "executive_instruction_drafting",
+                "government_mission_room",
+                "open_intelligence_watch",
+                "territorial_action_map",
+            ],
+        },
         "default_route": MISSION_ROOM_ROUTE,
         "hide_provider_details": True,
         "workspace_app_shell": "immersive",

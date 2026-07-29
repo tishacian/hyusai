@@ -4,16 +4,17 @@ The seed catalog (5-10 universal capabilities) is provisioned by the
 `skills_registry.seed_capabilities()` helper at startup and exposed here
 as `/catalog`. Workspaces can override pricing / value / SLA.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
     capability_is_visible,
@@ -21,8 +22,33 @@ from app.services.catalog_visibility import (
     visible_capabilities,
     workspace_catalog_policy,
 )
+from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import legacy_object_action_allowed
+from app.services.object_perspective import (
+    build_capability_perspective,
+    projection_feature_enabled,
+)
 
 router = APIRouter()
+
+
+def _enforce_collection_read(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> None:
+    """Resolve the collection boundary once; capability.read is role-scoped."""
+
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"scope": "collection"},
+    )
 
 
 class CapabilityCreate(BaseModel):
@@ -81,9 +107,11 @@ def _serialize(c: Capability, workspace: Workspace | None = None) -> Dict[str, A
 async def get_catalog(
     tier: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Seed catalog rows visible to the current workspace."""
+    _enforce_collection_read(db, user=user, workspace=workspace)
     q = db.query(Capability).filter(Capability.workspace_id.is_(None), Capability.is_seeded == "Y")
     if tier:
         q = q.filter(Capability.tier == tier)
@@ -102,8 +130,10 @@ async def get_catalog(
 async def list_capabilities(
     tier: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_collection_read(db, user=user, workspace=workspace)
     q = db.query(Capability).filter(
         (Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None))
     )
@@ -124,8 +154,23 @@ async def list_capabilities(
 async def create_capability(
     body: CapabilityCreate,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capability",
+            action="admin",
+        ),
+    )
     if db.query(Capability).filter(Capability.slug == body.slug).first():
         raise HTTPException(409, "Slug already exists")
     c = Capability(id=str(uuid4()), workspace_id=workspace.id, **body.model_dump())
@@ -139,6 +184,7 @@ async def create_capability(
 async def get_capability(
     cap_id: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     c = db.query(Capability).filter(
@@ -149,7 +195,63 @@ async def get_capability(
         raise HTTPException(404, "Capability not found")
     if not capability_is_visible(c, workspace):
         raise HTTPException(404, "Capability not found")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"capability_id": c.id},
+    )
     return _serialize(c, workspace)
+
+
+@router.get("/{cap_id}/perspective")
+async def get_capability_perspective(
+    cap_id: str,
+    lens: Literal["build", "operate", "steer", "govern"],
+    window: Literal["7d", "30d", "90d"] = "30d",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return one validated projection of the same Capability object."""
+
+    if not projection_feature_enabled(db, workspace, "capability"):
+        raise HTTPException(
+            410,
+            {
+                "code": "OBJECT_PROJECTION_REVOKED",
+                "object_type": "capability",
+            },
+        )
+    capability = db.query(Capability).filter(
+        Capability.id == cap_id,
+        ((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None))),
+    ).first()
+    if capability is None or not capability_is_visible(capability, workspace):
+        raise HTTPException(404, "Capability perspective not found")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="read",
+        # Reaching this point means the existing workspace catalog policy
+        # considers the Capability visible. Compat/shadow must preserve that
+        # behaviour until this exact object/action is explicitly enforced.
+        legacy_allowed=True,
+        resource_attrs={"capability_id": capability.id},
+    )
+    return build_capability_perspective(
+        db,
+        workspace=workspace,
+        user=user,
+        capability=capability,
+        lens=lens,
+        window=window,
+    )
 
 
 @router.patch("/{cap_id}")
@@ -157,6 +259,7 @@ async def update_capability(
     cap_id: str,
     body: CapabilityUpdate,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     c = db.query(Capability).filter(
@@ -164,6 +267,21 @@ async def update_capability(
     ).first()
     if not c:
         raise HTTPException(404, "Capability not found (or not editable in this workspace)")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capability",
+            action="admin",
+        ),
+        resource_attrs={"capability_id": c.id},
+    )
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(c, k, v)
     db.commit()

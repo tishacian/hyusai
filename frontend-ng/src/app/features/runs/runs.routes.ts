@@ -12,6 +12,11 @@ export const runsRoutes: Routes = [
       import('./runs-list.component').then((m) => m.RunsListComponent),
   },
   {
+    path: ':runId/invocations/:invocationId',
+    loadComponent: () =>
+      import('./skill-invocation-view.component').then((m) => m.SkillInvocationViewComponent),
+  },
+  {
     path: ':runId',
     loadComponent: () =>
       import('./run-view.component').then((m) => m.RunViewComponent),

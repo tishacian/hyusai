@@ -8,7 +8,18 @@ optional AdaptivePolicy. Every Run executes against a single System.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, CheckConstraint, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -24,6 +35,9 @@ class System(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+    # Portable, opaque identity used by Workspace Blueprints. Names remain
+    # presentation data and are deliberately not unique inside a workspace.
+    blueprint_key = Column(String(120), nullable=False, default=lambda: str(uuid4()))
 
     name = Column(String(200), nullable=False)
     objective = Column(Text, nullable=False, default="")
@@ -66,6 +80,11 @@ class System(Base):
     runs = relationship("Run", back_populates="system", cascade="all, delete-orphan")
 
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_systems_workspace_id",
+        ),
         CheckConstraint(
             _enum_check("status", [item.value for item in SystemStatus]),
             name="ck_systems_status",
@@ -73,5 +92,17 @@ class System(Base):
         CheckConstraint(
             _enum_check("execution_mode", [item.value for item in ExecutionMode]),
             name="ck_systems_execution_mode",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "blueprint_key",
+            name="uq_systems_workspace_blueprint_key",
+        ),
+        Index(
+            "uq_systems_global_blueprint_key",
+            "blueprint_key",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+            sqlite_where=text("workspace_id IS NULL"),
         ),
     )

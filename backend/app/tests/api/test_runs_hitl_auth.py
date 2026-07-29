@@ -15,12 +15,13 @@ from app.core.iam.roles import (
     WORKSPACE_CONTRIBUTOR,
     WORKSPACE_REVIEWER,
 )
+from app.models.audit import AuditLog
 from app.models.decision import Decision
 from app.models.run import Run
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.system import System
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.chat_execution_policy import (
     ANDRITZ_MIGRATION_MARKER,
     ANDRITZ_MIGRATION_REVISION,
@@ -29,8 +30,7 @@ from app.services.chat_execution_policy import (
 
 @pytest.fixture(autouse=True)
 def _stub_durable_ordinary_hitl_resume(monkeypatch):
-    from app.services.run_engine import engine
-    from app.services.run_engine import dispatch_outbox
+    from app.services.run_engine import dispatch_outbox, engine
 
     monkeypatch.setattr(
         engine,
@@ -162,6 +162,31 @@ def _seed_pending_run(
     )
 
 
+def _set_run_approve_mode(
+    db_session,
+    *,
+    workspace: Workspace,
+    user: User,
+    mode: str,
+) -> WorkspaceIAMConfig:
+    config = WorkspaceIAMConfig(
+        workspace_id=workspace.id,
+        version=1,
+        role_flags={},
+        capability_overrides={
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "compat",
+                "modes": {"run.approve": mode},
+            }
+        },
+        updated_by_user_id=user.id,
+    )
+    db_session.add(config)
+    db_session.commit()
+    return config
+
+
 def test_ordinary_hitl_rejects_non_owner_workspace_member(db_session, monkeypatch):
     workspace, _initiator, other, _membership, _system, run, decision = _seed_pending_run(
         db_session
@@ -200,6 +225,64 @@ def test_ordinary_hitl_owner_uses_authenticated_actor_not_body(db_session, monke
     assert decision.approved_by == initiator.email
     assert decision.approved_by != "spoofed-admin@example.invalid"
     assert decision.notes == "reviewed"
+
+
+def test_hitl_run_approve_shadow_preserves_legacy_and_enforce_uses_candidate(
+    db_session,
+    monkeypatch,
+    attest_authorization_v2,
+):
+    workspace, initiator, _other, _membership, _system, run, decision = _seed_pending_run(
+        db_session
+    )
+    _set_run_approve_mode(
+        db_session,
+        workspace=workspace,
+        user=initiator,
+        mode="shadow",
+    )
+    monkeypatch.setattr(runs, "_resume_wrapper", lambda *_args: None)
+
+    shadow_response = _client(db_session, workspace, initiator).post(
+        f"/runs/{run.id}/hitl",
+        json={"action": "accept", "actor": "spoofed-admin@example.invalid"},
+    )
+
+    assert shadow_response.status_code == 200
+    db_session.refresh(decision)
+    assert decision.status == "accepted"
+    assert decision.approved_by == initiator.email
+    shadow = db_session.query(AuditLog).filter(
+        AuditLog.workspace_id == workspace.id,
+        AuditLog.event_type == "iam.shadow.diff",
+    ).one()
+    assert shadow.details["resource"]["kind"] == "run"
+    assert shadow.details["action"] == "run.approve"
+    assert shadow.details["legacy_allowed"] is True
+    assert shadow.details["candidate_allowed"] is False
+
+    enforced_workspace, enforced_initiator, _other, _membership, _system, enforced_run, enforced_decision = (
+        _seed_pending_run(db_session)
+    )
+    enforced_config = _set_run_approve_mode(
+        db_session,
+        workspace=enforced_workspace,
+        user=enforced_initiator,
+        mode="enforce",
+    )
+    attest_authorization_v2(enforced_config, ["run.approve"])
+    db_session.commit()
+
+    enforce_response = _client(db_session, enforced_workspace, enforced_initiator).post(
+        f"/runs/{enforced_run.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert enforce_response.status_code == 403
+    assert enforce_response.json()["detail"]["mode"] == "enforce"
+    db_session.refresh(enforced_decision)
+    assert enforced_decision.status == "proposed"
+    assert enforced_decision.approved_by is None
 
 
 def test_ordinary_hitl_idempotent_retry_republishes_same_durable_task(
@@ -676,6 +759,47 @@ def test_managed_agentic_hitl_requires_admin_even_for_run_initiator(
     db_session.refresh(decision)
     assert decision.status == "accepted"
     assert decision.approved_by == initiator.email
+
+
+def test_managed_hitl_admin_floor_cannot_be_widened_by_v2_enforce(
+    db_session,
+    monkeypatch,
+    attest_authorization_v2,
+):
+    workspace, initiator, reviewer, _membership, _system, run, decision = _seed_pending_run(
+        db_session,
+        managed=True,
+    )
+    reviewer_membership = (
+        db_session.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.user_id == reviewer.id,
+        )
+        .one()
+    )
+    reviewer_membership.role_template = WORKSPACE_REVIEWER
+    config = _set_run_approve_mode(
+        db_session,
+        workspace=workspace,
+        user=initiator,
+        mode="enforce",
+    )
+    attest_authorization_v2(config, ["run.approve"])
+    db_session.commit()
+    monkeypatch.setattr(runs, "_resume_wrapper", lambda *_args: None)
+
+    response = _client(db_session, workspace, reviewer).post(
+        f"/runs/{run.id}/hitl",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Managed Run HITL requires workspace admin"
+    db_session.refresh(decision)
+    assert decision.status == "proposed"
+    assert decision.approved_by is None
+    assert db_session.query(RunDispatchOutbox).count() == 0
 
 
 def test_family_drift_does_not_release_managed_hitl_or_draft(db_session, monkeypatch):

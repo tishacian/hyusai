@@ -3,6 +3,7 @@ import { authGuard } from './core/auth.guard';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
+import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
 
 export const routes: Routes = [
   {
@@ -32,6 +33,21 @@ export const routes: Routes = [
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [
       { path: '', redirectTo: 'hypervisor', pathMatch: 'full' },
+      {
+        path: 'workspace-app-unavailable',
+        loadComponent: () =>
+          import('./features/workspace-app-runtime/workspace-app-unavailable.component').then(
+            (m) => m.WorkspaceAppUnavailableComponent,
+          ),
+      },
+      {
+        path: 'workspace-app-repair',
+        canActivate: [workspaceAppAdminGuard],
+        loadComponent: () =>
+          import('./features/governance/workspace-app-lifecycle.component').then(
+            (m) => m.WorkspaceAppLifecycleComponent,
+          ),
+      },
       {
         path: 'hypervisor/mission-room',
         loadChildren: () =>

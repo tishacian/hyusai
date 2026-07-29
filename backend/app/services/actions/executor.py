@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.actions.contracts import ActionPack
@@ -22,6 +23,7 @@ from app.services.demo_time_context import resolve_demo_date
 from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
 )
+from app.services.iam.decision_plane import resolve_manifest_permission
 from app.services.mission_room import present_payload_for_workspace
 from app.services.skills_registry import wrappers as skill_wrappers
 
@@ -413,7 +415,17 @@ async def execute_flow_action(
     text: str = "",
     session_id: Optional[str] = None,
     knowledge_scope: Optional[str] = None,
+    system_id: Optional[str] = None,
 ) -> dict[str, Any]:
+    denied = _flow_action_permission_denial(
+        db,
+        workspace,
+        user,
+        manifest=manifest,
+        system_id=system_id,
+    )
+    if denied is not None:
+        return denied
     ctx = _skill_ctx(db, workspace, user)
     handler = manifest.handler.name
     effects: list[dict[str, Any]] = []
@@ -1052,7 +1064,7 @@ async def execute_flow_action(
                         _action_effect(
                             "assistant-navigate",
                             {
-                                "route": f"/hypervisor/mission-room/agenda",
+                                "route": "/hypervisor/mission-room/agenda",
                                 "queryParams": {"highlight": updated.id},
                             },
                         )
@@ -1980,6 +1992,7 @@ async def handle_registry_chat_action(
     assistant_profile: Optional[str] = None,
     session_id: Optional[str] = None,
     knowledge_scope: Optional[str] = None,
+    system_id: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Resolve and execute registry flow-node actions (non-legacy)."""
     if not _has_mission_room_action_contract(
@@ -2000,15 +2013,6 @@ async def handle_registry_chat_action(
     if not resolution.matched or not resolution.action_id:
         return None
 
-    if resolution.reason == "awaiting_declined":
-        set_awaiting_state(db, workspace, None, session_id=session_id)
-        return {
-            "action": "awaiting_declined",
-            "applied": True,
-            "content": "Tres bien, je n'applique pas cette proposition pour le moment.",
-            "action_effects": [],
-        }
-
     manifest = _manifest_by_id(
         workspace, resolution.action_id, surface="chat", assistant_profile=assistant_profile
     )
@@ -2019,6 +2023,24 @@ async def handle_registry_chat_action(
     if manifest.handler.kind != "flow_node":
         return None
 
+    if resolution.reason == "awaiting_declined":
+        denied = _flow_action_permission_denial(
+            db,
+            workspace,
+            user,
+            manifest=manifest,
+            system_id=system_id,
+        )
+        if denied is not None:
+            return denied
+        set_awaiting_state(db, workspace, None, session_id=session_id)
+        return {
+            "action": "awaiting_declined",
+            "applied": True,
+            "content": "Tres bien, je n'applique pas cette proposition pour le moment.",
+            "action_effects": [],
+        }
+
     return await execute_flow_action(
         db,
         workspace,
@@ -2027,4 +2049,86 @@ async def handle_registry_chat_action(
         text=query,
         session_id=session_id,
         knowledge_scope=knowledge_scope,
+        system_id=system_id,
+    )
+
+
+def _flow_action_permission_denial(
+    db: DBSession,
+    workspace: Workspace,
+    user: Optional[User],
+    *,
+    manifest: ActionManifest,
+    system_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Authorize at the executor boundary shared by every flow-node caller."""
+
+    if user is None:
+        mode = "enforce"
+        reason = "authenticated_subject_required"
+        policy_id = None
+    else:
+        bound_system = (
+            db.query(System)
+            .filter(
+                System.id == system_id,
+                System.workspace_id == workspace.id,
+            )
+            .one_or_none()
+            if system_id
+            else None
+        )
+        permission = resolve_manifest_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            required_permission=manifest.required_permission,
+            legacy_allowed=True,
+            capability_manifest=manifest.capability_template,
+            action_id=manifest.action_id,
+            resource_attrs={
+                "workspace_id": workspace.id,
+                "system_id": bound_system.id if bound_system else None,
+                "capability_id": bound_system.capability_id if bound_system else None,
+                "capability": manifest.capability_template,
+                "action_id": manifest.action_id,
+            },
+        )
+        if permission.effective_allowed:
+            return None
+        mode = permission.mode
+        reason = permission.reason
+        policy_id = permission.policy_id
+
+    actor = (user.email or user.username or user.id) if user else "system:action_executor"
+    audit_id = emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="action.denied",
+        actor=actor,
+        details={
+            "action_id": manifest.action_id,
+            "surface": "chat",
+            "reason": reason,
+            "mode": mode,
+            "policy_id": policy_id,
+            "system_id": system_id,
+        },
+    )
+    return present_payload_for_workspace(
+        workspace,
+        {
+            "action": "action_denied",
+            "applied": False,
+            "content": "Cette action n'est pas autorisée dans ce workspace.",
+            "action_effects": [],
+            "requires_confirmation": False,
+            "action_manifest_id": manifest.action_id,
+            "authorization": {
+                "mode": mode,
+                "reason": reason,
+                "policy_id": policy_id,
+            },
+            "audit_id": audit_id,
+        },
     )

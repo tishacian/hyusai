@@ -6,6 +6,9 @@ import os
 from app.services.rag.document_service import DocumentService
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.fixture
 def hybrid_test_documents():
     """Create documents for hybrid retrieval testing"""
@@ -153,4 +156,3 @@ async def test_hybrid_fallback_to_vector():
     finally:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-

@@ -824,3 +824,98 @@ async def test_child_timeout_failure_is_propagated_to_parent(db_session):
     assert parent.status == "failed"
     assert parent.output_ref["subflows"]["delegate"]["error"].startswith("subflow_worker_failed")
     assert db_session.query(Run).filter(Run.parent_run_id == parent.id).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_parent_resume_revalidates_immutable_run_catalog_binding_before_walk(
+    db_session,
+    monkeypatch,
+):
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(
+        id="workspace-resume-catalog",
+        slug="resume-catalog",
+        name="Resume catalog",
+    )
+    child_system = System(
+        id="system-resume-child",
+        workspace_id=workspace.id,
+        name="Child",
+        objective="Complete one delegated branch",
+        flow_definition={"schema_version": 3, "nodes": [], "edges": []},
+    )
+    flow = {
+        "schema_version": 3,
+        "nodes": [{
+            "id": "delegate",
+            "kind": "subflow",
+            "config": {"system_id": child_system.id},
+        }],
+        "edges": [],
+    }
+    parent_system = System(
+        id="system-resume-parent",
+        workspace_id=workspace.id,
+        capability_id="capability-current",
+        name="Parent",
+        objective="Resume only with the snapshotted catalog identity",
+        flow_definition=flow,
+    )
+    parent = Run(
+        id="run-resume-parent",
+        workspace_id=workspace.id,
+        system_id=parent_system.id,
+        capability_id="capability-snapshotted",
+        status="waiting_subflows",
+        flow_snapshot=flow,
+        checkpoints=[{
+            "kind": "subflow_wait",
+            "state": {"pending_counts": {"delegate": 0}},
+        }],
+    )
+    child = Run(
+        id="run-resume-child",
+        workspace_id=workspace.id,
+        system_id=child_system.id,
+        parent_run_id=parent.id,
+        delegation_key="c" * 64,
+        delegation_node_id="delegate",
+        delegation_branch="default",
+        status="completed",
+        completed_at=datetime.utcnow(),
+        output_ref={"answer": "must not be settled after catalog drift"},
+    )
+    parent.waiting_subflows = {
+        "_meta": {"strategy": "all", "state": "waiting"},
+        child.delegation_key: {
+            "child_run_id": child.id,
+            "node_id": "delegate",
+            "status": "completed",
+        },
+    }
+    db_session.add(workspace)
+    db_session.flush()
+    db_session.add_all([child_system, parent_system])
+    db_session.flush()
+    db_session.add_all([parent, child])
+    db_session.commit()
+
+    async def forbidden_walk(*_args, **_kwargs):
+        raise AssertionError("catalog drift must fail before the parent walker resumes")
+
+    monkeypatch.setattr(dag, "_walk", forbidden_walk)
+    result = await resume_parent_for_child(child.id)
+
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == parent.id).one()
+    assert result == {
+        "id": parent.id,
+        "status": "failed",
+        "error": "system_catalog_binding_invalid:run_system_capability_mismatch",
+    }
+    assert persisted.status == "failed"
+    assert persisted.completed_at is not None
+    assert persisted.checkpoints[-1]["kind"] == "run_end"

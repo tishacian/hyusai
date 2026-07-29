@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from app.models.capability import Capability
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.actions.executor import (
@@ -238,6 +241,179 @@ def test_voice_confirm_yes_without_awaiting_returns_graceful_message(db_session)
     )
     assert "execution demo en attente de binding" not in (result.get("content") or "").lower()
     assert "Monsieur le Vice Premier Ministre" in (result.get("content") or "")
+
+
+def test_registry_flow_authorization_receives_target_system_and_manifest_contract(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-flow-authz", slug="flow-authz")
+    user = User(
+        id="u-flow-authz",
+        username="flow-authz",
+        email="flow-authz@example.test",
+        is_active=True,
+    )
+    capability = Capability(
+        id="capability-target-123",
+        workspace_id=workspace.id,
+        slug="opaque_capability",
+        name="Opaque capability",
+    )
+    system = System(
+        id="system-target-123",
+        workspace_id=workspace.id,
+        capability_id=capability.id,
+        name="Opaque system",
+        objective="Authorize an actual target",
+        status="active",
+        flow_definition={"nodes": [], "edges": []},
+    )
+    db_session.add_all([workspace, user, capability, system])
+    db_session.commit()
+    calls: list[dict] = []
+
+    def _resolve(*_args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            effective_allowed=True,
+            reason="candidate_allowed",
+            mode="shadow",
+            policy_id="aya_voice_command:action.execute",
+        )
+
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        _resolve,
+    )
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="AYA",
+            assistant_profile="vigie_executive",
+            system_id="system-target-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "aya.acknowledge_presence"
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["workspace"] is workspace
+    assert call["required_permission"] == "action.execute"
+    assert call["capability_manifest"] == "aya_voice_command"
+    assert call["action_id"] == "aya.acknowledge_presence"
+    assert call["resource_attrs"] == {
+        "workspace_id": workspace.id,
+        "system_id": "system-target-123",
+        "capability_id": capability.id,
+        "capability": "aya_voice_command",
+        "action_id": "aya.acknowledge_presence",
+    }
+
+
+def test_registry_flow_enforce_denial_stops_handler_before_side_effect(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-flow-denied", slug="flow-denied")
+    user = User(
+        id="u-flow-denied",
+        username="flow-denied",
+        email="flow-denied@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="role_denied",
+            mode="enforce",
+            policy_id="aya_voice_command:action.execute",
+        ),
+    )
+
+    async def _must_not_run(*_args, **_kwargs):
+        raise AssertionError("flow-node handler ran after authorization denial")
+
+    monkeypatch.setattr("app.services.actions.executor._invoke_skill", _must_not_run)
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="morning briefing",
+            assistant_profile="vigie_executive",
+            system_id="system-denied-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert result["applied"] is False
+    assert result["action_effects"] == []
+    assert result["authorization"] == {
+        "mode": "enforce",
+        "reason": "role_denied",
+        "policy_id": "aya_voice_command:action.execute",
+    }
+
+
+def test_awaiting_decline_is_authorized_before_clearing_state(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(id="ws-decline-denied", slug="decline-denied")
+    user = User(
+        id="u-decline-denied",
+        username="decline-denied",
+        email="decline-denied@example.test",
+        is_active=True,
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    set_awaiting_state(
+        db_session,
+        workspace,
+        {"action_on_yes": "aya.draft_customs_email"},
+        session_id="session-decline-denied",
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.actions.executor.resolve_manifest_permission",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            effective_allowed=False,
+            reason="role_denied",
+            mode="enforce",
+            policy_id="voice2voice_interaction:action.execute",
+        ),
+    )
+
+    result = asyncio.run(
+        handle_registry_chat_action(
+            db_session,
+            workspace,
+            user,
+            query="non",
+            assistant_profile="vigie_executive",
+            session_id="session-decline-denied",
+            system_id="system-decline-123",
+        )
+    )
+
+    assert result is not None
+    assert result["action"] == "action_denied"
+    assert get_awaiting_state(
+        db_session,
+        workspace,
+        session_id="session-decline-denied",
+    ) == {"action_on_yes": "aya.draft_customs_email"}
 
 
 def test_awaiting_yes_routes_to_draft_customs_email(db_session):

@@ -18,6 +18,7 @@ from .enforcement import (  # noqa: F401
     EgressDecision,
     EgressDisposition,
     InboundDecision,
+    MeasurementCoverage,
     MembraneEnforcementError,
     ProvenanceArtifact,
     ValveDecision,
@@ -30,6 +31,7 @@ from .enforcement import (  # noqa: F401
     evaluate_valves,
     persist_provenance_artifact,
     token_count_from_payload,
+    token_measurement_from_payload,
 )
 from .spec import (  # noqa: F401
     CapabilityFacet,
@@ -57,6 +59,7 @@ __all__ = [
     "EgressDecision",
     "EgressDisposition",
     "InboundDecision",
+    "MeasurementCoverage",
     "MembraneEnforcementError",
     "ProvenanceArtifact",
     "ValveDecision",
@@ -69,4 +72,5 @@ __all__ = [
     "evaluate_valves",
     "persist_provenance_artifact",
     "token_count_from_payload",
+    "token_measurement_from_payload",
 ]

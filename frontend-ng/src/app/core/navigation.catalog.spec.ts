@@ -63,11 +63,16 @@ test('surface registry owns unique ids and every rail section references it', ()
   }
 });
 
-test('lens changes preserve Capability, System and Run identity for every cockpit lens', () => {
+test('lens changes preserve Capability, System, Run and SkillInvocation identity', () => {
   const objects = [
     { url: '/capabilities/cap-42?tab=overview', type: 'capability', ref: 'cap-42' },
     { url: '/systems/sys-42?tab=overview', type: 'system', ref: 'sys-42' },
     { url: '/runs/run-42?tab=outcome', type: 'run', ref: 'run-42' },
+    {
+      url: '/runs/run-42/invocations/inv-7?tab=runtime',
+      type: 'skill_invocation',
+      ref: 'inv-7',
+    },
   ] as const;
   const lenses = ['hypervisor', 'build', 'operate', 'steer', 'govern'] as const;
 
@@ -104,6 +109,7 @@ test('scope routes retain the real current ancestry', () => {
     capabilityId: 'cap-1',
     systemId: null,
     runId: null,
+    skillInvocationId: null,
     skillRef: null,
   }, 'build'));
   assert.equal(capabilityScope.path, '/systems');
@@ -114,6 +120,7 @@ test('scope routes retain the real current ancestry', () => {
     capabilityId: 'cap-1',
     systemId: 'sys-1',
     runId: null,
+    skillInvocationId: null,
     skillRef: null,
   }, 'operate'));
   assert.equal(systemScope.path, '/runs');
@@ -125,6 +132,7 @@ test('scope routes retain the real current ancestry', () => {
     capabilityId: 'cap-1',
     systemId: 'sys-1',
     runId: 'run-1',
+    skillInvocationId: null,
     skillRef: null,
   }, 'operate'));
   assert.equal(runScope.path, '/skills');
@@ -142,6 +150,19 @@ test('object builders use canonical locators and business guards match registere
   assert.equal(navigationObjectUrl('capability', 'cap/42'), '/capabilities/cap%2F42');
   assert.equal(navigationObjectUrl('system', 'sys-42', { lens: 'operate' }), '/systems/sys-42?lens=operate');
   assert.equal(navigationObjectUrl('run', 'run-42', { lens: 'operate' }), '/runs/run-42');
+  assert.equal(
+    navigationObjectUrl('skill_invocation', 'inv/42', {
+      runId: 'run/42',
+      systemId: 'sys-42',
+      capabilityId: 'cap-42',
+      lens: 'govern',
+    }),
+    '/runs/run%2F42/invocations/inv%2F42?lens=govern&capabilityId=cap-42&systemId=sys-42',
+  );
+  assert.throws(
+    () => navigationObjectUrl('skill_invocation', 'inv-42'),
+    /requires its canonical parent runId/,
+  );
   assert.equal(navigationObjectUrl('skill', 'invoice_extract_v1'), '/skills/invoice_extract_v1');
   assert.equal(
     navigationObjectUrl('system', 'system-b', {
@@ -156,7 +177,7 @@ test('object builders use canonical locators and business guards match registere
       '/systems/system-b?runId=run-from-system-a&capabilityId=spoof',
       'operate',
       '/runs',
-      { capabilityId: 'cap-b', systemId: 'system-b', runId: null, skillRef: null },
+      { capabilityId: 'cap-b', systemId: 'system-b', runId: null, skillInvocationId: null, skillRef: null },
     ),
     '/systems/system-b?lens=operate&capabilityId=cap-b',
   );
@@ -180,7 +201,7 @@ test('axes v4 has four object lenses and a distinct Portfolio destination', () =
       '/systems/sys-1?lens=govern&facet=design',
       'build',
       '/build',
-      { capabilityId: 'cap-1', systemId: 'sys-1', runId: null, skillRef: null },
+      { capabilityId: 'cap-1', systemId: 'sys-1', runId: null, skillInvocationId: null, skillRef: null },
       true,
     ),
     '/systems/sys-1?facet=design&lens=build&capabilityId=cap-1',

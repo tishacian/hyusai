@@ -27,6 +27,13 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Optional
 
 from app.core.logging import get_logger
+from app.services.evaluation.judge import (
+    contractual_zero_token_usage,
+    new_provider_usage_accumulator,
+    normalize_provider_usage,
+    provider_usage_evidence,
+    record_provider_usage,
+)
 from app.services.rag.project_references import (
     extract_query_project_codes,
     numeric_project_candidates,
@@ -45,6 +52,169 @@ SkillCallable = Callable[[dict[str, Any], Optional[dict[str, Any]]], Awaitable[d
 # (0 chunks, embedding never reached). We resolve the slug from the id once and
 # memoise it. Only successful lookups are cached so a transient failure retries.
 _WORKSPACE_SLUG_CACHE: dict[str, str] = {}
+_PROVIDER_USAGE_CTX_KEY = "_provider_usage_v1"
+
+
+def _start_provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Start one invocation-local provider usage scope in the ephemeral ctx."""
+
+    accumulator = new_provider_usage_accumulator()
+    ctx[_PROVIDER_USAGE_CTX_KEY] = accumulator
+    return accumulator
+
+
+def _provider_usage_scope(ctx: dict[str, Any]) -> dict[str, Any]:
+    accumulator = ctx.get(_PROVIDER_USAGE_CTX_KEY)
+    if not isinstance(accumulator, dict):
+        accumulator = _start_provider_usage_scope(ctx)
+    return accumulator
+
+
+def _usage_candidate(payload: Any) -> Any:
+    """Return the nearest explicit provider usage container, if present."""
+
+    if not isinstance(payload, dict):
+        return payload
+    if normalize_provider_usage(payload) is not None:
+        return payload
+    metrics = payload.get("metrics")
+    if isinstance(metrics, dict) and normalize_provider_usage(metrics) is not None:
+        return metrics
+    meta = payload.get("meta")
+    if isinstance(meta, dict) and normalize_provider_usage(meta) is not None:
+        return meta
+    return payload
+
+
+def _provider_usage_contract(payload: Any) -> dict[str, Any] | None:
+    """Locate canonical complete/partial provider evidence without mirroring it."""
+
+    if not isinstance(payload, dict):
+        return None
+    for candidate in (
+        payload,
+        payload.get("metrics"),
+        payload.get("meta"),
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        if normalize_provider_usage(candidate) is not None or isinstance(
+            candidate.get("provider_usage"), dict
+        ):
+            return candidate
+    return None
+
+
+def _record_provider_usage_contract(
+    accumulator: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    provider: str,
+    model: str,
+) -> bool:
+    """Append every evidenced call, preserving incomplete coverage exactly."""
+
+    complete = contract.get("usage")
+    if isinstance(complete, dict):
+        calls = complete.get("calls")
+        if isinstance(calls, list) and calls:
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                record_provider_usage(
+                    accumulator,
+                    call,
+                    provider=str(call.get("provider") or provider),
+                    model=str(call.get("model") or model),
+                )
+            return True
+        if normalize_provider_usage(contract) is not None:
+            record_provider_usage(
+                accumulator,
+                contract,
+                provider=provider,
+                model=model,
+            )
+            return True
+
+    partial = contract.get("provider_usage")
+    if isinstance(partial, dict):
+        calls = partial.get("calls")
+        if isinstance(calls, list) and calls:
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                reported_payload = (
+                    {"total_tokens": call.get("reported_total")}
+                    if call.get("reported") is True
+                    and call.get("reported_total") is not None
+                    else None
+                )
+                record_provider_usage(
+                    accumulator,
+                    reported_payload,
+                    provider=str(call.get("provider") or provider),
+                    model=str(call.get("model") or model),
+                )
+            return True
+    return False
+
+
+def _without_direct_meta_usage(meta: Any) -> dict[str, Any]:
+    """Move direct token evidence to the canonical top-level contract."""
+
+    cleaned = dict(meta) if isinstance(meta, dict) else {}
+    cleaned.pop("usage", None)
+    cleaned.pop("token_usage", None)
+    return cleaned
+
+
+def _retrieval_token_path(
+    accumulator: dict[str, Any],
+    result: dict[str, Any],
+) -> bool:
+    """Record retrieval usage and return whether its path is non-token.
+
+    Local sentence-transformer, cross-encoder and hash paths cannot call a
+    token-billed provider.  Remote/unknown embedding paths are deliberately
+    unreported unless the retrieval service exposes real usage counters.
+    """
+
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    provider = str(metrics.get("embedding_provider") or "retrieval")
+    model = str(metrics.get("embedding_model") or "unknown")
+    contract = _provider_usage_contract(result)
+    if contract is not None and _record_provider_usage_contract(
+        accumulator,
+        contract,
+        provider=provider,
+        model=model,
+    ):
+        return False
+    normalized_provider = provider.strip().lower()
+    canonical_zero_calls = (
+        metrics.get("embedding_provider_usage_scope") == "canonical_request_v1"
+        and metrics.get("embedding_provider_calls") == 0
+    )
+    if (
+        canonical_zero_calls
+        or metrics.get("retrieval_context_cache_hit") is True
+        or normalized_provider
+        in {
+            "local",
+            "hash",
+            "sentence-transformers",
+            "sentence_transformers",
+        }
+    ):
+        return True
+    record_provider_usage(
+        accumulator,
+        None,
+        provider=normalized_provider or "unknown_retrieval_provider",
+        model=model,
+    )
+    return False
 
 
 def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Optional[str]:
@@ -207,7 +377,10 @@ async def _chat_trivial_bypass_v1(
 async def _llm_rag_answer_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    ctx = ctx or {}
+    # Preserve an explicitly supplied empty dict: provider usage is accumulated
+    # in this invocation-local context before being projected to the ledger.
+    ctx = ctx if isinstance(ctx, dict) else {}
+    usage_accumulator = _start_provider_usage_scope(ctx)
     query = str(payload.get("query") or "")
 
     # CONSUME pre-retrieved context when the caller supplies a ``context`` list
@@ -234,6 +407,7 @@ async def _llm_rag_answer_v1(
                         "no_context": True,
                     }
                 },
+                **contractual_zero_token_usage("llm_rag_answer:no_context_abstention"),
             }
         passages = _select_inventory_synthesis_passages(
             query,
@@ -258,7 +432,7 @@ async def _llm_rag_answer_v1(
             ctx=ctx,
             lang_target=lang_target,
         )
-        return {
+        output = {
             "answer": answer_text,
             "citations": _citations_from_passages(passages),
             "decision_steps": [],
@@ -271,6 +445,8 @@ async def _llm_rag_answer_v1(
                 "inventory_coverage_review": coverage_review,
             },
         }
+        output.update(provider_usage_evidence(usage_accumulator))
+        return output
 
     # No supplied context -> classic orchestrator retrieval (unchanged contract),
     # now with the tenant slug resolved so it never targets a phantom collection.
@@ -297,12 +473,24 @@ async def _llm_rag_answer_v1(
         # the sink and observe no behavioural change.
         token_sink=ctx.get("token_sink"),
     )
-    return {
+    # The classic orchestrator is a separate generation facade.  It currently
+    # exposes no usage; if it starts doing so, consume the real counters.  Until
+    # then this provider call remains unavailable instead of being estimated
+    # from answer length.
+    record_provider_usage(
+        usage_accumulator,
+        _usage_candidate(result),
+        provider=str(payload.get("provider") or "orchestrator"),
+        model=str(payload.get("model") or ctx.get("default_model") or "unknown"),
+    )
+    output = {
         "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "decision_steps": result.get("decision_steps", []),
-        "meta": result.get("meta", {}),
+        "meta": _without_direct_meta_usage(result.get("meta", {})),
     }
+    output.update(provider_usage_evidence(usage_accumulator))
+    return output
 
 
 async def _semantic_search_v1(
@@ -311,6 +499,8 @@ async def _semantic_search_v1(
     from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
 
     ctx = ctx or {}
+    usage_accumulator = new_provider_usage_accumulator()
+    non_token_retrieval_paths = 0
     runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
     retrieval_contract = (
         ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
@@ -410,6 +600,7 @@ async def _semantic_search_v1(
 
     request = _build_request(with_collection=True)
     result = await retrieve_rag_context(request)
+    non_token_retrieval_paths += int(_retrieval_token_path(usage_accumulator, result))
     chunks = list(result.get("chunks") or [])
     if bound_collection and not chunks and allow_workspace_fallback:
         logger.warning(
@@ -421,6 +612,7 @@ async def _semantic_search_v1(
         )
         request = _build_request(with_collection=False)
         result = await retrieve_rag_context(request)
+        non_token_retrieval_paths += int(_retrieval_token_path(usage_accumulator, result))
         chunks = list(result.get("chunks") or [])
     scores = list(result.get("scores") or [])
     metadatas = list(result.get("metadatas") or [])
@@ -467,7 +659,7 @@ async def _semantic_search_v1(
     inv_passage = _project_inventory_passage(inventory)
     if inv_passage:
         results.insert(0, inv_passage)
-    return {
+    output = {
         "results": results,
         "project_inventory": inventory,
         "pipeline": result.get("pipeline"),
@@ -495,6 +687,17 @@ async def _semantic_search_v1(
         "document_chunks_retrieved": metrics.get("document_chunks_retrieved"),
         "stage_timings": metrics.get("stage_timings"),
     }
+    calls = usage_accumulator.get("calls") or []
+    if calls:
+        output.update(provider_usage_evidence(usage_accumulator))
+    elif non_token_retrieval_paths:
+        output.update(
+            contractual_zero_token_usage("semantic_search:retrieval_without_provider_call")
+        )
+    else:
+        # Defensive: an unknown retrieval implementation is not proof of zero.
+        output.update(provider_usage_evidence(usage_accumulator))
+    return output
 
 
 def _merge_multi_hop_searches(
@@ -692,13 +895,18 @@ async def _eval_radar_v1(
         context_chunks=payload.get("context_chunks"),
         turn_number=payload.get("turn_number", 1),
     )
-    return {
+    output = {
         "axes": evaluation.get("scores", {}),
         "overall": evaluation.get("composite_score"),
         "hallucination_rate": evaluation.get("hallucination_rate"),
         "drift_rate": evaluation.get("drift_rate"),
         "note": evaluation.get("overall_note"),
     }
+    if isinstance(evaluation.get("usage"), dict):
+        output["usage"] = dict(evaluation["usage"])
+    elif isinstance(evaluation.get("provider_usage"), dict):
+        output["provider_usage"] = dict(evaluation["provider_usage"])
+    return output
 
 
 async def _claim_audit_v1(
@@ -719,12 +927,20 @@ async def _claim_audit_v1(
     supported = audit.get("supported", 0)
     total = max(1, len(claims))
     verdict = "supported" if supported / total >= 0.8 else "partial" if supported else "unsupported"
-    return {
+    output = {
         "claims": claims,
         "verdict": verdict,
         "supported": supported,
         "unsupported": audit.get("unsupported", 0),
     }
+    # JudgeService owns provider-neutral token normalisation.  A missing
+    # provider counter remains ``provider_usage: unavailable`` and therefore
+    # cannot turn into a false zero in the SkillInvocation ledger.
+    if isinstance(evaluation.get("usage"), dict):
+        output["usage"] = dict(evaluation["usage"])
+    elif isinstance(evaluation.get("provider_usage"), dict):
+        output["provider_usage"] = dict(evaluation["provider_usage"])
+    return output
 
 
 async def _intelligence_batch_v1(
@@ -2648,7 +2864,14 @@ async def _audit_log_v1(
         workspace_id=workspace_id,
         ts=datetime.utcnow().isoformat(),
     )
-    return {"id": event_id, "status": "recorded"}
+    return {
+        "id": event_id,
+        "status": "recorded",
+        # This implementation only writes a structured logger event.  It has
+        # no generation, embedding or other token-provider branch, so an
+        # explicit measured zero is contractually true for the executed path.
+        **contractual_zero_token_usage("audit_log:structured_logger_only"),
+    }
 
 
 async def _ollama_llm_v1(
@@ -3134,7 +3357,25 @@ async def _route_llm_complete(
             ollama_options["temperature"] = options.pop("temperature")
         if ollama_options:
             options["options"] = ollama_options
-    result = await client.generate(model=prefs["model"], prompt=prompt, **options)
+    usage_accumulator = _provider_usage_scope(cache_owner)
+    try:
+        result = await client.generate(model=prefs["model"], prompt=prompt, **options)
+    except Exception:
+        # A transport failure can happen after provider-side work.  With no
+        # counters, that call is deliberately unavailable rather than zero.
+        record_provider_usage(
+            usage_accumulator,
+            None,
+            provider=str(prefs.get("provider") or "unknown"),
+            model=str(prefs.get("model") or "unknown"),
+        )
+        raise
+    record_provider_usage(
+        usage_accumulator,
+        result,
+        provider=str(prefs.get("provider") or "unknown"),
+        model=str(prefs.get("model") or "unknown"),
+    )
     if isinstance(result, dict):
         return str(
             result.get("content") or result.get("response") or result.get("completion") or ""

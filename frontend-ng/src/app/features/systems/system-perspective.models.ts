@@ -16,6 +16,7 @@ export interface PerspectiveFact {
   value: unknown | null;
   unit?: string | null;
   source?: string | null;
+  reason?: string | null;
   as_of?: string | null;
   sample_count?: number | null;
 }
@@ -63,3 +64,41 @@ export const SYSTEM_OBJECT_LENSES: readonly ObjectLens[] = [
   'steer',
   'govern',
 ];
+
+/**
+ * The persisted workspace flag and System marker are rollout inputs, not UI
+ * authority. Only a current Steer projection that passed the backend gate may
+ * expose the interactive value loop.
+ */
+export function systemPerspectiveAuthorizesValueLoop(
+  perspective: SystemPerspectiveResponse | null | undefined,
+  systemId: string,
+  workspaceId?: string | null,
+): boolean {
+  if (
+    !perspective
+    || perspective.schema_version !== 1
+    || perspective.lens !== 'steer'
+    || perspective.identity?.system_id !== systemId
+    || (workspaceId && perspective.identity.workspace_id !== workspaceId)
+  ) return false;
+  const overview = perspective.facets?.overview?.blocks;
+  const design = perspective.facets?.design?.blocks;
+  if (!Array.isArray(overview) || !Array.isArray(design)) return false;
+  const lifecycle = overview.find((block) => block.id === 'value-loop');
+  const actuator = design.find((block) => block.id === 'value-actuator');
+  return Boolean(
+    lifecycle?.facts.some((fact) => (
+      fact.key === 'lifecycle' && fact.source === 'value_scenarios.status'
+    ))
+    && lifecycle?.facts.some((fact) => (
+      fact.key === 'scenarios'
+      && fact.source === 'value_scenarios,value_simulations,value_action_executions,value_measurements'
+    ))
+    && actuator?.facts.some((fact) => (
+      fact.key === 'actuator'
+      && fact.source === 'systems.settings.value_loop.actuators'
+      && fact.state === 'available'
+    )),
+  );
+}

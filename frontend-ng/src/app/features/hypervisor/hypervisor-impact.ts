@@ -1,5 +1,22 @@
 const SERIALIZED_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
+/** Keep missing measurements out of arithmetic while preserving measured zero. */
+export function measuredImpactDelta(
+  projected: number | null | undefined,
+  base: number | null | undefined,
+): number | null {
+  if (projected == null || base == null) return null;
+  return projected - base;
+}
+
+/** Count portfolio capabilities without ever substituting the Run count. */
+export function measuredCapabilityCount(
+  visibleCapabilities: number,
+  persistedCapabilities: number | null | undefined,
+): number {
+  return Math.max(visibleCapabilities, persistedCapabilities ?? 0);
+}
+
 /**
  * Format the mixed JSON values accepted by the Hypervisor decision API.
  * Numeric values retain the historical display while descriptive values are

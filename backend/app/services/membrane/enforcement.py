@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -34,6 +35,19 @@ class EgressDisposition(str, Enum):
     ALLOW = "allow"
     HOLD = "hold"
     BLOCK = "block"
+
+
+class MeasurementCoverage(str, Enum):
+    """How completely a persisted ledger covers one valve measurement.
+
+    ``0`` is a valid, complete measurement.  ``UNAVAILABLE`` and ``PARTIAL``
+    therefore cannot be inferred from the aggregate numeric value; they must
+    travel alongside it.
+    """
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -67,6 +81,18 @@ class ValveUsage:
     cost: float = 0.0
     latency_ms: float = 0.0
     tokens: int = 0
+    cost_coverage: MeasurementCoverage = MeasurementCoverage.UNAVAILABLE
+    token_coverage: MeasurementCoverage = MeasurementCoverage.UNAVAILABLE
+    latency_coverage: MeasurementCoverage = MeasurementCoverage.UNAVAILABLE
+    invocation_count: int = 0
+    measurement_gap_count: int = 0
+    cost_measurement_count: int = 0
+    token_measurement_count: int = 0
+    latency_measurement_count: int = 0
+    # Kept outside ``cost`` so v2 enforcement never treats an unverified
+    # catalogue/default value as measured.  Compat can still reproduce the
+    # historical threshold calculation during migration.
+    legacy_unverified_cost: float = 0.0
     failures: int = 0
     retries: int = 0
     loops: int = 0
@@ -305,12 +331,31 @@ def evaluate_valves(spec: MembraneSpec, usage: ValveUsage) -> ValveDecision:
 
     valves = spec.valves
     breaches: list[str] = []
-    if valves.max_cost_per_decision is not None and usage.cost > valves.max_cost_per_decision:
-        breaches.append("max_cost_per_decision")
-    if valves.max_latency_ms is not None and usage.latency_ms > valves.max_latency_ms:
-        breaches.append("max_latency_ms")
-    if valves.token_budget is not None and usage.tokens > valves.token_budget:
-        breaches.append("token_budget")
+    strict_measurements = (
+        spec.authoritative
+        and spec.version >= 2
+        and spec.effective_mode is not EnforcementMode.COMPAT
+    )
+    if valves.max_cost_per_decision is not None:
+        if strict_measurements and usage.cost_coverage is not MeasurementCoverage.COMPLETE:
+            breaches.append("cost_measurement_unavailable")
+        comparable_cost = (
+            usage.cost + usage.legacy_unverified_cost
+            if spec.effective_mode is EnforcementMode.COMPAT
+            else usage.cost
+        )
+        if comparable_cost > valves.max_cost_per_decision:
+            breaches.append("max_cost_per_decision")
+    if valves.max_latency_ms is not None:
+        if strict_measurements and usage.latency_coverage is not MeasurementCoverage.COMPLETE:
+            breaches.append("latency_measurement_unavailable")
+        if usage.latency_ms > valves.max_latency_ms:
+            breaches.append("max_latency_ms")
+    if valves.token_budget is not None:
+        if strict_measurements and usage.token_coverage is not MeasurementCoverage.COMPLETE:
+            breaches.append("token_measurement_unavailable")
+        if usage.tokens > valves.token_budget:
+            breaches.append("token_budget")
     circuit = valves.circuit_breaker or {}
     failure_threshold = circuit.get("failure_threshold", circuit.get("failures"))
     max_attempts = circuit.get("max_attempts")
@@ -342,16 +387,39 @@ def evaluate_valves(spec: MembraneSpec, usage: ValveUsage) -> ValveDecision:
     )
 
 
-def token_count_from_payload(payload: Any) -> int:
-    """Return one reported token total without double counting mirrors.
+_INCOMPLETE_TOKEN_COVERAGE = frozenset(
+    {"partial", "unavailable", "not_measured", "not_configured", "restricted"}
+)
 
-    Providers and wrappers expose usage under a handful of stable containers.
-    We prefer an explicit total, otherwise sum prompt/input and
-    completion/output counts within the first container that reports them.
-    """
+
+def _declares_incomplete_token_coverage(payload: Any) -> bool:
+    """Recognize an explicit incomplete marker before reading mirrored totals."""
 
     if not isinstance(payload, Mapping):
-        return 0
+        return False
+    coverage = str(payload.get("measurement_coverage") or "").strip().lower()
+    if coverage in _INCOMPLETE_TOKEN_COVERAGE:
+        return True
+    for key in (
+        "usage",
+        "token_usage",
+        "provider_usage",
+        "token_evidence",
+        "metrics",
+        "meta",
+    ):
+        if _declares_incomplete_token_coverage(payload.get(key)):
+            return True
+    return False
+
+
+def token_measurement_from_payload(payload: Any) -> tuple[int, bool]:
+    """Return ``(token_count, reported)`` without conflating missing and zero."""
+
+    if not isinstance(payload, Mapping):
+        return 0, False
+    if _declares_incomplete_token_coverage(payload):
+        return 0, False
     containers: list[Mapping[str, Any]] = [payload]
     for key in ("usage", "token_usage", "metrics", "meta"):
         candidate = payload.get(key)
@@ -364,18 +432,30 @@ def token_count_from_payload(payload: Any) -> int:
         for key in ("total_tokens", "tokens_total", "token_count"):
             parsed = _non_negative_int(container.get(key))
             if parsed is not None:
-                return parsed
+                return parsed, True
         prompt = _first_int(container, ("prompt_tokens", "input_tokens"))
         completion = _first_int(container, ("completion_tokens", "output_tokens"))
-        if prompt is not None or completion is not None:
-            return (prompt or 0) + (completion or 0)
-    return 0
+        if prompt is not None and completion is not None:
+            return prompt + completion, True
+    return 0, False
+
+
+def token_count_from_payload(payload: Any) -> int:
+    """Return one reported token total without double counting mirrors.
+
+    Providers and wrappers expose usage under a handful of stable containers.
+    We prefer an explicit total, otherwise sum prompt/input and
+    completion/output counts within the first container that reports them.
+    """
+
+    return token_measurement_from_payload(payload)[0]
 
 
 def collect_valve_usage(
     invocations: Iterable[Any],
     *,
-    duration_ms: float = 0.0,
+    duration_ms: float | None = None,
+    measurement_gaps: int = 0,
 ) -> ValveUsage:
     """Aggregate persisted invocation ledgers into the v2 valve contract.
 
@@ -383,13 +463,19 @@ def collect_valve_usage(
     mappings used by unit tests and offline attestation jobs.
     """
 
+    rows = list(invocations)
     cost = 0.0
+    legacy_unverified_cost = 0.0
     tokens = 0
+    cost_measurements = 0
+    token_measurements = 0
+    latency_measurements = 0
+    invocation_latency_ms = 0.0
     failures = 0
     retries = 0
     loops = 0
     autocorrections = 0
-    for invocation in invocations:
+    for invocation in rows:
         getter = invocation.get if isinstance(invocation, Mapping) else None
 
         def value(name: str, default: Any = None) -> Any:
@@ -397,16 +483,29 @@ def collect_valve_usage(
                 return getter(name, default)
             return getattr(invocation, name, default)
 
-        try:
-            cost += max(0.0, float(value("cost", 0.0) or 0.0))
-        except (TypeError, ValueError):
-            pass
+        parsed_cost = _non_negative_float(value("cost"))
+        if value("cost_measured") is True and parsed_cost is not None:
+            cost += parsed_cost
+            cost_measurements += 1
+        elif parsed_cost is not None:
+            legacy_unverified_cost += parsed_cost
         status = str(value("status", "") or "").lower()
         if status in {"failed", "cancelled"}:
             failures += 1
         output = value("output_ref", {})
         metrics = value("metrics", {})
-        tokens += max(token_count_from_payload(output), token_count_from_payload(metrics))
+        output_tokens, output_reported = token_measurement_from_payload(output)
+        metric_tokens, metrics_reported = token_measurement_from_payload(metrics)
+        explicitly_incomplete = _declares_incomplete_token_coverage(
+            output
+        ) or _declares_incomplete_token_coverage(metrics)
+        if not explicitly_incomplete and (output_reported or metrics_reported):
+            tokens += max(output_tokens, metric_tokens)
+            token_measurements += 1
+        invocation_latency = _non_negative_float(value("latency_ms"))
+        if invocation_latency is not None:
+            invocation_latency_ms += invocation_latency
+            latency_measurements += 1
         trace = value("trace", {})
         if not isinstance(trace, Mapping):
             trace = {}
@@ -417,10 +516,30 @@ def collect_valve_usage(
             loops += 1
         autocorrections += _non_negative_int(trace.get("membrane_autocorrections")) or 0
 
+    gaps = _non_negative_int(measurement_gaps) or 0
+    measurement_subjects = len(rows) + gaps
+    explicit_duration = _non_negative_float(duration_ms)
+    if explicit_duration is not None:
+        latency_ms = explicit_duration
+        latency_coverage = MeasurementCoverage.COMPLETE
+        latency_measurements = measurement_subjects
+    else:
+        latency_ms = invocation_latency_ms
+        latency_coverage = _coverage(measurement_subjects, latency_measurements)
+
     return ValveUsage(
         cost=cost,
-        latency_ms=max(0.0, float(duration_ms or 0.0)),
+        latency_ms=latency_ms,
         tokens=tokens,
+        cost_coverage=_coverage(measurement_subjects, cost_measurements),
+        token_coverage=_coverage(measurement_subjects, token_measurements),
+        latency_coverage=latency_coverage,
+        invocation_count=len(rows),
+        measurement_gap_count=gaps,
+        cost_measurement_count=cost_measurements,
+        token_measurement_count=token_measurements,
+        latency_measurement_count=latency_measurements,
+        legacy_unverified_cost=legacy_unverified_cost,
         failures=failures,
         retries=retries,
         loops=loops,
@@ -503,11 +622,31 @@ def _jsonable(value: Any) -> Any:
 
 
 def _non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
+
+
+def _non_negative_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(value, bool) or not math.isfinite(parsed) or parsed < 0:
+        return None
+    return parsed
+
+
+def _coverage(total: int, measured: int) -> MeasurementCoverage:
+    if total <= 0 or measured <= 0:
+        return MeasurementCoverage.UNAVAILABLE
+    if measured >= total:
+        return MeasurementCoverage.COMPLETE
+    return MeasurementCoverage.PARTIAL
 
 
 def _first_int(container: Mapping[str, Any], keys: Sequence[str]) -> int | None:

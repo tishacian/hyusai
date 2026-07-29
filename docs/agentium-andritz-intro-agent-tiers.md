@@ -205,19 +205,19 @@ type de déclencheur ne sert qu'à un type d'effet.
 | URL app | `https://agentium.papai.ai` |
 | SSH | alias `omnirag-demo` |
 | Repo VM | `/home/ubuntu/omnirag` |
-| Services applicatifs | `agentium-backend`, `agentium-frontend`, `agentium-worker-cpu` |
+| Services applicatifs | `agentium-backend`, `agentium-frontend`, `agentium-worker-cpu`, `agentium-sftp` |
 | Dépôt sécurisé | `/data/secure_deposit/{deposit_files.object_key}` |
 | Branche | `demo/agentic` |
 | Santé | `curl -fsS https://agentium.papai.ai/api/v1/health` |
-| Déploiement | `scripts/deploy-vm.sh`, branche et SHA complet obligatoires |
+| Déploiement | `scripts/deploy-agentium-safe.sh`, branche, SHA complet et `deployment-id` obligatoires |
 
-Les migrations ne sont pas appliquées automatiquement par le script. Une
-révision Alembic impose le rollout en deux temps : construction du candidat,
-quiescence de l'API, migration avec l'image candidate, vérification du head,
-puis activation. Ne pas lancer un `alembic upgrade head` ad hoc pendant que
-l'ancien backend sert encore du trafic. Le déroulé et le rollback de référence
-sont ceux du
-[`Lot 5 — cleanup & governance`](./agentium-navigation-lot-5-cleanup-governance.md#commandes-opératoires).
+L'orchestrateur construit le candidat, ferme le trafic public, vérifie qu'aucun
+upload SFTP n'est ouvert, gèle tous les writers, sauvegarde PostgreSQL, migre et
+active le SHA exact. Il ne rouvre rien avant les canaris et la comparaison des
+invariants PostgreSQL, Qdrant et Secure Deposit. Ne jamais lancer un
+`alembic upgrade head`, un Compose ou un reset SFTP ad hoc. Le déroulé et le
+rollback de référence sont dans le
+[`runbook de déploiement sûr`](./ops/agentium-safe-vm-deployment.md).
 
 Ne pas supposer que les fichiers SFTP sont dans Git : ils vivent dans le dépôt
 sécurisé de la VM, indexés dans Postgres/Qdrant.

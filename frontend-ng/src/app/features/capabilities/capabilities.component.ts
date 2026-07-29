@@ -7,7 +7,6 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   GlyphComponent,
-  ImpactPreviewComponent,
   KbdComponent,
   MicroBarComponent,
   PageFrameComponent,
@@ -30,7 +29,6 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     MicroBarComponent,
     TagComponent,
     KbdComponent,
-    ImpactPreviewComponent,
     RunOutcomeCardComponent,
     RuntimeStatusBadgeComponent,
     RouterLink,
@@ -252,8 +250,8 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
               </div>
             </div>
 
-            <!-- Recent Outcome + Impact preview for this capability -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+            <!-- Recent execution evidence for this capability. -->
+            <div class="grid grid-cols-1 gap-4 mt-6">
               <div>
                 <div class="ck-mono flex items-center gap-2" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
                   <ck-glyph name="crosshair" [size]="12" />
@@ -267,11 +265,6 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   </div>
                 }
               </div>
-              <ck-impact-preview
-                scope="capability"
-                [targetId]="cap.id"
-                label="Capability what-if"
-              />
             </div>
           </section>
         }

@@ -10,7 +10,6 @@ import { findOctocityForbiddenPresentationTerms } from '../../src/app/features/m
  *
  * Run against production/staging:
  *   E2E_LIVE_CONTRACT=1 \
- *     E2E_EXPECTED_SHA=<deployed-40-hex-sha> E2E_SAFE_CONTENT_FREE=1 \
  *     E2E_{SHOWCASE,ANDRITZ,SENTINEL,OCTOCITY}_WORKSPACE_{ID,SLUG}=... \
  *     E2E_USERNAME=... E2E_PASSWORD=... \
  *     npx playwright test 09-live-workspace-contract.spec.ts
@@ -286,6 +285,105 @@ async function client360DryRunProjection(page: Page): Promise<{
   }, workspaceSlug);
 }
 
+async function andritzReadOnlySurfaceProjection(page: Page): Promise<{
+  systemsStatus: number;
+  templatesStatus: number;
+  captureSessionsStatus: number | null;
+  fseSessionsStatus: number | null;
+  sftpHealthStatus: number;
+  captureSystemFound: boolean;
+  fseSystemFound: boolean;
+  fseTemplatePresent: boolean;
+  captureSessionsBound: boolean;
+  fseSessionsBound: boolean;
+  sftpHealthy: boolean;
+  sftpEnabled: boolean;
+  sftpWorkspaceMatches: boolean;
+}> {
+  return page.evaluate(async (slug) => {
+    const token = localStorage.getItem('agentium_token') ?? '';
+    const headers = { Authorization: token, 'X-Workspace-Slug': slug };
+    const asRecord = (value: unknown): Record<string, unknown> | null =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+
+    const [systemsResponse, templatesResponse, sftpHealthResponse] = await Promise.all([
+      fetch('/api/v1/systems?include_retired=true&limit=100', { headers }),
+      fetch('/api/v1/knowledge-capture/templates', { headers }),
+      fetch('/api/v1/sftp/health', { headers }),
+    ]);
+    const systemsBody: unknown = await systemsResponse.json().catch(() => null);
+    const templatesBody: unknown = await templatesResponse.json().catch(() => null);
+    const sftpBody: unknown = await sftpHealthResponse.json().catch(() => null);
+    const systemsRecord = asRecord(systemsBody);
+    const systems = Array.isArray(systemsBody)
+      ? systemsBody
+      : Array.isArray(systemsRecord?.['systems'])
+        ? systemsRecord['systems']
+        : [];
+    const activeCaptureSystems = systems
+      .map(asRecord)
+      .filter((system): system is Record<string, unknown> => Boolean(
+        system &&
+        system['status'] === 'active' &&
+        asRecord(system['flow_definition'])?.['variant'] === 'expert_knowledge_capture',
+      ));
+    const fseSystem = activeCaptureSystems.find(
+      (system) => asRecord(asRecord(system['settings'])?.['capture'])?.['template_id'] === 'fse_intervention_v1',
+    );
+    const captureSystem = activeCaptureSystems.find((system) => system !== fseSystem);
+    const captureSystemId = typeof captureSystem?.['id'] === 'string' ? captureSystem['id'] : null;
+    const fseSystemId = typeof fseSystem?.['id'] === 'string' ? fseSystem['id'] : null;
+
+    const sessionProbe = async (systemId: string | null): Promise<{
+      status: number | null;
+      allBound: boolean;
+    }> => {
+      if (!systemId) return { status: null, allBound: false };
+      const response = await fetch(
+        `/api/v1/knowledge-capture/sessions?system_id=${encodeURIComponent(systemId)}&limit=1`,
+        { headers },
+      );
+      const raw: unknown = await response.json().catch(() => null);
+      const rows = Array.isArray(asRecord(raw)?.['sessions'])
+        ? asRecord(raw)?.['sessions'] as unknown[]
+        : null;
+      return {
+        status: response.status,
+        allBound: Boolean(rows?.every((row) => asRecord(row)?.['system_id'] === systemId)),
+      };
+    };
+    const [captureSessions, fseSessions] = await Promise.all([
+      sessionProbe(captureSystemId),
+      sessionProbe(fseSystemId),
+    ]);
+    const templates = Array.isArray(asRecord(templatesBody)?.['templates'])
+      ? asRecord(templatesBody)?.['templates'] as unknown[]
+      : [];
+    const sftp = asRecord(sftpBody);
+
+    // No System, session, template or file value leaves the browser context.
+    return {
+      systemsStatus: systemsResponse.status,
+      templatesStatus: templatesResponse.status,
+      captureSessionsStatus: captureSessions.status,
+      fseSessionsStatus: fseSessions.status,
+      sftpHealthStatus: sftpHealthResponse.status,
+      captureSystemFound: Boolean(captureSystemId),
+      fseSystemFound: Boolean(fseSystemId),
+      fseTemplatePresent: templates.some(
+        (template) => asRecord(template)?.['id'] === 'fse_intervention_v1',
+      ),
+      captureSessionsBound: captureSessions.allBound,
+      fseSessionsBound: fseSessions.allBound,
+      sftpHealthy: sftp?.['status'] === 'ok',
+      sftpEnabled: sftp?.['enabled'] === true,
+      sftpWorkspaceMatches: sftp?.['workspace'] === slug,
+    };
+  }, workspaceSlug);
+}
+
 async function crossTenantSystemIsolationProjection(
   page: Page,
   currentWorkspace: string,
@@ -355,19 +453,23 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     });
   });
 
-  test('Andritz business preview exposes the three-app shell', async ({ page }, testInfo) => {
+  test('Andritz business preview exposes three apps through four entitled surfaces', async ({ page }, testInfo) => {
     await login(page, true);
     await page.goto('/chat');
 
     const businessNav = page.getByRole('navigation', { name: 'Navigation métier' });
     await expect(businessNav).toBeVisible();
     const links = businessNav.getByRole('link');
-    await expect(links).toHaveCount(3);
+    await expect(links).toHaveCount(4);
     await expect(businessNav.getByRole('link', { name: 'Recherche' })).toHaveAttribute('href', '/chat');
     await expect(businessNav.getByRole('link', { name: 'Client360 PDR' })).toHaveAttribute('href', '/client360');
     await expect(businessNav.getByRole('link', { name: 'Capture de connaissances' })).toHaveAttribute(
       'href',
       '/knowledge/capture',
+    );
+    await expect(businessNav.getByRole('link', { name: "Rapports d'intervention FSE" })).toHaveAttribute(
+      'href',
+      '/knowledge/interventions',
     );
     await expect(page.locator('app-side-rail')).toHaveCount(0);
 
@@ -377,7 +479,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await attachViewport(page, testInfo, 'andritz-business-shell.png');
   });
 
-  test('the three Andritz surfaces survive deep links, history and reload', async ({ page }, testInfo) => {
+  test('the four Andritz surfaces survive deep links, history and reload', async ({ page }, testInfo) => {
     await login(page, true);
 
     const workspaceHeaders: Array<string | undefined> = [];
@@ -420,7 +522,31 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await expect(page.locator('body')).toContainText(/Capture de connaissances|Capture expert/);
     await attachViewport(page, testInfo, 'andritz-knowledge-capture.png');
 
+    await page.goto('/knowledge/interventions');
+    await expect(page.locator('app-capture-router')).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Rapport d'intervention FSE|Interventions FSE/);
+    await attachViewport(page, testInfo, 'andritz-fse-reports.png');
+
+    const readOnlySurfaces = await andritzReadOnlySurfaceProjection(page);
+    expect(readOnlySurfaces).toEqual({
+      systemsStatus: 200,
+      templatesStatus: 200,
+      captureSessionsStatus: 200,
+      fseSessionsStatus: 200,
+      sftpHealthStatus: 200,
+      captureSystemFound: true,
+      fseSystemFound: true,
+      fseTemplatePresent: true,
+      captureSessionsBound: true,
+      fseSessionsBound: true,
+      sftpHealthy: true,
+      sftpEnabled: true,
+      sftpWorkspaceMatches: true,
+    });
+
     await page.reload();
+    await expect(page).toHaveURL(/\/knowledge\/interventions(?:[?#].*)?$/);
+    await page.goBack();
     await expect(page).toHaveURL(/\/knowledge\/capture(?:[?#].*)?$/);
     await page.goBack();
     await expect(page).toHaveURL(/\/client360(?:[?#].*)?$/);
@@ -587,7 +713,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     await expect(page.getByRole('navigation', { name: 'Navigation métier' })).toHaveCount(0);
   });
 
-  test('a non-admin member gets the three-app shell without preview', async ({ page }) => {
+  test('a non-admin member gets the three-app, four-surface shell without preview', async ({ page }) => {
     test.skip(!liveNonAdmin, 'Set E2E_LIVE_NON_ADMIN=1 to exercise an existing business member');
     expect(
       businessUsername,
@@ -619,7 +745,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     const businessNav = page.getByRole('navigation', { name: 'Navigation métier' });
     await expect(businessNav).toBeVisible();
     const links = businessNav.getByRole('link');
-    await expect(links).toHaveCount(3);
+    await expect(links).toHaveCount(4);
     expect(
       await links.evaluateAll((items) =>
         items.map((item) => ({
@@ -631,6 +757,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       { name: 'Recherche', href: '/chat' },
       { name: 'Client360 PDR', href: '/client360' },
       { name: 'Capture de connaissances', href: '/knowledge/capture' },
+      { name: "Rapports d'intervention FSE", href: '/knowledge/interventions' },
     ]);
     await expect(page.getByRole('button', { name: 'Mode avancé' })).toHaveCount(0);
     await expect(page.locator('app-side-rail')).toHaveCount(0);
@@ -641,14 +768,16 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     const baseline = await page.evaluate(async (slug) => {
       const token = localStorage.getItem('agentium_token') ?? '';
       const headers = { Authorization: token, 'X-Workspace-Slug': slug };
-      const [workspaceResponse, iamResponse, systemsResponse] = await Promise.all([
+      const [workspaceResponse, iamResponse, systemsResponse, installationsResponse] = await Promise.all([
         fetch(`/api/v1/auth/workspaces/${encodeURIComponent(slug)}`, { headers }),
         fetch('/api/v1/iam/summary', { headers }),
         fetch('/api/v1/systems', { headers }),
+        fetch('/api/v1/governance/workspace-apps/installations', { headers }),
       ]);
       const workspace = await workspaceResponse.json().catch(() => ({}));
       const iam = await iamResponse.json().catch(() => ({}));
       const systemsBody = await systemsResponse.json().catch(() => []);
+      const installationsBody = await installationsResponse.json().catch(() => ({}));
       const systems = Array.isArray(systemsBody) ? systemsBody : systemsBody.systems ?? [];
       return {
         workspaceId: workspace.id,
@@ -656,6 +785,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
           workspaceResponse.status,
           iamResponse.status,
           systemsResponse.status,
+          installationsResponse.status,
         ],
         mode: workspace.mode,
         navigationProfile: workspace.settings?.navigation_profile,
@@ -669,6 +799,9 @@ test.describe('Lot 0 — live workspace experience contract', () => {
               Array.isArray(member.app_entitlements) ? member.app_entitlements : [],
             )
           : [],
+        installedAppIds: Array.isArray(installationsBody.installations)
+          ? installationsBody.installations.map((installation: { app_id?: string }) => installation.app_id)
+          : [],
         activeSystems: systems
           .filter((system: { status?: string }) => system.status === 'active')
           .map((system: { name?: string; flow_definition?: { variant?: string } }) => ({
@@ -679,14 +812,19 @@ test.describe('Lot 0 — live workspace experience contract', () => {
     }, workspaceSlug);
 
     expect(baseline.workspaceId).toBe(andritzTarget.id);
-    expect(baseline.statuses).toEqual([200, 200, 200]);
+    expect(baseline.statuses).toEqual([200, 200, 200, 200]);
     expect(baseline.mode).toBe('builder');
     expect(baseline.navigationProfile).toEqual({
       key: 'business_end_user',
       default_route: '/chat',
-      primary_surfaces: ['chat', 'client360-pdr', 'knowledge-capture'],
+      primary_surfaces: ['chat', 'client360-pdr', 'knowledge-capture', 'fse-reports'],
       advanced_access: 'admin_only',
     });
+    expect(baseline.installedAppIds).toEqual([
+      'andritz.chat',
+      'andritz.client360-pdr',
+      'andritz.knowledge-capture',
+    ]);
     expect(baseline.features).toEqual({
       app_entitlements_v1: true,
       workspace_experience_v2: true,
@@ -696,14 +834,14 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       expect(baseline.memberAppEntitlements).toHaveLength(expectedAndritzMemberCount);
     }
     for (const grants of baseline.memberAppEntitlements) {
-      expect(grants).toEqual(['chat', 'client360-pdr', 'knowledge-capture']);
+      expect(grants).toEqual(['chat', 'client360-pdr', 'knowledge-capture', 'fse-reports']);
     }
     expect(
       baseline.memberAppEntitlements.reduce(
         (total: number, grants: string[]) => total + grants.length,
         0,
       ),
-    ).toBe(baseline.memberAppEntitlements.length * 3);
+    ).toBe(baseline.memberAppEntitlements.length * 4);
     expect(baseline.iam).toEqual({
       version: 3,
       role_flags: {
@@ -713,13 +851,13 @@ test.describe('Lot 0 — live workspace experience contract', () => {
       },
       capability_overrides: {},
     });
-    expect(baseline.activeSystems).toHaveLength(5);
+    expect(baseline.activeSystems).toHaveLength(6);
     expect(
       new Set(
         baseline.activeSystems.map((system: { name?: string }) => system.name),
       ).size,
-      'the five active Andritz Systems must have unique names',
-    ).toBe(5);
+      'the six active Andritz Systems must have unique names',
+    ).toBe(6);
     expect(
       new Map(
         baseline.activeSystems.map((system: { name?: string; variant?: string }) => [
@@ -734,6 +872,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         ['Andritz Expert Knowledge Capture System', 'expert_knowledge_capture'],
         ['Client360 PDR', 'client360_pdr'],
         ['News Lab', 'intelligence'],
+        ["Rapport d'intervention FSE", 'expert_knowledge_capture'],
       ]),
     );
   });

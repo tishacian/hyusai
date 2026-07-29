@@ -650,10 +650,16 @@ export class ApiService {
   post<T>(
     path: string,
     body: unknown = {},
-    options?: { workspaceSlug?: string | null },
+    options?: {
+      workspaceSlug?: string | null;
+      headers?: Record<string, string>;
+    },
   ): Observable<T> {
     return this.http.post<T>(`${this.base}${path}`, body, {
-      headers: this.workspaceHeaders(options?.workspaceSlug),
+      headers: {
+        ...(this.workspaceHeaders(options?.workspaceSlug) ?? {}),
+        ...(options?.headers ?? {}),
+      },
     });
   }
 

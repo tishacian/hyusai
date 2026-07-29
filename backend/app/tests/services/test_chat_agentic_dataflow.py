@@ -88,6 +88,7 @@ def _mk_skill(db, slug: str) -> None:
     db.add(
         Skill(
             id=str(uuid.uuid4()),
+            workspace_id="ws-andritz",
             slug=slug,
             version="v1",
             name=slug,
@@ -100,6 +101,30 @@ def _mk_skill(db, slug: str) -> None:
         )
     )
     db.commit()
+
+
+def _flow_skill_ids(db, flow: Dict[str, Any]) -> List[str]:
+    """Bind every executable branch, including branches inactive in a test."""
+
+    slugs = sorted(
+        {
+            str((node.get("config") or {}).get("skill_slug"))
+            for node in (flow.get("nodes") or [])
+            if node.get("kind") in {"task", "retry", "loop"}
+            and (node.get("config") or {}).get("skill_slug")
+        }
+    )
+    existing = {
+        row.slug: row
+        for row in db.query(Skill).filter(Skill.slug.in_(slugs)).all()
+    }
+    for slug in slugs:
+        if slug not in existing:
+            _mk_skill(db, slug)
+    return [
+        row.id
+        for row in db.query(Skill).filter(Skill.slug.in_(slugs)).all()
+    ]
 
 
 @pytest.mark.asyncio
@@ -184,7 +209,7 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (dataflow test)",
         objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )
@@ -322,7 +347,7 @@ async def test_agentic_dag_clarify_routes_to_ask_user(db_session, monkeypatch):
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (clarify test)",
         objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )
@@ -419,7 +444,7 @@ async def test_agentic_dag_reject_oos_suppressed_when_context_found(db_session, 
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (oos backstop test)",
         objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )
@@ -621,9 +646,7 @@ async def test_agentic_dag_answer_egresses_without_llm_judges(db_session, monkey
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (latency test)",
         objective="test",
-        skill_ids=[
-            r.id for r in db_session.query(Skill).filter(Skill.slug.in_(list(registry))).all()
-        ],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )
@@ -735,7 +758,7 @@ async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, m
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (multihop test)",
         objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )
@@ -837,7 +860,7 @@ async def _run_binding_probe(db_session, monkeypatch) -> Dict[str, Any]:
         workspace_id="ws-andritz",
         name="Andritz Chat Agentic (binding test)",
         objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=_flow_skill_ids(db_session, flow),
         flow_definition=flow,
         default_model="gpt-4o-mini",
     )

@@ -28,25 +28,46 @@ f-flow {
   color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
 }
 
-/* Connections — route them with our cool token + readable weight. */
+/* Connections — thin routed stroke; endpoints are the node ports alone.
+   Foblex also paints endpoint "drag handles" — leave them invisible at rest
+   so we don't get a double-dot next to every port. */
 :host ::ng-deep .f-connection .f-connection-path {
   stroke: var(--ck-fg-4, #5a6270);
-  stroke-width: 2;
+  stroke-width: 1.75;
+  stroke-linecap: round;
   transition: stroke var(--ck-dur-fast, 120ms) var(--ck-ease-out);
 }
 :host ::ng-deep .f-connection:hover .f-connection-path,
 :host ::ng-deep .f-connection.f-selected .f-connection-path {
   stroke: var(--ck-signal-cool, #7dd3fc);
-  stroke-width: 2.5;
+  stroke-width: 2.25;
 }
 :host ::ng-deep .f-connection .f-connection-drag-handle {
-  fill: var(--ck-signal-cool, #7dd3fc);
+  fill: transparent;
+  stroke: transparent;
+  r: 4;
+  transition:
+    fill var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    stroke var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+}
+:host ::ng-deep .f-connection:hover .f-connection-drag-handle,
+:host ::ng-deep .f-connection.f-selected .f-connection-drag-handle {
+  fill: var(--ck-bg-void, #05070a);
+  stroke: var(--ck-signal-cool, #7dd3fc);
+  stroke-width: 1.5;
+}
+
+/* Hide Foblex end markers — the port socket is the only endpoint chrome. */
+:host ::ng-deep .f-connection .f-marker,
+:host ::ng-deep .f-connection .connection-marker {
+  display: none;
 }
 
 /* The live "drag to connect" preview line. */
 :host ::ng-deep f-connection-for-create .f-connection-path {
   stroke: var(--ck-signal-cool, #7dd3fc);
-  stroke-width: 2;
+  stroke-width: 1.75;
+  stroke-linecap: round;
   stroke-dasharray: 4 4;
 }
 

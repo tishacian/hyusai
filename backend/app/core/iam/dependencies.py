@@ -4,20 +4,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.iam.config_service import is_iam_enforced_for_workspace
 from app.services.iam.app_entitlements import (
     app_entitlements_enabled,
     member_has_app_entitlement,
     normalize_app_entitlements,
 )
+from app.services.iam.config_service import is_iam_enforced_for_workspace
 from app.services.iam.engine import AuthorizationEngine, Decision
+from app.services.workspace_app_runtime import (
+    WorkspaceAppRuntimeError,
+    installed_entitlement_keys,
+    workspace_app_api_path_allowed,
+    workspace_app_platform_enabled,
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,15 @@ def app_entitlement_denied_exception(app_key: str) -> HTTPException:
     )
 
 
+def workspace_app_not_installed_exception() -> HTTPException:
+    """Hide missing and invalid app topology behind the same 404 contract."""
+
+    return HTTPException(
+        status_code=404,
+        detail={"code": "WORKSPACE_APP_NOT_FOUND"},
+    )
+
+
 def evaluate_permission(
     db: DBSession,
     *,
@@ -105,16 +120,36 @@ def enforce_permission(
     audit_prefix: str = "iam",
 ) -> Decision:
     enforced = is_iam_enforced_for_workspace(workspace)
+    attrs = resource_attrs or {}
+    use_knowledge_capture_v2 = attrs.get("capability") == "expert_knowledge_capture"
     decision = evaluate_permission(
         db,
         user=user,
         workspace=workspace,
         resource_kind=resource_kind,
         action=action,
-        resource_attrs=resource_attrs,
+        resource_attrs=attrs,
         audit_prefix=audit_prefix,
-        audit_denials=enforced,
+        # When the candidate plane is active it owns the effective decision;
+        # do not emit a contradictory legacy denial before it resolves.
+        audit_denials=(enforced and not use_knowledge_capture_v2),
     )
+    if use_knowledge_capture_v2:
+        # Local import avoids the dependency cycle: decision_plane evaluates
+        # candidate manifests through ``evaluate_permission`` above.
+        from app.services.iam.decision_plane import enforce_candidate_permission
+
+        enforce_candidate_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind=resource_kind,
+            action=action,
+            legacy_allowed=(decision.allowed if enforced else True),
+            resource_attrs=attrs,
+            candidate_manifest="expert_knowledge_capture_v2",
+        )
+        return decision
     if enforced and not decision.allowed:
         raise permission_denied_exception(decision)
     return decision
@@ -170,11 +205,38 @@ def require_any_app_entitlement(*app_keys: str):
     primary_app_key = normalized[0]
 
     async def dependency(
+        request: Request,
         user: User = Depends(get_current_user),
         workspace: Workspace = Depends(get_current_workspace),
         db: DBSession = Depends(get_db),
     ) -> AppEntitlementContext:
-        enforced = app_entitlements_enabled(workspace)
+        if workspace_app_platform_enabled(workspace):
+            try:
+                present_entitlements = installed_entitlement_keys(workspace, db=db)
+            except WorkspaceAppRuntimeError as exc:
+                raise workspace_app_not_installed_exception() from exc
+            if not set(normalized).intersection(present_entitlements):
+                raise workspace_app_not_installed_exception()
+            try:
+                path_allowed = workspace_app_api_path_allowed(
+                    workspace,
+                    request.url.path,
+                    db=db,
+                    entitlement_keys=normalized,
+                )
+            except WorkspaceAppRuntimeError as exc:
+                raise workspace_app_not_installed_exception() from exc
+            if not path_allowed:
+                raise workspace_app_not_installed_exception()
+
+        # Once Workspace App runtime authority is active, manifest-declared
+        # entry entitlements are authoritative as well.  Treating the legacy
+        # flag as the only enforcement switch would make a malformed rollout
+        # permissive even though the installed manifest and API-prefix gates
+        # are otherwise valid.
+        enforced = app_entitlements_enabled(workspace) or workspace_app_platform_enabled(
+            workspace
+        )
         if not enforced:
             return AppEntitlementContext(
                 user=user,

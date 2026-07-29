@@ -7,14 +7,14 @@ in-process `app.services.skills_registry` and metrics are aggregated from
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
     skill_is_visible,
@@ -22,6 +22,8 @@ from app.services.catalog_visibility import (
     visible_skill_ids_from_capabilities,
     workspace_catalog_policy,
 )
+from app.services.run_access import readable_runs, readable_skill_invocations_for_runs
+from app.services.projection_integrity import invocation_cost_is_measured
 
 router = APIRouter()
 
@@ -126,6 +128,7 @@ async def list_skills(
     skill_type: Optional[str] = None,
     certification: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     rows = _visible_skill_rows(db, workspace)
@@ -136,7 +139,12 @@ async def list_skills(
     rows = sorted(rows, key=lambda row: (row.type or "", row.name or ""))
 
     # Aggregate live metrics per slug.
-    metrics_by_slug = _aggregate_metrics(db, workspace.id, [r.slug for r in rows])
+    metrics_by_slug = _aggregate_metrics(
+        db,
+        workspace=workspace,
+        user=user,
+        slugs=[r.slug for r in rows],
+    )
     return {"skills": [_serialize(s, metrics_by_slug.get(s.slug)) for s in rows]}
 
 
@@ -144,6 +152,7 @@ async def list_skills(
 async def get_skill(
     slug: str,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     s = db.query(Skill).filter(
@@ -154,36 +163,73 @@ async def get_skill(
         raise HTTPException(404, "Skill not found")
     if s.slug not in {row.slug for row in _visible_skill_rows(db, workspace)}:
         raise HTTPException(404, "Skill not found")
-    metrics = _aggregate_metrics(db, workspace.id, [s.slug]).get(s.slug)
+    metrics = _aggregate_metrics(
+        db,
+        workspace=workspace,
+        user=user,
+        slugs=[s.slug],
+    ).get(s.slug)
     return _serialize(s, metrics)
 
 
-def _aggregate_metrics(db: DBSession, workspace_id: str, slugs):
-    """Light-weight aggregation: count + avg latency + success rate per slug."""
+def _aggregate_metrics(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    slugs: list[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Aggregate runtime metrics only from readable invocation objects."""
     if not slugs:
         return {}
-    rows = (
-        db.query(
-            SkillInvocation.skill_slug,
-            func.count(SkillInvocation.id),
-            func.avg(SkillInvocation.latency_ms),
-            func.sum(SkillInvocation.cost),
-            func.sum(
-                case((SkillInvocation.status == "completed", 1), else_=0)
-            ),
-        )
+    invocations = (
+        db.query(SkillInvocation)
         .join(Run, Run.id == SkillInvocation.run_id)
-        .filter(Run.workspace_id == workspace_id)
+        .filter(Run.workspace_id == workspace.id)
         .filter(SkillInvocation.skill_slug.in_(slugs))
-        .group_by(SkillInvocation.skill_slug)
         .all()
     )
+    run_ids = {row.run_id for row in invocations}
+    runs = (
+        db.query(Run)
+        .filter(Run.workspace_id == workspace.id, Run.id.in_(run_ids))
+        .all()
+        if run_ids
+        else []
+    )
+    runs = readable_runs(
+        db,
+        runs=runs,
+        user=user,
+        workspace=workspace,
+    )
+    invocations = readable_skill_invocations_for_runs(
+        db,
+        invocations=invocations,
+        runs=runs,
+        user=user,
+        workspace=workspace,
+    )
+    grouped: dict[str, list[SkillInvocation]] = {}
+    for invocation in invocations:
+        grouped.setdefault(invocation.skill_slug, []).append(invocation)
+
     out: Dict[str, Dict[str, Any]] = {}
-    for slug, count, avg_lat, total_cost, ok in rows:
+    for slug, rows in grouped.items():
+        count = len(rows)
+        latencies = [float(row.latency_ms) for row in rows if row.latency_ms is not None]
+        costs = [
+            float(row.cost)
+            for row in rows
+            if row.cost is not None and invocation_cost_is_measured(row)
+        ]
+        ok = sum(1 for row in rows if row.status == "completed")
         out[slug] = {
-            "calls": int(count or 0),
-            "avg_latency_ms": float(avg_lat) if avg_lat is not None else None,
-            "total_cost": float(total_cost or 0.0),
-            "success_rate": float(ok or 0) / float(count) if count else None,
+            "calls": count,
+            "avg_latency_ms": sum(latencies) / len(latencies) if latencies else None,
+            "total_cost": sum(costs) if costs else None,
+            "cost_state": "available" if costs else "not_measured",
+            "cost_sample_count": len(costs),
+            "success_rate": ok / count if count else None,
         }
     return out

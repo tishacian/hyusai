@@ -26,6 +26,7 @@ export class NavigationResolverService {
     return (
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
       this.resolveBusinessProfile(requestedRoute) ||
+      this.resolveStaleWorkspaceAppUnavailable(requestedRoute) ||
       this.resolveUnavailableWorkspaceExtension(requestedRoute) ||
       this.resolveDemoEntrypoint(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
@@ -82,6 +83,15 @@ export class NavigationResolverService {
   private resolveBusinessProfile(requestedRoute: string): NavigationRedirectDecision | null {
     const experience = this.navigationProfile.resolveWorkspaceExperience(requestedRoute);
     if (experience) {
+      if (experience.shellKind === 'workspace_app_unavailable') {
+        const routeResolution = experience.routeResolution;
+        if (routeResolution.redirectReason === 'none') return null;
+        return this.decision(
+          requestedRoute,
+          routeResolution.resolvedRoute,
+          routeResolution.redirectReason,
+        );
+      }
       if (!experience.business.active) return null;
       const routeResolution = experience.routeResolution;
       if (routeResolution.redirectReason === 'none') return null;
@@ -142,6 +152,20 @@ export class NavigationResolverService {
       requestedRoute,
       agentiumSurfaceRoute('hypervisor'),
       'workspace_extension_unavailable',
+    );
+  }
+
+  /** The safety page is reachable only while the current runtime is invalid. */
+  private resolveStaleWorkspaceAppUnavailable(
+    requestedRoute: string,
+  ): NavigationRedirectDecision | null {
+    if (this.pathOnly(requestedRoute) !== '/workspace-app-unavailable') return null;
+    if (this.navigationProfile.workspaceAppUnavailable()) return null;
+    const experience = this.navigationProfile.resolveWorkspaceExperience(requestedRoute);
+    return this.decision(
+      requestedRoute,
+      experience?.homeRoute || agentiumSurfaceRoute('hypervisor'),
+      'workspace_default_route',
     );
   }
 

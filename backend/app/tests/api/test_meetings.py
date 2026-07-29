@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import meetings
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.meeting_decisions import log_decision_for_workspace
 from app.services.workspace_calendar import create_event
 
 
@@ -84,6 +85,51 @@ def test_meeting_decision_can_be_logged_and_listed(db_session):
 
     detail = client.get(f"/api/v1/meetings/{event.id}").json()
     assert detail["decision_count"] == 1
+
+
+def test_meeting_decisions_log_is_workspace_scoped_and_not_captured_as_event_id(
+    db_session,
+):
+    workspace, user, event = _seed(db_session)
+    foreign_workspace = Workspace(
+        id="ws-meet-foreign",
+        slug="octocity-test",
+        name="Octocity test",
+        mode="demo",
+    )
+    db_session.add(foreign_workspace)
+    db_session.flush()
+    own = log_decision_for_workspace(
+        db_session,
+        workspace,
+        user,
+        calendar_event_id=event.id,
+        agenda_item_ref="own-decision",
+        options_offered=[],
+        chosen_option="A",
+        rationale="Workspace scoped",
+        source_refs=[],
+    )
+    log_decision_for_workspace(
+        db_session,
+        foreign_workspace,
+        user,
+        calendar_event_id="foreign-event",
+        agenda_item_ref="foreign-decision",
+        options_offered=[],
+        chosen_option="B",
+        rationale="Must stay private",
+        source_refs=[],
+    )
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).get(
+        "/api/v1/meetings/decisions-log",
+        params={"workspace": foreign_workspace.slug},
+    )
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()["decisions"]] == [own.id]
 
 
 def test_meeting_unknown_event_returns_404(db_session):

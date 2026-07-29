@@ -16,12 +16,13 @@ interface ZoomLevel {
 }
 
 /**
- * Semantic zoom breadcrumb — Portfolio › Capability › System › Run › Skill.
+ * Semantic zoom breadcrumb — Portfolio › Capability › System › Run › SkillInvocation.
  * Lives inside the title bar and reflects the current navigation depth.
  *
  * Canonical order (see docs/mental-model.md §5bis.2): a Run is an instance
- * of a System, and a Skill is a component invoked *within* a Run. Skill
- * therefore sits beneath Run in the zoom chain.
+ * of a System; a SkillInvocation is one concrete runtime execution beneath
+ * that Run. A catalog Skill remains a Build component and is never relabelled
+ * as the runtime invocation.
  *
  * Levels are clickable to navigate while preserving context (e.g. clicking
  * "System" from a Run keeps the system in scope). ⌘Z / ⇧⌘Z traverse the

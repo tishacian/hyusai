@@ -3,14 +3,15 @@ import { FormsModule } from '@angular/forms';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import {
-  BUSINESS_WORKSPACE_APPS,
   IamMatrix,
   IamMatrixPermission,
   IamSummary,
   RoleTemplate,
   WorkspaceMemberDetail,
   WorkspaceService,
+  toggleWorkspaceAppEntitlement,
   type WorkspaceAppEntitlement,
+  workspaceAppEntitlementOptions,
 } from '@app/core/workspace.service';
 
 @Component({
@@ -133,7 +134,7 @@ import {
                         Application access
                       </legend>
                       <div class="flex flex-wrap gap-x-5 gap-y-2">
-                        @for (app of appOptions; track app.key) {
+                        @for (app of appOptions(); track app.key) {
                           <label class="inline-flex items-center gap-2 text-xs text-gray-300">
                             <input
                               type="checkbox"
@@ -338,7 +339,10 @@ export class AccessRolesComponent implements OnInit {
 
   readonly currentWorkspace = computed(() => this.workspace.current());
   readonly appEntitlementsEnabled = this.workspace.appEntitlementsEnabled;
-  readonly appOptions = BUSINESS_WORKSPACE_APPS;
+  readonly appOptions = computed(() => workspaceAppEntitlementOptions(
+    this.workspace.current(),
+    this.members().flatMap((member) => member.app_entitlements || []),
+  ));
 
   ngOnInit(): void {
     this.load();
@@ -438,12 +442,12 @@ export class AccessRolesComponent implements OnInit {
     event: Event,
   ): void {
     const enabled = (event.target as HTMLInputElement).checked;
-    const selected = new Set(member.app_entitlements || []);
-    if (enabled) selected.add(app);
-    else selected.delete(app);
-    member.app_entitlements = BUSINESS_WORKSPACE_APPS
-      .map((option) => option.key)
-      .filter((key) => selected.has(key));
+    member.app_entitlements = toggleWorkspaceAppEntitlement(
+      member.app_entitlements,
+      app,
+      enabled,
+      this.appOptions(),
+    );
   }
 
   flagValue(key: string): boolean {

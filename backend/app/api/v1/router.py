@@ -1,62 +1,65 @@
 """API v1 router"""
 from fastapi import APIRouter
+
 from app.api.v1.endpoints import (
-    auth,
-    health,
-    models,
-    chat,
-    documents,
-    agents,
-    sessions,
-    metrics,
-    settings,
-    presets,
-    traces,
-    audit,
-    voice,
-    livekit,
-    tasks,
-    evaluation,
-    observability,
-    intelligence,
-    sharepoint,
-    hana,
-    rpa,
-    apps,
-    model_portal,
-    # Canonical (mental-model) layer.
-    systems,
-    capabilities,
-    skills,
-    runs,
-    impact,
-    hypervisor,
-    control_plane,
-    contexts,
-    reasoning,
-    help_content,
-    telemetry,
-    knowledge,
-    knowledge_capture,
-    iam,
-    secure_deposit,
-    catalog,
-    blueprints,
-    mission_room,
-    calendar,
     action_plans,
     actions,
-    workspace_jobs,
-    maps,
-    visual_intelligence,
-    meetings,
-    reports,
     admin,
-    maritime,
-    webcam_proxy,
-    client360,
+    agents,
+    apps,
+    audit,
+    auth,
+    blueprints,
     build_info,
+    calendar,
+    capabilities,
+    catalog,
+    chat,
+    client360,
+    contexts,
+    control_plane,
+    documents,
+    evaluation,
+    hana,
+    health,
+    help_content,
     hooks,  # public HMAC webhook ingress
+    hypervisor,
+    iam,
+    impact,
+    intelligence,
+    knowledge,
+    knowledge_capture,
+    livekit,
+    maps,
+    maritime,
+    meetings,
+    metrics,
+    mission_room,
+    model_portal,
+    models,
+    observability,
+    presets,
+    reasoning,
+    reports,
+    rpa,
+    runs,
+    secure_deposit,
+    sessions,
+    settings,
+    sharepoint,
+    skills,
+    # Canonical (mental-model) layer.
+    systems,
+    tasks,
+    telemetry,
+    traces,
+    value_loop,
+    visual_intelligence,
+    voice,
+    webcam_proxy,
+    workspace_app_governance,
+    workspace_jobs,
 )
 
 api_router = APIRouter()
@@ -92,6 +95,7 @@ api_router.include_router(model_portal.router, prefix="/models", tags=["model-po
 
 # Canonical mental-model layer.
 api_router.include_router(systems.router,       prefix="/systems",       tags=["systems"])
+api_router.include_router(value_loop.router,    prefix="/systems",       tags=["value-loop"])
 api_router.include_router(capabilities.router,  prefix="/capabilities",  tags=["capabilities"])
 api_router.include_router(skills.router,        prefix="/skills",        tags=["skills"])
 api_router.include_router(runs.router,          prefix="/runs",          tags=["runs"])
@@ -111,6 +115,11 @@ api_router.include_router(secure_deposit.public_router, prefix="/deposit-links",
 api_router.include_router(hooks.router, prefix="/hooks", tags=["hooks"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])
+api_router.include_router(
+    workspace_app_governance.router,
+    prefix="/governance/workspace-apps",
+    tags=["workspace-app-governance"],
+)
 api_router.include_router(mission_room.router, prefix="/mission-room", tags=["mission-room"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
 api_router.include_router(action_plans.router, prefix="/action-plans", tags=["action-plans"])

@@ -111,8 +111,8 @@ def _provision_schema() -> None:
     constraints referencing late-imported tables would silently get
     dropped by SQLite and trigger OperationalError on insert.
     """
-    from app.db.base import Base, engine
     import app.models  # noqa: F401  (import for side-effect registration)
+    from app.db.base import Base, engine
 
     Base.metadata.create_all(engine)
     yield
@@ -178,7 +178,15 @@ def db_session():
         "system_memory",
         "webhook_hooks",
         "run_schedules",
+        "value_measurements",
+        "value_action_executions",
+        "value_simulations",
         "decisions",
+        "value_scenarios",
+        "value_loop_operations",
+        "workspace_app_lifecycle_step_receipts",
+        "workspace_app_operations",
+        "workspace_app_installations",
         "evaluation_scores",
         "evaluation_presets",
         "rag_presets",
@@ -207,3 +215,225 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture()
+def attest_authorization_v2(monkeypatch):
+    """Attach a production-shaped authorization-v2 promotion in tests."""
+
+    import copy
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    from sqlalchemy.orm import object_session
+
+    from app.core.config import settings
+    from app.models.audit import AuditLog
+    from app.services.iam.decision_plane import (
+        PROMOTION_EVENT_TYPE,
+        PROMOTION_RECEIPT_KEY,
+        build_promotion_receipt_document,
+        candidate_config_sha256,
+    )
+    from app.services.iam.shadow_review import build_source_manifest_row, sha256_ref
+
+    revision = "a" * 40
+    monkeypatch.setattr(settings, "agentium_image_revision", revision)
+    monkeypatch.setattr(
+        settings,
+        "authorization_v2_trusted_oidc_issuer",
+        "https://gitlab.example.test",
+    )
+    monkeypatch.setattr(settings, "authorization_v2_trusted_project_id", "42")
+    monkeypatch.setattr(settings, "authorization_v2_trusted_ref", "demo/agentic")
+
+    def _attest(config, actions, *, attested_revision: str = revision):
+        payload = copy.deepcopy(config.capability_overrides or {})
+        policy = payload.setdefault("authorization_v2", {})
+        policy["policy_version"] = 2
+        modes = policy.setdefault("modes", {})
+        group = sorted(actions)
+        session = object_session(config)
+        if session is None:
+            raise RuntimeError("authorization-v2 test attestation requires a persisted config")
+        observed_at = datetime.now(UTC)
+        started_at = observed_at - timedelta(microseconds=1)
+        ended_at = observed_at + timedelta(microseconds=max(1, len(group)))
+        validated_at = ended_at + timedelta(microseconds=1)
+        counters = {
+            action: {
+                "evaluations": 5,
+                "legacy_allowed": 4,
+                "legacy_denied": 1,
+                "candidate_allowed": 4,
+                "candidate_denied": 1,
+                "matches": 5,
+                "mismatches": 0,
+                "explained_mismatches": 0,
+                "unexplained_mismatches": 0,
+            }
+            for action in group
+        }
+        attestation = {
+            "schema_version": 1,
+            "workspace_id": str(config.workspace_id),
+            "actions": group,
+            "revision": attested_revision,
+            "evidence_sha256": "b" * 64,
+            "validated_by": "pytest-security-gate",
+            "validated_at": validated_at.isoformat(),
+            "environment": "isolated-test",
+            "contracts": {
+                "legacy": {
+                    "result": "passed",
+                    "format": "junit",
+                    "artifact_ref": "sha256:" + "d" * 64,
+                    "test_count": 11,
+                    "failure_count": 0,
+                    "error_count": 0,
+                    "skipped_count": 0,
+                    "producer": {
+                        "issuer": "https://gitlab.example.test",
+                        "project_id": "42",
+                        "pipeline_id": "314",
+                        "job_id": "159",
+                        "commit_sha": attested_revision,
+                        "ref": "demo/agentic",
+                        "ref_protected": True,
+                    },
+                },
+                "candidate": {
+                    "result": "passed",
+                    "format": "junit",
+                    "artifact_ref": "sha256:" + "e" * 64,
+                    "test_count": 13,
+                    "failure_count": 0,
+                    "error_count": 0,
+                    "skipped_count": 0,
+                    "producer": {
+                        "issuer": "https://gitlab.example.test",
+                        "project_id": "42",
+                        "pipeline_id": "314",
+                        "job_id": "160",
+                        "commit_sha": attested_revision,
+                        "ref": "demo/agentic",
+                        "ref_protected": True,
+                    },
+                },
+            },
+            "candidate_config_sha256": candidate_config_sha256(config),
+            "candidate_config_version": int(config.version or 1),
+            "shadow_observation": {
+                "source": "pytest",
+                "source_ref": "",
+                "window_started_at": started_at.isoformat(),
+                "window_ended_at": ended_at.isoformat(),
+                "runtime_revision": attested_revision,
+                "candidate_config_sha256": candidate_config_sha256(config),
+                "candidate_config_version": int(config.version or 1),
+                "actions": counters,
+            },
+            "trusted_runner": {
+                "issuer": "https://gitlab.example.test",
+                "project_id": "42",
+                "pipeline_id": "314",
+                "job_id": "159",
+                "commit_sha": attested_revision,
+                "ref": "demo/agentic",
+                "ref_protected": True,
+            },
+            "promoted_by": "pytest-operator",
+            "promoted_at": validated_at.isoformat(),
+        }
+        source_rows = []
+        for index, action in enumerate(group):
+            row_id = str(uuid4())
+            timestamp = observed_at + timedelta(microseconds=index)
+            source_row = build_source_manifest_row(
+                row_id=row_id,
+                timestamp=timestamp,
+                action=action,
+                evaluation_count=5,
+                runtime_revision=attested_revision,
+                candidate_config_sha256=attestation["candidate_config_sha256"],
+                candidate_config_version=attestation["candidate_config_version"],
+                counters={
+                    "legacy_allowed": 4,
+                    "legacy_denied": 1,
+                    "candidate_allowed": 4,
+                    "candidate_denied": 1,
+                    "matches": 5,
+                    "mismatches": 0,
+                },
+            )
+            source_rows.append(source_row)
+            session.add(
+                AuditLog(
+                    id=row_id,
+                    workspace_id=str(config.workspace_id),
+                    timestamp=timestamp.astimezone(UTC).replace(tzinfo=None),
+                    event_type="iam.shadow.evaluation",
+                    actor="pytest-shadow-runner",
+                    details={
+                        "origin": "server",
+                        "resource": {"kind": action.split(".", maxsplit=1)[0]},
+                        "action": action,
+                        "evaluation_count": 5,
+                        "legacy_allowed": 4,
+                        "legacy_denied": 1,
+                        "candidate_allowed": 4,
+                        "candidate_denied": 1,
+                        "matches": 5,
+                        "mismatches": 0,
+                        "policy_id": "pytest-policy-v2",
+                        "policy_version": 2,
+                        "configured_mode": "shadow",
+                        "runtime_revision": attested_revision,
+                        "candidate_config_sha256": attestation["candidate_config_sha256"],
+                        "candidate_config_version": attestation["candidate_config_version"],
+                    },
+                )
+            )
+        source_manifest = {
+            "schema_version": 1,
+            "workspace_id": str(config.workspace_id),
+            "actions": group,
+            "window_started_at": started_at.isoformat(),
+            "window_ended_at": ended_at.isoformat(),
+            "event_type": "iam.shadow.evaluation",
+            "runtime_revision": attested_revision,
+            "candidate_config_sha256": attestation["candidate_config_sha256"],
+            "candidate_config_version": attestation["candidate_config_version"],
+            "rows": source_rows,
+        }
+        attestation["shadow_observation"]["source_ref"] = sha256_ref(source_manifest)
+        receipt_document = build_promotion_receipt_document(
+            workspace_id=str(config.workspace_id),
+            promotion=attestation,
+            source_manifest=source_manifest,
+        )
+        receipt_ref = sha256_ref(receipt_document)
+        receipt_id = str(uuid4())
+        session.add(
+            AuditLog(
+                id=receipt_id,
+                workspace_id=str(config.workspace_id),
+                timestamp=validated_at.astimezone(UTC).replace(tzinfo=None),
+                event_type=PROMOTION_EVENT_TYPE,
+                actor=attestation["promoted_by"],
+                details={"artifact_ref": receipt_ref, "document": receipt_document},
+            )
+        )
+        attestation[PROMOTION_RECEIPT_KEY] = {
+            "audit_id": receipt_id,
+            "artifact_ref": receipt_ref,
+        }
+        attestations = policy.setdefault("enforcement_attestations", {})
+        for action in group:
+            modes[action] = "enforce"
+            attestations[action] = copy.deepcopy(attestation)
+        config.capability_overrides = payload
+        session.flush()
+        return attestation
+
+    return _attest

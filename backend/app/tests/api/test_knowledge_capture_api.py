@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import knowledge_capture
 from app.api.v1.endpoints.knowledge_capture import ProposalPublishRequest
-from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
+from app.models.expert_capture import (
+    ExpertCaptureEvent,
+    ExpertCaptureSession,
+    KnowledgeUpdateProposal,
+)
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 
 
@@ -179,6 +182,96 @@ def test_reviewer_can_create_and_start_capture_when_iam_enforced(db_session, mon
     started = client.post(f"/api/v1/knowledge-capture/sessions/{body['id']}/start")
     assert started.status_code == 200
     assert started.json()["status"] == "active"
+
+
+def test_chat_correction_auto_publish_cannot_bypass_publish_enforce(
+    db_session,
+    monkeypatch,
+    attest_authorization_v2,
+):
+    workspace = Workspace(
+        id="ws-kc-chat-autopublish-authz",
+        name="KC Chat Auto-publish Authz",
+        slug="kc-chat-autopublish-authz",
+    )
+    reviewer = User(
+        id="user-kc-chat-autopublish-authz",
+        username="reviewer-autopublish",
+        email="reviewer-autopublish@example.test",
+    )
+    iam_config = WorkspaceIAMConfig(
+        workspace_id=workspace.id,
+        version=1,
+        role_flags={"require_second_eye_for_ingestion": True},
+        capability_overrides={
+            "authorization_v2": {
+                "policy_version": 2,
+                "default_mode": "compat",
+                "modes": {"knowledge_proposal.publish": "enforce"},
+            }
+        },
+        updated_by_user_id=reviewer.id,
+    )
+    db_session.add_all(
+        [
+            workspace,
+            reviewer,
+            WorkspaceMember(
+                user_id=reviewer.id,
+                workspace_id=workspace.id,
+                role="member",
+                role_template="workspace_reviewer",
+            ),
+                iam_config,
+            ]
+        )
+    attest_authorization_v2(iam_config, ["knowledge_proposal.publish"])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    monkeypatch.setattr(
+        knowledge_capture,
+        "_resolve_chat_source_policy",
+        lambda *_args, **_kwargs: {
+            "expert_fiche_correction_enabled": True,
+            "expert_fiche_collection": "validated-fiches",
+        },
+    )
+    monkeypatch.setattr(
+        knowledge_capture,
+        "is_expert_review_required",
+        lambda *_args, **_kwargs: False,
+    )
+    publish_calls: list[str] = []
+
+    async def _publish(*_args, **_kwargs):
+        publish_calls.append("published")
+        return {"document_id": "must-not-exist"}
+
+    async def _summary(*_args, **_kwargs):
+        return "la correction experte"
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _publish)
+    monkeypatch.setattr(knowledge_capture, "summarize_chat_correction_theme", _summary)
+    client = _client(db_session, workspace, reviewer, monkeypatch)
+
+    response = client.post(
+        "/api/v1/knowledge-capture/chat-correction",
+        json={
+            "query": "Quelle est la pression nominale ?",
+            "answer": "5 bar",
+            "correction": "La pression correcte est 7 bar.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending_review"
+    assert response.json()["document_id"] is None
+    assert publish_calls == []
+    proposal = db_session.query(KnowledgeUpdateProposal).filter_by(
+        id=response.json()["proposal_id"],
+    ).one()
+    assert proposal.status == "pending_review"
 
 
 def test_free_conversation_api_conversation_step_records_turn_and_closure(db_session, monkeypatch):
@@ -1732,6 +1825,53 @@ def test_review_denied_keeps_proposal_pending(db_session, monkeypatch):
     assert proposal.status == "pending_review"
     assert proposal.reviewer is None
     assert proposal.reviewed_at is None
+
+
+def test_review_uses_authenticated_reviewer_not_request_body(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-kc-api-review-actor",
+        name="KC API Review Actor",
+        slug="kc-api-review-actor",
+    )
+    user = User(
+        id="user-kc-api-review-actor",
+        username="real-reviewer",
+        email="real-reviewer@example.test",
+    )
+    session = ExpertCaptureSession(
+        id="session-kc-api-review-actor",
+        workspace_id=workspace.id,
+        title="Review actor capture",
+        objective="Persist authenticated reviewer identity.",
+        created_by_user_id="proposal-author",
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-review-actor",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="pending_review",
+        created_by_user_id="proposal-author",
+        proposal={"recommended_ingestion": {"title": "Pending", "content": "Content"}},
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+    client = _client(db_session, workspace, user, monkeypatch)
+
+    response = client.patch(
+        f"/api/v1/knowledge-capture/proposals/{proposal.id}/review",
+        json={
+            "status": "accepted",
+            "reviewer": "spoofed-admin@example.test",
+            "review_notes": "Reviewed",
+        },
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(proposal)
+    assert proposal.reviewer == user.email
+    assert proposal.reviewer != "spoofed-admin@example.test"
+    assert proposal.reviewer_user_id == user.id
 
 
 def test_delete_denied_keeps_capture_session(db_session, monkeypatch):
