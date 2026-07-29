@@ -63,6 +63,7 @@ from app.services.run_engine.webhooks import generate_hook_secret, serialize_hoo
 from app.services.system_catalog_bindings import (
     ResolvedSystemCatalogBindings,
     SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
     resolve_system_catalog_bindings,
 )
 from app.services.system_perspective import build_system_perspective
@@ -377,6 +378,32 @@ def _resolve_catalog_bindings_http(
             capability_id=capability_id,
             skill_ids=skill_ids,
             adaptive_policy_id=adaptive_policy_id,
+        )
+    except SystemCatalogBindingError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_system_catalog_binding",
+                "code": exc.code,
+                "field": exc.field,
+                "message": str(exc),
+            },
+        ) from exc
+
+
+def _resolve_persisted_catalog_bindings_http(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+) -> ResolvedSystemCatalogBindings:
+    """Translate the persisted runtime contract into a safe API error."""
+
+    try:
+        return resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
         )
     except SystemCatalogBindingError as exc:
         raise HTTPException(
@@ -1169,13 +1196,10 @@ async def trigger_run(
         workspace=workspace,
         system=s,
     )
-    catalog_bindings = _resolve_catalog_bindings_http(
+    catalog_bindings = _resolve_persisted_catalog_bindings_http(
         db,
         workspace=workspace,
-        system_id=s.id,
-        capability_id=s.capability_id,
-        skill_ids=s.skill_ids,
-        adaptive_policy_id=s.adaptive_policy_id,
+        system=s,
     )
     capability = catalog_bindings.capability
     legacy_decision = evaluate_permission(

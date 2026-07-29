@@ -62,7 +62,7 @@ from app.services.iam.app_entitlements import (
 from app.services.iam.config_service import load_iam_config, patch_iam_config
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
-    resolve_persisted_system_catalog_bindings,
+    resolve_persisted_system_authoring_bindings,
     resolve_system_catalog_bindings,
 )
 from app.services.workspace_app_lifecycle import (
@@ -4058,7 +4058,7 @@ def _apply_systems(
         )
         if existing:
             try:
-                resolve_persisted_system_catalog_bindings(
+                resolve_persisted_system_authoring_bindings(
                     db,
                     workspace=workspace,
                     system=existing,

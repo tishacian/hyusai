@@ -511,6 +511,28 @@ class LiveKitService:
         )
         return LiveKitRoomResult(room_name=room_name, metadata=metadata, existed=False, room=created)
 
+    async def list_rooms(self) -> Dict[str, Any]:
+        """Return the LiveKit room inventory through the authenticated control API.
+
+        Callers that expose this payload are responsible for removing room names,
+        SIDs and metadata.  Deployment safety checks use only aggregate counters.
+        Keeping the RoomService call here avoids duplicating LiveKit credentials or
+        token construction in operational scripts.
+        """
+
+        self.require_configured()
+        return await self._twirp("ListRooms", {})
+
+    async def list_participants(self, *, room_name: str) -> Dict[str, Any]:
+        """Return the authenticated participant inventory for one LiveKit room."""
+
+        self.require_configured()
+        return await self._twirp(
+            "ListParticipants",
+            {"room": room_name},
+            room_name=room_name,
+        )
+
     async def send_agentium_event(
         self,
         *,

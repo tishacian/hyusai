@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -11,15 +12,17 @@ from app.api.v1.endpoints import systems
 from app.models.capability import Capability
 from app.models.policy import AdaptivePolicy
 from app.models.run import Run, SkillInvocation
+from app.models.run_schedule import RunSchedule
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.run_engine import triggers
+from app.services.run_engine import scheduler, triggers
 from app.services.run_engine.dag import execute_run_dag
 from app.services.run_engine.engine import execute_run
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
     resolve_system_catalog_bindings,
 )
 
@@ -207,6 +210,235 @@ def test_family_catalog_visibility_is_authoritative_for_system_bindings(db_sessi
         "skill_not_visible",
         lambda: _resolve(db_session, andritz, None, [foreign_skill.id]),
     )
+
+
+def test_persisted_andritz_business_systems_do_not_inherit_discovery_filters(
+    db_session,
+):
+    """Client360 and News Lab remain runnable without catalog opt-in.
+
+    Their global client/finance rows are intentionally absent from Andritz's
+    discovery surface.  The persisted System binding is runtime authority;
+    changing that discovery decision must not silently disable production.
+    """
+
+    workspace = _workspace(
+        db_session,
+        "Andritz",
+        {
+            "family": "andritz",
+            "catalog": {
+                "enabled_capabilities": [],
+                "enabled_skills": [],
+            },
+        },
+    )
+    client360_skill = _skill(db_session, "client360-pdr-runtime")
+    client360_capability = _capability(
+        db_session,
+        "client360_pdr_opportunity_engine",
+        client360_skill,
+        tier="client",
+        industry="industrial_nonwovens",
+    )
+    news_skill = _skill(db_session, "intelligence_batch_v1")
+    news_capability = _capability(
+        db_session,
+        "market_signal_brief",
+        news_skill,
+        tier="industry",
+        industry="finance",
+    )
+    client360 = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Client360 PDR",
+        capability_id=client360_capability.id,
+        skill_ids=[],
+        status="active",
+    )
+    news_lab = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="News Lab",
+        capability_id=news_capability.id,
+        skill_ids=[news_skill.id],
+        status="active",
+    )
+    db_session.add_all([client360, news_lab])
+    db_session.commit()
+
+    # They stay absent from discovery/create/import authority.
+    _assert_code(
+        "capability_not_visible",
+        lambda: _resolve(db_session, workspace, client360_capability),
+    )
+    _assert_code(
+        "capability_not_visible",
+        lambda: _resolve(db_session, workspace, news_capability),
+    )
+
+    # Their already persisted bindings remain authoritative at runtime.
+    client360_bindings = resolve_persisted_system_catalog_bindings(
+        db_session,
+        workspace=workspace,
+        system=client360,
+    )
+    news_bindings = resolve_persisted_system_catalog_bindings(
+        db_session,
+        workspace=workspace,
+        system=news_lab,
+    )
+    assert client360_bindings.capability is client360_capability
+    assert client360_bindings.skills == (client360_skill,)
+    assert news_bindings.capability is news_capability
+    assert news_bindings.skills == (news_skill,)
+
+    # An explicit runtime disable still wins over the persisted binding.
+    workspace.settings = {
+        **workspace.settings,
+        "catalog": {
+            "hidden_capabilities": [client360_capability.slug],
+        },
+    }
+    db_session.commit()
+    _assert_code(
+        "capability_not_visible",
+        lambda: resolve_persisted_system_catalog_bindings(
+            db_session,
+            workspace=workspace,
+            system=client360,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_api_uses_persisted_authority_for_client360_gate_off(
+    db_session,
+):
+    workspace = _workspace(db_session, "Andritz", {"family": "andritz"})
+    user = User(
+        id=str(uuid4()),
+        username="client360-runtime-admin",
+        email="client360-runtime-admin@example.test",
+        role="admin",
+    )
+    skill = _skill(db_session, "client360-pdr-api")
+    capability = _capability(
+        db_session,
+        "client360_pdr_opportunity_engine_api",
+        skill,
+        tier="client",
+        industry="industrial_nonwovens",
+    )
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Client360 PDR",
+        capability_id=capability.id,
+        skill_ids=[],
+        status="active",
+    )
+    db_session.add_all([user, system])
+    db_session.commit()
+
+    result = await systems.trigger_run(
+        system.id,
+        systems.RunCreate(input_ref={"query": "PDR opportunities"}),
+        BackgroundTasks(),
+        workspace,
+        user,
+        db_session,
+    )
+
+    run = db_session.query(Run).filter(Run.id == result["id"]).one()
+    assert run.system_id == system.id
+    assert run.capability_id == capability.id
+
+
+@pytest.mark.asyncio
+async def test_dag_uses_persisted_authority_for_news_lab_gate_off(db_session):
+    workspace = _workspace(db_session, "Andritz", {"family": "andritz"})
+    skill = _skill(db_session, "intelligence_batch_v1-dag")
+    capability = _capability(
+        db_session,
+        "market_signal_brief_dag",
+        skill,
+        tier="industry",
+        industry="finance",
+    )
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="News Lab",
+        capability_id=capability.id,
+        skill_ids=[skill.id],
+        status="active",
+        flow_definition={
+            "schema_version": 3,
+            "nodes": [
+                {"id": "source", "kind": "source"},
+                {"id": "sink", "kind": "sink"},
+            ],
+            "edges": [{"from": "source", "to": "sink"}],
+        },
+    )
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        capability_id=capability.id,
+        status="pending",
+    )
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    result = await execute_run_dag(run.id)
+
+    assert result["status"] == "completed"
+    assert "system_catalog_binding_invalid" not in str(result.get("error"))
+
+
+def test_scheduler_uses_persisted_authority_for_news_lab_gate_off(
+    db_session,
+    monkeypatch,
+):
+    workspace = _workspace(db_session, "Andritz", {"family": "andritz"})
+    skill = _skill(db_session, "intelligence_batch_v1-scheduler")
+    capability = _capability(
+        db_session,
+        "market_signal_brief_scheduler",
+        skill,
+        tier="industry",
+        industry="finance",
+    )
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="News Lab",
+        capability_id=capability.id,
+        skill_ids=[skill.id],
+        status="active",
+    )
+    schedule = RunSchedule(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        name="News Lab hourly",
+        cron_expr="0 * * * *",
+        timezone="UTC",
+        enabled=True,
+    )
+    db_session.add_all([system, schedule])
+    db_session.commit()
+    monkeypatch.setattr(scheduler, "_dispatch_run", lambda _run_id: None)
+
+    run_id = scheduler._fire_schedule(db_session, schedule, now=datetime.utcnow())
+
+    assert run_id is not None
+    run = db_session.query(Run).filter(Run.id == run_id).one()
+    assert run.system_id == system.id
+    assert run.capability_id == capability.id
 
 
 def test_adaptive_policy_owner_and_scope_match_prospective_system(db_session):
@@ -507,6 +739,62 @@ def test_event_trigger_rejects_invalid_catalog_before_journaling(
         }
     ]
     assert db_session.query(Run).count() == 0
+
+
+def test_event_trigger_uses_persisted_authority_for_news_lab_gate_off(
+    db_session,
+):
+    workspace = _workspace(
+        db_session,
+        "Andritz",
+        {
+            "family": "andritz",
+            "features": {"enable_event_triggers": True},
+        },
+    )
+    skill = _skill(db_session, "intelligence_batch_v1-trigger")
+    capability = _capability(
+        db_session,
+        "market_signal_brief_trigger",
+        skill,
+        tier="industry",
+        industry="finance",
+    )
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="News Lab",
+        capability_id=capability.id,
+        skill_ids=[skill.id],
+        status="active",
+        flow_definition={
+            "schema_version": 3,
+            "nodes": [
+                {
+                    "id": "source",
+                    "kind": "source",
+                    "type": "source.deposit_promoted",
+                },
+                {"id": "sink", "kind": "sink"},
+            ],
+            "edges": [{"from": "source", "to": "sink"}],
+        },
+    )
+    db_session.add(system)
+    db_session.commit()
+
+    result = triggers.emit_event(
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        workspace.id,
+        {"file_id": "news-source"},
+        db=db_session,
+    )
+
+    assert len(result) == 1
+    assert result[0]["system_id"] == system.id
+    assert result[0]["status"] == "simulated"
+    run = db_session.query(Run).one()
+    assert run.capability_id == capability.id
 
 
 def test_event_trigger_stamps_authoritative_system_capability(db_session):
