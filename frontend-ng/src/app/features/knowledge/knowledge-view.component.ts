@@ -1512,7 +1512,7 @@ type KbTabId =
             @for (sys of bindings(); track sys.id) {
               <li class="ck-surface rounded-md p-4 flex items-center gap-3">
                 <div class="w-9 h-9 rounded flex items-center justify-center shrink-0" style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);">
-                  <app-icon name="cube" [size]="16" />
+                  <app-icon name="box" [size]="16" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <a

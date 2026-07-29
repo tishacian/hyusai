@@ -273,7 +273,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
               @for (sys of boundSystems(); track sys.id) {
                 <li class="ck-surface rounded-md p-4 flex items-center gap-3">
                   <div class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/30 flex items-center justify-center shrink-0">
-                    <app-icon name="cube" [size]="16" />
+                    <app-icon name="box" [size]="16" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <a
