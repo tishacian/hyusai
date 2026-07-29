@@ -639,7 +639,7 @@ def test_vm_image_rollback_is_bound_to_the_recorded_database_revision() -> None:
         '\n}\n\nif [[ -n "$ROLLBACK_STATE" ]]', 1
     )[0]
 
-    assert "printf 'format\\t2\\n'" in script
+    assert "printf 'format\\t3\\n'" in script
     assert "printf 'database_revision\\t%s\\n'" in script
     assert 'actual_database_revision="$(current_database_revision)"' in rollback
     assert '[[ "$actual_database_revision" == "$expected_database_revision" ]]' in rollback
