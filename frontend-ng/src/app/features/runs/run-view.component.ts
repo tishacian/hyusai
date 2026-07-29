@@ -64,6 +64,18 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
           <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
           Refresh
         </button>
+        @if (rerunnable()) {
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            (click)="rerun()"
+            [disabled]="rerunning()"
+            title="Re-execute this DAG with the same input and the flow as it stood then"
+          >
+            <app-icon name="history" [size]="12" />
+            {{ rerunning() ? 'Rerunning…' : 'Rerun' }}
+          </button>
+        }
       </div>
 
       @if (loading() && !run()) {
@@ -445,6 +457,31 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.routeSubscription?.unsubscribe();
     this.routeSubscription = null;
     this.workspaceView.destroy();
+  }
+
+  /** Only a finished run has something to replay. */
+  protected readonly rerunnable = computed(() => {
+    const status = this.run()?.status;
+    return !!status && status !== 'pending' && status !== 'running';
+  });
+  protected readonly rerunning = signal(false);
+
+  /**
+   * Replay this run and follow the child, so the two executions can be compared
+   * by stepping back to the parent. The backend re-uses the parent's flow
+   * snapshot, which is what makes the comparison meaningful.
+   */
+  protected rerun(): void {
+    const id = this.runId();
+    if (!id || this.rerunning()) return;
+    this.rerunning.set(true);
+    this.canonical.rerunRun(id).subscribe({
+      next: (replay) => {
+        this.rerunning.set(false);
+        if (replay?.id) void this.router.navigate(['/runs', replay.id]);
+      },
+      error: () => this.rerunning.set(false),
+    });
   }
 
   refresh(): void {

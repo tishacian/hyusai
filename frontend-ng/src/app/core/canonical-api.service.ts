@@ -1074,6 +1074,14 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
+  /**
+   * Replay a finished run: the backend copies its input and its flow snapshot,
+   * so the graph re-executes as it stood then, not as it stands today.
+   */
+  rerunRun(id: string): Observable<Run | null> {
+    return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(catchError(() => of(null)));
+  }
+
   listRuns(params?: { system_id?: string; capability_id?: string }): Observable<Run[]> {
     const p: Record<string, string> = {};
     if (params?.system_id) p['system_id'] = params.system_id;

@@ -40,6 +40,11 @@ NAVIGATION_RESOLVED_EVENT = "navigation.resolved"
 _MACHINE_TOKEN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,99}$")
 _EMAIL_IN_PATH = re.compile(r"[^/\s@]+@[^/\s@]+\.[^/\s@]+", re.IGNORECASE)
 
+# Every `id` declared in the frontend's navigation catalogue must appear here,
+# or that surface's page views are answered 422 and never reach the trail. The
+# two lists are held together by
+# `app/tests/api/test_navigation_surface_contract.py`, which is what four
+# surfaces had been missing.
 _NAVIGATION_SURFACES = frozenset(
     {
         "account",
@@ -50,6 +55,7 @@ _NAVIGATION_SURFACES = frozenset(
         "connectors",
         "contexts",
         "external-deposit",
+        "fse-reports",
         "governance",
         "hypervisor",
         "intelligence",
@@ -57,12 +63,15 @@ _NAVIGATION_SURFACES = frozenset(
         "knowledge-capture",
         "legacy-settings",
         "mission-room",
+        "model-portal",
+        "nawa-itsd",
         "observability",
         "orchestration",
         "presets",
         "resources",
         "review-queue",
         "runs",
+        "sap-hana",
         "secure-deposit",
         "sharepoint",
         "skills",
