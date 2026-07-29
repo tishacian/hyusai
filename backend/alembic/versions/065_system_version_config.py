@@ -1,7 +1,11 @@
 """Add allowlisted configuration evidence to immutable System versions.
 
 Revision ID: 065_system_version_config
-Revises: 064_run_dispatch_outbox
+Revises: 065_nawa_itsd
+
+Re-parented onto the Nawa ITSD migration during the Release B landing: the
+production lineage already contains ``065_nawa_itsd``, so this revision now
+follows it instead of branching from ``064_run_dispatch_outbox``.
 
 The column is nullable by design: existing rows remain valid and existing
 flow-only version writes retain their historical behaviour.  Application code
@@ -13,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "065_system_version_config"
-down_revision = "064_run_dispatch_outbox"
+down_revision = "065_nawa_itsd"
 branch_labels = None
 depends_on = None
 

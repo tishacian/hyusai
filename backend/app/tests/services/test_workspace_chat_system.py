@@ -125,6 +125,49 @@ def test_workspace_chat_dedupe_retires_concurrent_duplicates(db_session):
     assert dupe.status == "retired"
 
 
+def test_operator_renamed_chat_is_preserved_on_reconcile(db_session):
+    # The NAWA workspace chat was renamed by hand; reconciliation must not
+    # clobber a deliberate operator rename with the computed generic name.
+    workspace = Workspace(id="ws-nawa-chat", name="Nawa", slug="nawa")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+    assert system.name == "Agentium Workspace Chat"
+
+    system.name = "NAWA Workspace Chat"
+    db_session.commit()
+
+    reconciled = ensure_workspace_chat_system_default(db_session, workspace.id)
+    assert reconciled is not None
+    assert reconciled.id == system.id
+    assert reconciled.name == "NAWA Workspace Chat"
+
+
+def test_declared_chat_system_name_setting_is_applied_and_restored(db_session):
+    workspace = Workspace(
+        id="ws-branded-chat",
+        name="Nawa",
+        slug="nawa-branded",
+        settings={"chat_system_name": "NAWA Workspace Chat"},
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+    assert system is not None
+    assert system.name == "NAWA Workspace Chat"
+
+    # A declared name is configuration: reconciliation restores it even after
+    # an accidental manual rename.
+    system.name = "Accidental Rename"
+    db_session.commit()
+
+    reconciled = ensure_workspace_chat_system_default(db_session, workspace.id)
+    assert reconciled is not None
+    assert reconciled.name == "NAWA Workspace Chat"
+
+
 def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     workspace = Workspace(
         id="ws-andritz-chat",

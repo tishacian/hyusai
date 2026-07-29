@@ -163,11 +163,35 @@ def _scope_config(settings: dict[str, Any], key: Optional[str]) -> dict[str, Any
     return {}
 
 
+WORKSPACE_CHAT_NAME_SETTING = "chat_system_name"
+ANDRITZ_CHAT_SYSTEM_NAME = "Andritz Workspace Chat"
+AYA_CHAT_SYSTEM_NAME = "AYA Workspace Chat"
+
+# Names the seed itself computes without an explicit tenant declaration.  A
+# workspace chat bearing any other name was deliberately renamed by an
+# operator; reconciliation must preserve it instead of forcing a family name.
+SEED_COMPUTED_CHAT_NAMES = frozenset(
+    {WORKSPACE_CHAT_SYSTEM_NAME, ANDRITZ_CHAT_SYSTEM_NAME, AYA_CHAT_SYSTEM_NAME}
+)
+
+
+def _workspace_chat_name_override(workspace: Workspace) -> Optional[str]:
+    declared = _as_dict(getattr(workspace, "settings", None)).get(WORKSPACE_CHAT_NAME_SETTING)
+    if isinstance(declared, str):
+        name = declared.strip()
+        if name:
+            return name
+    return None
+
+
 def _workspace_chat_name(workspace: Workspace, family: str) -> str:
+    override = _workspace_chat_name_override(workspace)
+    if override:
+        return override
     if family == "andritz":
-        return "Andritz Workspace Chat"
+        return ANDRITZ_CHAT_SYSTEM_NAME
     if family == "sentinel_ci":
-        return "AYA Workspace Chat"
+        return AYA_CHAT_SYSTEM_NAME
     return WORKSPACE_CHAT_SYSTEM_NAME
 
 
@@ -1142,7 +1166,13 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
 
     existing = _find_workspace_chat_system(db, workspace_id)
     if existing:
-        existing.name = _workspace_chat_name(workspace, family)
+        declared_name = _workspace_chat_name_override(workspace)
+        if declared_name:
+            existing.name = declared_name
+        elif not existing.name or existing.name in SEED_COMPUTED_CHAT_NAMES:
+            existing.name = _workspace_chat_name(workspace, family)
+        # An operator-renamed chat (e.g. the NAWA workspace chat) keeps its
+        # deliberate name; only seed-computed names track the family.
         existing.objective = existing.objective or _workspace_chat_objective(workspace, family)
         existing.capability_id = capability.id
         existing.skill_ids = skill_ids
