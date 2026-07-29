@@ -400,22 +400,19 @@
 // The microphone sits inside the composer, the mute beside the theme switch:
 // one is part of writing a request, the other is a preference about the room.
 
-.as-mic {
-  flex: 0 0 auto;
-  gap: 7px;
-  white-space: nowrap;
-}
-.as-mic-live {
-  border-color: var(--nawa-accent-line);
-  color: var(--nawa-accent-bright);
-}
+// Both carry .nawa-button for their shape; these only add what differs.
+.as-mic,
 .as-voice-toggle {
-  gap: 7px;
+  flex: 0 0 auto;
   white-space: nowrap;
+  font-weight: 600;
 }
+// Live and unmuted read as engaged rather than as another idle control.
+.as-mic-live,
 .as-voice-on {
   border-color: var(--nawa-accent-line);
   color: var(--nawa-accent-bright);
+  background: var(--nawa-surface-2);
 }
 .as-voice-note {
   flex: 0 0 auto;

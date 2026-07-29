@@ -33,6 +33,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
 import { GlyphComponent, ThinkingOrbComponent } from '@app/shared/cockpit';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import type { Run, System } from '@app/core/canonical-api.service';
@@ -96,7 +97,13 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
   selector: 'app-nawa-assistant',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent, ThinkingOrbComponent],
+  imports: [
+    RouterLink,
+    GlyphComponent,
+    IconComponent,
+    NawaThemeToggleComponent,
+    ThinkingOrbComponent,
+  ],
   styleUrls: ['./nawa-theme.scss', './nawa-assistant.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
@@ -110,7 +117,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
       @if (micUsable) {
         <button
           type="button"
-          class="nawa-button-ghost as-voice-toggle"
+          class="nawa-button nawa-button-ghost as-voice-toggle"
           [class.as-voice-on]="voice()"
           (click)="toggleVoice()"
           [attr.aria-pressed]="voice()"
@@ -118,7 +125,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
           @if (speaking()) {
             <ck-thinking-orb state="composing" [size]="20" label="Speaking" />
           } @else {
-            <ck-glyph [name]="voice() ? 'play' : 'pause'" [size]="12" />
+            <app-icon [name]="voice() ? 'volume-2' : 'volume-x'" [size]="14" />
           }
           {{ voice() ? 'Voice on' : 'Voice off' }}
         </button>
@@ -297,19 +304,19 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
           @if (micUsable) {
             <button
               type="button"
-              class="nawa-button-ghost as-mic"
+              class="nawa-button nawa-button-ghost as-mic"
               [class.as-mic-live]="micState() === 'listening'"
               [disabled]="pending() || micState() === 'transcribing'"
               (click)="speak()"
             >
               @if (micState() === 'listening') {
                 <ck-thinking-orb state="listening" [size]="20" label="Listening" />
-                Tap to send
+                Stop and send
               } @else if (micState() === 'transcribing') {
                 <ck-thinking-orb state="composing" [size]="20" label="Transcribing" />
                 One moment
               } @else {
-                <ck-glyph name="pulse" [size]="13" />
+                <app-icon name="mic" [size]="14" />
                 Speak
               }
             </button>
