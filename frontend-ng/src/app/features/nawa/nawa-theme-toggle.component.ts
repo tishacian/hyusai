@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { ThemeService, type BusinessTheme } from '@app/core/theme.service';
 
-const GLYPHS: Record<BusinessTheme, CkGlyphName> = {
-  light: 'crosshair',
-  dark: 'pulse',
-  system: 'orbit',
+// Sun, moon and screen: what every other theme switch uses.
+const ICONS: Record<BusinessTheme, string> = {
+  light: 'sun',
+  dark: 'moon',
+  system: 'monitor',
 };
 
 const LABELS: Record<BusinessTheme, string> = {
@@ -34,10 +35,10 @@ const NEXT: Record<BusinessTheme, BusinessTheme> = {
   selector: 'app-nawa-theme-toggle',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [IconComponent],
   template: `
     <button type="button" (click)="cycle()" [title]="tooltip()" [attr.aria-label]="tooltip()">
-      <ck-glyph [name]="glyph()" [size]="12" />
+      <app-icon [name]="icon()" [size]="13" />
       {{ label() }}
     </button>
   `,
@@ -75,7 +76,7 @@ const NEXT: Record<BusinessTheme, BusinessTheme> = {
 export class NawaThemeToggleComponent {
   private readonly theme = inject(ThemeService);
 
-  protected readonly glyph = computed<CkGlyphName>(() => GLYPHS[this.theme.businessTheme()]);
+  protected readonly icon = computed(() => ICONS[this.theme.businessTheme()]);
   protected readonly label = computed(() => LABELS[this.theme.businessTheme()]);
   protected readonly tooltip = computed(() => {
     const current = this.theme.businessTheme();
