@@ -80,6 +80,43 @@ test('what a microphone actually returns still reaches the right service', () =>
   }
 });
 
+test('the phrasings the table above did not think of also reach the service', () => {
+  // Written after "I lost my password." was answered with a policy quotation in
+  // front of a reviewer: every utterance above says "forgot", so the router had
+  // never been asked the same thing in another word. Widening the table found
+  // four more classes of the same defect, and each line here is one of them:
+  // the verb of loss, the bare imperative, the request made for someone else,
+  // and the service whose name is a synonym of a sibling's.
+  const table: ReadonlyArray<readonly [string, string]> = [
+    ['I lost my password.', 'password-reset'],
+    ['I have lost my password', 'password-reset'],
+    ['My password is lost', 'password-reset'],
+    ['I need to change my password.', 'password-reset'],
+    ['My password expired and I cannot log in.', 'password-reset'],
+    ['I am locked out of my account.', 'unlock-ad-account'],
+    ['Too many wrong attempts, my account got locked.', 'unlock-ad-account'],
+    ['Remove a colleague from the sales distribution list.', 'email-group-members-deletion'],
+    ['A colleague is leaving on Friday, block his account.', 'email-block-hr-it'],
+    ['We have a new hire on Monday, he needs an email.', 'email-creation'],
+    ['Please install Adobe Acrobat on my machine.', 'software-installation'],
+  ];
+  for (const [utterance, slug] of table) {
+    const match = routeIntake(utterance, CATALOGUE);
+    assert.equal(match?.useCase.slug ?? null, slug, utterance);
+  }
+});
+
+test('the verb of loss does not turn every lost thing into a reset', () => {
+  // "lost" earns Password Reset its vocabulary hit, and the desk also holds a
+  // policy on a lost authenticator phone. That question shares the verb and
+  // nothing else, so the score floor is what keeps it with the library — this
+  // test fails the day the floor is lowered.
+  assert.equal(
+    routeIntake('I lost the phone with my authenticator app on it. What happens now?', CATALOGUE),
+    null,
+  );
+});
+
 test('questions about the rules stay with the library', () => {
   const questions = [
     'How many failed sign-ins lock an account, and how long does it stay locked?',

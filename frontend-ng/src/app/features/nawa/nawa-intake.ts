@@ -50,6 +50,14 @@ const REQUEST_MARKERS = [
   /\bi (?:forgot|lost|can'?t|cannot|am unable to|need|want|require|would like)\b/i,
   /\bi'?(?:d|ll) (?:like|need|want)\b/i,
   /\bi'?(?:m|ve) (?:locked|lost|forgotten|unable)\b/i,
+  /\bi (?:am|have) (?:locked|lost|forgotten|misplaced|unable|no)\b/i,
+  // An utterance that opens on an action is a request, whoever it is for. Half
+  // of what a desk receives is written this way — "Remove a colleague from the
+  // sales list", "Block his account" — and none of it says "I" or "my".
+  /^\s*(?:please\s+|kindly\s+)?(?:reset|unlock|create|add|remove|delete|block|disable|deactivate|install|reactivate|restore|grant|assign|update|change|set up|extend|renew)\b/i,
+  // The requester speaks for someone else, which is the norm for joiners and
+  // leavers: the request is theirs, the account is not.
+  /\b(?:he|she|they|a colleague|our colleague|a new hire|a new joiner|the user|his|her) (?:needs?|is leaving|has left|joins|left|cannot|can'?t)\b/i,
   // Spoken requests are more polite and more indirect than typed ones, so the
   // verbs of service belong here — but not the verbs of enquiry. "Could you give
   // me VPN access" is a request; "could you tell me what the policy is" is the
@@ -59,7 +67,7 @@ const REQUEST_MARKERS = [
   // "my" and "our", never "a": "what evidence do you need before you reset a
   // password" is the library's question and must not become a reset.
   /\b(?:reset|unlock|create|set up|deactivate|block) (?:my|our)\b/i,
-  /\bmy (?:account|password|mailbox|laptop|access|licence|license) (?:is|has|was|does|won'?t|isn'?t)\b/i,
+  /\bmy (?:account|password|mailbox|laptop|access|licence|license) (?:is|has|was|got|does|won'?t|isn'?t|expired|stopped)\b/i,
   /\bwe need\b|\bhelp me\b|\bi have no\b/i,
 ];
 
@@ -77,12 +85,45 @@ export function readsAsRequest(utterance: string): boolean {
 const INTENT_ALIASES: ReadonlyArray<{ slug: string; words: readonly string[] }> = [
   {
     slug: 'password-reset',
-    words: ['forgot', 'forgotten', 'sign in', 'signin', 'log in', 'login', 'logon', 'signing in'],
+    words: [
+      'forgot',
+      'forgotten',
+      // "I lost my password" reaches nothing on its own: the service name says
+      // "reset", the requester says what happened to them. The floor keeps this
+      // from swallowing the policy question about a lost authenticator phone,
+      // which shares the verb and nothing else.
+      'lost',
+      'misplaced',
+      // The desk also runs a service that *reminds* people their password is
+      // about to expire, and it shares every word with this one. A requester
+      // saying their password expired wants a reset, so the phrases — never the
+      // bare words — go here to settle the tie.
+      'password expired',
+      'expired password',
+      'password has expired',
+      'change my password',
+      'change password',
+      'renew my password',
+      'sign in',
+      'signin',
+      'log in',
+      'login',
+      'logon',
+      'signing in',
+    ],
   },
   { slug: 'unlock-ad-account', words: ['locked', 'lockout', 'lock out', 'locked out'] },
   {
     slug: 'email-creation',
-    words: ['newcomer', 'new joiner', 'new starter', 'new employee', 'new hire', 'joins', 'joining'],
+    words: [
+      'newcomer',
+      'new joiner',
+      'new starter',
+      'new employee',
+      'new hire',
+      'joins',
+      'joining',
+    ],
   },
   { slug: 'email-block-hr-it', words: ['leaver', 'leaving', 'resigned', 'resignation', 'last day'] },
   {
@@ -95,7 +136,32 @@ const INTENT_ALIASES: ReadonlyArray<{ slug: string; words: readonly string[] }> 
   // installation" against "Printer installation", since neither word was said.
   {
     slug: 'software-installation',
-    words: ['software', 'application', 'app', 'laptop', 'licence', 'license', 'tool'],
+    words: [
+      'software',
+      'application',
+      'app',
+      'laptop',
+      // Without the other words for the machine, "install X on my machine" ties
+      // against "Printer installation": both names carry the verb and neither
+      // carries the product.
+      'machine',
+      'computer',
+      'workstation',
+      'licence',
+      'license',
+      'tool',
+    ],
+  },
+  // Both group services are named for the operation, not for the thing operated
+  // on, so a requester naming the list reaches neither. The verb they use is
+  // what tells the two apart, and it already carries a stem.
+  {
+    slug: 'email-group-members-addition',
+    words: ['distribution list', 'distribution group', 'mailing list', 'mail group'],
+  },
+  {
+    slug: 'email-group-members-deletion',
+    words: ['distribution list', 'distribution group', 'mailing list', 'mail group'],
   },
 ];
 
@@ -186,6 +252,10 @@ function aliasScore(utterance: string, slug: string): number {
  */
 const SUBSUMES: ReadonlyArray<readonly [string, string]> = [
   ['password-reset', 'unlock-ad-account'],
+  // The expiry service sends reminders before a password lapses; it shares
+  // every word with the reset and is never what someone asks for. Whoever says
+  // their password expired is asking for the reset that fixes it.
+  ['password-reset', 'ad-password-expiry-reminders'],
 ];
 
 /** The slug that resolves the other, when the two are such a pair. */
