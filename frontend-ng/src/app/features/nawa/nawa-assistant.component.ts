@@ -20,6 +20,7 @@
  */
 import {
   afterRenderEffect,
+  effect,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -295,6 +296,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
             [value]="draft()"
             (input)="draft.set($any($event.target).value)"
             (keydown.enter)="onEnter($event)"
+            (focus)="takeOver()"
             [placeholder]="awaitingIdentity()
               ? 'Reply with your staff number and the 6-digit code…'
               : 'Describe your request, or ask about a policy…'"
@@ -434,6 +436,13 @@ export class NawaAssistantComponent implements OnDestroy {
   constructor() {
     // Reads the signals the transcript renders from, so it re-runs after the
     // render that added the content, when the new height is measurable.
+    // What the microphone has heard so far belongs in the composer, where the
+    // words can be read and corrected, not only in a bubble after the fact.
+    effect(() => {
+      const heard = this.dictation.partial();
+      if (heard && this.micState() === 'listening') this.draft.set(heard);
+    });
+
     afterRenderEffect(() => {
       this.turns();
       this.pending();
@@ -623,6 +632,21 @@ export class NawaAssistantComponent implements OnDestroy {
    * a spoken question deserves a spoken answer, so speaking also turns the
    * voice on.
    */
+  /**
+   * Reaching for the keyboard mid-sentence means taking over from the
+   * microphone: listening ends, a closing pass keeps the tail that the display
+   * passes had not reached yet, and the words wait in the composer.
+   */
+  protected async takeOver(): Promise<void> {
+    if (this.micState() !== 'listening') return;
+    try {
+      const said = await this.dictation.stop('en');
+      if (said) this.draft.set(said);
+    } catch {
+      this.voiceNote.set('I did not catch that. Type it instead.');
+    }
+  }
+
   protected async speak(): Promise<void> {
     if (this.micState() === 'transcribing') return;
 
@@ -649,7 +673,7 @@ export class NawaAssistantComponent implements OnDestroy {
     // Talking over the answer stops it, the way it would with a person.
     this.speaker.cancel('user_speaking');
     try {
-      await this.dictation.start();
+      await this.dictation.start('en');
     } catch (error) {
       this.voiceNote.set(
         error instanceof DictationUnavailable
