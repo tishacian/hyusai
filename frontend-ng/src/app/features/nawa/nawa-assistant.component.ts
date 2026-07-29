@@ -327,7 +327,7 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
             [disabled]="pending() || !draft().trim()"
             (click)="ask(draft())"
           >
-            <ck-glyph name="pulse" [size]="13" />
+            <app-icon name="send" [size]="14" />
             {{ awaitingIdentity() ? 'Send' : 'Ask' }}
           </button>
         </div>
