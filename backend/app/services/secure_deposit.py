@@ -66,6 +66,8 @@ except Exception:  # noqa: BLE001 - dev/test fallback when deps are stale.
 
 _PBKDF2_PREFIX = "pbkdf2_sha256"
 _TOKEN_ALGORITHM = "HS256"
+SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY = "release_a_canary_v1"
+SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX = "ra1_"
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 _TEXT_PREVIEW_BYTES = 1024 * 1024
 _STRUCTURED_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
@@ -130,7 +132,25 @@ def default_allowed_extensions() -> list[str]:
 
 
 def generate_access_id() -> str:
-    return secrets.token_urlsafe(14).replace("_", "-")
+    # The ordinary generator never enters the reserved canary namespace.
+    while True:
+        access_id = secrets.token_urlsafe(14).replace("_", "-")
+        if not access_id.startswith(SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX):
+            return access_id
+
+
+def generate_release_a_canary_access_id() -> str:
+    return SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX + secrets.token_urlsafe(14).replace(
+        "_", "-"
+    )
+
+
+def is_release_a_sftp_canary_access_id(access_id: object) -> bool:
+    return (
+        isinstance(access_id, str)
+        and access_id.startswith(SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX)
+        and len(access_id) > len(SFTP_RELEASE_A_CANARY_ACCESS_ID_PREFIX)
+    )
 
 
 def generate_deposit_password() -> str:
@@ -1052,6 +1072,11 @@ def serialize_link(link: DepositAccessLink, *, reveal_password: str | None = Non
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
         "max_file_size_mb": link.max_file_size_mb,
         "allowed_extensions": link.allowed_extensions or [],
+        "sftp_auth_audit_profile": (
+            SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY
+            if is_release_a_sftp_canary_access_id(link.access_id)
+            else None
+        ),
         "created_at": link.created_at.isoformat() if link.created_at else None,
         "updated_at": link.updated_at.isoformat() if link.updated_at else None,
         "generated_password": reveal_password,
@@ -1442,14 +1467,25 @@ def create_link(
     expires_at: Optional[datetime],
     max_file_size_mb: Optional[int],
     allowed_extensions: Optional[list[str]],
+    sftp_auth_audit_profile: str | None = None,
 ) -> tuple[DepositAccessLink, str]:
     if not is_workspace_enabled(workspace):
         raise HTTPException(status_code=403, detail="Secure Deposit is not enabled for this workspace")
+    if sftp_auth_audit_profile not in {
+        None,
+        SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
+    }:
+        raise HTTPException(status_code=422, detail="Unsupported SFTP auth audit profile")
 
     password = generate_deposit_password()
-    access_id = generate_access_id()
+    access_id_factory = (
+        generate_release_a_canary_access_id
+        if sftp_auth_audit_profile == SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY
+        else generate_access_id
+    )
+    access_id = access_id_factory()
     while db.query(DepositAccessLink).filter(DepositAccessLink.access_id == access_id).first():
-        access_id = generate_access_id()
+        access_id = access_id_factory()
 
     link = DepositAccessLink(
         workspace_id=workspace.id,
@@ -1483,6 +1519,11 @@ def rotate_link_password(
     link: DepositAccessLink,
     user: User,
 ) -> str:
+    if is_release_a_sftp_canary_access_id(link.access_id):
+        raise HTTPException(
+            status_code=409,
+            detail="SFTP canary links cannot rotate credentials",
+        )
     password = generate_deposit_password()
     link.password_hash = hash_password(password)
     link.updated_at = datetime.utcnow()
@@ -1512,6 +1553,11 @@ def revoke_link(db: DBSession, *, link: DepositAccessLink, user: User) -> None:
 
 def authenticate_link(db: DBSession, *, access_id: str, password: str) -> tuple[DepositAccessLink, str, datetime]:
     link = get_link_by_access_id(db, access_id)
+    if is_release_a_sftp_canary_access_id(link.access_id):
+        raise HTTPException(
+            status_code=403,
+            detail="SFTP canary links do not support public sessions",
+        )
     workspace = db.query(Workspace).filter(Workspace.id == link.workspace_id).first()
     if not workspace or not is_workspace_enabled(workspace):
         raise HTTPException(status_code=403, detail="Secure Deposit is not enabled")
