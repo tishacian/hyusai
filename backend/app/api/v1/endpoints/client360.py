@@ -28,6 +28,7 @@ from app.services.client360_pdr import (
     customer_payload,
     generate_campaign_drafts,
     list_campaigns,
+    list_customers,
     list_mapping_rules,
     list_opportunities,
     opportunity_facets,
@@ -94,6 +95,8 @@ class Client360MailSettingsPatch(BaseModel):
     ssl: Optional[bool] = None
     starttls: Optional[bool] = None
     timeout_seconds: Optional[float] = Field(default=None, ge=1, le=120)
+    system_prompt: Optional[str] = Field(default=None, max_length=20000)
+    reset_system_prompt: Optional[bool] = None
 
 
 class Client360ActionPatch(BaseModel):
@@ -185,6 +188,13 @@ class SyncFromCollectionBody(BaseModel):
             "(also included when scope=all)"
         ),
     )
+    include_spc: bool = Field(
+        default=False,
+        description=(
+            "Opt-in: sync Installed base SPC (~56MB / 50k+ lines); "
+            "also included when scope=all. Default Phase-1 HTTP sync skips it."
+        ),
+    )
 
 
 class OpportunityPatch(BaseModel):
@@ -204,6 +214,9 @@ class CampaignSelectionCriteria(BaseModel):
     part_family: Optional[str] = None
     confidence: Optional[str] = None
     limit: Optional[int] = Field(default=None, ge=1, le=500)
+    # Explicit targeting from the customer directory / fiche next-due block.
+    customer_keys: Optional[list[str]] = Field(default=None, max_length=200)
+    due_within_weeks: Optional[int] = Field(default=None, ge=1, le=520)
 
 
 class CampaignCreate(BaseModel):
@@ -470,6 +483,7 @@ def client360_sources_sync_from_collection(
             scope=scope,
             rehydrate_mvp=body.rehydrate_mvp,
             include_purchase_history=body.include_purchase_history,
+            include_spc=body.include_spc,
         )
         if body.dry_run:
             result["mvp_archive_preview"] = preview_archive_mvp_orphan_sources(
@@ -741,14 +755,38 @@ def client360_mapping_patch(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/customers/{customer_id}")
-def client360_customer(
-    customer_id: str,
+@router.get("/customers")
+def client360_customers(
+    q: Optional[str] = Query(default=None),
+    country: Optional[str] = Query(default=None),
+    technology: Optional[str] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    # Customer detail currently performs an optional AI summary; it is an
+    _enforce_client360_action(
+        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+    )
+    return list_customers(
+        db,
+        workspace,
+        q=q,
+        country=country,
+        technology=technology,
+        limit=limit,
+    )
+
+
+@router.get("/customers/{customer_id}")
+def client360_customer(
+    customer_id: str,
+    include_ai_summary: bool = Query(default=True),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    # Customer detail may perform an optional AI summary; it is an
     # execution boundary rather than a free read until that enrichment is split.
     _enforce_client360_action(
         db,
@@ -759,7 +797,29 @@ def client360_customer(
         legacy_allowed=True,
         resource_attrs={"customer_id": customer_id, "operation": "customer_summary"},
     )
-    return customer_payload(db, workspace, customer_id)
+    return customer_payload(db, workspace, customer_id, include_ai_summary=include_ai_summary)
+
+
+@router.get("/customers/{customer_id}/summary")
+def client360_customer_summary(
+    customer_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    # Dedicated slow path: the UI loads the fiche without the AI summary first,
+    # then fetches this endpoint asynchronously.
+    _enforce_client360_action(
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=True,
+        resource_attrs={"customer_id": customer_id, "operation": "customer_summary"},
+    )
+    payload = customer_payload(db, workspace, customer_id, include_ai_summary=True)
+    return {"customer": payload["customer"], "ai_summary": payload["ai_summary"]}
 
 
 @router.post("/mail-drafts")

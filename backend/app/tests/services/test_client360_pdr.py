@@ -32,6 +32,7 @@ from app.services.client360_pdr import (
     create_mail_draft,
     customer_payload,
     generate_campaign_drafts,
+    list_customers,
     patch_client360_mail_settings,
     patch_opportunity,
     record_impact,
@@ -329,6 +330,51 @@ def test_client360_smtp_settings_are_workspace_scoped_and_mask_secret(db_session
     assert "password" not in masked
 
 
+def test_client360_mail_settings_payload_exposes_default_system_prompt(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+
+    payload = client360_mail_settings_payload(workspace)
+
+    assert payload["system_prompt_source"] == "default"
+    assert payload["prompt_version"] == "client360_pdr_mail_v2"
+    assert "Retourne strictement un objet JSON" in payload["system_prompt"]
+    assert "system_prompt" not in (workspace.settings.get("client360_pdr_mail") or {})
+
+
+def test_client360_mail_settings_patch_overrides_and_resets_system_prompt(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    custom = (
+        "Tu rediges un mail Client360 de test.\n"
+        'Retourne strictement un objet JSON: {"subject": "...", "body": "..."}.'
+    )
+
+    overridden = patch_client360_mail_settings(
+        db_session,
+        workspace,
+        {"system_prompt": custom},
+    )
+    db_session.commit()
+    db_session.refresh(workspace)
+
+    assert overridden["system_prompt"] == custom
+    assert overridden["system_prompt_source"] == "workspace"
+    assert overridden["prompt_version"] == "client360_pdr_mail_v2"
+    assert workspace.settings["client360_pdr_mail"]["system_prompt"] == custom
+
+    reset = patch_client360_mail_settings(
+        db_session,
+        workspace,
+        {"reset_system_prompt": True},
+    )
+    db_session.commit()
+    db_session.refresh(workspace)
+
+    assert reset["system_prompt_source"] == "default"
+    assert reset["system_prompt"] != custom
+    assert "Retourne strictement un objet JSON" in reset["system_prompt"]
+    assert "system_prompt" not in workspace.settings["client360_pdr_mail"]
+
+
 def test_send_mail_draft_uses_workspace_smtp_and_marks_sent(monkeypatch, db_session) -> None:
     workspace = _seed_workspace(
         db_session,
@@ -403,6 +449,7 @@ def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -
     async def fake_complete(**kwargs):
         assert kwargs["provider"] == "openai"
         assert kwargs["model"] == "test-mail-model"
+        assert kwargs["system_prompt"] == client360_module._CLIENT360_MAIL_SYSTEM_PROMPT
         assert "Septona" in kwargs["user_prompt"]
         assert "wear belts" in kwargs["user_prompt"]
         return '{"subject":"Plan maintenance PDR - Septona","body":"Bonjour,\\n\\nNous avons identifie une action preventive sur les wear belts.\\n\\nCordialement,"}'
@@ -417,8 +464,53 @@ def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -
     assert draft.meta_data["generation_mode"] == "ai_assisted"
     assert draft.meta_data["llm_model"] == "test-mail-model"
     assert draft.meta_data["prompt_version"] == "client360_pdr_mail_v2"
+    assert draft.meta_data["system_prompt_source"] == "default"
     assert draft.meta_data["human_validation_required"] is True
     assert action.meta_data["client360"]["generation_mode"] == "ai_assisted"
+
+
+def test_mail_draft_ai_uses_workspace_system_prompt_override(monkeypatch, db_session) -> None:
+    custom_prompt = (
+        "PROMPT OVERRIDE CLIENT360.\n"
+        'Retourne strictement un objet JSON: {"subject": "...", "body": "..."}.'
+    )
+    workspace = _seed_workspace(
+        db_session,
+        settings={
+            "client360_pdr_mail": {
+                "ai_enabled": True,
+                "provider": "openai",
+                "model": "test-mail-model",
+                "system_prompt": custom_prompt,
+            }
+        },
+    )
+    user = _seed_user(db_session)
+    opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
+    monkeypatch.setattr(client360_module.settings, "openai_api_key", "test-key")
+    seen: dict[str, str] = {}
+
+    async def fake_complete(**kwargs):
+        seen["system_prompt"] = kwargs["system_prompt"]
+        seen["prompt_hash"] = client360_module._prompt_hash(
+            kwargs["system_prompt"], kwargs["user_prompt"]
+        )
+        return '{"subject":"Override subject","body":"Corps override."}'
+
+    monkeypatch.setattr(client360_module, "_complete_client360_mail_ai", fake_complete)
+
+    draft, _action = create_mail_draft(db_session, workspace, user, opportunity_id=opportunity.id)
+    db_session.commit()
+
+    assert seen["system_prompt"] == custom_prompt
+    assert draft.meta_data["system_prompt_source"] == "workspace"
+    assert draft.meta_data["prompt_hash"] == seen["prompt_hash"]
+    assert draft.meta_data["prompt_hash"] != client360_module._prompt_hash(
+        client360_module._CLIENT360_MAIL_SYSTEM_PROMPT,
+        client360_module._mail_user_prompt(
+            client360_module._mail_prompt_payload(opportunity, include_prices=False)
+        ),
+    )
 
 
 def test_mail_draft_resolves_agentium_system_preset_model(monkeypatch, db_session) -> None:
@@ -617,6 +709,179 @@ def test_opportunity_engine_builds_prioritized_gap_from_mapped_real_records(db_s
     mapping = db_session.query(Client360MappingRule).one()
     assert mapping.status == "candidate"
     assert mapping.pdr_family == "wear belts"
+
+
+def test_canonicalize_source_record_keeps_forecast_anchor_fields() -> None:
+    from app.services.client360_pdr import _canonicalize_source_record
+
+    sales = _canonicalize_source_record(
+        {
+            "customer_name": "Septona S.A.",
+            "part_reference": "208177476",
+            "sales_known_qty": 1.0,
+            "sales_known_value": 1768.23,
+            "last_document_date": "2024-04-03 00:00:00",
+            "last_purchase_date": "2024-04-03 00:00:00",
+            "role": "sales_orders",
+        },
+        source_type="sap_sales_history",
+        evidence_refs=[],
+        source_id="src-1",
+    )
+    # Anchors used by compute_next_due must survive canonicalization.
+    assert sales["last_purchase_date"] == "2024-04-03 00:00:00"
+    assert sales["last_document_date"] == "2024-04-03 00:00:00"
+    assert sales["customer_key"] == "septona"
+
+    machine = _canonicalize_source_record(
+        {
+            "customer_name": "Septona S.A.",
+            "machine_label": "HFR200",
+            "construction_year": "2018",
+        },
+        source_type="installed_base",
+        evidence_refs=[],
+        source_id="src-2",
+    )
+    assert machine["construction_year"] == "2018"
+
+
+def test_opportunity_engine_computes_next_due_from_va05_material_sales(db_session) -> None:
+    """Septona-like case: family record with periodicity + VA05 customer×Material
+    sales carrying a last purchase date → deterministic next_due_at."""
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                label="SEPTONA - Client 360.xlsx",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "country": "Greece",
+                            "hub": "EMEA",
+                            "technology": "JETLACE HFR200",
+                            "part_family": "Injector Strip",
+                            "source_part_family": "Injector Strip",
+                            "source_part_label": "202507741 STRIP 3600-3600-3890-2J14 MM",
+                            "installed_quantity": 28.0,
+                            "recommended_quantity": 1.0,
+                            "periodicity_weeks": 6.0,
+                        }
+                    ]
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="sap_sales_history",
+                label="Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx",
+                status="ready",
+                meta_data={
+                    "role": "sales_orders",
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "part_reference": "202507741",
+                            "sales_known_qty": 3.0,
+                            "sales_known_value": 2517.6,
+                            "currency": "EUR",
+                            "last_document_date": "2024-04-03 00:00:00",
+                            "last_purchase_date": "2024-04-03 00:00:00",
+                            "role": "sales_orders",
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    opportunity = next(
+        row
+        for row in db_session.query(Client360Opportunity).all()
+        if row.part_family == "Injector Strip"
+    )
+    # Shared normalization folds "Septona S.A." to the registry key.
+    assert opportunity.customer_key == "septona"
+    assert opportunity.next_due_at is not None
+    assert opportunity.next_due_at >= datetime(2024, 4, 3)
+    forecast = opportunity.meta_data["forecast"]
+    assert forecast["anchor_source"] == "last_purchase"
+    assert forecast["anchor_date"].startswith("2024-04-03")
+
+
+def test_directory_unifies_registry_and_engine_customer_keys(db_session) -> None:
+    """Registry 'Septona (Alpha Leasing)' and SAP 'Septona S.A.' must land in one
+    directory bucket (projects + opportunities), even with persisted old-style keys."""
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="contact_hub",
+                label="Liste Projets _ Clients.xlsx",
+                status="ready",
+                meta_data={
+                    "role": "project_registry",
+                    "records": [
+                        {
+                            "project_code": "SEP100",
+                            "customer_name": "Septona (Alpha Leasing)",
+                            # Old-style persisted key (pre-shared-normalization).
+                            "customer_key": "septona alpha leasing",
+                            "sap_reference": "4500777",
+                            "country": "Greece",
+                            "role": "project_registry",
+                        }
+                    ],
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                label="SEPTONA - Client 360.xlsx",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                            "customer_name": "Septona S.A.",
+                            "customer_key": "septona s a",
+                            "country": "Greece",
+                            "technology": "JETLACE HFR200",
+                            "part_family": "Injector Strip",
+                            "installed_quantity": 28.0,
+                            "recommended_quantity": 1.0,
+                            "periodicity_weeks": 6.0,
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    directory = list_customers(db_session, workspace)
+    septona_items = [
+        item for item in directory["items"] if item["customer_key"] == "septona"
+    ]
+    assert len(septona_items) == 1
+    assert septona_items[0]["project_count"] >= 1
+    assert septona_items[0]["opportunity_count"] >= 1
 
 
 def test_serialize_opportunity_values_gap_in_euros_from_direct_price(db_session) -> None:
@@ -1122,6 +1387,154 @@ def test_generate_campaign_drafts_dedups_active_campaign(db_session) -> None:
     )
 
 
+def test_create_campaign_persists_customer_keys_targeting(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    user = _seed_user(db_session)
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Selection annuaire",
+        campaign_type="renewal",
+        selection_criteria={
+            "customer_keys": ["Septona", "septona", " Mogul ", ""],
+            "due_within_weeks": "12",
+            "unknown": "drop",
+        },
+    )
+    db_session.commit()
+
+    # Duplicate keys (same normalized customer) and empty entries are dropped.
+    assert campaign.selection_criteria == {
+        "customer_keys": ["Septona", "Mogul"],
+        "due_within_weeks": 12,
+    }
+
+
+def test_generate_campaign_drafts_targets_explicit_customer_selection(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="alpha")
+    _seed_campaign_opportunity(db_session, workspace, customer_key="beta", email=None)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="gamma")
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Annuaire",
+        campaign_type="free",
+        selection_criteria={"customer_keys": ["Alpha", "beta"]},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, campaign.id)
+    db_session.commit()
+
+    # gamma stays out of the selection; beta is selected but lacks a contact email.
+    assert result["created"] == 1
+    assert result["skipped"].get("missing_contact_email") == 1
+    drafts = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .all()
+    )
+    drafted_customers = {
+        db_session.query(Client360Opportunity)
+        .filter(Client360Opportunity.id == draft.opportunity_id)
+        .one()
+        .customer_key
+        for draft in drafts
+    }
+    assert drafted_customers == {"alpha"}
+    db_session.refresh(campaign)
+    assert campaign.targeted_count == 2
+
+
+def test_generate_campaign_drafts_customer_selection_keeps_active_campaign_dedup(
+    db_session,
+) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="shared")
+
+    first = create_campaign(db_session, workspace, user, name="First", campaign_type="free")
+    generate_campaign_drafts(db_session, workspace, user, first.id)
+    db_session.commit()
+
+    second = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Second",
+        campaign_type="renewal",
+        selection_criteria={"customer_keys": ["shared"]},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, second.id)
+    db_session.commit()
+
+    assert result["created"] == 0
+    assert result["skipped"].get("active_campaign_conflict") == 1
+
+
+def test_generate_campaign_drafts_due_within_weeks_targets_due_soon_only(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    now = datetime(2026, 7, 1, 9, 0, 0)
+    _seed_campaign_opportunity(
+        db_session, workspace, customer_key="duesoon", next_due_at=datetime(2026, 8, 1, 9, 0, 0)
+    )
+    _seed_campaign_opportunity(
+        db_session, workspace, customer_key="duelater", next_due_at=datetime(2027, 7, 1, 9, 0, 0)
+    )
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Echeances",
+        campaign_type="renewal",
+        selection_criteria={"customer_keys": ["duesoon", "duelater"], "due_within_weeks": 8},
+    )
+    result = generate_campaign_drafts(db_session, workspace, user, campaign.id, now=now)
+    db_session.commit()
+
+    assert result["created"] == 1
+    draft = (
+        db_session.query(Client360MailDraft)
+        .filter(Client360MailDraft.campaign_id == campaign.id)
+        .one()
+    )
+    opportunity = (
+        db_session.query(Client360Opportunity)
+        .filter(Client360Opportunity.id == draft.opportunity_id)
+        .one()
+    )
+    assert opportunity.customer_key == "duesoon"
+    db_session.refresh(campaign)
+    assert campaign.targeted_count == 1
+
+
+def test_campaign_stats_scopes_potential_to_customer_selection(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    user = _seed_user(db_session)
+    _seed_campaign_opportunity(db_session, workspace, customer_key="alpha")
+    _seed_campaign_opportunity(db_session, workspace, customer_key="gamma")
+
+    campaign = create_campaign(
+        db_session,
+        workspace,
+        user,
+        name="Cible",
+        campaign_type="free",
+        selection_criteria={"customer_keys": ["alpha"]},
+    )
+    db_session.commit()
+
+    stats = campaign_stats(db_session, workspace, campaign.id)["stats"]
+    assert stats["targeted_customers"] == 1
+    assert stats["targeted_opportunities"] == 1
+
+
 def test_campaign_stats_reports_transformation_and_potential(db_session) -> None:
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     user = _seed_user(db_session)
@@ -1165,6 +1578,11 @@ def test_campaign_stats_reports_transformation_and_potential(db_session) -> None
     # potential CA reuses potential_gap_value (gap 252 * unit price 150 = 37800)
     assert stats["potential_gap_value"] == 37800.0
     assert stats["targeted_customers"] == 1
+    # Observed impacts (1 order / 1 signal) → conversion_proxy 1.0
+    assert stats["conversion_proxy"] == 1.0
+    assert stats["conversion_proxy_source"] == "observed_impacts"
+    assert stats["expected_value"] == 37800.0
+    assert "estimation deterministe" in stats["expected_value_disclaimer"]
     # impact event is linked to the campaign through the draft.
     event = db_session.query(Client360Campaign).filter(Client360Campaign.id == campaign.id).one()
     assert event.drafts_count == 1
@@ -1325,8 +1743,15 @@ def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None
         "impact_events",
         "market_signals",
         "data_gaps",
+        "projects",
+        "machines",
+        "purchases",
+        "next_due",
     ):
         assert key in payload
+    assert isinstance(payload["next_due"], list)
+    # Seeded opportunity carries next_due_at; forecast module surfaces it when present.
+    assert any(item.get("part_reference") == "PDR-001" for item in payload["next_due"])
     assert payload["installed_base"][0]["technology"] == "JETLACE"
     assert {event["kind"] for event in payload["timeline"]} >= {"mail_draft", "impact_order"}
 
@@ -1339,6 +1764,19 @@ def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None
     assert "Septona" in summary["text"]
     # gap 252 * unit price 150 = 37800 is surfaced in the deterministic summary.
     assert "37800" in summary["text"]
+
+
+def test_customer_payload_skips_ai_summary_on_demand(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    _seed_opportunity(db_session, workspace)
+    db_session.commit()
+
+    payload = customer_payload(db_session, workspace, "septona", include_ai_summary=False)
+
+    assert payload["ai_summary"] is None
+    # The rest of the fiche stays fully populated on the fast path.
+    assert payload["customer"]["name"]
+    assert payload["opportunities"]
 
 
 def test_customer_payload_summary_uses_llm_when_configured(monkeypatch, db_session) -> None:
@@ -1372,3 +1810,232 @@ def test_customer_payload_summary_uses_llm_when_configured(monkeypatch, db_sessi
     assert summary["route_id"] == "client360_pdr_customer_summary"
     assert summary["prompt_version"] == "client360_pdr_customer_summary_v1"
     assert summary["highlights"] == ["Confiance haute"]
+
+
+def _seed_client360_source(db_session, workspace: Workspace, *, source_type: str, role: str, records: list[dict]) -> Client360DataSource:
+    row = Client360DataSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        source_type=source_type,
+        label=f"{role} fixture",
+        status="ready",
+        meta_data={"role": role, "records": records},
+    )
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def test_list_customers_merges_registry_and_opportunities_sorted_by_potential(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_client360_source(
+        db_session,
+        workspace,
+        source_type="contact_hub",
+        role="project_registry",
+        records=[
+            {
+                "project_code": "SEP100",
+                "customer_name": "Septona",
+                "customer_key": "septona",
+                "sap_reference": "SAP-SEP",
+                "country": "Greece",
+                "role": "project_registry",
+            },
+            {
+                "project_code": "MOG100",
+                "customer_name": "Mogul",
+                "customer_key": "mogul",
+                "sap_reference": "SAP-MOG",
+                "country": "Turkey",
+                "role": "project_registry",
+            },
+        ],
+    )
+    _seed_opportunity(
+        db_session,
+        workspace,
+        customer_key="septona",
+        customer_name="Septona",
+        country="Greece",
+        technology="JETLACE",
+        potential_gap_value=50000,
+        potential_gap_qty=100,
+    )
+    _seed_opportunity(
+        db_session,
+        workspace,
+        customer_key="mogul",
+        customer_name="Mogul",
+        country="Turkey",
+        technology="HFR200",
+        potential_gap_value=12000,
+        potential_gap_qty=40,
+        part_reference="PDR-MOG",
+    )
+    db_session.commit()
+
+    payload = list_customers(db_session, workspace)
+
+    assert payload["total"] == 2
+    assert [item["customer_key"] for item in payload["items"]] == ["septona", "mogul"]
+    septona = payload["items"][0]
+    assert septona["project_count"] == 1
+    assert septona["projects"][0]["project_code"] == "SEP100"
+    assert septona["opportunity_count"] == 1
+    assert septona["potential_gap_value"] == 50000
+    assert "Greece" in payload["facets"]["countries"]
+    assert "JETLACE" in payload["facets"]["technologies"]
+
+    filtered = list_customers(db_session, workspace, country="Turkey")
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["customer_key"] == "mogul"
+
+    searched = list_customers(db_session, workspace, q="sep")
+    assert searched["total"] == 1
+    assert searched["items"][0]["customer_name"] == "Septona"
+
+
+def test_customer_payload_enriches_projects_machines_purchases_and_next_due(
+    monkeypatch, db_session
+) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    _seed_client360_source(
+        db_session,
+        workspace,
+        source_type="contact_hub",
+        role="project_registry",
+        records=[
+            {
+                "project_code": "SEP100",
+                "customer_name": "Septona",
+                "customer_key": "septona",
+                "sap_reference": "SAP-SEP",
+                "country": "Greece",
+                "role": "project_registry",
+            }
+        ],
+    )
+    _seed_client360_source(
+        db_session,
+        workspace,
+        source_type="installed_base",
+        role="machine",
+        records=[
+            {
+                "customer_name": "Septona",
+                "customer_key": "septona",
+                "machine_label": "Jetlace A",
+                "technology": "JETLACE",
+                "line_label": "Line 1",
+                "project_code": "SEP100",
+                "construction_year": "2018",
+                "country": "Greece",
+                "role": "machine",
+            }
+        ],
+    )
+    _seed_client360_source(
+        db_session,
+        workspace,
+        source_type="sap_sales_history",
+        role="sales_orders",
+        records=[
+            {
+                "customer_name": "Septona",
+                "customer_key": "septona",
+                "part_reference": "BELT-1",
+                "part_description": "Wear belt",
+                "sales_known_qty": 12,
+                "sales_known_value": 1800,
+                "currency": "EUR",
+                "last_document_date": "2025-11-01",
+                "order_line_count": 3,
+                "role": "sales_orders",
+            }
+        ],
+    )
+    _seed_client360_source(
+        db_session,
+        workspace,
+        source_type="other",
+        role="purchase_history",
+        records=[
+            {
+                "part_reference": "BELT-1",
+                "unit_cost": 140,
+                "delivery_time_weeks": 8,
+                "po_count": 2,
+                "currency": "EUR",
+                "role": "purchase_history",
+            }
+        ],
+    )
+    _seed_opportunity(
+        db_session,
+        workspace,
+        technology="JETLACE",
+        line_label="Line 1",
+        machine_label="Needlepunch",
+        part_reference="BELT-1",
+    )
+    db_session.commit()
+
+    import sys
+    import types
+
+    fake_forecast = types.ModuleType("app.services.client360_forecast")
+
+    def customer_next_due(db, workspace, *, customer_key=None, customer_name=None):
+        return [
+            {
+                "part_reference": "BELT-1",
+                "next_due_at": "2026-09-01T00:00:00",
+                "customer_key": customer_key,
+                "customer_name": customer_name,
+            }
+        ]
+
+    fake_forecast.customer_next_due = customer_next_due
+    monkeypatch.setitem(sys.modules, "app.services.client360_forecast", fake_forecast)
+
+    payload = customer_payload(db_session, workspace, "septona")
+
+    assert payload["projects"][0]["project_code"] == "SEP100"
+    assert payload["projects"][0]["sap_reference"] == "SAP-SEP"
+    assert payload["machines"][0]["machine_label"] == "Jetlace A"
+    assert payload["purchases"][0]["part_reference"] == "BELT-1"
+    assert payload["purchases"][0]["sales_known_qty"] == 12
+    assert payload["purchases"][0]["unit_cost"] == 140
+    assert payload["purchases"][0]["delivery_time_weeks"] == 8
+    assert payload["purchases"][0]["po_count"] == 2
+    assert payload["next_due"][0]["part_reference"] == "BELT-1"
+    assert "Greece" in payload["customer"]["countries"]
+    assert "JETLACE" in payload["customer"]["technologies"]
+
+
+def test_customer_payload_next_due_empty_without_forecast_module(
+    monkeypatch, db_session
+) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+    _seed_opportunity(db_session, workspace, next_due_at=None)
+    db_session.commit()
+
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _block_forecast(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "app.services.client360_forecast" or (
+            name == "app.services" and fromlist and "client360_forecast" in fromlist
+        ):
+            raise ImportError("forecast deferred")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _block_forecast)
+
+    payload = customer_payload(db_session, workspace, "septona")
+    assert payload["next_due"] == []
+    assert payload["projects"] == []
+    assert payload["machines"] == []
+    assert payload["purchases"] == []

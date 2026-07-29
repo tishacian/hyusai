@@ -17,7 +17,7 @@ import os
 import re
 import statistics
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any, Optional
 from uuid import uuid4
@@ -58,6 +58,12 @@ from app.services.client360_contract import (
     CLIENT360_CAPABILITY_SLUG,
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
+)
+from app.services.client360_forecast import (
+    apply_next_due_to_record,
+    campaign_expected_value,
+    last_purchase_date_from_record,
+    parse_forecast_date,
 )
 from app.services.email import SmtpDeliveryConfig, send_email_with_config
 from app.services.iam.app_entitlements import (
@@ -211,10 +217,14 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 
 def client360_scope(workspace: Workspace) -> dict[str, Any]:
     configured = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("client360_pdr_scope"))
+    scope_mode = _safe_text(configured.get("scope_mode") or "pilot").lower()
+    if scope_mode not in {"pilot", "all"}:
+        scope_mode = "pilot"
     return {
         "official_name": CLIENT360_MVP_CONTRACT["official_name"],
         "business_scope": "spare_parts",
         "part_scope": "wear_parts",
+        "scope_mode": scope_mode,
         "pilot_technologies": _as_list(configured.get("pilot_technologies"))
         or list(PILOT_TECHNOLOGIES),
         "pilot_countries": _as_list(configured.get("pilot_countries")) or list(PILOT_COUNTRIES),
@@ -271,6 +281,178 @@ def _normalize_token(value: Any) -> str:
 
 def _mapping_key(*values: Any) -> str:
     return "|".join(part for part in (_normalize_token(value) for value in values) if part)
+
+
+# --- Shared customer-name normalization (registry / sales_orders / SPC join) ---
+#
+# The Andritz feeds spell the same customer differently: the project registry
+# uses short internal names ("Minet", "Kurt Kumas", "Septona (Alpha Leasing)")
+# while SAP exports (VA05 Sold-To, SPC Sold name) carry full legal names
+# ("MINET S.A.", "Kurt Kumas Sanayi ve Ticaret A.S.", "Septona S.A.").
+# ``normalize_customer_key`` folds both to one join key. Rules — deliberately
+# conservative (exact equality after folding, no fuzzy/containment matching):
+#
+# 1. Turkish letters are transliterated explicitly before the ASCII fold:
+#    NFKD drops dotless "ı" entirely ("Kadıköy" → "kadky"), silently breaking
+#    equality with the "i" spelling.
+# 2. Same accent/punctuation folding as ``_normalize_token``.
+# 3. Leading corporate-form tokens are stripped ("LLC Cotton Club" →
+#    "cotton club", "OOO Avangard" → "avangard").
+# 4. Trailing corporate-form tokens/phrases are stripped repeatedly
+#    ("Sanitars SPA" → "sanitars", "Kurt Kumas Sanayi ve Ticaret A.S." →
+#    "kurt kumas", "Yibin Grace Co., Ltd." → "yibin grace").
+# 5. Descriptive words (Tekstil, Nonwovens, Textile, Hygienics, …) are never
+#    stripped and at least one token always remains, so distinct entities such
+#    as "Fibertex Nonwovens" vs "Fibertex US" never collapse together.
+
+_TURKISH_ASCII_TRANSLATION = str.maketrans(
+    {
+        "ı": "i",
+        "İ": "i",
+        "ş": "s",
+        "Ş": "s",
+        "ğ": "g",
+        "Ğ": "g",
+        "ç": "c",
+        "Ç": "c",
+        "ö": "o",
+        "Ö": "o",
+        "ü": "u",
+        "Ü": "u",
+    }
+)
+
+_CUSTOMER_LEADING_LEGAL_TOKENS = {
+    "llc",
+    "ooo",
+    "oao",
+    "zao",
+    "pao",
+    "ao",
+    "jsc",
+    "pjsc",
+    "snc",
+    "uab",
+}
+
+# Multi-token legal phrases, matched (longest first) against the name tail.
+_CUSTOMER_TRAILING_LEGAL_PHRASES: tuple[tuple[str, ...], ...] = (
+    ("sanayi", "ve", "ticaret"),
+    ("san", "ve", "tic"),
+    ("gmbh", "co", "kg"),
+    ("s", "a", "s"),
+    ("s", "p", "a"),
+    ("s", "r", "l"),
+    ("s", "a"),
+    ("a", "s"),
+    ("s", "l"),
+)
+
+_CUSTOMER_TRAILING_LEGAL_TOKENS = {
+    "sa",
+    "as",
+    "ag",
+    "ab",
+    "nv",
+    "bv",
+    "oy",
+    "plc",
+    "llc",
+    "ltd",
+    "ltda",
+    "limited",
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "kg",
+    "gmbh",
+    "srl",
+    "spa",
+    "sarl",
+    "sas",
+    "sl",
+    "cie",
+    "company",
+    "pvt",
+    "kk",
+    # Turkish corporate qualifiers (Sanayi/Ticaret and abbreviations); "ve"
+    # ("and") is only ever stripped from the tail, after one of the others.
+    "sanayi",
+    "ticaret",
+    "san",
+    "tic",
+    "ve",
+    "ooo",
+    "oao",
+    "zao",
+    "pao",
+    "jsc",
+    "pjsc",
+}
+
+
+def _strip_customer_legal_tokens(tokens: list[str]) -> list[str]:
+    out = list(tokens)
+    while len(out) > 1 and out[0] in _CUSTOMER_LEADING_LEGAL_TOKENS:
+        out = out[1:]
+    changed = True
+    while changed and len(out) > 1:
+        changed = False
+        for phrase in _CUSTOMER_TRAILING_LEGAL_PHRASES:
+            size = len(phrase)
+            if len(out) > size and tuple(out[-size:]) == phrase:
+                out = out[:-size]
+                changed = True
+                break
+        if not changed and len(out) > 1 and out[-1] in _CUSTOMER_TRAILING_LEGAL_TOKENS:
+            out = out[:-1]
+            changed = True
+    return out
+
+
+def normalize_customer_key(value: Any) -> str:
+    """Canonical customer join key shared by registry, sales_orders and SPC."""
+    text = _safe_text(value)
+    if not text:
+        return ""
+    normalized = _normalize_token(text.translate(_TURKISH_ASCII_TRANSLATION))
+    if not normalized:
+        return ""
+    stripped = _strip_customer_legal_tokens(normalized.split(" "))
+    return " ".join(stripped) if stripped else normalized
+
+
+_REGISTRY_ALIAS_RE = re.compile(r"\(([^)]*)\)")
+
+
+def registry_customer_key(value: Any) -> str:
+    """Key for registry FINAL CUSTOMER names, which use a "Primary (Alias)"
+    convention for lessors / former names ("Septona (Alpha Leasing)",
+    "Selcuk Iplik (Karafiber)"). The primary part is the join key so the SAP
+    legal name ("Septona S.A.") folds to the same key."""
+    text = _safe_text(value)
+    primary = _REGISTRY_ALIAS_RE.sub(" ", text)
+    return normalize_customer_key(primary) or normalize_customer_key(text)
+
+
+def customer_key_variants(value: Any) -> list[str]:
+    """All normalized lookup variants of a registry customer name: primary
+    (outside parentheses), each parenthetical alias, and the full name."""
+    text = _safe_text(value)
+    candidates = [
+        _REGISTRY_ALIAS_RE.sub(" ", text),
+        *_REGISTRY_ALIAS_RE.findall(text),
+        text,
+    ]
+    variants: list[str] = []
+    for candidate in candidates:
+        candidate = re.sub(r"^(?:ex|via)\s+", "", candidate.strip(), flags=re.IGNORECASE)
+        key = normalize_customer_key(candidate)
+        if key and key not in variants:
+            variants.append(key)
+    return variants
 
 
 def _find_client360_system(db: DBSession, workspace: Workspace) -> System | None:
@@ -412,9 +594,11 @@ def _merge_record(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, A
 
 
 def _record_customer_key(record: dict[str, Any]) -> str:
+    # Prefer the raw name: persisted records may carry keys computed with an
+    # older normalization; re-deriving keeps all feeds on the shared key.
     return (
-        _safe_text(record.get("customer_key"))
-        or _normalize_token(record.get("customer_name"))
+        normalize_customer_key(record.get("customer_name"))
+        or normalize_customer_key(record.get("customer_key"))
         or "unknown_customer"
     )
 
@@ -473,12 +657,14 @@ def _scope_skip_reason(record: dict[str, Any], scope: dict[str, Any]) -> str | N
     ):
         return "technology_out_of_pilot_scope"
 
-    countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
-    customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
-    country = _normalize_token(record.get("country"))
-    customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
-    if country and countries and country not in countries and customer not in customers:
-        return "country_out_of_pilot_scope"
+    # scope_mode=all skips the country/customer pilot gate; wear-parts mapping gate above stays.
+    if _safe_text(scope.get("scope_mode")).lower() != "all":
+        countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
+        customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
+        country = _normalize_token(record.get("country"))
+        customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
+        if country and countries and country not in countries and customer not in customers:
+            return "country_out_of_pilot_scope"
     return None
 
 
@@ -611,7 +797,15 @@ def classify_data_source(text: str) -> str:
     # Installed_base_SPL / Client360 pilot filenames (underscored or spaced).
     if "family" in underscored and "opportunity" in underscored:
         return "periodicity"
+    if ("projets" in underscored and "clients" in underscored) or (
+        "project" in underscored and "customer" in underscored
+    ):
+        return "contact_hub"
     if "sales_by_country" in underscored or "salesbycountry" in underscored:
+        return "sap_sales_history"
+    if "sales_order" in underscored or "salesorders" in underscored or re.search(
+        r"(^|_)va05($|_)", underscored
+    ):
         return "sap_sales_history"
     if "materials_consumption" in underscored:
         return "other"
@@ -1454,7 +1648,475 @@ def _generate_customer_summary_content(
     return _fallback_customer_summary(aggregates, reason="running_event_loop")
 
 
-def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> dict[str, Any]:
+def _record_role(record: dict[str, Any]) -> str:
+    return _normalize_token(record.get("role"))
+
+
+def _customer_key_for(value: Any) -> str:
+    return normalize_customer_key(value)
+
+
+def _raw_source_records_by_roles(
+    db: DBSession,
+    workspace: Workspace,
+    roles: set[str],
+) -> list[dict[str, Any]]:
+    """Read persisted source ``metadata.records`` without canonical field stripping.
+
+    Registry / machine / sales_orders rows carry fields (``project_code``,
+    ``sap_reference``, ``construction_year``, …) that the opportunity
+    canonicalize path does not keep.
+    """
+    wanted = {_normalize_token(role) for role in roles if _normalize_token(role)}
+    if not wanted:
+        return []
+    records: list[dict[str, Any]] = []
+    rows = (
+        db.query(Client360DataSource)
+        .filter(
+            Client360DataSource.workspace_id == workspace.id,
+            Client360DataSource.status != "archived",
+        )
+        .all()
+    )
+    for source in rows:
+        metadata = _as_dict(source.meta_data)
+        source_role = _normalize_token(metadata.get("role") or metadata.get("spl_role"))
+        raw_rows = _as_list(
+            metadata.get("records") or metadata.get("rows") or metadata.get("mapped_rows")
+        )
+        for raw in raw_rows:
+            if not isinstance(raw, dict):
+                continue
+            role = _normalize_token(raw.get("role")) or source_role
+            if role not in wanted:
+                continue
+            item = dict(raw)
+            item["role"] = role
+            item.setdefault("source_type", source.source_type)
+            item.setdefault("customer_key", _customer_key_for(item.get("customer_key") or item.get("customer_name")))
+            records.append(item)
+    return records
+
+
+def _records_matching_customer(
+    records: list[dict[str, Any]],
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    keys = {key for key in (customer_key, _customer_key_for(customer_name)) if key}
+    if not keys:
+        return []
+    matched: list[dict[str, Any]] = []
+    for record in records:
+        record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if record_key and record_key in keys:
+            matched.append(record)
+    return matched
+
+
+def _load_project_registry_records(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for record in _raw_source_records_by_roles(db, workspace, {"project_registry"}):
+        customer_name = _safe_text(record.get("customer_name"))
+        # Name first: registry names carry the "Primary (Alias)" convention and
+        # persisted keys may predate the shared normalization.
+        customer_key = registry_customer_key(customer_name) or normalize_customer_key(
+            record.get("customer_key")
+        )
+        if not customer_key and not record.get("project_code") and not record.get("sap_reference"):
+            continue
+        records.append(
+            {
+                "project_code": _safe_text(record.get("project_code")) or None,
+                "sap_reference": _safe_text(record.get("sap_reference")) or None,
+                "wbs_element": _safe_text(record.get("wbs_element")) or None,
+                "customer_name": customer_name or None,
+                "customer_key": customer_key or None,
+                "country": _safe_text(record.get("country")) or None,
+                "role": "project_registry",
+            }
+        )
+    return records
+
+
+def _customer_projects(
+    registry_records: list[dict[str, Any]],
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    projects: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for record in _records_matching_customer(
+        registry_records, customer_key=customer_key, customer_name=customer_name
+    ):
+        item = {
+            "project_code": record.get("project_code"),
+            "sap_reference": record.get("sap_reference"),
+            "wbs_element": record.get("wbs_element"),
+            "country": record.get("country"),
+        }
+        dedupe = (
+            _safe_text(item.get("project_code")),
+            _safe_text(item.get("sap_reference")),
+            _safe_text(item.get("wbs_element")),
+        )
+        if not any(dedupe) or dedupe in seen:
+            continue
+        seen.add(dedupe)
+        projects.append(item)
+    projects.sort(
+        key=lambda item: (
+            _safe_text(item.get("project_code")),
+            _safe_text(item.get("sap_reference")),
+        )
+    )
+    return projects
+
+
+def _customer_machines(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+    registry_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Machine.xlsx equipment for the customer (Sold-to + registry project join)."""
+    from app.services.client360_spl_adapter import (
+        build_project_registry_index,
+        resolve_customer_for_project,
+    )
+
+    registry = registry_records if registry_records is not None else _load_project_registry_records(
+        db, workspace
+    )
+    registry_index = build_project_registry_index(registry)
+    keys = {key for key in (customer_key, _customer_key_for(customer_name)) if key}
+    machines: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for record in _raw_source_records_by_roles(db, workspace, {"machine"}):
+        record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if record_key not in keys:
+            resolved = resolve_customer_for_project(
+                record.get("project_code"),
+                wbs=record.get("wbs_element"),
+                sap_ref=record.get("sap_reference"),
+                index=registry_index,
+            )
+            resolved_key = _customer_key_for(
+                (resolved or {}).get("customer_key") or (resolved or {}).get("customer_name")
+            )
+            if resolved_key not in keys:
+                continue
+            if not record_key and resolved:
+                record_key = resolved_key
+        item = {
+            "machine_label": _safe_text(record.get("machine_label")) or None,
+            "technology": _safe_text(record.get("technology")) or None,
+            "line_label": _safe_text(record.get("line_label")) or None,
+            "project_code": _safe_text(record.get("project_code")) or None,
+            "sap_reference": _safe_text(record.get("sap_reference")) or None,
+            "wbs_element": _safe_text(record.get("wbs_element")) or None,
+            "construction_year": _safe_text(record.get("construction_year")) or None,
+            "country": _safe_text(record.get("country")) or None,
+            "customer_key": record_key or customer_key,
+        }
+        dedupe = (
+            _safe_text(item.get("machine_label")),
+            _safe_text(item.get("technology")),
+            _safe_text(item.get("line_label")),
+            _safe_text(item.get("project_code")),
+        )
+        if not any(dedupe) or dedupe in seen:
+            continue
+        seen.add(dedupe)
+        machines.append(item)
+    machines.sort(
+        key=lambda item: (
+            _safe_text(item.get("technology")),
+            _safe_text(item.get("line_label")),
+            _safe_text(item.get("machine_label")),
+        )
+    )
+    return machines
+
+
+def _customer_purchases(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Sales-order aggregates for the customer, enriched with PO cost/lead when present."""
+    sales = _raw_source_records_by_roles(db, workspace, {"sales_orders"})
+    matched = _records_matching_customer(
+        sales, customer_key=customer_key, customer_name=customer_name
+    )
+    if not matched:
+        return []
+    matched_ref_keys = {
+        _normalize_token(record.get("part_reference"))
+        for record in matched
+        if _safe_text(record.get("part_reference"))
+    }
+    # The purchase-history sources hold tens of thousands of materials; only
+    # the customer's own references are ever looked up, so filtering before
+    # indexing keeps the fiche latency bounded.
+    purchase_rows = [
+        row
+        for row in _raw_source_records_by_roles(db, workspace, {"purchase_history"})
+        if _normalize_token(row.get("part_reference")) in matched_ref_keys
+    ]
+    cost_index = _index_purchase_costs(purchase_rows)
+    lead_index = _index_purchase_lead_times(purchase_rows)
+    by_ref_cost = _as_dict(cost_index.get("by_part_reference"))
+    purchases: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in matched:
+        part_ref = _safe_text(record.get("part_reference"))
+        if not part_ref:
+            continue
+        ref_key = _normalize_token(part_ref)
+        if ref_key in seen:
+            # Prefer the first (already aggregated) sales_orders row per material.
+            continue
+        seen.add(ref_key)
+        unit_cost = by_ref_cost.get(ref_key)
+        po_count = _safe_float(record.get("po_count"))
+        if unit_cost is None:
+            unit_cost = _safe_non_negative_float(record.get("unit_cost"))
+        lead = lead_index.get(ref_key)
+        if lead is None:
+            lead = _safe_float(record.get("delivery_time_weeks"))
+        if po_count is None:
+            for po_record in purchase_rows:
+                if _normalize_token(po_record.get("part_reference")) != ref_key:
+                    continue
+                po_count = _safe_float(po_record.get("po_count")) or 1.0
+                if unit_cost is None:
+                    unit_cost = _safe_non_negative_float(po_record.get("unit_cost"))
+                if lead is None:
+                    lead = _safe_float(po_record.get("delivery_time_weeks"))
+                break
+        purchases.append(
+            {
+                "part_reference": part_ref,
+                "part_description": _safe_text(record.get("part_description")) or None,
+                "sales_known_qty": _safe_float(record.get("sales_known_qty")),
+                "sales_known_value": _safe_non_negative_float(record.get("sales_known_value")),
+                "currency": _safe_text(record.get("currency")) or "EUR",
+                "last_document_date": _safe_text(
+                    record.get("last_document_date") or record.get("document_date")
+                )
+                or None,
+                "order_line_count": _safe_int(record.get("order_line_count"), 1)
+                if record.get("order_line_count") is not None
+                else None,
+                "unit_cost": unit_cost,
+                "delivery_time_weeks": lead,
+                "po_count": int(po_count) if po_count is not None else None,
+                "cost_sum": _safe_non_negative_float(record.get("cost_sum")),
+            }
+        )
+    purchases.sort(
+        key=lambda item: (
+            -(_safe_non_negative_float(item.get("sales_known_value")) or 0.0),
+            _safe_text(item.get("part_reference")),
+        )
+    )
+    return purchases
+
+
+def _customer_next_due(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    customer_key: str,
+    customer_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Deterministic due items from Phase-4 forecast when the module is present."""
+    try:
+        from app.services.client360_forecast import customer_next_due
+    except ImportError:
+        return []
+    try:
+        result = customer_next_due(
+            db,
+            workspace,
+            customer_key=customer_key,
+            customer_name=customer_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Client360 forecast next_due failed: %s", type(exc).__name__)
+        return []
+    if result is None:
+        return []
+    return [item for item in _as_list(result) if isinstance(item, dict)]
+
+
+def list_customers(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    q: str | None = None,
+    country: str | None = None,
+    technology: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Customer directory: project registry × opportunities, sorted by potential."""
+    registry_records = _load_project_registry_records(db, workspace)
+    opportunities = list_opportunities(db, workspace, limit=500)
+
+    directory: dict[str, dict[str, Any]] = {}
+
+    def _ensure(customer_key: str, customer_name: str | None = None) -> dict[str, Any]:
+        key = customer_key or _customer_key_for(customer_name)
+        if not key:
+            key = "unknown"
+        bucket = directory.get(key)
+        if bucket is None:
+            bucket = {
+                "customer_key": key,
+                "customer_name": customer_name or key,
+                "countries": set(),
+                "hubs": set(),
+                "technologies": set(),
+                "projects": [],
+                "project_count": 0,
+                "opportunity_count": 0,
+                "statuses": {},
+                "potential_gap_value": 0.0,
+                "potential_gap_qty": 0.0,
+                "currency": "EUR",
+            }
+            directory[key] = bucket
+        elif customer_name and (
+            bucket["customer_name"] == key or len(customer_name) > len(str(bucket["customer_name"]))
+        ):
+            bucket["customer_name"] = customer_name
+        return bucket
+
+    for record in registry_records:
+        customer_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+        if not customer_key:
+            continue
+        bucket = _ensure(customer_key, record.get("customer_name"))
+        if record.get("country"):
+            bucket["countries"].add(record["country"])
+        project = {
+            "project_code": record.get("project_code"),
+            "sap_reference": record.get("sap_reference"),
+            "wbs_element": record.get("wbs_element"),
+            "country": record.get("country"),
+        }
+        if any(project.get(field) for field in ("project_code", "sap_reference", "wbs_element")):
+            if project not in bucket["projects"]:
+                bucket["projects"].append(project)
+
+    for opp in opportunities:
+        customer_key = _customer_key_for(opp.get("customer_key") or opp.get("customer_name"))
+        if not customer_key:
+            continue
+        bucket = _ensure(customer_key, opp.get("customer_name"))
+        bucket["opportunity_count"] += 1
+        status = _safe_text(opp.get("status")) or "detected"
+        statuses = bucket["statuses"]
+        statuses[status] = int(statuses.get(status, 0)) + 1
+        bucket["potential_gap_value"] += float(_safe_float(opp.get("potential_gap_value")) or 0.0)
+        bucket["potential_gap_qty"] += float(_safe_float(opp.get("potential_gap_qty")) or 0.0)
+        if opp.get("currency"):
+            bucket["currency"] = opp["currency"]
+        if opp.get("country"):
+            bucket["countries"].add(opp["country"])
+        if opp.get("hub"):
+            bucket["hubs"].add(opp["hub"])
+        if opp.get("technology"):
+            bucket["technologies"].add(opp["technology"])
+
+    query = _normalize_token(q)
+    country_filter = _safe_text(country)
+    technology_filter = _safe_text(technology)
+    items: list[dict[str, Any]] = []
+    facet_countries: set[str] = set()
+    facet_technologies: set[str] = set()
+
+    for bucket in directory.values():
+        countries = sorted(bucket["countries"])
+        technologies = sorted(bucket["technologies"])
+        hubs = sorted(bucket["hubs"])
+        for value in countries:
+            facet_countries.add(value)
+        for value in technologies:
+            facet_technologies.add(value)
+        if country_filter and country_filter not in countries:
+            continue
+        if technology_filter and technology_filter not in technologies:
+            continue
+        if query:
+            haystack = " ".join(
+                [
+                    _normalize_token(bucket["customer_name"]),
+                    _normalize_token(bucket["customer_key"]),
+                    " ".join(_normalize_token(c) for c in countries),
+                    " ".join(
+                        _normalize_token(p.get("project_code")) for p in bucket["projects"]
+                    ),
+                ]
+            )
+            if query not in haystack:
+                continue
+        items.append(
+            {
+                "customer_key": bucket["customer_key"],
+                "customer_name": bucket["customer_name"],
+                "countries": countries,
+                "hubs": hubs,
+                "technologies": technologies,
+                "projects": sorted(
+                    bucket["projects"],
+                    key=lambda item: (
+                        _safe_text(item.get("project_code")),
+                        _safe_text(item.get("sap_reference")),
+                    ),
+                ),
+                "project_count": len(bucket["projects"]),
+                "opportunity_count": bucket["opportunity_count"],
+                "statuses": dict(sorted(bucket["statuses"].items())),
+                "potential_gap_value": _round_or_none(bucket["potential_gap_value"]) or 0.0,
+                "potential_gap_qty": _round_or_none(bucket["potential_gap_qty"]) or 0.0,
+                "currency": bucket["currency"] or "EUR",
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            -(float(item.get("potential_gap_value") or 0.0)),
+            -(int(item.get("opportunity_count") or 0)),
+            _safe_text(item.get("customer_name")).lower(),
+        )
+    )
+    capped = items[: max(1, min(int(limit or 200), 500))]
+    return {
+        "items": capped,
+        "total": len(items),
+        "facets": {
+            "countries": sorted(facet_countries),
+            "technologies": sorted(facet_technologies),
+        },
+    }
+
+
+def customer_payload(
+    db: DBSession,
+    workspace: Workspace,
+    customer_id: str,
+    *,
+    include_ai_summary: bool = True,
+) -> dict[str, Any]:
     rows = (
         db.query(Client360Opportunity)
         .filter(
@@ -1495,7 +2157,20 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
         .order_by(Client360ImpactEvent.occurred_at.desc())
         .all()
     )
+    registry_records = _load_project_registry_records(db, workspace)
     customer_name = opportunities[0]["customer_name"] if opportunities else customer_id
+    customer_key = _customer_key_for(
+        opportunities[0].get("customer_key") if opportunities else None
+    ) or _customer_key_for(customer_id)
+    if not opportunities:
+        for record in registry_records:
+            record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+            if record_key == customer_key or customer_key in _normalize_token(
+                record.get("customer_name")
+            ):
+                customer_name = record.get("customer_name") or customer_name
+                customer_key = record_key or customer_key
+                break
     customer_norm = _normalize_token(customer_name)
     market_signals = [
         item
@@ -1512,23 +2187,61 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
     data_gaps = sorted({gap for item in opportunities for gap in item.get("data_gaps", [])})
     installed_base = build_installed_base_tree(opportunities)
     timeline = build_customer_timeline(opportunities, serialized_drafts, serialized_impacts)
+    projects = _customer_projects(
+        registry_records, customer_key=customer_key, customer_name=customer_name
+    )
+    machines = _customer_machines(
+        db,
+        workspace,
+        customer_key=customer_key,
+        customer_name=customer_name,
+        registry_records=registry_records,
+    )
+    purchases = _customer_purchases(
+        db, workspace, customer_key=customer_key, customer_name=customer_name
+    )
+    next_due = _customer_next_due(
+        db, workspace, customer_key=customer_key, customer_name=customer_name
+    )
+    countries = sorted(
+        {
+            *(item["country"] for item in opportunities if item.get("country")),
+            *(item["country"] for item in projects if item.get("country")),
+            *(item["country"] for item in machines if item.get("country")),
+        }
+    )
+    hubs = sorted({item["hub"] for item in opportunities if item.get("hub")})
+    technologies = sorted(
+        {
+            *(item["technology"] for item in opportunities if item.get("technology")),
+            *(item["technology"] for item in machines if item.get("technology")),
+        }
+    )
     aggregates = _customer_summary_aggregates(
         customer_name, opportunities, installed_base, timeline, data_gaps
     )
-    ai_summary = _generate_customer_summary_content(db, workspace, aggregates)
+    # The AI summary is the slow part of the payload (LLM completion); callers
+    # can skip it and fetch it separately so the fiche renders immediately.
+    ai_summary = (
+        _generate_customer_summary_content(db, workspace, aggregates)
+        if include_ai_summary
+        else None
+    )
     return {
         "customer": {
-            "id": customer_id,
+            "id": customer_key or customer_id,
             "name": customer_name,
-            "countries": sorted({item["country"] for item in opportunities if item.get("country")}),
-            "hubs": sorted({item["hub"] for item in opportunities if item.get("hub")}),
-            "technologies": sorted(
-                {item["technology"] for item in opportunities if item.get("technology")}
-            ),
+            "countries": countries,
+            "hubs": hubs,
+            "technologies": technologies,
         },
         "ai_summary": ai_summary,
         "installed_base": installed_base,
         "timeline": timeline,
+        "projects": projects,
+        "machines": machines,
+        "purchases": purchases,
+        "next_due": next_due,
         "opportunities": opportunities,
         "mail_drafts": serialized_drafts,
         "impact_events": serialized_impacts,
@@ -1680,13 +2393,20 @@ def _canonicalize_source_record(
             "vendor_country",
             "po_count",
             "cost_sum",
+            # Forecast anchors: sales_orders aggregates carry the last purchase
+            # date and machine rows a construction year — dropping them here
+            # left every ``compute_next_due`` without an anchor.
+            "last_purchase_date",
+            "last_document_date",
+            "document_date",
+            "construction_year",
         }:
             if key in {"po_count", "cost_sum"}:
                 out[key] = _safe_float(value)
             else:
                 out[key] = _safe_text(value) or None
     if not out.get("customer_key") and out.get("customer_name"):
-        out["customer_key"] = _normalize_token(out.get("customer_name"))
+        out["customer_key"] = normalize_customer_key(out.get("customer_name"))
     if not out.get("source_part_reference") and out.get("part_reference"):
         out["source_part_reference"] = out.get("part_reference")
     if not out.get("source_part_family") and out.get("part_family"):
@@ -1787,7 +2507,7 @@ def _records_from_table_facts(db: DBSession, workspace: Workspace) -> list[dict[
         ):
             record["part_family"] = record["source_part_label"]
         if not record.get("customer_key") and record.get("customer_name"):
-            record["customer_key"] = _normalize_token(record.get("customer_name"))
+            record["customer_key"] = normalize_customer_key(record.get("customer_name"))
         if any(
             record.get(key)
             for key in (
@@ -1929,6 +2649,15 @@ def _index_sales(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             float(current.get("sales_known_value") or 0)
             + float(record.get("sales_known_value") or 0)
         ) or None
+        # Keep the latest purchase date for deterministic due-date forecasts.
+        candidates = [
+            last_purchase_date_from_record(current),
+            last_purchase_date_from_record(record),
+        ]
+        latest = max((item for item in candidates if item is not None), default=None)
+        if latest is not None:
+            merged["last_document_date"] = latest.isoformat()
+            merged["last_purchase_date"] = latest.isoformat()
         index[key] = merged
     return index
 
@@ -1946,6 +2675,65 @@ def _sales_for_record(
         if key in sales_index:
             return sales_index[key]
     return {}
+
+
+_MATERIAL_TOKEN_RE = re.compile(r"\b\d{9}\b")
+
+
+def _index_material_families(records: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Material reference → part families (family rows embed SAP material
+    numbers in ``source_part_label``, e.g. ``"132076556 BEARING BALL …"``)."""
+    index: dict[str, set[str]] = {}
+    for record in records:
+        family = _safe_text(record.get("part_family") or record.get("source_part_family"))
+        if not family:
+            continue
+        materials = set(_MATERIAL_TOKEN_RE.findall(_safe_text(record.get("source_part_label"))))
+        part_ref = _safe_text(
+            record.get("part_reference") or record.get("source_part_reference")
+        )
+        if part_ref:
+            materials.add(part_ref)
+        for material in materials:
+            key = _normalize_token(material)
+            if key:
+                index.setdefault(key, set()).add(family)
+    return index
+
+
+def _index_sales_anchor_dates(
+    records: list[dict[str, Any]],
+    material_families: dict[str, set[str]],
+) -> dict[str, str]:
+    """Latest purchase date per customer × family (ISO strings).
+
+    Material-level sales (VA05 ``customer × Material`` aggregates) roll up to
+    the family via ``material_families`` so family-level records with a
+    periodicity get a real ``last_purchase`` forecast anchor.
+    """
+    anchors: dict[str, str] = {}
+    for record in records:
+        if record.get("sales_known_qty") is None and record.get("sales_known_value") is None:
+            continue
+        latest = last_purchase_date_from_record(record)
+        if latest is None:
+            continue
+        customer = _record_customer_key(record)
+        families: set[str] = set()
+        explicit = _safe_text(record.get("part_family") or record.get("source_part_family"))
+        if explicit:
+            families.add(explicit)
+        ref_key = _normalize_token(record.get("part_reference"))
+        if ref_key:
+            families.update(material_families.get(ref_key, ()))
+        for family in families:
+            key = _mapping_key(customer, family)
+            if not key:
+                continue
+            current = parse_forecast_date(anchors.get(key))
+            if current is None or latest > current:
+                anchors[key] = latest.isoformat()
+    return anchors
 
 
 def _unit_price_from_value_qty(value: Any, qty: Any) -> Optional[float]:
@@ -2265,6 +3053,9 @@ def _build_opportunity_payload(
             "scope": scope,
         },
     )
+    forecast_meta = _as_dict(_as_dict(record.get("meta_data")).get("forecast"))
+    if forecast_meta:
+        opportunity.meta_data["forecast"] = forecast_meta
     opportunity.data_gaps = opportunity_data_gaps(opportunity)
     score, label, reasons = score_opportunity_details(opportunity)
     opportunity.confidence_score = score
@@ -2330,6 +3121,8 @@ def run_opportunity_engine(
 
     periodicity_index = _index_periodicity(mapped_records)
     sales_index = _index_sales(mapped_records)
+    material_family_index = _index_material_families(mapped_records)
+    sales_anchor_index = _index_sales_anchor_dates(mapped_records, material_family_index)
     pricing_index = _index_pricing(mapped_records)
     purchase_cost_index = _index_purchase_costs(mapped_records)
     purchase_lead_index = _index_purchase_lead_times(mapped_records)
@@ -2346,6 +3139,12 @@ def run_opportunity_engine(
             )
             record = _merge_record(record, periodicity)
             record = _merge_record(record, _sales_for_record(record, sales_index))
+            if last_purchase_date_from_record(record) is None:
+                anchor = sales_anchor_index.get(
+                    _mapping_key(_record_customer_key(record), family)
+                )
+                if anchor:
+                    record["last_purchase_date"] = anchor
         if record.get("delivery_time_weeks") is None:
             ref_key = _normalize_token(record.get("part_reference"))
             lead = purchase_lead_index.get(ref_key) if ref_key else None
@@ -2367,6 +3166,7 @@ def run_opportunity_engine(
                 skipped.get("installed_quantity_missing_for_generation", 0) + 1
             )
             continue
+        record = apply_next_due_to_record(record)
         payload, reason = _build_opportunity_payload(
             record,
             scope,
@@ -2547,6 +3347,14 @@ Contraintes strictes:
 """
 
 
+def _resolve_client360_mail_system_prompt(workspace: Workspace) -> tuple[str, str]:
+    """Return (effective_prompt, source) where source is default|workspace."""
+    override = _safe_text(_client360_mail_settings(workspace).get("system_prompt"))
+    if override:
+        return override, "workspace"
+    return _CLIENT360_MAIL_SYSTEM_PROMPT, "default"
+
+
 def _client360_mail_ai_config(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     workspace_settings = _as_dict(getattr(workspace, "settings", None))
     configured = _as_dict(workspace_settings.get("client360_pdr_mail"))
@@ -2715,6 +3523,7 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     )
     if not smtp:
         password_configured = bool(settings.smtp_password)
+    system_prompt, system_prompt_source = _resolve_client360_mail_system_prompt(workspace)
     return {
         "enabled": _safe_bool(smtp.get("enabled"), bool(cfg)) if smtp else bool(cfg),
         "configured": cfg is not None and not disabled_reason,
@@ -2734,6 +3543,9 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
         "starttls": _safe_bool(smtp.get("starttls"), False if smtp else not settings.smtp_ssl),
         "password_configured": password_configured,
         "password_env_var": _safe_text(smtp.get("password_env_var")),
+        "system_prompt": system_prompt,
+        "system_prompt_source": system_prompt_source,
+        "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
     }
 
 
@@ -2775,6 +3587,13 @@ def patch_client360_mail_settings(
     if "starttls" in smtp:
         smtp["starttls"] = _safe_bool(smtp.get("starttls"), False)
     mail_settings["smtp"] = smtp
+    if _safe_bool(patch.get("reset_system_prompt"), False):
+        mail_settings.pop("system_prompt", None)
+    elif "system_prompt" in patch and patch.get("system_prompt") is not None:
+        prompt = _safe_text(patch.get("system_prompt"))
+        if not prompt:
+            raise ValueError("system_prompt cannot be empty; use reset_system_prompt to restore default")
+        mail_settings["system_prompt"] = prompt
     workspace_settings["client360_pdr_mail"] = mail_settings
     workspace.settings = workspace_settings
     return client360_mail_settings_payload(workspace)
@@ -2921,12 +3740,13 @@ async def _generate_ai_mail_draft(
 ) -> dict[str, Any]:
     payload = _mail_prompt_payload(opportunity, include_prices=include_prices)
     user_prompt = _mail_user_prompt(payload)
-    prompt_hash = _prompt_hash(_CLIENT360_MAIL_SYSTEM_PROMPT, user_prompt)
+    system_prompt, system_prompt_source = _resolve_client360_mail_system_prompt(workspace)
+    prompt_hash = _prompt_hash(system_prompt, user_prompt)
     raw = await asyncio.wait_for(
         _complete_client360_mail_ai(
             provider=str(config["provider"]),
             model=str(config["model"]),
-            system_prompt=_CLIENT360_MAIL_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             workspace=workspace,
         ),
@@ -2951,6 +3771,7 @@ async def _generate_ai_mail_draft(
             "agent_route": config.get("agent_route"),
             "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
             "prompt_hash": prompt_hash,
+            "system_prompt_source": system_prompt_source,
             "human_validation_required": True,
         },
     }
@@ -3412,7 +4233,24 @@ CAMPAIGN_SELECTION_KEYS = (
     "confidence",
     "limit",
 )
+# Explicit targeting keys (annuaire multi-selection / next-due window). Kept
+# separate from CAMPAIGN_SELECTION_KEYS so the chat filter allow-list — which
+# mirrors the ``list_opportunities`` parameters — stays unchanged.
+CAMPAIGN_TARGETING_MAX_CUSTOMERS = 200
 _CAMPAIGN_RESPONDED_STATUSES = {"responded", "quote_requested", "won", "lost", "dismissed"}
+
+
+def _campaign_customer_keys(criteria: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for value in _as_list(criteria.get("customer_keys")):
+        text = _safe_text(value)
+        normalized = _customer_key_for(text)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        keys.append(text)
+    return keys[:CAMPAIGN_TARGETING_MAX_CUSTOMERS]
 
 
 def _campaign_selection_filters(criteria: Any) -> dict[str, Any]:
@@ -3423,7 +4261,54 @@ def _campaign_selection_filters(criteria: Any) -> dict[str, Any]:
         if value is None or value == "":
             continue
         out[key] = _safe_int(value, 100) if key == "limit" else _safe_text(value)
+    customer_keys = _campaign_customer_keys(data)
+    if customer_keys:
+        out["customer_keys"] = customer_keys
+    due_within_weeks = _safe_int(data.get("due_within_weeks"), 0)
+    if due_within_weeks > 0:
+        out["due_within_weeks"] = due_within_weeks
     return out
+
+
+def _campaign_target_opportunities(
+    db: DBSession,
+    workspace: Workspace,
+    criteria: Any,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve campaign targets.
+
+    An explicit ``customer_keys`` selection (annuaire / fiche next-due) resolves
+    to those customers' opportunities; otherwise the historical opportunity
+    filters apply. ``due_within_weeks`` further restricts targets to
+    opportunities whose deterministic ``next_due_at`` falls before the window.
+    """
+    selection = _campaign_selection_filters(criteria)
+    customer_keys = selection.pop("customer_keys", [])
+    due_within_weeks = selection.pop("due_within_weeks", None)
+    if customer_keys:
+        limit = _safe_int(selection.pop("limit", 0), 0) or None
+        pool = list_opportunities(db, workspace, **{**selection, "limit": 500})
+        wanted = {_customer_key_for(key) for key in customer_keys}
+        items = [
+            item
+            for item in pool
+            if _customer_key_for(item.get("customer_key") or item.get("customer_name")) in wanted
+        ]
+        if limit:
+            items = items[:limit]
+    else:
+        items = list_opportunities(db, workspace, **selection)
+    if due_within_weeks:
+        horizon = (now or datetime.utcnow()) + timedelta(weeks=int(due_within_weeks))
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            due = parse_forecast_date(item.get("next_due_at"))
+            if due is not None and due <= horizon:
+                filtered.append(item)
+        items = filtered
+    return items
 
 
 def serialize_campaign(row: Client360Campaign) -> dict[str, Any]:
@@ -3604,10 +4489,10 @@ def generate_campaign_drafts(
     language: str = "fr",
     include_prices: bool = False,
     limit: int | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     campaign = _get_campaign(db, workspace, campaign_id)
-    filters = _campaign_selection_filters(campaign.selection_criteria)
-    items = list_opportunities(db, workspace, **filters)
+    items = _campaign_target_opportunities(db, workspace, campaign.selection_criteria, now=now)
 
     engaged = _customers_in_active_campaigns(db, workspace, exclude_campaign_id=campaign.id)
     already_drafted = _customers_with_campaign_drafts(db, workspace, campaign.id)
@@ -3796,14 +4681,21 @@ def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dic
         sum(float(event.order_value or 0) for event in events if event.impact_type == "order"), 2
     )
 
-    filters = _campaign_selection_filters(campaign.selection_criteria)
-    items = list_opportunities(db, workspace, **filters)
+    items = _campaign_target_opportunities(db, workspace, campaign.selection_criteria)
     potential_gap_value = round(
         sum(float(item.get("potential_gap_value") or 0) for item in items), 2
     )
     targeted_customers = len(
         {_safe_text(item.get("customer_key")) for item in items if item.get("customer_key")}
     )
+    impact_counts = {
+        "response": responses,
+        "quote": quotes,
+        "order": orders,
+        "lost": sum(1 for event in events if event.impact_type == "lost"),
+        "no_response": sum(1 for event in events if event.impact_type == "no_response"),
+    }
+    expected = campaign_expected_value(items, impact_counts=impact_counts)
 
     return {
         "campaign": serialize_campaign(campaign),
@@ -3811,6 +4703,10 @@ def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dic
             "targeted_opportunities": len(items),
             "targeted_customers": targeted_customers,
             "potential_gap_value": potential_gap_value,
+            "expected_value": expected["expected_value"],
+            "expected_value_disclaimer": expected["disclaimer"],
+            "conversion_proxy": expected["conversion_proxy"],
+            "conversion_proxy_source": expected["conversion_proxy_source"],
             "drafts": len(drafts),
             "sent": sent,
             "responses": responses,

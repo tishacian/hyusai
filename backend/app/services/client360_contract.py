@@ -11,7 +11,7 @@ CLIENT360_CAPABILITY_SLUG = "client360_pdr_opportunity_engine"
 # Structured truth lives in Client360DataSource; this collection is the document vault.
 CLIENT360_INSTALLED_BASE_COLLECTION_SLUG = "andritz-client360-installed-base"
 CLIENT360_INSTALLED_BASE_COLLECTION_NAME = "Andritz Client360 Installed Base"
-CLIENT360_SPL_ADAPTER_VERSION = "client360_spl_v1"
+CLIENT360_SPL_ADAPTER_VERSION = "client360_spl_v2"
 CLIENT360_PILOT_DATASET_MARKER = "andritz_client360_pdr_mvp_20260708"
 
 # Deterministic default weights used to turn a raw quantity gap into a weighted

@@ -13,6 +13,7 @@ import { Client360PageComponent } from './client360-page.component';
 
 interface HttpCall {
   url: string;
+  body?: unknown;
   options?: { headers?: Record<string, string> };
   response: Subject<unknown>;
 }
@@ -57,14 +58,14 @@ function createHarness() {
   const patchCalls: HttpCall[] = [];
   const postCalls: HttpCall[] = [];
   const getCalls: HttpCall[] = [];
-  const record = (calls: HttpCall[], url: string, options?: HttpCall['options']) => {
+  const record = (calls: HttpCall[], url: string, options?: HttpCall['options'], body?: unknown) => {
     const response = new Subject<unknown>();
-    calls.push({ url, options, response });
+    calls.push({ url, body, options, response });
     return response.asObservable();
   };
   const http = {
-    patch: (url: string, _body: unknown, options?: HttpCall['options']) => record(patchCalls, url, options),
-    post: (url: string, _body: unknown, options?: HttpCall['options']) => record(postCalls, url, options),
+    patch: (url: string, body: unknown, options?: HttpCall['options']) => record(patchCalls, url, options, body),
+    post: (url: string, body: unknown, options?: HttpCall['options']) => record(postCalls, url, options, body),
     get: (url: string, options?: HttpCall['options']) => record(getCalls, url, options),
   };
   const injector = Injector.create({
@@ -127,10 +128,11 @@ test('Client360 pins and cancels every runEngine refresh read before it can muta
         '/api/v1/client360/mail-settings',
         '/api/v1/client360/mappings',
         '/api/v1/client360/opportunities',
+        '/api/v1/client360/customers',
         '/api/v1/client360/alerts',
       ],
     );
-    assert.deepEqual(getCalls.map(workspaceHeader), Array(5).fill('andritz'));
+    assert.deepEqual(getCalls.map(workspaceHeader), Array(6).fill('andritz'));
 
     workspace.switchWorkspace();
     assert.equal(component.loading(), false);
@@ -141,12 +143,257 @@ test('Client360 pins and cancels every runEngine refresh read before it can muta
     getCalls[1].response.next({ mail_settings: {} });
     getCalls[2].response.next({ items: [] });
     getCalls[3].response.next({ items: [] });
-    getCalls[4].response.next({ alerts: [] });
+    getCalls[4].response.next({ items: [], total: 0, facets: { countries: [], technologies: [] } });
+    getCalls[5].response.next({ alerts: [] });
     assert.equal(component.summary(), null);
     assert.equal(component.mailSettings(), null);
     assert.equal(component.mappingsResponse(), null);
     assert.equal(component.opportunitiesResponse(), null);
+    assert.equal(component.customersResponse(), null);
     assert.equal(component.alertsResponse(), null);
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 annuaire selection pre-fills targeting and posts customer_keys on create', () => {
+  const harness = createHarness();
+  const { component, postCalls } = harness;
+
+  try {
+    component.toggleDirectoryCustomer('septona');
+    component.toggleDirectoryCustomer('mogul');
+    component.toggleDirectoryCustomer('mogul');
+    component.toggleDirectoryCustomer('mogul');
+    assert.deepEqual(component.directorySelection(), ['septona', 'mogul']);
+    assert.equal(component.isDirectoryCustomerSelected('septona'), true);
+
+    component.startCampaignFromSelection();
+    assert.equal(component.view(), 'campaigns');
+    assert.deepEqual(component.campaignTargetCustomerKeys(), ['septona', 'mogul']);
+    assert.ok(component.campaignName.trim().length > 0, 'campaign name is pre-filled');
+
+    component.campaignDueWithinWeeks = 12;
+    component.createCampaign();
+    const createCall = postCalls.find((call) => call.url === '/api/v1/client360/campaigns');
+    assert.ok(createCall, 'campaign creation is posted');
+    const body = createCall.body as {
+      selection_criteria: { customer_keys?: string[]; due_within_weeks?: number };
+    };
+    assert.deepEqual(body.selection_criteria.customer_keys, ['septona', 'mogul']);
+    assert.equal(body.selection_criteria.due_within_weeks, 12);
+
+    createCall.response.next({
+      campaign: {
+        id: 'camp-1',
+        name: 'Campagne annuaire (2 clients)',
+        campaign_type: 'first_replacement',
+        status: 'draft',
+        selection_criteria: { customer_keys: ['septona', 'mogul'], due_within_weeks: 12 },
+        targeted_count: 0,
+        drafts_count: 0,
+      },
+    });
+    assert.deepEqual(component.campaignTargetCustomerKeys(), [], 'targeting cleared after create');
+    assert.deepEqual(component.directorySelection(), [], 'annuaire selection cleared after create');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 surfaces dedup outcomes after campaign draft generation', () => {
+  const harness = createHarness();
+  const { component, postCalls } = harness;
+
+  try {
+    component.selectCampaign({
+      id: 'camp-9',
+      name: 'Batch',
+      campaign_type: 'free',
+      status: 'draft',
+      selection_criteria: {},
+      targeted_count: 4,
+      drafts_count: 0,
+    } as never);
+    component.generateCampaignDrafts(false);
+    const draftsCall = postCalls.find(
+      (call) => call.url === '/api/v1/client360/campaigns/camp-9/drafts',
+    );
+    assert.ok(draftsCall, 'draft generation is posted');
+
+    draftsCall.response.next({
+      campaign: {
+        id: 'camp-9',
+        name: 'Batch',
+        campaign_type: 'free',
+        status: 'active',
+        selection_criteria: {},
+        targeted_count: 4,
+        drafts_count: 1,
+      },
+      created: 1,
+      skipped: { missing_contact_email: 2, active_campaign_conflict: 1 },
+      drafts: [],
+    });
+
+    const outcome = component.campaignDraftsOutcome();
+    assert.ok(outcome, 'dedup outcome is stored');
+    assert.equal(outcome.campaignId, 'camp-9');
+    assert.equal(outcome.followUp, false);
+    assert.equal(outcome.created, 1);
+    assert.equal(outcome.skippedTotal, 3);
+    assert.deepEqual(
+      outcome.skipped.map((entry) => entry.reason),
+      ['missing_contact_email', 'active_campaign_conflict'],
+    );
+    assert.equal(outcome.skipped[0].label, 'email de contact manquant');
+    assert.equal(component.campaignStatus(), '1 brouillon(s) genere(s) · 3 ignore(s)');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 fiche next-due CTA targets the customer with a due window', () => {
+  const harness = createHarness();
+  const { component } = harness;
+
+  try {
+    component.startCampaignFromNextDue({
+      customer: { id: 'septona', name: 'Septona', countries: [], hubs: [], technologies: [] },
+      opportunities: [],
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    } as never);
+    assert.equal(component.view(), 'campaigns');
+    assert.deepEqual(component.campaignTargetCustomerKeys(), ['septona']);
+    assert.equal(component.campaignDueWithinWeeks, 26);
+    assert.equal(component.campaignType, 'renewal');
+    assert.ok(component.campaignName.includes('Septona'));
+
+    component.clearCampaignTargeting();
+    assert.deepEqual(component.campaignTargetCustomerKeys(), []);
+    assert.equal(component.campaignDueWithinWeeks, null);
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 fiche loads in two phases: payload without AI summary, then async summary merge', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer({ customer_key: 'septona', customer_name: 'Septona S.A.' } as never);
+    const detailCall = getCalls.find((call) => call.url === '/api/v1/client360/customers/septona');
+    assert.ok(detailCall, 'fiche payload requested');
+    const params = (detailCall.options as { params?: { get(name: string): string | null } }).params;
+    assert.equal(params?.get('include_ai_summary'), 'false', 'fast path skips the AI summary');
+    assert.equal(component.customerDetailLoading(), true);
+
+    detailCall.response.next({
+      customer: { id: 'septona', name: 'Septona S.A.', countries: [], hubs: [], technologies: [] },
+      ai_summary: null,
+      opportunities: [],
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+    assert.equal(component.customerDetailLoading(), false, 'fiche renders before the summary');
+    assert.equal(component.customerSummaryLoading(), true, 'summary fetch starts after the fiche');
+
+    const summaryCall = getCalls.find(
+      (call) => call.url === '/api/v1/client360/customers/septona/summary',
+    );
+    assert.ok(summaryCall, 'summary requested asynchronously');
+    summaryCall.response.next({
+      ai_summary: { text: 'Resume genere.', generation_mode: 'ai_assisted', highlights: [] },
+    });
+    assert.equal(component.customerSummaryLoading(), false);
+    assert.equal(component.selectedCustomer()?.ai_summary?.text, 'Resume genere.');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 fiche pages long lists client-side with show-more increments', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer({ customer_key: 'septona', customer_name: 'Septona S.A.' } as never);
+    const detailCall = getCalls.find((call) => call.url === '/api/v1/client360/customers/septona');
+    assert.ok(detailCall);
+    detailCall.response.next({
+      customer: { id: 'septona', name: 'Septona S.A.', countries: [], hubs: [], technologies: [] },
+      ai_summary: null,
+      opportunities: Array.from({ length: 130 }, (_, i) => ({ id: `opp-${i}` })),
+      purchases: Array.from({ length: 40 }, (_, i) => ({ part_reference: `ref-${i}` })),
+      timeline: Array.from({ length: 30 }, (_, i) => ({ at: `2026-01-${(i % 28) + 1}`, kind: 'impact', label: `e${i}` })),
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+
+    assert.equal(component.fichePurchases().length, 15, 'purchases capped at first page');
+    assert.equal(component.ficheOpportunities().length, 24, 'opportunity chips capped at first page');
+    assert.equal(component.ficheTimeline().length, 12, 'timeline capped at first page');
+
+    component.showMoreFichePurchases();
+    assert.equal(component.fichePurchases().length, 40, 'show-more reveals the remaining purchases');
+    component.showMoreFicheOpportunities();
+    assert.equal(component.ficheOpportunities().length, 124);
+
+    component.selectDirectoryCustomer({ customer_key: 'mogul', customer_name: 'Mogul' } as never);
+    assert.equal(component.fichePurchasesLimit(), 15, 'limits reset when switching customer');
+    assert.equal(component.ficheOpportunitiesLimit(), 24);
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
+test('Client360 landing page collapses alerts to a digest and pages the table', () => {
+  const harness = createHarness();
+  const { component, getCalls } = harness;
+
+  try {
+    component.loadAlerts();
+    const alertsCall = getCalls.find((call) => call.url === '/api/v1/client360/alerts');
+    assert.ok(alertsCall, 'alerts requested');
+    alertsCall.response.next({
+      alerts: Array.from({ length: 20 }, (_, i) => ({
+        id: `al-${i}`,
+        type: i % 2 ? 'delivery_delay' : 'data_gap',
+        severity: i < 3 ? 'high' : 'low',
+        title: `t${i}`,
+        message: `m${i}`,
+      })),
+      counts: { by_type: { delivery_delay: 10, data_gap: 10 } },
+    });
+    assert.equal(component.visibleAlerts().length, 6, 'alerts collapse to a preview');
+    assert.equal(component.visibleAlerts()[0].severity, 'high', 'urgent alerts come first');
+
+    component.toggleAlertTypeFilter('data_gap');
+    assert.ok(component.filteredAlerts().every((alert) => alert.type === 'data_gap'));
+    component.toggleAlertTypeFilter('data_gap');
+    assert.equal(component.alertTypeFilter(), null, 'second click clears the type filter');
+
+    component.toggleAlertsExpanded();
+    assert.equal(component.visibleAlerts().length, 20, 'expansion reveals every alert');
+
+    component.loadOpportunities();
+    const oppsCall = getCalls.find((call) => call.url === '/api/v1/client360/opportunities');
+    assert.ok(oppsCall, 'opportunities requested');
+    oppsCall.response.next({
+      items: Array.from({ length: 80 }, (_, i) => ({ id: `opp-${i}` })),
+      facets: {},
+    });
+    assert.equal(component.visibleOpportunities().length, 25, 'table shows the first page');
+    component.showMoreOpportunitiesTable();
+    assert.equal(component.visibleOpportunities().length, 75, 'show-more extends the table');
   } finally {
     component.ngOnDestroy();
   }

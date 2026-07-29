@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.client360 import Client360MailDraft, Client360Opportunity
 from app.models.workspace import Workspace
+from app.services.client360_forecast import mail_follow_up_reminder
 from app.services.client360_pdr import opportunity_data_gaps
 
 
@@ -231,25 +232,24 @@ def _draft_no_response_alert(
 ) -> Optional[dict[str, Any]]:
     if draft.status != "sent" or draft.sent_at is None:
         return None
-    if opportunity is None or opportunity.status in _RESPONDED_STATUSES:
+    if opportunity is None:
         return None
-    days_since = (now - draft.sent_at).days
-    if days_since < int(thresholds["no_response_days"]):
-        return None
-    return _base_alert(
-        alert_type="draft_no_response",
-        severity="medium",
-        title="Relance a prevoir",
-        message=(
-            f"{_opportunity_label(opportunity)} : mail envoye le {_fmt_date(draft.sent_at)}, "
-            f"sans reponse depuis {days_since} j."
-        ),
-        opportunity=opportunity,
-        marker=draft.id,
+    reminder = mail_follow_up_reminder(
+        sent_at=draft.sent_at,
+        delay_days=int(thresholds["no_response_days"]),
+        now=now,
+        opportunity_id=opportunity.id,
+        opportunity_label=_opportunity_label(opportunity),
+        customer_key=opportunity.customer_key,
         mail_draft_id=draft.id,
         mail_draft_label=draft.subject,
-        metrics={"days_since_sent": days_since, "threshold_days": int(thresholds["no_response_days"])},
+        responded=opportunity.status in _RESPONDED_STATUSES,
     )
+    if reminder is None:
+        return None
+    # Preserve the stable alert id / marker contract used by the UI.
+    reminder["id"] = f"draft_no_response:{draft.id}"
+    return reminder
 
 
 def _sort_key(alert: dict[str, Any]) -> tuple[int, float]:
