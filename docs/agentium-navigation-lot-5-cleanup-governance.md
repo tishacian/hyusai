@@ -1,5 +1,11 @@
 # Agentium — Lot 5 : nettoyage et gouvernance
 
+> **Archive de rollout.** Les commandes de cette note décrivent la livraison
+> historique du Lot 5 et ne sont plus le chemin opératoire courant. Tout
+> nouveau déploiement passe par le
+> [runbook VM sûr](./ops/agentium-safe-vm-deployment.md), qui inclut SFTP, les
+> attestations de stockage et le rollback v3.
+
 Date du candidat : 2026-07-15
 Branche de travail : `codex/agentium-lot-5` ; branche VM : `demo/agentic`
 Révision de départ : `349ee3c19a4f1e8dec7f9fa9f47e25a298863d28`

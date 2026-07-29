@@ -246,6 +246,11 @@ all credential variables disappear when that subshell exits. Set
 `E2E_LIVE_NON_ADMIN=1` in the parent shell only when the dedicated business
 account is available.
 
+The eight `E2E_*_WORKSPACE_{ID,SLUG}` variables must come from the current
+transaction's private, SHA-bound `workspace-targets.json`. Do not infer them
+from workspace names or reuse values from an earlier deployment. The safe VM
+runner validates that file and injects these variables automatically.
+
 ```bash
 (
   set +x
@@ -267,7 +272,14 @@ account is available.
   E2E_LIVE_FORCE_REFRESH=1 \
   E2E_LIVE_ALL_WORKSPACES=1 \
   E2E_LIVE_NON_ADMIN="${E2E_LIVE_NON_ADMIN:-0}" \
-  E2E_WORKSPACE_SLUG=andritz \
+  E2E_SHOWCASE_WORKSPACE_ID="$E2E_SHOWCASE_WORKSPACE_ID" \
+  E2E_SHOWCASE_WORKSPACE_SLUG="$E2E_SHOWCASE_WORKSPACE_SLUG" \
+  E2E_ANDRITZ_WORKSPACE_ID="$E2E_ANDRITZ_WORKSPACE_ID" \
+  E2E_ANDRITZ_WORKSPACE_SLUG="$E2E_ANDRITZ_WORKSPACE_SLUG" \
+  E2E_SENTINEL_WORKSPACE_ID="$E2E_SENTINEL_WORKSPACE_ID" \
+  E2E_SENTINEL_WORKSPACE_SLUG="$E2E_SENTINEL_WORKSPACE_SLUG" \
+  E2E_OCTOCITY_WORKSPACE_ID="$E2E_OCTOCITY_WORKSPACE_ID" \
+  E2E_OCTOCITY_WORKSPACE_SLUG="$E2E_OCTOCITY_WORKSPACE_SLUG" \
   E2E_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
     ./node_modules/.bin/playwright test \
       e2e/tests/09-live-workspace-contract.spec.ts \
