@@ -45,7 +45,8 @@ export interface PreviewPlan {
   gateIndex: number;
   intro: string;
   gateAsk: string;
-  approved: string;
+  /** Closing line. Half the procedures ask nobody, so approval is not assumed. */
+  closed: string;
   declined: string;
   /** The standing mark, shown for as long as the turn is on screen. */
   note: string;
@@ -172,7 +173,10 @@ export function planPreview(match: NawaIntakeMatch, utterance: string): PreviewP
     gateAsk:
       `Step ${gateIndex + 1} is ${spell(approvers)} approval. ` +
       'Nothing has been changed so far — the remaining steps wait on this decision.',
-    approved: 'Approved. I completed the remaining steps and closed the ticket.',
+    closed:
+      gateIndex >= 0
+        ? 'Approved. I completed the remaining steps and closed the ticket.'
+        : `Done. All ${counted(steps.length)} steps carried out and the ticket closed.`,
     declined: 'Declined. Nothing was changed, and the request stays with the service desk.',
     note:
       'Preview of the automated service. The steps are the desk’s own procedure, played as it will run once ' +

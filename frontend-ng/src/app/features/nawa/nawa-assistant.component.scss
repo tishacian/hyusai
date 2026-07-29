@@ -290,22 +290,6 @@
 }
 
 // ---- a routed service: their own procedure -------------------------------
-.as-steps {
-  margin: 10px 0 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--nawa-fg-dim);
-}
-
-.as-steps li::marker {
-  color: var(--nawa-fg-faint);
-  font: 650 11px/1 var(--nawa-mono);
-}
-
 .as-next {
   margin: 11px 0 0;
   padding: 9px 12px;
@@ -459,8 +443,8 @@
   color: var(--nawa-fg-dim);
 }
 
-// The step the walk is stopped on. It stays marked after the decision is taken
-// so the exchange can be read back afterwards.
+// The step the walk is stopped on, while it is stopped there. Once the decision
+// is taken it becomes an ordinary row and the tag alone records what it was.
 .as-walk-waiting {
   border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
   background: transparent;

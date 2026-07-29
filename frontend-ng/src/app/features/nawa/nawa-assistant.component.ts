@@ -67,14 +67,12 @@ import {
 const POLL_MS = 1200;
 const MAX_POLLS = 90;
 
-/** A request routed to a catalogue service the rollout has not reached yet. */
+/** The assistant asking for something before it can act: today, identity. */
 interface ServiceTurn {
   kind: 'service';
   question: string;
   service: string;
   reply: string;
-  steps: string[];
-  next: string;
 }
 
 /**
@@ -225,20 +223,6 @@ const STEP_MS = 850;
 
               @if (asService(turn); as service) {
                 <div class="as-answer">{{ service.reply }}</div>
-                @if (service.steps.length) {
-                  <div class="as-meta">
-                    <span class="as-meta-strong">Service desk procedure</span>
-                    <span>· {{ service.service }}</span>
-                  </div>
-                  <ol class="as-steps">
-                    @for (step of service.steps; track $index) {
-                      <li>{{ step }}</li>
-                    }
-                  </ol>
-                }
-                @if (service.next) {
-                  <p class="as-next">{{ service.next }}</p>
-                }
               }
 
               @if (asPreview(turn); as preview) {
@@ -616,8 +600,6 @@ export class NawaAssistantComponent implements OnDestroy {
           question: query,
           service: match.useCase.name,
           reply: IDENTITY_REQUEST,
-          steps: [],
-          next: '',
         },
       ]);
       this.say(IDENTITY_REQUEST);
@@ -809,7 +791,7 @@ export class NawaAssistantComponent implements OnDestroy {
 
     const total = turn.plan.steps.length;
     if (turn.shown >= total) {
-      this.close(index, turn.plan.approved);
+      this.close(index, turn.plan.closed);
       return;
     }
     // The decision is announced when the walk reaches it, not before, so the

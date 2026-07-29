@@ -59,6 +59,15 @@ test('a procedure with no approval step yields no decision', () => {
   assert.equal(steps[0].actor, 'intake', 'the user contacting IT is the intake');
 });
 
+test('a service nobody approves does not claim to have been approved', () => {
+  const walked = planFor('My account is locked after too many attempts.');
+  assert.equal(walked.gateIndex, -1);
+  assert.match(walked.closed, /^Done\. All seven steps carried out/);
+  assert.doesNotMatch(walked.closed, /approv/i);
+  // And where there is a decision, the closing line credits it.
+  assert.match(planFor('i want to reactivate an email for Mr. Thibaud').closed, /^Approved\./);
+});
+
 test('the approvers are the roles the procedure names, in order', () => {
   assert.deepEqual(readApprovers(readSteps(bySlug('email-reactivation'))), ['Line Manager', 'HR']);
   assert.deepEqual(readApprovers(readSteps(bySlug('unlock-ad-account'))), []);
@@ -79,7 +88,7 @@ test('the opening line takes charge, announces the count and the stop', () => {
   assert.match(plan.intro, /seven-step procedure/);
   assert.match(plan.intro, /I stop for Line Manager and HR before anything changes/);
   // The old copy sent the requester away; that must not come back.
-  assert.doesNotMatch(`${plan.intro} ${plan.gateAsk} ${plan.approved}`, /ITSD Portal|rollout plan/i);
+  assert.doesNotMatch(`${plan.intro} ${plan.gateAsk} ${plan.closed}`, /ITSD Portal|rollout plan/i);
 });
 
 test('the decision names its step and states that nothing has changed', () => {
