@@ -5858,7 +5858,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       }
       if (monitor) {
         this.monitor.set(monitor);
-        this.hydrateVisualCaptureImages(monitor);
+        this.hydrateVisualCaptureImages(monitor, continuation);
       }
       if (news) this.news.set(news);
       if (timeline) {
@@ -7478,29 +7478,47 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   captureVisualSource(source: VisualSource): void {
     if (!source?.id) return;
-    this.api.post<{ capture?: { id?: string } }>(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe((result) => {
-      const captureId = result?.capture?.id;
-      this.router.navigate(['/hypervisor/mission-room/monitor'], {
-        queryParams: captureId ? { capture: captureId, panel: 'visual' } : { panel: 'visual' },
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<{ capture?: { id?: string } }>(
+        `/visual-intelligence/sources/${source.id}/capture`,
+        {},
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe((result) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
+        const captureId = result?.capture?.id;
+        void this.router.navigate(['/hypervisor/mission-room/monitor'], {
+          queryParams: captureId ? { capture: captureId, panel: 'visual' } : { panel: 'visual' },
+        });
+        this.loadAll(true, continuation);
       });
-      this.loadAll();
-    });
+    this.workspaceActionRequests.add(request);
   }
 
-  private hydrateVisualCaptureImages(monitor: MissionMonitor): void {
+  private hydrateVisualCaptureImages(
+    monitor: MissionMonitor,
+    continuation?: WorkspaceContinuationContext,
+  ): void {
+    if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
     const captures = (monitor.visual?.captures || [])
       .filter((capture) => capture.status === 'analyzed' || capture.status === 'captured')
       .slice(0, 4);
     const existing = this.visualCaptureImages();
     captures.forEach((capture) => {
       if (!capture.id || existing[capture.id]) return;
-      this.api.getBlob(`/visual-intelligence/captures/${capture.id}/image`).subscribe({
+      const request = this.api.getBlob(
+        `/visual-intelligence/captures/${capture.id}/image`,
+        this.workspaceApiOptions(continuation),
+      ).subscribe({
         next: (blob) => {
+          if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
           const url = URL.createObjectURL(blob);
           this.visualObjectUrls.push(url);
           this.visualCaptureImages.update((images) => ({ ...images, [capture.id]: url }));
         },
       });
+      this.trackWorkspaceActionRequest(request, continuation);
     });
   }
 
@@ -7821,7 +7839,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const start = this.newAgendaStart || '2026-04-15T09:45';
     const startDate = new Date(start);
     const endDate = new Date(startDate.getTime() + 45 * 60 * 1000);
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .post<AgendaItem>('/calendar/events', {
         title,
         start_at: start.length === 16 ? `${start}:00` : start,
@@ -7829,12 +7848,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         location: this.newAgendaLocation || 'Cabinet ministeriel',
         priority: 'medium',
         category: 'cabinet',
-      })
+      }, this.workspaceApiOptions(continuation))
       .subscribe((event) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.newAgendaTitle = '';
         this.selectedAgendaEvent.set(event);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   moveSelectedAgendaEvent(minutes: number): void {
@@ -7845,15 +7866,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const duration = Math.max(30 * 60 * 1000, end.getTime() - start.getTime());
     const nextStart = new Date(start.getTime() + minutes * 60 * 1000);
     const nextEnd = new Date(nextStart.getTime() + duration);
-    this.api
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
       .patch<AgendaItem>(`/calendar/events/${event.id}`, {
         start_at: this.localIso(nextStart),
         end_at: this.localIso(nextEnd),
-      })
+      }, this.workspaceApiOptions(continuation))
       .subscribe((updated) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.selectedAgendaEvent.set(updated);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   private localIso(value: Date): string {
@@ -7864,12 +7888,19 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   cancelSelectedAgendaEvent(): void {
     const event = this.selectedAgendaEvent();
     if (!event?.id) return;
-    this.api
-      .post<AgendaItem>(`/calendar/events/${event.id}/cancel`, { reason: 'Arbitrage cabinet depuis Mission Room' })
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .post<AgendaItem>(
+        `/calendar/events/${event.id}/cancel`,
+        { reason: 'Arbitrage cabinet depuis Mission Room' },
+        this.workspaceApiOptions(continuation),
+      )
       .subscribe((cancelled) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         this.selectedAgendaEvent.set(cancelled);
-        this.loadAll();
+        this.loadAll(true, continuation);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   agendaSubItems(event: AgendaItem): AgendaSubItem[] {
@@ -7934,27 +7965,33 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.selectedAgendaEvent.set(nextEvent);
     if (!event.id) return;
     const nextMetadata = nextEvent.metadata || {};
-    this.api
-      .patch<AgendaItem>(`/calendar/events/${event.id}`, { metadata: nextMetadata })
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .patch<AgendaItem>(
+        `/calendar/events/${event.id}`,
+        { metadata: nextMetadata },
+        this.workspaceApiOptions(continuation),
+      )
       .pipe(catchError(() => of(null)))
       .subscribe((updated) => {
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         if (updated) this.selectedAgendaEvent.set(updated);
       });
+    this.workspaceActionRequests.add(request);
   }
 
   startMeeting(event: AgendaItem): void {
     if (!event.id) return;
     const eventId = event.id;
-    const scope = this.workspace.captureRequestScope();
-    const generation = this.workspaceContinuationGeneration;
+    const continuation = this.captureWorkspaceContinuation();
     // Mirror ``aya.start_meeting`` server-side so a follow-up voice
     // ``aya.log_decision`` finds an active meeting. The navigation runs
     // regardless so the meeting view always opens.
     const request = this.api
-      .post(`/meetings/${eventId}/start`, {}, { workspaceSlug: scope.workspaceSlug })
+      .post(`/meetings/${eventId}/start`, {}, this.workspaceApiOptions(continuation))
       .pipe(catchError(() => of(null)))
       .subscribe(() => {
-        if (!this.workspaceContinuationIsCurrent(scope, generation)) return;
+        if (!this.workspaceContinuationContextIsCurrent(continuation)) return;
         void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', eventId]);
       });
     this.workspaceActionRequests.add(request);
@@ -8027,6 +8064,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.meetingDecisionsLog.set([]);
     this.mapCommandState.set(null);
     this.activePortWebcam.set(null);
+    this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.visualObjectUrls.length = 0;
     this.visualCaptureImages.set({});
     this.selectedPressArticle.set(null);
     this.strategicVessels.set([]);
@@ -8035,6 +8074,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.selectedAgendaEvent.set(null);
     this.agendaPendingPatch.set(null);
     this.agendaPatchSubmitting.set(false);
+    this.searchQueryValue = '';
+    this.newAgendaTitle = '';
+    this.newAgendaStart = this.defaultAgendaStartValue();
+    this.newAgendaLocation = 'Cabinet Vice Premier Ministre';
   }
 
   createDraft(targetId: string, targetType: string): void {
@@ -8054,8 +8097,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   runSearch(): void {
-    this.api
-      .get<MissionSearch>('/mission-room/search', { q: this.searchQueryValue.trim() })
-      .subscribe((payload) => this.search.set(payload));
+    const continuation = this.captureWorkspaceContinuation();
+    const request = this.api
+      .get<MissionSearch>(
+        '/mission-room/search',
+        { q: this.searchQueryValue.trim() },
+        this.workspaceApiOptions(continuation),
+      )
+      .subscribe((payload) => {
+        if (this.workspaceContinuationContextIsCurrent(continuation)) {
+          this.search.set(payload);
+        }
+      });
+    this.workspaceActionRequests.add(request);
   }
 }

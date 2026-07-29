@@ -212,48 +212,65 @@
   max-width: 240px;
 }
 
-/* Ports / connectors */
+/* Ports / connectors — one circular socket per side.
+   Connected state fills the socket; the edge itself has no endpoint chrome,
+   so we never get a "double point" (port + Foblex drag-handle / marker). */
 .ck-flow-port {
   position: absolute;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50% !important; /* override Foblex input square radius */
   background: var(--ck-bg-void, #05070a);
-  border: 2px solid var(--ck-fg-4, #5a6270);
+  border: 1.5px solid var(--ck-fg-4, #5a6270);
   transform: translateY(-50%);
   transition:
     border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background-color var(--ck-dur-fast) var(--ck-ease-out),
     box-shadow var(--ck-dur-fast) var(--ck-ease-out),
     transform var(--ck-dur-fast) var(--ck-ease-out);
   cursor: crosshair;
 
   &.ck-flow-port--in {
-    left: -7px;
+    left: -5px;
   }
   &.ck-flow-port--out {
-    right: -7px;
+    right: -5px;
   }
 
   &:hover {
     border-color: var(--ck-signal-cool, #7dd3fc);
-    box-shadow: var(--ck-glow-cool);
-    transform: translateY(-50%) scale(1.25);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 22%, transparent);
+    transform: translateY(-50%) scale(1.2);
   }
 }
 
-.ck-flow-node[data-tone='violet'] .ck-flow-port--out { border-color: var(--ck-signal-violet); }
-.ck-flow-node[data-tone='emerald'] .ck-flow-port--out { border-color: var(--ck-signal-pos); }
-.ck-flow-node[data-tone='amber'] .ck-flow-port--out { border-color: var(--ck-signal-warn); }
-.ck-flow-node[data-tone='rose'] .ck-flow-port--out { border-color: var(--ck-signal-neg); }
-.ck-flow-node[data-tone='cyan'] .ck-flow-port--out { border-color: var(--ck-signal-cool); }
+/* Idle tone hint on outputs — muted ring, not a second loud marker. */
+.ck-flow-node[data-tone='violet'] .ck-flow-port--out:not(.f-node-output-connected) {
+  border-color: color-mix(in srgb, var(--ck-signal-violet) 70%, var(--ck-fg-4));
+}
+.ck-flow-node[data-tone='emerald'] .ck-flow-port--out:not(.f-node-output-connected) {
+  border-color: color-mix(in srgb, var(--ck-signal-pos) 70%, var(--ck-fg-4));
+}
+.ck-flow-node[data-tone='amber'] .ck-flow-port--out:not(.f-node-output-connected) {
+  border-color: color-mix(in srgb, var(--ck-signal-warn) 70%, var(--ck-fg-4));
+}
+.ck-flow-node[data-tone='rose'] .ck-flow-port--out:not(.f-node-output-connected) {
+  border-color: color-mix(in srgb, var(--ck-signal-neg) 70%, var(--ck-fg-4));
+}
+.ck-flow-node[data-tone='cyan'] .ck-flow-port--out:not(.f-node-output-connected) {
+  border-color: color-mix(in srgb, var(--ck-signal-cool) 70%, var(--ck-fg-4));
+}
 
-/* Foblex marks connectable targets while dragging a connection. */
+/* Connected: single filled socket the stroke terminates into. */
 .ck-flow-port.f-node-input-connected,
 .ck-flow-port.f-node-output-connected {
-  background: var(--ck-signal-cool);
-  border-color: var(--ck-signal-cool);
+  background: var(--ck-signal-cool, #7dd3fc);
+  border-color: var(--ck-signal-cool, #7dd3fc);
+  box-shadow: none;
 }
+
 :host-context(f-flow.f-connections-dragging) .ck-flow-port.f-connector-connectable {
   border-color: var(--ck-signal-pos);
-  box-shadow: var(--ck-glow-pos);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-signal-pos) 28%, transparent);
 }

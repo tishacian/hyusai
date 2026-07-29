@@ -83,7 +83,9 @@ function createHarness(options: {
 } = {}) {
   const workspace = new WorkspaceStub(options.workspaceContext);
   const postCalls: ApiCall[] = [];
+  const patchCalls: ApiCall[] = [];
   const getCalls: ApiCall[] = [];
+  const blobCalls: ApiCall[] = [];
   const opens: unknown[] = [];
   const navigations: unknown[][] = [];
   const urlNavigations: string[] = [];
@@ -100,7 +102,9 @@ function createHarness(options: {
   };
   const api = {
     post: (path: string, _body?: unknown, options?: ApiCall['options']) => record(postCalls, path, options),
+    patch: (path: string, _body?: unknown, options?: ApiCall['options']) => record(patchCalls, path, options),
     get: (path: string, _params?: Record<string, string>, options?: ApiCall['options']) => record(getCalls, path, options),
+    getBlob: (path: string, options?: ApiCall['options']) => record(blobCalls, path, options),
   };
   const paramMap = { get: (name: string) => name === 'view' ? 'cockpit' : null };
   const queryParamMap = { get: () => null };
@@ -164,7 +168,9 @@ function createHarness(options: {
     component,
     workspace,
     postCalls,
+    patchCalls,
     getCalls,
+    blobCalls,
     opens,
     navigations,
     urlNavigations,
@@ -677,6 +683,158 @@ test('MissionRoom startMeeting stays pinned to A and cannot navigate after A -> 
     }
   }
 });
+
+test('MissionRoom cancels visual capture and image hydration before Sentinel can leak into Octocity', () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: new EventTarget(),
+  });
+  const harness = createHarness();
+  const { component, workspace, postCalls, blobCalls, navigations } = harness;
+  const internal = component as unknown as {
+    captureWorkspaceContinuation(): { scope: WorkspaceRequestScope; generation: number };
+    hydrateVisualCaptureImages(
+      monitor: unknown,
+      continuation: { scope: WorkspaceRequestScope; generation: number },
+    ): void;
+  };
+
+  try {
+    component.captureVisualSource({ id: 'sentinel-source' } as never);
+    internal.hydrateVisualCaptureImages(
+      { visual: { captures: [{ id: 'sentinel-capture', status: 'captured' }] } },
+      internal.captureWorkspaceContinuation(),
+    );
+
+    assert.equal(postCalls[0].options?.workspaceSlug, 'sentinel-ci');
+    assert.equal(blobCalls[0].options?.workspaceSlug, 'sentinel-ci');
+
+    workspace.switchWorkspace('octocity-mission-room');
+    assert.equal(postCalls[0].response.observed, false);
+    assert.equal(blobCalls[0].response.observed, false);
+
+    postCalls[0].response.next({ capture: { id: 'late-sentinel-capture' } });
+    blobCalls[0].response.next(new Blob(['sentinel-private-image']));
+
+    assert.deepEqual(navigations, []);
+    assert.deepEqual(component.visualCaptureImages(), {});
+  } finally {
+    component.ngOnDestroy();
+    if (previousWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: previousWindow,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+});
+
+test('MissionRoom cancels every agenda write continuation before Sentinel -> Octocity publication', () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: new EventTarget(),
+  });
+  const harness = createHarness();
+  const { component, workspace, postCalls, patchCalls, getCalls } = harness;
+
+  try {
+    component.newAgendaTitle = 'Sentinel confidential agenda';
+    component.createAgendaEvent();
+    component.selectedAgendaEvent.set({
+      id: 'sentinel-meeting',
+      date: '2026-07-22',
+      time: '09:00',
+      end_time: '09:45',
+      metadata: { agenda_items: [] },
+    } as never);
+    component.moveSelectedAgendaEvent(30);
+    component.cancelSelectedAgendaEvent();
+    component.addAgendaSubItem();
+
+    assert.deepEqual(
+      postCalls.map((call) => [call.path, call.options?.workspaceSlug]),
+      [
+        ['/calendar/events', 'sentinel-ci'],
+        ['/calendar/events/sentinel-meeting/cancel', 'sentinel-ci'],
+      ],
+    );
+    assert.deepEqual(
+      patchCalls.map((call) => [call.path, call.options?.workspaceSlug]),
+      [
+        ['/calendar/events/sentinel-meeting', 'sentinel-ci'],
+        ['/calendar/events/sentinel-meeting', 'sentinel-ci'],
+      ],
+    );
+
+    workspace.switchWorkspace('octocity-mission-room');
+    assert.ok(postCalls.every((call) => !call.response.observed));
+    assert.ok(patchCalls.every((call) => !call.response.observed));
+
+    postCalls.forEach((call) => call.response.next({ id: 'late-sentinel' }));
+    patchCalls.forEach((call) => call.response.next({ id: 'late-sentinel' }));
+
+    assert.equal(component.selectedAgendaEvent(), null);
+    assert.equal(component.newAgendaTitle, '');
+    assert.equal(getCalls.length, 0, 'late agenda writes cannot refresh the next workspace');
+  } finally {
+    component.ngOnDestroy();
+    if (previousWindow) {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: previousWindow,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  }
+});
+
+for (const [from, to] of [
+  ['sentinel-ci', 'octocity-mission-room'],
+  ['octocity-mission-room', 'sentinel-ci'],
+] as const) {
+  test(`MissionRoom ignores a delayed search response across ${from} -> ${to}`, () => {
+    const previousWindow = globalThis.window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: new EventTarget(),
+    });
+    const harness = createHarness();
+    const { component, workspace, getCalls } = harness;
+
+    try {
+      if (workspace.currentSlug() !== from) workspace.switchWorkspace(from);
+      component.searchQueryValue = `${from}-private-query`;
+      component.runSearch();
+      assert.equal(getCalls[0].options?.workspaceSlug, from);
+
+      workspace.switchWorkspace(to);
+      assert.equal(getCalls[0].response.observed, false);
+      getCalls[0].response.next({
+        total: 1,
+        results: [{ id: `${from}-private-result` }],
+      });
+
+      assert.equal(component.search(), null);
+      assert.equal(component.searchQueryValue, '');
+      assert.equal(workspace.currentSlug(), to);
+    } finally {
+      component.ngOnDestroy();
+      if (previousWindow) {
+        Object.defineProperty(globalThis, 'window', {
+          configurable: true,
+          value: previousWindow,
+        });
+      } else {
+        Reflect.deleteProperty(globalThis, 'window');
+      }
+    }
+  });
+}
 
 test('generic Agentium branding is not classified as the Octocity presentation', () => {
   const rail = new MissionRailComponent();
