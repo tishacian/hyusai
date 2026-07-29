@@ -420,3 +420,62 @@
   color: var(--nawa-fg-dim);
   font-size: 12px;
 }
+
+// ---- a previewed service: the procedure, walked ---------------------------
+// Same geometry as the run above, because it is showing the same thing: a
+// request being carried out. The one visual difference is the standing mark,
+// which has to survive a screenshot — hence a border and not just a colour.
+.as-preview-mark {
+  padding: 1px 7px;
+  border: 1px solid var(--nawa-accent-line);
+  border-radius: 999px;
+  font: 650 10px/1.7 var(--nawa-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nawa-fg-dim);
+  background: var(--nawa-surface-2);
+}
+
+.as-walk {
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  counter-reset: as-walk;
+}
+
+.as-walk-step {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--nawa-surface-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--nawa-fg-dim);
+}
+
+// The step the walk is stopped on. It stays marked after the decision is taken
+// so the exchange can be read back afterwards.
+.as-walk-waiting {
+  border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
+  background: transparent;
+}
+
+.as-walk-actor {
+  font: 650 10px/1.7 var(--nawa-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nawa-fg-faint);
+}
+
+@media (max-width: 720px) {
+  .as-walk-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

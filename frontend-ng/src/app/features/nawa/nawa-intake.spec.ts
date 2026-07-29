@@ -19,7 +19,6 @@ import {
   composeIdentity,
   composeTypedCase,
   IDENTITY_REQUEST,
-  plannedReply,
   procedureSteps,
   readIdentity,
   REQUEST_EXAMPLES,
@@ -136,7 +135,7 @@ test('the live service is the one that runs here', () => {
   assert.equal(routeIntake('I want to create an email for a newcomer', CATALOGUE)?.live, false);
 });
 
-test('the reply for a planned service quotes their procedure and promises nothing', () => {
+test('a planned service carries their procedure, verbatim', () => {
   const match = routeIntake('I want to create an email for a newcomer', CATALOGUE)!;
   const steps = procedureSteps(match.useCase);
 
@@ -147,18 +146,11 @@ test('the reply for a planned service quotes their procedure and promises nothin
   assert.match(steps.join(' '), /Line Manager/);
   // The numbering is the screen's, so no step may arrive carrying its own.
   for (const step of steps) assert.ok(!/^\d/.test(step), step);
-
-  const reply = plannedReply(match);
-  assert.match(reply, /Email Creation/);
-  assert.match(reply, /rollout plan/);
-  // It must not claim to raise, log or track a ticket: this app does none of it.
-  assert.ok(!/\b(?:I will|I'll|I have) (?:raise|log|create|open)/i.test(reply), reply);
 });
 
-test('a service of the shared pattern says how many move with it', () => {
+test('a service of the shared pattern reports how many move with it', () => {
   const match = routeIntake('Please add three members to the finance distribution group', CATALOGUE)!;
   assert.ok(match.sameFamily >= 1, `${match.sameFamily}`);
-  assert.match(plannedReply(match), /same approval and directory pattern/);
 });
 
 // ---------------------------------------------------------------------------

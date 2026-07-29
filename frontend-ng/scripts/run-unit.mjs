@@ -50,6 +50,7 @@ const pureSpecs = [
   'src/app/features/nawa/nawa-conversation.spec.ts',
   'src/app/features/nawa/nawa-assistant.spec.ts',
   'src/app/features/nawa/nawa-intake.spec.ts',
+  'src/app/features/nawa/nawa-preview.spec.ts',
   'src/app/features/nawa/nawa-speech.spec.ts',
 ];
 

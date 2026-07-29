@@ -268,25 +268,6 @@ export function procedureSteps(useCase: NawaUseCase | null | undefined): string[
 }
 
 /**
- * What the assistant says about a service the rollout has not reached.
- *
- * It states the procedure that applies today and stops there. It does not offer
- * to raise the ticket, because this application does not raise tickets: an
- * assistant that claims a capability it lacks is the failure the audit trail
- * exists to prevent, and it would be noticed the first time someone waited for
- * a ticket that never arrived.
- */
-export function plannedReply(match: NawaIntakeMatch): string {
-  const family = match.sameFamily
-    ? ` It is one of ${match.sameFamily + 1} services sharing the same approval and directory pattern, which are automated together.`
-    : '';
-  return (
-    `This is a known service request: ${match.useCase.name}. It is handled by the service desk today, ` +
-    `following the procedure below. Automation for it is in the rollout plan for this workspace.${family}`
-  );
-}
-
-/**
  * Requests a desk receives, offered as buttons. The first one is the service
  * that runs here; the others are answered with the customer's own procedure. A
  * test asserts that every one of them routes, because a suggestion that
@@ -298,11 +279,6 @@ export const REQUEST_EXAMPLES: readonly string[] = [
   'My account is locked after too many attempts.',
   'Please add two members to the finance distribution group.',
 ];
-
-/** The closing line under the steps: what the requester should do now. */
-export const PLANNED_NEXT_STEP =
-  'To raise it now, submit the request through the ITSD Portal with the authorisation the procedure requires. ' +
-  'Once this service is automated here, the same request will be handled the way Password Reset is.';
 
 // ---------------------------------------------------------------------------
 // The live service: what the assistant needs before it may act

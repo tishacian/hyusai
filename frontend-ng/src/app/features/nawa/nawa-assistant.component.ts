@@ -49,6 +49,7 @@ import { NawaAssistantService } from './nawa-assistant.service';
 import { NawaItsdService } from './nawa-itsd.service';
 import { VoiceDictationService, DictationUnavailable } from '@app/shared/voice/voice-dictation.service';
 import { VoiceTtsPlaybackService } from '@app/core/voice-tts-playback.service';
+import { planPreview, type PreviewPlan } from './nawa-preview';
 import { spokenAnswer, spokenOutcome, spokenService } from './nawa-speech';
 import { projectTurn, SUGGESTED_QUESTIONS, type AssistantTurn } from './nawa-assistant';
 import { projectConversation, type NawaMessage } from './nawa-conversation';
@@ -56,9 +57,6 @@ import {
   composeIdentity,
   composeTypedCase,
   IDENTITY_REQUEST,
-  plannedReply,
-  PLANNED_NEXT_STEP,
-  procedureSteps,
   readIdentity,
   REQUEST_EXAMPLES,
   routeIntake,
@@ -79,6 +77,26 @@ interface ServiceTurn {
   next: string;
 }
 
+/**
+ * A catalogue service the rollout has not reached, played step by step.
+ *
+ * It carries no run id on purpose: nothing was executed, so there is no trace
+ * to open and no ledger entry to point at. The standing mark in `plan.note`
+ * says so on screen for as long as the turn is there.
+ */
+interface PreviewTurn {
+  kind: 'preview';
+  question: string;
+  service: string;
+  plan: PreviewPlan;
+  messages: NawaMessage[];
+  /** How many steps have been revealed so far. */
+  shown: number;
+  gateOpen: boolean;
+  decided: 'accept' | 'reject' | null;
+  settled: boolean;
+}
+
 /** A request for the service that runs here, and the run it produced. */
 interface RunTurn {
   kind: 'run';
@@ -92,7 +110,10 @@ interface RunTurn {
   note: string | null;
 }
 
-type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
+type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | PreviewTurn | RunTurn;
+
+/** Cadence of the walk. Slow enough to read a step, quick enough to hold a room. */
+const STEP_MS = 850;
 
 @Component({
   selector: 'app-nawa-assistant',
@@ -217,6 +238,68 @@ type DeskTurn = ({ kind: 'knowledge' } & AssistantTurn) | ServiceTurn | RunTurn;
                 }
                 @if (service.next) {
                   <p class="as-next">{{ service.next }}</p>
+                }
+              }
+
+              @if (asPreview(turn); as preview) {
+                <div class="as-meta">
+                  <span class="as-meta-strong">{{ preview.service }}</span>
+                  <span class="as-preview-mark">Preview</span>
+                </div>
+                <div class="as-run">
+                  @for (message of preview.messages; track $index) {
+                    <div class="as-bubble as-bubble-assistant">
+                      <span class="as-bubble-who">{{ appName }}</span>
+                      <p>{{ message.text }}</p>
+                    </div>
+                  }
+                  @if (preview.plan.steps.length) {
+                    <ol class="as-walk">
+                      @for (step of preview.plan.steps.slice(0, preview.shown); track $index) {
+                        <li
+                          class="as-walk-step"
+                          [class.as-walk-waiting]="$index === preview.plan.gateIndex && !preview.decided"
+                        >
+                          <span class="as-walk-actor">
+                            @if (step.actor === 'intake') {
+                              submitted here
+                            } @else if (step.actor === 'approval') {
+                              {{ preview.decided === 'reject' ? 'declined' : 'approval' }}
+                            } @else {
+                              automated
+                            }
+                          </span>
+                          <span>{{ step.text }}</span>
+                        </li>
+                      }
+                    </ol>
+                  }
+                  @if (!preview.settled && !preview.gateOpen) {
+                    <div class="as-pending">
+                      <ck-thinking-orb state="working" [size]="20" />
+                      Running the procedure…
+                    </div>
+                  }
+                </div>
+                @if (preview.gateOpen) {
+                  <div class="as-gate">
+                    <span class="as-gate-label">
+                      Waiting on the approval the procedure requires. Nothing has been changed.
+                    </span>
+                    <button type="button" class="nawa-button" (click)="settlePreview($index, 'accept')">
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      class="nawa-button nawa-button-ghost"
+                      (click)="settlePreview($index, 'reject')"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                }
+                @if (preview.settled) {
+                  <p class="as-next">{{ preview.plan.note }}</p>
                 }
               }
 
@@ -433,6 +516,9 @@ export class NawaAssistantComponent implements OnDestroy {
    */
   private stick = true;
 
+  /** Steps of a preview still waiting on their timer. */
+  private readonly walking = new Set<ReturnType<typeof setTimeout>>();
+
   constructor() {
     // Reads the signals the transcript renders from, so it re-runs after the
     // render that added the content, when the new height is measurable.
@@ -462,12 +548,18 @@ export class NawaAssistantComponent implements OnDestroy {
     // still holding the recording indicator, outlives the screen otherwise.
     this.speaker.cancel('left_screen');
     this.dictation.cancel();
+    for (const handle of this.walking) clearTimeout(handle);
+    this.walking.clear();
   }
 
   // Narrowing helpers. The template asks for a kind and gets it typed, which is
   // what keeps `turn.answer` off a service turn at compile time.
   protected asKnowledge(turn: DeskTurn): ({ kind: 'knowledge' } & AssistantTurn) | null {
     return turn.kind === 'knowledge' ? turn : null;
+  }
+
+  protected asPreview(turn: DeskTurn): PreviewTurn | null {
+    return turn.kind === 'preview' ? turn : null;
   }
   protected asService(turn: DeskTurn): ServiceTurn | null {
     return turn.kind === 'service' ? turn : null;
@@ -532,20 +624,28 @@ export class NawaAssistantComponent implements OnDestroy {
       return;
     }
     if (match) {
-      // Includes a live service the workspace cannot execute right now: the
-      // procedure is the honest answer, and it is the same one the desk follows.
+      // Includes a live service the workspace cannot execute right now. The
+      // procedure is still the customer's own; what changes is that the screen
+      // walks it instead of printing it, so a requester sees the shape of the
+      // service rather than a paragraph explaining why it is not there yet.
+      const plan = planPreview(match, query);
+      const index = this.turns().length;
       this.turns.update((list) => [
         ...list,
         {
-          kind: 'service',
+          kind: 'preview',
           question: query,
-          service: match.useCase.name,
-          reply: plannedReply(match),
-          steps: procedureSteps(match.useCase),
-          next: PLANNED_NEXT_STEP,
+          service: plan.service,
+          plan,
+          messages: [{ author: 'assistant', text: plan.intro }],
+          shown: 0,
+          gateOpen: false,
+          decided: null,
+          settled: plan.steps.length === 0,
         },
       ]);
-      this.say(spokenService(plannedReply(match), procedureSteps(match.useCase).length));
+      this.say(spokenService(plan.intro, plan.steps.length));
+      this.walk(index);
       return;
     }
     this.askLibrary(query);
@@ -694,6 +794,81 @@ export class NawaAssistantComponent implements OnDestroy {
   private say(text: string): void {
     if (!this.voice() || !text.trim()) return;
     this.speaker.playText(text, { surface: 'nawa_assistant' });
+  }
+
+  /**
+   * Reveals the procedure one step at a time, and stops at the decision.
+   *
+   * The walk is on a timer rather than tied to anything happening, because
+   * nothing is happening: no request leaves the browser. That is the whole
+   * contract of a preview, and it is why the turn keeps its standing mark.
+   */
+  private walk(index: number): void {
+    const turn = this.turns()[index];
+    if (turn?.kind !== 'preview' || turn.settled) return;
+
+    const total = turn.plan.steps.length;
+    if (turn.shown >= total) {
+      this.close(index, turn.plan.approved);
+      return;
+    }
+    // The decision is announced when the walk reaches it, not before, so the
+    // room sees the service run into the approval rather than being told.
+    if (turn.shown === turn.plan.gateIndex && !turn.decided) {
+      this.after(() => {
+        this.repaint(index, {
+          shown: turn.shown + 1,
+          gateOpen: true,
+          messages: [...turn.messages, { author: 'assistant', text: turn.plan.gateAsk }],
+        });
+        this.say(spokenOutcome(turn.plan.gateAsk));
+      });
+      return;
+    }
+    this.after(() => {
+      this.repaint(index, { shown: turn.shown + 1 });
+      this.walk(index);
+    });
+  }
+
+  /** One step of the walk, tracked so that leaving the screen stops it. */
+  private after(step: () => void): void {
+    const handle = setTimeout(() => {
+      this.walking.delete(handle);
+      step();
+    }, STEP_MS);
+    this.walking.add(handle);
+  }
+
+  /** The supervisor decision on a previewed service, answered on this screen. */
+  protected settlePreview(index: number, action: 'accept' | 'reject'): void {
+    const turn = this.turns()[index];
+    if (turn?.kind !== 'preview' || !turn.gateOpen) return;
+    this.repaint(index, { gateOpen: false, decided: action });
+    if (action === 'reject') {
+      this.close(index, turn.plan.declined);
+      return;
+    }
+    this.walk(index);
+  }
+
+  private close(index: number, outcome: string): void {
+    const turn = this.turns()[index];
+    if (turn?.kind !== 'preview') return;
+    this.repaint(index, {
+      settled: true,
+      gateOpen: false,
+      messages: [...turn.messages, { author: 'assistant', text: outcome }],
+    });
+    this.say(spokenOutcome(outcome));
+  }
+
+  private repaint(index: number, changes: Partial<PreviewTurn>): void {
+    this.turns.update((list) =>
+      list.map((turn, position) =>
+        position === index && turn.kind === 'preview' ? { ...turn, ...changes } : turn,
+      ),
+    );
   }
 
   /** Answer the gate from here; the poll brings the resumed run back. */
