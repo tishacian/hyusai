@@ -110,6 +110,7 @@ _NAVIGATION_SURFACES = frozenset(
         "sap-hana",
         "secure-deposit",
         "sharepoint",
+        "skill-invocations",
         "skills",
         "steering",
         "surface-map",
@@ -118,6 +119,7 @@ _NAVIGATION_SURFACES = frozenset(
         "tasks",
         "unknown",
         "workspace-admin",
+        "workspace-app-platform",
         "workspace-blueprints",
         "workspace-chat",
     }
