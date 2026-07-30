@@ -599,7 +599,14 @@ async function missionRoomContract(
   );
   await page.goto('/hypervisor');
   await expect(page.locator('app-mission-room')).toBeVisible();
-  await expect(page.locator('[data-mission-room-extension="mission-room"]')).toBeVisible();
+  const extension = page.locator('[data-mission-room-extension="mission-room"]');
+  await expect(extension).toBeVisible();
+  // Wait for the extension host to bind the target profile before the
+  // cross-tenant corpus is sampled — otherwise a late profile settle can
+  // still carry presentation from a previous workspace paint.
+  await expect(extension).toHaveAttribute('data-mission-room-profile', profile, {
+    timeout: 15000,
+  });
 
   const brandingSettingsComplete = Boolean(
     expectedBrand
