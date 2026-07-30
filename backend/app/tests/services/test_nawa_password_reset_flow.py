@@ -240,13 +240,15 @@ def _mk_skill(db, slug: str) -> Skill:
 
 
 def _mk_system(db, flow: Dict[str, Any]) -> System:
-    for slug in SKILL_SLUGS:
-        _mk_skill(db, slug)
+    skills = [_mk_skill(db, slug) for slug in SKILL_SLUGS]
     row = System(
         id=str(uuid.uuid4()),
         name=ARTIFACT["system"]["name"],
         objective=ARTIFACT["system"]["objective"],
-        skill_ids=[],
+        # Release B closes the skill-authority boundary: executable nodes must
+        # name a Skill bound to the System (validate_graph_skill_bindings).
+        # The production Password Reset System binds exactly these four.
+        skill_ids=[skill.id for skill in skills],
         flow_definition=flow,
         settings=SYSTEM_SETTINGS,
         default_model=DEFAULT_MODEL,

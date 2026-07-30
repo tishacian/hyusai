@@ -22,7 +22,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
-| 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ✅ 8/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 7/7 required | `playwright`, `pytest` | 🟠 Static verified |
+| 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ❌ 7/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 7/7 required | `playwright`, `pytest` | 🟡 Partial |
 | 7 | `LOT7-AUTHORIZATION-ROLLOUT` — Action-level authorization advances through compat, shadow and enforce | `api` | ✅ 4/4 required | ✅ 2/2 required | — | ✅ 6/6 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-MEMBRANE-MEASUREMENTS` — Membrane budgets distinguish measured zero from unavailable telemetry | `backend` | ✅ 2/2 required | — | — | ✅ 2/2 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-ANDRITZ-MEMBRANE-SHADOW` — Andritz Membrane v2 shadow preparation is append-only and reversible | `backend` | ✅ 1/1 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
@@ -208,7 +208,7 @@ Ordered Workspace gates expose four honest lenses for Capability, Run and SkillI
 - **implementation / PASS** — [Object perspective read models](../backend/app/services/object_perspective.py)
 - **implementation / PASS** — [Tenant-aware executable System catalog bindings](../backend/app/services/system_catalog_bindings.py)
 - **implementation / PASS** — [Ordered marker-discovered projection rollout](../backend/scripts/rollout_lot7_projections.py)
-- **implementation / PASS** — [Additive immutable execution schema](../backend/alembic/versions/065_system_version_config.py)
+- **implementation / FAIL** — [Additive immutable execution schema](../backend/alembic/versions/065_system_version_config.py); 1 literal(s) missing
 - **implementation / PASS** — [Immutable invocation execution evidence migration](../backend/alembic/versions/066_skill_invocation_snapshot.py)
 - **implementation / PASS** — [SystemVersion uniqueness migration](../backend/alembic/versions/067_system_version_uniqueness.py)
 - **implementation / PASS** — [Five-profile user-validation gate](../scripts/agentium_trusted_compliance.py)

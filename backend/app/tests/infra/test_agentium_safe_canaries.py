@@ -643,11 +643,15 @@ def test_live_workspace_canaries_are_testcase_sha_bound_and_content_free() -> No
     assert "client360DryRunProjection" in contract
     assert "crossTenantSystemIsolationProjection" in contract
     assert "crossTenantReadStatus: 404" in contract
-    assert "Andritz business preview exposes the three-app shell" in runner
-    assert "the three Andritz surfaces survive deep links, history and reload" in runner
-    assert "the four Andritz surfaces" not in runner
-    assert "andritzReadOnlySurfaceProjection" not in contract
-    assert "/governance/workspace-apps/installations" not in contract
+    # Post-Release B baseline: the Andritz workspace ships three apps through
+    # four entitled surfaces (FSE reports rides the capture router).  The
+    # content-free read-only projection and the lot 9 installations endpoint
+    # are part of the contract — both are read-only and identity-free.
+    assert "Andritz business preview exposes three apps through four entitled surfaces" in runner
+    assert "the four Andritz surfaces survive deep links, history and reload" in runner
+    assert "the three Andritz surfaces" not in runner
+    assert "andritzReadOnlySurfaceProjection" in contract
+    assert "/governance/workspace-apps/installations" in contract
 
 
 def test_system360_canary_binds_runtime_and_retains_only_content_free_json() -> None:

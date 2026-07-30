@@ -1522,14 +1522,27 @@ def test_andritz_round_trip_backfills_all_members_before_entitlement_activation(
     )
     db_session.flush()
 
-    assert dry_run["experience"]["app_access"]["grants_planned"] == (2 * len(BUSINESS_APP_KEYS))
-    assert report["experience"]["app_access"]["grants_created"] == (2 * len(BUSINESS_APP_KEYS))
+    # Lot 9 scopes app_access to the entitlement keys of the workspace's own
+    # installations: the andritz reference ships four surfaces (chat,
+    # client360-pdr, knowledge-capture, fse-reports) — not nawa-itsd, which
+    # belongs to the nawa workspace.  The pre-lot-9 blanket BUSINESS_APP_KEYS
+    # expectation would over-grant.
+    required_apps = blueprint["experience"]["app_access"]["required_apps"]
+    assert sorted(required_apps) == [
+        "chat",
+        "client360-pdr",
+        "fse-reports",
+        "knowledge-capture",
+    ]
+    expected_grants = 2 * len(required_apps)
+    assert dry_run["experience"]["app_access"]["grants_planned"] == expected_grants
+    assert report["experience"]["app_access"]["grants_created"] == expected_grants
     assert target.settings["features"][APP_ENTITLEMENTS_FEATURE] is True
     assert target.settings["runtime_cache"] == {"opaque": True}
     assert db_session.query(WorkspaceMemberAppEntitlement).join(
         WorkspaceMember,
         WorkspaceMember.id == WorkspaceMemberAppEntitlement.workspace_member_id,
-    ).filter(WorkspaceMember.workspace_id == target.id).count() == 2 * len(BUSINESS_APP_KEYS)
+    ).filter(WorkspaceMember.workspace_id == target.id).count() == expected_grants
     assert workspace_blueprints._serialize_workspace_experience(target) == blueprint["experience"]
 
 

@@ -884,7 +884,7 @@ assert_closed_runtime
 attest_playwright_runtime
 run_sftp_closed_boundary sftp-closed-before-canaries
 run_workspace_suite andritz \
-	'Andritz business preview exposes the three-app shell|the three Andritz surfaces survive deep links, history and reload|a forced access-token expiry|business preview redirects|deployed Andritz profile|resolved navigation' \
+	'Andritz business preview exposes three apps through four entitled surfaces|the four Andritz surfaces survive deep links, history and reload|a forced access-token expiry|business preview redirects|deployed Andritz profile|resolved navigation' \
 	0 1
 assert_closed_runtime
 run_workspace_suite sentinel '^Sentinel workspace keeps its immersive Mission Room shell$' 1 0

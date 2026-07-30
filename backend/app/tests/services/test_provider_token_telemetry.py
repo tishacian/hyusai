@@ -604,8 +604,15 @@ async def test_semantic_search_zero_requires_non_token_retrieval_contract(
         assert output["provider_usage"]["measurement_coverage"] == "unavailable"
 
 
-async def test_audit_log_declares_explicit_non_token_zero() -> None:
-    output = await wrappers._audit_log_v1({"event_type": "claim.audited", "details": {}})
+async def test_audit_log_declares_explicit_non_token_zero(db_session) -> None:
+    # The wrapper persists through emit_audit_event and fails closed without a
+    # workspace to attribute the record to (audit rows are read by workspace).
+    workspace = Workspace(id=str(uuid4()), name="Telemetry", slug="telemetry")
+    db_session.add(workspace)
+    db_session.commit()
+    output = await wrappers._audit_log_v1(
+        {"event_type": "claim.audited", "details": {}, "workspace_id": workspace.id}
+    )
 
     assert output["status"] == "recorded"
     assert output["usage"]["total_tokens"] == 0

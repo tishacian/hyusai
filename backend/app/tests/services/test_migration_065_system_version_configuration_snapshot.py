@@ -67,7 +67,9 @@ def _column_names(bind) -> set[str]:
 
 def test_revision_extends_the_p4_head():
     assert MIG.revision == "065_system_version_config"
-    assert MIG.down_revision == "064_run_dispatch_outbox"
+    # Re-parented during the Release B landing: production lineage already
+    # carries ``065_nawa_itsd``, so this revision follows it.
+    assert MIG.down_revision == "065_nawa_itsd"
 
 
 def test_upgrade_and_downgrade_are_additive_and_preserve_historical_rows(monkeypatch):
