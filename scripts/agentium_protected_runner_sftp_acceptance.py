@@ -531,13 +531,18 @@ async def _pinned_known_hosts(
     asyncssh: Any,
 ) -> bytes:
     try:
-        key = await asyncssh.get_server_host_key(
-            host=host,
-            port=port,
-            config=None,
-            connect_timeout=timeout,
-            server_host_key_algs=["ssh-ed25519"],
-            client_version="AgentiumProtectedRunnerSFTPAcceptance",
+        # asyncssh.get_server_host_key has no connect_timeout kwarg on the
+        # pinned runtime (2.23.0); enforce the bound with asyncio.wait_for so
+        # a stalled handshake still fails closed instead of hanging the job.
+        key = await asyncio.wait_for(
+            asyncio.ensure_future(asyncssh.get_server_host_key(
+                host=host,
+                port=port,
+                config=None,
+                server_host_key_algs=["ssh-ed25519"],
+                client_version="AgentiumProtectedRunnerSFTPAcceptance",
+            )),
+            timeout=timeout,
         )
         if str(key.get_algorithm()) != "ssh-ed25519":
             raise SFTPAcceptanceError("SFTP host-key algorithm mismatch")
