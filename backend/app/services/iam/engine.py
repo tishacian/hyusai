@@ -12,7 +12,7 @@ from app.core.iam.roles import (
     normalize_role_template,
 )
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
 from app.services.iam.manifest import PermissionRule, get_manifest
@@ -38,6 +38,7 @@ class AuthorizationEngine:
         action: str,
         resource_attrs: Optional[Dict[str, Any]] = None,
         membership: Optional[WorkspaceMember] = None,
+        config: Optional[WorkspaceIAMConfig] = None,
         audit_prefix: str = "iam",
         audit_denials: bool = True,
     ) -> Decision:
@@ -49,7 +50,8 @@ class AuthorizationEngine:
                 self._audit_deny(db, user, workspace, resource_kind, action, attrs, decision, audit_prefix)
             return decision
 
-        config = load_iam_config(db, workspace.id, create=False)
+        if config is None:
+            config = load_iam_config(db, workspace.id, create=False)
         flags = effective_role_flags(config)
         role_template = normalize_role_template(
             getattr(membership, "role_template", None),

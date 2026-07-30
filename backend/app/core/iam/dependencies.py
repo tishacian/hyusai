@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.iam.app_entitlements import (
     app_entitlements_enabled,
     member_has_app_entitlement,
@@ -93,6 +93,7 @@ def evaluate_permission(
     action: str,
     resource_attrs: Optional[Dict[str, Any]] = None,
     membership: Optional[WorkspaceMember] = None,
+    config: Optional[WorkspaceIAMConfig] = None,
     audit_prefix: str = "iam",
     audit_denials: bool = True,
 ) -> Decision:
@@ -101,6 +102,7 @@ def evaluate_permission(
         user=user,
         workspace=workspace,
         membership=membership,
+        config=config,
         resource_kind=resource_kind,
         action=action,
         resource_attrs=resource_attrs,

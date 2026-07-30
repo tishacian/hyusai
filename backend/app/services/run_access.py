@@ -7,7 +7,7 @@ authorization bypass while ``run.read`` rolls out independently.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -16,10 +16,12 @@ from app.core.iam.roles import WORKSPACE_REVIEWER, is_admin_template, normalize_
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.chat_execution_policy import migration_059_system_id
+from app.services.iam.config_service import load_iam_config
 from app.services.iam.decision_plane import (
     ActionResolution,
+    ModeResolutionCache,
     emit_shadow_diff_summary,
     resolve_action,
 )
@@ -179,6 +181,9 @@ def resolve_run_read(
     user: User,
     workspace: Workspace,
     legacy_allowed: bool = True,
+    membership: Optional[WorkspaceMember] = None,
+    config: Optional[WorkspaceIAMConfig] = None,
+    mode_cache: Optional[ModeResolutionCache] = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -190,6 +195,9 @@ def resolve_run_read(
         action="read",
         legacy_allowed=legacy_allowed,
         resource_attrs=run_read_attrs(run),
+        membership=membership,
+        config=config,
+        mode_cache=mode_cache,
         audit_shadow_diff=audit_shadow_diff,
         audit_shadow_evidence=audit_shadow_evidence,
     )
@@ -206,6 +214,20 @@ def readable_runs(
 
     visible: list[Run] = []
     resolutions: list[tuple[str, ActionResolution]] = []
+    # Preload the per-request authorization context once: both the membership
+    # and the IAM config are constant across every Run in this batch, so the
+    # engine must not re-issue one lookup per row (the /skills aggregate used
+    # to fan out thousands of identical SELECTs here).
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    config = load_iam_config(db, workspace.id, create=False)
+    mode_cache: ModeResolutionCache = {}
     for run in runs:
         if not run_is_visible(db, run=run, user=user, workspace=workspace):
             continue
@@ -214,6 +236,9 @@ def readable_runs(
             run=run,
             user=user,
             workspace=workspace,
+            membership=membership,
+            config=config,
+            mode_cache=mode_cache,
             audit_shadow_diff=False,
             audit_shadow_evidence=False,
         )
@@ -299,6 +324,9 @@ def resolve_skill_invocation_read(
     user: User,
     workspace: Workspace,
     legacy_allowed: bool = True,
+    membership: Optional[WorkspaceMember] = None,
+    config: Optional[WorkspaceIAMConfig] = None,
+    mode_cache: Optional[ModeResolutionCache] = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -310,6 +338,9 @@ def resolve_skill_invocation_read(
         action="read",
         legacy_allowed=legacy_allowed,
         resource_attrs=skill_invocation_read_attrs(invocation, run),
+        membership=membership,
+        config=config,
+        mode_cache=mode_cache,
         audit_shadow_diff=audit_shadow_diff,
         audit_shadow_evidence=audit_shadow_evidence,
     )
@@ -363,6 +394,18 @@ def readable_skill_invocations_for_runs(
     runs_by_id = {run.id: run for run in runs}
     visible: list[SkillInvocation] = []
     resolutions: list[tuple[str, ActionResolution]] = []
+    # Same per-request preload as ``readable_runs``: one membership + one IAM
+    # config lookup for the whole batch instead of one per invocation row.
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    config = load_iam_config(db, workspace.id, create=False)
+    mode_cache: ModeResolutionCache = {}
     for invocation in invocations:
         run = runs_by_id.get(invocation.run_id)
         if run is None:
@@ -373,6 +416,9 @@ def readable_skill_invocations_for_runs(
             run=run,
             user=user,
             workspace=workspace,
+            membership=membership,
+            config=config,
+            mode_cache=mode_cache,
             audit_shadow_diff=False,
             audit_shadow_evidence=False,
         )

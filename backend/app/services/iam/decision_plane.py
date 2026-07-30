@@ -182,12 +182,22 @@ def authorization_v2_config(config: Optional[WorkspaceIAMConfig]) -> dict[str, A
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
+# Cache for one request's enforce-attestation lookups.  ``resolve_mode`` is
+# called once per candidate resource (every Run / SkillInvocation in an
+# aggregate), yet its DB-backed receipt validation depends only on
+# ``(action, config.version)`` — not on the resource.  Keying the resolved
+# mode by that pair lets a batch of thousands reuse a single audit-ledger
+# read instead of one per row.
+ModeResolutionCache = dict[tuple[str, Optional[int]], "AuthorizationMode"]
+
+
 def resolve_mode(
     config: Optional[WorkspaceIAMConfig],
     *,
     resource_kind: str,
     action: str,
     db: Optional[DBSession] = None,
+    mode_cache: Optional[ModeResolutionCache] = None,
 ) -> AuthorizationMode:
     payload = authorization_v2_config(config)
     modes = payload.get("modes")
@@ -219,6 +229,14 @@ def resolve_mode(
     # Runtime authority requires the exact action promoted by the rollout gate.
     if source_key != exact_key:
         return AuthorizationMode.SHADOW
+
+    cache_key: Optional[tuple[str, Optional[int]]] = None
+    if mode_cache is not None:
+        version = getattr(config, "version", None)
+        cache_key = (exact_key, int(version) if isinstance(version, int) else None)
+        if cache_key in mode_cache:
+            return mode_cache[cache_key]
+
     if enforcement_attestation_errors(
         config=config,
         action=exact_key,
@@ -229,8 +247,12 @@ def resolve_mode(
         # An exact enforce declaration is an authorization boundary.  Drift
         # must fail closed; silently falling back to legacy/shadow would reopen
         # actions precisely when the attestation is no longer trustworthy.
-        return AuthorizationMode.INVALID_ENFORCE
-    return AuthorizationMode.ENFORCE
+        resolved = AuthorizationMode.INVALID_ENFORCE
+    else:
+        resolved = AuthorizationMode.ENFORCE
+    if mode_cache is not None and cache_key is not None:
+        mode_cache[cache_key] = resolved
+    return resolved
 
 
 def _aware_timestamp(value: Any) -> Optional[datetime]:
@@ -702,6 +724,8 @@ def resolve_action(
     legacy_allowed: bool,
     resource_attrs: Optional[dict[str, Any]] = None,
     membership: Optional[WorkspaceMember] = None,
+    config: Optional[WorkspaceIAMConfig] = None,
+    mode_cache: Optional[ModeResolutionCache] = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -717,6 +741,8 @@ def resolve_action(
         candidate_manifest="agentium_object_actions",
         resource_attrs=resource_attrs,
         membership=membership,
+        config=config,
+        mode_cache=mode_cache,
         audit_shadow_diff=audit_shadow_diff,
         audit_shadow_evidence=audit_shadow_evidence,
     )
@@ -733,6 +759,8 @@ def resolve_candidate_permission(
     candidate_manifest: str,
     resource_attrs: Optional[dict[str, Any]] = None,
     membership: Optional[WorkspaceMember] = None,
+    config: Optional[WorkspaceIAMConfig] = None,
+    mode_cache: Optional[ModeResolutionCache] = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -753,13 +781,21 @@ def resolve_candidate_permission(
         user=user,
         workspace=workspace,
         membership=membership,
+        config=config,
         resource_kind=resource_kind,
         action=action,
         resource_attrs=attrs,
         audit_denials=False,
     )
-    config = load_iam_config(db, workspace.id, create=False)
-    mode = resolve_mode(config, resource_kind=resource_kind, action=action, db=db)
+    if config is None:
+        config = load_iam_config(db, workspace.id, create=False)
+    mode = resolve_mode(
+        config,
+        resource_kind=resource_kind,
+        action=action,
+        db=db,
+        mode_cache=mode_cache,
+    )
     mismatch = bool(legacy_allowed) != candidate.allowed
     effective_allowed = (
         candidate.allowed

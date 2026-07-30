@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app.api.v1.endpoints import impact, skills
 from app.models.capability import Capability
@@ -223,3 +224,91 @@ def test_skill_catalog_runtime_metrics_compose_run_and_invocation_read(
     assert "9999" not in response.text
     assert "1000" not in response.text
     assert "777" not in response.text
+
+
+def _bulk_seed(db, workspace, user, system, capability, skill, *, runs: int) -> None:
+    """Add ``runs`` completed runs (2 invocations each) readable by ``user``."""
+    now = datetime.utcnow()
+    for index in range(runs):
+        run = Run(
+            id=f"run-bulk-{index}",
+            workspace_id=workspace.id,
+            initiated_by_user_id=user.id,
+            system_id=system.id,
+            capability_id=capability.id,
+            status="completed",
+            trigger="manual",
+            started_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=1),
+        )
+        db.add(run)
+        for j in range(2):
+            db.add(
+                SkillInvocation(
+                    id=f"invocation-bulk-{index}-{j}",
+                    run_id=run.id,
+                    skill_id=skill.id,
+                    skill_slug=skill.slug,
+                    status="completed",
+                    latency_ms=10.0,
+                    cost=0.1,
+                    cost_measured=True,
+                )
+            )
+    db.commit()
+
+
+def _count_selects(db, fn) -> int:
+    """Run ``fn`` and count SQL statements emitted on the session's engine."""
+    engine = db.get_bind()
+    counter = {"n": 0}
+
+    def _on_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            counter["n"] += 1
+
+    event.listen(engine, "before_cursor_execute", _on_execute)
+    try:
+        fn()
+    finally:
+        event.remove(engine, "before_cursor_execute", _on_execute)
+    return counter["n"]
+
+
+def test_skill_metrics_query_count_is_constant_regardless_of_batch_size(
+    db_session,
+    attest_authorization_v2,
+):
+    """Regression test for the /skills N+1: per-row membership + IAM-config
+    lookups used to make SELECT count grow linearly with the number of runs
+    and invocations. The aggregate must preload them once per request."""
+    workspace, user, capability, system, skill = _seed(
+        db_session,
+        attest_authorization_v2,
+    )
+
+    def _aggregate() -> None:
+        response = _client(db_session, workspace, user).get("/skills")
+        assert response.status_code == 200
+
+    small = _count_selects(db_session, _aggregate)
+
+    _bulk_seed(
+        db_session,
+        workspace,
+        user,
+        system,
+        capability,
+        skill,
+        runs=40,
+    )
+
+    large = _count_selects(db_session, _aggregate)
+
+    # The batch grew by 40 runs and 80 invocations; the SELECT count must not
+    # grow with it.  Allow a small constant slack for catalog joins, but no
+    # linear term (previously this would have added ~2*(40+80) lookups).
+    assert large - small < 30, (
+        f"SELECT count grew from {small} to {large} when adding 40 runs/80 "
+        "invocations — the /skills aggregate reintroduced a per-row N+1"
+    )
