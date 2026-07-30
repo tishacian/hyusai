@@ -891,3 +891,22 @@ Le déploiement reste interdit tant que l'un des points suivants n'est pas vert 
 Ces points sont des conditions cumulatives. La présence du code, de tests
 locaux ou d'un rapport `passed` isolé ne vaut ni attestation Release A ni GO de
 Release B.
+
+## Record d'exploitation — régularisation attestée post-B (30/07 14:40 UTC)
+
+Voie officielle carakai protected-runner, classe `acceptance`,
+`formal_release_eligible: false`, principal `operator_personal_admin`.
+Résultat **passed** — 7 tokens signés (`canary-showcase`, `canary-andritz`,
+`canary-sentinel`, `canary-octocity`, `canary-livekit`,
+`browser-permission-probe`, `sftp-positive-auth`).
+
+Binding : tested/live/release_a SHA `f51db0a1f8ac11ce3380e3025faf15feed9a374b`
+(`revision_verified: true`) ; source tooling
+`754ff75f83e19f219074f6313da261ba44a262e5` ; sftp_release_sha
+`ea80e6567222ef2466863f741abea9ccb76a6e7a` ; deployment_id
+`release-b-attestation-2026-07-30` ; verified_at `2026-07-30T14:40:35Z`.
+
+Evidence privée :
+`/srv/agentium-data/release-b-deployments/release-b-2026-07-30/attestation/`
+et
+`/srv/agentium-data/release-b-deployments/release-b-2026-07-30/LANDING-RECORD.md`.
