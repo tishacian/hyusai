@@ -1,0 +1,25 @@
+# VM runtime overlay — the only overlay the versioned deploy path adds on top
+# of the Release A base compose + opened overlay.  It carries what the base
+# compose cannot parameterise:
+#
+#   * restart: unless-stopped restored on the four application services
+#     (post-release-b decision: the platform survives a VM reboot; the opened
+#     overlay's restart: "no" was a Release A attestation posture, not a
+#     runtime target).
+#   * digest pins for agentium-sftp and agentium-p4-maintenance, the two
+#     services that must never be recreated.  AGENTIUM_IMAGE_TAG pilots seven
+#     services including these two; without the pins any `up -d` without
+#     --no-deps would recreate them and break the attested SFTP posture
+#     (sftp_release_sha ea80e656) and the P4 maintenance sidecar.
+services:
+  agentium-backend:
+    restart: unless-stopped
+  agentium-worker-cpu:
+    restart: unless-stopped
+  agentium-frontend:
+    restart: unless-stopped
+  agentium-p4-maintenance:
+    restart: unless-stopped
+    image: sha256:54d942c3c97d6e8c6ed8dd45bb431a1ce5a2e62443bd981a1395acb3ecdafb75
+  agentium-sftp:
+    image: sha256:22cd79c6c29d7219fe3274ce8addeaef9b2711f88d58965dfb4df4a350d46438

@@ -938,3 +938,49 @@ Mitigations ops sans changement d'image (SHA préservé) : workers uvicorn
 `sentinel-ci` réparé en base. Backlog non bloquant : N+1 `/api/v1/skills`,
 alias root SFTP `"/."`, volume OVH sda.
 
+## Réalignement sur `demo/agentic` (30/07) — boucle d'itération courte
+
+Après la régularisation attestée, la production est réalignée sur la branche
+`demo/agentic` : le worktree de build bascule sur la branche et est renommé
+`/srv/agentium-data/worktrees/demo-agentic`, les trois images applicatives
+sont reconstruites au tip avec double tag `demo-agentic` (mouvant) et
+`<sha12>` (immuable, adressable en rollback), puis une nouvelle attestation
+`acceptance` (7 tokens) conserve `tested_sha == live_sha`. Les anciennes
+images `:release-b` sont conservées comme point de rollback vers `f51db0a1`.
+
+Le chemin de déploiement est désormais versionné (il remplace les overlays
+`/root/release-b-{images,restart,workers}.yml` et le script ad-hoc
+`/root/release-b-deploy.sh`) :
+
+- `scripts/agentium-vm-deploy.sh` — même forme d'invocation (env figé +
+  overlay `opened` + overlay runtime), mais tags et workers passent par
+  l'environnement : `AGENTIUM_IMAGE_TAG` (`<sha12>` ou `demo-agentic`,
+  obligatoire, validé) et `AGENTIUM_BACKEND_WORKERS` (défaut 8).
+  Sous-commandes `images`, `migrate`, `up`, `ps` ; `up` reste
+  `--no-build --no-deps` sur les trois services applicatifs uniquement.
+- `docker/compose.agentium.vm-runtime.yml` — overlay unique portant ce que
+  le compose de base ne paramètre pas : `restart: unless-stopped` sur les
+  quatre services applicatifs, et épinglage par digest d'`agentium-sftp`
+  (`sha256:22cd79c6…`) et `agentium-p4-maintenance` (`sha256:54d942c3…`),
+  les deux services à ne jamais recréer.
+- `scripts/run-iteration-canaries.sh` — gate léger par itération, exécuté
+  sur carakai en root : specs `11-system360-canary` et
+  `12-protected-runner-canaries` contre le SHA déployé, sans orchestrateur
+  ni signature. Les identifiants sont lus depuis
+  `/root/.attestation-username` / `/root/.attestation-password` (root-only)
+  en mémoire, jamais écrits sur disque — corrige le `E2E_PASSWORD` en clair
+  de `/tmp/rb-job/job.env`.
+
+Boucle d'itération cible :
+
+1. commit sur `demo/agentic` ;
+2. `git pull --ff-only` dans le worktree ;
+3. rebuild des services touchés, tag `<sha12>` ;
+4. `agentium-vm-deploy.sh up` ;
+5. `run-iteration-canaries.sh` (gate léger, non signé) ;
+6. aux jalons seulement : attestation signée 7 tokens
+   (`scripts/agentium_protected_runner_orchestrator.py`, voie carakai).
+
+Rollback à toute itération : `AGENTIUM_IMAGE_TAG=<sha12 précédent>` puis
+`up`.
+
