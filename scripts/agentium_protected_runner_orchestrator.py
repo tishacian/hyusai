@@ -894,7 +894,9 @@ def _prepare_job(
         "E2E_PASSWORD_FILE": str(password_path),
         "E2E_PLAYWRIGHT_OUTPUT_DIR": str(job / "work/playwright-output"),
         "E2E_PYTHON_SITE": str(python_site),
-        "PLAYWRIGHT_HTML_OUTPUT_DIR": str(job / "work/playwright-html"),
+        # PLAYWRIGHT_HTML_OUTPUT_DIR is deliberately absent: the pinned
+        # executor's job-environment allowlist (SHA-pinned in this file)
+        # predates it and rejects unknown non-E2E_* keys fail-closed.
         "PLAYWRIGHT_JUNIT_OUTPUT_NAME": str(job / "work/playwright-junit.xml"),
     }
     for key, value in env.items():
