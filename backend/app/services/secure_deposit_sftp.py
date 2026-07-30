@@ -204,6 +204,27 @@ def _remote_basename(path: bytes | str) -> str:
     return PurePosixPath(raw).name
 
 
+def _resolve_dot_segments(path: str) -> str:
+    """Collapse ``.`` and ``..`` segments without escaping the virtual root.
+
+    SFTP clients send POSIX-style relative paths (asyncssh composes ``stat(".")``
+    into ``/./``).  ``PurePosixPath.parts`` drops ``.`` but keeps ``..``; a
+    leading ``..`` above the deposit root is clamped to the root rather than
+    allowed to traverse upward.
+    """
+
+    resolved: list[str] = []
+    for part in PurePosixPath(path).parts:
+        if part in {"", "/", "."}:
+            continue
+        if part == "..":
+            if resolved:
+                resolved.pop()
+            continue
+        resolved.append(part)
+    return "/".join(resolved)
+
+
 def _normalise_virtual_path(path: bytes | str) -> str:
     raw = _decode_path(path).replace("\\", "/").strip()
     clean = raw.lstrip("/")
@@ -212,8 +233,8 @@ def _normalise_virtual_path(path: bytes | str) -> str:
     for alias in _ROOT_ALIASES:
         prefix = f"{alias}/"
         if clean.startswith(prefix):
-            return clean[len(prefix) :]
-    return raw
+            return _resolve_dot_segments(clean[len(prefix) :])
+    return _resolve_dot_segments(clean)
 
 
 def _remote_relative_path(path: bytes | str) -> str:

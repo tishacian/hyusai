@@ -1421,6 +1421,23 @@ def test_sftp_upload_root_alias_maps_to_deposit_root():
     assert _remote_relative_path("/upload/manuals/drive.zip") == "manuals/drive.zip"
 
 
+def test_sftp_posix_root_aliases_map_to_deposit_root():
+    """asyncssh composes ``stat(".")`` into ``/./`` and sends ``/.`` for the
+    session root.  These must resolve to the deposit root, not to a literal
+    ``upload`` directory (which made the canary fail with SFTPNoSuchFile)."""
+    for alias in ("/.", "./", "/./", "/"):
+        assert _is_root_path(alias), alias
+        assert _remote_dir_path(alias) == "", alias
+
+
+def test_sftp_dotdot_is_clamped_to_deposit_root():
+    """A leading ``..`` must not traverse above the virtual deposit root."""
+    assert _is_root_path("..")
+    assert _is_root_path("/..")
+    assert _remote_relative_path("upload/../manuals/drive.zip") == "manuals/drive.zip"
+    assert _remote_relative_path("a/b/../c") == "a/c"
+
+
 def test_sftp_longname_marks_virtual_directories_for_filezilla():
     attrs = SimpleNamespace(
         permissions=stat.S_IFDIR | 0o755,
