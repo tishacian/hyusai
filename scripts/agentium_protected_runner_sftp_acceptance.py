@@ -624,7 +624,12 @@ async def _positive_sftp_probe(
         ) as connection:
             async with connection.start_sftp_client() as sftp:
                 await sftp.getcwd()
-                attributes = await sftp.stat(".")
+                # asyncssh composes "." against the cwd obtained above,
+                # emitting "/." on the wire, which the Secure Deposit
+                # virtual filesystem does not recognise as its root.
+                # Stat the absolute root instead — the same content-free
+                # proof without depending on client-side path composition.
+                attributes = await sftp.stat("/")
                 if attributes is None:
                     raise SFTPAcceptanceError("content-free SFTP stat proof is absent")
     except SFTPAcceptanceError:
