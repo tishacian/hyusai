@@ -891,3 +891,33 @@ Le déploiement reste interdit tant que l'un des points suivants n'est pas vert 
 Ces points sont des conditions cumulatives. La présence du code, de tests
 locaux ou d'un rapport `passed` isolé ne vaut ni attestation Release A ni GO de
 Release B.
+
+## Record d'exploitation — voie dérogée « Option B » (28/07) et atterrissage Release B (30/07)
+
+Le 28/07/2026, la réouverture post-Release A a été conduite en voie dérogée
+(« Option B ») : ouverture manuelle du gate sans attestation protected-runner
+complète, pour tenir l'échéance démo (4 apps andritz + chat sourcé à 9h).
+Fonctionnellement et techniquement le résultat est identique à la voie
+officielle ; seules les attestations diffèrent. Dette embarquée : specs canary
+figées (3 surfaces, anciens sélecteurs), runner `run-agentium-safe-canaries.sh`
+épinglant les anciens noms de tests, volume sda OVH en attente chez OVH.
+
+Le 30/07/2026 (~01:07-01:18 UTC), la Release B (lots 7-9) a été atterrie sur
+l'état de production nawa par merge (`release/b-landing`, SHA `22b271c1`, tag
+`agentium-release-b-20260730-22b271c1`, `demo/agentic` fast-forwardée) dans une
+fenêtre dérogée outillée : gate fermée (503 externe / loopback 127.0.0.2
+disponible), dump PG frais checksummé, état primaire/jumeau nawa consigné
+(primaire actif), `alembic upgrade head` one-off (12 migrations
+065_system_version_config → 076), recréation des trois conteneurs applicatifs,
+contrôles DB (chat nawa préservé, `platform_brand` intact, flow 29 nœuds +
+jumeau 29 nœuds) et smoke non-auth, puis réouverture. Record complet :
+`/srv/agentium-data/release-b-deployments/release-b-2026-07-30/LANDING-RECORD.md`
+sur la VM.
+
+La dette de specs canary est soldée dans cette même version : specs défigées
+(4 surfaces andritz, sélecteur workspace par `data-testid`, breadcrumb
+System360, inventaire workspaces réel) et runner aligné — elles constituent la
+nouvelle baseline pour une régularisation attestée post-B, qui reste
+subordonnée au déblocage du volume sda côté OVH. Décision actée : politiques
+`restart: unless-stopped` restaurées sur les services applicatifs (survie au
+reboot VM).
