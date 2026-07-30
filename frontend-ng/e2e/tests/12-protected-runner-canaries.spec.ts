@@ -553,8 +553,16 @@ function missionRoomAssistant(settings: Record<string, unknown>): string | null 
 function missionRoomCorpus(page: Page): Promise<string> {
   return page.locator('[data-mission-room-extension="mission-room"]').evaluate((root) => {
     const attributes = ['aria-label', 'aria-description', 'title', 'placeholder', 'alt'];
-    const values = [root.textContent ?? ''];
+    // The rail workspace switch enumerates the signed-in operator's own
+    // memberships (browser chrome, not mission-room presentation): pruning it
+    // keeps the cross-tenant corpus scoped to mission-room content.
+    const SWITCH_SELECTOR = 'select[data-testid="mission-workspace-switch"]';
+    const values: string[] = [];
+    const clone = root.cloneNode(true) as Element;
+    clone.querySelectorAll(SWITCH_SELECTOR).forEach((element) => element.remove());
+    values.push(clone.textContent ?? '');
     for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+      if (element.closest(SWITCH_SELECTOR)) continue;
       for (const attribute of attributes) {
         const value = element.getAttribute(attribute);
         if (value) values.push(value);
