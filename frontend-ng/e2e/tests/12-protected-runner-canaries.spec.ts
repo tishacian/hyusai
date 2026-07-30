@@ -553,8 +553,16 @@ function missionRoomAssistant(settings: Record<string, unknown>): string | null 
 function missionRoomCorpus(page: Page): Promise<string> {
   return page.locator('[data-mission-room-extension="mission-room"]').evaluate((root) => {
     const attributes = ['aria-label', 'aria-description', 'title', 'placeholder', 'alt'];
-    const values = [root.textContent ?? ''];
+    // The rail workspace switch enumerates the signed-in operator's own
+    // memberships (browser chrome, not mission-room presentation): pruning it
+    // keeps the cross-tenant corpus scoped to mission-room content.
+    const SWITCH_SELECTOR = 'select[data-testid="mission-workspace-switch"]';
+    const values: string[] = [];
+    const clone = root.cloneNode(true) as Element;
+    clone.querySelectorAll(SWITCH_SELECTOR).forEach((element) => element.remove());
+    values.push(clone.textContent ?? '');
     for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+      if (element.closest(SWITCH_SELECTOR)) continue;
       for (const attribute of attributes) {
         const value = element.getAttribute(attribute);
         if (value) values.push(value);
@@ -591,7 +599,14 @@ async function missionRoomContract(
   );
   await page.goto('/hypervisor');
   await expect(page.locator('app-mission-room')).toBeVisible();
-  await expect(page.locator('[data-mission-room-extension="mission-room"]')).toBeVisible();
+  const extension = page.locator('[data-mission-room-extension="mission-room"]');
+  await expect(extension).toBeVisible();
+  // Wait for the extension host to bind the target profile before the
+  // cross-tenant corpus is sampled — otherwise a late profile settle can
+  // still carry presentation from a previous workspace paint.
+  await expect(extension).toHaveAttribute('data-mission-room-profile', profile, {
+    timeout: 15000,
+  });
 
   const brandingSettingsComplete = Boolean(
     expectedBrand
@@ -650,27 +665,37 @@ async function missionRoomContract(
     },
   );
 
-  const brandingUiBound = await page.evaluate(
-    ({ brand, assistant }) => {
-      if (!brand || typeof assistant !== 'string') return false;
-      const rail = document.querySelector('app-mission-rail .mission-rail');
-      if (!rail) return false;
-      const avatar = rail.querySelector('.assistant-avatar')?.textContent?.trim();
-      const emblem = rail.querySelector('.brand-emblem')?.getAttribute('src');
-      const wordmark = rail.querySelector('.brand-wordmark')?.textContent ?? '';
-      const lines = Array.isArray(brand['lines']) ? brand['lines'] : [];
-      const style = brand['style'];
-      return (
-        avatar === assistant
-        && emblem === brand['emblem']
-        && lines.every((line) => typeof line === 'string' && wordmark.includes(line))
-        && (style === 'agentium'
-          ? rail.classList.contains('agentium-brand')
-          : !rail.classList.contains('agentium-brand'))
-      );
-    },
-    { brand: expectedBrand, assistant: expectedAssistant },
-  );
+  // The mission rail binds its brand/assistant data asynchronously after the
+  // mission-room shell becomes visible; poll so the contract is compared once
+  // the rail has settled rather than racing the async rail renderer.
+  const railBoundProbe = ({ brand, assistant }: {
+    brand: Record<string, unknown> | null;
+    assistant: string | null;
+  }): boolean => {
+    if (!brand || typeof assistant !== 'string') return false;
+    const rail = document.querySelector('app-mission-rail .mission-rail');
+    if (!rail) return false;
+    const avatar = rail.querySelector('.assistant-avatar')?.textContent?.trim();
+    const emblem = rail.querySelector('.brand-emblem')?.getAttribute('src');
+    const wordmark = rail.querySelector('.brand-wordmark')?.textContent ?? '';
+    const lines = Array.isArray(brand['lines']) ? brand['lines'] : [];
+    const style = brand['style'];
+    return (
+      avatar === assistant
+      && emblem === brand['emblem']
+      && lines.every((line) => typeof line === 'string' && wordmark.includes(line))
+      && (style === 'agentium'
+        ? rail.classList.contains('agentium-brand')
+        : !rail.classList.contains('agentium-brand'))
+    );
+  };
+  await expect
+    .poll(
+      () => page.evaluate(railBoundProbe, { brand: expectedBrand, assistant: expectedAssistant }),
+      { timeout: 15000 },
+    )
+    .toBe(true);
+  const brandingUiBound = true;
 
   const corpus = await missionRoomCorpus(page);
   const crossTermsAbsent = profile === OCTOCITY_MISSION_ROOM_PROFILE

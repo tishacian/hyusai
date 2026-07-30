@@ -917,7 +917,24 @@ sur la VM.
 La dette de specs canary est soldée dans cette même version : specs défigées
 (4 surfaces andritz, sélecteur workspace par `data-testid`, breadcrumb
 System360, inventaire workspaces réel) et runner aligné — elles constituent la
-nouvelle baseline pour une régularisation attestée post-B, qui reste
-subordonnée au déblocage du volume sda côté OVH. Décision actée : politiques
-`restart: unless-stopped` restaurées sur les services applicatifs (survie au
-reboot VM).
+nouvelle baseline pour une régularisation attestée post-B. Décision actée :
+politiques `restart: unless-stopped` restaurées sur les services applicatifs
+(survie au reboot VM).
+
+### Régularisation attestée post-B (30/07 14:40 UTC) — soldée
+
+La voie officielle carakai protected-runner a produit un reçu
+`acceptance` **passed** (7 tokens signés) contre le déploiement live
+`f51db0a1` (`revision_verified: true`), avec
+`formal_release_eligible: false` et principal `operator_personal_admin`
+(régularisation, pas promotion formal-release). Source tooling :
+`754ff75f` (`release/b-attestation-tooling`). Evidence privée :
+`/srv/agentium-data/release-b-deployments/release-b-2026-07-30/attestation/`
+et record :
+`/srv/agentium-data/release-b-deployments/release-b-2026-07-30/LANDING-RECORD.md`.
+
+Mitigations ops sans changement d'image (SHA préservé) : workers uvicorn
+3→8 (`/root/release-b-workers.yml`), fontconfig sur carakai, brand AYA
+`sentinel-ci` réparé en base. Backlog non bloquant : N+1 `/api/v1/skills`,
+alias root SFTP `"/."`, volume OVH sda.
+

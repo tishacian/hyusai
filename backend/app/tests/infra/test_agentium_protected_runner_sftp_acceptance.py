@@ -314,7 +314,7 @@ def test_positive_protocol_uses_only_getcwd_and_stat_dot(
         "sftp_exit",
         "connection_exit",
     ]
-    assert ("stat", ".") in events
+    assert ("stat", "/") in events
     options = connection_options[0]
     assert options["known_hosts"].startswith(f"[{HOST}]:2222 ".encode())
     assert options["public_key_auth"] is False

@@ -495,7 +495,10 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       expect(url.searchParams.get('lens')).toBe(lens);
       expect(url.searchParams.get('facet')).toBe('overview');
       expect(url.searchParams.get('capabilityId')).toBe(system.capability_id);
-      expect(await chromeSignature(page)).toEqual(invariantChrome);
+      // The breadcrumb re-renders its capability/system segments asynchronously
+      // after a lens switch; poll so the invariant is compared once the chrome
+      // has settled rather than racing the semantic-zoom renderer.
+      await expect.poll(() => chromeSignature(page)).toEqual(invariantChrome);
       const expectedBlocks = payloads[lens].facets.overview.blocks.map((block) => block.id).sort();
       const renderedBlocks = await page
         .locator('#ck-tabpanel-overview app-system-perspective article[data-block-id]')

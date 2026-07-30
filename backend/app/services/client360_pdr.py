@@ -19,6 +19,7 @@ import statistics
 import unicodedata
 from datetime import datetime, timedelta
 from email.utils import parseaddr
+from functools import lru_cache
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -536,7 +537,7 @@ def _resolved_setting(config: dict[str, Any], camel: str, snake: str) -> Any:
     return config.get(camel) if config.get(camel) is not None else config.get(snake)
 
 
-def _field_for_label(label: Any) -> str | None:
+def _field_for_label_uncached(label: Any) -> str | None:
     normalized = _normalize_token(label)
     if not normalized:
         return None
@@ -548,6 +549,21 @@ def _field_for_label(label: Any) -> str | None:
             if normalized == alias_norm or alias_norm in normalized:
                 return field
     return None
+
+
+@lru_cache(maxsize=4096)
+def _field_for_label_cached(label: str) -> str | None:
+    return _field_for_label_uncached(label)
+
+
+def _field_for_label(label: Any) -> str | None:
+    # The opportunity engine folds every cell key of every source row through
+    # the alias table; purchase-history feeds run to 20k rows x 12 keys, and
+    # re-walking/re-normalizing all aliases per key made a dry-run take
+    # minutes.  Alias folding is pure, so memoize the (dominant) string path.
+    if isinstance(label, str):
+        return _field_for_label_cached(label)
+    return _field_for_label_uncached(label)
 
 
 def _coerce_record_value(field: str, raw_value: Any, numeric_value: Any = None) -> Any:

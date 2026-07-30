@@ -35,6 +35,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -61,6 +62,9 @@ JOB_ENV_ROOT = CONFIG_ROOT / "jobs"
 AUTHORIZATION_ROOT = CONFIG_ROOT / "authorizations"
 PUBLIC_KEY = Path("/var/lib/agentium-protected-signer/protected-runner.public.pem")
 NODE_MODULES_ROOT = Path("/opt/agentium-protected-runner/frontend-deps")
+NODE_RUNTIME = Path("/opt/agentium-protected-runner/node-current/bin/node")
+NODE_RUNTIME_VERSION = "v22.23.1"
+BROWSERS_ROOT = Path("/opt/agentium-protected-runner/browsers")
 
 PACKAGE_LOCK_SHA256 = (
     "e2d450397339be6fe89cdbcaf63ff7261e4bd915ef66a9d84d3e94bbc22218c7"
@@ -227,6 +231,7 @@ REQUIRED_CHECKS: dict[str, frozenset[str]] = {
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,99}$")
 DEPLOYMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{5,95}$")
 CHECK_RE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 IPV4_RE = re.compile(
@@ -408,8 +413,10 @@ def validate_checks(token: str, value: Any) -> dict[str, bool | int]:
         raise OrchestratorError(f"{token} misses a required business check")
     expected_counts = {
         "canary-andritz": {
-            "configured_app_count": 3,
-            "accessible_route_count": 3,
+            # Post-Release B baseline: three apps surface through four entitled
+            # routes (FSE reports rides the capture router as its own surface).
+            "configured_app_count": 4,
+            "accessible_route_count": 4,
         },
         "canary-sentinel": {
             "navigation_item_count": 7,
@@ -804,6 +811,72 @@ def _authorization(
     }
 
 
+def _playwright_runtime_attestation(job: Path, source_root: Path, tested_sha: str) -> Path:
+    # The Lot 6 canary refuses to run without a SHA-bound Playwright runtime
+    # proof (E2E_PLAYWRIGHT_RUNTIME_ATTESTATION).  The VM-side safe runner
+    # collects it from the deployment; here the runtime is the frozen
+    # evidence-host one, so the orchestrator attests those exact bytes.
+    if (
+        not NODE_RUNTIME.is_file()
+        or NODE_RUNTIME.is_symlink()
+        or NODE_RUNTIME.stat().st_uid != 0
+    ):
+        raise OrchestratorError("pinned Node runtime is unavailable")
+    probed = subprocess.run(
+        [str(NODE_RUNTIME), "--version"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if probed.returncode != 0 or probed.stdout.strip() != NODE_RUNTIME_VERSION:
+        raise OrchestratorError("pinned Node runtime differs")
+    modules = (source_root / "frontend-ng/node_modules").resolve(strict=True)
+    installed_lock = modules / ".package-lock.json"
+    cli = (modules / ".bin/playwright").resolve(strict=True)
+    if not installed_lock.is_file() or installed_lock.is_symlink():
+        raise OrchestratorError("frozen installed lockfile is unavailable")
+    if not cli.is_file():
+        raise OrchestratorError("frozen Playwright CLI is unavailable")
+    chromium_probe = subprocess.run(
+        [
+            str(NODE_RUNTIME),
+            "-e",
+            "console.log(require(process.argv[1]).chromium.executablePath())",
+            str(modules / "@playwright/test"),
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "PLAYWRIGHT_BROWSERS_PATH": str(BROWSERS_ROOT)},
+    )
+    chromium = Path(chromium_probe.stdout.strip()) if chromium_probe.returncode == 0 else Path("/")
+    if (
+        chromium_probe.returncode != 0
+        or not chromium.is_file()
+        or chromium.is_symlink()
+        or not str(chromium).startswith(f"{BROWSERS_ROOT}/")
+    ):
+        raise OrchestratorError("frozen Chromium executable is unavailable")
+    payload = {
+        "schema_version": 1,
+        "kind": "agentium_playwright_runtime",
+        "result": "passed",
+        "candidate_sha": tested_sha,
+        "package_lock_sha256": _digest_file(source_root / "frontend-ng/package-lock.json"),
+        "installed_lock_sha256": _digest_file(installed_lock),
+        "playwright_cli_sha256": _digest_file(cli),
+        "chromium_executable_sha256": _digest_file(chromium),
+        "paths_serialized": False,
+    }
+    target = job / "playwright-runtime.json"
+    _write_file(target, canonical_json(payload), mode=0o444, uid=0, gid=0)
+    return target
+
+
 def _prepare_job(
     *,
     deployment_id: str,
@@ -817,6 +890,8 @@ def _prepare_job(
     principal_class: str,
     formal_release_eligible: bool,
     python_site: Path,
+    showcase_workspace_id: str,
+    showcase_workspace_slug: str,
 ) -> tuple[Path, Path]:
     if IPV4_RE.fullmatch(agentium_ip) is None:
         raise OrchestratorError("Agentium IP allowlist entry is invalid")
@@ -868,6 +943,7 @@ def _prepare_job(
         uid=0,
         gid=0,
     )
+    runtime_attestation = _playwright_runtime_attestation(job, source_root, tested_sha)
     env = {
         "CI_COMMIT_SHA": tested_sha,
         "CI_COMMIT_REF_NAME": f"protected-runner/{evidence_class}",
@@ -887,12 +963,17 @@ def _prepare_job(
         "E2E_SFTP_HOST": HOSTNAME,
         "E2E_SFTP_HOST_KEY_SHA256": sftp_host_key_sha256,
         "E2E_SFTP_PORT": "2222",
+        "E2E_SHOWCASE_WORKSPACE_ID": showcase_workspace_id,
+        "E2E_SHOWCASE_WORKSPACE_SLUG": showcase_workspace_slug,
         "E2E_SOURCE_ROOT": str(source_root),
         "E2E_USERNAME_FILE": str(username_path),
         "E2E_PASSWORD_FILE": str(password_path),
         "E2E_PLAYWRIGHT_OUTPUT_DIR": str(job / "work/playwright-output"),
+        "E2E_PLAYWRIGHT_RUNTIME_ATTESTATION": str(runtime_attestation),
         "E2E_PYTHON_SITE": str(python_site),
-        "PLAYWRIGHT_HTML_OUTPUT_DIR": str(job / "work/playwright-html"),
+        # PLAYWRIGHT_HTML_OUTPUT_DIR is deliberately absent: the pinned
+        # executor's job-environment allowlist (SHA-pinned in this file)
+        # predates it and rejects unknown non-E2E_* keys fail-closed.
         "PLAYWRIGHT_JUNIT_OUTPUT_NAME": str(job / "work/playwright-junit.xml"),
     }
     for key, value in env.items():
@@ -1193,6 +1274,12 @@ def execute(args: argparse.Namespace) -> int:
     source_root = _safe_source_root(Path(args.source_root), args.source_sha)
     username = _read_root_secret(Path(args.username_file), label="username")
     password = _read_root_secret(Path(args.password_file), label="password")
+    try:
+        showcase_workspace_id = str(uuid.UUID(args.showcase_workspace_id))
+    except ValueError as exc:
+        raise OrchestratorError("showcase workspace id is invalid") from exc
+    if SLUG_RE.fullmatch(args.showcase_workspace_slug) is None:
+        raise OrchestratorError("showcase workspace slug is invalid")
     issued_at = utc_now()
     authorization = _write_authorization(
         deployment_id=args.deployment_id,
@@ -1217,6 +1304,8 @@ def execute(args: argparse.Namespace) -> int:
             principal_class=args.principal_class,
             formal_release_eligible=formal,
             python_site=Path(args.python_site),
+            showcase_workspace_id=showcase_workspace_id,
+            showcase_workspace_slug=args.showcase_workspace_slug,
         )
         del username
         del password
@@ -1291,6 +1380,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--username-file", required=True)
     run.add_argument("--password-file", required=True)
     run.add_argument("--python-site", required=True)
+    run.add_argument("--showcase-workspace-id", required=True)
+    run.add_argument("--showcase-workspace-slug", required=True)
     run.add_argument("--evidence-class", choices=("acceptance", "release"), required=True)
     run.add_argument(
         "--principal-class",
