@@ -21,6 +21,13 @@ import {
  * from their persisted settings contracts; no workspace slug, UUID or display
  * name is configured or embedded here.
  *
+ * Live inventory contract (post-Nawa landing): exactly one workspace carries
+ * the `business_end_user` navigation profile with the four business surfaces
+ * (Andritz). The Nawa workspace deliberately carries a `standard` profile —
+ * `065_nawa_itsd` documents why the business shell cannot serve its routes —
+ * so it never matches the business predicate, and showcase/default workspaces
+ * carry no business navigation profile at all.
+ *
  * Required environment:
  *   E2E_PROTECTED_RUNNER_CANARIES=1
  *   E2E_USERNAME=...
@@ -41,15 +48,19 @@ const enabled = process.env['E2E_PROTECTED_RUNNER_CANARIES'] === '1';
 const username = process.env['E2E_USERNAME'];
 const password = process.env['E2E_PASSWORD'];
 
+// The business-app workspace ships three apps through four entitled surfaces
+// (FSE reports rides the capture router as its own surface since Lot 4).
 const BUSINESS_SURFACES = Object.freeze([
   'chat',
   'client360-pdr',
   'knowledge-capture',
+  'fse-reports',
 ] as const);
 const BUSINESS_ROUTES = Object.freeze([
   { path: '/chat', selector: 'app-chat-workspace' },
   { path: '/client360', selector: 'app-client360-page' },
   { path: '/knowledge/capture', selector: 'app-capture-router' },
+  { path: '/knowledge/interventions', selector: 'app-capture-router' },
 ] as const);
 const SENTINEL_ACTION_PACKS = Object.freeze([
   'global_voice_v1',
@@ -805,7 +816,7 @@ test.describe.serial('Release A — protected runner content-free canaries', () 
       dry_run_updated_zero: dryRun.no_rows_updated,
       dry_run_counters_content_free: dryRun.counters_content_free,
     };
-    expect(accessibleRoutes).toBe(3);
+    expect(accessibleRoutes).toBe(4);
     expectAllChecksPassed(checks);
     writeEvidence(runtime, 'canary-andritz', targets.andritz, checks);
   });

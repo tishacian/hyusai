@@ -355,7 +355,7 @@ async function directSwitchWorkspace(
       ).toBeVisible();
       await select.selectOption(to.slug);
     } else if (shell === 'standard') {
-      await page.getByTitle(from.name, { exact: true }).click();
+      await page.getByTestId('workspace-switcher-toggle').click();
       await page.locator('app-title-bar button').filter({ hasText: to.name }).first().click();
     } else {
       const select = page.getByTestId('mission-workspace-switch');

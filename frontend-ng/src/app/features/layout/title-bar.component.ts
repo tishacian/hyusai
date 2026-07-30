@@ -138,6 +138,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
       <div [style.position]="'relative'" (click)="$event.stopPropagation()">
         <button
           type="button"
+          data-testid="workspace-switcher-toggle"
           (click)="toggleWorkspaceMenu($event)"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"

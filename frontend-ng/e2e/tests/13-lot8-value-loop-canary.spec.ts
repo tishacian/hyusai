@@ -411,7 +411,7 @@ async function switchWorkspace(
     return url.pathname.startsWith('/api/v1/')
       && request.headers()['x-workspace-slug'] === to.slug;
   });
-  await page.getByTitle(from.name, { exact: true }).click();
+  await page.getByTestId('workspace-switcher-toggle').click();
   await page.locator('app-title-bar button').filter({ hasText: to.name }).first().click();
   await nextRequest;
   await expect.poll(() => page.evaluate(() => localStorage.getItem('agentium_workspace_slug')))

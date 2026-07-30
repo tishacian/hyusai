@@ -580,7 +580,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       return url.pathname.startsWith('/api/v1/')
         && request.headers()['x-workspace-slug'] === alternate!.slug;
     });
-    await page.getByTitle(primary.name, { exact: true }).click();
+    await page.getByTestId('workspace-switcher-toggle').click();
     await page.locator('app-title-bar button').filter({ hasText: alternate!.name }).first().click();
     await alternateRequest;
     await expect.poll(() => page.evaluate(() => localStorage.getItem('agentium_workspace_slug'))).toBe(alternate!.slug);
