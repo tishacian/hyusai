@@ -49,7 +49,7 @@ def _common_artifact(module: ModuleType, token: str) -> dict[str, Any]:
     if token in {"canary-sentinel", "canary-octocity"}:
         checks.update({"navigation_item_count": 7, "action_pack_count": 3})
     if token == "canary-andritz":
-        checks.update({"configured_app_count": 3, "accessible_route_count": 3})
+        checks.update({"configured_app_count": 4, "accessible_route_count": 4})
     return {
         "captured_at": CAPTURED_AT,
         "checks": checks,

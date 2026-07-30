@@ -408,8 +408,10 @@ def validate_checks(token: str, value: Any) -> dict[str, bool | int]:
         raise OrchestratorError(f"{token} misses a required business check")
     expected_counts = {
         "canary-andritz": {
-            "configured_app_count": 3,
-            "accessible_route_count": 3,
+            # Post-Release B baseline: three apps surface through four entitled
+            # routes (FSE reports rides the capture router as its own surface).
+            "configured_app_count": 4,
+            "accessible_route_count": 4,
         },
         "canary-sentinel": {
             "navigation_item_count": 7,
