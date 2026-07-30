@@ -948,6 +948,28 @@ sont reconstruites au tip avec double tag `demo-agentic` (mouvant) et
 `acceptance` (7 tokens) conserve `tested_sha == live_sha`. Les anciennes
 images `:release-b` sont conservées comme point de rollback vers `f51db0a1`.
 
+### `/home/ubuntu/omnirag` reste l'ancre de montage — ne pas supprimer
+
+Le basculement du build vers `/srv/agentium-data/worktrees/demo-agentic` ne
+retire **pas** le checkout live `/home/ubuntu/omnirag` (le `LIVE_REPO`
+historique). Il remplit deux rôles que le worktree de build ne reprend pas :
+
+- **Ancre de montage des données runtime.** Plusieurs bind mounts Docker
+  pointent en dur sous ce chemin, indépendamment du worktree de build :
+  `backend/faiss_db` (FAISS legacy sur `/dev/sda1`) et
+  `backend/data/secure_deposit` (Secure Deposit SFTP sur `/dev/sdc`). Les
+  recréer ailleurs casserait ces montages et déplacerait silencieusement les
+  données hors de leur filesystem attendu (cf. « Données à préserver »).
+- **Source du clone `--no-hardlinks`.** Les worktrees de release sont créés
+  par `git clone --no-hardlinks /home/ubuntu/omnirag …` : le checkout live
+  sert de référentiel objet local, et sa propreté (`git status` vierge) est
+  une précondition vérifiée par le preflight identitaire.
+
+Conséquence opérationnelle : on peut mettre à jour, fetcher ou rebaser
+`/home/ubuntu/omnirag`, mais on ne le supprime ni ne le déplace tant que ces
+bind mounts et ce rôle de source de clone n'ont pas été migrés de façon
+explicite et revue.
+
 Le chemin de déploiement est désormais versionné (il remplace les overlays
 `/root/release-b-{images,restart,workers}.yml` et le script ad-hoc
 `/root/release-b-deploy.sh`) :
