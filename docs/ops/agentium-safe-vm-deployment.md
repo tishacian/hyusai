@@ -1006,3 +1006,32 @@ Boucle d'itération cible :
 Rollback à toute itération : `AGENTIUM_IMAGE_TAG=<sha12 précédent>` puis
 `up`.
 
+## Dette technique résorbée (31/07) — déployée sur `b0ce840a` / `97e3f182`
+
+Trois items du backlog post-B traités, chacun en petit commit sur
+`demo/agentic`, poussé via bundle (accès Bitbucket local indisponible),
+rebuildé au tip et déployé par la boucle d'itération :
+
+- **N+1 `/api/v1/skills`** (`e943a22d`). `readable_runs` et
+  `readable_skill_invocations_for_runs` ré-émettaient une requête
+  `WorkspaceMember` et une requête `WorkspaceIAMConfig` par ligne, et
+  `resolve_mode` re-validait le reçu de promotion contre `audit_logs` par
+  ressource en mode `enforce`. Le membership, la config et le verdict de mode
+  sont désormais préchargés une fois par lot. Mesuré en prod sur `andritz`
+  (1333 runs / 4496 invocations) : agrégation ~19.7s → ~2.5s (~8×). Test de
+  non-régression : le compte de SELECT reste constant quand le lot croît.
+- **Alias racine SFTP** (`20f09784`). `_normalise_virtual_path` ne réduisait
+  pas les segments `.`/`..`, donc `stat(".")` (envoyé par asyncssh en `/./`)
+  n'était pas reconnu comme racine → `SFTPNoSuchFile` ; le canary d'acceptance
+  devait faire `stat("/")` pour contourner. Résolution des segments contre la
+  racine virtuelle (avec clamp de `..`), 52 tests. L'image `agentium-sftp` a
+  été repinée du digest Release A `22cd79c6` vers le digest `b0ce840a`
+  (`af7ef7a7`) et recréée ; l'acceptance SFTP end-to-end passe désormais sans
+  contournement.
+- **Ancre `/home/ubuntu/omnirag`** (`b0ce840a`). Rôle de montage documenté
+  dans cette section.
+
+L'attestation SFTP signée référence toujours l'ancien SHA (`ea80e656`) : à
+régulariser au prochain jalon attesté, comme fait pour le backend. Gate
+d'itération `run-iteration-canaries.sh` : 6/6 specs vertes sur `b0ce840a`.
+
