@@ -22,4 +22,4 @@ services:
     restart: unless-stopped
     image: sha256:54d942c3c97d6e8c6ed8dd45bb431a1ce5a2e62443bd981a1395acb3ecdafb75
   agentium-sftp:
-    image: sha256:22cd79c6c29d7219fe3274ce8addeaef9b2711f88d58965dfb4df4a350d46438
+    image: sha256:af7ef7a728e8785775fb523a6219f9ba8eb136c43bf1bcfaf27b947d2b785f5c
