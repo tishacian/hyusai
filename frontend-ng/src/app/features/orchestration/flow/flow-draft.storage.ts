@@ -86,8 +86,57 @@ function isDraftEnvelope(value: unknown): value is DraftEnvelope {
   );
 }
 
+function isPortList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every(
+        (port) =>
+          !!port &&
+          typeof port === 'object' &&
+          !Array.isArray(port) &&
+          typeof (port as { name?: unknown }).name === 'string' &&
+          ((port as { schema?: unknown }).schema === undefined ||
+            typeof (port as { schema?: unknown }).schema === 'string'),
+      ))
+  );
+}
+
 function isFlowLike(value: unknown): value is CanonicalFlow {
-  return !!value && typeof value === 'object' && Array.isArray((value as { nodes?: unknown }).nodes);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as {
+    nodes?: unknown;
+    edges?: unknown;
+    variable_namespaces?: unknown;
+  };
+  return (
+    (candidate.variable_namespaces === undefined ||
+      (Array.isArray(candidate.variable_namespaces) &&
+        candidate.variable_namespaces.every((item) => typeof item === 'string'))) &&
+    Array.isArray(candidate.nodes) &&
+    candidate.nodes.every(
+      (node) =>
+        !!node &&
+        typeof node === 'object' &&
+        !Array.isArray(node) &&
+        typeof (node as { id?: unknown }).id === 'string' &&
+        isPortList((node as { inputs?: unknown }).inputs) &&
+        isPortList((node as { outputs?: unknown }).outputs) &&
+        ((node as { config?: unknown }).config === undefined ||
+          (!!(node as { config?: unknown }).config &&
+            typeof (node as { config?: unknown }).config === 'object' &&
+            !Array.isArray((node as { config?: unknown }).config))),
+    ) &&
+    Array.isArray(candidate.edges) &&
+    candidate.edges.every(
+      (edge) =>
+        !!edge &&
+        typeof edge === 'object' &&
+        !Array.isArray(edge) &&
+        typeof (edge as { from?: unknown }).from === 'string' &&
+        typeof (edge as { to?: unknown }).to === 'string',
+    )
+  );
 }
 
 function draftWorkspaceSlug(value: StoredDraft): string | null {

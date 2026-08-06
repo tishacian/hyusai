@@ -85,6 +85,115 @@ test('load resets dirty; a manifest write marks dirty; markSaved clears it', () 
   assert.equal(store.dirty(), false, 'markSaved clears dirty (save success path)');
 });
 
+test('revision is monotone and a stale save acknowledgement cannot clean a newer edit', () => {
+  const store = makeStore();
+  assert.equal(store.revision(), 0);
+
+  store.load(budgetFlow());
+  const loadedRevision = store.revision();
+  assert.equal(loadedRevision, 1, 'baseline load increments the persistable revision');
+
+  store.setSelection('flow.retrieve');
+  assert.equal(store.revision(), loadedRevision, 'selection is not persisted');
+
+  store.setSource('form');
+  assert.equal(store.revision(), loadedRevision + 1, 'metadata mutation increments revision');
+
+  store.updateNodeData('runtime.settings_budget', 'retrieval_defaults.top_k', 8);
+  const requestRevision = store.revision();
+  assert.equal(requestRevision, loadedRevision + 2);
+
+  store.updateNodeData('runtime.settings_budget', 'retrieval_defaults.top_k', 13);
+  assert.equal(store.revision(), requestRevision + 1);
+  assert.equal(store.markSaved(requestRevision), false, 'stale response is rejected');
+  assert.equal(store.dirty(), true, 'newer edit remains dirty');
+
+  assert.equal(store.markSaved(store.revision()), true);
+  assert.equal(store.dirty(), false);
+});
+
+test('load and snapshot preserve known and unknown top-level sidecars without graph duplication', () => {
+  const store = makeStore();
+  const source = {
+    ...budgetFlow(),
+    variable_namespaces: ['case', 'ticket'],
+    future_runtime_contract: {
+      mode: 'authoritative',
+      nested: { keep: ['all', 'values'] },
+    },
+  } as CanonicalFlow & Record<string, unknown>;
+
+  store.load(source);
+  const snapshot = store.snapshot() as CanonicalFlow & Record<string, unknown>;
+
+  assert.deepEqual(snapshot.variable_namespaces, ['case', 'ticket']);
+  assert.deepEqual(snapshot['future_runtime_contract'], {
+    mode: 'authoritative',
+    nested: { keep: ['all', 'values'] },
+  });
+  assert.equal(snapshot.nodes.length, source.nodes.length);
+  assert.equal(snapshot.edges.length, source.edges.length);
+
+  // Meta is cloned at both boundaries rather than aliasing imported JSON.
+  (source['future_runtime_contract'] as any).nested.keep.push('mutated-after-load');
+  assert.deepEqual((store.snapshot() as any).future_runtime_contract.nested.keep, [
+    'all',
+    'values',
+  ]);
+});
+
+test('replaceAsEdit is dirty and undo/redo restores the complete metadata sidecar', () => {
+  const store = makeStore();
+  const baseline = {
+    ...budgetFlow(),
+    variable_namespaces: ['baseline'],
+    opaque: { owner: 'baseline' },
+  } as CanonicalFlow & Record<string, unknown>;
+  const imported = {
+    schema_version: 3,
+    io_mode: 'strict',
+    variable_namespaces: ['imported'],
+    opaque: { owner: 'imported' },
+    nodes: [{ id: 'imported', type: 'task', label: 'Imported' }],
+    edges: [],
+  } as CanonicalFlow & Record<string, unknown>;
+
+  store.load(baseline);
+  const afterLoad = store.revision();
+  store.replaceAsEdit(imported);
+
+  assert.equal(store.dirty(), true);
+  assert.equal(store.canUndo(), true);
+  assert.equal(store.revision(), afterLoad + 1);
+  assert.deepEqual(store.snapshot().variable_namespaces, ['imported']);
+  assert.deepEqual((store.snapshot() as any).opaque, { owner: 'imported' });
+
+  store.undo();
+  assert.equal(store.revision(), afterLoad + 2);
+  assert.deepEqual(store.snapshot().variable_namespaces, ['baseline']);
+  assert.deepEqual((store.snapshot() as any).opaque, { owner: 'baseline' });
+  assert.equal(store.snapshot().nodes[0].id, 'runtime.settings_budget');
+
+  store.redo();
+  assert.equal(store.revision(), afterLoad + 3);
+  assert.deepEqual(store.snapshot().variable_namespaces, ['imported']);
+  assert.deepEqual((store.snapshot() as any).opaque, { owner: 'imported' });
+  assert.equal(store.snapshot().nodes[0].id, 'imported');
+});
+
+test('clear is idempotent for an already empty graph', () => {
+  const store = makeStore();
+  const empty: CanonicalFlow = { schema_version: 3, nodes: [], edges: [] };
+  store.load(empty);
+  const revision = store.revision();
+
+  store.clear();
+
+  assert.equal(store.revision(), revision);
+  assert.equal(store.dirty(), false);
+  assert.equal(store.canUndo(), false);
+});
+
 test('TWO-WAY WIRING: top_k edit writes the exact nested path and round-trips on reload', () => {
   const store = makeStore();
   store.load(budgetFlow(5));
@@ -155,4 +264,20 @@ test('undo/redo + connect/disconnect behave as single steps', () => {
 
   store.disconnect({ from: 'flow.retrieve', to: 'runtime.settings_budget', kind: 'data' });
   assert.equal(store.edgeCount(), 1);
+});
+
+test('clear is one revision and undo restores the graph', () => {
+  const store = makeStore();
+  store.load(budgetFlow());
+  const loadedRevision = store.revision();
+
+  store.clear();
+  assert.equal(store.nodeCount(), 0);
+  assert.equal(store.edgeCount(), 0);
+  assert.equal(store.revision(), loadedRevision + 1);
+
+  store.undo();
+  assert.equal(store.nodeCount(), 2);
+  assert.equal(store.edgeCount(), 1);
+  assert.equal(store.revision(), loadedRevision + 2);
 });

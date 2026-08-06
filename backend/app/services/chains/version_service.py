@@ -264,6 +264,7 @@ def record_new_version(
     audit_actor: str | None = None,
     purge: bool = True,
     configuration_snapshot: Mapping[str, Any] | None = None,
+    force: bool = False,
 ) -> SystemVersion | None:
     """Persist a new ``SystemVersion`` for this system and trim the
     rolling window. Commits on the caller's session (we only flush —
@@ -296,7 +297,7 @@ def record_new_version(
         .first()
     )
 
-    if latest is not None and _flow_definitions_equal(
+    if not force and latest is not None and _flow_definitions_equal(
         latest.flow_definition, flow_definition
     ):
         if configuration_snapshot is None or _flow_definitions_equal(
@@ -457,6 +458,7 @@ def rollback_to_version(
     message: str | None = None,
     audit_actor: str | None = None,
     purge: bool = True,
+    flow_write_audit: Mapping[str, Any] | None = None,
 ) -> SystemVersion:
     """Roll the system back to ``version_number`` by creating a new
     version whose ``flow_definition`` equals that target. Also updates
@@ -481,20 +483,15 @@ def rollback_to_version(
             "(possibly purged by the rolling window)."
         )
 
-    new_version = record_new_version(
-        db=db,
-        system=system,
-        flow_definition=target.flow_definition,
-        created_by=created_by,
-        message=message or f"Rolled back to v{target.version_number}",
-        rolled_back_from_id=target.id,
-        audit_actor=audit_actor,
-        purge=purge,
+    rollback_audit = (
+        {"flow_write": copy.deepcopy(dict(flow_write_audit))}
+        if flow_write_audit is not None
+        else {}
     )
-    # `record_new_version` returns None when the target flow is identical
-    # to the current flow — in that case the rollback is a no-op but we
-    # still want to signal it in the audit trail as a rollback intent.
-    if new_version is None:
+
+    # No-op is defined against the authoritative System row, not the latest
+    # history row. The two can legitimately diverge after legacy/direct writes.
+    if _flow_definitions_equal(system.flow_definition, target.flow_definition):
         emit_audit_event(
             workspace_id=system.workspace_id,
             event_type="chain.rollback",
@@ -504,10 +501,26 @@ def rollback_to_version(
                 "target_version_number": target.version_number,
                 "target_version_id": target.id,
                 "no_op": True,
+                **rollback_audit,
             },
             db=db,
         )
         return target
+
+    new_version = record_new_version(
+        db=db,
+        system=system,
+        flow_definition=target.flow_definition,
+        created_by=created_by,
+        message=message or f"Rolled back to v{target.version_number}",
+        rolled_back_from_id=target.id,
+        audit_actor=audit_actor,
+        purge=purge,
+        # A duplicate latest history row must not suppress repair of a drifted
+        # authoritative System. Rollback intent always appends in that case.
+        force=True,
+    )
+    assert new_version is not None  # force=True forbids duplicate suppression
 
     # Keep System.flow_definition in sync so run engine sees the rollback.
     system.flow_definition = copy.deepcopy(dict(target.flow_definition))
@@ -525,6 +538,7 @@ def rollback_to_version(
             "new_version_number": new_version.version_number,
             "new_version_id": new_version.id,
             "no_op": False,
+            **rollback_audit,
         },
         db=db,
     )

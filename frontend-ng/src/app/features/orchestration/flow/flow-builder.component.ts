@@ -26,9 +26,8 @@ import {
   CanonicalApiService,
   type System,
 } from '@app/core/canonical-api.service';
-import {
-  type CanonicalFlow,
-} from '@app/core/flow-serializer.service';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import {
   FlowCanvasComponent,
@@ -55,7 +54,6 @@ import {
 } from './flow-preconnect';
 import {
   DEFAULT_PALETTE,
-  defaultScratchFlow,
   paletteItemToNode,
   type PaletteItem,
 } from './flow.types';
@@ -78,6 +76,7 @@ import {
     FlowVersionsComponent,
     FlowManifestStripComponent,
     FlowValidationStripComponent,
+    ConfirmDialogComponent,
   ],
   styleUrl: './flow-builder.component.scss',
   template: `
@@ -105,6 +104,7 @@ import {
         [canUndo]="store.canUndo()"
         [canRedo]="store.canRedo()"
         [routingLabel]="routingLabel()"
+        [hydrationReady]="persistence.hydrationReady()"
         (undo)="store.undo()"
         (redo)="store.redo()"
         (zoomIn)="canvas()?.zoomIn()"
@@ -112,37 +112,75 @@ import {
         (fit)="canvas()?.fit()"
         (autoLayout)="canvas()?.autoLayout()"
         (cycleRouting)="onCycleRouting()"
-        (clear)="store.clear()"
+        (clear)="requestClear()"
       >
-        <app-flow-run-controls flowToolbarActions (openVersions)="versionsOpen.set(true)" />
+        @if (persistence.hydrationReady()) {
+          <app-flow-run-controls flowToolbarActions (openVersions)="versionsOpen.set(true)" />
+        }
       </app-flow-toolbar>
 
-      <app-flow-manifest-strip />
+      @if (loadState() === 'ready' && persistence.hydrationReady()) {
+        <app-flow-manifest-strip />
 
-      <app-flow-validation-strip
-        [serverIssues]="persistence.serverIssues()"
-        (focusNode)="canvas()?.focusNode($event)"
-      />
-
-      <div class="flow-builder__body" [class.is-inspecting]="inspectorOpen()">
-        <app-flow-palette
-          class="flow-builder__palette"
-          [items]="palette"
-          (add)="onAddNode($event)"
+        <app-flow-validation-strip
+          [serverIssues]="persistence.serverIssues()"
+          (focusNode)="canvas()?.focusNode($event)"
         />
 
-        <div class="flow-builder__canvas">
-          <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
-        </div>
-
-        @if (inspectorOpen()) {
-          <app-flow-inspector
-            class="flow-builder__inspector"
-            [systemId]="systemId()"
-            (close)="inspectorOpen.set(false)"
-          />
+        @if (persistence.autosavePaused()) {
+          <div class="flow-builder__review" role="status" aria-live="polite">
+            <div>
+              <strong>Autosave paused.</strong>
+              This bulk or destructive replacement stays local until you explicitly save it.
+            </div>
+            <div class="flow-builder__review-actions">
+              @if (persistence.reviewRequired() === 'conflict') {
+                <button type="button" (click)="reloadAuthoritativeSystem()">Reload server Flow</button>
+              } @else {
+                <button type="button" (click)="persistence.saveNow()">Review &amp; save</button>
+                <button type="button" (click)="persistence.discardPendingChanges()">Discard local changes</button>
+              }
+            </div>
+          </div>
         }
-      </div>
+
+        <div
+          class="flow-builder__body"
+          [class.is-inspecting]="inspectorOpen()"
+          [class.is-locked]="persistence.actionsDisabled()"
+        >
+          <app-flow-palette
+            class="flow-builder__palette"
+            [items]="palette"
+            (add)="onAddNode($event)"
+          />
+
+          <div class="flow-builder__canvas">
+            <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
+          </div>
+
+          @if (inspectorOpen()) {
+            <app-flow-inspector
+              class="flow-builder__inspector"
+              [systemId]="systemId()"
+              (close)="inspectorOpen.set(false)"
+            />
+          }
+        </div>
+      } @else {
+        <div class="flow-builder__load-state" role="status">
+          @if (loadState() === 'loading') {
+            <strong>Loading the persisted Flow…</strong>
+            <span>Editing and execution remain locked until hydration completes.</span>
+          } @else {
+            <strong>Flow loading blocked</strong>
+            <span>{{ loadError() }}</span>
+            @if (systemId(); as sid) {
+              <button type="button" (click)="hydrateFromSystem(sid)">Retry strict reload</button>
+            }
+          }
+        </div>
+      }
 
       @if (handleMenu(); as menu) {
         <div class="flow-builder__handle-backdrop" (click)="closeHandleMenu()"></div>
@@ -173,7 +211,7 @@ import {
         </div>
       }
 
-      @if (run.terminalOpen()) {
+      @if (persistence.hydrationReady() && run.terminalOpen()) {
         <app-flow-terminal
           class="flow-builder__terminal"
           [entries]="run.log()"
@@ -196,6 +234,33 @@ import {
       [systemId]="systemId()"
       (close)="versionsOpen.set(false)"
       (rolledBack)="onRolledBack($event)"
+      (reloadRequired)="reloadAuthoritativeSystem()"
+    />
+
+    <app-confirm-dialog
+      [open]="clearConfirmationOpen()"
+      title="Clear this Flow?"
+      [description]="clearConfirmationDescription()"
+      confirmLabel="Clear and pause autosave"
+      cancelLabel="Keep Flow"
+      tone="danger"
+      icon="trash-2"
+      [confirmPhrase]="confirmationPhrase()"
+      (confirm)="confirmClear()"
+      (cancel)="clearConfirmationOpen.set(false)"
+    />
+
+    <app-confirm-dialog
+      [open]="persistence.replacementConfirmationRequested()"
+      title="Replace the active Flow?"
+      description="This replacement changes the execution graph of an active System. It will be sent once with explicit replacement authority; autosave remains paused."
+      confirmLabel="Replace active Flow"
+      cancelLabel="Keep reviewing"
+      tone="danger"
+      icon="alert-triangle"
+      [confirmPhrase]="confirmationPhrase()"
+      (confirm)="persistence.confirmReplacementAndSave()"
+      (cancel)="persistence.cancelReplacementConfirmation()"
     />
   `,
 })
@@ -210,6 +275,7 @@ export class FlowBuilderComponent {
   private readonly toastr = inject(ToastrService);
   private readonly manifest = inject(FlowManifestService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly workspace = inject(WorkspaceService);
 
   protected readonly canvas = viewChild(FlowCanvasComponent);
 
@@ -219,6 +285,17 @@ export class FlowBuilderComponent {
   protected readonly inspectorOpen = signal(false);
   protected readonly versionsOpen = signal(false);
   protected readonly routingLabel = signal('segment');
+  protected readonly loadState = signal<'loading' | 'ready' | 'error'>('loading');
+  protected readonly loadError = signal('');
+  protected readonly clearConfirmationOpen = signal(false);
+  protected readonly confirmationPhrase = computed(
+    () => this.system()?.name?.trim() || 'CLEAR',
+  );
+  protected readonly clearConfirmationDescription = computed(
+    () =>
+      `This will remove ${this.store.nodeCount()} nodes and ${this.store.edgeCount()} edges locally. ` +
+      'Autosave will pause; the persisted Flow is unchanged until you explicitly save.',
+  );
 
   /** On-handle insertion: open menu state (connector + drop anchor + schema). */
   protected readonly handleMenu = signal<{
@@ -263,34 +340,69 @@ export class FlowBuilderComponent {
     if (sid) {
       this.hydrateFromSystem(sid);
     } else {
-      this.store.load(defaultScratchFlow());
+      this.persistence.hydrateScratch();
+      this.loadState.set('ready');
     }
   }
 
-  /** Sync shell state after a versions-drawer rollback reloads the graph. */
+  /** A rollback response is the new authoritative baseline. */
   onRolledBack(system: System): void {
-    this.system.set(system);
-    this.manifest.reload();
+    if (this.persistence.hydrateSystem(system)) {
+      this.system.set(system);
+      this.loadError.set('');
+      this.loadState.set('ready');
+      this.manifest.reload();
+    } else {
+      this.loadError.set(
+        this.persistence.hydrationError() ?? 'Rollback returned a malformed Flow.',
+      );
+      this.loadState.set('error');
+    }
   }
 
-  private hydrateFromSystem(sid: string): void {
-    this.canonical.getSystem(sid).subscribe((sys) => {
-      if (!sys) {
-        this.toastr.warning('System not found — opening scratchpad.', 'Flow builder');
-        this.systemId.set(null);
-        this.store.load(defaultScratchFlow());
-        return;
-      }
-      this.system.set(sys);
-      const flow = (sys.flow_definition ?? {}) as unknown as CanonicalFlow;
-      if (Array.isArray(flow.nodes) && flow.nodes.length > 0) {
-        this.store.load(flow);
-      } else {
-        this.toastr.info('This System has no flow yet — starting fresh.', 'Flow builder');
-        this.store.load(defaultScratchFlow());
-        this.store.setSource('form');
-      }
+  protected hydrateFromSystem(sid: string): void {
+    this.loadState.set('loading');
+    this.loadError.set('');
+    this.persistence.beginHydration();
+    const scope = this.workspace.captureRequestScope();
+    this.canonical.getSystemStrict(sid).subscribe({
+      next: (sys) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        if (!this.persistence.hydrateSystem(sys)) {
+          this.loadError.set(
+            this.persistence.hydrationError() ?? 'The persisted Flow is malformed.',
+          );
+          this.loadState.set('error');
+          return;
+        }
+        this.system.set(sys);
+        this.loadState.set('ready');
+      },
+      error: () => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        const message =
+          'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
+        this.persistence.markHydrationFailed(message);
+        this.loadError.set(message);
+        this.loadState.set('error');
+        this.toastr.error(message, 'Flow loading blocked');
+      },
     });
+  }
+
+  protected requestClear(): void {
+    if (!this.persistence.hydrationReady() || this.persistence.actionsDisabled()) return;
+    this.clearConfirmationOpen.set(true);
+  }
+
+  protected confirmClear(): void {
+    this.clearConfirmationOpen.set(false);
+    this.persistence.confirmClear();
+  }
+
+  protected reloadAuthoritativeSystem(): void {
+    const sid = this.systemId();
+    if (sid) this.hydrateFromSystem(sid);
   }
 
   /**
@@ -299,6 +411,7 @@ export class FlowBuilderComponent {
    * wired to the handle the connection was dragged from.
    */
   onAddNode(item: PaletteItem, preconnect?: ParsedConnector): void {
+    if (this.persistence.actionsDisabled()) return;
     const count = this.store.nodeCount();
     let position = { x: 160 + (count % 4) * 60, y: 140 + (count % 4) * 60 };
     if (preconnect) {
@@ -328,6 +441,7 @@ export class FlowBuilderComponent {
   }
 
   onPickHandleItem(item: PaletteItem): void {
+    if (this.persistence.actionsDisabled()) return;
     const menu = this.handleMenu();
     if (!menu) return;
     this.onAddNode(item, menu.connector);
@@ -348,6 +462,7 @@ export class FlowBuilderComponent {
   }
 
   onCycleRouting(): void {
+    if (this.persistence.actionsDisabled()) return;
     const next = this.canvas()?.cycleRouting();
     if (next) this.routingLabel.set(next);
   }

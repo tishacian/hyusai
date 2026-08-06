@@ -318,6 +318,9 @@ export interface System {
   adaptive_policy_id?: string | null;
   flow?: Record<string, unknown>;
   flow_definition?: Record<string, unknown>;
+  /** Canonical digest of the persisted flow used as the optimistic-write
+   * precondition by Flow Builder saves. */
+  flow_sha256?: string;
   status?: SystemStatus;
   /** Canonical execution taxonomy — see schemas/canonical.ExecutionMode. */
   execution_mode?: ExecutionMode;
@@ -497,11 +500,11 @@ export type SystemImportResult =
     };
 
 /** Discriminated union returned by ``saveSystemFlow``. ``ok=true`` means
- *  the PATCH landed (warnings may still be present); ``ok=false`` with
- *  ``reason='invalid'`` carries the structured DAG errors the editor
- *  surfaces in the validation strip; ``reason='network'`` is everything
- *  else (HTTP non-400 or transport failure) — the UI only needs to
- *  toast that one. */
+ *  the PATCH landed (warnings may still be present). ``invalid`` carries
+ *  structured DAG errors, ``explicit_intent_required`` means an active flow
+ *  replacement needs a deliberate retry, and ``conflict`` means the caller's
+ *  optimistic flow precondition was missing or stale. ``network`` remains the
+ *  fallback for transport failures and unrecognised HTTP responses. */
 export type SaveSystemFlowResult =
   | {
       ok: true;
@@ -511,7 +514,7 @@ export type SaveSystemFlowResult =
     }
   | {
       ok: false;
-      reason: 'invalid' | 'network';
+      reason: 'invalid' | 'explicit_intent_required' | 'conflict' | 'network';
       message: string;
       issues: FlowValidationIssue[];
     };
@@ -1022,6 +1025,12 @@ export class CanonicalApiService {
     return this.api.get<System>(`/systems/${id}`).pipe(catchError(() => of(null)));
   }
 
+  /** Strict counterpart used by mutation-sensitive editors: unlike
+   * ``getSystem``, transport and HTTP errors propagate to the subscriber. */
+  getSystemStrict(id: string): Observable<System> {
+    return this.api.get<System>(`/systems/${id}`);
+  }
+
   getSystemValueLoop(id: string): Observable<SystemValueLoop> {
     return this.api
       .get<SystemValueLoop>(`/systems/${encodeURIComponent(id)}/value-loop`);
@@ -1103,12 +1112,32 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
-  createSystem(body: Partial<System>): Observable<System | null> {
-    return this.api.post<System>('/systems', body).pipe(catchError(() => of(null)));
+  createSystem(
+    body: Partial<System>,
+    opts?: { flow_write_intent?: 'replace_active_flow' },
+  ): Observable<System | null> {
+    const query = opts?.flow_write_intent
+      ? `?flow_write_intent=${encodeURIComponent(opts.flow_write_intent)}`
+      : '';
+    return this.api.post<System>(`/systems${query}`, body).pipe(catchError(() => of(null)));
   }
 
-  updateSystem(id: string, body: Partial<System>): Observable<System | null> {
-    return this.api.patch<System>(`/systems/${id}`, body).pipe(catchError(() => of(null)));
+  updateSystem(
+    id: string,
+    body: Partial<System>,
+    opts?: {
+      expected_flow_sha256?: string;
+      flow_write_intent?: 'replace_active_flow';
+    },
+  ): Observable<System | null> {
+    const params: Record<string, string> = {};
+    if (opts?.expected_flow_sha256) {
+      params['expected_flow_sha256'] = opts.expected_flow_sha256;
+    }
+    if (opts?.flow_write_intent) params['flow_write_intent'] = opts.flow_write_intent;
+    const qs = new URLSearchParams(params).toString();
+    const url = `/systems/${id}${qs ? `?${qs}` : ''}`;
+    return this.api.patch<System>(url, body).pipe(catchError(() => of(null)));
   }
 
   deleteSystem(id: string): Observable<boolean> {
@@ -1127,10 +1156,18 @@ export class CanonicalApiService {
   saveSystemFlow(
     id: string,
     flow_definition: Record<string, unknown>,
-    opts?: { version_message?: string },
+    opts?: {
+      version_message?: string;
+      expected_flow_sha256?: string;
+      flow_write_intent?: 'replace_active_flow';
+    },
   ): Observable<SaveSystemFlowResult> {
     const params: Record<string, string> = {};
     if (opts?.version_message) params['version_message'] = opts.version_message;
+    if (opts?.expected_flow_sha256) {
+      params['expected_flow_sha256'] = opts.expected_flow_sha256;
+    }
+    if (opts?.flow_write_intent) params['flow_write_intent'] = opts.flow_write_intent;
     let url = `/systems/${id}`;
     const qs = new URLSearchParams(params).toString();
     if (qs) url = `${url}?${qs}`;
@@ -1147,12 +1184,37 @@ export class CanonicalApiService {
             (system as { new_version?: SystemVersionSummary }).new_version ?? null,
         })),
         catchError((err: HttpErrorResponse) => {
+          const detail = (err.error?.detail ?? err.error) as {
+            error?: string;
+            message?: string;
+            issues?: FlowValidationIssue[];
+          } | undefined;
+          if (err?.status === 409) {
+            if (detail?.error === 'active_flow_replace_intent_required') {
+              return of<SaveSystemFlowResult>({
+                ok: false,
+                reason: 'explicit_intent_required',
+                message:
+                  detail.message ??
+                  'Replacing an active flow requires explicit confirmation.',
+                issues: detail.issues ?? [],
+              });
+            }
+            if (
+              detail?.error === 'flow_precondition_missing' ||
+              detail?.error === 'flow_precondition_stale'
+            ) {
+              return of<SaveSystemFlowResult>({
+                ok: false,
+                reason: 'conflict',
+                message:
+                  detail.message ??
+                  'The flow changed since it was loaded. Reload it before saving.',
+                issues: detail.issues ?? [],
+              });
+            }
+          }
           if (err?.status === 400) {
-            const detail = (err.error?.detail ?? err.error) as {
-              error?: string;
-              message?: string;
-              issues?: FlowValidationIssue[];
-            } | undefined;
             if (detail?.error === 'flow_invalid' || Array.isArray(detail?.issues)) {
               return of<SaveSystemFlowResult>({
                 ok: false,
@@ -1198,11 +1260,22 @@ export class CanonicalApiService {
     id: string,
     versionNumber: number,
     message?: string,
+    opts?: {
+      expected_flow_sha256?: string;
+      flow_write_intent?: 'replace_active_flow';
+    },
   ): Observable<SystemRollbackResult | null> {
+    const params: Record<string, string> = {};
+    if (opts?.expected_flow_sha256) {
+      params['expected_flow_sha256'] = opts.expected_flow_sha256;
+    }
+    if (opts?.flow_write_intent) params['flow_write_intent'] = opts.flow_write_intent;
+    const qs = new URLSearchParams(params).toString();
     return this.api
-      .post<SystemRollbackResult>(`/systems/${id}/versions/${versionNumber}/rollback`, {
-        message: message ?? null,
-      })
+      .post<SystemRollbackResult>(
+        `/systems/${id}/versions/${versionNumber}/rollback${qs ? `?${qs}` : ''}`,
+        { message: message ?? null },
+      )
       .pipe(catchError(() => of(null)));
   }
 
