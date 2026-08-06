@@ -1319,12 +1319,17 @@ export class SystemBuilderComponent implements OnInit {
     });
     const sid = this.editingSystemId();
     const op$ = sid
-      ? this.canonical.updateSystem(sid, body)
+      ? this.canonical.updateSystem(sid, body, {
+          expected_flow_sha256: this.editingSystem()?.flow_sha256,
+        })
       : this.canonical.createSystem(body);
     op$.subscribe((sys) => {
       this.launching.set(false);
       if (!sys) {
-        this.toast.error('Could not persist draft — backend unreachable.', 'Switch to Flow');
+        this.toast.error(
+          'Draft not persisted. Reload if the System changed, or confirm structural replacements in Flow Builder.',
+          'Switch to Flow blocked',
+        );
         return;
       }
       this.toast.info(`"${sys.name}" opened in Flow`, 'Draft saved');
@@ -1549,7 +1554,9 @@ export class SystemBuilderComponent implements OnInit {
 
       const sid = this.editingSystemId();
       const op$ = sid
-        ? this.canonical.updateSystem(sid, body)
+        ? this.canonical.updateSystem(sid, body, {
+            expected_flow_sha256: this.editingSystem()?.flow_sha256,
+          })
         : this.canonical.createSystem(body);
       op$.subscribe((sys) => {
         this.launching.set(false);
@@ -1559,7 +1566,10 @@ export class SystemBuilderComponent implements OnInit {
           return;
         }
         if (sid) {
-          this.toast.error('Could not save changes — backend unreachable.', 'Save failed');
+          this.toast.error(
+            'Changes were not saved. Reload if the System changed; structural Flow replacements require explicit confirmation in Flow Builder.',
+            'Save blocked',
+          );
           return;
         }
         const draft = this.store.createDraft({

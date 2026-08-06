@@ -19,8 +19,11 @@ Vague E / E3.1 — versioning + DAG validation:
 """
 
 import copy
+import hashlib
+import json
 from collections.abc import Mapping
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Literal, Optional
 from uuid import uuid4
 
@@ -59,6 +62,7 @@ from app.services.membrane.spec import resolve_membrane_spec
 from app.services.run_access import readable_run_page
 from app.services.run_engine import schedule_run, triggers
 from app.services.run_engine import scheduler as run_scheduler
+from app.services.run_engine.dag import should_use_dag
 from app.services.run_engine.webhooks import generate_hook_secret, serialize_hook
 from app.services.system_catalog_bindings import (
     ResolvedSystemCatalogBindings,
@@ -423,7 +427,7 @@ class SystemCreate(BaseModel):
     objective: str = ""
     capability_id: Optional[str] = None
     skill_ids: list[str] = []
-    flow_definition: dict[str, Any] = {}
+    flow_definition: dict[str, Any] = Field(default_factory=dict)
     settings: dict[str, Any] = {}
     execution_mode: ExecutionMode = ExecutionMode.real_time_decision
     execution_profile: Optional[dict[str, Any]] = None
@@ -463,7 +467,9 @@ class SystemUpdate(BaseModel):
     objective: Optional[str] = None
     capability_id: Optional[str] = None
     skill_ids: Optional[list[str]] = None
-    flow_definition: Optional[dict[str, Any]] = None
+    # Non-nullable in OpenAPI and at runtime. ``exclude_unset=True`` below
+    # still distinguishes an omitted PATCH field from an explicit object.
+    flow_definition: dict[str, Any] = Field(default_factory=dict)
     settings: Optional[dict[str, Any]] = None
     execution_mode: Optional[ExecutionMode] = None
     execution_profile: Optional[dict[str, Any]] = None
@@ -550,7 +556,28 @@ class WebhookHookUpdate(BaseModel):
     rotate_secret: bool = False
 
 
-class SystemUpdateOptions(BaseModel):
+class ActiveFlowWriteOptions(BaseModel):
+    expected_flow_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description=(
+            "Canonical SHA-256 returned by the last System read. Required for "
+            "every flow write that touches a currently or prospectively active System."
+        ),
+    )
+    flow_write_intent: Literal["replace_active_flow"] | None = Field(
+        default=None,
+        description=(
+            "One-shot explicit intent required for destructive active-flow replacements."
+        ),
+    )
+
+
+class SystemCreateOptions(BaseModel):
+    flow_write_intent: Literal["replace_active_flow"] | None = None
+
+
+class SystemUpdateOptions(ActiveFlowWriteOptions):
     """Optional controls piggy-backing on the PATCH body.
 
     Kept separate from :class:`SystemUpdate` so clients that don't care
@@ -566,6 +593,10 @@ class SystemUpdateOptions(BaseModel):
         max_length=2000,
     )
     skip_validation: bool = False
+
+
+class RollbackOptions(ActiveFlowWriteOptions):
+    pass
 
 
 class RollbackBody(BaseModel):
@@ -592,7 +623,130 @@ def _actor_display_name(user: User) -> str:
 
 
 # ---------------- Helpers ----------------
+def _canonical_flow(flow: Any) -> dict[str, Any]:
+    # Historical NULL is intentionally represented as an empty object. Any
+    # other persisted JSON shape is corruption, not another spelling of empty:
+    # masking it would create hash collisions and let the editor overwrite it.
+    if flow is None:
+        return {}
+    if not isinstance(flow, dict):
+        raise ValueError("flow_definition must be a JSON object")
+    return flow
+
+
+def _flow_sha256(flow: Any) -> str:
+    """Hash the semantic JSON tree while preserving array ordering.
+
+    Dict key ordering is deliberately non-semantic, matching SystemVersion
+    equality and the hash frozen into a Run at execution start.
+    """
+
+    encoded = json.dumps(
+        _canonical_flow(flow),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _flow_items(flow: Any, key: str) -> list[Any]:
+    canonical = _canonical_flow(flow)
+    items = canonical.get(key)
+    return list(items) if isinstance(items, list) else []
+
+
+def _flow_node_ids(flow: Any) -> set[str]:
+    return {
+        node_id
+        for node in _flow_items(flow, "nodes")
+        if isinstance(node, Mapping)
+        and isinstance((node_id := node.get("id")), str)
+        and bool(node_id)
+    }
+
+
+def _flow_uses_dag(flow: Any, workspace: Workspace) -> bool:
+    """Resolve the same DAG/legacy boundary as the production dispatcher."""
+
+    try:
+        return should_use_dag(
+            SimpleNamespace(flow_definition=_canonical_flow(flow)),
+            workspace,
+        )
+    except (OverflowError, TypeError, ValueError):
+        # A malformed schema is handled by the normal DAG validator below.  For
+        # the anti-destruction boundary it must never be mistaken for a DAG.
+        return False
+
+
+def _flow_write_summary(flow: Any) -> dict[str, Any]:
+    return {
+        "sha256": _flow_sha256(flow),
+        "node_count": len(_flow_items(flow, "nodes")),
+        "edge_count": len(_flow_items(flow, "edges")),
+    }
+
+
+def _active_flow_replacement_reasons(
+    *,
+    current_flow: Any,
+    prospective_flow: Any,
+    workspace: Workspace,
+) -> list[str]:
+    """Return stable, payload-free reasons requiring explicit operator intent."""
+
+    reasons: list[str] = []
+    current_ids = _flow_node_ids(current_flow)
+    prospective_ids = _flow_node_ids(prospective_flow)
+    if not prospective_ids:
+        reasons.append("active_flow_empty")
+    if _flow_uses_dag(current_flow, workspace) and not _flow_uses_dag(
+        prospective_flow,
+        workspace,
+    ):
+        reasons.append("active_dag_runtime_downgrade")
+    if current_ids and prospective_ids and current_ids.isdisjoint(prospective_ids):
+        reasons.append("active_flow_node_identity_replacement")
+    return reasons
+
+
+def _flow_write_conflict(
+    *,
+    error: Literal["flow_precondition_missing", "flow_precondition_stale"],
+    code: str,
+    system_id: str,
+    current_flow_sha256: str,
+    expected_flow_sha256: str | None,
+) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": error,
+            "code": code,
+            "message": (
+                "Reload the System before saving its active flow."
+                if expected_flow_sha256 is not None
+                else "The current flow hash is required before saving an active System."
+            ),
+            "system_id": system_id,
+            "current_flow_sha256": current_flow_sha256,
+            "expected_flow_sha256": expected_flow_sha256,
+        },
+    )
+
+
 def _serialize(s: System) -> dict[str, Any]:
+    try:
+        flow = _canonical_flow(s.flow_definition)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "persisted_flow_invalid",
+                "message": "The persisted flow is not a JSON object.",
+                "system_id": s.id,
+            },
+        ) from exc
     return {
         "id": s.id,
         "workspace_id": s.workspace_id,
@@ -600,7 +754,8 @@ def _serialize(s: System) -> dict[str, Any]:
         "objective": s.objective,
         "capability_id": s.capability_id,
         "skill_ids": s.skill_ids or [],
-        "flow_definition": s.flow_definition or {},
+        "flow_definition": flow,
+        "flow_sha256": _flow_sha256(flow),
         "settings": getattr(s, "settings", None) or {},
         "execution_mode": s.execution_mode,
         "execution_profile": getattr(s, "execution_profile", None) or {},
@@ -689,7 +844,12 @@ async def create_system(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    options: SystemCreateOptions = Depends(),
 ):
+    # Unit/service callers invoke the endpoint function directly and therefore
+    # see FastAPI's ``Depends`` sentinel instead of dependency injection.
+    if not isinstance(options, SystemCreateOptions):
+        options = SystemCreateOptions()
     enforce_action(
         db,
         user=user,
@@ -716,6 +876,23 @@ async def create_system(
             db,
             user=user,
             workspace=workspace,
+        )
+    if (
+        body.status == SystemStatus.active
+        and not _flow_node_ids(body.flow_definition)
+        and options.flow_write_intent != "replace_active_flow"
+    ):
+        after = _flow_write_summary(body.flow_definition)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "active_flow_replace_intent_required",
+                "code": "ACTIVE_FLOW_CREATION_REQUIRES_INTENT",
+                "message": "Creating an active empty flow requires explicit operator intent.",
+                "required_intent": "replace_active_flow",
+                "reasons": ["active_flow_empty"],
+                "after": after,
+            },
         )
     _validate_control_policy_tenant(
         db,
@@ -985,11 +1162,86 @@ async def update_system(
             s.settings,
             updates["settings"] or {},
         )
+    flow_touched = "flow_definition" in updates
+    current_flow = _canonical_flow(s.flow_definition)
+    prospective_flow = updates.get("flow_definition", current_flow)
+    prospective_status = updates.get("status", s.status)
+    activating_empty_flow = bool(
+        s.status != SystemStatus.active.value
+        and prospective_status == SystemStatus.active.value
+        and not _flow_node_ids(prospective_flow)
+    )
+    active_flow_boundary = bool(
+        (
+            flow_touched
+            and (
+                s.status == SystemStatus.active.value
+                or prospective_status == SystemStatus.active.value
+            )
+        )
+        or activating_empty_flow
+    )
+    flow_write_reasons: list[str] = []
+    flow_write_audit: dict[str, Any] | None = None
+    if flow_touched or activating_empty_flow:
+        before = _flow_write_summary(current_flow)
+        after = _flow_write_summary(prospective_flow)
+        if active_flow_boundary:
+            if options.expected_flow_sha256 is None:
+                raise _flow_write_conflict(
+                    error="flow_precondition_missing",
+                    code="ACTIVE_FLOW_SHA256_REQUIRED",
+                    system_id=s.id,
+                    current_flow_sha256=before["sha256"],
+                    expected_flow_sha256=None,
+                )
+            if options.expected_flow_sha256 != before["sha256"]:
+                raise _flow_write_conflict(
+                    error="flow_precondition_stale",
+                    code="ACTIVE_FLOW_SHA256_MISMATCH",
+                    system_id=s.id,
+                    current_flow_sha256=before["sha256"],
+                    expected_flow_sha256=options.expected_flow_sha256,
+                )
+            flow_write_reasons = _active_flow_replacement_reasons(
+                current_flow=current_flow,
+                prospective_flow=prospective_flow,
+                workspace=workspace,
+            )
+            if (
+                flow_write_reasons
+                and options.flow_write_intent != "replace_active_flow"
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "active_flow_replace_intent_required",
+                        "code": "ACTIVE_FLOW_REPLACEMENT_REQUIRES_INTENT",
+                        "message": (
+                            "This active flow replacement requires explicit operator intent."
+                        ),
+                        "system_id": s.id,
+                        "required_intent": "replace_active_flow",
+                        "reasons": flow_write_reasons,
+                        "before": before,
+                        "after": after,
+                    },
+                )
+        flow_write_audit = {
+            "before_sha256": before["sha256"],
+            "after_sha256": after["sha256"],
+            "before_node_count": before["node_count"],
+            "after_node_count": after["node_count"],
+            "before_edge_count": before["edge_count"],
+            "after_edge_count": after["edge_count"],
+            "intent": options.flow_write_intent,
+            "reasons": flow_write_reasons,
+            "active_boundary": active_flow_boundary,
+        }
     changed_fields = sorted(
         key for key, value in updates.items() if getattr(s, key, None) != value
     )
     prospective_settings = updates.get("settings", s.settings)
-    prospective_flow = updates.get("flow_definition", s.flow_definition)
     if migration_059_system_id(workspace) is not None and _is_reserved_agentic_identity(
         prospective_settings, prospective_flow
     ):
@@ -1018,7 +1270,7 @@ async def update_system(
         skill_ids=updates.get("skill_ids", s.skill_ids),
         adaptive_policy_id=updates.get("adaptive_policy_id", s.adaptive_policy_id),
     )
-    new_flow = updates.get("flow_definition") if "flow_definition" in updates else None
+    new_flow = updates.get("flow_definition") if flow_touched else None
 
     issues: list = []
     if new_flow is not None and not options.skip_validation:
@@ -1038,6 +1290,12 @@ async def update_system(
 
     created_version = None
     if new_flow is not None:
+        # SessionLocal deliberately disables autoflush.  Persist the pending
+        # System mutation inside this transaction before ``record_new_version``
+        # refreshes/locks the parent row with ``populate_existing()``; otherwise
+        # that refresh would restore the old flow while appending a version of
+        # the new one.
+        db.flush()
         created_version = version_service.record_new_version(
             db=db,
             system=s,
@@ -1053,12 +1311,18 @@ async def update_system(
         _sync_membrane_collection_allowlist(db, s, new_flow)
 
     if changed_fields:
+        audit_details: dict[str, Any] = {
+            "system_id": s.id,
+            "fields": changed_fields,
+        }
+        if flow_write_audit is not None:
+            audit_details["flow_write"] = flow_write_audit
         emit_audit_event(
             workspace_id=workspace.id,
             event_type="system.updated",
             actor=_actor_display_name(user),
             agent_id=s.id,
-            details={"system_id": s.id, "fields": changed_fields},
+            details=audit_details,
             db=db,
         )
 
@@ -1366,6 +1630,7 @@ async def rollback_system_version(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    options: RollbackOptions = Depends(),
 ):
     """Roll the system back to a specific version.
 
@@ -1374,7 +1639,15 @@ async def rollback_system_version(
     newly created version (or the target itself if the rollback is
     a no-op because the target is already the current flow).
     """
-    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    if not isinstance(options, RollbackOptions):
+        options = RollbackOptions()
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .first()
+    )
     if not s:
         raise HTTPException(404, "System not found")
     _enforce_system_admin(
@@ -1384,6 +1657,70 @@ async def rollback_system_version(
         system=s,
         mutation="version_rollback",
     )
+    target = version_service.get_version(
+        db=db,
+        system_id=system_id,
+        workspace_id=workspace.id,
+        version_number=version_number,
+    )
+    if target is None:
+        raise HTTPException(
+            404,
+            "Version not found (may have been purged by the rolling window).",
+        )
+
+    flow_write_audit: dict[str, Any] | None = None
+    if s.status == SystemStatus.active.value:
+        current_flow = _canonical_flow(s.flow_definition)
+        target_flow = _canonical_flow(target.flow_definition)
+        before = _flow_write_summary(current_flow)
+        after = _flow_write_summary(target_flow)
+        if options.expected_flow_sha256 is None:
+            raise _flow_write_conflict(
+                error="flow_precondition_missing",
+                code="ACTIVE_FLOW_SHA256_REQUIRED",
+                system_id=s.id,
+                current_flow_sha256=before["sha256"],
+                expected_flow_sha256=None,
+            )
+        if options.expected_flow_sha256 != before["sha256"]:
+            raise _flow_write_conflict(
+                error="flow_precondition_stale",
+                code="ACTIVE_FLOW_SHA256_MISMATCH",
+                system_id=s.id,
+                current_flow_sha256=before["sha256"],
+                expected_flow_sha256=options.expected_flow_sha256,
+            )
+        reasons = _active_flow_replacement_reasons(
+            current_flow=current_flow,
+            prospective_flow=target_flow,
+            workspace=workspace,
+        )
+        if reasons and options.flow_write_intent != "replace_active_flow":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "active_flow_replace_intent_required",
+                    "code": "ACTIVE_FLOW_ROLLBACK_REQUIRES_INTENT",
+                    "message": "This active flow rollback requires explicit operator intent.",
+                    "system_id": s.id,
+                    "required_intent": "replace_active_flow",
+                    "reasons": reasons,
+                    "before": before,
+                    "after": after,
+                },
+            )
+        flow_write_audit = {
+            "before_sha256": before["sha256"],
+            "after_sha256": after["sha256"],
+            "before_node_count": before["node_count"],
+            "after_node_count": after["node_count"],
+            "before_edge_count": before["edge_count"],
+            "after_edge_count": after["edge_count"],
+            "intent": options.flow_write_intent,
+            "reasons": reasons,
+            "active_boundary": True,
+        }
     try:
         new_version = version_service.rollback_to_version(
             db=db,
@@ -1391,6 +1728,7 @@ async def rollback_system_version(
             version_number=version_number,
             created_by=_actor_display_name(user),
             message=body.message,
+            flow_write_audit=flow_write_audit,
         )
     except version_service.ChainVersionError as exc:
         raise HTTPException(404, str(exc)) from exc

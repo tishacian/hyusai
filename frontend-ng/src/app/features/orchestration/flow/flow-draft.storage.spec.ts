@@ -93,3 +93,80 @@ test('untagged legacy scratch draft is not attributed to the last selected works
     null,
   );
 });
+
+test('valid empty flow draft round-trips without being mistaken for a missing draft', () => {
+  const storage = new MemoryStorage();
+  const empty: CanonicalFlow = {
+    source: 'flow',
+    schema_version: 3,
+    variable_namespaces: ['case'],
+    nodes: [],
+    edges: [],
+  };
+
+  assert.deepEqual(persistWorkspaceFlowDraft(storage, 'workspace-a', empty, 456), {
+    flow: empty,
+    savedAt: 456,
+  });
+  assert.deepEqual(
+    readWorkspaceFlowDraft(storage, 'workspace-a', ['workspace-a']),
+    { flow: empty, savedAt: 456 },
+  );
+});
+
+test('malformed scoped draft without an edges array is rejected and quarantined without throwing', () => {
+  const storage = new MemoryStorage();
+  const key = workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a');
+  storage.setItem(
+    key,
+    JSON.stringify({
+      v: 1,
+      workspace_slug: 'workspace-a',
+      saved_at: 123,
+      flow: { nodes: [] },
+    }),
+  );
+
+  assert.doesNotThrow(() => {
+    assert.equal(
+      readWorkspaceFlowDraft(storage, 'workspace-a', ['workspace-a']),
+      null,
+    );
+  });
+  assert.equal(storage.getItem(key), null, 'invalid value is removed from the scoped slot');
+});
+
+test('legacy raw flow requires both graph arrays', () => {
+  const storage = new MemoryStorage();
+  const key = workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a');
+  storage.setItem(key, JSON.stringify({ nodes: [], edges: {} }));
+
+  assert.equal(
+    readWorkspaceFlowDraft(storage, 'workspace-a', ['workspace-a']),
+    null,
+  );
+  assert.equal(storage.getItem(key), null);
+});
+
+test('draft with a null port entry is rejected before renderer hydration', () => {
+  const storage = new MemoryStorage();
+  const key = workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a');
+  storage.setItem(
+    key,
+    JSON.stringify({
+      v: 1,
+      workspace_slug: 'workspace-a',
+      saved_at: 123,
+      flow: {
+        nodes: [{ id: 'bad-node', type: 'task', inputs: [null] }],
+        edges: [],
+      },
+    }),
+  );
+
+  assert.equal(
+    readWorkspaceFlowDraft(storage, 'workspace-a', ['workspace-a']),
+    null,
+  );
+  assert.equal(storage.getItem(key), null);
+});

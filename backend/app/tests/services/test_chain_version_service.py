@@ -435,7 +435,7 @@ def test_rollback_to_missing_version_raises(db_session) -> None:
         )
 
 
-def test_rollback_to_current_is_noop(db_session) -> None:
+def test_rollback_repairs_system_drift_even_when_target_is_latest(db_session) -> None:
     s = _make_system(db_session)
     flow = {"nodes": [{"id": "a", "kind": "task"}], "edges": []}
     version_service.record_new_version(
@@ -446,12 +446,12 @@ def test_rollback_to_current_is_noop(db_session) -> None:
         db=db_session, system=s, version_number=1, created_by="alice"
     )
 
-    # No-op rollback returns the target version itself, no new row.
-    assert target.version_number == 1
+    assert target.version_number == 2
+    assert s.flow_definition == flow
     _, total = version_service.list_versions(
         db=db_session, system_id=s.id, workspace_id="ws-1"
     )
-    assert total == 1
+    assert total == 2
 
     rb_events = (
         db_session.query(AuditLog)
@@ -459,7 +459,27 @@ def test_rollback_to_current_is_noop(db_session) -> None:
         .all()
     )
     assert len(rb_events) == 1
-    assert (rb_events[0].details or {}).get("no_op") is True
+    assert (rb_events[0].details or {}).get("no_op") is False
+
+
+def test_rollback_to_authoritative_current_is_noop(db_session) -> None:
+    flow = {"nodes": [{"id": "a", "kind": "task"}], "edges": []}
+    s = _make_system(db_session, flow=flow)
+    version_service.record_new_version(
+        db=db_session, system=s, flow_definition=flow, created_by="alice"
+    )
+
+    target = version_service.rollback_to_version(
+        db=db_session, system=s, version_number=1, created_by="alice"
+    )
+
+    assert target.version_number == 1
+    _, total = version_service.list_versions(
+        db=db_session, system_id=s.id, workspace_id="ws-1"
+    )
+    assert total == 1
+    event = db_session.query(AuditLog).filter_by(event_type="chain.rollback").one()
+    assert (event.details or {}).get("no_op") is True
 
 
 def test_workspace_isolation_on_list(db_session) -> None:

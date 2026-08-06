@@ -40,6 +40,10 @@ import {
 
 /** Non-graph sidecars of a CanonicalFlow, preserved across a round-trip. */
 export interface FlowMeta {
+  /** Forward-compatible top-level sidecars are kept verbatim here. Graph keys
+   *  are deliberately excluded by `metaFromFlow` and projected from the live
+   *  store instead. */
+  [key: string]: unknown;
   variant?: string;
   source: 'form' | 'flow';
   extended: boolean;
@@ -54,6 +58,7 @@ export interface FlowMeta {
   context_reused?: boolean;
   template_id?: string;
   template_name?: string;
+  variable_namespaces?: string[];
 }
 
 /** A point-in-time graph snapshot used by the undo/redo history stacks. */
@@ -61,6 +66,7 @@ interface FlowSnapshot {
   nodes: CanonicalFlowNode[];
   edges: CanonicalFlowEdge[];
   selectedNodeId: string | null;
+  meta: FlowMeta;
 }
 
 interface FlowState {
@@ -68,6 +74,8 @@ interface FlowState {
   edges: CanonicalFlowEdge[];
   selectedNodeId: string | null;
   dirty: boolean;
+  /** Monotone token for every persistable state replacement or mutation. */
+  revision: number;
   meta: FlowMeta;
   past: FlowSnapshot[];
   future: FlowSnapshot[];
@@ -91,6 +99,7 @@ const initialState: FlowState = {
   edges: [],
   selectedNodeId: null,
   dirty: false,
+  revision: 0,
   meta: { ...DEFAULT_META },
   past: [],
   future: [],
@@ -98,6 +107,19 @@ const initialState: FlowState = {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+/** Keep every canonical/forward-compatible top-level sidecar while ensuring
+ * graph state has a single owner (`nodes` / `edges` signals). */
+function metaFromFlow(flow: CanonicalFlow): FlowMeta {
+  const record = flow as CanonicalFlow & Record<string, unknown>;
+  const { nodes: _nodes, edges: _edges, ...sidecars } = record;
+  return {
+    ...clone(sidecars),
+    source: flow.source ?? 'flow',
+    extended: flow.extended ?? false,
+    schema_version: flow.schema_version ?? 3,
+  } as FlowMeta;
 }
 
 /** Stable identity for an edge in the canonical (id-less) edge model. */
@@ -157,6 +179,7 @@ export const FlowStore = signalStore(
       nodes: clone(store.nodes()),
       edges: clone(store.edges()),
       selectedNodeId: store.selectedNodeId(),
+      meta: clone(store.meta()),
     });
 
     /** Push the current graph onto the undo stack and clear the redo stack. */
@@ -170,7 +193,9 @@ export const FlowStore = signalStore(
         nodes: clone(snapshot.nodes),
         edges: clone(snapshot.edges),
         selectedNodeId: snapshot.selectedNodeId,
+        meta: clone(snapshot.meta),
         dirty: true,
+        revision: store.revision() + 1,
       });
     };
 
@@ -187,53 +212,55 @@ export const FlowStore = signalStore(
           edges: clone(normalized.edges),
           selectedNodeId: null,
           dirty: false,
+          revision: store.revision() + 1,
           past: [],
           future: [],
-          meta: {
-            variant: normalized.variant,
-            source: normalized.source ?? 'flow',
-            extended: normalized.extended ?? false,
-            schema_version: normalized.schema_version ?? 3,
-            io_mode: normalized.io_mode,
-            policy: normalized.policy,
-            collections: normalized.collections,
-            rag_mode: normalized.rag_mode,
-            canonical_rag_mode: normalized.canonical_rag_mode,
-            context_reused: normalized.context_reused,
-            template_id: normalized.template_id,
-            template_name: normalized.template_name,
-          },
+          meta: metaFromFlow(normalized),
+        });
+      },
+
+      /** Replace the graph as a user edit (e.g. JSON import). Unlike `load`,
+       *  this preserves one undo checkpoint and remains dirty until persisted. */
+      replaceAsEdit(flow: CanonicalFlow): void {
+        const normalized = serializer.normalize(flow);
+        checkpoint();
+        patchState(store, {
+          nodes: clone(normalized.nodes),
+          edges: clone(normalized.edges),
+          selectedNodeId: null,
+          dirty: true,
+          revision: store.revision() + 1,
+          meta: metaFromFlow(normalized),
         });
       },
 
       /** Project the live graph back into a CanonicalFlow for persistence. */
       snapshot(): CanonicalFlow {
-        const meta = store.meta();
+        const meta = clone(store.meta());
         return {
-          variant: meta.variant,
-          source: meta.source,
-          extended: meta.extended,
-          schema_version: meta.schema_version,
-          io_mode: meta.io_mode,
-          policy: meta.policy,
-          collections: meta.collections,
-          rag_mode: meta.rag_mode,
-          canonical_rag_mode: meta.canonical_rag_mode,
-          context_reused: meta.context_reused,
-          template_id: meta.template_id,
-          template_name: meta.template_name,
+          ...meta,
           nodes: clone(store.nodes()),
           edges: clone(store.edges()),
-        };
+        } as CanonicalFlow;
       },
 
-      /** Mark the current state as the saved baseline (clears dirty). */
-      markSaved(): void {
+      /** Mark the current revision as saved. A stale async response cannot
+       *  clean a newer edit when its expected revision no longer matches. */
+      markSaved(expectedRevision?: number): boolean {
+        if (expectedRevision !== undefined && expectedRevision !== store.revision()) {
+          return false;
+        }
         patchState(store, { dirty: false });
+        return true;
       },
 
       setSource(source: 'form' | 'flow'): void {
-        patchState(store, { meta: { ...store.meta(), source } });
+        if (store.meta().source === source) return;
+        patchState(store, {
+          meta: { ...store.meta(), source },
+          dirty: true,
+          revision: store.revision() + 1,
+        });
       },
 
       // ---- selection -----------------------------------------------------
@@ -262,6 +289,7 @@ export const FlowStore = signalStore(
           nodes: [...store.nodes(), created],
           selectedNodeId: id,
           dirty: true,
+          revision: store.revision() + 1,
         });
         return id;
       },
@@ -275,6 +303,7 @@ export const FlowStore = signalStore(
           selectedNodeId:
             store.selectedNodeId() === nodeId ? null : store.selectedNodeId(),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -288,6 +317,7 @@ export const FlowStore = signalStore(
             .nodes()
             .map((n) => (n.id === nodeId ? { ...n, ...patch } : n)),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -307,6 +337,7 @@ export const FlowStore = signalStore(
               : n,
           ),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -322,6 +353,7 @@ export const FlowStore = signalStore(
               : n,
           ),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -333,6 +365,7 @@ export const FlowStore = signalStore(
         patchState(store, {
           edges: [...store.edges(), { kind: 'data', ...edge }],
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -343,6 +376,7 @@ export const FlowStore = signalStore(
         patchState(store, {
           edges: store.edges().filter((e) => !sameEdge(e, edge)),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -358,6 +392,7 @@ export const FlowStore = signalStore(
         patchState(store, {
           edges: exists ? withoutPrev : [...withoutPrev, { kind: 'data', ...next }],
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -372,6 +407,7 @@ export const FlowStore = signalStore(
             .nodes()
             .map((n) => (n.id === nodeId ? { ...n, position } : n)),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
@@ -408,17 +444,20 @@ export const FlowStore = signalStore(
             positions[n.id] ? { ...n, position: positions[n.id] } : n,
           ),
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
 
       // ---- bulk -----------------------------------------------------------
       clear(): void {
+        if (store.nodes().length === 0 && store.edges().length === 0) return;
         checkpoint();
         patchState(store, {
           nodes: [],
           edges: [],
           selectedNodeId: null,
           dirty: true,
+          revision: store.revision() + 1,
         });
       },
     };

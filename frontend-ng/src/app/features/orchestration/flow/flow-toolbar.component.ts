@@ -12,6 +12,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
   output,
@@ -70,7 +71,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         <button
           type="button"
           class="ck-flow-toolbar__btn"
-          [disabled]="!canUndo()"
+          [disabled]="controlsDisabled() || !canUndo()"
           (click)="undo.emit()"
           title="Undo (Ctrl/Cmd+Z)"
           aria-label="Undo"
@@ -80,7 +81,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         <button
           type="button"
           class="ck-flow-toolbar__btn"
-          [disabled]="!canRedo()"
+          [disabled]="controlsDisabled() || !canRedo()"
           (click)="redo.emit()"
           title="Redo (Ctrl/Cmd+Shift+Z)"
           aria-label="Redo"
@@ -90,19 +91,19 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
 
         <span class="ck-flow-toolbar__sep"></span>
 
-        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomIn.emit()" title="Zoom in" aria-label="Zoom in">
+        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomIn.emit()" [disabled]="controlsDisabled()" title="Zoom in" aria-label="Zoom in">
           <app-icon name="zoom-in" [size]="14" />
         </button>
-        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomOut.emit()" title="Zoom out" aria-label="Zoom out">
+        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomOut.emit()" [disabled]="controlsDisabled()" title="Zoom out" aria-label="Zoom out">
           <app-icon name="zoom-out" [size]="14" />
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="fit.emit()" title="Fit to view" aria-label="Fit to view">
+        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="fit.emit()" [disabled]="controlsDisabled()" title="Fit to view" aria-label="Fit to view">
           <app-icon name="maximize" [size]="14" /><span>Fit</span>
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" title="Auto-arrange — repositions all nodes (Ctrl/Cmd+Z to undo)" aria-label="Auto-arrange all nodes">
+        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" [disabled]="controlsDisabled()" title="Auto-arrange — repositions all nodes (Ctrl/Cmd+Z to undo)" aria-label="Auto-arrange all nodes">
           <app-icon name="layout-grid" [size]="14" /><span>Arrange</span>
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
+        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [disabled]="controlsDisabled()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
           <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
         </button>
 
@@ -114,7 +115,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
           (click)="persistence.saveNow()"
-          [disabled]="persistence.saveState() === 'saving'"
+          [disabled]="controlsDisabled() || persistence.saveState() === 'saving'"
           [title]="
             persistence.systemId()
               ? 'Save flow to System (Ctrl/Cmd+S)'
@@ -129,6 +130,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="persistence.exportJson()"
+          [disabled]="controlsDisabled()"
           title="Export flow as JSON"
           aria-label="Export flow"
         >
@@ -138,6 +140,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="importInput.click()"
+          [disabled]="controlsDisabled()"
           title="Import flow JSON (round-trip)"
           aria-label="Import flow"
         >
@@ -147,6 +150,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="persistence.shareLink()"
+          [disabled]="controlsDisabled()"
           title="Copy a shareable link to this flow"
           aria-label="Share flow"
         >
@@ -157,7 +161,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             type="button"
             class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
             (click)="persistence.promoteToSystem()"
-            [disabled]="persistence.promoting()"
+            [disabled]="controlsDisabled() || persistence.promoting()"
             title="Save this scratchpad draft as a real System"
             aria-label="Save as System"
           >
@@ -172,6 +176,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--danger"
           (click)="clear.emit()"
+          [disabled]="controlsDisabled()"
           title="Clear canvas"
           aria-label="Clear canvas"
         >
@@ -184,6 +189,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         type="file"
         accept="application/json,.json"
         hidden
+        [disabled]="controlsDisabled()"
         (change)="onImportFile($event)"
       />
     </div>
@@ -197,6 +203,13 @@ export class FlowToolbarComponent {
   readonly canUndo = input(false);
   readonly canRedo = input(false);
   readonly routingLabel = input('segment');
+  /** The bound System must be authoritatively hydrated before controls can
+   * read or mutate its graph. Scratchpad routes explicitly bind this to true. */
+  readonly hydrationReady = input(false);
+
+  protected readonly controlsDisabled = computed(
+    () => this.persistence.actionsDisabled() || !this.hydrationReady(),
+  );
 
   readonly undo = output<void>();
   readonly redo = output<void>();
@@ -210,15 +223,29 @@ export class FlowToolbarComponent {
   /** Read an imported JSON file and round-trip it through the store. */
   onImportFile(event: Event): void {
     const input = event.target as HTMLInputElement;
+    if (this.controlsDisabled()) {
+      input.value = '';
+      return;
+    }
     const file = input.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => this.persistence.importJson(String(reader.result));
+    reader.onload = () => {
+      // Hydration/save state may have changed while the browser was reading a
+      // large file. Re-check at mutation time, not only when opening the picker.
+      if (!this.controlsDisabled()) this.persistence.importJson(String(reader.result));
+    };
     reader.readAsText(file);
     input.value = '';
   }
 
   protected stateTitle(state: SaveState): string {
+    if (this.persistence.reviewRequired()) {
+      return 'Review required — autosave is paused until you explicitly save or discard this replacement';
+    }
+    if (this.persistence.autosavePaused()) {
+      return 'Autosave paused — review these changes, then press Save explicitly';
+    }
     switch (state) {
       case 'saving':
         return 'Saving…';

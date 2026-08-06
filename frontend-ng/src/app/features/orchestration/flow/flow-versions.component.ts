@@ -7,12 +7,13 @@
  * live canvas (hardened to exact symmetric-difference once a row's full payload
  * is prefetched), previews via `getSystemVersion`, and rolls back via
  * `rollbackSystemVersion`. It reads the current graph from the shared
- * `FlowStore` for its diff baseline and reloads the store on a successful
- * rollback — it never mutates the graph by hand.
+ * `FlowStore` for its diff baseline. After rollback it emits the authoritative
+ * System response; the builder/persistence boundary owns graph hydration.
  */
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -35,6 +36,8 @@ import type {
   CanonicalFlowNode,
 } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
+import { FlowPersistenceService } from './flow-persistence.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 const PAGE_SIZE = 25;
 
@@ -108,7 +111,12 @@ const PAGE_SIZE = 25;
                     type="button"
                     class="ck-vers__btn ck-vers__btn--warn"
                     (click)="beginRollback(v)"
-                    [disabled]="i === 0 || rollbackPending()"
+                    [disabled]="
+                      i === 0 ||
+                      rollbackPending() ||
+                      persistence.actionsDisabled() ||
+                      store.dirty()
+                    "
                     [title]="i === 0 ? 'Already current' : 'Roll back to this version'"
                   >
                     <app-icon name="rotate-ccw" [size]="12" /> Roll back
@@ -158,7 +166,11 @@ const PAGE_SIZE = 25;
                 type="button"
                 class="ck-vers__btn ck-vers__btn--primary"
                 (click)="confirmRollback()"
-                [disabled]="rollbackPending()"
+                [disabled]="
+                  rollbackPending() ||
+                  persistence.actionsDisabled() ||
+                  store.dirty()
+                "
               >
                 @if (rollbackPending()) {
                   <app-icon name="loader-2" [size]="12" class="ck-vers__spin" /> Rolling back…
@@ -175,14 +187,18 @@ const PAGE_SIZE = 25;
 })
 export class FlowVersionsComponent {
   private readonly canonical = inject(CanonicalApiService);
-  private readonly store = inject(FlowStore);
+  protected readonly store = inject(FlowStore);
+  protected readonly persistence = inject(FlowPersistenceService);
   private readonly toastr = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly open = input(false);
   readonly systemId = input<string | null>(null);
 
   readonly close = output<void>();
   readonly rolledBack = output<System>();
+  readonly reloadRequired = output<void>();
 
   readonly versions = signal<SystemVersionSummary[]>([]);
   readonly total = signal(0);
@@ -201,6 +217,18 @@ export class FlowVersionsComponent {
   private opened = false;
 
   constructor() {
+    const unregisterReset = this.workspace.registerContextReset(() => {
+      this.opened = false;
+      this.versions.set([]);
+      this.total.set(0);
+      this.loading.set(false);
+      this.loadingMore.set(false);
+      this.rollbackTarget.set(null);
+      this.rollbackPending.set(false);
+      this.previews.set({});
+    });
+    this.destroyRef.onDestroy(unregisterReset);
+
     effect(() => {
       const isOpen = this.open();
       if (isOpen && !this.opened) {
@@ -218,13 +246,16 @@ export class FlowVersionsComponent {
     if (!sid) return;
     this.loading.set(true);
     this.previews.set({});
+    const scope = this.workspace.captureRequestScope();
     this.canonical.listSystemVersions(sid, { limit: PAGE_SIZE, offset: 0 }).subscribe({
       next: (res) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.loading.set(false);
         this.versions.set(res.versions ?? []);
         this.total.set(res.total ?? 0);
       },
       error: () => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.loading.set(false);
         this.toastr.error('Could not load version history.', 'Versions');
       },
@@ -235,15 +266,18 @@ export class FlowVersionsComponent {
     const sid = this.systemId();
     if (!sid || this.loadingMore()) return;
     this.loadingMore.set(true);
+    const scope = this.workspace.captureRequestScope();
     this.canonical
       .listSystemVersions(sid, { limit: PAGE_SIZE, offset: this.versions().length })
       .subscribe({
         next: (res) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.loadingMore.set(false);
           this.versions.update((cur) => [...cur, ...(res.versions ?? [])]);
           this.total.set(res.total ?? this.total());
         },
         error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.loadingMore.set(false);
           this.toastr.error('Could not load more versions.', 'Versions');
         },
@@ -253,12 +287,15 @@ export class FlowVersionsComponent {
   preview(v: SystemVersionSummary): void {
     const sid = this.systemId();
     if (!sid || this.previews()[v.version_number]) return;
+    const scope = this.workspace.captureRequestScope();
     this.canonical.getSystemVersion(sid, v.version_number).subscribe((full) => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
       if (full) this.previews.update((m) => ({ ...m, [v.version_number]: full }));
     });
   }
 
   beginRollback(v: SystemVersionSummary): void {
+    if (this.persistence.actionsDisabled() || this.store.dirty()) return;
     this.rollbackTarget.set(v);
     this.rollbackMessage.set('');
     this.preview(v);
@@ -278,32 +315,66 @@ export class FlowVersionsComponent {
     const sid = this.systemId();
     const tgt = this.rollbackTarget();
     if (!sid || !tgt) return;
+    if (this.store.dirty()) {
+      this.toastr.warning(
+        'Save or discard local changes before rolling back.',
+        'Rollback blocked',
+      );
+      return;
+    }
+    const writeOptions = this.persistence.rollbackWriteOptions();
+    if (!writeOptions) {
+      this.toastr.warning(
+        'Reload the authoritative System before rolling back.',
+        'Rollback blocked',
+      );
+      return;
+    }
+    if (!this.persistence.beginExternalMutation()) return;
     this.rollbackPending.set(true);
+    const scope = this.workspace.captureRequestScope();
     const message = this.rollbackMessage().trim() || `rollback to v${tgt.version_number}`;
-    this.canonical.rollbackSystemVersion(sid, tgt.version_number, message).subscribe({
-      next: (res) => {
-        this.rollbackPending.set(false);
-        if (!res) {
-          this.toastr.error('Rollback failed — see backend logs.', 'Rollback');
-          return;
-        }
-        this.rollbackTarget.set(null);
-        this.rollbackMessage.set('');
-        const flow = (res.system.flow_definition ?? {}) as unknown as CanonicalFlow;
-        if (Array.isArray(flow.nodes)) this.store.load(flow);
-        this.captureBaseline();
-        this.refresh();
-        this.rolledBack.emit(res.system);
-        this.toastr.success(
-          `Rolled back to v${tgt.version_number} (new v${res.new_version.version_number}).`,
-          'Rollback',
-        );
-      },
-      error: () => {
-        this.rollbackPending.set(false);
-        this.toastr.error('Rollback failed — network error.', 'Rollback');
-      },
-    });
+    this.canonical
+      .rollbackSystemVersion(sid, tgt.version_number, message, writeOptions)
+      .subscribe({
+        next: (res) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.rollbackPending.set(false);
+          if (!res) {
+            // The request may have committed even when its response was lost.
+            // Keep the graph non-interactive until a strict GET resolves truth.
+            this.persistence.beginHydration();
+            this.reloadRequired.emit();
+            this.toastr.warning(
+              'Rollback outcome is unknown. Reloading the authoritative Flow.',
+              'Rollback verification',
+            );
+            return;
+          }
+          this.rollbackTarget.set(null);
+          this.rollbackMessage.set('');
+          // Output delivery is synchronous: the builder/persistence owner hydrates
+          // the authoritative System before we recapture the read-only diff base.
+          this.rolledBack.emit(res.system);
+          this.persistence.endExternalMutation();
+          this.captureBaseline();
+          this.refresh();
+          this.toastr.success(
+            `Rolled back to v${tgt.version_number} (new v${res.new_version.version_number}).`,
+            'Rollback',
+          );
+        },
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.rollbackPending.set(false);
+          this.persistence.beginHydration();
+          this.reloadRequired.emit();
+          this.toastr.warning(
+            'Rollback outcome is unknown. Reloading the authoritative Flow.',
+            'Rollback verification',
+          );
+        },
+      });
   }
 
   /** Node/edge delta vs the live canvas. Exact once a preview is prefetched. */
