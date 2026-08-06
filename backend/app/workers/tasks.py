@@ -121,6 +121,40 @@ def rag_retrieve_context(payload: dict) -> dict:
 
 
 @celery_app.task(
+    name="agentium.trigger_run",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def trigger_run(self, run_id: str) -> dict:
+    """Execute one event-triggered Run under a PostgreSQL coordination lease."""
+
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.models.run import Run
+    from app.services.run_engine.engine import schedule_run
+    from app.services.run_engine.subflow_orchestration import postgres_coordination_lease
+
+    if not settings.database_url.startswith("postgresql"):
+        return {"id": run_id, "status": "unsupported_coordination_database"}
+    with postgres_coordination_lease("trigger-run", run_id) as lease_acquired:
+        if not lease_acquired:
+            raise self.retry(countdown=1, max_retries=120)
+        with SessionLocal() as db:
+            run = db.query(Run).filter(Run.id == run_id).first()
+            if run is None:
+                return {"id": run_id, "status": "run_not_found"}
+            if run.trigger != "webhook" or not run.trigger_dedup_key:
+                return {"id": run_id, "status": "trigger_claim_invalid"}
+            if run.status in {"completed", "failed", "cancelled"}:
+                return {"id": run_id, "status": run.status}
+            if run.status not in {"pending", "running"}:
+                return {"id": run_id, "status": "run_not_dispatchable"}
+        schedule_run(run_id)
+        return {"id": run_id, "status": "scheduled"}
+
+
+@celery_app.task(
     name="agentium.subflow_run",
     bind=True,
     acks_late=True,
@@ -441,6 +475,7 @@ def subflow_hitl_resume(
     """Durably continue a delegated child after its Decision is resolved."""
 
     from celery.exceptions import Retry
+
     from app.core.config import settings
     from app.db.base import SessionLocal
     from app.models.run import Run

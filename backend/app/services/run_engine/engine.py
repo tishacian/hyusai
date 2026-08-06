@@ -19,7 +19,6 @@ capture, same Outcome derivation, same Decision side-effects.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import math
 import time
@@ -69,6 +68,12 @@ from app.services.system_catalog_bindings import (
 )
 
 from .events import bus as event_bus
+from .execution_contract import (
+    canonical_flow_sha256,
+    execution_runtime_mode,
+    resolve_flow_execution,
+    resolve_run_flow_execution,
+)
 from .streaming import flush_token_sink, make_token_sink
 
 logger = get_logger(__name__)
@@ -89,7 +94,7 @@ def schedule_run(run_id: str) -> None:
     """
     # Local import avoids a circular dependency at module load time
     # (``dag`` imports the shared helpers from this module).
-    from .dag import execute_run_dag, should_use_dag  # noqa: WPS433
+    from .dag import execute_run_dag  # noqa: WPS433
 
     async def _entry() -> None:
         use_dag = False
@@ -112,7 +117,10 @@ def schedule_run(run_id: str) -> None:
                     if system and run.workspace_id
                     else None
                 )
-                use_dag = bool(system and should_use_dag(system, workspace))
+                use_dag = bool(
+                    system
+                    and resolve_run_flow_execution(run, system, workspace).uses_dag
+                )
         finally:
             db.close()
         if use_dag:
@@ -136,7 +144,7 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
     sequential walker for the child System and drives it on its own event loop,
     mirroring :func:`schedule_run`.
     """
-    from .dag import execute_run_dag, should_use_dag  # noqa: WPS433
+    from .dag import execute_run_dag  # noqa: WPS433
 
     async def _entry() -> Dict[str, Any]:
         use_dag = False
@@ -166,7 +174,10 @@ def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
                 )
                 if system is not None and run.workspace_id and workspace is None:
                     scoped_error = "delegated_workspace_missing"
-                use_dag = bool(system and should_use_dag(system, workspace))
+                use_dag = bool(
+                    system
+                    and resolve_run_flow_execution(run, system, workspace).uses_dag
+                )
                 if scoped_error:
                     run.status = "failed"
                     run.error = scoped_error
@@ -381,6 +392,16 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         )
         if run.workspace_id and workspace is None:
             return _fail(db, run, "system_catalog_binding_invalid:workspace_not_found")
+        debug_config = (
+            run.input_ref.get("_debug")
+            if isinstance(run.input_ref, dict)
+            else None
+        )
+        if (
+            debug_config is not None
+            and not resolve_run_flow_execution(run, system, workspace).debug_supported
+        ):
+            return _fail(db, run, "debug_runtime_unsupported:sequential_legacy")
         try:
             catalog_bindings = resolve_run_system_catalog_bindings(
                 db,
@@ -760,7 +781,7 @@ def _snapshot_run_flow(
     if first_start is None:
         first_start = run.status == "pending"
     flow = system.flow_definition if isinstance(system.flow_definition, dict) else {}
-    first_execution = run.flow_snapshot is None
+    flow_was_frozen = isinstance(run.flow_snapshot, dict)
     if run.flow_snapshot is None:
         run.flow_snapshot = deepcopy(flow)
     input_ref = deepcopy(run.input_ref) if isinstance(run.input_ref, dict) else {}
@@ -768,13 +789,15 @@ def _snapshot_run_flow(
         raise RuntimeError("run_system_workspace_mismatch")
     canonical_workspace_id = system.workspace_id or run.workspace_id
     run.workspace_id = canonical_workspace_id
+    workspace = None
     workspace_slug = None
     if canonical_workspace_id:
-        workspace_slug = (
-            db.query(Workspace.slug).filter(Workspace.id == canonical_workspace_id).scalar()
+        workspace = (
+            db.query(Workspace).filter(Workspace.id == canonical_workspace_id).one_or_none()
         )
-        if not workspace_slug:
+        if workspace is None:
             raise RuntimeError("run_workspace_not_found")
+        workspace_slug = workspace.slug
     # Canonical tenant and actor fields always win over caller-supplied input.
     input_ref["workspace_id"] = canonical_workspace_id
     if workspace_slug:
@@ -782,9 +805,11 @@ def _snapshot_run_flow(
     else:
         input_ref.pop("workspace_slug", None)
     input_ref["user_id"] = run.initiated_by_user_id
-    if first_execution:
+    if first_start:
         system_settings = system.settings if isinstance(system.settings, dict) else {}
-        input_ref["retrieval_contract"] = deepcopy(system_settings.get("retrieval_contract") or {})
+        input_ref["retrieval_contract"] = deepcopy(
+            system_settings.get("retrieval_contract") or {}
+        )
     execution = dict(input_ref.get("execution") or {})
     if first_start:
         snapshot_at = datetime.now(UTC).replace(tzinfo=None)
@@ -805,14 +830,17 @@ def _snapshot_run_flow(
         # their existing history without manufacturing a new execution time.
         if snapshot_at is None and run.flow_version_id:
             snapshot_at = run.started_at
-    if "flow_sha256" not in execution:
-        encoded = json.dumps(
-            run.flow_snapshot or {},
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        execution["flow_sha256"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    pinned_runtime_mode = (
+        execution_runtime_mode(input_ref) if flow_was_frozen else None
+    )
+    execution_resolution = resolve_flow_execution(
+        run.flow_snapshot,
+        workspace,
+        pinned_runtime_mode=pinned_runtime_mode,
+    )
+    execution["flow_sha256"] = canonical_flow_sha256(run.flow_snapshot)
+    execution["runtime_mode"] = execution_resolution.runtime_mode
+    execution.setdefault("runtime_mode_reason", execution_resolution.reason)
     system_settings = system.settings if isinstance(system.settings, dict) else {}
     if system_settings.get("flow_revision") is not None:
         execution.setdefault("flow_revision", system_settings.get("flow_revision"))
@@ -984,7 +1012,10 @@ async def _execute_task_node(
     try:
         fn = resolve_skill(slug)
         output = await fn(invocation.input_ref, skill_ctx)
-        invocation.output_ref = output or {}
+        # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``
+        # and ``""``) are valid contract outputs and must not be rewritten to
+        # an empty object before the DAG validates or publishes them.
+        invocation.output_ref = output if output is not None else {}
         invocation.status = "completed"
     except asyncio.CancelledError:
         invocation.status = "cancelled"
@@ -1076,7 +1107,7 @@ def _finalize_run(
     control: Optional[ControlPolicy],
     invocations: List[SkillInvocation],
     duration_ms: float,
-    last_output: Dict[str, Any],
+    last_output: Any,
 ) -> Dict[str, Any]:
     """Derive the canonical Outcome block, apply post-checks, persist."""
     # A race/any join (or parent cancellation) may cancel this child from a
@@ -1120,7 +1151,10 @@ def _finalize_run(
     run.cost_internal = derived.cost
     run.efficiency = derived.efficiency
     run.value_source = derived.value_source.value
-    run.output_ref = last_output or {}
+    # Preserve the exact JSON value accepted by the frozen execution
+    # contract.  The caller supplies ``{}`` when there is genuinely no
+    # terminal value, so truthiness is never a valid absence test here.
+    run.output_ref = last_output
     if control:
         postcheck_blocked = _apply_control_postchecks(db, system, run, control)
         if postcheck_blocked and _safe_membrane(control).enforcement_active:

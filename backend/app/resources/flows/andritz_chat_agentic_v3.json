@@ -16,13 +16,13 @@
     "template_name": "Chat Agentic Thinking (complete variant)",
     "data_flow_notes": [
       "decision nodes n'émettent QUE {chosen_branch, evaluations} : toute valeur aval est tirée du VariablePool via inputs_map (VariableRef {node_id, path}).",
-      "Les branches tuées par une décision ne neutralisent QUE l'enfant direct ; la QUEUE multi-noeuds d'une branche tuée s'EXÉCUTE quand même (vérifié runtime). Donc la livraison action (answer/clarify/reject_oos) est routée EN FIN de graphe, vers des sinks-FEUILLES enfants directs de decision.deliver : chaque sink non choisi est proprement neutralisé (all_inputs_dead -> skip avant résolution inputs_map). C'est l'unique pattern de pruning propre du moteur.",
+      "Le pruning des branches mortes est transitif : tout nœud all_inputs_dead marque ses sorties mortes, y compris sur une queue multi-nœuds. La livraison action reste routée en fin de graphe vers des sinks feuilles pour rendre la décision opérateur explicite, pas comme contournement du runtime.",
       "config.params n'est JAMAIS transmis aux skills : tout comportement passe par inputs_map. Les params restants sont DOCUMENTAIRES (non-authoritative).",
       "GROUNDING (fix 2026-06-26) : le run_engine ctx (_build_initial_ctx) ne porte que workspace_id, pas workspace_slug ; or la collection Qdrant physique est tenant-préfixée ({slug}__{collection}). semantic_search_v1 et llm_rag_answer_v1 résolvent donc le slug depuis l'id (sinon retrieval vide : raw_chunks_retrieved=0, embedding_ms=null). task.generate consomme le tableau context (= join.retrieval.results) au lieu de relancer une recherche ; si le join est vide il s'abstient (jamais de génération libre).",
       "PARITÉ RECALL (fix 2026-06-26) : get_retrieval_profile traite un top_k seul comme un pin utilisateur qui COLLAPSE synthesis_k/candidate_pool_k au top_k (le DAG ne ramenait ~6 ctx vs ~12 pour le classic, et ratait le chunk porteur AKK200). Correctif : le plan EXPOSE et les retrieve_* TRANSMETTENT le triplet de budgets par lane (= chat._apply_retrieval_budget_policy : balanced 8/16/40, deep 8/24/80, fast 5/12/20) ; _semantic_search_v1 backfill aussi ces budgets par lane (filet de sécurité). Vérifié live : balanced lone-top_k=6 -> 6 chunks (carrier absent) ; balanced budget complet -> merged 38 / 19 résultats (carrier 0,3 m / 10-20 m/min présent).",
       "OOS BACKSTOP (fix 2026-06-26) : _coerce_plan demote reject_oos -> answer si la requête cite un projet/machine/système connu (project code, QMS-12, URACA, Etachrom, SINAMICS…) et JAMAIS sur la base de la langue ; decision.deliver n'honore reject_oos QUE si context_count==0 (retrieval réellement vide). Un faux reject_oos (ex. QMS-12 en allemand) retombe donc sur une réponse ancrée.",
       "ROUTAGE INVENTAIRE (fix 2026-06-26) : _coerce_plan force mode=deep + budget deep pour les questions transversales/inventaire/énumération multi-projets ('quels projets…', 'liste…', 'sur quels projets', agrégation) ; le classic route déjà ces cas en deep.",
-      "SORTIE LATENCE (fix Phase A 2026-07-09) : les 2 juges LLM (eval_radar_v1, claim_audit_v1) sont RETIRES du DAG de service en ligne. Diagnostic : le walker execute_run_dag ne finalise le run qu'apres que TOUS les noeuds atteignables se soient settle (pas de fire-and-forget natif), et chaque tick asyncio.gather attend TOUT l'ensemble ready — donc decision.verdict et toute la queue d'egress (verdict->self_correct?->join.answer->egress_gate->deliver->sink), planifies dans le meme tick que les 2 juges LLM (~20-21s chacun), etaient BLOQUES derriere eux : les juges siegaient sur le chemin critique wall-clock (~+40s) meme sans gater le CONTENU de la reponse (Phase 2 les avait deja sortis du chemin du verdict, mais pas du wall-clock du walker). Fix : task.generate alimente task.response_eval (embeddings, rapide) DIRECTEMENT (arete generate->response_eval), response_eval alimente decision.verdict DIRECTEMENT (arete response_eval->verdict), et fork.self_eval->join.eval est reduit a un passthrough INSTANTANE (zero skill/LLM) conserve comme ancre structurelle fork/join (le validateur exige >=1 fork pour equilibrer join.retrieval + join.answer, qui sont des fan-in pilotes par decision). Les juges LLM restent DISPONIBLES hors ligne pour le harness A/B agentic_chat_spike.py (qui les mesure via JudgeService/ResponseEvaluator directement, hors membrane), ou ils etaient un instrument de mesure, pas une exigence de service. Retirer un juge n'impacte donc ni le verdict, ni la reponse, ni desormais la latence wall-clock. Les 2 skills restent listes dans membrane_spec.capabilities.allowed_skills (permis/disponibles) bien que non cables dans le graphe.",
+      "SORTIE LATENCE (fix Phase A 2026-07-09) : les 2 juges LLM (eval_radar_v1, claim_audit_v1) sont RETIRES du DAG de service en ligne. task.generate alimente task.response_eval directement, puis decision.verdict. Le scaffold fork.self_eval/join.eval est un passthrough historique désormais signalé comme dette topologique par le linter réel ; les joins pilotés par Decision ne sont plus réputés équilibrés par simple comptage global. Les juges restent disponibles hors ligne pour le harness A/B.",
       "MULTI-HOP (fix Phase 4 2026-07-08) : chat_agentic_plan_v1 emet desormais 'sub_queries' (2-4 sous-questions) sur les profils comparaison/multi_hop/transversal (hors inventaire, qui garde sa lane deep+facette), sinon liste vide. Une lane task.retrieve_multihop (skill multi_hop_retrieve_v1) est selectionnee EN PRIORITE par decision.route_mode quand sub_queries est non vide : elle lance N semantic_search_v1 en parallele (asyncio.gather) et fusionne/dedupe (RRF via comparative_retrieval.merge_comparative_results) dans la meme forme 'results[]', consommee par join.retrieval (strategy=any) puis task.generate. Semantique lane-unique preservee (route_mode neutralise les autres lanes)."
     ],
     "nodes": [
@@ -129,7 +129,8 @@
           "branches": [
             { "label": "multihop", "condition": "sub_queries != [] and sub_queries != None" },
             { "label": "fast", "condition": "mode == 'fast'" },
-            { "label": "deep", "condition": "mode == 'deep'" }
+            { "label": "deep", "condition": "mode == 'deep'" },
+            { "label": "balanced", "condition": "mode == 'balanced'" }
           ],
           "default_branch": "balanced",
           "inputs_map": {
@@ -518,7 +519,8 @@
         "config": {
           "branches": [
             { "label": "clarify", "condition": "action == 'clarify'" },
-            { "label": "reject_oos", "condition": "action == 'reject_oos' and context_count == 0" }
+            { "label": "reject_oos", "condition": "action == 'reject_oos' and context_count == 0" },
+            { "label": "deliver", "condition": "True" }
           ],
           "default_branch": "deliver",
           "inputs_map": {
@@ -602,6 +604,7 @@
       { "from": "task.generate", "to": "fork.self_eval", "kind": "data" },
       { "from": "fork.self_eval", "to": "join.eval", "kind": "data" },
       { "from": "decision.verdict", "to": "task.self_correct", "kind": "branch", "branch_label": "weak" },
+      { "from": "decision.verdict", "to": "join.answer", "kind": "branch", "branch_label": "strong" },
       { "from": "task.generate", "to": "join.answer", "kind": "data" },
       { "from": "task.self_correct", "to": "join.answer", "kind": "data" },
       { "from": "join.answer", "to": "decision.egress_gate", "kind": "data" },

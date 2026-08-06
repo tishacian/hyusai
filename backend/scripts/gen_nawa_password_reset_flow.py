@@ -558,6 +558,7 @@ def case_node(nid: str, preset_key: str, label: str, description: str, x: int, y
         "position": {"x": x, "y": y},
         "data": {"menu": "Simulation bench", "description": description},
         "config": {
+            "runtime_ref": "builtin:passthrough",
             "inputs_map": {"case": ref("system", "scenario_presets", preset_key)},
             "outputs_map": {"case": "intake.case"},
         },
@@ -698,6 +699,7 @@ NODES = [
             ),
         },
         "config": {
+            "runtime_ref": "builtin:passthrough",
             "inputs_map": {"case": ref("run", "case")},
             "outputs_map": {"case": "intake.case"},
         },
@@ -1036,6 +1038,7 @@ NODES = [
             ),
         },
         "config": {
+            "runtime_ref": "builtin:passthrough",
             "inputs_map": {
                 "directory_action": ref("system", "simulation", "directory_reset"),
                 "target_account": ref("intake", "case", "requester_upn"),
@@ -1065,6 +1068,7 @@ NODES = [
             ),
         },
         "config": {
+            "runtime_ref": "builtin:passthrough",
             "inputs_map": {
                 "temporary_password_issued": ref(
                     "system", "simulation", "temporary_password_issued"
@@ -1122,6 +1126,7 @@ NODES = [
             "description": "SIMULATED. Emits the closed ticket record and its resolution text.",
         },
         "config": {
+            "runtime_ref": "builtin:passthrough",
             "inputs_map": {
                 "ticket": ref("system", "simulation", "ticket"),
                 "closed_by": ref("system", "simulation", "closed_by"),
@@ -1565,23 +1570,22 @@ DATA_FLOW_NOTES = [
     "calls and their output drives every downstream branch.",
     "decision nodes emit only {chosen_branch, evaluations}. Every downstream value is read from the "
     "variable pool through config.inputs_map (typed VariableRef), never from the branch payload.",
-    "Killing a branch only neutralises the DIRECT children of the decision - a multi-node tail on a "
-    "dead branch still executes. That is why the five execution steps are all direct children of "
-    "decision.execute_reset instead of a chain: on a dead lane every one of them is skipped with "
-    "all_inputs_dead, so no model call, no audit write and no simulated directory gesture happens.",
+    "Branch pruning is transitive: a node skipped with all_inputs_dead marks every outgoing edge "
+    "dead. The five execution steps remain explicit sibling lanes for audit readability, while a "
+    "future multi-node tail is now neutralised safely as well.",
     "decision.identity_gate, decision.execute_reset and decision.closure_route deliberately have "
     "NO default_branch: when "
     "their input never materialised (the request was routed away at step 1) every branch closes and "
     "the whole procedure is neutralised. decision.intent_route, by contrast, defaults to "
     "other_use_case so an unreadable classification can never trigger a privileged write.",
-    "A skipped node does NOT kill its own outgoing edges, so the tail behind the execution block "
-    "needs its own gate: decision.closure_route joins the five steps plus the refusal branch and "
+    "decision.closure_route remains the explicit business completion gate: it joins the five "
+    "steps plus the refusal branch and "
     "opens 'closed' only when the closure record exists, 'refused' only when a human said no. "
     "Without it sink.ticket_closed would fire on a neutralised lane and report a resolved ticket.",
     "sink.ticket_closed reads its whole payload from the pool through inputs_map, so the outcome "
     "leaf that fires is the only one contributing to Run.output_ref.",
-    "The simulated gestures (steps 3, 4, 6) are task nodes with no bound skill: they resolve their "
-    "inputs_map against system.simulation.* and emit it as their output. Editing the fake temporary "
+    "The simulated gestures (steps 3, 4, 6) are explicitly bound to builtin:passthrough: they "
+    "resolve inputs_map against system.simulation.* and emit it as their output. Editing the fake temporary "
     "password, ticket id or resolution text is a System settings change, not a flow change.",
     "decision.execute_reset checks its four branches IN ORDER: incident, quality_hold, execute, "
     "refused. Every condition is written so that a missing input reads as False (None == 0 and "

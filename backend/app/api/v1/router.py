@@ -20,6 +20,10 @@ from app.api.v1.endpoints import (
     control_plane,
     documents,
     evaluation,
+    flow_diffs,
+    flow_ingresses,
+    flow_publication,
+    flow_runner,
     hana,
     health,
     help_content,
@@ -95,6 +99,10 @@ api_router.include_router(model_portal.router, prefix="/models", tags=["model-po
 
 # Canonical mental-model layer.
 api_router.include_router(systems.router,       prefix="/systems",       tags=["systems"])
+api_router.include_router(flow_publication.router, prefix="/systems", tags=["flow-publication"])
+api_router.include_router(flow_ingresses.router, prefix="/systems", tags=["flow-ingresses"])
+api_router.include_router(flow_runner.router, prefix="/systems", tags=["flow-runner"])
+api_router.include_router(flow_diffs.router, prefix="/systems", tags=["flow-diffs"])
 api_router.include_router(value_loop.router,    prefix="/systems",       tags=["value-loop"])
 api_router.include_router(capabilities.router,  prefix="/capabilities",  tags=["capabilities"])
 api_router.include_router(skills.router,        prefix="/skills",        tags=["skills"])

@@ -761,6 +761,37 @@ def test_managed_agentic_hitl_requires_admin_even_for_run_initiator(
     assert decision.approved_by == initiator.email
 
 
+def test_managed_agentic_debug_resume_requires_admin_even_for_run_initiator(
+    db_session,
+    monkeypatch,
+):
+    workspace, initiator, _other, membership, _system, run, _decision = (
+        _seed_pending_run(db_session, managed=True)
+    )
+    run.status = "debug_pending"
+    db_session.commit()
+    monkeypatch.setattr(runs, "_step_wrapper", lambda *_args: None)
+    client = _client(db_session, workspace, initiator)
+
+    forbidden = client.post(
+        f"/runs/{run.id}/step",
+        json={"action": "continue"},
+    )
+    # Managed Run existence remains concealed from a non-admin even when the
+    # caller initiated it; the full run-authority boundary is reached only
+    # after visibility has passed.
+    assert forbidden.status_code == 404
+
+    membership.role = "admin"
+    membership.role_template = WORKSPACE_ADMIN
+    db_session.commit()
+    accepted = client.post(
+        f"/runs/{run.id}/step",
+        json={"action": "continue"},
+    )
+    assert accepted.status_code == 200
+
+
 def test_managed_hitl_admin_floor_cannot_be_widened_by_v2_enforce(
     db_session,
     monkeypatch,

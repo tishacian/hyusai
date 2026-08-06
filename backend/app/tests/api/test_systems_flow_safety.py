@@ -65,7 +65,18 @@ def _dag(prefix: str = "current", *, label: str = "Decision") -> dict[str, Any]:
         ],
         "edges": [
             {"from": f"{prefix}.source", "to": f"{prefix}.decision", "kind": "data"},
-            {"from": f"{prefix}.decision", "to": f"{prefix}.sink", "kind": "control"},
+            {
+                "from": f"{prefix}.decision",
+                "to": f"{prefix}.sink",
+                "kind": "branch",
+                "branch_label": "yes",
+            },
+            {
+                "from": f"{prefix}.decision",
+                "to": f"{prefix}.sink",
+                "kind": "branch",
+                "branch_label": "no",
+            },
         ],
     }
 
@@ -397,7 +408,7 @@ def test_explicit_intent_persists_empty_flow_version_and_payload_free_audit(
         "after_sha256": systems._flow_sha256(replacement),
         "before_node_count": 3,
         "after_node_count": 0,
-        "before_edge_count": 2,
+        "before_edge_count": 3,
         "after_edge_count": 0,
         "intent": "replace_active_flow",
         "reasons": ["active_flow_empty", "active_dag_runtime_downgrade"],

@@ -28,11 +28,25 @@ True
 from __future__ import annotations
 
 import ast
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NoReturn, Optional
 
 
 class ConditionError(ValueError):
-    """Raised when a condition expression is invalid or unsafe."""
+    """Raised when a condition expression is invalid, unsafe or cannot run.
+
+    ``code`` is intentionally stable so validators and runtime checkpoints can
+    expose a machine-readable reason without leaking condition inputs.  The
+    human-readable ``message`` remains the exception string for backwards
+    compatibility with existing logs.
+    """
+
+    def __init__(self, message: str, *, code: str = "condition_invalid") -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+    def to_dict(self) -> Dict[str, str]:
+        return {"code": self.code, "message": self.message}
 
 
 # Reserved namespaces a predicate may address as ``<namespace>.<key>`` when a
@@ -56,11 +70,22 @@ _ALLOWED_CMP_OPS = (
 _ALLOWED_UNARY_OPS = (ast.Not, ast.USub, ast.UAdd)
 
 
+def validate(expression: str) -> None:
+    """Validate the complete condition AST without evaluating any operands.
+
+    This pass is deliberately separate from evaluation.  A forbidden node in
+    the right-hand side of ``False and ...`` must still be rejected even though
+    correct boolean evaluation never visits that operand.
+    """
+
+    _parse_and_validate(expression)
+
+
 def evaluate(expression: str, ctx: Dict[str, Any], *, pool: Optional[Any] = None) -> bool:
     """Safely evaluate ``expression`` against ``ctx``.
 
-    Returns a boolean. Empty / whitespace-only expressions evaluate to
-    ``True`` (conventionally "no guard, fall through").
+    Returns a boolean. Empty / whitespace-only expressions are invalid: a
+    branch without a predicate must be represented by ``default_branch``.
 
     ``pool`` (P1, optional) is a :class:`~app.services.run_engine.variable_pool.VariablePool`.
     When supplied, ``<namespace>.<key>`` attribute references against the
@@ -68,41 +93,126 @@ def evaluate(expression: str, ctx: Dict[str, Any], *, pool: Optional[Any] = None
     read namespaced selectors (e.g. ``run.approved``). When ``pool`` is ``None``
     only the legacy ``ctx.<key>`` form is accepted — behaviour is unchanged.
     """
-    if expression is None:
-        return True
-    text = str(expression).strip()
+    tree = _parse_and_validate(expression)
+    try:
+        value = _walk(tree.body, ctx, pool)
+        return bool(value)
+    except ConditionError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - runtime predicates fail closed.
+        # Predicate failures must not escape as raw Python exceptions: they
+        # become stable Decision runtime failures upstream. Never include
+        # operand reprs here because ctx can carry sensitive values.
+        raise ConditionError(
+            f"condition evaluation failed: {type(exc).__name__}",
+            code="condition_evaluation_error",
+        ) from exc
+
+
+def _parse_and_validate(expression: str) -> ast.Expression:
+    text = "" if expression is None else str(expression).strip()
     if not text:
-        return True
+        raise ConditionError(
+            "condition expression must not be empty",
+            code="condition_empty",
+        )
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as exc:
-        raise ConditionError(f"invalid condition syntax: {exc.msg}") from exc
-    value = _walk(tree.body, ctx, pool)
-    return bool(value)
+        raise ConditionError(
+            f"invalid condition syntax: {exc.msg}",
+            code="condition_syntax_error",
+        ) from exc
+    _validate_node(tree.body)
+    return tree
+
+
+def _unsupported(node: ast.AST, *, message: Optional[str] = None) -> NoReturn:
+    raise ConditionError(
+        message or f"unsupported expression node {type(node).__name__}",
+        code="condition_unsupported",
+    )
+
+
+def _validate_node(node: ast.AST) -> None:
+    """Recursively validate every child of an expression node."""
+
+    if isinstance(node, ast.BoolOp):
+        if not isinstance(node.op, _ALLOWED_BOOL_OPS):
+            _unsupported(node, message=f"unsupported boolean op {type(node.op).__name__}")
+        for value in node.values:
+            _validate_node(value)
+        return
+
+    if isinstance(node, ast.UnaryOp):
+        if not isinstance(node.op, _ALLOWED_UNARY_OPS):
+            _unsupported(node, message=f"unsupported unary op {type(node.op).__name__}")
+        _validate_node(node.operand)
+        return
+
+    if isinstance(node, ast.Compare):
+        _validate_node(node.left)
+        for op, comparator in zip(node.ops, node.comparators):
+            if not isinstance(op, _ALLOWED_CMP_OPS):
+                _unsupported(node, message=f"unsupported comparison {type(op).__name__}")
+            _validate_node(comparator)
+        return
+
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float, str, bool)) or node.value is None:
+            return
+        _unsupported(
+            node,
+            message=f"unsupported literal of type {type(node.value).__name__}",
+        )
+
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        for element in node.elts:
+            _validate_node(element)
+        return
+
+    if isinstance(node, ast.Name):
+        return
+
+    if isinstance(node, ast.Attribute):
+        if (
+            isinstance(node.value, ast.Name)
+            and isinstance(node.attr, str)
+            and node.value.id in ("ctx", "context", *_POOL_NAMESPACES)
+        ):
+            return
+        _unsupported(
+            node,
+            message=(
+                "only top-level ctx.<key> or reserved namespace.<key> "
+                "attribute access is allowed"
+            ),
+        )
+
+    _unsupported(node)
 
 
 def _walk(node: ast.AST, ctx: Dict[str, Any], pool: Optional[Any] = None) -> Any:
     if isinstance(node, ast.BoolOp):
         if not isinstance(node.op, _ALLOWED_BOOL_OPS):
-            raise ConditionError(f"unsupported boolean op {type(node.op).__name__}")
-        values = [_walk(v, ctx, pool) for v in node.values]
+            _unsupported(node, message=f"unsupported boolean op {type(node.op).__name__}")
         if isinstance(node.op, ast.And):
             result: Any = True
-            for v in values:
-                result = v
-                if not v:
-                    return False
+            for value_node in node.values:
+                result = _walk(value_node, ctx, pool)
+                if not result:
+                    return result
             return result
         last: Any = False
-        for v in values:
-            last = v
-            if v:
-                return v
+        for value_node in node.values:
+            last = _walk(value_node, ctx, pool)
+            if last:
+                return last
         return last
 
     if isinstance(node, ast.UnaryOp):
         if not isinstance(node.op, _ALLOWED_UNARY_OPS):
-            raise ConditionError(f"unsupported unary op {type(node.op).__name__}")
+            _unsupported(node, message=f"unsupported unary op {type(node.op).__name__}")
         operand = _walk(node.operand, ctx, pool)
         if isinstance(node.op, ast.Not):
             return not operand
@@ -114,7 +224,7 @@ def _walk(node: ast.AST, ctx: Dict[str, Any], pool: Optional[Any] = None) -> Any
         left = _walk(node.left, ctx, pool)
         for op, comparator in zip(node.ops, node.comparators):
             if not isinstance(op, _ALLOWED_CMP_OPS):
-                raise ConditionError(f"unsupported comparison {type(op).__name__}")
+                _unsupported(node, message=f"unsupported comparison {type(op).__name__}")
             right = _walk(comparator, ctx, pool)
             if not _cmp(op, left, right):
                 return False
@@ -124,7 +234,10 @@ def _walk(node: ast.AST, ctx: Dict[str, Any], pool: Optional[Any] = None) -> Any
     if isinstance(node, ast.Constant):
         if isinstance(node.value, (int, float, str, bool)) or node.value is None:
             return node.value
-        raise ConditionError(f"unsupported literal of type {type(node.value).__name__}")
+        _unsupported(
+            node,
+            message=f"unsupported literal of type {type(node.value).__name__}",
+        )
 
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
         return [_walk(e, ctx, pool) for e in node.elts]
@@ -144,11 +257,20 @@ def _walk(node: ast.AST, ctx: Dict[str, Any], pool: Optional[Any] = None) -> Any
             # ``<namespace>.<key>`` — pool-backed namespaced selector (P1).
             if pool is not None and base in _POOL_NAMESPACES:
                 return pool.get([base, node.attr])
-        raise ConditionError(
-            "only top-level ctx.<key> attribute access is allowed"
+            if base in _POOL_NAMESPACES:
+                raise ConditionError(
+                    f"condition namespace {base!r} is unavailable",
+                    code="condition_namespace_unavailable",
+                )
+        _unsupported(
+            node,
+            message=(
+                "only top-level ctx.<key> or reserved namespace.<key> "
+                "attribute access is allowed"
+            ),
         )
 
-    raise ConditionError(f"unsupported expression node {type(node).__name__}")
+    _unsupported(node)
 
 
 def _cmp(op: ast.cmpop, left: Any, right: Any) -> bool:
@@ -168,15 +290,18 @@ def _cmp(op: ast.cmpop, left: Any, right: Any) -> bool:
         return left in (right or [])
     if isinstance(op, ast.NotIn):
         return left not in (right or [])
-    raise ConditionError(f"unsupported comparison {type(op).__name__}")
+    raise ConditionError(
+        f"unsupported comparison {type(op).__name__}",
+        code="condition_unsupported",
+    )
 
 
 def _lookup(ctx: Dict[str, Any], name: str) -> Any:
     """Look up ``name`` in the ctx, then fall back to the nested ``input``.
 
-    Returning ``None`` on miss is intentional — comparisons like
-    ``score > 0.8`` against a missing key should cleanly yield False after
-    the type-error boundary below.
+    Returning ``None`` on miss is intentional. Equality checks can test for a
+    missing value explicitly; ordered comparisons against it become a
+    structured ``condition_evaluation_error`` at the public boundary.
     """
     if not isinstance(ctx, dict):
         return None

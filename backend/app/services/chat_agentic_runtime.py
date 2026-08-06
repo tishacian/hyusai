@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.logging import get_logger
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.chat_execution_policy import ChatExecutionDecision
 from app.services.rag.decision_trace import build_retrieval_decision_trace
 from app.services.run_engine.dag import execute_run_dag
 from app.services.run_engine.events import bus as event_bus
+from app.services.systems import flow_ingress, flow_publication
 
 logger = get_logger(__name__)
 
@@ -121,6 +123,88 @@ def agentic_timeout_seconds(system: System) -> float:
     return max(1.0, min(44.0, value))
 
 
+def _create_legacy_chat_run(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+    payload: Mapping[str, Any],
+    initiated_by_user_id: str | None,
+    trigger: str,
+) -> Run:
+    """Isolated pre-publication path, reachable only while the P1 flag is off."""
+
+    if flow_publication.flow_publication_enabled(workspace):
+        raise RuntimeError("legacy chat Run creation is disabled by Flow publication")
+    run = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        initiated_by_user_id=initiated_by_user_id,
+        system_id=system.id,
+        capability_id=getattr(system, "capability_id", None),
+        input_ref=deepcopy(dict(payload)),
+        flow_snapshot=deepcopy(system.flow_definition or {}),
+        status="pending",
+        trigger=trigger,
+    )
+    db.add(run)
+    db.flush()
+    return run
+
+
+def create_chat_adapter_run(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    system: System,
+    payload: Mapping[str, Any],
+    initiated_by_user_id: str | None = None,
+    session_id: str | None = None,
+    adapter_evidence: Mapping[str, Any] | None = None,
+    trigger: str = "chat_agentic",
+) -> Run:
+    """Create one chat Run through the feature-selected execution authority.
+
+    A publication-enabled workspace never falls through to the mutable legacy
+    snapshot.  The published ingress boundary owns ingress selection and
+    freezes the version, graph hash, executable contract and surface on the
+    Run before the engine can open its separate session.
+    """
+
+    if system.workspace_id != workspace.id:
+        raise ValueError("chat executor System does not belong to the workspace")
+    if flow_publication.flow_publication_enabled(workspace):
+        run = flow_ingress.create_published_ingress_run(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            ingress_id=None,
+            kind="chat",
+            payload=payload,
+            initiated_by_user_id=initiated_by_user_id,
+            runner_session_id=session_id,
+            adapter_evidence={
+                **deepcopy(dict(adapter_evidence or {})),
+                "surface": "chat",
+                "adapter_version": 1,
+                "session_bound": bool(session_id),
+            },
+            trigger=trigger,
+        )
+    else:
+        run = _create_legacy_chat_run(
+            db,
+            workspace=workspace,
+            system=system,
+            payload=payload,
+            initiated_by_user_id=initiated_by_user_id,
+            trigger=trigger,
+        )
+    db.commit()
+    db.refresh(run)
+    return run
+
+
 def create_agentic_chat_run(
     db: DBSession,
     *,
@@ -139,6 +223,16 @@ def create_agentic_chat_run(
     system = decision.executor_system
     if system is None:
         raise ValueError("agentic executor System is required")
+    workspace = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace_id)
+        .populate_existing()
+        .one_or_none()
+    )
+    if workspace is None:
+        raise ValueError("chat workspace is required")
+    if workspace.slug != workspace_slug:
+        raise ValueError("chat workspace slug does not match its workspace id")
     chat_turn_id = str(uuid.uuid4())
     runtime_fields = {
         key: request_context.get(key)
@@ -157,13 +251,13 @@ def create_agentic_chat_run(
         )
         if request_context.get(key) is not None
     }
-    run = Run(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace_id,
+    return create_chat_adapter_run(
+        db,
+        workspace=workspace,
+        system=system,
         initiated_by_user_id=user_id,
-        system_id=system.id,
-        capability_id=system.capability_id,
-        input_ref={
+        session_id=session_id,
+        payload={
             "query": query,
             "conversation_history": conversation_history,
             "salient_entities": salient_entities or {},
@@ -185,16 +279,11 @@ def create_agentic_chat_run(
             "retrieval_contract": deepcopy(decision.retrieval_contract or {}),
             **runtime_fields,
         },
-        # Freeze graph + contract in the resolver transaction. The engine will
-        # preserve these snapshots, closing the mutation window before start.
-        flow_snapshot=deepcopy(system.flow_definition or {}),
-        status="pending",
-        trigger="chat_agentic",
+        adapter_evidence={
+            "policy_version": decision.policy_version,
+            "policy_mode": decision.mode,
+        },
     )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    return run
 
 
 async def iter_agentic_run_events(

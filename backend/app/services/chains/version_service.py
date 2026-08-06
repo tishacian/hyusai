@@ -41,7 +41,9 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
+from app.models.run import Run
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.services.audit_logger import emit_audit_event
 
@@ -65,6 +67,14 @@ _CONFIGURATION_TRANSITION_KINDS = frozenset(
     {"control_policy_rebind", "showcase_seed_reconcile"}
 )
 _MEMBRANE_ENFORCEMENT_MODES = frozenset({"compat", "shadow", "enforce"})
+
+
+def _canonical_flow_sha256(flow_definition: Mapping[str, Any]) -> str:
+    """Resolve the shared hash lazily to avoid a run-engine import cycle."""
+
+    from app.services.run_engine.execution_contract import canonical_flow_sha256
+
+    return canonical_flow_sha256(flow_definition)
 
 
 class ChainVersionError(Exception):
@@ -265,6 +275,9 @@ def record_new_version(
     purge: bool = True,
     configuration_snapshot: Mapping[str, Any] | None = None,
     force: bool = False,
+    release_kind: str = "legacy_snapshot",
+    draft_revision: int | None = None,
+    execution_contract: Mapping[str, Any] | None = None,
 ) -> SystemVersion | None:
     """Persist a new ``SystemVersion`` for this system and trim the
     rolling window. Commits on the caller's session (we only flush —
@@ -313,6 +326,14 @@ def record_new_version(
         version_number=(latest.version_number if latest is not None else 0) + 1,
         flow_definition=copy.deepcopy(dict(flow_definition)),
         configuration_snapshot=normalized_configuration,
+        flow_sha256=_canonical_flow_sha256(flow_definition),
+        release_kind=release_kind,
+        draft_revision=draft_revision,
+        execution_contract=(
+            copy.deepcopy(dict(execution_contract))
+            if execution_contract is not None
+            else None
+        ),
         message=message,
         rolled_back_from_id=rolled_back_from_id,
         created_by=created_by or "demo-user",
@@ -385,9 +406,44 @@ def _purge_window(*, db: DBSession, system_id: str) -> list[str]:
         return []
 
     overflow = total - window
+    # Publication pointers and Run evidence are retention authorities. The
+    # rolling window may remain above its target when all old rows are
+    # protected; losing replay/publication truth is never an acceptable way to
+    # meet a row-count preference.
+    protected_ids = {
+        value
+        for (value,) in (
+            db.query(System.published_flow_version_id)
+            .filter(
+                System.id == system_id,
+                System.published_flow_version_id.isnot(None),
+            )
+            .union_all(
+                db.query(SystemFlowDraft.base_published_version_id).filter(
+                    SystemFlowDraft.system_id == system_id,
+                    SystemFlowDraft.base_published_version_id.isnot(None),
+                )
+            )
+            .union_all(
+                db.query(Run.published_flow_version_id).filter(
+                    Run.system_id == system_id,
+                    Run.published_flow_version_id.isnot(None),
+                )
+            )
+            .union_all(
+                db.query(Run.flow_version_id).filter(
+                    Run.system_id == system_id,
+                    Run.flow_version_id.isnot(None),
+                )
+            )
+            .all()
+        )
+        if value is not None
+    }
     to_purge = (
         db.query(SystemVersion)
         .filter(SystemVersion.system_id == system_id)
+        .filter(~SystemVersion.id.in_(protected_ids) if protected_ids else True)
         .order_by(SystemVersion.version_number.asc())
         .limit(overflow)
         .all()
@@ -403,6 +459,12 @@ def _purge_window(*, db: DBSession, system_id: str) -> list[str]:
         window,
     )
     return purged_ids
+
+
+def purge_version_window(*, db: DBSession, system_id: str) -> list[str]:
+    """Public retention entrypoint used after an atomic publication."""
+
+    return _purge_window(db=db, system_id=system_id)
 
 
 def list_versions(
@@ -471,6 +533,21 @@ def rollback_to_version(
     workspace).
     """
 
+    # HTTP routes normally redirect feature-on restores to the server draft,
+    # but services and scripts can call this primitive directly. Guard here as
+    # the final authority so no legacy caller can rewrite the published mirror
+    # behind its immutable pointer.
+    if system.workspace_id is not None:
+        from app.models.workspace import Workspace
+        from app.services.systems.flow_publication import flow_publication_enabled
+
+        workspace = db.query(Workspace).filter(Workspace.id == system.workspace_id).one_or_none()
+        if workspace is not None and flow_publication_enabled(workspace):
+            raise ChainVersionError(
+                "Legacy rollback is disabled while Flow publication is enabled; "
+                "restore the immutable version into the server draft instead."
+            )
+
     target = get_version(
         db=db,
         system_id=system.id,
@@ -519,6 +596,7 @@ def rollback_to_version(
         # A duplicate latest history row must not suppress repair of a drifted
         # authoritative System. Rollback intent always appends in that case.
         force=True,
+        release_kind="rollback",
     )
     assert new_version is not None  # force=True forbids duplicate suppression
 
@@ -555,6 +633,11 @@ def serialize_version(version: SystemVersion) -> dict[str, Any]:
         "version_number": version.version_number,
         "flow_definition": version.flow_definition,
         "configuration_snapshot": version.configuration_snapshot,
+        "flow_sha256": version.flow_sha256
+        or _canonical_flow_sha256(version.flow_definition),
+        "release_kind": version.release_kind or "legacy_snapshot",
+        "draft_revision": version.draft_revision,
+        "execution_contract": version.execution_contract,
         "message": version.message,
         "rolled_back_from_id": version.rolled_back_from_id,
         "created_at": version.created_at.isoformat() if version.created_at else None,
@@ -575,6 +658,10 @@ def serialize_version_summary(version: SystemVersion) -> dict[str, Any]:
         "version_number": version.version_number,
         "message": version.message,
         "rolled_back_from_id": version.rolled_back_from_id,
+        "flow_sha256": version.flow_sha256
+        or _canonical_flow_sha256(version.flow_definition),
+        "release_kind": version.release_kind or "legacy_snapshot",
+        "draft_revision": version.draft_revision,
         "created_at": version.created_at.isoformat() if version.created_at else None,
         "created_by": version.created_by,
         "node_count": len(nodes) if isinstance(nodes, list) else 0,

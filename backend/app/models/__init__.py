@@ -38,12 +38,14 @@ from app.models.skill import Skill
 from app.models.context import Context
 from app.models.policy import ControlPolicy, AdaptivePolicy
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.run import Run, SkillInvocation
 from app.models.run_schedule import RunSchedule
 from app.models.webhook_hook import WebhookHook
 from app.models.run_inbox import RunInbox
 from app.models.system_memory import SystemMemory
+from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.impact import Impact
 from app.models.decision import Decision
@@ -79,8 +81,8 @@ __all__ = [
     "Client360DataSource", "Client360Opportunity", "Client360MappingRule", "Client360MailDraft", "Client360ImpactEvent", "Client360Campaign",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
-    "System", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
-    "RunInbox", "SystemMemory", "RunDispatchOutbox",
+    "System", "SystemFlowDraft", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
+    "RunInbox", "SystemMemory", "RunDispatchOutbox", "TriggerEventClaim",
     "Impact", "Decision",
     "ValueLoopOperation", "ValueScenario", "ValueSimulation",
     "ValueActionExecution", "ValueMeasurement",

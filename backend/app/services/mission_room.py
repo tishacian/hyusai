@@ -46,6 +46,7 @@ from app.services.iam.app_entitlements import (
 )
 from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
 from app.services.scenario_engine import generate_scenarios
+from app.services.systems import flow_publication
 from app.services.visual_intelligence import (
     dashboard_payload as visual_dashboard_payload,
 )
@@ -7605,7 +7606,6 @@ def _ensure_system(
         existing.objective = objective
         existing.capability_id = capability.id
         existing.skill_ids = skill_ids
-        existing.flow_definition = flow
         existing.status = "active"
         existing.execution_mode = execution_mode
         existing.coordination_pattern = "multi_agent" if len(skill_slugs) > 2 else "single_agent"
@@ -7616,6 +7616,16 @@ def _ensure_system(
             "default_route": MISSION_ROOM_ROUTE,
             "voice": "voice2voice_interaction",
         }
+        flow_publication.reconcile_system_flow(
+            db,
+            system=existing,
+            workspace=workspace,
+            flow_definition=flow,
+            actor=created_by,
+            publish_if_owned=True,
+            ownership_prefix=created_by,
+            message="Mission Room seed Flow reconciliation",
+        )
         return existing
     system = System(
         workspace_id=workspace.id,
@@ -7637,6 +7647,12 @@ def _ensure_system(
         retrieval_mode_default="chah",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor=created_by,
+    )
     return system
 
 

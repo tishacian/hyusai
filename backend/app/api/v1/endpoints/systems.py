@@ -19,16 +19,13 @@ Vague E / E3.1 — versioning + DAG validation:
 """
 
 import copy
-import hashlib
-import json
 from collections.abc import Mapping
 from datetime import datetime
-from types import SimpleNamespace
 from typing import Any, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
@@ -62,7 +59,15 @@ from app.services.membrane.spec import resolve_membrane_spec
 from app.services.run_access import readable_run_page
 from app.services.run_engine import schedule_run, triggers
 from app.services.run_engine import scheduler as run_scheduler
-from app.services.run_engine.dag import should_use_dag
+from app.services.run_engine.debug_contract import (
+    DebugContractError,
+    normalize_input_debug,
+)
+from app.services.run_engine.execution_contract import (
+    canonical_flow,
+    canonical_flow_sha256,
+    resolve_flow_execution,
+)
 from app.services.run_engine.webhooks import generate_hook_secret, serialize_hook
 from app.services.system_catalog_bindings import (
     ResolvedSystemCatalogBindings,
@@ -71,6 +76,7 @@ from app.services.system_catalog_bindings import (
     resolve_system_catalog_bindings,
 )
 from app.services.system_perspective import build_system_perspective
+from app.services.systems import flow_ingress, flow_publication
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
@@ -421,6 +427,105 @@ def _resolve_persisted_catalog_bindings_http(
         ) from exc
 
 
+def _enforce_system_run_authority(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    system: System,
+    execution_source: str,
+) -> None:
+    """Apply the complete operator Run boundary shared by every HTTP surface."""
+
+    _require_managed_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=system,
+    )
+    catalog_bindings = _resolve_persisted_catalog_bindings_http(
+        db,
+        workspace=workspace,
+        system=system,
+    )
+    capability = catalog_bindings.capability
+    legacy_decision = evaluate_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        resource_attrs={
+            "iam_manifest": "system_engine",
+            "system_id": system.id,
+            "capability_id": system.capability_id,
+            "capability": capability.slug if capability else None,
+            "execution_source": execution_source,
+        },
+        audit_prefix="system",
+        audit_denials=False,
+    )
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="engine.run",
+        legacy_allowed=(
+            legacy_decision.allowed
+            if is_iam_enforced_for_workspace(workspace)
+            else True
+        ),
+        resource_attrs={
+            "system_id": system.id,
+            "capability_id": system.capability_id,
+            "capability": capability.slug if capability else None,
+            "execution_source": execution_source,
+        },
+    )
+
+    control = None
+    if system.control_policy_id:
+        control = (
+            db.query(ControlPolicy)
+            .filter(
+                ControlPolicy.id == system.control_policy_id,
+                ControlPolicy.workspace_id == workspace.id,
+                ControlPolicy.scope == "system",
+                ControlPolicy.target_id == system.id,
+            )
+            .first()
+        )
+    if control is None:
+        control = (
+            db.query(ControlPolicy)
+            .filter(
+                ControlPolicy.workspace_id == workspace.id,
+                ControlPolicy.scope == "system",
+                ControlPolicy.target_id == system.id,
+            )
+            .order_by(ControlPolicy.updated_at.desc())
+            .first()
+        )
+    spec = resolve_membrane_spec(control=control)
+    membrane_decision = evaluate_capability(
+        spec,
+        model=system.default_model,
+        action="system.engine.run",
+    )
+    if not membrane_decision.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "MEMBRANE_CAPABILITY_DENIED",
+                "message": "System execution denied by its enforced membrane",
+                "system_id": system.id,
+                "capability_id": system.capability_id,
+                "violations": list(membrane_decision.violations),
+            },
+        )
+
+
 # ---------------- Pydantic ----------------
 class SystemCreate(BaseModel):
     name: str
@@ -508,8 +613,33 @@ class SystemUpdate(BaseModel):
 
 
 class RunCreate(BaseModel):
-    input_ref: dict[str, Any] = {}
+    """Truthful public Run envelope.
+
+    The accepted Flow identity is mandatory and debugger controls live inside
+    ``input_ref`` so the HTTP payload has one shape for normal and debug runs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_ref: dict[str, Any] = Field(default_factory=dict)
     trigger: str = "manual"
+    expected_flow_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_debug_config(self) -> "RunCreate":
+        try:
+            self.input_ref = normalize_input_debug(self.input_ref)
+        except DebugContractError as exc:
+            raise ValueError(exc.message) from exc
+        return self
+
+
+class FlowValidationRequest(BaseModel):
+    """Ephemeral Flow body analysed without mutating the persisted System."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    flow_definition: dict[str, Any] = Field(default_factory=dict)
 
 
 class EventTriggerUpdate(BaseModel):
@@ -596,7 +726,7 @@ class SystemUpdateOptions(ActiveFlowWriteOptions):
 
 
 class RollbackOptions(ActiveFlowWriteOptions):
-    pass
+    expected_draft_revision: int | None = Field(default=None, ge=1)
 
 
 class RollbackBody(BaseModel):
@@ -627,11 +757,7 @@ def _canonical_flow(flow: Any) -> dict[str, Any]:
     # Historical NULL is intentionally represented as an empty object. Any
     # other persisted JSON shape is corruption, not another spelling of empty:
     # masking it would create hash collisions and let the editor overwrite it.
-    if flow is None:
-        return {}
-    if not isinstance(flow, dict):
-        raise ValueError("flow_definition must be a JSON object")
-    return flow
+    return canonical_flow(flow)
 
 
 def _flow_sha256(flow: Any) -> str:
@@ -641,12 +767,7 @@ def _flow_sha256(flow: Any) -> str:
     equality and the hash frozen into a Run at execution start.
     """
 
-    encoded = json.dumps(
-        _canonical_flow(flow),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return canonical_flow_sha256(flow)
 
 
 def _flow_items(flow: Any, key: str) -> list[Any]:
@@ -668,15 +789,7 @@ def _flow_node_ids(flow: Any) -> set[str]:
 def _flow_uses_dag(flow: Any, workspace: Workspace) -> bool:
     """Resolve the same DAG/legacy boundary as the production dispatcher."""
 
-    try:
-        return should_use_dag(
-            SimpleNamespace(flow_definition=_canonical_flow(flow)),
-            workspace,
-        )
-    except (OverflowError, TypeError, ValueError):
-        # A malformed schema is handled by the normal DAG validator below.  For
-        # the anti-destruction boundary it must never be mistaken for a DAG.
-        return False
+    return resolve_flow_execution(flow, workspace).uses_dag
 
 
 def _flow_write_summary(flow: Any) -> dict[str, Any]:
@@ -955,13 +1068,26 @@ async def create_system(
     # Seed v1 for every new chain so the history is never empty — the
     # UI's "Versions" panel always has at least the starting point to
     # compare against or roll back to.
-    version_service.record_new_version(
-        db=db,
-        system=s,
-        flow_definition=body.flow_definition or {},
-        created_by=actor,
-        message="Initial version",
-    )
+    try:
+        publication_state = (
+            flow_publication.initialize_new_system_publication_if_enabled(
+                db,
+                system=s,
+                workspace=workspace,
+                actor=actor,
+            )
+        )
+    except flow_publication.FlowPublicationError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+    if publication_state is None:
+        version_service.record_new_version(
+            db=db,
+            system=s,
+            flow_definition=body.flow_definition or {},
+            created_by=actor,
+            message="Initial version",
+        )
 
     db.commit()
     db.refresh(s)
@@ -1054,6 +1180,52 @@ async def get_system_flow_manifest(
         raise HTTPException(404, "System not found")
     _enforce_system_read(db, user=user, workspace=workspace, system=s)
     return serialize_flow_manifest(db, s)
+
+
+@router.post("/{system_id}/validate-flow")
+async def validate_system_flow(
+    system_id: str,
+    body: FlowValidationRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return hash-bound diagnostics for the exact submitted graph.
+
+    The endpoint is intentionally non-mutating. The client may validate a
+    dirty graph, but Save/Execute/Publish must bind the returned diagnostics to
+    this server-computed hash and must discard them immediately after an edit.
+    """
+
+    system = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if system is None:
+        raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+
+    flow = _canonical_flow(body.flow_definition)
+    issues = dag_validator.validate_flow(flow)
+    issues = sorted(
+        issues,
+        key=lambda issue: (
+            0 if issue.level == "error" else 1,
+            issue.node_id or "",
+            issue.edge_index if issue.edge_index is not None else -1,
+            issue.code,
+            issue.message,
+        ),
+    )
+    resolution = resolve_flow_execution(flow, workspace)
+    return {
+        "flow_sha256": _flow_sha256(flow),
+        "analyzer_version": "flow-analyzer/1",
+        "runtime_mode": resolution.runtime_mode,
+        "valid": not dag_validator.has_errors(issues),
+        "issues": dag_validator.issues_to_payload(issues),
+    }
 
 
 def _connected_asset_collection_slugs(flow: Optional[dict[str, Any]]) -> list[str]:
@@ -1163,6 +1335,19 @@ async def update_system(
             updates["settings"] or {},
         )
     flow_touched = "flow_definition" in updates
+    if flow_touched and flow_publication.flow_publication_enabled(workspace):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "flow_draft_endpoint_required",
+                "code": "FLOW_DRAFT_ENDPOINT_REQUIRED",
+                "message": (
+                    "This workspace stores editor changes through PUT /flow-draft; "
+                    "the published compatibility mirror is read-only."
+                ),
+                "system_id": s.id,
+            },
+        )
     current_flow = _canonical_flow(s.flow_definition)
     prospective_flow = updates.get("flow_definition", current_flow)
     prospective_status = updates.get("status", s.status)
@@ -1454,110 +1639,137 @@ async def trigger_run(
             status_code=400,
             detail="The chat_agentic trigger is reserved to the server-owned chat adapter",
         )
-    _require_managed_system_admin(
+    _enforce_system_run_authority(
         db,
         user=user,
         workspace=workspace,
         system=s,
-    )
-    catalog_bindings = _resolve_persisted_catalog_bindings_http(
-        db,
-        workspace=workspace,
-        system=s,
-    )
-    capability = catalog_bindings.capability
-    legacy_decision = evaluate_permission(
-        db,
-        user=user,
-        workspace=workspace,
-        resource_kind="system",
-        action="engine.run",
-        resource_attrs={
-            "iam_manifest": "system_engine",
-            "system_id": s.id,
-            "capability_id": s.capability_id,
-            "capability": capability.slug if capability else None,
-        },
-        audit_prefix="system",
-        audit_denials=False,
-    )
-    enforce_action(
-        db,
-        user=user,
-        workspace=workspace,
-        resource_kind="system",
-        action="engine.run",
-        legacy_allowed=(
-            legacy_decision.allowed
-            if is_iam_enforced_for_workspace(workspace)
-            else True
-        ),
-        resource_attrs={
-            "system_id": s.id,
-            "capability_id": s.capability_id,
-            "capability": capability.slug if capability else None,
-        },
+        execution_source="systems_run_api",
     )
 
-    control = None
-    if s.control_policy_id:
-        control = (
-            db.query(ControlPolicy)
-            .filter(
-                ControlPolicy.id == s.control_policy_id,
-                ControlPolicy.workspace_id == workspace.id,
-                ControlPolicy.scope == "system",
-                ControlPolicy.target_id == s.id,
-            )
-            .first()
-        )
-    if control is None:
-        control = (
-            db.query(ControlPolicy)
-            .filter(
-                ControlPolicy.workspace_id == workspace.id,
-                ControlPolicy.scope == "system",
-                ControlPolicy.target_id == s.id,
-            )
-            .order_by(ControlPolicy.updated_at.desc())
-            .first()
-        )
-    spec = resolve_membrane_spec(control=control)
-    membrane_decision = evaluate_capability(
-        spec,
-        model=s.default_model,
-        action="system.engine.run",
+    # The Flow boundary is accepted under a row lock.  This closes the gap
+    # where a successful POST could otherwise execute a graph saved between
+    # request validation and the worker's first read.
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .first()
     )
-    if not membrane_decision.allowed:
+    if s is None:
+        raise HTTPException(404, "System not found")
+    try:
+        published_version, flow, flow_sha256, execution_contract = (
+            flow_publication.published_run_evidence(
+                db,
+                system=s,
+                workspace=workspace,
+            )
+        )
+    except flow_publication.FlowPublicationError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+    if body.expected_flow_sha256 != flow_sha256:
         raise HTTPException(
-            status_code=403,
+            status_code=409,
             detail={
-                "code": "MEMBRANE_CAPABILITY_DENIED",
-                "message": "System execution denied by its enforced membrane",
+                "error": "run_flow_precondition_stale",
+                "code": "RUN_FLOW_SHA256_MISMATCH",
+                "message": "Reload the System before executing its Flow.",
                 "system_id": s.id,
-                "capability_id": s.capability_id,
-                "violations": list(membrane_decision.violations),
+                "current_flow_sha256": flow_sha256,
+                "expected_flow_sha256": body.expected_flow_sha256,
+            },
+        )
+    execution_resolution = resolve_flow_execution(
+        flow,
+        workspace,
+        pinned_runtime_mode=execution_contract.get("runtime_mode"),
+    )
+    if "_debug" in body.input_ref and not execution_resolution.debug_supported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "debug_runtime_unsupported",
+                "code": "RUN_DEBUG_REQUIRES_DAG",
+                "message": "Flow debugging is unavailable for the sequential legacy runtime.",
+                "runtime_mode": execution_resolution.runtime_mode,
             },
         )
 
-    run = Run(
-        id=str(uuid4()),
-        workspace_id=workspace.id,
-        system_id=s.id,
-        capability_id=s.capability_id,
-        initiated_by_user_id=getattr(user, "id", None),
-        input_ref=body.input_ref,
-        status="pending",
-        started_at=datetime.utcnow(),
-        trigger=body.trigger,
-    )
-    db.add(run)
+    if flow_publication.flow_publication_enabled(workspace):
+        try:
+            run = flow_ingress.create_published_ingress_run(
+                db,
+                system_id=s.id,
+                workspace=workspace,
+                ingress_id=None,
+                kind="manual",
+                payload=body.input_ref,
+                initiated_by_user_id=getattr(user, "id", None),
+                expected_published_version_id=(
+                    published_version.id if published_version is not None else None
+                ),
+                expected_flow_sha256=body.expected_flow_sha256,
+                adapter_evidence={"surface": "systems_run_api"},
+                trigger=body.trigger,
+                allow_debug=True,
+            )
+        except flow_ingress.FlowIngressError as exc:
+            db.rollback()
+            raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+    else:
+        input_ref = copy.deepcopy(body.input_ref)
+        input_ref.pop("_ingress", None)
+        raw_execution = input_ref.get("execution")
+        execution = dict(raw_execution) if isinstance(raw_execution, Mapping) else {}
+        for key in (
+            "ingress_id",
+            "ingress_selection_version",
+            "published_flow_version_id",
+            "execution_surface",
+        ):
+            execution.pop(key, None)
+        # These fields are server-owned even if the caller supplied lookalikes.
+        execution["flow_sha256"] = flow_sha256
+        execution["runtime_mode"] = execution_resolution.runtime_mode
+        execution["runtime_mode_reason"] = execution_resolution.reason
+        input_ref["execution"] = execution
+
+        run = Run(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            system_id=s.id,
+            capability_id=s.capability_id,
+            initiated_by_user_id=getattr(user, "id", None),
+            input_ref=input_ref,
+            flow_snapshot=copy.deepcopy(flow),
+            flow_version_id=published_version.id if published_version is not None else None,
+            published_flow_version_id=(
+                published_version.id if published_version is not None else None
+            ),
+            flow_sha256=flow_sha256,
+            execution_contract=copy.deepcopy(execution_contract),
+            execution_surface="published_manual",
+            status="pending",
+            started_at=datetime.utcnow(),
+            trigger=body.trigger,
+        )
+        db.add(run)
     db.commit()
     db.refresh(run)
 
     # Hand the actual execution to the canonical run_engine (Phase 6).
     background_tasks.add_task(schedule_run, run.id)
-    return {"id": run.id, "status": run.status, "system_id": s.id, "trigger": body.trigger}
+    return {
+        "id": run.id,
+        "status": run.status,
+        "system_id": s.id,
+        "trigger": body.trigger,
+        "flow_sha256": flow_sha256,
+        "runtime_mode": execution_resolution.runtime_mode,
+    }
 
 
 @router.get("/{system_id}/versions")
@@ -1668,6 +1880,44 @@ async def rollback_system_version(
             404,
             "Version not found (may have been purged by the rolling window).",
         )
+
+    if flow_publication.flow_publication_enabled(workspace):
+        if options.expected_draft_revision is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "flow_draft_precondition_missing",
+                    "code": "FLOW_DRAFT_REVISION_REQUIRED",
+                    "message": "Reload the server draft before restoring a version.",
+                    "system_id": s.id,
+                },
+            )
+        try:
+            draft, no_op = flow_publication.restore_draft(
+                db,
+                system_id=s.id,
+                workspace=workspace,
+                version_id=target.id,
+                expected_revision=options.expected_draft_revision,
+                actor=_actor_display_name(user),
+            )
+        except flow_publication.FlowPublicationError as exc:
+            db.rollback()
+            raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+        db.commit()
+        db.refresh(s)
+        db.refresh(draft)
+        return {
+            "system": _serialize(s),
+            "draft": {
+                "revision": draft.revision,
+                "flow_sha256": draft.flow_sha256,
+                "flow_definition": copy.deepcopy(draft.flow_definition),
+                "base_published_version_id": draft.base_published_version_id,
+                "no_op": no_op,
+            },
+            "published_unchanged": True,
+        }
 
     flow_write_audit: dict[str, Any] | None = None
     if s.status == SystemStatus.active.value:
@@ -1867,13 +2117,26 @@ async def import_system(
     )
     db.add(s)
     db.flush()
-    version_service.record_new_version(
-        db=db,
-        system=s,
-        flow_definition=flow,
-        created_by=actor,
-        message="Imported from envelope",
-    )
+    try:
+        publication_state = (
+            flow_publication.initialize_new_system_publication_if_enabled(
+                db,
+                system=s,
+                workspace=workspace,
+                actor=actor,
+            )
+        )
+    except flow_publication.FlowPublicationError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+    if publication_state is None:
+        version_service.record_new_version(
+            db=db,
+            system=s,
+            flow_definition=flow,
+            created_by=actor,
+            message="Imported from envelope",
+        )
     emit_audit_event(
         workspace_id=workspace.id,
         event_type="chain.import",

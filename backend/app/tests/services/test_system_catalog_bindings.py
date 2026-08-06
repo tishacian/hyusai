@@ -344,7 +344,10 @@ async def test_run_api_uses_persisted_authority_for_client360_gate_off(
 
     result = await systems.trigger_run(
         system.id,
-        systems.RunCreate(input_ref={"query": "PDR opportunities"}),
+        systems.RunCreate(
+            input_ref={"query": "PDR opportunities"},
+            expected_flow_sha256=systems._flow_sha256(system.flow_definition),
+        ),
         BackgroundTasks(),
         workspace,
         user,
@@ -439,6 +442,35 @@ def test_scheduler_uses_persisted_authority_for_news_lab_gate_off(
     run = db_session.query(Run).filter(Run.id == run_id).one()
     assert run.system_id == system.id
     assert run.capability_id == capability.id
+
+
+@pytest.mark.asyncio
+async def test_sequential_runtime_rejects_debug_instead_of_ignoring_it(db_session):
+    workspace = _workspace(db_session, "Legacy debug", {"family": "andritz"})
+    skill = _skill(db_session, "legacy-debug-skill")
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Legacy sequential",
+        skill_ids=[skill.id],
+        flow_definition={},
+    )
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        input_ref={"_debug": {"mode": "step"}},
+        flow_snapshot={},
+        status="pending",
+    )
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    result = await execute_run(run.id)
+
+    assert result["status"] == "failed"
+    assert result["error"] == "debug_runtime_unsupported:sequential_legacy"
+    assert db_session.query(SkillInvocation).filter_by(run_id=run.id).count() == 0
 
 
 def test_adaptive_policy_owner_and_scope_match_prospective_system(db_session):
@@ -575,7 +607,10 @@ async def test_create_and_update_reject_invisible_catalog_references(
     with pytest.raises(HTTPException) as trigger_error:
         await systems.trigger_run(
             corrupt.id,
-            systems.RunCreate(input_ref={"query": "must not run"}),
+            systems.RunCreate(
+                input_ref={"query": "must not run"},
+                expected_flow_sha256=systems._flow_sha256(corrupt.flow_definition),
+            ),
             BackgroundTasks(),
             workspace,
             user,

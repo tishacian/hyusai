@@ -29,6 +29,7 @@ from app.services.client360_contract import (
 from app.services.iam.app_entitlements import (
     lock_workspace_for_app_entitlement_mutation,
 )
+from app.services.systems import flow_publication
 
 logger = get_logger(__name__)
 
@@ -500,17 +501,17 @@ def _workspace_chat_flow_definition(
                 "branches": [
                     {
                         "label": "trivial_bypass",
-                        "condition": "maybe_trivial_bypass(query) && no pending action",
+                        "condition": "route == 'trivial_bypass'",
                     },
                     {
                         "label": "canonical_answer",
-                        "condition": "no context_id and no knowledge_scope and canonical answer match",
+                        "condition": "route == 'canonical_answer'",
                     },
                     {
                         "label": "workspace_action",
-                        "condition": "registry/calendar/action-plan/visual/map/vigie handler matches",
+                        "condition": "route == 'workspace_action'",
                     },
-                    {"label": "rag_orchestrator", "condition": "default route"},
+                    {"label": "rag_orchestrator", "condition": "True"},
                 ],
                 "default_branch": "rag_orchestrator",
                 "runtime_ref": "chat.maybe_trivial_bypass + chat._canonical_answer_hit + action handlers",
@@ -713,11 +714,11 @@ def _workspace_chat_flow_definition(
                 "branches": [
                     {
                         "label": "fast_finalize",
-                        "condition": "no deep recommendation or direct answer sufficient",
+                        "condition": "deep_search_requested != True",
                     },
                     {
                         "label": "queue_deep_search",
-                        "condition": "retrieval degraded or Deep Search requested",
+                        "condition": "deep_search_requested == True",
                     },
                 ],
                 "default_branch": "fast_finalize",
@@ -1176,7 +1177,6 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
         existing.objective = existing.objective or _workspace_chat_objective(workspace, family)
         existing.capability_id = capability.id
         existing.skill_ids = skill_ids
-        existing.flow_definition = flow_definition
         existing.settings = {**_as_dict(existing.settings), **system_settings}
         existing.execution_mode = "real_time_decision"
         existing.execution_profile = {
@@ -1193,6 +1193,16 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
             _as_dict(profile.get("retrieval_defaults")).get("mode")
             or existing.retrieval_mode_default
             or "auto"
+        )
+        flow_publication.reconcile_system_flow(
+            db,
+            system=existing,
+            workspace=workspace,
+            flow_definition=flow_definition,
+            actor="system:workspace_chat_seed",
+            publish_if_owned=True,
+            ownership_prefix="system:workspace_chat_seed",
+            message="Workspace Chat seed Flow reconciliation",
         )
         _dedupe_seeded_chat_systems(db, workspace_id)
         db.commit()
@@ -1222,6 +1232,12 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
         retrieval_mode_default=_as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor="system:workspace_chat_seed",
+    )
     db.commit()
     db.refresh(system)
     # A concurrent caller may have inserted an identical chat in the check-then-act
@@ -1436,7 +1452,6 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
         existing.objective = CLIENT360_PDR_OBJECTIVE
         existing.capability_id = capability.id
         existing.skill_ids = []
-        existing.flow_definition = flow_definition
         existing.settings = merged_settings
         existing.execution_mode = "human_augmented"
         existing.execution_profile = {
@@ -1448,6 +1463,16 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
         existing.status = "active"
         existing.default_prompt_type = existing.default_prompt_type or "factual"
         existing.retrieval_mode_default = existing.retrieval_mode_default or "auto"
+        flow_publication.reconcile_system_flow(
+            db,
+            system=existing,
+            workspace=workspace,
+            flow_definition=flow_definition,
+            actor="system:client360_pdr_seed",
+            publish_if_owned=True,
+            ownership_prefix="system:client360_pdr_seed",
+            message="Client360 PDR seed Flow reconciliation",
+        )
         db.commit()
         db.refresh(existing)
         return existing
@@ -1473,6 +1498,12 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
         retrieval_mode_default="auto",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor="system:client360_pdr_seed",
+    )
     db.commit()
     db.refresh(system)
     logger.info("client360_pdr_system_seed.created", workspace_id=workspace_id, system_id=system.id)
@@ -1505,6 +1536,10 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
     Returns the (existing or newly created) System, or ``None`` if the
     required capability/skill haven't been seeded yet.
     """
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is None:
+        return None
+
     capability = (
         db.query(Capability).filter(Capability.slug == INTELLIGENCE_CAPABILITY_SLUG).first()
     )
@@ -1536,7 +1571,16 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
             flow["variant"] = "intelligence"
             flow.setdefault("nodes", [])
             flow.setdefault("edges", [])
-            existing.flow_definition = flow
+            flow_publication.reconcile_system_flow(
+                db,
+                system=existing,
+                workspace=workspace,
+                flow_definition=flow,
+                actor="system:intelligence_seed",
+                publish_if_owned=True,
+                ownership_prefix="system:intelligence_seed",
+                message="Intelligence seed Flow reconciliation",
+            )
             db.commit()
         return existing
 
@@ -1580,6 +1624,12 @@ def ensure_intelligence_system_default(db: DBSession, workspace_id: str) -> Opti
         retrieval_mode_default="auto",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor="system:intelligence_seed",
+    )
     db.commit()
     db.refresh(system)
 
@@ -1794,7 +1844,7 @@ def _expert_capture_flow_definition(skills: dict[str, Skill]) -> dict[str, objec
                 "branches": [
                     {
                         "label": "follow_up_required",
-                        "condition": "evaluation.verdict != 'sufficient'",
+                        "condition": "verdict != 'sufficient'",
                     },
                     {
                         "label": "proposal_requested",
@@ -1975,6 +2025,10 @@ def _is_fse_report_system(system: System) -> bool:
 
 
 def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is None:
+        return None
+
     capability = (
         db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
     )
@@ -2026,14 +2080,24 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
                 retired += 1
         existing = preferred
         flow = dict(existing.flow_definition or {})
-        if flow.get("variant") != "expert_knowledge_capture":
-            existing.flow_definition = flow_definition
+        needs_flow_reconciliation = flow.get("variant") != "expert_knowledge_capture"
         existing.objective = existing.objective or EXPERT_CAPTURE_OBJECTIVE
         existing.skill_ids = skill_ids
         existing.execution_mode = "human_augmented"
         existing.coordination_pattern = "single_agent"
         existing.status = "active"
         existing.retrieval_mode_default = "chah"
+        if needs_flow_reconciliation:
+            flow_publication.reconcile_system_flow(
+                db,
+                system=existing,
+                workspace=workspace,
+                flow_definition=flow_definition,
+                actor="system:expert_capture_seed",
+                publish_if_owned=True,
+                ownership_prefix="system:expert_capture_seed",
+                message="Expert Capture seed Flow reconciliation",
+            )
         db.commit()
         db.refresh(existing)
         if retired:
@@ -2065,6 +2129,12 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
         retrieval_mode_default="chah",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor="system:expert_capture_seed",
+    )
     db.commit()
     db.refresh(system)
     logger.info(
@@ -2116,6 +2186,10 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
     classic capture, but binds ``settings.capture.template_id`` so sessions get
     the Visit Report rails. Distinct from :func:`ensure_expert_capture_system_default`.
     """
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is None:
+        return None
+
     capability = (
         db.query(Capability).filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG).first()
     )
@@ -2167,7 +2241,7 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
             or migration_placeholder
             or not has_graph
         ):
-            existing.flow_definition = flow_definition
+            desired_flow = flow_definition
         else:
             # Keep operator edits to nodes/edges; refresh UI entry + template metadata.
             merged_flow = dict(flow)
@@ -2176,7 +2250,7 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
             ui = dict(merged_flow.get("ui") or {})
             ui.update(flow_definition["ui"])
             merged_flow["ui"] = ui
-            existing.flow_definition = merged_flow
+            desired_flow = merged_flow
         settings = dict(existing.settings or {}) if isinstance(existing.settings, dict) else {}
         capture = dict(settings.get("capture") or {}) if isinstance(settings.get("capture"), dict) else {}
         capture["template_id"] = FSE_REPORT_TEMPLATE_ID
@@ -2185,7 +2259,6 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
         settings.setdefault("surface_routes", ["/knowledge/interventions"])
         existing.settings = settings
         flag_modified(existing, "settings")
-        flag_modified(existing, "flow_definition")
         existing.name = existing.name or FSE_REPORT_SYSTEM_NAME
         existing.objective = existing.objective or FSE_REPORT_OBJECTIVE
         existing.skill_ids = skill_ids
@@ -2193,6 +2266,16 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
         existing.coordination_pattern = "single_agent"
         existing.status = "active"
         existing.retrieval_mode_default = "chah"
+        flow_publication.reconcile_system_flow(
+            db,
+            system=existing,
+            workspace=workspace,
+            flow_definition=desired_flow,
+            actor=FSE_REPORT_CREATED_BY,
+            publish_if_owned=True,
+            ownership_prefix=FSE_REPORT_CREATED_BY,
+            message="FSE Report seed Flow reconciliation",
+        )
         db.commit()
         db.refresh(existing)
         return existing
@@ -2219,6 +2302,12 @@ def ensure_fse_report_system(db: DBSession, workspace_id: str) -> Optional[Syste
         retrieval_mode_default="chah",
     )
     db.add(system)
+    flow_publication.initialize_new_system_publication_if_enabled(
+        db,
+        system=system,
+        workspace=workspace,
+        actor=FSE_REPORT_CREATED_BY,
+    )
     db.commit()
     db.refresh(system)
     logger.info(

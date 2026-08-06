@@ -28,12 +28,18 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 
+from app.api.v1.endpoints.flow_runner import _run_row as _runner_run_row
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_version import SystemVersion
+from app.models.workspace import Workspace
+from app.services.flow_contracts import compile_execution_contract
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag, resume_run_dag
+from app.services.run_engine.execution_contract import canonical_flow_sha256
+from app.services.systems import flow_ingress, flow_publication
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -191,6 +197,252 @@ async def test_sequential_tasks_thread_outputs(db_session, monkeypatch):
     assert "run_end" in _checkpoint_kinds(run)
 
 
+@pytest.mark.parametrize(
+    ("value", "schema"),
+    [
+        (False, {"type": "boolean"}),
+        (0, {"type": "integer"}),
+        ("", {"type": "string"}),
+    ],
+)
+async def test_falsy_scalar_output_survives_runtime_persistence_and_runner_projection(
+    db_session,
+    monkeypatch,
+    value,
+    schema,
+):
+    async def scalar(_inp, _ctx):
+        return value
+
+    _install_fake_registry(monkeypatch, {"scalar_v1": scalar})
+    _mk_skill(db_session, "scalar_v1")
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "scalar", "kind": "task", "config": {"skill_slug": "scalar_v1"}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "scalar"},
+            {"from": "scalar", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "scalar"})
+    run.flow_snapshot = flow
+    run.execution_contract = {
+        "validation_mode": "enforce",
+        "nodes": {"scalar": {"output_schema": schema}},
+        "outputs": [{"node_id": "sink", "schema": schema}],
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    invocation = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == run.id)
+        .one()
+    )
+    assert type(invocation.output_ref) is type(value)
+    assert invocation.output_ref == value
+    assert type(persisted.output_ref) is type(value)
+    assert persisted.output_ref == value
+    projected = _runner_run_row(persisted)["output_ref"]
+    assert type(projected) is type(value)
+    assert projected == value
+
+
+@pytest.mark.parametrize(
+    ("execution_surface", "selected_source", "selected_kind", "expected_call"),
+    [
+        ("published_manual", "manual.input", "manual", "manual"),
+        ("draft_test", "http.input", "http", "http"),
+    ],
+)
+async def test_normalized_ingress_executes_only_its_frozen_source_branch(
+    db_session,
+    monkeypatch,
+    execution_surface,
+    selected_source,
+    selected_kind,
+    expected_call,
+):
+    calls: list[str] = []
+
+    async def manual(_inp, _ctx):
+        calls.append("manual")
+        return {"adapter": "manual"}
+
+    async def webhook(_inp, _ctx):
+        calls.append("http")
+        return {"adapter": "http"}
+
+    _install_fake_registry(
+        monkeypatch,
+        {"manual_v1": manual, "webhook_v1": webhook},
+    )
+    _mk_skill(db_session, "manual_v1")
+    _mk_skill(db_session, "webhook_v1")
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {
+                "id": "manual.input",
+                "kind": "source",
+                "config": {"ingress_kind": "manual"},
+            },
+            {
+                "id": "http.input",
+                "kind": "source",
+                "config": {"ingress_kind": "http"},
+            },
+            {
+                "id": "manual.task",
+                "kind": "task",
+                "config": {"skill_slug": "manual_v1"},
+            },
+            {
+                "id": "http.task",
+                "kind": "task",
+                "config": {"skill_slug": "webhook_v1"},
+            },
+            {"id": "manual.sink", "kind": "sink"},
+            {"id": "http.sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "manual.input", "to": "manual.task"},
+            {"from": "manual.task", "to": "manual.sink"},
+            {"from": "http.input", "to": "http.task"},
+            {"from": "http.task", "to": "http.sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "selected"})
+    run.flow_snapshot = flow
+    run.execution_surface = execution_surface
+    run.input_ref = {
+        "query": "selected",
+        "execution": {
+            "execution_surface": execution_surface,
+            "published_flow_version_id": None,
+            "ingress_id": selected_source,
+            "ingress_selection_version": 1,
+        },
+        "_ingress": {
+            "ingress_id": selected_source,
+            "source_node_id": selected_source,
+            "kind": selected_kind,
+            "adapter": {"surface": "test"},
+        },
+    }
+    run.execution_contract = {
+        "validation_mode": "observe",
+        "ingresses": [
+            {
+                "ingress_id": "manual.input",
+                "source_node_id": "manual.input",
+                "kind": "manual",
+            },
+            {
+                "ingress_id": "http.input",
+                "source_node_id": "http.input",
+                "kind": "http",
+            },
+        ],
+        "nodes": {},
+        "outputs": [],
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed"
+    assert calls == [expected_call]
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.output_ref == {"adapter": expected_call}
+    start = next(
+        checkpoint
+        for checkpoint in persisted.checkpoints
+        if checkpoint.get("kind") == "run_start"
+    )
+    assert start["ingress_source_node_id"] == selected_source
+    assert start["inactive_ingress_source_node_ids"] == [
+        "http.input" if selected_source == "manual.input" else "manual.input"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("validation_mode", "expected_status", "expected_disposition"),
+    [
+        ("enforce", "failed", "failed"),
+        ("observe", "completed", "observed"),
+    ],
+)
+async def test_frozen_output_schema_is_enforced_or_observed_by_runtime(
+    db_session,
+    monkeypatch,
+    validation_mode,
+    expected_status,
+    expected_disposition,
+):
+    async def invalid_output(_inp, _ctx):
+        return {"answer": 42}
+
+    _install_fake_registry(monkeypatch, {"typed_v1": invalid_output})
+    _mk_skill(db_session, "typed_v1")
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "typed", "kind": "task", "config": {"skill_slug": "typed_v1"}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "typed"},
+            {"from": "typed", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "hello"})
+    run.flow_snapshot = flow
+    run.execution_contract = {
+        "validation_mode": validation_mode,
+        "nodes": {
+            "typed": {
+                "output_schema": {
+                    "type": "object",
+                    "required": ["answer"],
+                    "properties": {"answer": {"type": "string"}},
+                }
+            }
+        },
+        "outputs": [],
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == expected_status
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.status == expected_status
+    violation = next(
+        cp
+        for cp in persisted.checkpoints
+        if cp.get("kind") == "execution_contract_violation"
+    )
+    assert violation["code"] == "node_output_invalid"
+    assert violation["node_id"] == "typed"
+    assert violation["disposition"] == expected_disposition
+    assert "42" not in violation["message"]
+    assert not ({"payload", "value", "instance"} & set(violation))
+    if validation_mode == "enforce":
+        assert persisted.output_ref == {}
+
+
 # ---------------------------------------------------------------------------
 # 2 — fork → [task, task] → join
 # ---------------------------------------------------------------------------
@@ -316,6 +568,228 @@ async def test_decision_activates_matching_branch_only(db_session, monkeypatch):
     assert decisions_cp[0].get("chosen_branch") == "hi"
 
 
+async def test_decision_uses_explicit_default_and_records_resolution(db_session):
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "dec",
+                "kind": "decision",
+                "config": {
+                    "branches": [
+                        {"label": "yes", "condition": "score > 0.8"},
+                        {"label": "no", "condition": "score < 0"},
+                    ],
+                    "default_branch": "no",
+                },
+            },
+            {"id": "yes_sink", "kind": "sink"},
+            {"id": "no_sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "dec"},
+            {"from": "dec", "to": "yes_sink", "kind": "branch", "branch_label": "yes"},
+            {"from": "dec", "to": "no_sink", "kind": "branch", "branch_label": "no"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"score": 0.4})
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    resolution = next(
+        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
+    )
+    assert resolution["resolution"] == "defaulted"
+    assert resolution["chosen_branch"] == "no"
+    assert resolution["matching_routes"] == 1
+
+
+@pytest.mark.parametrize(
+    ("branches", "default_branch", "edge_label", "expected_error", "expected_resolution"),
+    [
+        (
+            [{"label": "yes", "condition": "score > 0.8"}],
+            None,
+            "yes",
+            "decision_no_match:dec",
+            "no_match",
+        ),
+        (
+            [{"label": "yes", "condition": "True"}],
+            None,
+            "no",
+            "decision_branch_unroutable:dec",
+            "unroutable",
+        ),
+    ],
+)
+async def test_decision_fails_closed_without_a_routable_choice(
+    db_session,
+    branches,
+    default_branch,
+    edge_label,
+    expected_error,
+    expected_resolution,
+):
+    config: Dict[str, Any] = {"branches": branches}
+    if default_branch is not None:
+        config["default_branch"] = default_branch
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "dec", "kind": "decision", "config": config},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "dec"},
+            {
+                "from": "dec",
+                "to": "sink",
+                "kind": "branch",
+                "branch_label": edge_label,
+            },
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"score": 0.4})
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary == {"id": run.id, "status": "failed", "error": expected_error}
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.status == "failed"
+    assert persisted.error == expected_error
+    assert persisted.output_ref == {}
+    resolution = next(
+        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
+    )
+    assert resolution["resolution"] == expected_resolution
+    assert resolution["error"] == expected_error
+
+
+async def test_decision_validates_every_condition_before_first_match(db_session):
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "dec",
+                "kind": "decision",
+                "config": {
+                    "branches": [
+                        {"label": "yes", "condition": "True"},
+                        {"label": "unsafe", "condition": "len(secret) > 0"},
+                    ]
+                },
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "dec"},
+            {"from": "dec", "to": "sink", "kind": "branch", "branch_label": "yes"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"secret": "must-not-leak"})
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "failed"
+    assert summary["error"] == "decision_condition_error:dec"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    resolution = next(
+        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
+    )
+    assert resolution["resolution"] == "error"
+    assert resolution["condition_error"] == {
+        "code": "condition_unsupported",
+        "message": "unsupported expression node Call",
+        "branch_index": 1,
+        "branch_label": "unsafe",
+    }
+    assert "must-not-leak" not in str(resolution)
+
+
+async def test_dead_decision_lane_stays_dead_through_multiple_nodes(db_session, monkeypatch):
+    calls: List[str] = []
+
+    async def active(inp, ctx):
+        calls.append("active")
+        return {"path": "active"}
+
+    async def dead_one(inp, ctx):
+        calls.append("dead_one")
+        return {"path": "dead_one"}
+
+    async def dead_two(inp, ctx):
+        calls.append("dead_two")
+        return {"path": "dead_two"}
+
+    skills = {
+        "active_v1": active,
+        "dead_one_v1": dead_one,
+        "dead_two_v1": dead_two,
+    }
+    _install_fake_registry(monkeypatch, skills)
+    for slug in skills:
+        _mk_skill(db_session, slug)
+
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "dec",
+                "kind": "decision",
+                "config": {
+                    "branches": [
+                        {"label": "live", "condition": "True"},
+                        {"label": "dead", "condition": "False"},
+                    ]
+                },
+            },
+            {"id": "live", "kind": "task", "config": {"skill_slug": "active_v1"}},
+            {"id": "dead1", "kind": "task", "config": {"skill_slug": "dead_one_v1"}},
+            {"id": "dead2", "kind": "task", "config": {"skill_slug": "dead_two_v1"}},
+            {"id": "join", "kind": "join", "config": {"strategy": "all"}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "dec"},
+            {"from": "dec", "to": "live", "kind": "branch", "branch_label": "live"},
+            {"from": "dec", "to": "dead1", "kind": "branch", "branch_label": "dead"},
+            {"from": "dead1", "to": "dead2"},
+            {"from": "dead2", "to": "join"},
+            {"from": "live", "to": "join"},
+            {"from": "join", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system)
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    assert calls == ["active"]
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.output_ref.get("path") == "active"
+    skipped = {
+        cp.get("node_id")
+        for cp in persisted.checkpoints
+        if cp.get("kind") == "node_end" and cp.get("skipped_reason") == "all_inputs_dead"
+    }
+    assert skipped == {"dead1", "dead2"}
+
+
 # ---------------------------------------------------------------------------
 # 4 — retry: two failures then success
 # ---------------------------------------------------------------------------
@@ -422,6 +896,210 @@ async def test_loop_produces_one_invocation_per_item(db_session, monkeypatch):
 
     run = db_session.query(Run).filter(Run.id == run.id).first()
     assert run.output_ref.get("count") == 3
+
+
+async def test_retry_strict_contract_validates_raw_output_before_adapting(
+    db_session,
+    monkeypatch,
+):
+    async def typed_retry(_inp, _ctx):
+        return {"ok": True}
+
+    _install_fake_registry(monkeypatch, {"typed_retry_v1": typed_retry})
+    skill = _mk_skill(db_session, "typed_retry_v1")
+    skill.output_schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    db_session.commit()
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "retry",
+                "kind": "retry",
+                "config": {
+                    "skill_slug": skill.slug,
+                    "max_attempts": 2,
+                    "backoff_ms": 0,
+                },
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "retry"},
+            {"from": "retry", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system)
+    run.flow_snapshot = flow
+    run.execution_contract = compile_execution_contract(
+        db_session,
+        flow=flow,
+        workspace_id=None,
+        runtime_mode="dag_strict",
+        allowed_skill_ids={skill.id},
+    )
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.output_ref == {
+        "ok": True,
+        "_retry_attempts": 1,
+        "_status": "completed",
+    }
+    assert persisted.execution_contract["nodes"]["retry"]["output_adapter"] == "retry.v1"
+    assert not any(
+        checkpoint.get("kind") == "execution_contract_violation"
+        for checkpoint in persisted.checkpoints
+    )
+
+
+async def test_loop_strict_contract_validates_raw_outputs_and_public_envelope(
+    db_session,
+    monkeypatch,
+):
+    async def typed_loop(_inp, ctx):
+        return {"index": ctx["_loop_index"]}
+
+    _install_fake_registry(monkeypatch, {"typed_loop_v1": typed_loop})
+    skill = _mk_skill(db_session, "typed_loop_v1")
+    skill.output_schema = {
+        "type": "object",
+        "properties": {"index": {"type": "integer"}},
+        "required": ["index"],
+        "additionalProperties": False,
+    }
+    db_session.commit()
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "loop",
+                "kind": "loop",
+                "config": {
+                    "skill_slug": skill.slug,
+                    "iterator": "items",
+                    "max_iterations": 2,
+                },
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "loop"},
+            {"from": "loop", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"items": ["a", "b"]})
+    run.flow_snapshot = flow
+    run.execution_contract = compile_execution_contract(
+        db_session,
+        flow=flow,
+        workspace_id=None,
+        runtime_mode="dag_strict",
+        allowed_skill_ids={skill.id},
+    )
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.output_ref == {
+        "iterations": [
+            {"index": 0, "status": "completed", "output": {"index": 0}},
+            {"index": 1, "status": "completed", "output": {"index": 1}},
+        ],
+        "count": 2,
+    }
+    assert persisted.execution_contract["nodes"]["loop"]["output_adapter"] == "loop.v1"
+    assert not any(
+        checkpoint.get("kind") == "execution_contract_violation"
+        for checkpoint in persisted.checkpoints
+    )
+
+
+@pytest.mark.parametrize("kind", ["retry", "loop"])
+async def test_strict_control_node_rejects_invalid_raw_skill_output(
+    db_session,
+    monkeypatch,
+    kind,
+):
+    async def invalid_typed_output(_inp, _ctx):
+        return {"ok": "not-a-boolean"}
+
+    slug = f"invalid_{kind}_v1"
+    _install_fake_registry(monkeypatch, {slug: invalid_typed_output})
+    skill = _mk_skill(db_session, slug)
+    skill.output_schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    db_session.commit()
+    config = {"skill_slug": slug}
+    if kind == "retry":
+        config.update({"max_attempts": 1, "backoff_ms": 0})
+    else:
+        config.update({"max_iterations": 1})
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "control", "kind": kind, "config": config},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "control"},
+            {"from": "control", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system)
+    run.flow_snapshot = flow
+    run.execution_contract = compile_execution_contract(
+        db_session,
+        flow=flow,
+        workspace_id=None,
+        runtime_mode="dag_strict",
+        allowed_skill_ids={skill.id},
+    )
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary == {
+        "id": run.id,
+        "status": "failed",
+        "error": "execution_contract:node_invocation_output_invalid:control",
+    }
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    violations = [
+        checkpoint
+        for checkpoint in persisted.checkpoints
+        if checkpoint.get("kind") == "execution_contract_violation"
+    ]
+    assert len(violations) == 1
+    assert violations[0]["code"] == "node_invocation_output_invalid"
+    assert violations[0]["node_id"] == "control"
+    assert violations[0]["disposition"] == "failed"
+    assert "not-a-boolean" not in str(violations[0])
 
 
 # ---------------------------------------------------------------------------
@@ -678,6 +1356,117 @@ async def test_subflow_creates_child_run(db_session, monkeypatch):
     assert run.output_ref.get("subflow_system_id") == target.id
     assert run.output_ref.get("child_run_id") == child.id
     assert run.output_ref.get("b") == "B"
+
+
+async def test_feature_on_subflow_child_freezes_target_publication_boundary(
+    db_session,
+    monkeypatch,
+):
+    async def inner(_inp, _ctx):
+        return {"frozen": True}
+
+    _install_fake_registry(monkeypatch, {"published_inner_v1": inner})
+    skill = _mk_skill(db_session, "published_inner_v1")
+    workspace = Workspace(
+        id=str(uuid.uuid4()),
+        slug=f"subflow-publication-{uuid.uuid4().hex[:8]}",
+        name="Subflow publication",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+    target_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "manual", "kind": "source"},
+            {
+                "id": "work",
+                "kind": "task",
+                "config": {"skill_slug": skill.slug},
+            },
+            {"id": "result", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "manual", "to": "work"},
+            {"from": "work", "to": "result"},
+        ],
+    }
+    target = System(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        name="Published child",
+        objective="child",
+        status="active",
+        skill_ids=[skill.id],
+        flow_definition=target_flow,
+    )
+    parent_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "manual", "kind": "source"},
+            {
+                "id": "delegate",
+                "kind": "subflow",
+                "config": {
+                    "system_id": target.id,
+                    "subflow_ingress_kind": "manual",
+                },
+            },
+            {"id": "result", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "manual", "to": "delegate"},
+            {"from": "delegate", "to": "result"},
+        ],
+    }
+    parent = System(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        name="Published parent",
+        objective="parent",
+        status="active",
+        skill_ids=[],
+        flow_definition=parent_flow,
+    )
+    db_session.add_all([workspace, target, parent])
+    db_session.commit()
+    for system in (target, parent):
+        flow_publication.initialize_publication_state(
+            db_session,
+            system=system,
+            workspace=workspace,
+            actor="test",
+        )
+    db_session.commit()
+    target_version_id = target.published_flow_version_id
+    target_contract = db_session.get(SystemVersion, target_version_id).execution_contract
+    parent_run = flow_ingress.create_published_ingress_run(
+        db_session,
+        system_id=parent.id,
+        workspace=workspace,
+        ingress_id="manual",
+        kind="manual",
+        payload={"query": "frozen"},
+        expected_published_version_id=parent.published_flow_version_id,
+        expected_flow_sha256=canonical_flow_sha256(parent_flow),
+        adapter_evidence={"surface": "test"},
+    )
+    db_session.commit()
+
+    summary = await execute_run_dag(parent_run.id)
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    child = (
+        db_session.query(Run)
+        .filter(Run.parent_run_id == parent_run.id, Run.system_id == target.id)
+        .one()
+    )
+    assert child.status == "completed"
+    assert child.flow_snapshot == target_flow
+    assert child.flow_version_id == target_version_id
+    assert child.published_flow_version_id == target_version_id
+    assert child.flow_sha256 == canonical_flow_sha256(target_flow)
+    assert child.execution_contract == target_contract
+    assert child.execution_surface == "published_manual"
+    assert child.input_ref["_ingress"]["source_node_id"] == "manual"
 
 
 # ---------------------------------------------------------------------------

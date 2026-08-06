@@ -28,6 +28,16 @@ def _workspace():
     return SimpleNamespace(id="ws-1", slug="andritz")
 
 
+def _system():
+    return SimpleNamespace(
+        id="sys-agentic",
+        workspace_id="ws-1",
+        capability_id=None,
+        status="active",
+        flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT},
+    )
+
+
 def _request(profile: str, *, session_id=None):
     return chat.ChatRequest(
         query="Compare le rendement de l'ACJ200 et de l'AKK200",
@@ -83,8 +93,7 @@ def test_gate_on_selects_only_niche_profiles(monkeypatch):
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_dispatch_returns_agentic_payload_on_completed_run(monkeypatch):
-    system = SimpleNamespace(id="sys-agentic", status="active",
-                             flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT})
+    system = _system()
     _install_system(monkeypatch, system)
     _install_execute_run_dag(monkeypatch)
     fresh = SimpleNamespace(
@@ -111,6 +120,40 @@ async def test_dispatch_returns_agentic_payload_on_completed_run(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_legacy_hybrid_dispatch_delegates_run_creation_to_chat_boundary(monkeypatch):
+    system = _system()
+    workspace = _workspace()
+    _install_system(monkeypatch, system)
+    _install_execute_run_dag(monkeypatch)
+    fresh = SimpleNamespace(status="completed", output_ref={"answer": "Published answer"})
+    db = _fake_db_returning(fresh)
+    captured = {}
+
+    def _create_boundary(fake_db, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(id="boundary-run")
+
+    monkeypatch.setattr(chat, "create_chat_adapter_run", _create_boundary)
+
+    payload = await chat._maybe_agentic_chat_completion(
+        db,
+        workspace=workspace,
+        request=_request("comparison", session_id="session-1"),
+        query="Compare A et B",
+    )
+
+    assert payload is not None
+    assert payload["run_id"] == "boundary-run"
+    assert captured == {
+        "workspace": workspace,
+        "system": system,
+        "payload": {"query": "Compare A et B", "conversation_history": []},
+        "session_id": "session-1",
+        "adapter_evidence": {"adapter_path": "hybrid_agentic_v1"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_dispatch_falls_back_when_system_absent(monkeypatch):
     _install_system(monkeypatch, None)
     # execute_run_dag must never be reached — make it explode if it is.
@@ -127,8 +170,7 @@ async def test_dispatch_falls_back_when_system_absent(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_execute_run_dag_raises(monkeypatch):
-    system = SimpleNamespace(id="sys-agentic", status="active",
-                             flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT})
+    system = _system()
     _install_system(monkeypatch, system)
     _install_execute_run_dag(monkeypatch, side_effect=RuntimeError("dag boom"))
     db = MagicMock()
@@ -143,8 +185,7 @@ async def test_dispatch_falls_back_when_execute_run_dag_raises(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_run_not_completed(monkeypatch):
-    system = SimpleNamespace(id="sys-agentic", status="active",
-                             flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT})
+    system = _system()
     _install_system(monkeypatch, system)
     _install_execute_run_dag(monkeypatch)
     fresh = SimpleNamespace(status="failed", output_ref={"answer": "unused"})
@@ -160,8 +201,7 @@ async def test_dispatch_falls_back_when_run_not_completed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_answer_empty(monkeypatch):
-    system = SimpleNamespace(id="sys-agentic", status="active",
-                             flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT})
+    system = _system()
     _install_system(monkeypatch, system)
     _install_execute_run_dag(monkeypatch)
     fresh = SimpleNamespace(status="completed", output_ref={"answer": "   "})
@@ -177,8 +217,7 @@ async def test_dispatch_falls_back_when_answer_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_reads_clarify_and_oos_sinks(monkeypatch):
-    system = SimpleNamespace(id="sys-agentic", status="active",
-                             flow_definition={"variant": chat.AGENTIC_CHAT_VARIANT})
+    system = _system()
     _install_system(monkeypatch, system)
     _install_execute_run_dag(monkeypatch)
 

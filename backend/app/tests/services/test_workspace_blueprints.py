@@ -13,6 +13,8 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.rag_preset import RagPreset
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -304,6 +306,44 @@ def test_apply_workspace_blueprint_creates_draft_system_and_metadata(db_session)
     assert imported.capability_id is not None
     assert collection.document_count == 0
     assert collection.status == "created"
+
+
+def test_feature_on_blueprint_system_initializes_published_flow_authority(db_session):
+    source, user = _reference_workspace(db_session)
+    blueprint = workspace_blueprints.export_workspace_blueprint(
+        db=db_session,
+        workspace=source,
+        exported_by=user,
+    )
+    target = _workspace(
+        db_session,
+        id_="ws-publication-target",
+        slug="publication-target",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+
+    _validate_then_apply(
+        db_session,
+        target=target,
+        blueprint=blueprint,
+        actor=user,
+    )
+    imported = (
+        db_session.query(System)
+        .filter_by(workspace_id=target.id, name="Expert Knowledge Capture")
+        .one()
+    )
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=imported.id).one()
+    published = (
+        db_session.query(SystemVersion)
+        .filter_by(system_id=imported.id, id=imported.published_flow_version_id)
+        .one()
+    )
+
+    assert draft.base_published_version_id == published.id
+    assert draft.flow_sha256 == published.flow_sha256
+    assert published.execution_contract is not None
+    assert db_session.query(SystemVersion).filter_by(system_id=imported.id).count() == 1
 
 
 def test_export_uses_positive_allowlists_and_removes_credential_shaped_config(db_session):

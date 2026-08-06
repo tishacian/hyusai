@@ -82,7 +82,7 @@ def _seed_agentic_workspace(db_session, *, suffix: str) -> tuple[Workspace, Syst
         objective="Execute grounded Andritz chat turns",
         settings={
             "system_type": "chat_agentic",
-            "flow_revision": "056_andritz_chat_asset_binding",
+            "flow_revision": "078_andritz_decision_contract",
             "retrieval_contract": {
                 "collection": ANDRITZ_NOTICES,
                 "asset_binding": "authoritative",

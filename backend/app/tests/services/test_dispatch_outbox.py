@@ -10,13 +10,14 @@ from app.models.run import Run
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.workspace import Workspace
 from app.services.run_engine.dispatch_outbox import (
-    DispatchLeaseLost,
-    ObsoleteDispatch,
-    PermanentDispatchError,
     RUN_HITL_RESUME,
     SUBFLOW_HITL_RESUME,
     SUBFLOW_PARENT_RESUME,
     SUBFLOW_RUN,
+    TRIGGER_RUN,
+    DispatchLeaseLost,
+    ObsoleteDispatch,
+    PermanentDispatchError,
     claim_dispatch_batch,
     enqueue_dispatch,
     mark_dispatch_published,
@@ -242,6 +243,63 @@ def test_publish_uses_only_ids_and_the_outbox_task_id(db_session, monkeypatch):
     }
     db_session.refresh(row)
     assert row.state == "published"
+
+
+def test_trigger_run_publish_uses_claim_and_identifier_only(db_session, monkeypatch):
+    workspace, run = _workspace_and_run(db_session)
+    run.trigger = "webhook"
+    run.trigger_dedup_key = "trigger-key"
+    row = enqueue_dispatch(
+        db_session,
+        event_type=TRIGGER_RUN,
+        workspace_id=workspace.id,
+        run_id=run.id,
+        source_id=run.trigger_dedup_key,
+    )
+    db_session.commit()
+    claimed = claim_dispatch_batch(db_session, batch_size=1, lease_seconds=30)[0]
+    published = {}
+
+    class Result:
+        id = row.task_id
+
+    def fake_send_task(name, *, args, kwargs, **options):
+        published.update(name=name, args=args, kwargs=kwargs, options=options)
+        return Result()
+
+    monkeypatch.setattr("app.workers.celery_app.celery_app.send_task", fake_send_task)
+    publish_claimed_dispatch(
+        db_session,
+        outbox_id=row.id,
+        lease_token=str(claimed.lease_token),
+    )
+
+    assert published == {
+        "name": "agentium.trigger_run",
+        "args": [run.id],
+        "kwargs": {},
+        "options": {"task_id": row.task_id},
+    }
+    db_session.refresh(run)
+    assert run.celery_task_id == row.task_id
+
+
+def test_repair_recovers_pending_trigger_run_without_outbox(db_session):
+    workspace, run = _workspace_and_run(db_session)
+    run.trigger = "webhook"
+    run.trigger_dedup_key = "repair-trigger-key"
+    db_session.commit()
+
+    repaired = repair_dispatch_gaps(db_session, limit=5)
+    db_session.commit()
+
+    assert repaired[TRIGGER_RUN] == 1
+    row = db_session.query(RunDispatchOutbox).filter_by(event_type=TRIGGER_RUN).one()
+    assert (row.run_id, row.source_id, row.state) == (
+        run.id,
+        run.trigger_dedup_key,
+        "pending",
+    )
 
 
 def test_publish_failure_returns_row_to_pending(db_session, monkeypatch):

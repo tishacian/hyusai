@@ -58,6 +58,10 @@ async def receive_webhook(
             db=db,
             system_id=hook.system_id,
         )
+        # Trigger services respect caller-owned transaction boundaries.  This
+        # endpoint owns its session, so it explicitly commits the atomic
+        # delivery claim, Run/inbox row and durable outbox handoff.
+        db.commit()
         return {
             "status": "accepted",
             "hook_id": hook.id,

@@ -24,6 +24,7 @@ from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_persisted_system_catalog_bindings,
 )
+from app.services.systems import flow_ingress, flow_publication
 
 logger = get_logger(__name__)
 
@@ -146,33 +147,74 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
         )
         return None
 
-    run = Run(
-        id=str(uuid4()),
-        workspace_id=sched.workspace_id,
-        system_id=sched.system_id,
-        capability_id=system.capability_id,
-        input_ref={
-            **(sched.input_payload if isinstance(sched.input_payload, dict) else {}),
-            "_schedule": {
-                "schedule_id": sched.id,
-                "cron_expr": sched.cron_expr,
-                "timezone": sched.timezone,
-                "fired_at": now.isoformat(),
-            },
-        },
-        status="pending",
-        trigger="scheduler",
-        checkpoints=[
+    schedule_evidence = {
+        "schedule_id": sched.id,
+        "cron_expr": sched.cron_expr,
+        "timezone": sched.timezone,
+        "fired_at": now.isoformat(),
+    }
+    if workspace is not None and flow_publication.flow_publication_enabled(workspace):
+        try:
+            run = flow_ingress.create_published_ingress_run(
+                db,
+                system_id=system.id,
+                workspace=workspace,
+                ingress_id=None,
+                kind="schedule",
+                payload=(
+                    sched.input_payload
+                    if isinstance(sched.input_payload, dict)
+                    else {}
+                ),
+                adapter_evidence=schedule_evidence,
+                trigger="scheduler",
+            )
+        except flow_ingress.FlowIngressError as exc:
+            logger.warning(
+                "scheduler: published ingress rejected before run creation",
+                schedule_id=sched.id,
+                system_id=sched.system_id,
+                reason=exc.code,
+            )
+            sched.next_fire_at = compute_next_fire_at(
+                sched.cron_expr,
+                sched.timezone,
+                from_dt=now,
+            )
+            return None
+        run.input_ref = {**(run.input_ref or {}), "_schedule": schedule_evidence}
+        run.checkpoints = [
+            *(run.checkpoints or []),
             {
                 "kind": "schedule_fired",
                 "t": now.isoformat(),
                 "schedule_id": sched.id,
                 "cron_expr": sched.cron_expr,
-            }
-        ],
-    )
-    db.add(run)
-    db.flush()
+            },
+        ]
+    else:
+        run = Run(
+            id=str(uuid4()),
+            workspace_id=sched.workspace_id,
+            system_id=sched.system_id,
+            capability_id=system.capability_id,
+            input_ref={
+                **(sched.input_payload if isinstance(sched.input_payload, dict) else {}),
+                "_schedule": schedule_evidence,
+            },
+            status="pending",
+            trigger="scheduler",
+            checkpoints=[
+                {
+                    "kind": "schedule_fired",
+                    "t": now.isoformat(),
+                    "schedule_id": sched.id,
+                    "cron_expr": sched.cron_expr,
+                }
+            ],
+        )
+        db.add(run)
+        db.flush()
 
     sched.last_run_id = run.id
     sched.last_fired_at = now

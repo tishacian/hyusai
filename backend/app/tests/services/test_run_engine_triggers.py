@@ -140,24 +140,18 @@ def test_registry_excludes_flows_without_triggers_and_inactive(db_session):
 # Governance allowlist (ADR invariant)
 # ---------------------------------------------------------------------------
 def test_governance_allows_sftp_analysis():
-    verdict = triggers.evaluate_governance(
-        triggers.EVENT_SFTP_FILE_ARRIVED, _sftp_analysis_flow()
-    )
+    verdict = triggers.evaluate_governance(triggers.EVENT_SFTP_FILE_ARRIVED, _sftp_analysis_flow())
     assert verdict.eligible is True
 
 
 def test_governance_rejects_sftp_ingestion():
-    verdict = triggers.evaluate_governance(
-        triggers.EVENT_SFTP_FILE_ARRIVED, _sftp_ingestion_flow()
-    )
+    verdict = triggers.evaluate_governance(triggers.EVENT_SFTP_FILE_ARRIVED, _sftp_ingestion_flow())
     assert verdict.eligible is False
     assert verdict.reason.startswith("effect_not_permitted:ingestion")
 
 
 def test_governance_rejects_when_no_trigger_node():
-    verdict = triggers.evaluate_governance(
-        triggers.EVENT_SFTP_FILE_ARRIVED, _no_trigger_flow()
-    )
+    verdict = triggers.evaluate_governance(triggers.EVENT_SFTP_FILE_ARRIVED, _no_trigger_flow())
     assert verdict.eligible is False
     assert verdict.reason == "no_active_trigger_node"
 
@@ -234,6 +228,42 @@ def test_dedup_suppresses_duplicate(db_session, triggers_on):
     assert db_session.query(Run).filter(Run.system_id == system.id).count() == 1
 
 
+def test_atomic_dedup_claim_recovers_the_existing_simulated_run(db_session, triggers_on):
+    ws = _make_workspace(db_session)
+    system = _make_system(db_session, workspace_id=ws.id, flow=_deposit_analysis_flow())
+    payload = {"collection_slug": "c1", "file_id": "same-delivery"}
+    dedup_key = triggers._dedup_key(
+        system.id,
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        payload,
+    )
+
+    first, first_created = triggers._journal_simulated_run(
+        db_session,
+        system,
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        ws.id,
+        payload,
+        dedup_key,
+        owns_session=False,
+    )
+    recovered, second_created = triggers._journal_simulated_run(
+        db_session,
+        system,
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        ws.id,
+        payload,
+        dedup_key,
+        owns_session=False,
+    )
+
+    assert first_created is True
+    assert second_created is False
+    assert recovered.id == first.id
+    assert first.trigger_dedup_key == dedup_key
+    assert db_session.query(Run).filter(Run.trigger_dedup_key == dedup_key).count() == 1
+
+
 def test_emit_no_target_returns_marker(db_session, triggers_on):
     ws = _make_workspace(db_session)
     # No system with a matching trigger node.
@@ -244,7 +274,11 @@ def test_emit_no_target_returns_marker(db_session, triggers_on):
     )
 
     assert results == [
-        {"status": "no_target", "event_kind": triggers.EVENT_DEPOSIT_PROMOTED, "workspace_id": ws.id}
+        {
+            "status": "no_target",
+            "event_kind": triggers.EVENT_DEPOSIT_PROMOTED,
+            "workspace_id": ws.id,
+        }
     ]
 
 

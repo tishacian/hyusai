@@ -14,6 +14,7 @@ from sqlalchemy.dialects import postgresql
 from app.core.config import settings
 from app.models.audit import AuditLog
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.chains import version_service
 
 POLICY_SOURCE_ID = "00000000-0000-4000-8000-000000000001"
@@ -433,6 +434,48 @@ def test_rollback_to_missing_version_raises(db_session) -> None:
         version_service.rollback_to_version(
             db=db_session, system=s, version_number=99, created_by="alice"
         )
+
+
+def test_legacy_rollback_service_is_blocked_when_publication_is_enabled(
+    db_session,
+) -> None:
+    workspace = Workspace(
+        id="ws-publication-rollback-guard",
+        name="Publication rollback guard",
+        slug="publication-rollback-guard",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+    db_session.add(workspace)
+    system = _make_system(
+        db_session,
+        workspace_id=workspace.id,
+        flow={"nodes": [{"id": "current"}], "edges": []},
+    )
+    version_service.record_new_version(
+        db=db_session,
+        system=system,
+        flow_definition={"nodes": [{"id": "target"}], "edges": []},
+        created_by="alice",
+    )
+
+    with pytest.raises(
+        version_service.ChainVersionError,
+        match="Legacy rollback is disabled",
+    ):
+        version_service.rollback_to_version(
+            db=db_session,
+            system=system,
+            version_number=1,
+            created_by="alice",
+        )
+
+    assert system.flow_definition == {"nodes": [{"id": "current"}], "edges": []}
+    assert (
+        db_session.query(version_service.SystemVersion)
+        .filter_by(system_id=system.id)
+        .count()
+        == 1
+    )
 
 
 def test_rollback_repairs_system_drift_even_when_target_is_latest(db_session) -> None:

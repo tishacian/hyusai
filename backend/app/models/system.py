@@ -48,6 +48,20 @@ class System(Base):
     flow_definition = Column(JSON, default=dict)  # drawflow-style JSON for the Flow
     settings = Column(JSON, nullable=False, default=dict)
 
+    # P1 Flow publication authority. ``flow_definition`` remains the legacy
+    # compatibility mirror of this immutable version; editor autosave writes
+    # exclusively to ``SystemFlowDraft`` when the workspace feature is on.
+    # Nullable is intentional for rows created before migration 077 and for
+    # the short expand/backfill/enable rollout window.
+    published_flow_version_id = Column(
+        String(36),
+        ForeignKey("system_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    published_by = Column(String(255), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+
     # Execution — canonical modes: real_time_decision | batch_processing |
     # event_driven_automation | continuous_monitoring | human_augmented.
     # execution_profile carries SLA (latency target, max runtime), durability
@@ -78,6 +92,13 @@ class System(Base):
 
     capability = relationship("Capability", lazy="joined", foreign_keys=[capability_id])
     runs = relationship("Run", back_populates="system", cascade="all, delete-orphan")
+    flow_draft = relationship(
+        "SystemFlowDraft",
+        back_populates="system",
+        cascade="all, delete-orphan",
+        uselist=False,
+        foreign_keys="SystemFlowDraft.system_id",
+    )
 
     __table_args__ = (
         UniqueConstraint(

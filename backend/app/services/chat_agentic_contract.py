@@ -9,9 +9,9 @@ from typing import Any
 
 AGENTIC_SYSTEM_TYPE = "chat_agentic"
 AGENTIC_VARIANT = "chat_agentic_thinking_v1"
-EXPECTED_FLOW_REVISION = "056_andritz_chat_asset_binding"
+EXPECTED_FLOW_REVISION = "078_andritz_decision_contract"
 NOTICES_COLLECTION = "andritz-notices-techniques-spl-pilot"
-EXPECTED_FLOW_CONTRACT_SHA256 = "6780628580346fb97c7112e86e7492fb31abc688329b7d72cd81afecf75c762a"
+EXPECTED_FLOW_CONTRACT_SHA256 = "55611adbfba8848376c567b1be13ca39b2a5c5b008cd78548b7cbf40b077c4a5"
 _INSTALLATION_OR_COSMETIC_CONFIG_KEYS = frozenset({"skill_id", "params_note"})
 
 

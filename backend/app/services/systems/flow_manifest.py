@@ -14,6 +14,11 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.workspace import Workspace
+from app.services.run_engine.execution_contract import (
+    canonical_flow_sha256,
+    resolve_flow_execution,
+)
 from app.services.skills_registry import runtime_status
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 
@@ -426,6 +431,12 @@ def _latest_retrieval_decision_trace(db: DBSession, system: System) -> Dict[str,
 def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
     """Return the runtime manifest backing the Flow Builder UI."""
     flow = _as_dict(system.flow_definition)
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == system.workspace_id).one_or_none()
+        if system.workspace_id
+        else None
+    )
+    execution_resolution = resolve_flow_execution(flow, workspace)
     nodes = [node for node in _as_list(flow.get("nodes")) if isinstance(node, Mapping)]
     edges = [edge for edge in _as_list(flow.get("edges")) if isinstance(edge, Mapping)]
     skill_slugs = [
@@ -434,21 +445,36 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
     ]
     skills = _skill_lookup(db, skill_slugs)
     units = [_unit_for_node(node, skills) for node in nodes]
-    sync_mode = "chat_runtime" if flow.get("variant") == WORKSPACE_CHAT_VARIANT else "run_engine_dag"
+    runtime_surface = (
+        "chat_runtime"
+        if flow.get("variant") == WORKSPACE_CHAT_VARIANT
+        else "run_engine"
+    )
     live_surface = flow.get("ui", {}).get("entry_route") if isinstance(flow.get("ui"), Mapping) else None
-    latest_retrieval_decision = _latest_retrieval_decision_trace(db, system) if sync_mode == "chat_runtime" else None
+    latest_retrieval_decision = (
+        _latest_retrieval_decision_trace(db, system)
+        if runtime_surface == "chat_runtime"
+        else None
+    )
     return {
         "system_id": system.id,
         "system_name": system.name,
         "variant": flow.get("variant"),
         "schema_version": flow.get("schema_version"),
         "source": flow.get("source"),
-        "runtime_mode": sync_mode,
-        "operational_sync": sync_mode == "chat_runtime",
+        "flow_sha256": canonical_flow_sha256(flow),
+        "runtime_mode": execution_resolution.runtime_mode,
+        "runtime_mode_reason": execution_resolution.reason,
+        "runtime_surface": runtime_surface,
+        "operational_sync": runtime_surface == "chat_runtime",
         "live_surface": f"/{live_surface}" if live_surface else None,
         "runtime_contract": flow.get("runtime_contract") or {},
         "prompt_contract": flow.get("prompt_contract") or {},
-        "effective_config": _effective_chat_config(flow) if sync_mode == "chat_runtime" else _effective_dag_config(flow),
+        "effective_config": (
+            _effective_chat_config(flow)
+            if runtime_surface == "chat_runtime"
+            else _effective_dag_config(flow)
+        ),
         "latest_retrieval_decision": latest_retrieval_decision,
         "unit_catalog": units,
         "summary": {
@@ -460,12 +486,12 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
             "editable_parameters": sum(int(unit.get("parameter_count") or 0) for unit in units),
         },
         "sync_controls": {
-            "chat_reads_flow_overrides": sync_mode == "chat_runtime",
+            "chat_reads_flow_overrides": runtime_surface == "chat_runtime",
             "flow_definition_persists_on_save": True,
             "versioned": True,
             "runtime_note": (
                 "The /chat endpoint reads safe defaults from this flow on each turn."
-                if sync_mode == "chat_runtime"
+                if runtime_surface == "chat_runtime"
                 else "Runs execute this DAG through the run_engine when triggered from the System."
             ),
         },

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.run_engine.condition import ConditionError, evaluate
+from app.services.run_engine.condition import ConditionError, evaluate, validate
 
 
-def test_empty_and_none_are_truthy() -> None:
-    assert evaluate("", {}) is True
-    assert evaluate("   ", {"foo": 1}) is True
-    assert evaluate(None, {}) is True  # type: ignore[arg-type]
+@pytest.mark.parametrize("expression", ["", "   ", None])
+def test_empty_and_none_are_invalid(expression: str | None) -> None:
+    with pytest.raises(ConditionError) as captured:
+        evaluate(expression, {})  # type: ignore[arg-type]
+    assert captured.value.code == "condition_empty"
 
 
 def test_comparison_bare_name() -> None:
@@ -44,13 +45,32 @@ def test_fallback_to_input_bag() -> None:
     assert evaluate("query == 'hello'", ctx) is True
 
 
-def test_missing_key_yields_none_and_comparisons_raise_type_error() -> None:
-    # Missing key resolves to None; comparisons with None < number raise
-    # TypeError in Python 3 — the condition module surfaces that as a
-    # ConditionError from the caller's perspective, but we keep the walker
-    # behaviour clean by catching it upstream (see _run_decision).
-    with pytest.raises(TypeError):
+def test_missing_key_comparison_raises_structured_condition_error() -> None:
+    with pytest.raises(ConditionError) as captured:
         evaluate("missing_key > 0.5", {})
+    assert captured.value.code == "condition_evaluation_error"
+    assert captured.value.to_dict() == {
+        "code": "condition_evaluation_error",
+        "message": "condition evaluation failed: TypeError",
+    }
+
+
+def test_boolean_ops_short_circuit_runtime_evaluation() -> None:
+    assert evaluate("False and missing_key > 0.5", {}) is False
+    assert evaluate("True or missing_key > 0.5", {}) is True
+
+
+def test_static_validation_checks_a_short_circuited_unsafe_operand() -> None:
+    with pytest.raises(ConditionError) as captured:
+        evaluate("False and len(answer) > 0", {"answer": "secret"})
+    assert captured.value.code == "condition_unsupported"
+
+
+def test_validate_checks_without_reading_runtime_values() -> None:
+    assert validate("approved and score > 0.8") is None
+    with pytest.raises(ConditionError) as captured:
+        validate("approved and ctx.payload.value == 1")
+    assert captured.value.code == "condition_unsupported"
 
 
 def test_rejects_function_calls() -> None:
@@ -71,5 +91,6 @@ def test_rejects_imports_and_unsafe_literals() -> None:
 
 
 def test_invalid_syntax_raises_condition_error() -> None:
-    with pytest.raises(ConditionError):
+    with pytest.raises(ConditionError) as captured:
         evaluate("status ==", {"status": "ok"})
+    assert captured.value.code == "condition_syntax_error"
