@@ -65,6 +65,14 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             }
           }
         </span>
+        @if (persistence.publicationMode()) {
+          <span class="ck-flow-toolbar__revision" data-kind="draft">
+            Draft r{{ persistence.draftRevision() }} · {{ shortHash(persistence.savedFlowSha256()) }}
+          </span>
+          <span class="ck-flow-toolbar__revision" data-kind="published">
+            Published v{{ persistence.publishedVersionNumber() }} · {{ shortHash(persistence.publishedFlowSha256()) }}
+          </span>
+        }
       </div>
 
       <div class="ck-flow-toolbar__group">
@@ -111,13 +119,39 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
 
         <!-- P4 persistence controls — single source of truth via
              FlowPersistenceService (manual save also bound to Ctrl/Cmd+S). -->
+        @if (persistence.systemId()) {
+          <button
+            type="button"
+            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+            (click)="persistence.validateNow()"
+            [disabled]="
+              controlsDisabled() ||
+              persistence.serverValidationState() === 'validating'
+            "
+            [title]="
+              persistence.serverValidationState() === 'validating'
+                ? 'Validating the current Flow revision…'
+                : 'Validate the current Flow revision on the server'
+            "
+            aria-label="Validate current flow"
+          >
+            <app-icon name="shield-check" [size]="14" />
+            <span>{{ persistence.serverValidationState() === 'validating' ? 'Validating…' : 'Validate' }}</span>
+          </button>
+        }
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
           (click)="persistence.saveNow()"
-          [disabled]="controlsDisabled() || persistence.saveState() === 'saving'"
+          [disabled]="
+            controlsDisabled() ||
+            persistence.saveState() === 'saving' ||
+            persistence.saveValidationBlocked()
+          "
           [title]="
-            persistence.systemId()
+            persistence.saveValidationBlocked()
+              ? 'Fix the current server validation errors before saving'
+              : persistence.systemId()
               ? 'Save flow to System (Ctrl/Cmd+S)'
               : 'Save scratchpad draft locally (Ctrl/Cmd+S)'
           "
@@ -126,6 +160,22 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           <app-icon name="save" [size]="14" />
           <span>{{ persistence.saveState() === 'saving' ? 'Saving…' : 'Save' }}</span>
         </button>
+        @if (persistence.publicationMode()) {
+          <button
+            type="button"
+            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--publish"
+            (click)="persistence.openPublicationReview()"
+            [disabled]="controlsDisabled() || !persistence.canReviewPublication()"
+            [title]="
+              persistence.publicationBlockReason() ||
+              'Review the semantic diff and publish an immutable version (does not activate the System)'
+            "
+            aria-label="Review and publish server draft"
+          >
+            <app-icon name="upload-cloud" [size]="14" />
+            <span>Publish</span>
+          </button>
+        }
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
@@ -256,5 +306,9 @@ export class FlowToolbarComponent {
       default:
         return 'All changes saved';
     }
+  }
+
+  protected shortHash(value: string | null): string {
+    return value ? value.slice(0, 8) : '—';
   }
 }

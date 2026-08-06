@@ -4,16 +4,23 @@ import assert from 'node:assert/strict';
 import {
   DestroyRef,
   Injector,
+  signal,
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
 import { Subject } from 'rxjs';
 import {
   CanonicalApiService,
+  type FlowValidationResponse,
   type SaveSystemFlowResult,
   type System,
+  type SystemFlowDiff,
+  type SystemFlowDraftSaveResult,
+  type SystemFlowPublishResult,
+  type SystemFlowState,
 } from '@app/core/canonical-api.service';
 import { FlowSerializerService, type CanonicalFlow } from '@app/core/flow-serializer.service';
 import {
@@ -23,6 +30,7 @@ import {
 } from '@app/core/workspace.service';
 import { workspaceLocalStorageKey, type WorkspaceLocalStorage } from '@app/core/workspace-local-storage';
 import { FlowManifestService } from './flow-manifest.service';
+import { FlowValidationService } from './flow-validation.service';
 import {
   SCRATCH_DRAFT_STORAGE_KEY,
   persistWorkspaceFlowDraft,
@@ -95,6 +103,9 @@ class WorkspaceStub {
 class CanonicalStub {
   readonly createSubject = new Subject<System | null>();
   readonly saveSubject = new Subject<SaveSystemFlowResult>();
+  readonly draftSaveSubject = new Subject<SystemFlowDraftSaveResult>();
+  readonly diffSubject = new Subject<SystemFlowDiff>();
+  readonly publishSubject = new Subject<SystemFlowPublishResult>();
   readonly saveCalls: Array<{
     systemId: string;
     flow: Record<string, unknown> | undefined;
@@ -106,8 +117,24 @@ class CanonicalStub {
         }
       | undefined;
   }> = [];
+  readonly draftSaveCalls: Array<{
+    systemId: string;
+    flow: Record<string, unknown>;
+    expectedRevision: number;
+  }> = [];
+  readonly publishCalls: Array<{
+    systemId: string;
+    body: {
+      expected_draft_revision: number;
+      expected_published_version_id: string | null;
+      message: string;
+      breaking_change_intent: 'acknowledged' | null;
+    };
+  }> = [];
+  readonly createCalls: Array<{ body: Partial<System> }> = [];
 
-  createSystem() {
+  createSystem(body: Partial<System>) {
+    this.createCalls.push({ body });
     return this.createSubject.asObservable();
   }
 
@@ -122,6 +149,36 @@ class CanonicalStub {
   ) {
     this.saveCalls.push({ systemId, flow, opts });
     return this.saveSubject.asObservable();
+  }
+
+  saveSystemFlowDraft(
+    systemId: string,
+    flowDefinition: Record<string, unknown>,
+    expectedRevision: number,
+  ) {
+    this.draftSaveCalls.push({
+      systemId,
+      flow: flowDefinition,
+      expectedRevision,
+    });
+    return this.draftSaveSubject.asObservable();
+  }
+
+  getSystemFlowDiff() {
+    return this.diffSubject.asObservable();
+  }
+
+  publishSystemFlow(
+    systemId: string,
+    body: {
+      expected_draft_revision: number;
+      expected_published_version_id: string | null;
+      message: string;
+      breaking_change_intent: 'acknowledged' | null;
+    },
+  ) {
+    this.publishCalls.push({ systemId, body });
+    return this.publishSubject.asObservable();
   }
 }
 
@@ -138,6 +195,19 @@ class DestroyRefStub {
 
   destroy(): void {
     for (const callback of this.callbacks.splice(0)) callback();
+  }
+}
+
+class ValidationStub {
+  readonly currentIssues = signal<Array<{ level: 'error' | 'warn'; code: string; message: string }>>([]);
+  readonly currentResult = signal<FlowValidationResponse | null>(null);
+  readonly state = signal<'idle' | 'scheduled' | 'validating' | 'ready' | 'error'>('ready');
+  readonly error = signal<string | null>(null);
+  readonly currentHasErrors = signal(false);
+  readonly currentFlowSha256 = signal<string | null>(null);
+  validateNowCalls = 0;
+  validateNow(): void {
+    this.validateNowCalls += 1;
   }
 }
 
@@ -179,6 +249,43 @@ function flow(label: string): CanonicalFlow {
   };
 }
 
+function publicationState(
+  draftFlow: CanonicalFlow,
+  options: {
+    draftRevision?: number;
+    draftHash?: string;
+    publishedHash?: string;
+    publishedVersion?: number;
+    contractReady?: boolean;
+    executionContractSha256?: string;
+  } = {},
+): SystemFlowState {
+  return {
+    system_id: 'system-a',
+    status: 'paused',
+    draft: {
+      revision: options.draftRevision ?? 3,
+      flow_sha256: options.draftHash ?? 'sha-draft',
+      flow_definition: draftFlow as unknown as Record<string, unknown>,
+      base_published_version_id: 'version-published',
+      updated_by: 'operator@example.invalid',
+      updated_at: '2026-08-06T10:00:00Z',
+    },
+    published: {
+      version_id: 'version-published',
+      version_number: options.publishedVersion ?? 2,
+      flow_sha256: options.publishedHash ?? 'sha-published',
+      flow_definition: flow('published') as unknown as Record<string, unknown>,
+      published_by: 'publisher@example.invalid',
+      published_at: '2026-08-05T10:00:00Z',
+      execution_contract_ready: options.contractReady ?? true,
+      execution_contract: options.executionContractSha256
+        ? { contract_sha256: options.executionContractSha256 }
+        : undefined,
+    },
+  };
+}
+
 function shareHash(value: CanonicalFlow): string {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   let binary = '';
@@ -198,7 +305,9 @@ interface Harness {
   storage: MemoryStorage;
   navigations: unknown[][];
   manifestReloads: { count: number };
+  validation: ValidationStub;
   toastSuccesses: string[];
+  toastErrors: string[];
   destroyRef: DestroyRefStub;
   effects: ManualEffectScheduler;
   cleanup(): void;
@@ -212,7 +321,9 @@ function makeHarness(systemId: string | null = null): Harness {
   const navigations: unknown[][] = [];
   const manifestReloads = { count: 0 };
   const toastSuccesses: string[] = [];
+  const toastErrors: string[] = [];
   const effects = new ManualEffectScheduler();
+  const validation = new ValidationStub();
 
   const previousStorage = globalThis.localStorage;
   const previousDocument = globalThis.document;
@@ -259,13 +370,14 @@ function makeHarness(systemId: string | null = null): Harness {
           success: (message: string) => toastSuccesses.push(message),
           info() {},
           warning() {},
-          error() {},
+          error: (message: string) => toastErrors.push(message),
         },
       },
       {
         provide: FlowManifestService,
         useValue: { reload: () => { manifestReloads.count += 1; } },
       },
+      { provide: FlowValidationService, useValue: validation },
     ],
   });
 
@@ -279,7 +391,9 @@ function makeHarness(systemId: string | null = null): Harness {
     storage,
     navigations,
     manifestReloads,
+    validation,
     toastSuccesses,
+    toastErrors,
     destroyRef,
     effects,
     cleanup: () => {
@@ -307,21 +421,31 @@ function successfulSave(system: System): SaveSystemFlowResult {
   return { ok: true, system, warnings: [], new_version: null };
 }
 
-test('promotion save Subject from A is cancelled before its late B callback', () => {
+function completeAtomicPromotion(
+  harness: Harness,
+  system: Pick<System, 'id' | 'name'> = { id: 'system-a', name: 'System A' },
+): void {
+  const postedFlow = harness.canonical.createCalls.at(-1)?.body.flow_definition;
+  assert.ok(postedFlow, 'promotion must include the Flow in POST /systems');
+  harness.canonical.createSubject.next({
+    ...system,
+    flow_definition: postedFlow,
+    flow_sha256: 'sha-created',
+  });
+}
+
+test('atomic promotion POST from A is cancelled before its late B callback', () => {
   const harness = makeHarness();
   try {
     const systemA: System = { id: 'system-a', name: 'System A' };
     persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
     harness.service.hydrateScratch();
     harness.service.promoteToSystem('System A');
-    harness.canonical.createSubject.next(systemA);
-    assert.deepEqual(
-      harness.canonical.saveCalls.map((call) => call.systemId),
-      ['system-a'],
-    );
+    assert.ok(harness.canonical.createCalls[0].body.flow_definition);
+    assert.equal(harness.canonical.saveCalls.length, 0, 'promotion never uses legacy PATCH');
 
     harness.workspace.switchToB();
-    harness.canonical.saveSubject.next(successfulSave(systemA));
+    completeAtomicPromotion(harness, systemA);
 
     assert.equal(harness.service.promoting(), false);
     assert.deepEqual(harness.navigations, []);
@@ -347,12 +471,11 @@ test('successful promotion clears the captured A draft and never the current B s
     persistWorkspaceFlowDraft(harness.storage, 'workspace-b', flow('draft-b'), 2);
     harness.service.hydrateScratch();
     harness.service.promoteToSystem('System A');
-    harness.canonical.createSubject.next(systemA);
 
     // Force a fresh currentSlug() read to disagree with the captured A scope.
     // The completion path must use scope.workspaceSlug, not re-read it.
     harness.workspace.reportBWithoutChangingCapturedScope();
-    harness.canonical.saveSubject.next(successfulSave(systemA));
+    completeAtomicPromotion(harness, systemA);
 
     assert.equal(
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
@@ -399,6 +522,55 @@ test('backend save Subject from A cannot mutate UI state after switching to B', 
   }
 });
 
+test('Save blocks only hash-bound errors for the current validation result', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydrateSystem({
+      id: 'system-a',
+      name: 'System A',
+      status: 'draft',
+      flow_definition: flow('base') as unknown as Record<string, unknown>,
+      flow_sha256: 'sha-base',
+    });
+    harness.store.addNode({ type: 'task', label: 'dirty' });
+    harness.validation.currentHasErrors.set(true);
+
+    harness.service.saveNow();
+    assert.equal(harness.canonical.saveCalls.length, 0);
+
+    // No current result is not stale evidence: the save endpoint remains an
+    // authoritative validation boundary and may accept/reject this revision.
+    harness.validation.currentHasErrors.set(false);
+    harness.service.saveNow();
+    assert.equal(harness.canonical.saveCalls.length, 1);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('Validate is non-mutating and delegates the exact live revision to the sidecar', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydrateSystem({
+      id: 'system-a',
+      name: 'System A',
+      status: 'draft',
+      flow_definition: flow('base') as unknown as Record<string, unknown>,
+      flow_sha256: 'sha-base',
+    });
+    harness.store.addNode({ type: 'task', label: 'dirty' });
+    const before = harness.store.snapshot();
+
+    harness.service.validateNow();
+
+    assert.equal(harness.validation.validateNowCalls, 1);
+    assert.deepEqual(harness.store.snapshot(), before);
+    assert.equal(harness.store.dirty(), true);
+  } finally {
+    harness.cleanup();
+  }
+});
+
 test('bound hydration preserves an explicitly empty Flow without a starter fallback', () => {
   const harness = makeHarness('system-a');
   try {
@@ -416,6 +588,240 @@ test('bound hydration preserves an explicitly empty Flow without a starter fallb
     assert.equal(harness.store.edgeCount(), 0);
     assert.deepEqual(harness.store.snapshot().variable_namespaces, ['run']);
     assert.equal(harness.store.dirty(), false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 hydration uses the server draft and never the System compatibility mirror', () => {
+  const harness = makeHarness('system-a');
+  try {
+    const hydrated = harness.service.hydratePublicationState(
+      {
+        id: 'system-a',
+        name: 'System A',
+        status: 'paused',
+        flow_definition: flow('must-not-hydrate') as unknown as Record<string, unknown>,
+        flow_sha256: 'sha-published',
+      },
+      publicationState(flow('authoritative-draft')),
+    );
+
+    assert.equal(hydrated, true);
+    assert.equal(harness.service.publicationMode(), true);
+    assert.equal(harness.store.nodes()[0]?.id, 'authoritative-draft');
+    assert.equal(harness.service.draftRevision(), 3);
+    assert.equal(harness.service.savedFlowSha256(), 'sha-draft');
+    assert.equal(harness.service.publishedFlowSha256(), 'sha-published');
+    assert.equal(harness.store.dirty(), false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 explicit false contract readiness overrides a raw contract hash', () => {
+  const harness = makeHarness('system-a');
+  try {
+    const hydrated = harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft'), {
+        contractReady: false,
+        executionContractSha256: 'sha-untrusted-contract',
+      }),
+    );
+
+    assert.equal(hydrated, true);
+    assert.equal(harness.service.publishedContractReady(), false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 autosave is revisioned and stores an invalid draft without mutating Publish', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft')),
+    );
+    harness.store.addNode({ type: 'task', label: 'semantic-error-is-still-a-draft' });
+    harness.validation.currentHasErrors.set(true);
+
+    harness.service.saveNow();
+
+    assert.equal(harness.canonical.saveCalls.length, 0);
+    assert.equal(harness.canonical.draftSaveCalls.length, 1);
+    assert.equal(harness.canonical.draftSaveCalls[0].expectedRevision, 3);
+    harness.canonical.draftSaveSubject.next({
+      system_id: 'system-a',
+      revision: 4,
+      flow_sha256: 'sha-draft-r4',
+      flow_definition: harness.canonical.draftSaveCalls[0].flow,
+      base_published_version_id: 'version-published',
+      updated_at: '2026-08-06T11:00:00Z',
+      updated_by: 'operator@example.invalid',
+      no_op: false,
+    });
+
+    assert.equal(harness.service.draftRevision(), 4);
+    assert.equal(harness.service.savedFlowSha256(), 'sha-draft-r4');
+    assert.equal(harness.service.publishedFlowSha256(), 'sha-published');
+    assert.equal(harness.store.dirty(), false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 draft 409 pauses writes and requires an authoritative reload', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft')),
+    );
+    harness.store.addNode({ type: 'task', label: 'local-edit' });
+    harness.service.saveNow();
+    harness.canonical.draftSaveSubject.error(
+      new HttpErrorResponse({
+        status: 409,
+        error: {
+          detail: {
+            code: 'FLOW_DRAFT_REVISION_MISMATCH',
+            message: 'Reload the server draft before writing it.',
+          },
+        },
+      }),
+    );
+
+    assert.equal(harness.service.reviewRequired(), 'conflict');
+    assert.equal(harness.service.autosavePaused(), true);
+    assert.equal(harness.service.actionsDisabled(), true);
+    assert.equal(harness.service.saveState(), 'error');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 Publish requires rendered diff, release message and breaking acknowledgement', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft')),
+    );
+    harness.validation.currentResult.set({
+      flow_sha256: 'sha-draft',
+      analyzer_version: 'flow-analyzer/1',
+      runtime_mode: 'dag_strict',
+      valid: true,
+      issues: [],
+    });
+
+    harness.service.openPublicationReview();
+    harness.canonical.diffSubject.next({
+      base: { identity: 'published:2', flow_sha256: 'sha-published' },
+      target: { identity: 'draft:3', flow_sha256: 'sha-draft' },
+      summary: { breaking: 1, behavioral: 0, presentation: 0, total: 1 },
+      changes: [
+        {
+          category: 'topology',
+          impact: 'breaking',
+          subject: 'old-node',
+          path: 'nodes/old-node',
+          description: 'Executable node removed.',
+        },
+      ],
+    });
+
+    assert.equal(harness.service.publishDiffState(), 'ready');
+    assert.equal(harness.service.canConfirmPublication(), false);
+    harness.service.publishDraft('reviewed release');
+    assert.equal(harness.canonical.publishCalls.length, 0);
+
+    harness.service.setBreakingChangeAcknowledged(true);
+    harness.service.publishDraft('reviewed release');
+    assert.deepEqual(harness.canonical.publishCalls, [
+      {
+        systemId: 'system-a',
+        body: {
+          expected_draft_revision: 3,
+          expected_published_version_id: 'version-published',
+          message: 'reviewed release',
+          breaking_change_intent: 'acknowledged',
+        },
+      },
+    ]);
+    harness.canonical.publishSubject.next({
+      no_op: false,
+      system_id: 'system-a',
+      status: 'paused',
+      published: {
+        version_id: 'version-published-3',
+        version_number: 3,
+        flow_sha256: 'sha-draft',
+      },
+      draft: {
+        system_id: 'system-a',
+        revision: 3,
+        flow_sha256: 'sha-draft',
+        flow_definition: flow('draft') as unknown as Record<string, unknown>,
+        base_published_version_id: 'version-published-3',
+        updated_at: '2026-08-06T12:00:00Z',
+        no_op: false,
+      },
+    });
+
+    assert.equal(harness.service.publishedVersionNumber(), 3);
+    assert.equal(harness.service.draftMatchesPublished(), true);
+    assert.equal(harness.service.publishReviewOpen(), false);
+    assert.equal(harness.manifestReloads.count, 1);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 migration baseline can be republished with an immutable contract at the same hash', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft'), {
+        draftHash: 'sha-shared',
+        publishedHash: 'sha-shared',
+        contractReady: false,
+      }),
+    );
+    harness.validation.currentResult.set({
+      flow_sha256: 'sha-shared',
+      analyzer_version: 'flow-analyzer/1',
+      runtime_mode: 'dag_strict',
+      valid: true,
+      issues: [],
+    });
+
+    assert.equal(harness.service.draftMatchesPublished(), true);
+    assert.equal(harness.service.publishedContractReady(), false);
+    assert.equal(harness.service.publicationBlockReason(), null);
+    harness.service.openPublicationReview();
+    harness.canonical.diffSubject.next({
+      base: { identity: 'published:2', flow_sha256: 'sha-shared' },
+      target: { identity: 'draft:3', flow_sha256: 'sha-shared' },
+      summary: { breaking: 0, behavioral: 0, presentation: 0, total: 0 },
+      changes: [],
+    });
+    harness.service.publishDraft('Freeze migration execution contract');
+
+    assert.deepEqual(harness.canonical.publishCalls, [
+      {
+        systemId: 'system-a',
+        body: {
+          expected_draft_revision: 3,
+          expected_published_version_id: 'version-published',
+          message: 'Freeze migration execution contract',
+          breaking_change_intent: null,
+        },
+      },
+    ]);
   } finally {
     harness.cleanup();
   }
@@ -582,15 +988,11 @@ test('failed promotion keeps the local draft and does not navigate away', () => 
     persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
     harness.service.hydrateScratch();
     harness.service.promoteToSystem('System A');
-    harness.canonical.createSubject.next({ id: 'system-a', name: 'System A' });
-    harness.canonical.saveSubject.next({
-      ok: false,
-      reason: 'network',
-      message: 'timeout',
-      issues: [],
-    });
+    harness.canonical.createSubject.next(null);
 
     assert.deepEqual(harness.navigations, []);
+    assert.equal(harness.canonical.saveCalls.length, 0);
+    assert.match(harness.toastErrors.at(-1) ?? '', /created atomically/i);
     assert.notEqual(
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
       null,
@@ -605,11 +1007,8 @@ test('promotion acknowledgement for an older revision preserves the newer draft'
   try {
     harness.service.hydrateScratch();
     harness.service.promoteToSystem('System A');
-    harness.canonical.createSubject.next({ id: 'system-a', name: 'System A' });
     harness.store.addNode({ type: 'task', label: 'newer-local-edit' });
-    harness.canonical.saveSubject.next(
-      successfulSave({ id: 'system-a', name: 'System A', flow_sha256: 'sha-a' }),
-    );
+    completeAtomicPromotion(harness);
 
     assert.deepEqual(harness.navigations, []);
     assert.equal(harness.store.dirty(), true);
@@ -617,6 +1016,32 @@ test('promotion acknowledgement for an older revision preserves the newer draft'
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
       null,
     );
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('promotion keeps the draft when the atomic create response cannot prove the Flow', () => {
+  const harness = makeHarness();
+  try {
+    persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
+    harness.service.hydrateScratch();
+    harness.service.promoteToSystem('System A');
+
+    harness.canonical.createSubject.next({
+      id: 'system-a',
+      name: 'System A',
+      flow_definition: flow('different') as unknown as Record<string, unknown>,
+      flow_sha256: 'sha-created',
+    });
+
+    assert.deepEqual(harness.navigations, []);
+    assert.notEqual(
+      harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
+      null,
+    );
+    assert.match(harness.toastErrors.at(-1) ?? '', /could not be verified/i);
+    assert.equal(harness.canonical.saveCalls.length, 0);
   } finally {
     harness.cleanup();
   }

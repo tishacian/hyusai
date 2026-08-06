@@ -112,6 +112,102 @@
   color: var(--ck-fg-3, #8891a0);
 }
 
+.ck-flow-section__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ck-flow-mini-action,
+.ck-flow-icon-action {
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-2, #c8cdd4);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ck-signal-violet, #a78bfa);
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
+
+.ck-flow-mini-action {
+  padding: 5px 8px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ck-flow-decision__branches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ck-flow-decision__branch {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 24%, transparent);
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 4%, transparent);
+}
+
+.ck-flow-decision__branch-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ck-flow-decision__order {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 18%, transparent);
+  color: var(--ck-signal-violet, #a78bfa);
+  font: 700 9px / 1 var(--ck-font-mono, monospace);
+}
+
+.ck-flow-decision__route-count {
+  flex: 1 1 auto;
+  color: var(--ck-fg-3, #8891a0);
+  font: 9px / 1 var(--ck-font-mono, monospace);
+}
+
+.ck-flow-decision__branch-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ck-flow-icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font: 600 13px / 1 var(--ck-font-mono, monospace);
+
+  &--danger:hover:not(:disabled) {
+    border-color: var(--ck-signal-neg, #ef5a6f);
+    color: var(--ck-signal-neg, #ef5a6f);
+  }
+}
+
 .ck-flow-kv {
   display: grid;
   grid-template-columns: 64px 1fr;

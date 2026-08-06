@@ -281,6 +281,19 @@ export interface CanonicalFlowEdge {
   label?: string;
 }
 
+/** Runtime-relevant edge identity encoded without delimiter collisions. */
+export function canonicalEdgeIdentity(edge: CanonicalFlowEdge): string {
+  const branchLabel = edge.branch_label ?? edge.label ?? '';
+  return JSON.stringify({
+    branch_label: String(branchLabel),
+    from: String(edge.from ?? ''),
+    from_port: String(edge.from_port ?? ''),
+    kind: String(edge.kind || 'data'),
+    to: String(edge.to ?? ''),
+    to_port: String(edge.to_port ?? ''),
+  });
+}
+
 /**
  * A reusable flow starter. Persisted client-side in Vague C (starter
  * kit shipped with the app) and server-side in Vague D.
@@ -344,6 +357,8 @@ export interface CanonicalFlow {
   io_mode?: 'overlay' | 'strict';
   /** Logical pool buckets written by outputs_map and readable by inputs_map. */
   variable_namespaces?: string[];
+  /** Optional Flow-wide public result schema. */
+  output_contract?: Record<string, unknown>;
 }
 
 /** Validation diagnostic for a flow graph. */
@@ -352,10 +367,29 @@ export interface FlowValidationIssue {
   node_id?: string;
   edge_index?: number;
   code:
+    | 'flow_invalid'
+    | 'nodes_invalid'
+    | 'node_invalid'
+    | 'edges_invalid'
+    | 'edge_invalid'
+    | 'node_id_duplicate'
+    | 'edge_duplicate'
     | 'dangling_edge'
     | 'join_without_fork'
     | 'fork_without_join'
     | 'decision_no_branches'
+    | 'decision_branch_invalid'
+    | 'decision_condition_invalid'
+    | 'decision_branch_duplicate'
+    | 'decision_default_invalid'
+    | 'decision_branch_unwired'
+    | 'branch_edge_invalid'
+    | 'fork_fanout_invalid'
+    | 'fork_unjoined'
+    | 'join_fanin_invalid'
+    | 'join_without_matching_fork'
+    | 'branch_label_invalid'
+    | 'join_strategy_invalid'
     | 'task_no_skill'
     | 'cycle_detected'
     | 'unreachable_node'
@@ -368,6 +402,11 @@ export interface FlowValidationIssue {
     | 'hitl_no_prompt'
     | 'loop_no_budget'
     | 'retry_no_target'
+    | 'ingress_kind_invalid'
+    | 'ingress_node_kind_invalid'
+    | 'ingress_source_not_root'
+    | 'flow_output_sink_required'
+    | 'flow_output_sink_ambiguous'
     // Emitted server-side by ``dag_validator.validate_flow`` when a
     // node has zero inbound *and* zero outbound edges in a multi-node
     // flow (leftover of a half-finished drag/drop). Vague E / E3.1.
@@ -417,6 +456,115 @@ const CANONICAL_NODE_IDS: readonly CanonicalNodeId[] = [
 ] as const;
 
 const CANONICAL_ID_SET = new Set<string>(CANONICAL_NODE_IDS);
+
+/** Client-side structural check for the same deliberately small predicate DSL
+ * accepted by the backend. The server remains authoritative; this catches
+ * empty/unsafe expressions early without evaluating operator input. */
+export function decisionConditionValidationError(expression: unknown): string | null {
+  if (typeof expression !== 'string' || !expression.trim()) return 'condition_empty';
+
+  const text = expression.trim();
+  let masked = '';
+  let quote = '';
+  let escaped = false;
+  const delimiters: string[] = [];
+  const closing: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+
+  for (const char of text) {
+    if (quote) {
+      masked += ' ';
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      masked += 's';
+      continue;
+    }
+    if (char === '(' || char === '[' || char === '{') delimiters.push(char);
+    else if (char in closing && delimiters.pop() !== closing[char]) {
+      return 'condition_syntax_error';
+    }
+    masked += char;
+  }
+  if (quote || delimiters.length > 0) return 'condition_syntax_error';
+
+  // Python's expression AST admits only the nodes allowlisted by the runtime:
+  // no calls, subscripts, comprehensions, mappings, arithmetic or assignment.
+  if (/[^A-Za-z0-9_\s.,<>=!+\-()[\]{}]/.test(masked)) return 'condition_unsupported';
+  if (/(^|[^<>=!])=($|[^=])/.test(masked)) return 'condition_syntax_error';
+  if (/\b(lambda|if|else|for|while|await|yield|is)\b/.test(masked)) {
+    return 'condition_unsupported';
+  }
+  if (/(?:\b[A-Za-z_]\w*|\])\s*\[/.test(masked)) return 'condition_unsupported';
+  if (/(?:\w|\d|[)\]])\s*[+-]/.test(masked)) return 'condition_unsupported';
+
+  const call = /\b([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\s*\(/g;
+  for (const match of masked.matchAll(call)) {
+    if (match[1] !== 'not') return 'condition_unsupported';
+  }
+
+  const allowedAttributeRoots = new Set([
+    'ctx',
+    'context',
+    'workspace',
+    'system',
+    'run',
+    'node',
+  ]);
+  const attributes = /\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)/g;
+  for (const match of masked.matchAll(attributes)) {
+    if (!allowedAttributeRoots.has(match[1])) return 'condition_unsupported';
+  }
+  const withoutAttributes = masked.replace(attributes, '').replace(/\d+\.\d+/g, '');
+  if (withoutAttributes.includes('.')) return 'condition_unsupported';
+
+  // Operators cannot be left dangling. This intentionally does not attempt
+  // evaluation; the backend parser performs the final syntax proof.
+  if (/\b(and|or|not|in)\s*$/.test(masked) || /^[<>=!,]/.test(masked)) {
+    return 'condition_syntax_error';
+  }
+  return null;
+}
+
+function edgeBranchLabel(edge: CanonicalFlowEdge): string | null {
+  const raw = edge.branch_label ?? edge.label;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+function distancesFrom(start: string, adj: Map<string, string[]>): Map<string, number> {
+  const distances = new Map<string, number>([[start, 0]]);
+  const queue = [start];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const next of adj.get(current) ?? []) {
+      if (distances.has(next)) continue;
+      distances.set(next, (distances.get(current) ?? 0) + 1);
+      queue.push(next);
+    }
+  }
+  return distances;
+}
+
+function laneBypassesJoin(
+  start: string,
+  joinId: string,
+  adj: Map<string, string[]>,
+): boolean {
+  const seen = new Set<string>();
+  const stack = [start];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === joinId || seen.has(current)) continue;
+    seen.add(current);
+    const outgoing = adj.get(current) ?? [];
+    if (outgoing.length === 0) return true;
+    stack.push(...outgoing.filter((next) => next !== joinId));
+  }
+  return false;
+}
 
 @Injectable({ providedIn: 'root' })
 export class FlowSerializerService {
@@ -768,6 +916,62 @@ export class FlowSerializerService {
         message: `Built-in namespace(s) cannot be redeclared: ${reservedRedeclarations.join(', ')}.`,
       });
     }
+
+    const nodeIdCounts = new Map<string, number>();
+    for (const node of flow.nodes) {
+      nodeIdCounts.set(node.id, (nodeIdCounts.get(node.id) ?? 0) + 1);
+    }
+    for (const [nodeId, count] of [...nodeIdCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .sort(([left], [right]) => left.localeCompare(right))) {
+      issues.push({
+        level: 'error',
+        node_id: nodeId,
+        code: 'node_id_duplicate',
+        message: `Node id "${nodeId}" is declared ${count} times; node ids must be unique.`,
+      });
+    }
+
+    const firstEdgeIndex = new Map<string, number>();
+    flow.edges.forEach((edge, edgeIndex) => {
+      const identity = canonicalEdgeIdentity(edge);
+      if (firstEdgeIndex.has(identity)) {
+        issues.push({
+          level: 'error',
+          edge_index: edgeIndex,
+          code: 'edge_duplicate',
+          message: 'This route duplicates an earlier edge structurally.',
+        });
+      } else {
+        firstEdgeIndex.set(identity, edgeIndex);
+      }
+    });
+
+    if (issues.some(
+      (issue) => issue.code === 'node_id_duplicate' || issue.code === 'edge_duplicate',
+    )) {
+      return issues;
+    }
+
+    if (strict) {
+      const sinkIds = flow.nodes
+        .filter((node) => (node.kind ?? 'task') === 'sink')
+        .map((node) => node.id)
+        .sort();
+      if (sinkIds.length === 0) {
+        issues.push({
+          level: 'error',
+          code: 'flow_output_sink_required',
+          message: 'A strict Flow must declare exactly one explicit sink node.',
+        });
+      } else if (sinkIds.length > 1) {
+        issues.push({
+          level: 'error',
+          code: 'flow_output_sink_ambiguous',
+          message: `A strict Flow must declare exactly one explicit sink node; found ${sinkIds.length} (${sinkIds.join(', ')}).`,
+        });
+      }
+    }
     const adj = new Map<string, string[]>();
     const rev = new Map<string, string[]>();
     flow.nodes.forEach((n) => {
@@ -789,14 +993,39 @@ export class FlowSerializerService {
       rev.get(e.to)!.push(e.from);
     });
 
-    let forkCount = 0;
-    let joinCount = 0;
-
     for (const n of flow.nodes) {
       const kind = n.kind ?? 'task';
       const cfg = (n.config ?? {}) as Record<string, unknown>;
-      if (kind === 'fork') forkCount += 1;
-      if (kind === 'join') joinCount += 1;
+
+      if (Object.prototype.hasOwnProperty.call(cfg, 'ingress_kind')) {
+        const ingressKind = cfg['ingress_kind'];
+        if (
+          typeof ingressKind !== 'string' ||
+          !['manual', 'chat', 'http', 'schedule', 'event'].includes(ingressKind)
+        ) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'ingress_kind_invalid',
+            message: 'Ingress kind must be manual, chat, http, schedule or event.',
+          });
+        } else if (kind !== 'source') {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'ingress_node_kind_invalid',
+            message: 'Only a source node can declare an ingress kind.',
+          });
+        }
+      }
+      if (kind === 'source' && (rev.get(n.id)?.length ?? 0) > 0) {
+        issues.push({
+          level: 'error',
+          node_id: n.id,
+          code: 'ingress_source_not_root',
+          message: 'An executable ingress source cannot have inbound edges.',
+        });
+      }
 
       if (kind === 'task') {
         const skillId = cfg['skill_id'];
@@ -817,19 +1046,104 @@ export class FlowSerializerService {
         }
       }
       if (kind === 'decision') {
-        const branches = cfg['branches'];
-        if (!Array.isArray(branches) || branches.length < 2) {
+        const rawBranches = cfg['branches'];
+        if (!Array.isArray(rawBranches) || rawBranches.length < 2) {
           issues.push({
             level: 'error',
             node_id: n.id,
             code: 'decision_no_branches',
             message: `Decision "${n.label ?? n.id}" needs at least two branches.`,
           });
+        } else {
+          const labels: string[] = [];
+          rawBranches.forEach((rawBranch, branchIndex) => {
+            if (!rawBranch || typeof rawBranch !== 'object' || Array.isArray(rawBranch)) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'decision_branch_invalid',
+                message: `Decision branch ${branchIndex + 1} must be an object.`,
+              });
+              return;
+            }
+            const branch = rawBranch as Record<string, unknown>;
+            const rawLabel = branch['label'];
+            const label = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+            if (!label || label !== rawLabel) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'decision_branch_invalid',
+                message: `Decision branch ${branchIndex + 1} needs a non-empty, already-trimmed label.`,
+              });
+            } else {
+              labels.push(label);
+            }
+
+            const conditionError = decisionConditionValidationError(branch['condition']);
+            if (conditionError) {
+              issues.push({
+                level: 'error',
+                node_id: n.id,
+                code: 'decision_condition_invalid',
+                message: `Decision branch "${label || branchIndex + 1}" has an invalid condition (${conditionError}).`,
+              });
+            }
+          });
+
+          const duplicates = [...new Set(labels.filter(
+            (label) => labels.filter((candidate) => candidate === label).length > 1,
+          ))].sort();
+          if (duplicates.length > 0) {
+            issues.push({
+              level: 'error',
+              node_id: n.id,
+              code: 'decision_branch_duplicate',
+              message: `Decision branch labels must be unique: ${duplicates.join(', ')}`,
+            });
+          }
+
+          const defaultBranch = cfg['default_branch'];
+          if (
+            defaultBranch !== undefined &&
+            (
+              typeof defaultBranch !== 'string' ||
+              !defaultBranch.trim() ||
+              !labels.includes(defaultBranch)
+            )
+          ) {
+            issues.push({
+              level: 'error',
+              node_id: n.id,
+              code: 'decision_default_invalid',
+              message: 'Decision default_branch must reference an existing branch label.',
+            });
+          }
+
+          const routedLabels = new Set(
+            flow.edges
+              .filter((edge) => edge.from === n.id && (edge.kind ?? 'data') === 'branch')
+              .map(edgeBranchLabel)
+              .filter((label): label is string => label !== null),
+          );
+          for (const label of [...new Set(labels)].sort()) {
+            if (routedLabels.has(label)) continue;
+            issues.push({
+              level: 'error',
+              node_id: n.id,
+              code: 'decision_branch_unwired',
+              message: `Decision branch "${label}" has no outgoing branch edge.`,
+            });
+          }
         }
       }
       if (kind === 'loop') {
         const budget = cfg['max_iterations'];
-        if (typeof budget !== 'number' || budget <= 0) {
+        if (
+          typeof budget !== 'number' ||
+          !Number.isSafeInteger(budget) ||
+          budget <= 0
+        ) {
           issues.push({
             level: 'error',
             node_id: n.id,
@@ -840,7 +1154,11 @@ export class FlowSerializerService {
       }
       if (kind === 'retry') {
         const attempts = cfg['max_attempts'];
-        if (typeof attempts !== 'number' || attempts <= 0) {
+        if (
+          typeof attempts !== 'number' ||
+          !Number.isSafeInteger(attempts) ||
+          attempts <= 0
+        ) {
           issues.push({
             level: 'error',
             node_id: n.id,
@@ -862,32 +1180,160 @@ export class FlowSerializerService {
       }
     }
 
-    if (joinCount > 0 && forkCount === 0) {
-      issues.push({
-        level: 'warn',
-        code: 'join_without_fork',
-        message: 'Flow has join node(s) but no fork — join will degenerate to passthrough.',
-      });
-    }
-    if (forkCount > 0 && joinCount === 0) {
-      issues.push({
-        level: 'warn',
-        code: 'fork_without_join',
-        message: 'Flow has fork node(s) but no join — branches may race to the sink.',
-      });
-    }
+    const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
 
-    if (this.hasCycle(adj)) {
+    // Branch edges are routing primitives owned by a declared Decision route.
+    flow.edges.forEach((edge, edgeIndex) => {
+      if ((edge.kind ?? 'data') !== 'branch') return;
+      const source = byId.get(edge.from);
+      const rawBranches = (source?.config as Record<string, unknown> | undefined)?.['branches'];
+      const declared = new Set(
+        (Array.isArray(rawBranches) ? rawBranches : [])
+          .filter((branch) => !!branch && typeof branch === 'object' && !Array.isArray(branch))
+          .map((branch) => (branch as Record<string, unknown>)['label'])
+          .filter((label): label is string => typeof label === 'string'),
+      );
+      const label = edgeBranchLabel(edge);
+      if (!source || (source.kind ?? 'task') !== 'decision' || !label || !declared.has(label)) {
+        issues.push({
+          level: 'error',
+          node_id: source?.id,
+          edge_index: edgeIndex,
+          code: 'branch_edge_invalid',
+          message: 'Branch edges must originate from a Decision and carry one of its declared branch labels.',
+        });
+      }
+    });
+
+    const hasCycle = this.hasCycle(adj);
+    if (hasCycle) {
       issues.push({
         level: 'error',
         code: 'cycle_detected',
         message: 'Flow contains a cycle outside a loop node. Use a loop kind for controlled iteration.',
       });
+    } else {
+      const topologyLevel: FlowValidationIssue['level'] = strict ? 'error' : 'warn';
+      const forks = flow.nodes
+        .filter((node) => (node.kind ?? 'task') === 'fork')
+        .map((node) => node.id)
+        .sort();
+      const joins = flow.nodes
+        .filter((node) => (node.kind ?? 'task') === 'join')
+        .map((node) => node.id)
+        .sort();
+      const matchedJoins = new Set<string>();
+
+      for (const joinId of joins) {
+        const join = byId.get(joinId)!;
+        const strategy = String(
+          (join.config as Record<string, unknown> | undefined)?.['strategy'] ?? 'all',
+        ).toLowerCase();
+        if (!['all', 'any', 'race'].includes(strategy)) {
+          issues.push({
+            level: topologyLevel,
+            node_id: joinId,
+            code: 'join_strategy_invalid',
+            message: `Join "${joinId}" has unsupported strategy "${strategy}".`,
+          });
+        }
+        if (new Set(rev.get(joinId) ?? []).size < 2) {
+          issues.push({
+            level: topologyLevel,
+            node_id: joinId,
+            code: 'join_fanin_invalid',
+            message: `Join "${joinId}" needs at least two distinct inbound lanes.`,
+          });
+        }
+      }
+
+      for (const forkId of forks) {
+        const outgoing = flow.edges.filter((edge) => edge.from === forkId);
+        const lanes = [...new Set(outgoing.map((edge) => edge.to))].sort();
+        if (lanes.length < 2) {
+          issues.push({
+            level: topologyLevel,
+            node_id: forkId,
+            code: 'fork_fanout_invalid',
+            message: `Fork "${forkId}" needs at least two distinct outgoing lanes.`,
+          });
+        }
+
+        const rawExpected = (
+          byId.get(forkId)?.config as Record<string, unknown> | undefined
+        )?.['branches'];
+        const expected = Array.isArray(rawExpected)
+          ? rawExpected
+            .filter((label): label is string => typeof label === 'string' && !!label.trim())
+            .map((label) => label.trim())
+          : [];
+        const observed = outgoing.map((edge) => {
+          const label = edgeBranchLabel(edge);
+          if (label) return label;
+          return typeof edge.from_port === 'string' && edge.from_port.trim()
+            ? edge.from_port.trim()
+            : null;
+        });
+        const expectedSet = new Set(expected);
+        const observedSet = new Set(observed.filter((label): label is string => label !== null));
+        const labelsMatch =
+          expected.length >= 2 &&
+          expectedSet.size === expected.length &&
+          observed.every((label) => label !== null) &&
+          expectedSet.size === observedSet.size &&
+          [...expectedSet].every((label) => observedSet.has(label));
+        if (!labelsMatch) {
+          issues.push({
+            level: topologyLevel,
+            node_id: forkId,
+            code: 'branch_label_invalid',
+            message: `Fork "${forkId}" route labels must be unique and match config.branches.`,
+          });
+        }
+
+        if (lanes.length < 2) continue;
+        const laneDistances = lanes.map((lane) => distancesFrom(lane, adj));
+        const candidates = joins
+          .filter((joinId) => laneDistances.every((distances) => distances.has(joinId)))
+          .sort((left, right) => {
+            const leftDistances = laneDistances.map((distances) => distances.get(left)!);
+            const rightDistances = laneDistances.map((distances) => distances.get(right)!);
+            return (
+              Math.max(...leftDistances) - Math.max(...rightDistances) ||
+              leftDistances.reduce((sum, value) => sum + value, 0) -
+                rightDistances.reduce((sum, value) => sum + value, 0) ||
+              left.localeCompare(right)
+            );
+          });
+        const candidate = candidates[0];
+        if (
+          candidate &&
+          !lanes.some((lane) => laneBypassesJoin(lane, candidate, adj))
+        ) {
+          matchedJoins.add(candidate);
+        } else {
+          issues.push({
+            level: topologyLevel,
+            node_id: forkId,
+            code: 'fork_unjoined',
+            message: `Fork "${forkId}" has no join that reconverges and post-dominates every lane.`,
+          });
+        }
+      }
+
+      for (const joinId of joins) {
+        if (matchedJoins.has(joinId)) continue;
+        issues.push({
+          level: topologyLevel,
+          node_id: joinId,
+          code: 'join_without_matching_fork',
+          message: `Join "${joinId}" is not paired with a real upstream fork.`,
+        });
+      }
     }
 
     // v3 — data-membrane diagnostics (both warn level; never block a
     // save). Kept in lockstep with the backend ``dag_validator``.
-    const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
 
     // port_type_mismatch: a kind='data' edge whose from_port/to_port
     // reference declared ports with incompatible *primitive* schemas.

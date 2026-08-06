@@ -45,7 +45,7 @@ test('client issues map to rows; errors group before warnings with counts', () =
   assert.equal(taskRow?.origin, 'client');
 });
 
-test('server issues are folded in and tagged; identical client+server is deduped', () => {
+test('current server issues are authoritative; identical client preview is deduped', () => {
   const shared: ValidationIssueLike = {
     level: 'error',
     code: 'task_no_skill',
@@ -60,11 +60,11 @@ test('server issues are folded in and tagged; identical client+server is deduped
   };
 
   const vm = toValidationStripVm([shared], [shared, serverOnly]);
-  // The shared issue appears once (client wins), the server-only one is added.
+  // The shared issue appears once (server wins), the server-only one is added.
   assert.equal(vm.rows.length, 2);
   const sharedRows = vm.rows.filter((r) => r.code === 'task_no_skill');
   assert.equal(sharedRows.length, 1, 'identical client+server issue deduped');
-  assert.equal(sharedRows[0].origin, 'client');
+  assert.equal(sharedRows[0].origin, 'server');
 
   const serverRow = vm.rows.find((r) => r.code === 'node_orphan');
   assert.equal(serverRow?.origin, 'server', 'server-only issue keeps its origin tag');

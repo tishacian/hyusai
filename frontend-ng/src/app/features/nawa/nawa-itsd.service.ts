@@ -68,8 +68,8 @@ export class NawaItsdService {
    * fields is all the flow's bench decision reads, since it loads the caller
    * case itself from the System settings.
    */
-  launch(systemId: string, scenario: NawaScenario): Observable<Run | null> {
-    return this.launchWith(systemId, { scenario: scenario.scenario, ...scenario.input });
+  launch(system: System, scenario: NawaScenario): Observable<Run | null> {
+    return this.launchWith(system, { scenario: scenario.scenario, ...scenario.input });
   }
 
   /**
@@ -79,21 +79,25 @@ export class NawaItsdService {
    * bench selector: on this lane the flow reads the caller's words from the run
    * input instead of loading a canned case from the System settings.
    */
-  launchTyped(systemId: string, requestCase: Record<string, unknown>): Observable<Run | null> {
-    return this.canonical.triggerRun(systemId, {
+  launchTyped(system: System, requestCase: Record<string, unknown>): Observable<Run | null> {
+    if (!system.flow_sha256) return of(null);
+    return this.canonical.triggerRun(system.id, {
       input_ref: { scenario: 'free_text', case: requestCase, source: 'nawa_itsd_app' },
       trigger: 'manual',
+      expected_flow_sha256: system.flow_sha256,
     });
   }
 
   /** Launch from a raw input, as carried by `outcome.replay_input`. */
   launchWith(
-    systemId: string,
+    system: System,
     input: Record<string, string | number | boolean>,
   ): Observable<Run | null> {
-    return this.canonical.triggerRun(systemId, {
+    if (!system.flow_sha256) return of(null);
+    return this.canonical.triggerRun(system.id, {
       input_ref: { ...input, source: 'nawa_itsd_app' },
       trigger: 'manual',
+      expected_flow_sha256: system.flow_sha256,
     });
   }
 

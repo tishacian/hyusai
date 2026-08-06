@@ -32,6 +32,7 @@ function candidateNode(item: PaletteItem, nodeId: string): CanonicalFlowNode {
     label: item.label,
     inputs: item.inputs ?? [],
     outputs: item.outputs ?? [],
+    config: item.config ?? {},
   };
 }
 
@@ -69,7 +70,10 @@ export function buildPreconnectEdge(
   item: PaletteItem,
   newNodeId: string,
   originSchema: string | undefined,
+  originNode?: CanonicalFlowNode,
 ): CanonicalFlowEdge | null {
+  const insertedNode = candidateNode(item, newNodeId);
+  const nodes = originNode ? [originNode, insertedNode] : [insertedNode];
   const candidateSide: PreconnectSide = origin.direction === 'out' ? 'in' : 'out';
   const candidate = firstCompatibleRenderedConnector(
     item,
@@ -83,10 +87,12 @@ export function buildPreconnectEdge(
     return connectorsToEdge(
       outputConnectorId(origin.nodeId, origin.port),
       candidate.id,
+      nodes,
     );
   }
   return connectorsToEdge(
     candidate.id,
     inputConnectorId(origin.nodeId, origin.port),
+    nodes,
   );
 }

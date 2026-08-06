@@ -17,6 +17,11 @@ export const systemsRoutes: Routes = [
       import('../orchestration/flow/flow-builder.component').then((m) => m.FlowBuilderComponent),
   },
   {
+    path: ':systemId/run',
+    loadComponent: () =>
+      import('./flow-runner.component').then((m) => m.FlowRunnerComponent),
+  },
+  {
     // Route through the flag-aware wrapper (not the v0 monolith directly) so the
     // system-scoped entry honours `capture_experience` like `/knowledge/capture`.
     // The v0 child still reads `:systemId` from the same ActivatedRoute.

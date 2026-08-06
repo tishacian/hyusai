@@ -33,12 +33,15 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
-import { EMPTY, Subscription, switchMap, of } from 'rxjs';
+import { Subscription } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
-  type FlowValidationIssue,
+  type SystemFlowDiff,
+  type SystemFlowDraftSaveResult,
+  type SystemFlowState,
   type System,
   type SystemStatus,
 } from '@app/core/canonical-api.service';
@@ -49,6 +52,10 @@ import {
 import { WorkspaceService } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import { FlowManifestService } from './flow-manifest.service';
+import {
+  FlowValidationService,
+  flowValidationFingerprint,
+} from './flow-validation.service';
 import { defaultScratchFlow } from './flow.types';
 import {
   clearWorkspaceFlowDraft,
@@ -174,6 +181,7 @@ export class FlowPersistenceService {
   private readonly serializer = inject(FlowSerializerService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly manifest = inject(FlowManifestService);
+  private readonly validation = inject(FlowValidationService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
@@ -185,6 +193,25 @@ export class FlowPersistenceService {
   readonly hydrationReady = signal(false);
   readonly hydrationError = signal<string | null>(null);
   readonly promoting = signal(false);
+  /** Hash of the authoritative saved Flow. Execute uses it as both a local
+   * readiness gate and the backend optimistic precondition. */
+  readonly savedFlowSha256 = signal<string | null>(null);
+  /** True only after `/flow-state` has hydrated the server draft. In this
+   * mode `System.flow_definition` is never an editor source or write target. */
+  readonly publicationMode = signal(false);
+  readonly draftRevision = signal<number | null>(null);
+  readonly draftBasePublishedVersionId = signal<string | null>(null);
+  readonly publishedVersionId = signal<string | null>(null);
+  readonly publishedVersionNumber = signal<number | null>(null);
+  readonly publishedFlowSha256 = signal<string | null>(null);
+  readonly publishedContractReady = signal(false);
+  readonly draftUpdatedAt = signal<string | null>(null);
+  readonly draftMatchesPublished = computed(
+    () =>
+      this.publicationMode() &&
+      this.savedFlowSha256() !== null &&
+      this.savedFlowSha256() === this.publishedFlowSha256(),
+  );
   readonly lastSavedAt = signal<number | null>(null);
   readonly draftAvailable = signal(false);
   readonly autosavePaused = signal(false);
@@ -192,13 +219,27 @@ export class FlowPersistenceService {
   readonly replacementConfirmationRequested = signal(false);
   private readonly externalMutationPending = signal(false);
 
-  /**
-   * Server-side validation issues from the last backend save — the structured
-   * `dag_validator` payload (errors on a rejected save, warnings on an accepted
-   * one). The design-time validation strip reads this so save-time backend
-   * diagnostics render alongside the client checks, with no translation.
-   */
-  readonly serverIssues = signal<FlowValidationIssue[]>([]);
+  /** Explicit publication review state. A publish request is impossible
+   * until the currently saved draft diff has been fetched and rendered. */
+  readonly publishReviewOpen = signal(false);
+  readonly publishDiff = signal<SystemFlowDiff | null>(null);
+  readonly publishDiffState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  readonly publishError = signal<string | null>(null);
+  readonly publishing = signal(false);
+  readonly breakingChangeAcknowledged = signal(false);
+
+  /** Hash-bound analyser state exposed to the strip and Execute gate. Unlike
+   * historical save-response warnings, these computed values disappear on the
+   * first graph edit and can never describe another revision. */
+  readonly serverIssues = this.validation.currentIssues;
+  readonly serverValidation = this.validation.currentResult;
+  readonly serverValidationState = this.validation.state;
+  readonly serverValidationError = this.validation.error;
+  /** Drafts deliberately remain saveable while semantically invalid; Publish
+   * and Execute stay hard-gated by the hash-bound analyser. */
+  readonly saveValidationBlocked = computed(
+    () => !this.publicationMode() && this.validation.currentHasErrors(),
+  );
 
   private readonly saving = signal(false);
   private readonly errored = signal(false);
@@ -206,8 +247,10 @@ export class FlowPersistenceService {
     () =>
       !this.hydrationReady() ||
       this.saving() ||
+      this.publishing() ||
       this.promoting() ||
-      this.externalMutationPending(),
+      this.externalMutationPending() ||
+      this.reviewRequired() === 'conflict',
   );
 
   /** Explicit save state for the toolbar — derived so it can never drift from
@@ -218,9 +261,52 @@ export class FlowPersistenceService {
     return this.store.dirty() ? 'unsaved' : 'saved';
   });
 
+  readonly publicationBlockReason = computed<string | null>(() => {
+    if (!this.publicationMode()) return 'Server Draft/Publish is not enabled for this workspace.';
+    if (!this.hydrationReady()) return 'Reload the authoritative server draft first.';
+    if (this.actionsDisabled()) return 'Wait for the current write to finish.';
+    if (this.store.dirty() || this.saveState() !== 'saved') {
+      return 'Save the current draft before reviewing publication.';
+    }
+    const draftHash = this.savedFlowSha256();
+    const draftRevision = this.draftRevision();
+    if (!draftHash || draftRevision === null || !this.publishedVersionId()) {
+      return 'The draft publication preconditions are incomplete. Reload it.';
+    }
+    if (this.draftMatchesPublished() && this.publishedContractReady()) {
+      return 'The draft already matches the published Flow.';
+    }
+    const validation = this.serverValidation();
+    if (!validation || validation.flow_sha256 !== draftHash) {
+      return this.serverValidationState() === 'error'
+        ? 'The saved draft could not be validated.'
+        : 'Validate the saved draft before publication.';
+    }
+    if (!validation.valid || validation.issues.some((issue) => issue.level === 'error')) {
+      return 'Fix the current Flow diagnostics before publication.';
+    }
+    return null;
+  });
+  readonly canReviewPublication = computed(() => this.publicationBlockReason() === null);
+  readonly canConfirmPublication = computed(() => {
+    const diff = this.publishDiff();
+    if (
+      !this.publishReviewOpen() ||
+      this.publishDiffState() !== 'ready' ||
+      !diff ||
+      this.publishing() ||
+      this.publicationBlockReason() !== null
+    ) {
+      return false;
+    }
+    return diff.summary.breaking === 0 || this.breakingChangeAcknowledged();
+  });
+
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   private promotionRequest: Subscription | null = null;
   private backendSaveRequest: Subscription | null = null;
+  private publicationRequest: Subscription | null = null;
+  private publicationDiffRequest: Subscription | null = null;
   /** Suppresses autosave retry-storms after a failed save until the user edits
    *  again. Plain field (non-reactive) on purpose. */
   private autosaveBlocked = false;
@@ -228,7 +314,6 @@ export class FlowPersistenceService {
   private baselineFlow: CanonicalFlow | null = null;
   private systemStatus: SystemStatus | null = null;
   private systemName: string | null = null;
-  private expectedFlowSha256: string | null = null;
   /** One-shot authority, scoped to the exact graph revision the user saw. */
   private replacementIntentRevision: number | null = null;
   private sharePayloadPending = false;
@@ -242,7 +327,8 @@ export class FlowPersistenceService {
       }
       this.autosaveBlocked = false;
       this.errored.set(false);
-      this.serverIssues.set([]);
+      this.savedFlowSha256.set(null);
+      this.resetPublicationState();
       this.consumeShareLink();
       this.resetReviewGate();
 
@@ -318,6 +404,7 @@ export class FlowPersistenceService {
     this.cancelAutosave();
     this.resetReviewGate();
     this.hydrationError.set(null);
+    this.savedFlowSha256.set(null);
 
     const shared = this.readShareLink();
     const draft = this.readDraftRecord(this.workspace.currentSlug());
@@ -348,6 +435,8 @@ export class FlowPersistenceService {
     this.cancelWorkspaceWrites();
     this.hydrationReady.set(false);
     this.hydrationError.set(null);
+    this.savedFlowSha256.set(null);
+    this.resetPublicationState();
     this.replacementConfirmationRequested.set(false);
   }
 
@@ -372,6 +461,7 @@ export class FlowPersistenceService {
     // hash precondition if their HTTP request already crossed the wire.
     this.cancelWorkspaceWrites();
     this.resetReviewGate();
+    this.resetPublicationState();
     try {
       this.store.load(flow);
     } catch {
@@ -386,7 +476,84 @@ export class FlowPersistenceService {
     this.systemId.set(system.id);
     this.systemStatus = system.status ?? 'draft';
     this.systemName = system.name;
-    this.expectedFlowSha256 = system.flow_sha256 ?? null;
+    this.savedFlowSha256.set(system.flow_sha256 ?? null);
+    this.baselineFlow = cloneFlow(this.store.snapshot());
+    this.hydrationError.set(null);
+    this.hydrationReady.set(true);
+    this.errored.set(false);
+    this.lastRevision = this.store.revision();
+    return true;
+  }
+
+  /** P1 hydration path. The draft in `flowState` is the sole graph authority;
+   * the System payload contributes identity/name only. */
+  hydratePublicationState(system: System, flowState: SystemFlowState): boolean {
+    if (
+      (this.systemId() && system.id !== this.systemId()) ||
+      flowState.system_id !== system.id
+    ) {
+      this.markHydrationFailed('The loaded server draft does not match this route.');
+      return false;
+    }
+    const flow = canonicalPersistedFlow(flowState.draft?.flow_definition);
+    if (!flow) {
+      this.markHydrationFailed(
+        'This System returned a malformed server draft. Editing remains blocked.',
+      );
+      return false;
+    }
+    if (
+      !Number.isInteger(flowState.draft.revision) ||
+      flowState.draft.revision < 1 ||
+      !flowState.draft.flow_sha256 ||
+      !flowState.published?.version_id ||
+      !flowState.published.flow_sha256
+    ) {
+      this.markHydrationFailed(
+        'This System returned incomplete Draft/Publish preconditions. Editing remains blocked.',
+      );
+      return false;
+    }
+
+    this.cancelAutosave();
+    this.cancelWorkspaceWrites();
+    this.resetReviewGate();
+    this.resetPublicationState();
+    try {
+      this.store.load(flow);
+    } catch {
+      this.markHydrationFailed(
+        'This server draft could not be normalized safely. Editing remains blocked.',
+      );
+      return false;
+    }
+
+    this.systemId.set(system.id);
+    this.systemStatus = flowState.status ?? system.status ?? 'draft';
+    this.systemName = system.name;
+    this.publicationMode.set(true);
+    this.draftRevision.set(flowState.draft.revision);
+    this.savedFlowSha256.set(flowState.draft.flow_sha256);
+    this.draftBasePublishedVersionId.set(
+      flowState.draft.base_published_version_id ?? null,
+    );
+    this.publishedVersionId.set(flowState.published.version_id);
+    this.publishedVersionNumber.set(flowState.published.version_number);
+    this.publishedFlowSha256.set(flowState.published.flow_sha256);
+    const explicitContractReadiness =
+      flowState.published.execution_contract_ready;
+    this.publishedContractReady.set(
+      typeof explicitContractReadiness === 'boolean'
+        ? explicitContractReadiness
+        : typeof flowState.published.execution_contract?.['contract_sha256'] ===
+            'string',
+    );
+    this.draftUpdatedAt.set(flowState.draft.updated_at ?? null);
+    this.lastSavedAt.set(
+      flowState.draft.updated_at
+        ? new Date(flowState.draft.updated_at).getTime()
+        : null,
+    );
     this.baselineFlow = cloneFlow(this.store.snapshot());
     this.hydrationError.set(null);
     this.hydrationReady.set(true);
@@ -400,7 +567,20 @@ export class FlowPersistenceService {
     this.cancelWorkspaceWrites();
     this.hydrationReady.set(false);
     this.hydrationError.set(message);
+    this.savedFlowSha256.set(null);
+    this.resetPublicationState();
     this.errored.set(true);
+  }
+
+  /** Put every mutation behind a strict reload after an optimistic conflict. */
+  markRevisionConflict(
+    message = 'The server draft changed. Reload it before continuing.',
+  ): void {
+    this.autosaveBlocked = true;
+    this.errored.set(true);
+    this.pauseForReview('conflict');
+    this.publishError.set(message);
+    this.toastr.error(message, 'Reload required');
   }
 
   /** Strong-clear confirmation must call this before any store mutation. */
@@ -443,13 +623,13 @@ export class FlowPersistenceService {
       }
     | null {
     if (this.systemStatus !== 'active') {
-      return this.expectedFlowSha256
-        ? { expected_flow_sha256: this.expectedFlowSha256 }
+      return this.savedFlowSha256()
+        ? { expected_flow_sha256: this.savedFlowSha256()! }
         : {};
     }
-    if (!this.expectedFlowSha256) return null;
+    if (!this.savedFlowSha256()) return null;
     return {
-      expected_flow_sha256: this.expectedFlowSha256,
+      expected_flow_sha256: this.savedFlowSha256()!,
       flow_write_intent: 'replace_active_flow',
     };
   }
@@ -474,7 +654,6 @@ export class FlowPersistenceService {
     if (discardedShare) this.consumeShareLink();
     this.resetReviewGate();
     this.errored.set(false);
-    this.serverIssues.set([]);
     this.lastRevision = this.store.revision();
   }
 
@@ -482,6 +661,13 @@ export class FlowPersistenceService {
   saveNow(): void {
     if (this.actionsDisabled()) return;
     this.cancelAutosave();
+    if (this.systemId() && this.saveValidationBlocked()) {
+      this.toastr.warning(
+        'Fix the current server validation errors before saving.',
+        'Save blocked',
+      );
+      return;
+    }
     if (this.reviewRequired() === 'conflict') {
       this.toastr.warning(
         'Reload the authoritative System before trying to save again.',
@@ -500,6 +686,165 @@ export class FlowPersistenceService {
       return;
     }
     this.persist('manual');
+  }
+
+  /** Explicit non-mutating server analysis for the exact live revision. */
+  validateNow(): void {
+    if (!this.systemId() || !this.hydrationReady() || this.actionsDisabled()) return;
+    this.validation.validateNow();
+  }
+
+  /** Load and freeze the semantic published→draft diff before the explicit
+   * Publish confirmation can become available. */
+  openPublicationReview(): void {
+    const sid = this.systemId();
+    const blocked = this.publicationBlockReason();
+    if (!sid || blocked) {
+      if (blocked) this.toastr.warning(blocked, 'Publish blocked');
+      return;
+    }
+    this.publicationDiffRequest?.unsubscribe();
+    this.publishReviewOpen.set(true);
+    this.publishDiff.set(null);
+    this.publishDiffState.set('loading');
+    this.publishError.set(null);
+    this.breakingChangeAcknowledged.set(false);
+    const scope = this.workspace.captureRequestScope();
+    const expectedDraftHash = this.savedFlowSha256();
+    const expectedPublishedHash = this.publishedFlowSha256();
+    const request = this.canonical.getSystemFlowDiff(sid).subscribe({
+      next: (diff) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        if (
+          diff.target.flow_sha256 !== expectedDraftHash ||
+          diff.base.flow_sha256 !== expectedPublishedHash
+        ) {
+          this.publishDiffState.set('error');
+          this.markRevisionConflict(
+            'The Draft/Published pointers changed while the diff was loading. Reload before publishing.',
+          );
+          return;
+        }
+        this.publishDiff.set(diff);
+        this.publishDiffState.set('ready');
+      },
+      error: (error: unknown) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.publishDiffState.set('error');
+        const message = this.publicationErrorMessage(
+          error,
+          'Could not load the semantic publication diff.',
+        );
+        this.publishError.set(message);
+        if (error instanceof HttpErrorResponse && error.status === 409) {
+          this.markRevisionConflict(message);
+        }
+      },
+    });
+    this.publicationDiffRequest = request.closed ? null : request;
+  }
+
+  closePublicationReview(): void {
+    if (this.publishing()) return;
+    this.publicationDiffRequest?.unsubscribe();
+    this.publicationDiffRequest = null;
+    this.publishReviewOpen.set(false);
+    this.publishDiff.set(null);
+    this.publishDiffState.set('idle');
+    this.publishError.set(null);
+    this.breakingChangeAcknowledged.set(false);
+  }
+
+  setBreakingChangeAcknowledged(value: boolean): void {
+    this.breakingChangeAcknowledged.set(value);
+  }
+
+  publishDraft(message: string): void {
+    const sid = this.systemId();
+    const draftRevision = this.draftRevision();
+    const publishedVersionId = this.publishedVersionId();
+    const diff = this.publishDiff();
+    const resolvedMessage = message.trim();
+    if (!resolvedMessage) {
+      this.publishError.set('Add a release message before publishing.');
+      return;
+    }
+    if (
+      !sid ||
+      draftRevision === null ||
+      !publishedVersionId ||
+      !diff ||
+      !this.canConfirmPublication()
+    ) {
+      this.publishError.set(
+        this.publicationBlockReason() ??
+          'Review the current semantic diff and acknowledge breaking changes first.',
+      );
+      return;
+    }
+    if (
+      diff.target.flow_sha256 !== this.savedFlowSha256() ||
+      diff.base.flow_sha256 !== this.publishedFlowSha256()
+    ) {
+      this.markRevisionConflict(
+        'The reviewed diff no longer matches the Draft/Published pointers. Reload before publishing.',
+      );
+      return;
+    }
+
+    this.publicationRequest?.unsubscribe();
+    this.publishing.set(true);
+    this.publishError.set(null);
+    const scope = this.workspace.captureRequestScope();
+    const request = this.canonical
+      .publishSystemFlow(sid, {
+        expected_draft_revision: draftRevision,
+        expected_published_version_id: publishedVersionId,
+        message: resolvedMessage,
+        breaking_change_intent:
+          diff.summary.breaking > 0 ? 'acknowledged' : null,
+      })
+      .subscribe({
+        next: (result) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.publishing.set(false);
+          this.systemStatus = result.status ?? this.systemStatus;
+          this.publishedVersionId.set(result.published.version_id);
+          this.publishedVersionNumber.set(result.published.version_number);
+          this.publishedFlowSha256.set(result.published.flow_sha256);
+          this.publishedContractReady.set(true);
+          this.draftRevision.set(result.draft.revision);
+          this.savedFlowSha256.set(result.draft.flow_sha256);
+          this.draftBasePublishedVersionId.set(
+            result.draft.base_published_version_id ?? result.published.version_id,
+          );
+          this.draftUpdatedAt.set(result.draft.updated_at ?? null);
+          this.publishReviewOpen.set(false);
+          this.publishDiff.set(null);
+          this.publishDiffState.set('idle');
+          this.breakingChangeAcknowledged.set(false);
+          this.manifest.reload();
+          this.toastr.success(
+            `Published as v${result.published.version_number}. System status remains ${result.status}; publication never activates it.`,
+            'Flow published',
+          );
+        },
+        error: (error: unknown) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.publishing.set(false);
+          const message = this.publicationErrorMessage(
+            error,
+            'The draft could not be published.',
+          );
+          this.publishError.set(message);
+          if (error instanceof HttpErrorResponse && error.status === 409) {
+            this.markRevisionConflict(message);
+          } else if (error instanceof HttpErrorResponse && error.status === 422) {
+            this.validation.validateNow();
+          }
+        },
+      });
+    this.publicationRequest = request.closed ? null : request;
   }
 
   /** Download the live flow as a JSON file (CanonicalFlow). */
@@ -558,9 +903,11 @@ export class FlowPersistenceService {
   }
 
   /**
-   * Promote the scratchpad draft into a real System: create the System, then
-   * persist the flow through the canonical save path, clear the local draft,
-   * and navigate to the bound flow route.
+   * Promote the scratchpad draft into a real System atomically. The initial
+   * graph is part of POST /systems so publication-enabled workspaces initialise
+   * their Draft/Published authority from this exact snapshot and legacy
+   * workspaces persist it in the same transaction. There is deliberately no
+   * follow-up PATCH: a failed create can never leave a known-empty shell.
    */
   promoteToSystem(name?: string): void {
     if (this.systemId() || this.promoting() || !this.hydrationReady()) return;
@@ -574,40 +921,38 @@ export class FlowPersistenceService {
     const sentRevision = this.store.revision();
     this.promotionRequest?.unsubscribe();
     const request = this.canonical
-      .createSystem({ name: resolved, objective: 'Promoted from scratchpad flow' })
-      .pipe(
-        switchMap((system) => {
-          if (!this.workspace.isRequestScopeCurrent(scope)) return EMPTY;
-          if (!system) return of({ system: null, save: null });
-          return this.canonical
-            .saveSystemFlow(system.id, flow as unknown as Record<string, unknown>)
-            .pipe(
-              switchMap((save) =>
-                this.workspace.isRequestScopeCurrent(scope)
-                  ? of({ system, save })
-                  : EMPTY,
-              ),
-            );
-        }),
-      )
+      .createSystem({
+        name: resolved,
+        objective: 'Promoted from scratchpad flow',
+        flow_definition: flow as unknown as Record<string, unknown>,
+      })
       .subscribe({
-        next: ({ system, save }) => {
+        next: (system) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
           if (!system) {
-            this.toastr.error('Could not create the System.', 'Promotion failed');
+            this.toastr.error(
+              'The System and its Flow could not be created atomically. Your local draft was kept.',
+              'Promotion failed',
+            );
             return;
           }
-          if (save && !save.ok) {
-            this.toastr.warning(
-              `System created, but the flow was not saved: ${save.message}. Your local draft was kept.`,
-              'Promotion',
+
+          const returnedFlow = system.flow_definition;
+          const returnedFlowVerified =
+            !!system.flow_sha256 &&
+            isFlowLike(returnedFlow) &&
+            flowValidationFingerprint(returnedFlow) === flowValidationFingerprint(flow);
+          if (!returnedFlowVerified) {
+            this.toastr.error(
+              `System "${system.name}" (${system.id}) was created, but its Flow response could not be verified. Your local draft was kept; review that System before retrying.`,
+              'Promotion needs review',
             );
             return;
           }
 
           if (!this.store.markSaved(sentRevision)) {
-            // A local edit raced the create/save chain. Keep it recoverable and
+            // A local edit raced the atomic create. Keep it recoverable and
             // stay on the scratchpad rather than navigating away from it.
             persistWorkspaceFlowDraft(
               localStorage,
@@ -630,7 +975,10 @@ export class FlowPersistenceService {
         error: () => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
-          this.toastr.error('Could not create the System.', 'Promotion failed');
+          this.toastr.error(
+            'The System creation result could not be confirmed. Your local draft was kept.',
+            'Promotion failed',
+          );
         },
         complete: () => {
           if (this.workspace.isRequestScopeCurrent(scope)) this.promoting.set(false);
@@ -704,7 +1052,21 @@ export class FlowPersistenceService {
   private saveToBackend(trigger: SaveTrigger): void {
     const sid = this.systemId();
     if (!sid || this.saving() || !this.hydrationReady()) return;
-    if (this.systemStatus === 'active' && !this.expectedFlowSha256) {
+    if (this.saveValidationBlocked()) {
+      this.autosaveBlocked = true;
+      if (trigger === 'manual') {
+        this.toastr.warning(
+          'Fix the current server validation errors before saving.',
+          'Save blocked',
+        );
+      }
+      return;
+    }
+    if (this.publicationMode()) {
+      this.saveServerDraft(sid, trigger);
+      return;
+    }
+    if (this.systemStatus === 'active' && !this.savedFlowSha256()) {
       this.pauseForReview('conflict');
       this.autosaveBlocked = true;
       this.errored.set(true);
@@ -726,8 +1088,8 @@ export class FlowPersistenceService {
     this.replacementIntentRevision = null;
     const request = this.canonical
       .saveSystemFlow(sid, flow as unknown as Record<string, unknown>, {
-        ...(this.expectedFlowSha256
-          ? { expected_flow_sha256: this.expectedFlowSha256 }
+        ...(this.savedFlowSha256()
+          ? { expected_flow_sha256: this.savedFlowSha256()! }
           : {}),
         ...(carriesReplacementIntent
           ? { flow_write_intent: 'replace_active_flow' as const }
@@ -739,14 +1101,19 @@ export class FlowPersistenceService {
           this.saving.set(false);
           if (res.ok) {
             this.baselineFlow = cloneFlow(flow);
-            this.expectedFlowSha256 = res.system.flow_sha256 ?? null;
+            this.savedFlowSha256.set(res.system.flow_sha256 ?? null);
             this.systemStatus = res.system.status ?? this.systemStatus;
             this.systemName = res.system.name ?? this.systemName;
             const acknowledged = this.store.markSaved(sentRevision);
             this.lastSavedAt.set(Date.now());
-            // Surface accepted-save warnings (e.g. soft variable/port hints) in
-            // the validation strip; clears when the backend reports none.
-            this.serverIssues.set(res.warnings);
+            // If validation was unavailable/in flight at save time, refresh it
+            // against the now-authoritative graph. A matching result is kept.
+            if (
+              acknowledged &&
+              this.validation.currentFlowSha256() !== (res.system.flow_sha256 ?? null)
+            ) {
+              this.validation.validateNow();
+            }
             // Bindings may have changed — refresh node badges + inspector status.
             this.manifest.reload();
             if (acknowledged) {
@@ -764,9 +1131,11 @@ export class FlowPersistenceService {
           } else {
             this.autosaveBlocked = true;
             this.errored.set(true);
-            // Structural rejection (reason==='invalid') carries the DAG errors;
-            // pipe them into the strip. A transport failure leaves the strip as-is.
-            if (res.reason === 'invalid') this.serverIssues.set(res.issues);
+            // Re-analyse the still-current revision through the canonical,
+            // hash-bearing endpoint instead of retaining unbound save errors.
+            if (res.reason === 'invalid' && this.store.revision() === sentRevision) {
+              this.validation.validateNow();
+            }
             if (res.reason === 'conflict') this.pauseForReview('conflict');
             if (res.reason === 'explicit_intent_required') {
               this.pauseForReview('destructive-change');
@@ -786,13 +1155,100 @@ export class FlowPersistenceService {
     this.backendSaveRequest = request.closed ? null : request;
   }
 
+  private saveServerDraft(sid: string, trigger: SaveTrigger): void {
+    const expectedRevision = this.draftRevision();
+    if (expectedRevision === null) {
+      this.markRevisionConflict(
+        'The server draft has no revision precondition. Reload before saving.',
+      );
+      return;
+    }
+    const scope = this.workspace.captureRequestScope();
+    this.saving.set(true);
+    this.errored.set(false);
+    this.publishError.set(null);
+    const flow = this.serializer.annotateSidecars(this.store.snapshot());
+    const sentRevision = this.store.revision();
+    // The typed destructive gate is client-side authority for draft writes.
+    // It remains one-shot even though no published pointer is mutated here.
+    this.replacementIntentRevision = null;
+    const request = this.canonical
+      .saveSystemFlowDraft(
+        sid,
+        flow as unknown as Record<string, unknown>,
+        expectedRevision,
+      )
+      .subscribe({
+        next: (result) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.saving.set(false);
+          this.applyDraftSaveResult(result);
+          this.baselineFlow = cloneFlow(flow);
+          const acknowledged = this.store.markSaved(sentRevision);
+          if (
+            acknowledged &&
+            this.validation.currentFlowSha256() !== result.flow_sha256
+          ) {
+            this.validation.validateNow();
+          }
+          if (acknowledged) {
+            this.resetReviewGate();
+          } else if (this.isDestructiveReplacement(this.store.snapshot())) {
+            this.pauseForReview('destructive-change');
+          } else if (!this.autosavePaused()) {
+            this.scheduleAutosave();
+          }
+          if (trigger === 'manual') {
+            this.toastr.success(
+              `Server draft r${result.revision} saved. Published Flow unchanged.`,
+              'Flow builder',
+            );
+          }
+        },
+        error: (error: unknown) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.saving.set(false);
+          this.autosaveBlocked = true;
+          this.errored.set(true);
+          const message = this.publicationErrorMessage(
+            error,
+            'The server draft could not be saved.',
+          );
+          if (error instanceof HttpErrorResponse && error.status === 409) {
+            this.markRevisionConflict(message);
+          } else {
+            this.toastr.error(message, 'Draft save failed');
+          }
+        },
+      });
+    this.backendSaveRequest = request.closed ? null : request;
+  }
+
+  private applyDraftSaveResult(result: SystemFlowDraftSaveResult): void {
+    this.draftRevision.set(result.revision);
+    this.savedFlowSha256.set(result.flow_sha256);
+    this.draftBasePublishedVersionId.set(
+      result.base_published_version_id ?? this.draftBasePublishedVersionId(),
+    );
+    this.draftUpdatedAt.set(result.updated_at ?? null);
+    this.lastSavedAt.set(
+      result.updated_at ? new Date(result.updated_at).getTime() : Date.now(),
+    );
+    this.errored.set(false);
+  }
+
   private cancelWorkspaceWrites(): void {
     this.promotionRequest?.unsubscribe();
     this.promotionRequest = null;
     this.backendSaveRequest?.unsubscribe();
     this.backendSaveRequest = null;
+    this.publicationRequest?.unsubscribe();
+    this.publicationRequest = null;
+    this.publicationDiffRequest?.unsubscribe();
+    this.publicationDiffRequest = null;
     this.promoting.set(false);
     this.saving.set(false);
+    this.publishing.set(false);
     this.externalMutationPending.set(false);
   }
 
@@ -814,6 +1270,39 @@ export class FlowPersistenceService {
     this.reviewRequired.set(null);
     this.replacementConfirmationRequested.set(false);
     this.replacementIntentRevision = null;
+  }
+
+  private resetPublicationState(): void {
+    this.publicationMode.set(false);
+    this.draftRevision.set(null);
+    this.draftBasePublishedVersionId.set(null);
+    this.publishedVersionId.set(null);
+    this.publishedVersionNumber.set(null);
+    this.publishedFlowSha256.set(null);
+    this.publishedContractReady.set(false);
+    this.draftUpdatedAt.set(null);
+    this.publishReviewOpen.set(false);
+    this.publishDiff.set(null);
+    this.publishDiffState.set('idle');
+    this.publishError.set(null);
+    this.breakingChangeAcknowledged.set(false);
+    this.publishing.set(false);
+  }
+
+  private publicationErrorMessage(error: unknown, fallback: string): string {
+    if (!(error instanceof HttpErrorResponse)) return fallback;
+    const raw = error.error?.detail ?? error.error;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const detail = raw as { message?: unknown; code?: unknown };
+      if (typeof detail.message === 'string' && detail.message.trim()) {
+        return detail.message;
+      }
+      if (typeof detail.code === 'string' && detail.code.trim()) {
+        return `${fallback} (${detail.code})`;
+      }
+    }
+    if (typeof raw === 'string' && raw.trim()) return raw;
+    return error.status > 0 ? `${fallback} (HTTP ${error.status})` : fallback;
   }
 
   private isDestructiveReplacement(flow: CanonicalFlow): boolean {

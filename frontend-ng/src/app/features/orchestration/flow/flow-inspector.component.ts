@@ -30,7 +30,10 @@ import {
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
-import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
+import type {
+  CanonicalFlowNode,
+  DecisionNodeConfig,
+} from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { ManifestFieldsComponent } from './manifest-fields.component';
 import { FlowCollectionsService } from './flow-collections.service';
@@ -137,6 +140,103 @@ import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
                   </span>
                 }
               </div>
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'decision') {
+            <section class="ck-flow-section ck-flow-decision">
+              <div class="ck-flow-section__heading-row">
+                <span class="ck-flow-section__label">Decision routes</span>
+                <button
+                  type="button"
+                  class="ck-flow-mini-action"
+                  (click)="addDecisionBranch()"
+                >
+                  + Branch
+                </button>
+              </div>
+
+              <p class="ck-flow-hint">
+                Conditions run top-to-bottom. The first match wins; Default is
+                used only when no condition matches.
+              </p>
+
+              <div class="ck-flow-decision__branches">
+                @for (branch of decisionBranches(n); track $index; let i = $index; let first = $first; let last = $last) {
+                  <article class="ck-flow-decision__branch">
+                    <div class="ck-flow-decision__branch-head">
+                      <span class="ck-flow-decision__order">{{ i + 1 }}</span>
+                      <span class="ck-flow-decision__route-count">
+                        {{ decisionRouteCount(n.id, branch.label) }} route(s)
+                      </span>
+                      <div class="ck-flow-decision__branch-actions">
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action"
+                          [disabled]="first"
+                          (click)="moveDecisionBranch(i, -1)"
+                          aria-label="Move branch up"
+                          title="Move up"
+                        >↑</button>
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action"
+                          [disabled]="last"
+                          (click)="moveDecisionBranch(i, 1)"
+                          aria-label="Move branch down"
+                          title="Move down"
+                        >↓</button>
+                        <button
+                          type="button"
+                          class="ck-flow-icon-action ck-flow-icon-action--danger"
+                          [disabled]="decisionBranches(n).length <= 2"
+                          (click)="removeDecisionBranch(i)"
+                          aria-label="Delete branch and its routes"
+                          title="Delete branch and its routes"
+                        >×</button>
+                      </div>
+                    </div>
+
+                    <label class="ck-flow-field">
+                      <span class="ck-flow-field__label">Route label</span>
+                      <input
+                        class="ck-flow-input mono"
+                        type="text"
+                        [value]="branch.label"
+                        (input)="onDecisionBranchLabel(i, $event)"
+                        placeholder="branch_label"
+                        spellcheck="false"
+                      />
+                    </label>
+
+                    <label class="ck-flow-field">
+                      <span class="ck-flow-field__label">Condition</span>
+                      <textarea
+                        class="ck-flow-input ck-flow-input--area"
+                        rows="2"
+                        [value]="branch.condition"
+                        (input)="onDecisionCondition(i, $event)"
+                        placeholder="value == True"
+                        spellcheck="false"
+                      ></textarea>
+                    </label>
+                  </article>
+                }
+              </div>
+
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">Default branch</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="decisionDefault(n)"
+                  (change)="onDecisionDefault($event)"
+                >
+                  <option value="">No default · fail on no-match</option>
+                  @for (branch of decisionBranches(n); track $index) {
+                    <option [value]="branch.label">{{ branch.label || '(invalid label)' }}</option>
+                  }
+                </select>
+              </label>
             </section>
           }
 
@@ -325,6 +425,78 @@ export class FlowInspectorComponent {
   workspaceScoped(n: CanonicalFlowNode): boolean {
     const v = (n.config as Record<string, unknown> | undefined)?.['workspace_scoped'];
     return v !== false;
+  }
+
+  decisionBranches(n: CanonicalFlowNode): DecisionNodeConfig['branches'] {
+    const raw = (n.config as Record<string, unknown> | undefined)?.['branches'];
+    if (!Array.isArray(raw)) return [];
+    return raw.map((branch) => {
+      const record = branch && typeof branch === 'object' && !Array.isArray(branch)
+        ? branch as Record<string, unknown>
+        : {};
+      return {
+        label: typeof record['label'] === 'string' ? record['label'] : '',
+        condition: typeof record['condition'] === 'string' ? record['condition'] : '',
+      };
+    });
+  }
+
+  decisionDefault(n: CanonicalFlowNode): string {
+    const value = (n.config as Record<string, unknown> | undefined)?.['default_branch'];
+    return typeof value === 'string' ? value : '';
+  }
+
+  decisionRouteCount(nodeId: string, label: string): number {
+    return this.store.edges().filter((edge) =>
+      edge.from === nodeId &&
+      (edge.kind ?? 'data') === 'branch' &&
+      (edge.branch_label ?? edge.label) === label
+    ).length;
+  }
+
+  addDecisionBranch(): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'add' });
+  }
+
+  onDecisionBranchLabel(index: number, event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.mutateDecision(id, {
+      type: 'update',
+      index,
+      patch: { label: (event.target as HTMLInputElement).value },
+    });
+  }
+
+  onDecisionCondition(index: number, event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.mutateDecision(id, {
+      type: 'update',
+      index,
+      patch: { condition: (event.target as HTMLTextAreaElement).value },
+    });
+  }
+
+  removeDecisionBranch(index: number): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'remove', index });
+  }
+
+  moveDecisionBranch(index: number, direction: -1 | 1): void {
+    const id = this.node()?.id;
+    if (id) this.store.mutateDecision(id, { type: 'move', index, direction });
+  }
+
+  onDecisionDefault(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    const label = (event.target as HTMLSelectElement).value;
+    this.store.mutateDecision(id, {
+      type: 'set_default',
+      ...(label ? { label } : {}),
+    });
   }
 
   // Shared by the live picker (`<select>`, fed by FlowCollectionsService) and

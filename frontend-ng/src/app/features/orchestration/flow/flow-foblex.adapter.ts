@@ -45,6 +45,8 @@ export interface FlowConnectionView {
   target: string;
   edge: CanonicalFlowEdge;
   kind: 'data' | 'control' | 'branch';
+  /** Human-readable route carried by a Decision branch edge. */
+  branchLabel?: string;
 }
 
 export interface ParsedConnector {
@@ -121,6 +123,17 @@ export function toNodeViews(nodes: CanonicalFlowNode[]): FlowNodeView[] {
  */
 function resolveOutputConnector(node: CanonicalFlowNode | undefined, edge: CanonicalFlowEdge): string {
   const ports = node?.outputs ?? [];
+  const branchLabel = edge.branch_label ?? edge.label;
+  // Decision route edges historically carried only `branch_label`, while
+  // Foblex needs a concrete output connector. Bind the route to the matching
+  // labelled handle instead of falling back to the first output.
+  if (
+    (edge.kind ?? 'data') === 'branch' &&
+    branchLabel &&
+    ports.some((p) => p.name === branchLabel)
+  ) {
+    return outputConnectorId(edge.from, branchLabel);
+  }
   if (edge.from_port && ports.some((p) => p.name === edge.from_port)) {
     return outputConnectorId(edge.from, edge.from_port);
   }
@@ -143,13 +156,27 @@ export function toConnectionViews(
   nodes: CanonicalFlowNode[],
 ): FlowConnectionView[] {
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
-  return edges.map((edge, index) => ({
-    id: `edge-${index}-${edge.from}-${edge.to}-${edge.from_port ?? ''}-${edge.to_port ?? ''}`,
-    source: resolveOutputConnector(byId.get(edge.from), edge),
-    target: resolveInputConnector(byId.get(edge.to), edge),
-    edge,
-    kind: edge.kind ?? 'data',
-  }));
+  return edges.map((edge) => {
+    const branchLabel = (edge.kind ?? 'data') === 'branch'
+      ? edge.branch_label ?? edge.label
+      : undefined;
+    const identity = [
+      edge.kind ?? 'data',
+      edge.from,
+      edge.to,
+      branchLabel ?? '',
+      edge.from_port ?? '',
+      edge.to_port ?? '',
+    ];
+    return {
+      id: `edge-${encodeURIComponent(JSON.stringify(identity))}`,
+      source: resolveOutputConnector(byId.get(edge.from), edge),
+      target: resolveInputConnector(byId.get(edge.to), edge),
+      edge,
+      kind: edge.kind ?? 'data',
+      ...(branchLabel ? { branchLabel } : {}),
+    };
+  });
 }
 
 /**
@@ -160,6 +187,7 @@ export function toConnectionViews(
 export function connectorsToEdge(
   sourceId: string,
   targetId: string | undefined,
+  nodes: readonly CanonicalFlowNode[] = [],
 ): CanonicalFlowEdge | null {
   const source = parseConnectorId(sourceId);
   const target = parseConnectorId(targetId);
@@ -168,6 +196,18 @@ export function connectorsToEdge(
   const out = source.direction === 'out' ? source : target;
   const inp = source.direction === 'in' ? source : target;
   if (out.direction !== 'out' || inp.direction !== 'in') return null;
+  const sourceNode = nodes.find((node) => node.id === out.nodeId);
+  const isDecisionRoute = (sourceNode?.kind ?? 'task') === 'decision' && !!out.port;
+  if (isDecisionRoute) {
+    return {
+      from: out.nodeId,
+      to: inp.nodeId,
+      kind: 'branch',
+      branch_label: out.port,
+      from_port: out.port,
+      ...(inp.port ? { to_port: inp.port } : {}),
+    };
+  }
   return {
     from: out.nodeId,
     to: inp.nodeId,

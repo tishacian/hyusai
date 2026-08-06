@@ -135,3 +135,70 @@ test('view → connection → edge round-trip preserves endpoints', () => {
     assert.equal(edge!.to, v.edge.to);
   }
 });
+
+test('Decision route handles create canonical branch edges and preserve labels', () => {
+  const decision: CanonicalFlowNode = {
+    id: 'decision.approve',
+    type: 'decision',
+    kind: 'decision',
+    inputs: [{ name: 'value', schema: 'object' }],
+    outputs: [
+      { name: 'yes', schema: 'object' },
+      { name: 'no', schema: 'object' },
+    ],
+    config: {
+      branches: [
+        { label: 'yes', condition: 'value == True' },
+        { label: 'no', condition: 'value == False' },
+      ],
+      default_branch: 'no',
+    },
+  };
+  const sink: CanonicalFlowNode = {
+    id: 'sink.yes',
+    type: 'sink',
+    kind: 'sink',
+    inputs: [{ name: 'result', schema: 'object' }],
+  };
+
+  const edge = connectorsToEdge(
+    outputConnectorId(decision.id, 'yes'),
+    inputConnectorId(sink.id, 'result'),
+    [decision, sink],
+  );
+  assert.deepEqual(edge, {
+    from: decision.id,
+    to: sink.id,
+    kind: 'branch',
+    branch_label: 'yes',
+    from_port: 'yes',
+    to_port: 'result',
+  });
+
+  const [view] = toConnectionViews([edge!], [decision, sink]);
+  assert.equal(view.source, 'decision.approve::out::yes');
+  assert.equal(view.branchLabel, 'yes');
+  assert.match(view.id, /branch/);
+  assert.match(view.id, /yes/);
+});
+
+test('legacy branch edges without from_port bind to their labelled Decision handle', () => {
+  const decision: CanonicalFlowNode = {
+    id: 'd',
+    type: 'decision',
+    kind: 'decision',
+    outputs: [
+      { name: 'yes', schema: 'object' },
+      { name: 'no', schema: 'object' },
+    ],
+  };
+  const sink: CanonicalFlowNode = { id: 's', type: 'sink', kind: 'sink' };
+  const views = toConnectionViews([
+    { from: 'd', to: 's', kind: 'branch', label: 'yes' },
+    { from: 'd', to: 's', kind: 'branch', branch_label: 'no' },
+  ], [decision, sink]);
+
+  assert.equal(views[0].source, 'd::out::yes');
+  assert.equal(views[1].source, 'd::out::no');
+  assert.notEqual(views[0].id, views[1].id, 'branch label participates in edge identity');
+});

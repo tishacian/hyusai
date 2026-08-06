@@ -130,15 +130,18 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     description: 'Branch on a condition',
     icon: 'git-branch',
     tone: 'violet',
-    inputs: [{ name: 'in', schema: 'object' }],
+    // `any` is intentionally outside the primitive incompatibility set: a
+    // generic Decision can inspect scalar or structured upstream values.
+    inputs: [{ name: 'value', schema: 'any' }],
     outputs: [
       { name: 'yes', schema: 'object' },
       { name: 'no', schema: 'object' },
     ],
     config: {
+      passthrough_inputs: ['value'],
       branches: [
-        { label: 'yes', condition: '' },
-        { label: 'no', condition: '' },
+        { label: 'yes', condition: 'value == True' },
+        { label: 'no', condition: 'value == False' },
       ],
       default_branch: 'no',
     },

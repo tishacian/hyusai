@@ -20,7 +20,9 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { catchError, map, of, switchMap, throwError } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
@@ -45,6 +47,8 @@ import { FlowTerminalComponent } from './flow-terminal.component';
 import { FlowVersionsComponent } from './flow-versions.component';
 import { FlowManifestStripComponent } from './flow-manifest-strip.component';
 import { FlowValidationStripComponent } from './flow-validation-strip.component';
+import { FlowValidationService } from './flow-validation.service';
+import { FlowPublicationPanelComponent } from './flow-publication-panel.component';
 import {
   type ParsedConnector,
 } from './flow-foblex.adapter';
@@ -64,7 +68,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   // FlowPersistenceService lives here (not the toolbar) so the toolbar and the
   // validation strip share one instance — the strip reads its `serverIssues`.
-  providers: [FlowStore, FlowRunService, FlowPersistenceService],
+  providers: [FlowStore, FlowRunService, FlowPersistenceService, FlowValidationService],
   imports: [
     RouterLink,
     FlowCanvasComponent,
@@ -76,6 +80,7 @@ import {
     FlowVersionsComponent,
     FlowManifestStripComponent,
     FlowValidationStripComponent,
+    FlowPublicationPanelComponent,
     ConfirmDialogComponent,
   ],
   styleUrl: './flow-builder.component.scss',
@@ -120,10 +125,28 @@ import {
       </app-flow-toolbar>
 
       @if (loadState() === 'ready' && persistence.hydrationReady()) {
-        <app-flow-manifest-strip />
+        @if (persistence.publicationMode()) {
+          <div class="flow-builder__publication-boundary" role="status">
+            <strong>Server Draft r{{ persistence.draftRevision() }}</strong>
+            <span>
+              Test draft executes this saved revision. Operator Runner and ingress stay on
+              Published v{{ persistence.publishedVersionNumber() }} until an explicit Publish.
+            </span>
+            @if (!persistence.publishedContractReady()) {
+              <strong>
+                Contract publish required: the migration baseline remains non-executable until
+                this draft is explicitly published.
+              </strong>
+            }
+          </div>
+        } @else {
+          <app-flow-manifest-strip />
+        }
 
         <app-flow-validation-strip
           [serverIssues]="persistence.serverIssues()"
+          [serverState]="persistence.serverValidationState()"
+          [serverError]="persistence.serverValidationError()"
           (focusNode)="canvas()?.focusNode($event)"
         />
 
@@ -262,6 +285,8 @@ import {
       (confirm)="persistence.confirmReplacementAndSave()"
       (cancel)="persistence.cancelReplacementConfirmation()"
     />
+
+    <app-flow-publication-panel />
   `,
 })
 export class FlowBuilderComponent {
@@ -276,6 +301,7 @@ export class FlowBuilderComponent {
   private readonly manifest = inject(FlowManifestService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspace = inject(WorkspaceService);
+  private readonly validation = inject(FlowValidationService);
 
   protected readonly canvas = viewChild(FlowCanvasComponent);
 
@@ -322,6 +348,15 @@ export class FlowBuilderComponent {
       if (this.store.selectedNode()) this.inspectorOpen.set(true);
     });
 
+    // Server diagnostics follow the exact live editor revision. The sidecar
+    // deduplicates repeated observations and debounces actual HTTP traffic.
+    effect(() => {
+      this.store.revision();
+      if (this.persistence.hydrationReady() && this.systemId()) {
+        this.validation.observeCurrentFlow();
+      }
+    });
+
     const sid =
       this.route.snapshot.paramMap.get('systemId') ||
       this.route.snapshot.queryParamMap.get('systemId');
@@ -348,6 +383,9 @@ export class FlowBuilderComponent {
   /** A rollback response is the new authoritative baseline. */
   onRolledBack(system: System): void {
     if (this.persistence.hydrateSystem(system)) {
+      this.run.acknowledgeAuthoritativeHydration();
+      this.validation.bindSystem(system.id);
+      this.validation.validateNow();
       this.system.set(system);
       this.loadError.set('');
       this.loadState.set('ready');
@@ -363,31 +401,64 @@ export class FlowBuilderComponent {
   protected hydrateFromSystem(sid: string): void {
     this.loadState.set('loading');
     this.loadError.set('');
+    this.validation.bindSystem(null);
     this.persistence.beginHydration();
     const scope = this.workspace.captureRequestScope();
-    this.canonical.getSystemStrict(sid).subscribe({
-      next: (sys) => {
-        if (!this.workspace.isRequestScopeCurrent(scope)) return;
-        if (!this.persistence.hydrateSystem(sys)) {
-          this.loadError.set(
-            this.persistence.hydrationError() ?? 'The persisted Flow is malformed.',
-          );
+    this.canonical
+      .getSystemStrict(sid)
+      .pipe(
+        switchMap((sys) =>
+          this.canonical.getSystemFlowState(sid).pipe(
+            map((flowState) => ({ sys, flowState })),
+            catchError((error: unknown) =>
+              this.publicationEndpointUnavailable(error)
+                ? of({ sys, flowState: null })
+                : throwError(() => error),
+            ),
+          ),
+        ),
+      )
+      .subscribe({
+        next: ({ sys, flowState }) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          const hydrated = flowState
+            ? this.persistence.hydratePublicationState(sys, flowState)
+            : this.persistence.hydrateSystem(sys);
+          if (!hydrated) {
+            this.loadError.set(
+              this.persistence.hydrationError() ?? 'The persisted Flow is malformed.',
+            );
+            this.loadState.set('error');
+            return;
+          }
+          this.run.acknowledgeAuthoritativeHydration();
+          this.validation.bindSystem(sid);
+          this.validation.validateNow();
+          this.system.set(sys);
+          this.loadState.set('ready');
+        },
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          const message =
+            'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
+          this.persistence.markHydrationFailed(message);
+          this.loadError.set(message);
           this.loadState.set('error');
-          return;
-        }
-        this.system.set(sys);
-        this.loadState.set('ready');
-      },
-      error: () => {
-        if (!this.workspace.isRequestScopeCurrent(scope)) return;
-        const message =
-          'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
-        this.persistence.markHydrationFailed(message);
-        this.loadError.set(message);
-        this.loadState.set('error');
-        this.toastr.error(message, 'Flow loading blocked');
-      },
-    });
+          this.toastr.error(message, 'Flow loading blocked');
+        },
+      });
+  }
+
+  /** Fallback is intentionally narrow: feature-off and an older server with
+   * no route may use legacy System persistence. A deleted System or malformed
+   * publication state must remain blocked. */
+  private publicationEndpointUnavailable(error: unknown): boolean {
+    if (!(error instanceof HttpErrorResponse) || error.status !== 404) return false;
+    const detail = error.error?.detail ?? error.error;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      return (detail as { code?: unknown }).code === 'FLOW_PUBLICATION_DISABLED';
+    }
+    return detail === 'Not Found';
   }
 
   protected requestClear(): void {
@@ -427,6 +498,7 @@ export class FlowBuilderComponent {
       item,
       id,
       this.originatingSchema(preconnect),
+      this.store.nodes().find((node) => node.id === preconnect.nodeId),
     );
     if (edge) this.store.connect(edge);
   }

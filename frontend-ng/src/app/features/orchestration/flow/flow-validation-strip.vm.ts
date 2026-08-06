@@ -63,9 +63,9 @@ function toRow(issue: ValidationIssueLike, origin: 'client' | 'server'): Validat
 }
 
 /**
- * Build the strip view-model. Client diagnostics come first; an identical
- * server diagnostic (same level/code/node/message) is folded into the client
- * row so the strip never shows the same problem twice.
+ * Build the strip view-model. Hash-bound server diagnostics come first and
+ * therefore win cross-origin deduplication. Client checks remain an immediate
+ * authoring preview, never the authority for a diagnostic the server emitted.
  */
 export function toValidationStripVm(
   clientIssues: ValidationIssueLike[] | null | undefined,
@@ -84,8 +84,8 @@ export function toValidationStripVm(
     }
   };
 
-  add(clientIssues, 'client');
   add(serverIssues, 'server');
+  add(clientIssues, 'client');
 
   const errorRows = rows.filter((r) => r.level === 'error');
   const warnRows = rows.filter((r) => r.level === 'warn');

@@ -98,6 +98,7 @@ const storeSpecs = [
   'src/app/features/runs/run-view.component.spec.ts',
   'src/app/features/runs/skill-invocation-view.component.spec.ts',
   'src/app/features/systems/system-value-loop.component.spec.ts',
+  'src/app/features/systems/flow-runner.component.spec.ts',
   'src/app/features/governance/workspace-app-lifecycle.component.spec.ts',
   'src/app/features/governance/workspace-app-admin.guard.spec.ts',
   'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
@@ -108,6 +109,7 @@ const storeSpecs = [
   'src/app/features/orchestration/flow/flow.store.spec.ts',
   'src/app/features/orchestration/flow/flow-run.service.spec.ts',
   'src/app/features/orchestration/flow/flow-persistence.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-validation.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.spec.ts',
 ];
 

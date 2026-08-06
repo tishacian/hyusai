@@ -48,6 +48,12 @@ function prettyMode(mode: string): string {
       return 'chat';
     case 'run_engine_dag':
       return 'DAG';
+    case 'dag_strict':
+      return 'STRICT DAG';
+    case 'dag_overlay':
+      return 'DAG · OVERLAY COMPAT';
+    case 'sequential_legacy':
+      return 'LEGACY · SEQUENTIAL';
     default:
       return mode;
   }
@@ -111,7 +117,7 @@ export function manifestToStripVm(
   const operational = manifest.summary?.operational_units ?? 0;
   const skillUnits = manifest.summary?.skill_units ?? 0;
   const source = manifest.source ?? '—';
-  const mode = manifest.runtime_mode ?? null;
+  const mode = manifest.runtime_mode ?? manifest.execution_mode ?? null;
   const config = effectiveConfig(manifest.effective_config);
 
   const chips: ManifestStripChip[] = [
