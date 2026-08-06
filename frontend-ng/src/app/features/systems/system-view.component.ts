@@ -141,6 +141,17 @@ interface ContextConfigRow {
         [tone]="isDraft() ? 'warning' : 'success'"
         [label]="isDraft() ? 'Draft' : 'Ready'"
       />
+      @if (flowPublicationEnabled()) {
+        <a
+          actions
+          [routerLink]="['/systems', systemId, 'run']"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500/10 hover:bg-cyan-500/20 ring-1 ring-cyan-400/30 text-cyan-200 transition"
+          title="Open the published Flow in the Operator Runner"
+          data-testid="system-operator-runner-link"
+        >
+          <app-icon name="play-circle" [size]="14" /> Operator Runner
+        </a>
+      }
       @if (!isExpertKnowledgeCapture()) {
         <button
           actions
@@ -904,6 +915,14 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly chatPanelOpen = signal(false);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly showSystemSettingsAction = computed(() => !this.isExpertKnowledgeCapture() || !this.isDemoMode());
+  readonly flowPublicationEnabled = computed(() => {
+    const current = this.workspace.current();
+    const effective = current?.effective_features?.['flow_publication_v1'];
+    if (typeof effective === 'boolean') return effective;
+    const settings = asRecord(current?.settings) ?? {};
+    const features = asRecord(settings['features']) ?? {};
+    return features['flow_publication_v1'] === true;
+  });
 
   readonly systemDefaults = signal<{
     default_prompt_type?: string | null;
@@ -1454,6 +1473,14 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   triggerRun(): void {
     if (this.triggering() || !this.systemId || this.isDraft()) return;
     const systemId = this.systemId;
+    const expectedFlowSha256 = this.systemSnapshot()?.flow_sha256;
+    if (!expectedFlowSha256) {
+      this.toast.warning(
+        'Reload this System before running it: its Flow revision is unavailable.',
+        'Run not triggered',
+      );
+      return;
+    }
     const request = this.workspaceView.captureRequest();
     this.triggering.set(true);
     const inputRef = this.isTranslationSuite()
@@ -1474,7 +1501,11 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           cdt_gate_required: true,
         }
       : {};
-    const subscription = this.canonical.triggerRun(systemId, { trigger: 'manual', input_ref: inputRef }).subscribe({
+    const subscription = this.canonical.triggerRun(systemId, {
+      trigger: 'manual',
+      input_ref: inputRef,
+      expected_flow_sha256: expectedFlowSha256,
+    }).subscribe({
       next: (run) => {
         if (!this.requestIsCurrent(request, systemId)) return;
         this.triggering.set(false);

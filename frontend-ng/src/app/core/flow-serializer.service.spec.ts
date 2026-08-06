@@ -19,6 +19,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  canonicalEdgeIdentity,
+  decisionConditionValidationError,
   FlowSerializerService,
   variableRefValidationError,
   type CanonicalFlow,
@@ -117,6 +119,246 @@ test('validateFlow accepts a bound skill task with no warnings for it', () => {
   };
   const issues = s.validateFlow(flow);
   assert.ok(!issues.some((i) => i.code === 'task_no_skill'));
+});
+
+test('validateFlow rejects duplicate node ids before ambiguous map construction', () => {
+  const flow: CanonicalFlow = {
+    nodes: [
+      { id: 'same', type: 'source', kind: 'source' },
+      { id: 'same', type: 'sink', kind: 'sink' },
+    ],
+    edges: [],
+  };
+
+  const issues = svc().validateFlow(flow);
+  assert.deepEqual(issues.map((issue) => issue.code), ['node_id_duplicate']);
+  assert.equal(issues[0]?.node_id, 'same');
+  assert.equal(issues[0]?.level, 'error');
+});
+
+test('edge identity is structured, collision-free and rejects true duplicates', () => {
+  const first = { from: 'a|b', to: 'c', kind: 'data' as const };
+  const delimiterCollision = { from: 'a', to: 'b|c', kind: 'data' as const };
+  assert.notEqual(canonicalEdgeIdentity(first), canonicalEdgeIdentity(delimiterCollision));
+
+  const flow: CanonicalFlow = {
+    nodes: [
+      { id: 'a|b', type: 'source', kind: 'source' },
+      { id: 'a', type: 'source', kind: 'source' },
+      { id: 'c', type: 'sink', kind: 'sink' },
+      { id: 'b|c', type: 'sink', kind: 'sink' },
+    ],
+    edges: [first, delimiterCollision],
+  };
+  assert.ok(!svc().validateFlow(flow).some((issue) => issue.code === 'edge_duplicate'));
+
+  flow.edges.push({ ...first });
+  const duplicates = svc().validateFlow(flow)
+    .filter((issue) => issue.code === 'edge_duplicate');
+  assert.equal(duplicates.length, 1);
+  assert.equal(duplicates[0]?.edge_index, 2);
+  assert.equal(duplicates[0]?.level, 'error');
+});
+
+test('strict Flow requires exactly one explicit output sink', () => {
+  const missing: CanonicalFlow = {
+    schema_version: 3,
+    io_mode: 'strict',
+    nodes: [{ id: 'source', type: 'source', kind: 'source' }],
+    edges: [],
+  };
+  assert.ok(svc().validateFlow(missing).some(
+    (issue) => issue.code === 'flow_output_sink_required' && issue.level === 'error',
+  ));
+
+  const ambiguous: CanonicalFlow = {
+    schema_version: 3,
+    io_mode: 'strict',
+    nodes: [
+      { id: 'source', type: 'source', kind: 'source' },
+      { id: 'first', type: 'sink', kind: 'sink' },
+      { id: 'second', type: 'sink', kind: 'sink' },
+    ],
+    edges: [
+      { from: 'source', to: 'first' },
+      { from: 'source', to: 'second' },
+    ],
+  };
+  assert.ok(svc().validateFlow(ambiguous).some(
+    (issue) => issue.code === 'flow_output_sink_ambiguous' && issue.level === 'error',
+  ));
+
+  const exact: CanonicalFlow = {
+    schema_version: 3,
+    io_mode: 'strict',
+    nodes: [
+      { id: 'source', type: 'source', kind: 'source' },
+      { id: 'result', type: 'sink', kind: 'sink' },
+    ],
+    edges: [{ from: 'source', to: 'result' }],
+  };
+  assert.deepEqual(svc().validateFlow(exact), []);
+});
+
+test('Decision condition structural validation accepts the runtime DSL and rejects unsafe syntax', () => {
+  for (const expression of [
+    'value == True',
+    "scenario == 'nominal' and human_approved != False",
+    "'password_reset' in intent",
+    '(score >= 50 or context_count == 0) and not failed',
+    'run.approved == True',
+    'sub_queries != [] and sub_queries != None',
+  ]) {
+    assert.equal(decisionConditionValidationError(expression), null, expression);
+  }
+  assert.equal(decisionConditionValidationError(''), 'condition_empty');
+  assert.equal(decisionConditionValidationError("__import__('os')"), 'condition_unsupported');
+  assert.equal(decisionConditionValidationError('ctx.deep.value == 1'), 'condition_unsupported');
+  assert.equal(decisionConditionValidationError('items[0] == 1'), 'condition_unsupported');
+  assert.equal(decisionConditionValidationError('value = True'), 'condition_syntax_error');
+});
+
+test('validateFlow accepts a fully wired Decision contract', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'decision',
+        type: 'decision',
+        kind: 'decision',
+        config: {
+          branches: [
+            { label: 'yes', condition: 'value == True' },
+            { label: 'no', condition: 'value == False' },
+          ],
+          default_branch: 'no',
+        },
+      },
+      { id: 'yes', type: 'sink', kind: 'sink' },
+      { id: 'no', type: 'sink', kind: 'sink' },
+    ],
+    edges: [
+      { from: 'decision', to: 'yes', kind: 'branch', branch_label: 'yes' },
+      { from: 'decision', to: 'no', kind: 'branch', branch_label: 'no' },
+    ],
+  };
+  assert.deepEqual(svc().validateFlow(flow), []);
+});
+
+test('validateFlow mirrors Decision contract diagnostics', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'decision',
+        type: 'decision',
+        kind: 'decision',
+        config: {
+          branches: [
+            { label: 'duplicate', condition: '' },
+            { label: 'duplicate', condition: "__import__('os')" },
+          ],
+          default_branch: 'missing',
+        },
+      },
+      { id: 'sink', type: 'sink', kind: 'sink' },
+    ],
+    edges: [
+      { from: 'decision', to: 'sink', kind: 'branch', branch_label: 'duplicate' },
+    ],
+  };
+  const codes = new Set(svc().validateFlow(flow).map((issue) => issue.code));
+  assert.ok(codes.has('decision_condition_invalid'));
+  assert.ok(codes.has('decision_branch_duplicate'));
+  assert.ok(codes.has('decision_default_invalid'));
+});
+
+test('validateFlow reports unwired Decision routes and foreign branch edges', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'decision',
+        type: 'decision',
+        kind: 'decision',
+        config: {
+          branches: [
+            { label: 'yes', condition: 'True' },
+            { label: 'no', condition: 'False' },
+          ],
+        },
+      },
+      { id: 'source', type: 'source', kind: 'source' },
+      { id: 'sink', type: 'sink', kind: 'sink' },
+    ],
+    edges: [
+      { from: 'decision', to: 'sink', kind: 'branch', branch_label: 'yes' },
+      { from: 'source', to: 'sink', kind: 'branch', branch_label: 'no' },
+    ],
+  };
+  const codes = new Set(svc().validateFlow(flow).map((issue) => issue.code));
+  assert.ok(codes.has('decision_branch_unwired'));
+  assert.ok(codes.has('branch_edge_invalid'));
+});
+
+test('validateFlow pairs fork/join by real reconvergence, not global counts', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'fork', type: 'fork', kind: 'fork', config: { branches: ['a', 'b'] } },
+      { id: 'a', type: 'sink', kind: 'sink' },
+      { id: 'b', type: 'sink', kind: 'sink' },
+      { id: 'left', type: 'source', kind: 'source' },
+      { id: 'right', type: 'source', kind: 'source' },
+      { id: 'join', type: 'join', kind: 'join', config: { strategy: 'all' } },
+    ],
+    edges: [
+      { from: 'fork', to: 'a', kind: 'data', from_port: 'a' },
+      { from: 'fork', to: 'b', kind: 'data', from_port: 'b' },
+      { from: 'left', to: 'join', kind: 'data' },
+      { from: 'right', to: 'join', kind: 'data' },
+    ],
+  };
+  const issues = svc().validateFlow(flow);
+  assert.ok(issues.some((issue) => issue.code === 'fork_unjoined'));
+  assert.ok(issues.some((issue) => issue.code === 'join_without_matching_fork'));
+  assert.ok(issues.filter((issue) => issue.code === 'fork_unjoined').every((issue) => issue.level === 'warn'));
+
+  flow.io_mode = 'strict';
+  assert.ok(
+    svc().validateFlow(flow).some(
+      (issue) => issue.code === 'fork_unjoined' && issue.level === 'error',
+    ),
+  );
+});
+
+test('validateFlow accepts a labelled fork whose lanes post-dominate at a join', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'fork', type: 'fork', kind: 'fork', config: { branches: ['a', 'b'] } },
+      { id: 'a', type: 'task', kind: 'task', config: { skill_slug: 'a' } },
+      { id: 'b', type: 'task', kind: 'task', config: { skill_slug: 'b' } },
+      { id: 'join', type: 'join', kind: 'join', config: { strategy: 'all' } },
+      { id: 'sink', type: 'sink', kind: 'sink' },
+    ],
+    edges: [
+      { from: 'fork', to: 'a', kind: 'data', from_port: 'a' },
+      { from: 'fork', to: 'b', kind: 'data', from_port: 'b' },
+      { from: 'a', to: 'join', kind: 'data' },
+      { from: 'b', to: 'join', kind: 'data' },
+      { from: 'join', to: 'sink', kind: 'data' },
+    ],
+  };
+  const topologyCodes = new Set([
+    'fork_fanout_invalid',
+    'fork_unjoined',
+    'join_fanin_invalid',
+    'join_without_matching_fork',
+    'branch_label_invalid',
+    'join_strategy_invalid',
+  ]);
+  assert.ok(!svc().validateFlow(flow).some((issue) => topologyCodes.has(issue.code)));
 });
 
 test('normalize backfills schema_version 3 idempotently (v2 -> v3)', () => {
@@ -359,4 +601,60 @@ test('topoSort returns an order for a DAG and null for a cycle', () => {
     ],
   };
   assert.equal(s.topoSort(cyclic), null);
+});
+
+test('ingress kind typos and inbound source nodes are blocking', () => {
+  const typo: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'webhook',
+        type: 'source.webhook',
+        kind: 'source',
+        config: { ingress_kind: 'htp' },
+      },
+    ],
+    edges: [],
+  };
+  const inbound: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      { id: 'entry', type: 'source', kind: 'source' },
+      { id: 'nested', type: 'source', kind: 'source' },
+    ],
+    edges: [{ from: 'entry', to: 'nested', kind: 'data' }],
+  };
+
+  assert.ok(
+    svc().validateFlow(typo).some((issue) => issue.code === 'ingress_kind_invalid'),
+  );
+  assert.ok(
+    svc()
+      .validateFlow(inbound)
+      .some((issue) => issue.code === 'ingress_source_not_root'),
+  );
+});
+
+test('loop and retry budgets must be finite positive integers', () => {
+  for (const [kind, field] of [
+    ['loop', 'max_iterations'],
+    ['retry', 'max_attempts'],
+  ] as const) {
+    for (const value of [true, 1.5, Number.NaN]) {
+      const flow: CanonicalFlow = {
+        schema_version: 3,
+        nodes: [
+          {
+            id: `${kind}.node`,
+            type: kind,
+            kind,
+            config: { [field]: value },
+          },
+        ],
+        edges: [],
+      };
+      const code = kind === 'loop' ? 'loop_no_budget' : 'retry_no_target';
+      assert.ok(svc().validateFlow(flow).some((issue) => issue.code === code));
+    }
+  }
 });

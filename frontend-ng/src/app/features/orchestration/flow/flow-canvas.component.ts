@@ -100,8 +100,15 @@ export interface ConnectFromHandleEvent {
             [fInputId]="conn.target"
             [fType]="routing()"
             [fBehavior]="behavior"
+            [attr.data-kind]="conn.kind"
             fReassignableStart
-          />
+          >
+            @if (conn.branchLabel; as branchLabel) {
+              <span fConnectionContent class="ck-flow-branch-label" [position]="0.28">
+                {{ branchLabel }}
+              </span>
+            }
+          </f-connection>
         }
 
         <f-connection-for-create [fType]="routing()" [fBehavior]="behavior" />
@@ -149,7 +156,7 @@ export class FlowCanvasComponent {
 
   // ---- Foblex interaction handlers ------------------------------------
   onCreateConnection(event: FCreateConnectionEvent): void {
-    const edge = connectorsToEdge(event.sourceId, event.targetId);
+    const edge = connectorsToEdge(event.sourceId, event.targetId, this.store.nodes());
     if (edge) {
       this.store.connect(edge);
       return;
@@ -181,6 +188,7 @@ export class FlowCanvasComponent {
     const next = connectorsToEdge(
       event.nextSourceId ?? previous.source,
       event.nextTargetId ?? previous.target,
+      this.store.nodes(),
     );
     if (!next) return;
     this.store.reassignEdge(previous.edge, next);

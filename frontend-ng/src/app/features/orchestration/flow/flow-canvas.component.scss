@@ -42,6 +42,21 @@ f-flow {
   stroke: var(--ck-signal-cool, #7dd3fc);
   stroke-width: 2.25;
 }
+:host ::ng-deep .f-connection[data-kind='branch'] .f-connection-path {
+  stroke: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 72%, var(--ck-fg-4));
+}
+
+:host ::ng-deep .ck-flow-branch-label {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ck-bg-panel-hi, #11161c) 92%, transparent);
+  color: var(--ck-signal-violet, #a78bfa);
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  white-space: nowrap;
+}
 :host ::ng-deep .f-connection .f-connection-drag-handle {
   fill: transparent;
   stroke: transparent;

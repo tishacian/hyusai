@@ -141,8 +141,13 @@ const PAGE_SIZE = 25;
         @if (rollbackTarget(); as tgt) {
           <div class="ck-vers__confirm" role="dialog" aria-label="Confirm rollback">
             <p class="ck-vers__confirm-text">
-              Create a new version that copies <strong>v{{ tgt.version_number }}</strong>'s graph and
-              replaces the canvas. History is append-only — nothing is deleted.
+              @if (persistence.publicationMode()) {
+                Restore <strong>v{{ tgt.version_number }}</strong> into the server draft and replace
+                the canvas. The published pointer and System status stay unchanged.
+              } @else {
+                Create a new version that copies <strong>v{{ tgt.version_number }}</strong>'s graph and
+                replaces the canvas. History is append-only — nothing is deleted.
+              }
             </p>
             <input
               type="text"
@@ -175,7 +180,8 @@ const PAGE_SIZE = 25;
                 @if (rollbackPending()) {
                   <app-icon name="loader-2" [size]="12" class="ck-vers__spin" /> Rolling back…
                 } @else {
-                  <app-icon name="rotate-ccw" [size]="12" /> Confirm
+                  <app-icon name="rotate-ccw" [size]="12" />
+                  {{ persistence.publicationMode() ? 'Restore draft' : 'Confirm' }}
                 }
               </button>
             </div>
@@ -322,6 +328,10 @@ export class FlowVersionsComponent {
       );
       return;
     }
+    if (this.persistence.publicationMode()) {
+      this.restorePublishedVersionToDraft(sid, tgt);
+      return;
+    }
     const writeOptions = this.persistence.rollbackWriteOptions();
     if (!writeOptions) {
       this.toastr.warning(
@@ -372,6 +382,51 @@ export class FlowVersionsComponent {
           this.toastr.warning(
             'Rollback outcome is unknown. Reloading the authoritative Flow.',
             'Rollback verification',
+          );
+        },
+      });
+  }
+
+  private restorePublishedVersionToDraft(
+    sid: string,
+    tgt: SystemVersionSummary,
+  ): void {
+    const expectedRevision = this.persistence.draftRevision();
+    if (expectedRevision === null) {
+      this.toastr.warning(
+        'Reload the authoritative server draft before restoring a version.',
+        'Restore blocked',
+      );
+      return;
+    }
+    if (!this.persistence.beginExternalMutation()) return;
+    this.rollbackPending.set(true);
+    const scope = this.workspace.captureRequestScope();
+    this.canonical
+      .restoreSystemFlowDraft(sid, tgt.id, expectedRevision)
+      .subscribe({
+        next: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.rollbackPending.set(false);
+          this.rollbackTarget.set(null);
+          this.rollbackMessage.set('');
+          // Strict flow-state hydration owns the authoritative replacement;
+          // never derive it from the preview row or System mirror.
+          this.persistence.beginHydration();
+          this.reloadRequired.emit();
+          this.toastr.success(
+            `v${tgt.version_number} restored to the server draft. Published Flow unchanged.`,
+            'Draft restored',
+          );
+        },
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.rollbackPending.set(false);
+          this.persistence.beginHydration();
+          this.reloadRequired.emit();
+          this.toastr.warning(
+            'Restore outcome is unknown. Reloading the authoritative server draft.',
+            'Restore verification',
           );
         },
       });

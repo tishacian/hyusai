@@ -20,11 +20,16 @@
 import '@angular/compiler';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Injector } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Injector, signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
 import {
   CanonicalApiService,
+  type FlowExecutionRuntimeMode,
+  type FlowRuntimeManifest,
+  type FlowValidationResponse,
   type Run,
+  type RunTriggerRequest,
 } from '@app/core/canonical-api.service';
 import {
   RunStreamService,
@@ -37,7 +42,18 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
-import { FlowRunService } from './flow-run.service';
+import {
+  FlowManifestService,
+  manifestRuntimeMode,
+  runtimeModeLabel,
+} from './flow-manifest.service';
+import { FlowPersistenceService } from './flow-persistence.service';
+import {
+  draftTestIngressOptions,
+  FlowRunService,
+  parseRunInputRef,
+  selectDraftTestIngress,
+} from './flow-run.service';
 
 type Store = InstanceType<typeof FlowStore>;
 type Svc = InstanceType<typeof FlowRunService>;
@@ -71,7 +87,17 @@ function invalidFlow(): CanonicalFlow {
 
 class MockApi {
   triggerRunCalls = 0;
-  triggerRunDebugCalls: Array<{ mode: string; breakpoints?: string[] }> = [];
+  triggerPayloads: RunTriggerRequest[] = [];
+  draftTestRunCalls: Array<{
+    systemId: string;
+    payload: {
+      input_ref: Record<string, unknown>;
+      expected_draft_revision: number;
+      expected_flow_sha256: string;
+      ingress_id?: string;
+      kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+    };
+  }> = [];
   stepRunCalls: Array<{ action: string; breakpoints?: string[] }> = [];
   resolveHitlCalls: Array<{ action: string }> = [];
   getRunCalls = 0;
@@ -85,13 +111,23 @@ class MockApi {
   stepSubject: Subject<Run | null> | null = null;
   getRunSubject: Subject<Run | null> | null = null;
 
-  triggerRun(_id: string, _payload?: Record<string, unknown>) {
+  triggerRun(_id: string, payload: RunTriggerRequest) {
     this.triggerRunCalls++;
+    this.triggerPayloads.push(payload);
     return this.triggerSubject?.asObservable() ?? of(this.triggerResult);
   }
-  triggerRunDebug(_id: string, options: { mode: string; breakpoints?: string[] }) {
-    this.triggerRunDebugCalls.push(options);
-    return of(this.triggerResult);
+  triggerSystemFlowDraftTestRun(
+    systemId: string,
+    payload: {
+      input_ref: Record<string, unknown>;
+      expected_draft_revision: number;
+      expected_flow_sha256: string;
+      ingress_id?: string;
+      kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+    },
+  ) {
+    this.draftTestRunCalls.push({ systemId, payload });
+    return this.triggerSubject?.asObservable() ?? of(this.triggerResult);
   }
   getRun(_id: string) {
     this.getRunCalls++;
@@ -105,6 +141,38 @@ class MockApi {
     this.stepRunCalls.push(body);
     return this.stepSubject?.asObservable() ?? of(this.stepResult);
   }
+}
+
+class PersistenceStub {
+  readonly hydrationReady = signal(true);
+  readonly actionsDisabled = signal(false);
+  readonly publicationMode = signal(false);
+  readonly draftRevision = signal<number | null>(null);
+  readonly savedFlowSha256 = signal<string | null>('sha-flow');
+  readonly serverValidation = signal<FlowValidationResponse | null>({
+    flow_sha256: 'sha-flow',
+    analyzer_version: 'flow-analyzer/1',
+    runtime_mode: 'dag_strict' as const,
+    valid: true,
+    issues: [] as Array<{ level: 'error' | 'warn'; code: string; message: string }>,
+  });
+  readonly serverValidationState = signal<'idle' | 'scheduled' | 'validating' | 'ready' | 'error'>('ready');
+  readonly saveState = signal<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+  revisionConflicts: string[] = [];
+  markRevisionConflict(message: string): void {
+    this.revisionConflicts.push(message);
+  }
+}
+
+class ManifestStub {
+  readonly manifest = signal<FlowRuntimeManifest | null>({
+    system_id: 'sys-1',
+    system_name: 'System 1',
+    flow_sha256: 'sha-flow',
+    runtime_mode: 'dag_strict',
+  });
+  readonly runtimeMode = signal<FlowExecutionRuntimeMode | null>('dag_strict');
+  readonly runtimeModeLabel = signal('STRICT DAG');
 }
 
 class WorkspaceStub {
@@ -154,11 +222,15 @@ interface Harness {
   store: Store;
   api: MockApi;
   stream: MockStream;
+  persistence: PersistenceStub;
+  manifest: ManifestStub;
 }
 
 function makeHarness(workspace?: WorkspaceStub): Harness {
   const api = new MockApi();
   const stream = new MockStream();
+  const persistence = new PersistenceStub();
+  const manifest = new ManifestStub();
   const injector = Injector.create({
     providers: [
       FlowSerializerService,
@@ -166,6 +238,8 @@ function makeHarness(workspace?: WorkspaceStub): Harness {
       FlowRunService as never,
       { provide: CanonicalApiService, useValue: api },
       { provide: RunStreamService, useValue: stream },
+      { provide: FlowPersistenceService, useValue: persistence },
+      { provide: FlowManifestService, useValue: manifest },
       ...(workspace ? [{ provide: WorkspaceService, useValue: workspace }] : []),
     ],
   });
@@ -174,6 +248,8 @@ function makeHarness(workspace?: WorkspaceStub): Harness {
     store: injector.get(FlowStore) as Store,
     api,
     stream,
+    persistence,
+    manifest,
   };
 }
 
@@ -248,6 +324,11 @@ test('status: idle → running → done across a clean backend run', () => {
 
   svc.executeOnBackend();
   assert.equal(api.triggerRunCalls, 1, 'triggers exactly one run');
+  assert.deepEqual(api.triggerPayloads[0], {
+    trigger: 'manual',
+    input_ref: {},
+    expected_flow_sha256: 'sha-flow',
+  });
   assert.equal(svc.status(), 'running');
   assert.equal(svc.executing(), true);
 
@@ -258,6 +339,151 @@ test('status: idle → running → done across a clean backend run', () => {
   stream.emit({ event: 'run_end', data: { status: 'completed' } });
   assert.equal(svc.status(), 'done');
   assert.equal(svc.activeNodeId(), null);
+});
+
+test('publication Builder executes the saved server draft, never the published Run endpoint', () => {
+  const { svc, store, api, persistence, manifest } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  persistence.publicationMode.set(true);
+  persistence.draftRevision.set(7);
+  // The published manifest may legitimately point at another hash. A draft
+  // test-run compiles/freezes the draft independently and must not use it.
+  manifest.manifest.set({
+    system_id: 'sys-1',
+    system_name: 'System 1',
+    flow_sha256: 'sha-published',
+    runtime_mode: 'dag_strict',
+  });
+
+  svc.executeOnBackend({ ticket: 'INC-42' });
+
+  assert.equal(api.triggerRunCalls, 0);
+  assert.deepEqual(api.draftTestRunCalls, [
+    {
+      systemId: 'sys-1',
+      payload: {
+        input_ref: { ticket: 'INC-42' },
+        expected_draft_revision: 7,
+        expected_flow_sha256: 'sha-flow',
+        ingress_id: 's',
+        kind: 'manual',
+      },
+    },
+  ]);
+  assert.equal(svc.executionSurfaceLabel(), 'Draft test-run');
+});
+
+test('multiple draft ingresses stay ambiguous until the operator chooses one', () => {
+  const flow = validFlow();
+  flow.nodes.unshift({
+    id: 'webhook',
+    type: 'source.webhook',
+    kind: 'source',
+    label: 'Webhook',
+  });
+
+  assert.equal(selectDraftTestIngress(flow), null);
+  assert.deepEqual(draftTestIngressOptions(flow), [
+    { ingress_id: 'webhook', kind: 'http', label: 'Webhook' },
+    { ingress_id: 's', kind: 'manual', label: 'Start' },
+  ]);
+  assert.deepEqual(selectDraftTestIngress(flow, 's'), {
+    ingress_id: 's',
+    kind: 'manual',
+  });
+});
+
+test('draft test ingress selection supports a sole non-manual adapter', () => {
+  const flow = validFlow();
+  flow.nodes = flow.nodes.filter((node) => node.id !== 's');
+  flow.nodes.unshift({
+    id: 'webhook',
+    type: 'source.webhook',
+    kind: 'source',
+    label: 'Webhook',
+  });
+
+  assert.deepEqual(selectDraftTestIngress(flow), {
+    ingress_id: 'webhook',
+    kind: 'http',
+  });
+});
+
+test('draft input modal blocks an ambiguous Flow until a real ingress is selected', () => {
+  const { svc, store, api, persistence } = makeHarness();
+  const flow = validFlow();
+  flow.nodes.unshift({
+    id: 'webhook',
+    type: 'source.webhook',
+    kind: 'source',
+    label: 'Webhook',
+  });
+  flow.nodes.push({
+    id: 'webhook.out',
+    type: 'sink',
+    kind: 'sink',
+    label: 'Webhook result',
+  });
+  flow.edges.push({ from: 'webhook', to: 'webhook.out', kind: 'data' });
+  store.load(flow);
+  svc.bindSystem('sys-1');
+  persistence.publicationMode.set(true);
+  persistence.draftRevision.set(7);
+
+  svc.openInputEditor();
+
+  assert.equal(svc.inputEditorOpen(), true);
+  assert.equal(svc.selectedDraftIngressId(), '');
+  assert.equal(svc.canSubmitInput(), false);
+  assert.match(svc.draftIngressSelectionError() ?? '', /Choose one of the 2/);
+  svc.submitInputEditor();
+  assert.equal(api.draftTestRunCalls.length, 0, 'ambiguous Submit is fail-closed');
+
+  svc.chooseDraftTestIngress('webhook');
+  assert.equal(svc.canSubmitInput(), true);
+  svc.submitInputEditor();
+
+  assert.equal(api.triggerRunCalls, 0);
+  assert.deepEqual(api.draftTestRunCalls[0]?.payload, {
+    input_ref: {},
+    expected_draft_revision: 7,
+    expected_flow_sha256: 'sha-flow',
+    ingress_id: 'webhook',
+    kind: 'http',
+  });
+});
+
+test('Decision terminal renders explicit resolution and branch label without values', () => {
+  const { svc, store, stream } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  svc.executeOnBackend();
+
+  stream.emit({
+    event: 'decision_resolution',
+    data: {
+      node_id: 'route',
+      resolution: 'matched',
+      chosen_branch: 'eligible',
+      evaluations: [{ label: 'eligible', matched: true, value: 'must-not-render' }],
+    },
+  });
+  const line = svc.log().find((entry) => entry.tag === 'DECISION');
+  assert.equal(line?.text, 'Decision route · matched → eligible');
+  assert.doesNotMatch(line?.text ?? '', /must-not-render/);
+
+  for (const resolution of ['defaulted', 'no_match', 'unroutable', 'error'] as const) {
+    stream.emit({
+      event: 'decision_resolution',
+      data: { node_id: 'route', resolution, chosen_branch: 'fallback' },
+    });
+  }
+  const decisionLines = svc.log().filter((entry) => entry.tag === 'DECISION');
+  assert.ok(decisionLines.some((entry) => entry.text.includes('default → fallback')));
+  assert.ok(decisionLines.some((entry) => entry.text.includes('no matching branch')));
+  assert.ok(decisionLines.some((entry) => entry.text.includes('unroutable → fallback')));
+  assert.ok(decisionLines.some((entry) => entry.text.includes('evaluation error')));
 });
 
 test('status: trigger failure → error', () => {
@@ -317,8 +543,11 @@ test('debug: step then stop drives the debugger', () => {
   api.getRunResult = mkRun('debug_pending', { debug: { node_id: 'n2', debug_mode: 'step' } });
 
   svc.executeOnBackend();
-  assert.equal(api.triggerRunDebugCalls.length, 1, 'debug run uses triggerRunDebug');
-  assert.equal(api.triggerRunDebugCalls[0].mode, 'step');
+  assert.equal(api.triggerRunCalls, 1, 'debug run uses the canonical triggerRun');
+  assert.deepEqual(api.triggerPayloads[0].input_ref['_debug'], {
+    mode: 'step',
+    breakpoints: [],
+  });
 
   stream.emit({ event: 'debug_pause', data: { node_id: 'n2' } });
   assert.equal(svc.status(), 'paused');
@@ -346,7 +575,10 @@ test('debug: continue forwards the live breakpoint set', () => {
   api.getRunResult = mkRun('debug_pending', { debug: { node_id: 'n2' } });
 
   svc.executeOnBackend();
-  assert.deepEqual(api.triggerRunDebugCalls[0].breakpoints, ['n2']);
+  assert.deepEqual(api.triggerPayloads[0].input_ref['_debug'], {
+    mode: 'breakpoints',
+    breakpoints: ['n2'],
+  });
 
   stream.emit({ event: 'debug_pause', data: { node_id: 'n2' } });
   api.stepResult = mkRun('debug_pending', { debug: { node_id: 'n5' } });
@@ -355,8 +587,22 @@ test('debug: continue forwards the live breakpoint set', () => {
   assert.deepEqual(api.stepRunCalls[0].breakpoints, ['n2']);
 });
 
+test('breakpoint debug cannot execute without a selected node', () => {
+  const { svc, store, api } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  svc.debugMode.set('breakpoints');
+
+  assert.equal(svc.canExecute(), false);
+  assert.match(svc.executionBlockReason() ?? '', /requires at least one selected node/);
+  svc.executeOnBackend();
+  assert.equal(api.triggerRunCalls, 0);
+});
+
 test('breakpoints: add / remove + debug-mode cycle', () => {
-  const { svc } = makeHarness();
+  const { svc, store } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
   assert.equal(svc.isBreakpoint('n1'), false);
 
   svc.toggleBreakpoint('n1');
@@ -397,6 +643,179 @@ test('gating: scratchpad (no systemId) cannot Execute', () => {
   assert.equal(api.triggerRunCalls, 0);
   assert.equal(svc.status(), 'idle', 'status untouched on the scratchpad');
   assert.ok(svc.log().some((e) => e.text.includes('Scratchpad')));
+});
+
+test('input editor accepts only JSON objects and reserves _debug', () => {
+  assert.deepEqual(parseRunInputRef('{"case_id":"A-17"}'), {
+    ok: true,
+    value: { case_id: 'A-17' },
+  });
+  assert.equal(parseRunInputRef('not-json').ok, false);
+  assert.equal(parseRunInputRef('[]').ok, false);
+  assert.equal(parseRunInputRef('null').ok, false);
+  const reserved = parseRunInputRef('{"_debug":{"mode":"step"}}');
+  assert.equal(reserved.ok, false);
+  if (!reserved.ok) assert.match(reserved.message, /reserved/);
+});
+
+test('service-owned debug metadata cannot be injected through a direct Execute call', () => {
+  const { svc, store, api } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  svc.executeOnBackend({ _debug: { mode: 'step' } });
+  assert.equal(api.triggerRunCalls, 0);
+  assert.match(svc.dispatchError() ?? '', /reserved/);
+});
+
+test('runtime badge accepts the three server modes and only falls back when canonical mode is absent', () => {
+  assert.equal(manifestRuntimeMode({
+    system_id: 's',
+    system_name: 'S',
+    runtime_mode: 'dag_strict',
+  }), 'dag_strict');
+  assert.equal(manifestRuntimeMode({
+    system_id: 's',
+    system_name: 'S',
+    execution_mode: 'dag_overlay',
+  }), 'dag_overlay');
+  assert.equal(manifestRuntimeMode({
+    system_id: 's',
+    system_name: 'S',
+    runtime_mode: 'historical_unknown',
+    execution_mode: 'dag_strict',
+  }), null, 'an invalid canonical field cannot be masked by the fallback');
+  assert.equal(runtimeModeLabel('dag_strict'), 'STRICT DAG');
+  assert.equal(runtimeModeLabel('dag_overlay'), 'DAG · OVERLAY COMPAT');
+  assert.equal(runtimeModeLabel('sequential_legacy'), 'LEGACY · SEQUENTIAL');
+});
+
+test('gating: dirty, saving, save error, missing hash and stale manifest all fail closed', () => {
+  const { svc, store, api, persistence, manifest } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  assert.equal(svc.canExecute(), true, 'clean hydrated matching contract is executable');
+
+  store.addNode({ type: 'task', label: 'Unsaved' });
+  assert.equal(svc.canExecute(), false);
+  assert.match(svc.executionBlockReason() ?? '', /Save the current Flow/);
+  store.load(validFlow());
+
+  persistence.saveState.set('saving');
+  assert.equal(svc.canExecute(), false);
+  persistence.saveState.set('error');
+  assert.match(svc.executionBlockReason() ?? '', /last save failed/);
+  persistence.saveState.set('saved');
+
+  persistence.savedFlowSha256.set(null);
+  assert.match(svc.executionBlockReason() ?? '', /no authoritative hash/);
+  persistence.savedFlowSha256.set('sha-flow');
+
+  manifest.manifest.set({
+    system_id: 'sys-1',
+    system_name: 'System 1',
+    flow_sha256: 'sha-old',
+    runtime_mode: 'dag_strict',
+  });
+  assert.match(svc.executionBlockReason() ?? '', /runtime contract refreshes/);
+  svc.executeOnBackend();
+  assert.equal(api.triggerRunCalls, 0);
+});
+
+test('Execute consumes only a current server validation for the saved hash', () => {
+  const { svc, store, api, persistence } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+
+  persistence.serverValidation.set(null);
+  persistence.serverValidationState.set('validating');
+  assert.match(svc.executionBlockReason() ?? '', /current Flow is validated/);
+
+  persistence.serverValidationState.set('error');
+  assert.match(svc.executionBlockReason() ?? '', /could not be validated/);
+
+  persistence.serverValidation.set({
+    flow_sha256: 'sha-old',
+    analyzer_version: 'flow-analyzer/1',
+    runtime_mode: 'dag_strict',
+    valid: true,
+    issues: [],
+  });
+  assert.match(svc.executionBlockReason() ?? '', /saved Flow hash/);
+
+  persistence.serverValidation.set({
+    flow_sha256: 'sha-flow',
+    analyzer_version: 'flow-analyzer/1',
+    runtime_mode: 'dag_strict',
+    valid: false,
+    issues: [{ level: 'error', code: 'cycle_detected', message: 'Cycle.' }],
+  });
+  assert.match(svc.executionBlockReason() ?? '', /current server validation errors/);
+  svc.executeOnBackend();
+  assert.equal(api.triggerRunCalls, 0);
+});
+
+test('debug is blocked in sequential legacy while normal Execute stays available', () => {
+  const { svc, store, api, manifest } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  manifest.runtimeMode.set('sequential_legacy');
+  manifest.runtimeModeLabel.set('LEGACY · SEQUENTIAL');
+  manifest.manifest.set({
+    system_id: 'sys-1',
+    system_name: 'System 1',
+    flow_sha256: 'sha-flow',
+    runtime_mode: 'sequential_legacy',
+  });
+
+  assert.equal(svc.canExecute(), true, 'normal legacy execution remains available');
+  assert.equal(svc.canDebug(), false);
+  svc.debugMode.set('step');
+  assert.equal(svc.canExecute(), false);
+  assert.match(svc.executionBlockReason() ?? '', /Debug is unavailable/);
+  svc.executeOnBackend();
+  assert.equal(api.triggerRunCalls, 0);
+});
+
+test('403/409/422 trigger errors stay distinct and keep operator input open', () => {
+  for (const [status, expected] of [
+    [403, /permission/],
+    [409, /changed/],
+    [422, /invalid/],
+  ] as const) {
+    const { svc, store, api } = makeHarness();
+    store.load(validFlow());
+    svc.bindSystem('sys-1');
+    api.triggerSubject = new Subject<Run | null>();
+    svc.updateInputText('{"ticket":"INC-42"}');
+    svc.openInputEditor();
+    svc.submitInputEditor();
+    api.triggerSubject.error(new HttpErrorResponse({ status }));
+
+    assert.equal(svc.inputEditorOpen(), true, `HTTP ${status} keeps the editor open`);
+    assert.equal(svc.inputText(), '{"ticket":"INC-42"}');
+    assert.match(svc.dispatchError() ?? '', expected);
+  }
+});
+
+test('authoritative hydration releases a 409 Execute latch even at the same Flow hash', () => {
+  const { svc, store, api, persistence } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  api.triggerSubject = new Subject<Run | null>();
+
+  svc.executeOnBackend();
+  api.triggerSubject.error(new HttpErrorResponse({ status: 409 }));
+
+  assert.equal(persistence.savedFlowSha256(), 'sha-flow');
+  assert.equal(svc.canExecute(), false);
+  assert.match(svc.executionBlockReason() ?? '', /Reload the authoritative Flow/);
+
+  // Strict hydration may attest a newer revision/pointer with identical graph
+  // bytes. Hash inequality is therefore not a valid release condition.
+  svc.acknowledgeAuthoritativeHydration();
+  assert.equal(persistence.savedFlowSha256(), 'sha-flow');
+  assert.equal(svc.canExecute(), true);
+  assert.equal(svc.dispatchError(), null);
 });
 
 test('simulate: client-side dry run works without a System and skips the backend', () => {

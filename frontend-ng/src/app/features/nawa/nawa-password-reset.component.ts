@@ -638,7 +638,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
   protected launch(): void {
     const system = this.system();
     if (!system || this.busy()) return;
-    this.start(this.service.launch(system.id, this.scenario()));
+    this.start(this.service.launch(system, this.scenario()));
   }
 
   /**
@@ -651,7 +651,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
   protected remediate(input: Record<string, string | number | boolean>): void {
     const system = this.system();
     if (!system || this.busy()) return;
-    this.start(this.service.launchWith(system.id, input));
+    this.start(this.service.launchWith(system, input));
   }
 
   /**

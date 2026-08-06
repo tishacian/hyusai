@@ -74,6 +74,25 @@
   }
 }
 
+.flow-builder__publication-boundary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: var(--ck-radius-md, 6px);
+  background: rgba(59, 130, 246, 0.07);
+  color: var(--ck-fg-3, #8891a0);
+  font-size: 11px;
+
+  strong {
+    flex-shrink: 0;
+    color: #93c5fd;
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    text-transform: uppercase;
+  }
+}
+
 .flow-builder__review-actions {
   display: flex;
   gap: 8px;

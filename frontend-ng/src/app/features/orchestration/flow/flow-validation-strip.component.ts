@@ -4,8 +4,8 @@
  * A click-to-error panel below the manifest strip. It consumes the client
  * `FlowSerializerService.validateFlow(store.snapshot())` diagnostics
  * reactively (a computed over the store's node/edge signals) AND the
- * server-side issues surfaced at save time (passed in as `[serverIssues]`
- * from the builder, which owns the persistence service). Both are folded by
+ * hash-bound server issues for the current revision (passed in as
+ * `[serverIssues]` from the builder). Both are folded by
  * the Angular-free `toValidationStripVm` — the strip reimplements NO checks.
  *
  * Clicking a row selects its node (`store.setSelection`) so the inspector
@@ -35,10 +35,18 @@ import {
   styleUrl: './flow-validation-strip.component.scss',
   template: `
     @if (vm(); as v) {
-      @if (!v.clean) {
+      @if (!v.clean || serverState() === 'scheduled' || serverState() === 'validating' || serverState() === 'error') {
         <div class="ck-vstrip" role="status" aria-label="Flow validation checklist">
           <div class="ck-vstrip__head">
             <span class="ck-vstrip__eyebrow">Checklist</span>
+            @if (serverState() === 'scheduled' || serverState() === 'validating') {
+              <span class="ck-vstrip__count">Checking current revision…</span>
+            }
+            @if (serverState() === 'error') {
+              <span class="ck-vstrip__count" data-level="error">
+                {{ serverError() || 'Server validation unavailable' }}
+              </span>
+            }
             @if (v.errorCount > 0) {
               <span class="ck-vstrip__count" data-level="error">
                 {{ v.errorCount }} {{ v.errorCount === 1 ? 'error' : 'errors' }}
@@ -66,7 +74,7 @@ import {
                   <span class="ck-vstrip__msg">{{ row.message }}</span>
                   <span class="ck-vstrip__code">{{ row.code }}</span>
                   @if (row.origin === 'server') {
-                    <span class="ck-vstrip__tag" title="From the last server save">server</span>
+                    <span class="ck-vstrip__tag" title="Authoritative for the current graph hash">server</span>
                   }
                 </button>
               </li>
@@ -81,8 +89,10 @@ export class FlowValidationStripComponent {
   private readonly store = inject(FlowStore);
   private readonly serializer = inject(FlowSerializerService);
 
-  /** Server-side issues surfaced by the persistence save path (no translation). */
+  /** Hash-bound issues from the canonical non-mutating server analyser. */
   readonly serverIssues = input<ValidationIssueLike[]>([]);
+  readonly serverState = input<'idle' | 'scheduled' | 'validating' | 'ready' | 'error'>('idle');
+  readonly serverError = input<string | null>(null);
 
   /** Emitted with a node id when a row is clicked — the shell recentres it. */
   readonly focusNode = output<string>();

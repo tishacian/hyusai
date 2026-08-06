@@ -692,7 +692,7 @@ export class NawaAssistantComponent implements OnDestroy {
     if (!system || !requestCase) return;
 
     this.pending.set(true);
-    this.itsd.launchTyped(system.id, requestCase).subscribe({
+    this.itsd.launchTyped(system, requestCase).subscribe({
       next: (run) => {
         if (!run) {
           this.settle(index, 'The request could not be started, so nothing was changed on the account.');

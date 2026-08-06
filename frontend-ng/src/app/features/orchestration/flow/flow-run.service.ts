@@ -9,7 +9,7 @@
  *
  * Responsibilities:
  *   - Validate `store.snapshot()` through the serializer BEFORE launching.
- *   - Trigger real runs (`triggerRun` / `triggerRunDebug`), then stream events
+ *   - Trigger real runs through the single `triggerRun` contract, then stream events
  *     over SSE (`RunStreamService`) with a transparent fallback to polling.
  *   - Resolve HITL gates and drive the step-debugger (step / continue / stop).
  *   - Hold the breakpoint set + debug mode HERE (never in the CanonicalFlow).
@@ -20,6 +20,7 @@
  * toast-free and effect-free so it stays trivially unit-testable through a
  * bare `Injector` with mocked `CanonicalApiService` / `RunStreamService`.
  */
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription, timer } from 'rxjs';
 import { switchMap, takeWhile } from 'rxjs/operators';
@@ -28,17 +29,27 @@ import {
   type Run,
   type RunDebugPayload,
   type RunHitlPayload,
+  type RunTriggerRequest,
 } from '@app/core/canonical-api.service';
 import {
   RunStreamService,
   type RunStreamEvent,
 } from '@app/core/run-stream.service';
-import { FlowSerializerService } from '@app/core/flow-serializer.service';
+import {
+  FlowSerializerService,
+  type CanonicalFlow,
+  type CanonicalFlowNode,
+} from '@app/core/flow-serializer.service';
 import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
+import {
+  FlowManifestService,
+  runtimeModeLabel as formatRuntimeModeLabel,
+} from './flow-manifest.service';
+import { FlowPersistenceService } from './flow-persistence.service';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
 /** Cap so a chatty run can never grow the terminal unbounded. */
@@ -46,12 +57,97 @@ const LOG_LIMIT = 200;
 /** Polling cadence used only when the SSE stream drops. */
 const POLL_INTERVAL_MS = 1500;
 
+export type RunInputParseResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; message: string };
+
+/** Parse the operator input without persisting or normalising it into the
+ * Flow. `_debug` is service-owned and cannot be smuggled through the editor. */
+export function parseRunInputRef(text: string): RunInputParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, message: 'Enter valid JSON.' };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, message: 'Run input must be a JSON object.' };
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, '_debug')) {
+    return { ok: false, message: '“_debug” is reserved for the debugger controls.' };
+  }
+  return { ok: true, value: parsed as Record<string, unknown> };
+}
+
+export type DraftTestIngressKind = 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+
+export interface DraftTestIngressSelection {
+  ingress_id: string;
+  kind: DraftTestIngressKind;
+}
+
+export interface DraftTestIngressOption extends DraftTestIngressSelection {
+  label: string;
+}
+
+const DRAFT_INGRESS_KINDS = new Set<DraftTestIngressKind>([
+  'manual',
+  'chat',
+  'http',
+  'schedule',
+  'event',
+]);
+
+function draftIngressKind(node: CanonicalFlowNode): DraftTestIngressKind | null {
+  if (node.kind !== 'source') return null;
+  const config = node.config as Record<string, unknown> | undefined;
+  const explicit = config?.['ingress_kind'];
+  if (typeof explicit === 'string' && DRAFT_INGRESS_KINDS.has(explicit as DraftTestIngressKind)) {
+    return explicit as DraftTestIngressKind;
+  }
+  if (node.type === 'source.webhook') return 'http';
+  if (node.type === 'source.schedule') return 'schedule';
+  if (node.type === 'input' && node.id === 'source.request') return 'chat';
+  if (node.type.startsWith('source.')) return 'event';
+  return 'manual';
+}
+
+/** Enumerate every executable draft entry point in stable graph order. */
+export function draftTestIngressOptions(
+  flow: CanonicalFlow,
+): DraftTestIngressOption[] {
+  return flow.nodes.flatMap((node) => {
+    const kind = draftIngressKind(node);
+    return kind
+      ? [{ ingress_id: node.id, kind, label: node.label?.trim() || node.id }]
+      : [];
+  });
+}
+
+/** Resolve an explicit Builder entry point. With no explicit id, only a Flow
+ * with exactly one ingress is unambiguous; multiple ingresses must be chosen
+ * by the operator in the input dialog. */
+export function selectDraftTestIngress(
+  flow: CanonicalFlow,
+  ingressId?: string,
+): DraftTestIngressSelection | null {
+  const candidates = draftTestIngressOptions(flow);
+  const selected = ingressId
+    ? candidates.find((candidate) => candidate.ingress_id === ingressId)
+    : candidates.length === 1
+      ? candidates[0]
+      : null;
+  return selected ? { ingress_id: selected.ingress_id, kind: selected.kind } : null;
+}
+
 @Injectable()
 export class FlowRunService {
   private readonly store = inject(FlowStore);
   private readonly canonical = inject(CanonicalApiService);
   private readonly runStream = inject(RunStreamService);
   private readonly serializer = inject(FlowSerializerService);
+  private readonly persistence = inject(FlowPersistenceService);
+  private readonly manifest = inject(FlowManifestService);
   private readonly workspace = inject(WorkspaceService, { optional: true });
 
   // ---- shared UI state (signals) ------------------------------------------
@@ -65,15 +161,83 @@ export class FlowRunService {
   readonly debugStepping = signal(false);
   readonly terminalOpen = signal(false);
 
+  /** Component-scoped, ephemeral input editor state. It is intentionally
+   * never copied into localStorage or the canonical Flow. */
+  readonly inputEditorOpen = signal(false);
+  readonly inputText = signal('{}');
+  readonly dispatchError = signal<string | null>(null);
+  readonly selectedDraftIngressId = signal('');
+  readonly inputValidationError = computed(() => {
+    const parsed = parseRunInputRef(this.inputText());
+    return parsed.ok ? null : parsed.message;
+  });
+
   readonly debugMode = signal<DebugMode>('off');
   private readonly _breakpoints = signal<string[]>([]);
   readonly breakpoints = this._breakpoints.asReadonly();
 
+  readonly runtimeMode = computed(() =>
+    this.persistence.publicationMode()
+      ? this.persistence.serverValidation()?.runtime_mode ?? null
+      : this.manifest.runtimeMode(),
+  );
+  readonly runtimeModeLabel = computed(() =>
+    formatRuntimeModeLabel(this.runtimeMode()),
+  );
+  readonly executionSurfaceLabel = computed(() =>
+    this.persistence.publicationMode() ? 'Draft test-run' : 'Published run',
+  );
+  readonly draftTestMode = computed(() => this.persistence.publicationMode());
+  readonly draftTestIngresses = computed(() =>
+    draftTestIngressOptions(this.store.snapshot()),
+  );
+  readonly selectedDraftTestIngress = computed(() =>
+    selectDraftTestIngress(this.store.snapshot(), this.selectedDraftIngressId()),
+  );
+  readonly draftIngressSelectionError = computed(() => {
+    if (!this.draftTestMode()) return null;
+    const candidates = this.draftTestIngresses();
+    if (candidates.length === 0) {
+      return 'This draft has no ingress. Add a Source before starting a test-run.';
+    }
+    if (!this.selectedDraftTestIngress()) {
+      return candidates.length === 1
+        ? 'Select the draft ingress before starting the test-run.'
+        : `Choose one of the ${candidates.length} draft ingresses before starting the test-run.`;
+    }
+    return null;
+  });
+
   /** Node currently executing / paused on — drives the canvas run overlay. */
   readonly activeNodeId = signal<string | null>(null);
 
-  /** Execute / Debug / Versions require a saved System. */
-  readonly canExecute = computed(() => this.systemId() !== null);
+  /** Versions are per-System but do not require an executable runtime. */
+  readonly canUseSystemActions = computed(
+    () =>
+      this.systemId() !== null &&
+      this.persistence.hydrationReady() &&
+      !this.persistence.actionsDisabled(),
+  );
+
+  /** Fail-closed reason shared by button state, tooltip and direct calls. */
+  readonly executionBlockReason = computed(() => this.computeExecutionBlockReason());
+  readonly canExecute = computed(() => this.executionBlockReason() === null);
+  readonly canDebug = computed(
+    () =>
+      this.computeExecutionBlockReason({ ignoreDebugMode: true }) === null &&
+      this.runtimeMode() !== 'sequential_legacy',
+  );
+  readonly canSubmitInput = computed(
+    () =>
+      this.canExecute() &&
+      !this.executing() &&
+      this.inputValidationError() === null &&
+      this.draftIngressSelectionError() === null,
+  );
+
+  /** Hash for which the backend returned 409. It remains blocked until a
+   * strict reload supplies a different authoritative hash. */
+  private readonly staleRejectedSha256 = signal<string | null>(null);
 
   /** HITL gate payload, present only while paused for human approval. */
   readonly pendingHitl = computed<RunHitlPayload | null>(() => {
@@ -107,6 +271,11 @@ export class FlowRunService {
     this.hitlResolving.set(false);
     this.debugStepping.set(false);
     this.terminalOpen.set(false);
+    this.inputEditorOpen.set(false);
+    this.inputText.set('{}');
+    this.dispatchError.set(null);
+    this.selectedDraftIngressId.set('');
+    this.staleRejectedSha256.set(null);
     this.activeNodeId.set(null);
     this.seenCheckpoints.clear();
     this.seenInvocationIds.clear();
@@ -123,6 +292,21 @@ export class FlowRunService {
   /** Bind (or rebind) the owning System. Called once by the shell. */
   bindSystem(systemId: string | null): void {
     this.systemId.set(systemId);
+    this.inputEditorOpen.set(false);
+    this.inputText.set('{}');
+    this.dispatchError.set(null);
+    this.selectedDraftIngressId.set('');
+    this.staleRejectedSha256.set(null);
+  }
+
+  /** A strict Builder hydration is authoritative even when the reloaded graph
+   * has the same canonical hash as the rejected request. Revision or published
+   * pointer drift can produce a legitimate 409 without changing graph bytes,
+   * so only this explicit acknowledgement—not hash inequality—releases the
+   * stale Execute latch. */
+  acknowledgeAuthoritativeHydration(): void {
+    this.staleRejectedSha256.set(null);
+    this.dispatchError.set(null);
   }
 
   // ---- breakpoints / debug mode (state lives HERE, not in the flow) -------
@@ -139,6 +323,10 @@ export class FlowRunService {
 
   /** off → step → breakpoints → off. */
   cycleDebugMode(): DebugMode {
+    if (!this.canDebug()) {
+      this.debugMode.set('off');
+      return 'off';
+    }
     const next: DebugMode =
       this.debugMode() === 'off'
         ? 'step'
@@ -160,6 +348,62 @@ export class FlowRunService {
 
   clearLog(): void {
     this.log.set([]);
+  }
+
+  openInputEditor(): void {
+    if (!this.canExecute() || this.executing()) {
+      this.terminalOpen.set(true);
+      this.push({
+        tone: 'warn',
+        tag: 'EXEC',
+        text: this.executionBlockReason() ?? 'A Run is already executing.',
+      });
+      return;
+    }
+    this.dispatchError.set(null);
+    this.alignDraftIngressSelection();
+    this.inputEditorOpen.set(true);
+  }
+
+  closeInputEditor(): void {
+    if (this.executing()) return;
+    this.inputEditorOpen.set(false);
+    this.dispatchError.set(null);
+  }
+
+  updateInputText(value: string): void {
+    this.inputText.set(value);
+    this.dispatchError.set(null);
+  }
+
+  chooseDraftTestIngress(ingressId: string): void {
+    const exists = this.draftTestIngresses().some(
+      (candidate) => candidate.ingress_id === ingressId,
+    );
+    this.selectedDraftIngressId.set(exists ? ingressId : '');
+    this.dispatchError.set(null);
+  }
+
+  submitInputEditor(): void {
+    const parsed = parseRunInputRef(this.inputText());
+    if (!parsed.ok) {
+      this.dispatchError.set(parsed.message);
+      return;
+    }
+    this.executeOnBackend(parsed.value);
+  }
+
+  private alignDraftIngressSelection(): void {
+    if (!this.draftTestMode()) {
+      this.selectedDraftIngressId.set('');
+      return;
+    }
+    const candidates = this.draftTestIngresses();
+    const selected = this.selectedDraftIngressId();
+    if (candidates.some((candidate) => candidate.ingress_id === selected)) return;
+    this.selectedDraftIngressId.set(
+      candidates.length === 1 ? candidates[0].ingress_id : '',
+    );
   }
 
   /** Push a line into the terminal (capped at {@link LOG_LIMIT}). */
@@ -205,26 +449,49 @@ export class FlowRunService {
   }
 
   // ---- real backend run ---------------------------------------------------
-  executeOnBackend(): void {
+  executeOnBackend(inputRef: Record<string, unknown> = {}): void {
     const sid = this.systemId();
-    if (!sid) {
+    if (Object.prototype.hasOwnProperty.call(inputRef, '_debug')) {
+      const message = 'Execute rejected — “_debug” is reserved for the debugger controls.';
+      this.inputEditorOpen.set(true);
+      this.dispatchError.set(message);
+      this.terminalOpen.set(true);
+      this.fail(message);
+      return;
+    }
+    const validationErrors = this.blockingIssues();
+    if (sid && validationErrors.length > 0) {
+      this.terminalOpen.set(true);
+      this.reportIssues('EXEC', validationErrors);
+      this.status.set('error');
+      return;
+    }
+    const blocked = this.executionBlockReason();
+    if (!sid || blocked) {
       this.terminalOpen.set(true);
       this.push({
         tone: 'warn',
         tag: 'EXEC',
-        text: 'Scratchpad cannot Execute — promote to a System first.',
+        text: blocked ?? 'Scratchpad cannot Execute — promote to a System first.',
       });
+      if (sid) this.status.set('error');
+      return;
+    }
+    this.alignDraftIngressSelection();
+    const draftIngress = this.draftTestMode()
+      ? this.selectedDraftTestIngress()
+      : null;
+    if (this.draftTestMode() && !draftIngress) {
+      const message =
+        this.draftIngressSelectionError() ??
+        'Choose a draft ingress before starting the test-run.';
+      this.inputEditorOpen.set(true);
+      this.dispatchError.set(message);
+      this.terminalOpen.set(true);
+      this.fail(message);
       return;
     }
     if (this.executing()) return;
-
-    const errors = this.blockingIssues();
-    if (errors.length > 0) {
-      this.terminalOpen.set(true);
-      this.reportIssues('EXEC', errors);
-      this.status.set('error');
-      return;
-    }
 
     this.stopStream();
     this.seenInvocationIds.clear();
@@ -233,14 +500,38 @@ export class FlowRunService {
     this.resultLogged = false;
     this.terminalOpen.set(true);
     this.executing.set(true);
+    this.dispatchError.set(null);
     this.status.set('running');
     this.push({ tone: 'cyan', tag: 'EXEC', text: 'Dispatching run to backend…' });
 
     const mode = this.debugMode();
-    const trigger$ =
-      mode === 'off'
-        ? this.canonical.triggerRun(sid, {})
-        : this.canonical.triggerRunDebug(sid, { mode, breakpoints: this._breakpoints() });
+    const expectedFlowSha256 = this.persistence.savedFlowSha256();
+    // The readiness gate above proves this exists. Keep the local guard so a
+    // future refactor cannot emit a trigger without its concurrency token.
+    if (!expectedFlowSha256) {
+      this.fail('Execute blocked — the saved Flow has no authoritative hash.');
+      return;
+    }
+    const canonicalInput = structuredClone(inputRef);
+    if (mode !== 'off') {
+      canonicalInput['_debug'] = {
+        mode,
+        breakpoints: [...this._breakpoints()],
+      };
+    }
+    const request: RunTriggerRequest = {
+      trigger: 'manual',
+      input_ref: canonicalInput,
+      expected_flow_sha256: expectedFlowSha256,
+    };
+    const trigger$ = this.draftTestMode()
+      ? this.canonical.triggerSystemFlowDraftTestRun(sid, {
+          input_ref: canonicalInput,
+          expected_draft_revision: this.persistence.draftRevision()!,
+          expected_flow_sha256: expectedFlowSha256,
+          ...draftIngress!,
+        })
+      : this.canonical.triggerRun(sid, request);
     const scope = this.captureWorkspaceScope();
     if (mode !== 'off') {
       this.push({
@@ -258,6 +549,9 @@ export class FlowRunService {
           return;
         }
         this.currentRun.set(run);
+        this.inputEditorOpen.set(false);
+        this.inputText.set('{}');
+        this.dispatchError.set(null);
         this.push({
           tone: 'info',
           tag: 'RUN',
@@ -265,8 +559,22 @@ export class FlowRunService {
         });
         this.startStreaming(run.id, scope);
       },
-      error: () => {
-        if (this.isWorkspaceScopeCurrent(scope)) this.fail('Network error while triggering run.');
+      error: (error: unknown) => {
+        if (!this.isWorkspaceScopeCurrent(scope)) return;
+        const message = this.triggerErrorMessage(error);
+        if (error instanceof HttpErrorResponse && error.status === 409) {
+          this.staleRejectedSha256.set(expectedFlowSha256);
+          if (this.persistence.publicationMode()) {
+            this.persistence.markRevisionConflict(
+              'The server draft changed before the test-run was created. Reload it before continuing.',
+            );
+          }
+        }
+        this.dispatchError.set(message);
+        // Keep the editor open with the exact operator input on every HTTP
+        // rejection, including 403/409/422.
+        this.inputEditorOpen.set(true);
+        this.fail(message);
       },
     });
   }
@@ -384,6 +692,113 @@ export class FlowRunService {
   }
 
   // ---- validation ---------------------------------------------------------
+  private computeExecutionBlockReason(
+    options: { ignoreDebugMode?: boolean } = {},
+  ): string | null {
+    const sid = this.systemId();
+    if (!sid) return 'Scratchpad cannot Execute — promote to a System first.';
+    if (!this.persistence.hydrationReady()) {
+      return 'Execute is locked until the persisted Flow is strictly hydrated.';
+    }
+    const saveState = this.persistence.saveState();
+    if (saveState === 'saving' || this.persistence.actionsDisabled()) {
+      return 'Execute is locked while the Flow is saving or changing version.';
+    }
+    if (saveState === 'error') {
+      return 'Execute is locked because the last save failed.';
+    }
+    if (this.store.dirty() || saveState === 'unsaved') {
+      return 'Save the current Flow before Execute.';
+    }
+    const savedSha = this.persistence.savedFlowSha256();
+    if (!savedSha) {
+      return 'Execute is locked because the saved Flow has no authoritative hash.';
+    }
+    if (this.staleRejectedSha256() === savedSha) {
+      return 'The Flow changed on the server. Reload the authoritative Flow before Execute.';
+    }
+    const serverValidation = this.persistence.serverValidation();
+    if (!serverValidation) {
+      return this.persistence.serverValidationState() === 'error'
+        ? 'Execute is locked because the current Flow could not be validated by the server.'
+        : 'Execute is locked until the current Flow is validated by the server.';
+    }
+    if (serverValidation.flow_sha256 !== savedSha) {
+      return 'Execute is locked while server validation refreshes to the saved Flow hash.';
+    }
+    if (
+      !serverValidation.valid ||
+      serverValidation.issues.some((issue) => issue.level === 'error')
+    ) {
+      return 'Execute is locked by current server validation errors.';
+    }
+    if (this.blockingIssues().length > 0) {
+      return 'Execute is locked by Flow validation errors.';
+    }
+    if (
+      !options.ignoreDebugMode &&
+      this.debugMode() === 'breakpoints' &&
+      this._breakpoints().length === 0
+    ) {
+      return 'Breakpoint debugging requires at least one selected node.';
+    }
+
+    if (this.persistence.publicationMode()) {
+      if (this.persistence.draftRevision() === null) {
+        return 'Execute is locked because the server draft revision is missing.';
+      }
+      const runtimeMode = this.runtimeMode();
+      if (!runtimeMode) {
+        return 'Execute is locked because the draft runtime mode is unknown.';
+      }
+      if (
+        !options.ignoreDebugMode &&
+        this.debugMode() !== 'off' &&
+        runtimeMode === 'sequential_legacy'
+      ) {
+        return 'Debug is unavailable for LEGACY · SEQUENTIAL execution.';
+      }
+      return null;
+    }
+
+    const manifest = this.manifest.manifest();
+    if (!manifest || manifest.system_id !== sid) {
+      return 'Execute is locked until the runtime contract is loaded for this System.';
+    }
+    if (!manifest.flow_sha256) {
+      return 'Execute is locked because the runtime contract has no Flow hash.';
+    }
+    if (manifest.flow_sha256 !== savedSha) {
+      return 'Execute is locked while the runtime contract refreshes to the saved Flow.';
+    }
+    const runtimeMode = this.runtimeMode();
+    if (!runtimeMode) {
+      return 'Execute is locked because the server runtime mode is unknown.';
+    }
+    if (!options.ignoreDebugMode && this.debugMode() !== 'off' && runtimeMode === 'sequential_legacy') {
+      return 'Debug is unavailable for LEGACY · SEQUENTIAL execution.';
+    }
+    return null;
+  }
+
+  private triggerErrorMessage(error: unknown): string {
+    if (!(error instanceof HttpErrorResponse)) {
+      return 'Network error while triggering run.';
+    }
+    switch (error.status) {
+      case 403:
+        return 'Execute denied — you do not have permission to run this System.';
+      case 409:
+        return 'Execute rejected — the saved Flow changed. Reload before retrying.';
+      case 422:
+        return 'Execute rejected — the Run input or debug configuration is invalid.';
+      default:
+        return error.status > 0
+          ? `Execute rejected by the backend (HTTP ${error.status}).`
+          : 'Network error while triggering run.';
+    }
+  }
+
   /** Error-level diagnostics that must block a backend launch. */
   private blockingIssues(): { node_id?: string; message: string }[] {
     return this.serializer
@@ -576,6 +991,7 @@ export class FlowRunService {
       latency_ms?: number;
       error?: string;
       chosen_branch?: string;
+      resolution?: 'matched' | 'defaulted' | 'no_match' | 'unroutable' | 'error';
       reason?: string;
       outcome?: Run['outcome'];
       invocation_id?: string;
@@ -615,6 +1031,31 @@ export class FlowRunService {
           text: `◼ ${data.label ?? data.node_id ?? 'node'}${data.status ? ` · ${data.status}` : ''}${latency}${branch}${
             data.error ? ` · ${data.error.slice(0, 80)}` : ''
           }`,
+        });
+        break;
+      }
+      case 'decision_resolution': {
+        const resolution = data.resolution ?? 'error';
+        const branch = data.chosen_branch ? ` → ${data.chosen_branch}` : '';
+        const text =
+          resolution === 'matched'
+            ? `Decision ${data.node_id ?? ''} · matched${branch}`
+            : resolution === 'defaulted'
+              ? `Decision ${data.node_id ?? ''} · default${branch}`
+              : resolution === 'no_match'
+                ? `Decision ${data.node_id ?? ''} · no matching branch`
+                : resolution === 'unroutable'
+                  ? `Decision ${data.node_id ?? ''} · unroutable${branch}`
+                  : `Decision ${data.node_id ?? ''} · evaluation error`;
+        this.push({
+          tone:
+            resolution === 'matched' || resolution === 'defaulted'
+              ? 'cyan'
+              : resolution === 'no_match' || resolution === 'unroutable'
+                ? 'warn'
+                : 'neg',
+          tag: 'DECISION',
+          text,
         });
         break;
       }

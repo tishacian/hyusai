@@ -22,6 +22,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import {
   CanonicalApiService,
+  type FlowExecutionRuntimeMode,
   type FlowManifestUnit,
   type FlowRuntimeManifest,
 } from '@app/core/canonical-api.service';
@@ -32,6 +33,28 @@ export interface NodeRuntimeStatus {
   status: string;
   /** Backend's "this node actually drives a live surface" verdict. */
   operational: boolean;
+}
+
+const RUNTIME_MODE_LABELS: Record<FlowExecutionRuntimeMode, string> = {
+  dag_strict: 'STRICT DAG',
+  dag_overlay: 'DAG · OVERLAY COMPAT',
+  sequential_legacy: 'LEGACY · SEQUENTIAL',
+};
+
+/** Read the server dispatcher verdict without guessing from client graph
+ * shape. `execution_mode` is accepted only when canonical `runtime_mode` is
+ * absent, for compatibility with the short-lived historical response. */
+export function manifestRuntimeMode(
+  manifest: FlowRuntimeManifest | null | undefined,
+): FlowExecutionRuntimeMode | null {
+  const raw = manifest?.runtime_mode ?? manifest?.execution_mode;
+  return raw === 'dag_strict' || raw === 'dag_overlay' || raw === 'sequential_legacy'
+    ? raw
+    : null;
+}
+
+export function runtimeModeLabel(mode: FlowExecutionRuntimeMode | null): string {
+  return mode ? RUNTIME_MODE_LABELS[mode] : 'RUNTIME UNKNOWN';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -47,6 +70,8 @@ export class FlowManifestService {
 
   readonly manifest = this._manifest.asReadonly();
   readonly systemId = this._systemId.asReadonly();
+  readonly runtimeMode = computed(() => manifestRuntimeMode(this._manifest()));
+  readonly runtimeModeLabel = computed(() => runtimeModeLabel(this.runtimeMode()));
 
   constructor() {
     this.workspace.registerContextReset(() => {

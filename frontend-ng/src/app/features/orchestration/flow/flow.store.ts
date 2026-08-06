@@ -35,7 +35,9 @@ import {
   type CanonicalFlowEdge,
   type CanonicalFlowNode,
   type CanonicalPolicy,
+  type DecisionNodeConfig,
   type NodeKind,
+  type NodePort,
 } from '@app/core/flow-serializer.service';
 
 /** Non-graph sidecars of a CanonicalFlow, preserved across a round-trip. */
@@ -86,6 +88,15 @@ export type NewFlowNode = Partial<CanonicalFlowNode> & {
   type: CanonicalFlowNode['type'];
 };
 
+/** One atomic inspector intent for a Decision node. Config, route handles,
+ * branch edges and default selection are mutated in a single undo frame. */
+export type DecisionMutation =
+  | { type: 'add'; branch?: Partial<DecisionNodeConfig['branches'][number]> }
+  | { type: 'update'; index: number; patch: Partial<DecisionNodeConfig['branches'][number]> }
+  | { type: 'remove'; index: number }
+  | { type: 'move'; index: number; direction: -1 | 1 }
+  | { type: 'set_default'; label?: string };
+
 const HISTORY_LIMIT = 60;
 
 const DEFAULT_META: FlowMeta = {
@@ -124,7 +135,17 @@ function metaFromFlow(flow: CanonicalFlow): FlowMeta {
 
 /** Stable identity for an edge in the canonical (id-less) edge model. */
 export function edgeKey(edge: CanonicalFlowEdge): string {
-  return [edge.from, edge.to, edge.from_port ?? '', edge.to_port ?? ''].join('\u0001');
+  const branchLabel = (edge.kind ?? 'data') === 'branch'
+    ? edge.branch_label ?? edge.label ?? ''
+    : '';
+  return [
+    edge.kind ?? 'data',
+    edge.from,
+    edge.to,
+    branchLabel,
+    edge.from_port ?? '',
+    edge.to_port ?? '',
+  ].join('\u0001');
 }
 
 function sameEdge(a: CanonicalFlowEdge, b: CanonicalFlowEdge): boolean {
@@ -158,6 +179,51 @@ function setPath(
   }
   cursor[segments[segments.length - 1]] = value;
   return next;
+}
+
+function decisionBranches(node: CanonicalFlowNode): DecisionNodeConfig['branches'] {
+  const raw = (node.config as Record<string, unknown> | undefined)?.['branches'];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((branch) => {
+    const record = branch && typeof branch === 'object' && !Array.isArray(branch)
+      ? branch as Record<string, unknown>
+      : {};
+    return {
+      label: typeof record['label'] === 'string' ? record['label'] : '',
+      condition: typeof record['condition'] === 'string' ? record['condition'] : '',
+    };
+  });
+}
+
+/** Route outputs must have unique non-empty connector ids even while an
+ * invalid draft (duplicate/blank label) is being edited. The config retains
+ * the invalid value so validation still blocks Save; the canvas stays sound. */
+function decisionOutputs(
+  branches: DecisionNodeConfig['branches'],
+  previous: NodePort[] | undefined,
+): NodePort[] {
+  const previousByName = new Map((previous ?? []).map((port) => [port.name, port]));
+  const seen = new Set<string>();
+  const outputs: NodePort[] = [];
+  for (const branch of branches) {
+    if (!branch.label || seen.has(branch.label)) continue;
+    seen.add(branch.label);
+    outputs.push(previousByName.get(branch.label) ?? {
+      name: branch.label,
+      schema: 'object',
+    });
+  }
+  return outputs;
+}
+
+function renameDecisionOutput(
+  outputs: NodePort[] | undefined,
+  rename: { from: string; to: string } | undefined,
+): NodePort[] | undefined {
+  if (!rename) return outputs;
+  return (outputs ?? []).map((port) => port.name === rename.from
+    ? { ...port, name: rename.to }
+    : port);
 }
 
 export const FlowStore = signalStore(
@@ -357,7 +423,120 @@ export const FlowStore = signalStore(
         });
       },
 
-      /** Add an edge (deduped on from/to/ports). */
+      /** Apply a complete Decision editor operation atomically. A rename
+       * updates its route edge labels + ports and default in the same store
+       * revision; a removal drops its routes in that same undoable step. */
+      mutateDecision(nodeId: string, mutation: DecisionMutation): void {
+        const node = store.nodes().find((candidate) => candidate.id === nodeId);
+        if (!node || (node.kind ?? 'task') !== 'decision') return;
+
+        const branches = decisionBranches(node);
+        let nextBranches = branches.map((branch) => ({ ...branch }));
+        const rawConfig = {
+          ...((node.config as Record<string, unknown> | undefined) ?? {}),
+        };
+        let defaultBranch = typeof rawConfig['default_branch'] === 'string'
+          ? rawConfig['default_branch']
+          : undefined;
+        let nextEdges = store.edges();
+        let renamedPort: { from: string; to: string } | undefined;
+
+        if (mutation.type === 'add') {
+          const used = new Set(nextBranches.map((branch) => branch.label));
+          let sequence = nextBranches.length + 1;
+          let label = mutation.branch?.label ?? `branch_${sequence}`;
+          while (used.has(label)) {
+            sequence += 1;
+            label = `branch_${sequence}`;
+          }
+          nextBranches.push({
+            label,
+            condition: mutation.branch?.condition ?? 'False',
+          });
+        } else if (mutation.type === 'update') {
+          if (mutation.index < 0 || mutation.index >= nextBranches.length) return;
+          const previousLabel = nextBranches[mutation.index].label;
+          nextBranches[mutation.index] = {
+            ...nextBranches[mutation.index],
+            ...mutation.patch,
+          };
+          const nextLabel = nextBranches[mutation.index].label;
+          const previousLabelStillOwned = nextBranches.some(
+            (branch, index) => index !== mutation.index && branch.label === previousLabel,
+          );
+          if (nextLabel !== previousLabel && !previousLabelStillOwned) {
+            renamedPort = { from: previousLabel, to: nextLabel };
+            nextEdges = nextEdges.map((edge) => {
+              if (
+                edge.from !== nodeId ||
+                (edge.kind ?? 'data') !== 'branch' ||
+                (edge.branch_label ?? edge.label) !== previousLabel
+              ) return edge;
+              return {
+                ...edge,
+                branch_label: nextLabel,
+                ...(edge.from_port === previousLabel ? { from_port: nextLabel } : {}),
+                ...(edge.label === previousLabel ? { label: nextLabel } : {}),
+              };
+            });
+            if (defaultBranch === previousLabel) defaultBranch = nextLabel;
+          }
+        } else if (mutation.type === 'remove') {
+          if (
+            nextBranches.length <= 2 ||
+            mutation.index < 0 ||
+            mutation.index >= nextBranches.length
+          ) return;
+          const [removed] = nextBranches.splice(mutation.index, 1);
+          const labelStillOwned = nextBranches.some((branch) => branch.label === removed.label);
+          if (!labelStillOwned) {
+            nextEdges = nextEdges.filter((edge) => !(
+              edge.from === nodeId &&
+              (edge.kind ?? 'data') === 'branch' &&
+              (edge.branch_label ?? edge.label) === removed.label
+            ));
+            if (defaultBranch === removed.label) defaultBranch = undefined;
+          }
+        } else if (mutation.type === 'move') {
+          const target = mutation.index + mutation.direction;
+          if (
+            mutation.index < 0 ||
+            mutation.index >= nextBranches.length ||
+            target < 0 ||
+            target >= nextBranches.length
+          ) return;
+          const [moved] = nextBranches.splice(mutation.index, 1);
+          nextBranches.splice(target, 0, moved);
+        } else {
+          defaultBranch = mutation.label || undefined;
+        }
+
+        const nextConfig: Record<string, unknown> = {
+          ...rawConfig,
+          branches: nextBranches,
+        };
+        if (defaultBranch === undefined) delete nextConfig['default_branch'];
+        else nextConfig['default_branch'] = defaultBranch;
+
+        checkpoint();
+        patchState(store, {
+          nodes: store.nodes().map((candidate) => candidate.id === nodeId
+            ? {
+              ...candidate,
+              config: nextConfig,
+              outputs: decisionOutputs(
+                nextBranches,
+                renameDecisionOutput(candidate.outputs, renamedPort),
+              ),
+            }
+            : candidate),
+          edges: nextEdges,
+          dirty: true,
+          revision: store.revision() + 1,
+        });
+      },
+
+      /** Add an edge (deduped on semantics, endpoints, branch and ports). */
       connect(edge: CanonicalFlowEdge): void {
         if (edge.from === edge.to) return;
         if (store.edges().some((e) => sameEdge(e, edge))) return;
@@ -369,7 +548,7 @@ export const FlowStore = signalStore(
         });
       },
 
-      /** Remove the edge matching from/to/ports. */
+      /** Remove the edge matching semantics, endpoints, branch and ports. */
       disconnect(edge: CanonicalFlowEdge): void {
         if (!store.edges().some((e) => sameEdge(e, edge))) return;
         checkpoint();

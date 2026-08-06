@@ -140,6 +140,24 @@ export interface RunDebugPayload {
   last_output?: Record<string, unknown>;
 }
 
+/** Debugger configuration is transport-neutral and always nested below
+ * `RunTriggerRequest.input_ref._debug`. Keeping it out of the HTTP root makes
+ * normal and debug executions share one truthful wire contract. */
+export interface RunTriggerDebugConfig {
+  mode: 'step' | 'breakpoints';
+  breakpoints: string[];
+}
+
+/** Canonical request body for every System Run trigger surface. */
+export interface RunTriggerRequest {
+  trigger: string;
+  input_ref: Record<string, unknown> & {
+    _debug?: RunTriggerDebugConfig;
+  };
+  /** Optimistic precondition required by every execution surface. */
+  expected_flow_sha256: string;
+}
+
 export interface Run {
   id: string;
   system_id: string;
@@ -367,13 +385,25 @@ export interface FlowManifestUnit {
   };
 }
 
+export type FlowExecutionRuntimeMode =
+  | 'dag_strict'
+  | 'dag_overlay'
+  | 'sequential_legacy';
+
 export interface FlowRuntimeManifest {
   system_id: string;
   system_name: string;
+  /** Digest of the exact persisted flow used to derive this manifest. */
+  flow_sha256?: string | null;
   variant?: string | null;
   schema_version?: number | null;
   source?: string | null;
-  runtime_mode?: 'chat_runtime' | 'run_engine_dag' | string;
+  /** Canonical dispatcher verdict. Flow Builder accepts only these three
+   * values and therefore fails closed on historical/unknown modes. */
+  runtime_mode?: FlowExecutionRuntimeMode | string;
+  /** Read-only compatibility fallback for short-lived historical responses.
+   * New servers emit `runtime_mode`, never both fields. */
+  execution_mode?: FlowExecutionRuntimeMode | string;
   operational_sync?: boolean;
   live_surface?: string | null;
   runtime_contract?: Record<string, unknown>;
@@ -414,6 +444,150 @@ export interface FlowValidationIssue {
   message: string;
   node_id?: string | null;
   edge_index?: number | null;
+}
+
+/** Non-mutating result for the exact graph submitted to the server analyser. */
+export interface FlowValidationResponse {
+  /** Server-computed canonical digest of `flow_definition`. */
+  flow_sha256: string;
+  analyzer_version: string;
+  runtime_mode: FlowExecutionRuntimeMode;
+  valid: boolean;
+  issues: FlowValidationIssue[];
+}
+
+/** Feature-gated server draft returned by the Flow publication control plane. */
+export interface SystemFlowDraftState {
+  revision: number;
+  flow_sha256: string;
+  flow_definition: Record<string, unknown>;
+  base_published_version_id: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+}
+
+/** Immutable version currently selected by the published pointer. */
+export interface SystemPublishedFlowState {
+  version_id: string;
+  version_number: number;
+  flow_sha256: string;
+  flow_definition: Record<string, unknown>;
+  release_kind?: string | null;
+  published_by?: string | null;
+  published_at?: string | null;
+  execution_contract?: Record<string, unknown> | null;
+  execution_contract_ready?: boolean;
+}
+
+/** Authoritative Builder hydration envelope. `System.flow_definition` is only
+ * a compatibility mirror and must not be used when this endpoint exists. */
+export interface SystemFlowState {
+  system_id: string;
+  status: SystemStatus;
+  draft: SystemFlowDraftState;
+  published: SystemPublishedFlowState;
+}
+
+export interface SystemFlowDraftSaveResult extends SystemFlowDraftState {
+  system_id: string;
+  no_op: boolean;
+}
+
+export interface SystemFlowPublishResult {
+  no_op: boolean;
+  system_id: string;
+  status: SystemStatus;
+  published: Omit<SystemPublishedFlowState, 'flow_definition'>;
+  draft: SystemFlowDraftSaveResult;
+}
+
+export type FlowDiffImpact = 'breaking' | 'behavioral' | 'presentation';
+
+export interface SystemFlowDiffChange {
+  category: string;
+  impact: FlowDiffImpact;
+  subject: string;
+  path: string;
+  before_sha256?: string | null;
+  after_sha256?: string | null;
+  description: string;
+}
+
+export interface SystemFlowDiff {
+  base: { identity: string; flow_sha256: string };
+  target: { identity: string; flow_sha256: string };
+  summary: {
+    breaking: number;
+    behavioral: number;
+    presentation: number;
+    total: number;
+  };
+  changes: SystemFlowDiffChange[];
+}
+
+export interface SystemFlowDraftTestRunRequest {
+  input_ref: Record<string, unknown> & { _debug?: RunTriggerDebugConfig };
+  expected_draft_revision: number;
+  expected_flow_sha256: string;
+  ingress_id?: string;
+  kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+}
+
+/** Immutable published evidence shown by the operator Runner.  The mutable
+ * server draft is intentionally absent from this transport. */
+export interface FlowRunnerPublished {
+  system_id: string;
+  system_name: string;
+  system_status: SystemStatus;
+  published_flow_version_id: string;
+  flow_sha256: string;
+  runtime_mode: FlowExecutionRuntimeMode;
+  validation_mode?: 'enforce' | 'observe';
+  ingresses: FlowRunnerIngress[];
+}
+
+export interface FlowRunnerIngress {
+  ingress_id: string;
+  source_node_id?: string;
+  kind: 'manual';
+  input_schema?: Record<string, unknown>;
+  input_schema_sha256?: string;
+}
+
+export interface FlowRunnerSession {
+  id: string;
+  title?: string | null;
+  status: 'active' | 'archived';
+  created_at?: string | null;
+  last_activity?: string | null;
+}
+
+export interface FlowRunnerRun {
+  id: string;
+  system_id: string;
+  runner_session_id: string;
+  status: Run['status'];
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  input_ref: Record<string, unknown>;
+  output_ref: Record<string, unknown>;
+  error?: string | null;
+  execution_surface: 'published_manual';
+  published_flow_version_id: string;
+  flow_sha256: string;
+  runtime_mode: FlowExecutionRuntimeMode;
+}
+
+export interface FlowRunnerOverview {
+  published: FlowRunnerPublished;
+  sessions: FlowRunnerSession[];
+}
+
+export interface FlowRunnerSessionDetail {
+  published: FlowRunnerPublished;
+  session: FlowRunnerSession;
+  runs: FlowRunnerRun[];
 }
 
 /** Summary row returned by ``GET /systems/{id}/versions`` — drops the
@@ -1112,6 +1286,66 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
+  /** Analyse an editor snapshot without mutating the persisted System. Errors
+   * are intentionally not swallowed: the validation sidecar must distinguish
+   * an unavailable analyser from a clean result. */
+  validateSystemFlow(
+    id: string,
+    flowDefinition: Record<string, unknown>,
+  ): Observable<FlowValidationResponse> {
+    return this.api.post<FlowValidationResponse>(`/systems/${id}/validate-flow`, {
+      flow_definition: flowDefinition,
+    });
+  }
+
+  /** Strict P1 Builder hydration. Callers decide whether a 404 means the
+   * workspace is still on the legacy persistence contract. */
+  getSystemFlowState(id: string): Observable<SystemFlowState> {
+    return this.api.get<SystemFlowState>(`/systems/${id}/flow-state`);
+  }
+
+  saveSystemFlowDraft(
+    id: string,
+    flowDefinition: Record<string, unknown>,
+    expectedRevision: number,
+  ): Observable<SystemFlowDraftSaveResult> {
+    return this.api.put<SystemFlowDraftSaveResult>(`/systems/${id}/flow-draft`, {
+      flow_definition: flowDefinition,
+      expected_revision: expectedRevision,
+    });
+  }
+
+  restoreSystemFlowDraft(
+    id: string,
+    versionId: string,
+    expectedRevision: number,
+  ): Observable<SystemFlowDraftSaveResult> {
+    return this.api.post<SystemFlowDraftSaveResult>(
+      `/systems/${id}/flow-draft/restore/${encodeURIComponent(versionId)}`,
+      { expected_revision: expectedRevision },
+    );
+  }
+
+  getSystemFlowDiff(
+    id: string,
+    base = 'published',
+    target = 'draft',
+  ): Observable<SystemFlowDiff> {
+    return this.api.get<SystemFlowDiff>(`/systems/${id}/flow-diff`, { base, target });
+  }
+
+  publishSystemFlow(
+    id: string,
+    body: {
+      expected_draft_revision: number;
+      expected_published_version_id: string | null;
+      message: string;
+      breaking_change_intent: 'acknowledged' | null;
+    },
+  ): Observable<SystemFlowPublishResult> {
+    return this.api.post<SystemFlowPublishResult>(`/systems/${id}/flow/publish`, body);
+  }
+
   createSystem(
     body: Partial<System>,
     opts?: { flow_write_intent?: 'replace_active_flow' },
@@ -1408,10 +1642,61 @@ export class CanonicalApiService {
   }
 
   // ---- Runs ----------------------------------------------------------------
-  triggerRun(systemId: string, payload?: Record<string, unknown>): Observable<Run | null> {
-    return this.api
-      .post<Run>(`/systems/${systemId}/runs`, payload ?? {})
-      .pipe(catchError(() => of(null)));
+  getFlowRunner(systemId: string): Observable<FlowRunnerOverview> {
+    return this.api.get<FlowRunnerOverview>(
+      `/systems/${encodeURIComponent(systemId)}/runner`,
+    );
+  }
+
+  createFlowRunnerSession(
+    systemId: string,
+    title?: string,
+  ): Observable<FlowRunnerSessionDetail> {
+    return this.api.post<FlowRunnerSessionDetail>(
+      `/systems/${encodeURIComponent(systemId)}/runner/sessions`,
+      title ? { title } : {},
+    );
+  }
+
+  getFlowRunnerSession(
+    systemId: string,
+    sessionId: string,
+  ): Observable<FlowRunnerSessionDetail> {
+    return this.api.get<FlowRunnerSessionDetail>(
+      `/systems/${encodeURIComponent(systemId)}/runner/sessions/${encodeURIComponent(sessionId)}`,
+    );
+  }
+
+  createFlowRunnerRun(
+    systemId: string,
+    sessionId: string,
+    request: {
+      ingress_id: string;
+      payload: Record<string, unknown>;
+      expected_published_version_id: string;
+      expected_flow_sha256: string;
+    },
+  ): Observable<FlowRunnerRun> {
+    return this.api.post<FlowRunnerRun>(
+      `/systems/${encodeURIComponent(systemId)}/runner/sessions/${encodeURIComponent(sessionId)}/runs`,
+      request,
+    );
+  }
+
+  triggerRun(systemId: string, payload: RunTriggerRequest): Observable<Run> {
+    // Deliberately do not collapse HTTP errors to `null`: callers must be able
+    // to distinguish permission, stale-flow and validation rejections.
+    return this.api.post<Run>(`/systems/${systemId}/runs`, payload);
+  }
+
+  /** Builder-only execution of the exact saved server draft. Public/operator
+   * surfaces continue to call `triggerRun`, which resolves the published
+   * pointer instead. */
+  triggerSystemFlowDraftTestRun(
+    systemId: string,
+    payload: SystemFlowDraftTestRunRequest,
+  ): Observable<Run> {
+    return this.api.post<Run>(`/systems/${systemId}/flow-draft/test-runs`, payload);
   }
 
   /**
@@ -1519,27 +1804,6 @@ export class CanonicalApiService {
     return this.api
       .post<Run>(`/runs/${runId}/step`, body)
       .pipe(catchError(() => of(null)));
-  }
-
-  /**
-   * Trigger a Run against a System with an attached debugger config.
-   * The backend stores ``_debug`` inside ``input_ref`` so the walker
-   * picks it up on the first tick without needing a new API column.
-   */
-  triggerRunDebug(
-    systemId: string,
-    options: {
-      mode: 'step' | 'breakpoints';
-      breakpoints?: string[];
-      payload?: Record<string, unknown>;
-    },
-  ): Observable<Run | null> {
-    const body: Record<string, unknown> = { ...(options.payload || {}) };
-    body['_debug'] = {
-      mode: options.mode,
-      breakpoints: options.breakpoints ?? [],
-    };
-    return this.triggerRun(systemId, body);
   }
 
   // ---- Impact / Hypervisor -------------------------------------------------
