@@ -14,8 +14,21 @@
 # Rollback to any iteration: AGENTIUM_IMAGE_TAG=<previous sha12>, then `up`.
 set -euo pipefail
 
-D=/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo
-W=/srv/agentium-data/worktrees/demo-agentic/docker
+readonly D=/srv/agentium-data/release-a-deployments/release-a-2026-07-27-omnirag-demo
+readonly R=/srv/agentium-data/worktrees/demo-agentic
+readonly W="$R/docker"
+readonly ENV_HELPER="$R/scripts/agentium_runtime_env_bundle.py"
+readonly DATA_ROOT=/srv/agentium-data
+readonly EXPECTED_DATA_SOURCE=/dev/sdb
+readonly DOCKER_SOCKET=unix:///var/run/docker.sock
+readonly DOCKER_VOLUME_ROOT=/var/lib/docker/volumes
+readonly COMPOSE_CLEAN_HOME=/home/ubuntu
+readonly COMPOSE_CLEAN_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
 
 # Fail closed on an unset or malformed tag: the compose default (`local`) points
 # the backend at the stale pre-release-b image.
@@ -25,20 +38,44 @@ case "$TAG" in
   *) echo "AGENTIUM_IMAGE_TAG must be 'demo-agentic' or a 12-hex SHA prefix" >&2; exit 2 ;;
 esac
 
-# The admin Qdrant key lives in the running container; the backend needs it or
-# the chat comes back read-only.  Never logged.
-ADMIN=$(docker inspect qdrant --format "{{range .Config.Env}}{{println .}}{{end}}" | sed -n "s/^QDRANT__SERVICE__API_KEY=//p")
-[ -n "$ADMIN" ] || { echo "Qdrant admin key not found" >&2; exit 1; }
+WORKERS="${AGENTIUM_BACKEND_WORKERS:-8}"
+case "$WORKERS" in
+  ''|*[!0-9]*) fail "AGENTIUM_BACKEND_WORKERS must be an integer between 1 and 64" ;;
+esac
+[ "$WORKERS" -ge 1 ] && [ "$WORKERS" -le 64 ] ||
+  fail "AGENTIUM_BACKEND_WORKERS must be an integer between 1 and 64"
 
-export COMPOSE_PROJECT_NAME=agentium
-export AGENTIUM_IMAGE_TAG="$TAG"
-export AGENTIUM_QDRANT_EFFECTIVE_API_KEY="$ADMIN"
-export AGENTIUM_BACKEND_WORKERS="${AGENTIUM_BACKEND_WORKERS:-8}"
-export AGENTIUM_CELERY_BEAT=0
-export AGENTIUM_STARTUP_RECONCILIATION=disabled
+clean_exec() {
+  /usr/bin/env -i \
+    HOME="$COMPOSE_CLEAN_HOME" \
+    PATH="$COMPOSE_CLEAN_PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    "$@"
+}
+
+readonly_docker() {
+  clean_exec docker --host "$DOCKER_SOCKET" "$@"
+}
+
+# The admin Qdrant key lives in the running container; the backend needs it or
+# the chat comes back read-only. It is read through the scrubbed Docker client
+# and never logged.
+ADMIN=$(readonly_docker inspect qdrant --format "{{range .Config.Env}}{{println .}}{{end}}" | /usr/bin/sed -n "s/^QDRANT__SERVICE__API_KEY=//p")
+[ -n "$ADMIN" ] || fail "Qdrant admin key not found"
+readonly ADMIN
 
 compose() {
-  docker compose -p agentium \
+  /usr/bin/env -i \
+    HOME="$COMPOSE_CLEAN_HOME" \
+    PATH="$COMPOSE_CLEAN_PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    COMPOSE_PROJECT_NAME=agentium \
+    AGENTIUM_IMAGE_TAG="$TAG" \
+    AGENTIUM_QDRANT_EFFECTIVE_API_KEY="$ADMIN" \
+    AGENTIUM_BACKEND_WORKERS="$WORKERS" \
+    AGENTIUM_CELERY_BEAT=0 \
+    AGENTIUM_STARTUP_RECONCILIATION=disabled \
+    docker --host "$DOCKER_SOCKET" compose -p agentium \
     --env-file "$D/runtime-env/compose.effective.env" \
     -f "$W/compose.agentium.yml" \
     -f "$D/compose.agentium.opened.yml" \
@@ -46,10 +83,78 @@ compose() {
     "$@"
 }
 
+assert_data_device() {
+  local source target
+  source="$(clean_exec findmnt -n -o SOURCE --target "$DATA_ROOT")"
+  target="$(clean_exec findmnt -n -o TARGET --target "$DATA_ROOT")"
+  [[ "$source" == "$EXPECTED_DATA_SOURCE" && "$target" == "$DATA_ROOT" ]] ||
+    fail "$DATA_ROOT must be the exact $EXPECTED_DATA_SOURCE mountpoint"
+}
+
+assert_protected_data_path() {
+  local path="$1"
+  local canonical source target data_device path_device
+  [[ -d "$path" && ! -L "$path" ]] ||
+    fail "$path must be a real directory on $EXPECTED_DATA_SOURCE"
+  canonical="$(clean_exec readlink -e -- "$path")"
+  [[ "$canonical" == "$path" ]] ||
+    fail "$path must be canonical and must not traverse a symlink"
+  source="$(clean_exec findmnt -n -o SOURCE --target "$path")"
+  target="$(clean_exec findmnt -n -o TARGET --target "$path")"
+  data_device="$(clean_exec stat -c %d -- "$DATA_ROOT")"
+  path_device="$(clean_exec stat -c %d -- "$path")"
+  [[ "$source" == "$EXPECTED_DATA_SOURCE" && "$target" == "$DATA_ROOT" && "$path_device" == "$data_device" ]] ||
+    fail "$path must resolve directly through $DATA_ROOT on $EXPECTED_DATA_SOURCE"
+}
+
+assert_volume_mountpoint() {
+  local volume_name="$1"
+  local expected_fs_root="$2"
+  local mountpoint="$DOCKER_VOLUME_ROOT/$volume_name/_data"
+  local expected_source="${EXPECTED_DATA_SOURCE}[${expected_fs_root}]"
+  local canonical source target data_device mount_device
+  [[ -d "$mountpoint" && ! -L "$mountpoint" ]] ||
+    fail "$volume_name Docker mountpoint must be a real directory"
+  canonical="$(clean_exec readlink -e -- "$mountpoint")"
+  [[ "$canonical" == "$mountpoint" ]] ||
+    fail "$volume_name Docker mountpoint must be canonical"
+  source="$(clean_exec findmnt -n -o SOURCE --target "$mountpoint")"
+  target="$(clean_exec findmnt -n -o TARGET --target "$mountpoint")"
+  data_device="$(clean_exec stat -c %d -- "$DATA_ROOT")"
+  mount_device="$(clean_exec stat -c %d -- "$mountpoint")"
+  [[ "$source" == "$expected_source" && "$target" == "$mountpoint" && "$mount_device" == "$data_device" ]] ||
+    fail "$volume_name Docker mountpoint is not the expected $EXPECTED_DATA_SOURCE bind"
+}
+
+storage_check() {
+  [[ -x "$ENV_HELPER" ]] || fail "Runtime environment helper is unavailable"
+  clean_exec python3 "$ENV_HELPER" vm-storage-env-check \
+    --env-file "$D/runtime-env/compose.effective.env"
+  assert_data_device
+  assert_protected_data_path "$DATA_ROOT/minio"
+  assert_protected_data_path "$DATA_ROOT/qdrant"
+  assert_protected_data_path "$DATA_ROOT/qdrant-snapshots"
+  compose --profile infra config --format json |
+    clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
+  readonly_docker volume inspect agentium_minio_block |
+    clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
+      --name agentium_minio_block
+  assert_volume_mountpoint agentium_minio_block /minio
+  readonly_docker volume inspect agentium_qdrant_block |
+    clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
+      --name agentium_qdrant_block
+  assert_volume_mountpoint agentium_qdrant_block /qdrant
+  readonly_docker inspect --type container agentium-minio qdrant |
+    clean_exec python3 "$ENV_HELPER" vm-storage-runtime-check
+  printf 'storage-check passed: MinIO and Qdrant remain bind-backed on %s\n' \
+    "$EXPECTED_DATA_SOURCE"
+}
+
 case "${1:-}" in
-  images)   compose config --images ;;
-  migrate)  compose run --rm --no-deps agentium-migrate ;;
-  up)       compose up -d --no-build --no-deps agentium-backend agentium-worker-cpu agentium-frontend ;;
-  ps)       compose ps ;;
-  *)        echo "usage: $0 {images|migrate|up|ps}" >&2; exit 2 ;;
+  images)        compose config --images ;;
+  storage-check) storage_check ;;
+  migrate)       storage_check; compose run --rm --no-deps agentium-migrate ;;
+  up)            storage_check; compose up -d --no-build --no-deps agentium-backend agentium-worker-cpu agentium-frontend ;;
+  ps)            compose ps ;;
+  *)             echo "usage: $0 {images|storage-check|migrate|up|ps}" >&2; exit 2 ;;
 esac

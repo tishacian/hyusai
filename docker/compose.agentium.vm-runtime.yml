@@ -11,6 +11,9 @@
 #     services including these two; without the pins any `up -d` without
 #     --no-deps would recreate them and break the attested SFTP posture
 #     (sftp_release_sha ea80e656) and the P4 maintenance sidecar.
+#   * literal VM storage identities. They intentionally contain no Compose
+#     interpolation, so ambient shell variables cannot redirect MinIO or
+#     Qdrant back onto the root filesystem.
 services:
   agentium-backend:
     restart: unless-stopped
@@ -23,3 +26,18 @@ services:
     image: sha256:54d942c3c97d6e8c6ed8dd45bb431a1ce5a2e62443bd981a1395acb3ecdafb75
   agentium-sftp:
     image: sha256:af7ef7a728e8785775fb523a6219f9ba8eb136c43bf1bcfaf27b947d2b785f5c
+  agentium-minio:
+    volumes:
+      - agentium_minio:/data
+  agentium-qdrant:
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - /srv/agentium-data/qdrant-snapshots:/qdrant/snapshots
+
+volumes:
+  agentium_minio:
+    external: true
+    name: agentium_minio_block
+  qdrant_data:
+    external: true
+    name: agentium_qdrant_block

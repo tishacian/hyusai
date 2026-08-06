@@ -37,10 +37,22 @@ Papai-LLM stack:
 ```bash
 cd docker
 docker compose -f compose.agentium.yml config
-docker compose -f compose.agentium.yml up -d agentium-rabbitmq
-docker compose -f compose.agentium.yml up -d agentium-backend agentium-worker-cpu
 ```
 
-Use `AGENTIUM_ENV_FILE` to point to a non-committed env file. On the demo VM,
-keep `agentium-sftp.service` on systemd and follow
-`docs/agentium-dockerization-runbook.md` for the blue/green cutover.
+The base file is production-oriented and fails closed onto the pre-created
+external volumes `agentium_minio_block` and `agentium_qdrant_block`. It must
+not silently create root-local state. For an intentional local development
+stack, opt in explicitly:
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  up -d agentium-rabbitmq agentium-backend agentium-worker-cpu
+```
+
+Never add the local-storage overlay on a VM. Use `AGENTIUM_ENV_FILE` to point
+to a non-committed env file. On the demo VM, use
+`scripts/agentium-vm-deploy.sh storage-check` and follow
+`docs/ops/agentium-safe-vm-deployment.md`; `migrate` and `up` run that
+read-only gate automatically.

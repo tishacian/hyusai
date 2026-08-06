@@ -24,6 +24,7 @@ from urllib.parse import unquote, urlsplit
 SCHEMA_VERSION = 3
 PROFILE = "agentium-runtime-env-bundle-v3"
 MAX_SOURCE_BYTES = 1024 * 1024
+MAX_VM_INSPECT_BYTES = 16 * 1024 * 1024
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DEPLOYMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{5,95}$")
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -53,6 +54,17 @@ PLACEHOLDER_VALUES = frozenset(
         "secret",
     }
 )
+VM_STORAGE_ENVIRONMENT = {
+    "AGENTIUM_MINIO_VOLUME": "agentium_minio_block",
+    "AGENTIUM_MINIO_VOLUME_EXTERNAL": "true",
+    "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
+    "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
+}
+VM_BIND_BACKED_VOLUMES = {
+    "agentium_minio_block": "/srv/agentium-data/minio",
+    "agentium_qdrant_block": "/srv/agentium-data/qdrant",
+}
+VM_DOCKER_VOLUME_ROOT = "/var/lib/docker/volumes"
 
 
 class RuntimeEnvBundleError(RuntimeError):
@@ -209,6 +221,157 @@ def _parse_role_contents(contents: Mapping[str, bytes]) -> dict[str, dict[str, s
     }
 
 
+def assert_vm_storage_environment(content: bytes) -> None:
+    """Require the literal production storage identity without emitting values."""
+
+    values, _ = _parse_dotenv(content, label="VM Compose environment")
+    if any(values.get(key) != expected for key, expected in VM_STORAGE_ENVIRONMENT.items()):
+        raise RuntimeEnvBundleError(
+            "VM production storage environment differs from the block-backed contract"
+        )
+
+
+def _rendered_service_mounts(compose: Mapping[str, Any], service_name: str) -> dict[str, Any]:
+    services = compose.get("services")
+    if not isinstance(services, dict) or not isinstance(services.get(service_name), dict):
+        raise RuntimeEnvBundleError("rendered VM Compose storage services are incomplete")
+    mounts = services[service_name].get("volumes")
+    if not isinstance(mounts, list):
+        raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+    result: dict[str, Any] = {}
+    for mount in mounts:
+        if not isinstance(mount, dict) or not isinstance(mount.get("target"), str):
+            raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+        target = mount["target"]
+        if target in result:
+            raise RuntimeEnvBundleError("rendered VM Compose storage target is duplicated")
+        result[target] = mount
+    return result
+
+
+def assert_vm_compose_storage(compose: Any) -> None:
+    """Check the rendered VM model before any Compose state-changing command."""
+
+    if not isinstance(compose, dict) or not isinstance(compose.get("volumes"), dict):
+        raise RuntimeEnvBundleError("rendered VM Compose model is invalid")
+    volumes = compose["volumes"]
+    expected_volume_mounts = {
+        ("agentium-minio", "/data"): ("agentium_minio_block",),
+        ("agentium-qdrant", "/qdrant/storage"): ("agentium_qdrant_block",),
+    }
+    mounts_by_service = {
+        service: _rendered_service_mounts(compose, service)
+        for service in {service for service, _ in expected_volume_mounts}
+    }
+    if set(mounts_by_service["agentium-minio"]) != {"/data"} or set(
+        mounts_by_service["agentium-qdrant"]
+    ) != {"/qdrant/storage", "/qdrant/snapshots"}:
+        raise RuntimeEnvBundleError("rendered VM stateful mount targets differ")
+    for (service, target), (expected_name,) in expected_volume_mounts.items():
+        mount = mounts_by_service[service][target]
+        logical_name = mount.get("source")
+        definition = volumes.get(logical_name) if isinstance(logical_name, str) else None
+        if (
+            mount.get("type") != "volume"
+            or mount.get("read_only", False) is not False
+            or not isinstance(definition, dict)
+            or definition.get("name") != expected_name
+            or definition.get("external") is not True
+        ):
+            raise RuntimeEnvBundleError("rendered VM bind-backed volume contract differs")
+    snapshot = mounts_by_service["agentium-qdrant"]["/qdrant/snapshots"]
+    if (
+        snapshot.get("type") != "bind"
+        or snapshot.get("source") != VM_STORAGE_ENVIRONMENT["AGENTIUM_QDRANT_SNAPSHOT_PATH"]
+        or snapshot.get("read_only", False) is not False
+    ):
+        raise RuntimeEnvBundleError("rendered VM Qdrant snapshot bind differs")
+
+
+def assert_vm_volume_inspect(payload: Any, *, volume_name: str) -> None:
+    """Validate one existing Docker local volume without creating it."""
+
+    expected_device = VM_BIND_BACKED_VOLUMES.get(volume_name)
+    if expected_device is None:
+        raise RuntimeEnvBundleError("VM storage volume name is invalid")
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        raise RuntimeEnvBundleError("VM storage volume is missing or ambiguous")
+    volume = payload[0]
+    expected_mountpoint = f"{VM_DOCKER_VOLUME_ROOT}/{volume_name}/_data"
+    if (
+        volume.get("Name") != volume_name
+        or volume.get("Driver") != "local"
+        or volume.get("Mountpoint") != expected_mountpoint
+        or volume.get("Options")
+        != {"device": expected_device, "o": "bind", "type": "none"}
+    ):
+        raise RuntimeEnvBundleError("VM storage volume bind options differ")
+
+
+def assert_vm_active_storage_mounts(payload: Any) -> None:
+    """Require the running MinIO and Qdrant containers to use the protected stores."""
+
+    if not isinstance(payload, list) or len(payload) != 2:
+        raise RuntimeEnvBundleError("VM storage containers are missing or ambiguous")
+    containers: dict[str, Mapping[str, Any]] = {}
+    for container in payload:
+        if not isinstance(container, dict) or not isinstance(container.get("Name"), str):
+            raise RuntimeEnvBundleError("VM storage container inspection is invalid")
+        name = container["Name"].removeprefix("/")
+        if name in containers:
+            raise RuntimeEnvBundleError("VM storage container inspection is duplicated")
+        containers[name] = container
+    if set(containers) != {"agentium-minio", "qdrant"}:
+        raise RuntimeEnvBundleError("VM storage container identity differs")
+    expected = {
+        "agentium-minio": {
+            "/data": ("volume", "agentium_minio_block", None),
+        },
+        "qdrant": {
+            "/qdrant/storage": ("volume", "agentium_qdrant_block", None),
+            "/qdrant/snapshots": (
+                "bind",
+                None,
+                VM_STORAGE_ENVIRONMENT["AGENTIUM_QDRANT_SNAPSHOT_PATH"],
+            ),
+        },
+    }
+    for name, required in expected.items():
+        container = containers[name]
+        state = container.get("State")
+        mounts = container.get("Mounts")
+        if not isinstance(state, dict) or state.get("Running") is not True:
+            raise RuntimeEnvBundleError("VM storage container is not running")
+        if not isinstance(mounts, list):
+            raise RuntimeEnvBundleError("VM storage container mounts are invalid")
+        by_target = {
+            row.get("Destination"): row
+            for row in mounts
+            if isinstance(row, dict) and isinstance(row.get("Destination"), str)
+        }
+        if len(by_target) != len(mounts) or set(by_target) != set(required):
+            raise RuntimeEnvBundleError("VM active storage mount targets differ")
+        for target, (kind, volume_name, source) in required.items():
+            row = by_target[target]
+            if (
+                row.get("Type") != kind
+                or row.get("RW") is not True
+                or (volume_name is not None and row.get("Name") != volume_name)
+                or (source is not None and row.get("Source") != source)
+            ):
+                raise RuntimeEnvBundleError("VM active storage mount identity differs")
+
+
+def _read_json_stdin(*, label: str) -> Any:
+    payload = sys.stdin.buffer.read(MAX_VM_INSPECT_BYTES + 1)
+    if len(payload) > MAX_VM_INSPECT_BYTES:
+        raise RuntimeEnvBundleError(f"{label} exceeds the size limit")
+    try:
+        return json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeEnvBundleError(f"{label} is invalid JSON") from exc
+
+
 def _assert_no_placeholder_secrets(contents: Mapping[str, bytes]) -> None:
     for values in _parse_role_contents(contents).values():
         for key, value in values.items():
@@ -264,7 +427,11 @@ def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
     required = {
         "compose_main": {
             "AGENTIUM_FAISS_PATH",
+            "AGENTIUM_MINIO_VOLUME",
+            "AGENTIUM_MINIO_VOLUME_EXTERNAL",
             "AGENTIUM_OBJECT_STORE_PATH",
+            "AGENTIUM_QDRANT_SNAPSHOT_PATH",
+            "AGENTIUM_QDRANT_VOLUME",
             "AGENTIUM_RABBITMQ_USER",
             "AGENTIUM_RABBITMQ_PASSWORD",
             "AGENTIUM_SECURE_DEPOSIT_PATH",
@@ -332,6 +499,7 @@ def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
             )
         for key in keys:
             _assert_literal_credential(values[role][key])
+    assert_vm_storage_environment(contents["compose_main"])
     _assert_credential_url(
         values["application"]["DATABASE_URL"],
         schemes=frozenset({"postgres", "postgresql", "postgresql+psycopg"}),
@@ -1039,6 +1207,14 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     value.add_argument("--key", required=True)
+    vm_storage_env = subparsers.add_parser("vm-storage-env-check")
+    vm_storage_env.add_argument("--env-file", type=Path, required=True)
+    subparsers.add_parser("vm-storage-compose-check")
+    vm_storage_volume = subparsers.add_parser("vm-storage-volume-check")
+    vm_storage_volume.add_argument(
+        "--name", choices=tuple(sorted(VM_BIND_BACKED_VOLUMES)), required=True
+    )
+    subparsers.add_parser("vm-storage-runtime-check")
     for command in (freeze, verify, role_path, value):
         command.add_argument("--sha", required=True)
         command.add_argument("--deployment-id", required=True)
@@ -1075,7 +1251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(path)
             return 0
-        else:
+        elif args.command == "value":
             value = bundle_role_value(
                 bundle_dir=args.bundle_dir,
                 role=args.role,
@@ -1085,6 +1261,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_manifest_sha256=args.expected_manifest_sha256,
             )
             print(value)
+            return 0
+        elif args.command == "vm-storage-env-check":
+            content, _ = _read_regular_file(
+                args.env_file, label="frozen VM Compose environment"
+            )
+            assert_vm_storage_environment(content)
+            return 0
+        elif args.command == "vm-storage-compose-check":
+            assert_vm_compose_storage(_read_json_stdin(label="rendered VM Compose model"))
+            return 0
+        elif args.command == "vm-storage-volume-check":
+            assert_vm_volume_inspect(
+                _read_json_stdin(label="VM storage volume inspection"),
+                volume_name=args.name,
+            )
+            return 0
+        else:
+            assert_vm_active_storage_mounts(
+                _read_json_stdin(label="VM storage container inspection")
+            )
             return 0
     except RuntimeEnvBundleError as exc:
         print(f"Runtime environment bundle failed: {exc}", file=sys.stderr)

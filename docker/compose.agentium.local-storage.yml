@@ -1,0 +1,21 @@
+# Explicit local/development storage overlay.
+#
+# The production-oriented base Compose fails closed onto the external
+# bind-backed VM volumes. Developers who deliberately want Docker-managed
+# root-local volumes must opt in to this overlay by name.
+services:
+  agentium-minio:
+    volumes:
+      - agentium_minio:/data
+  agentium-qdrant:
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ../backend/data/qdrant_snapshots:/qdrant/snapshots
+
+volumes:
+  agentium_minio:
+    external: false
+    name: agentium_minio
+  qdrant_data:
+    external: false
+    name: qdrant_data

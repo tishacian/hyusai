@@ -499,7 +499,7 @@ services:
       - qdrant_data:/qdrant/storage
       # Qdrant defaults snapshots outside /qdrant/storage. Bind that path
       # explicitly so production snapshots never consume the VM root disk.
-      - ${AGENTIUM_QDRANT_SNAPSHOT_PATH:-/home/ubuntu/agentium-data/qdrant_snapshots}:/qdrant/snapshots
+      - ${AGENTIUM_QDRANT_SNAPSHOT_PATH:-/srv/agentium-data/qdrant-snapshots}:/qdrant/snapshots
     env_file:
       - ${AGENTIUM_QDRANT_ENV_FILE:-./env/qdrant.agentium.env.example}
     healthcheck:
@@ -522,13 +522,13 @@ volumes:
     name: ${AGENTIUM_POSTGRES_VOLUME:-agentium_pgdata}
   qdrant_data:
     external: true
-    name: ${AGENTIUM_QDRANT_VOLUME:-qdrant_data}
+    # Production fails closed onto the pre-created bind-backed volume. Local
+    # root-disk storage is available only through compose.agentium.local-storage.yml.
+    name: ${AGENTIUM_QDRANT_VOLUME:-agentium_qdrant_block}
   agentium_minio:
-    # The runtime may point this logical volume at a bind-backed Docker volume
-    # hosted on an attached block device. Keeping the default name preserves
-    # local/development behaviour and leaves the previous VM volume available
-    # for rollback during a storage cutover.
-    external: ${AGENTIUM_MINIO_VOLUME_EXTERNAL:-false}
-    name: ${AGENTIUM_MINIO_VOLUME:-agentium_minio}
+    # Never create a fresh MinIO volume on the production root filesystem.
+    # The explicit local/dev overlay is the only supported local-volume path.
+    external: ${AGENTIUM_MINIO_VOLUME_EXTERNAL:-true}
+    name: ${AGENTIUM_MINIO_VOLUME:-agentium_minio_block}
   agentium_livekit_redis:
     name: agentium_livekit_redis

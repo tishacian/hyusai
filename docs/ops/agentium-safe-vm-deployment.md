@@ -978,13 +978,38 @@ Le chemin de déploiement est désormais versionné (il remplace les overlays
   overlay `opened` + overlay runtime), mais tags et workers passent par
   l'environnement : `AGENTIUM_IMAGE_TAG` (`<sha12>` ou `demo-agentic`,
   obligatoire, validé) et `AGENTIUM_BACKEND_WORKERS` (défaut 8).
-  Sous-commandes `images`, `migrate`, `up`, `ps` ; `up` reste
-  `--no-build --no-deps` sur les trois services applicatifs uniquement.
+  Sous-commandes `images`, `storage-check`, `migrate`, `up`, `ps` ; `up`
+  reste `--no-build --no-deps` sur les trois services applicatifs uniquement.
+  `migrate` et `up` exécutent obligatoirement `storage-check` avant toute
+  mutation. Le gateway Compose repart d'un environnement vide et ne propage
+  que les contrôles applicatifs allowlistés ; `DOCKER_HOST`, `COMPOSE_*` et
+  les variables de sélection de stockage héritées du shell sont ignorés. Tous
+  les appels Docker sont en outre épinglés explicitement sur le socket local
+  `unix:///var/run/docker.sock`, indépendamment du contexte Docker utilisateur.
 - `docker/compose.agentium.vm-runtime.yml` — overlay unique portant ce que
   le compose de base ne paramètre pas : `restart: unless-stopped` sur les
   quatre services applicatifs, et épinglage par digest d'`agentium-sftp`
   (`sha256:22cd79c6…`) et `agentium-p4-maintenance` (`sha256:54d942c3…`),
-  les deux services à ne jamais recréer.
+  les deux services à ne jamais recréer. Il fixe aussi, sans interpolation,
+  MinIO sur `agentium_minio_block`, Qdrant sur `agentium_qdrant_block` et les
+  snapshots sur `/srv/agentium-data/qdrant-snapshots`.
+- `docker/compose.agentium.local-storage.yml` — opt-in local/dev explicite
+  vers `agentium_minio` et `qdrant_data`. Cet overlay est interdit sur VM ; le
+  Compose de base échoue par défaut si les volumes block-backed n'existent pas.
+
+Le gate `storage-check` est strictement non mutant. Il exige les quatre
+valeurs canoniques dans le bundle figé, valide le rendu Compose en mémoire,
+confirme que `/srv/agentium-data` est exactement le mountpoint `/dev/sdb`,
+rejette les symlinks et mounts imbriqués sous les trois chemins protégés,
+inspecte les options `local`/`bind` ainsi que les mountpoints `_data` actifs
+des deux volumes externes, puis confirme que les conteneurs MinIO et Qdrant
+actifs montent ces mêmes identités. Une valeur absente ou différente, un
+volume manquant, un mauvais bind, un chemin ne résolvant pas directement sur
+`/dev/sdb`, un `/dev/sdb` absent ou un conteneur stateful arrêté bloque
+`migrate` et `up`.
+Le gate ne lance ni `create`, ni `run`, ni `up` et ne recrée aucun service
+stateful.
+
 - `scripts/run-iteration-canaries.sh` — gate léger par itération, exécuté
   sur carakai en root : specs `11-system360-canary` et
   `12-protected-runner-canaries` contre le SHA déployé, sans orchestrateur
@@ -998,9 +1023,11 @@ Boucle d'itération cible :
 1. commit sur `demo/agentic` ;
 2. `git pull --ff-only` dans le worktree ;
 3. rebuild des services touchés, tag `<sha12>` ;
-4. `agentium-vm-deploy.sh up` ;
-5. `run-iteration-canaries.sh` (gate léger, non signé) ;
-6. aux jalons seulement : attestation signée 7 tokens
+4. `agentium-vm-deploy.sh storage-check` (facultatif comme affichage autonome,
+   obligatoire et rejoué automatiquement par l'étape suivante) ;
+5. `agentium-vm-deploy.sh up` ;
+6. `run-iteration-canaries.sh` (gate léger, non signé) ;
+7. aux jalons seulement : attestation signée 7 tokens
    (`scripts/agentium_protected_runner_orchestrator.py`, voie carakai).
 
 Rollback à toute itération : `AGENTIUM_IMAGE_TAG=<sha12 précédent>` puis
@@ -1034,4 +1061,3 @@ rebuildé au tip et déployé par la boucle d'itération :
 L'attestation SFTP signée référence toujours l'ancien SHA (`ea80e656`) : à
 régulariser au prochain jalon attesté, comme fait pour le backend. Gate
 d'itération `run-iteration-canaries.sh` : 6/6 specs vertes sur `b0ce840a`.
-
