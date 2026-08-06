@@ -192,6 +192,7 @@ def db_session():
         "rag_presets",
         "run_dispatch_outbox",
         "runs",
+        "system_flow_drafts",
         "system_versions",
         "systems",
         "capabilities",

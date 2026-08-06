@@ -17,7 +17,8 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from sqlalchemy import Integer, String, and_, cast, func, or_
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import Session as DBSession, aliased
+from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import aliased
 
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
@@ -28,12 +29,14 @@ from app.services.run_engine.subflow_orchestration import _wave_ids_equal
 
 logger = get_logger(__name__)
 
+TRIGGER_RUN = "trigger_run"
 SUBFLOW_RUN = "subflow_run"
 SUBFLOW_PARENT_RESUME = "subflow_parent_resume"
 SUBFLOW_HITL_RESUME = "subflow_hitl_resume"
 RUN_HITL_RESUME = "run_hitl_resume"
 
 _TASK_NAMES = {
+    TRIGGER_RUN: "agentium.trigger_run",
     SUBFLOW_RUN: "agentium.subflow_run",
     SUBFLOW_PARENT_RESUME: "agentium.subflow_parent_resume",
     SUBFLOW_HITL_RESUME: "agentium.subflow_hitl_resume",
@@ -272,7 +275,15 @@ def mark_dispatch_published(
     row.last_error = None
     row.lease_token = None
     row.lease_expires_at = None
-    if row.event_type == SUBFLOW_RUN:
+    if row.event_type == TRIGGER_RUN:
+        run = (
+            db.query(Run)
+            .filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id)
+            .first()
+        )
+        if run is not None:
+            run.celery_task_id = row.task_id
+    elif row.event_type == SUBFLOW_RUN:
         child = (
             db.query(Run)
             .filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id)
@@ -496,6 +507,15 @@ def _task_envelope(
     )
     if run is None:
         raise PermanentDispatchError("dispatch Run no longer exists")
+    if row.event_type == TRIGGER_RUN:
+        if run.trigger != "webhook" or not run.trigger_dedup_key:
+            raise PermanentDispatchError("trigger dispatch Run has no durable event claim")
+        if str(row.source_id or "") != str(run.trigger_dedup_key):
+            raise PermanentDispatchError("trigger dispatch does not match the Run claim")
+        if run.status in _TERMINAL_RUN_STATUSES:
+            raise ObsoleteDispatch("trigger Run is already terminal")
+        if run.status not in {"pending", "running"}:
+            raise ObsoleteDispatch("trigger Run no longer accepts initial dispatch")
     if row.event_type in {SUBFLOW_HITL_RESUME, RUN_HITL_RESUME}:
         decision = (
             db.query(Decision)
@@ -733,6 +753,37 @@ def repair_dispatch_gaps(
     ensured = {event_type: 0 for event_type in DISPATCH_EVENT_TYPES}
     if limit <= 0:
         return ensured
+    trigger_dispatch_exists = (
+        db.query(RunDispatchOutbox.id)
+        .filter(
+            RunDispatchOutbox.event_type == TRIGGER_RUN,
+            RunDispatchOutbox.workspace_id == Run.workspace_id,
+            RunDispatchOutbox.run_id == Run.id,
+        )
+        .exists()
+    )
+    trigger_candidates = (
+        db.query(Run)
+        .filter(
+            Run.workspace_id.isnot(None),
+            Run.trigger == "webhook",
+            Run.trigger_dedup_key.isnot(None),
+            Run.status == "pending",
+            ~trigger_dispatch_exists,
+        )
+        .order_by(Run.started_at, Run.id)
+        .limit(limit)
+        .all()
+    )
+    for run in trigger_candidates:
+        enqueue_dispatch(
+            db,
+            event_type=TRIGGER_RUN,
+            workspace_id=str(run.workspace_id),
+            run_id=run.id,
+            source_id=str(run.trigger_dedup_key),
+        )
+        ensured[TRIGGER_RUN] += 1
     initial_dispatch_exists = (
         db.query(RunDispatchOutbox.id)
         .filter(

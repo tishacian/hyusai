@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
+from pydantic import ValidationError
 
 from app.api.v1.endpoints import control_plane, systems
 from app.models.context import Context
@@ -386,7 +387,10 @@ async def test_member_cannot_trigger_migration_managed_agentic_system(db_session
     with pytest.raises(HTTPException) as exc_info:
         await systems.trigger_run(
             system.id,
-            systems.RunCreate(input_ref={"query": "resume BCX200"}),
+            systems.RunCreate(
+                input_ref={"query": "resume BCX200"},
+                expected_flow_sha256=systems._flow_sha256(system.flow_definition),
+            ),
             BackgroundTasks(),
             workspace,
             user,
@@ -405,7 +409,10 @@ async def test_global_admin_can_trigger_migration_managed_agentic_system(db_sess
 
     result = await systems.trigger_run(
         system.id,
-        systems.RunCreate(input_ref={"query": "resume BCX200"}),
+        systems.RunCreate(
+            input_ref={"query": "resume BCX200"},
+            expected_flow_sha256=systems._flow_sha256(system.flow_definition),
+        ),
         BackgroundTasks(),
         workspace,
         admin,
@@ -415,6 +422,120 @@ async def test_global_admin_can_trigger_migration_managed_agentic_system(db_sess
     assert result["system_id"] == system.id
     created = db_session.query(systems.Run).filter(systems.Run.id == result["id"]).one()
     assert created.initiated_by_user_id == admin.id
+
+
+def test_run_create_forbids_ambiguous_http_shapes() -> None:
+    flow_sha256 = "a" * 64
+    with pytest.raises(ValidationError):
+        systems.RunCreate(input_ref={}, expected_flow_sha256=flow_sha256, _debug={})
+    with pytest.raises(ValidationError):
+        systems.RunCreate(
+            input_ref={"_debug": {"mode": "step", "unknown": True}},
+            expected_flow_sha256=flow_sha256,
+        )
+    with pytest.raises(ValidationError):
+        systems.RunCreate(input_ref={})
+
+
+@pytest.mark.asyncio
+async def test_run_post_freezes_hash_flow_and_runtime_before_worker_start(db_session):
+    workspace = _workspace(db_session, slug=f"trigger-snapshot-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    system = _managed_system(db_session, workspace)
+    accepted_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "source", "kind": "source"},
+            {"id": "route", "kind": "decision", "config": {"branches": []}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [],
+    }
+    system.flow_definition = accepted_flow
+    db_session.commit()
+    accepted_sha256 = systems._flow_sha256(accepted_flow)
+
+    result = await systems.trigger_run(
+        system.id,
+        systems.RunCreate(
+            input_ref={
+                "query": "resume BCX200",
+                "_debug": {"mode": "step", "breakpoints": ["route"]},
+                "execution": {
+                    "flow_sha256": "f" * 64,
+                    "runtime_mode": "sequential_legacy",
+                },
+            },
+            expected_flow_sha256=accepted_sha256,
+        ),
+        BackgroundTasks(),
+        workspace,
+        admin,
+        db_session,
+    )
+
+    created = db_session.query(systems.Run).filter(systems.Run.id == result["id"]).one()
+    assert created.flow_snapshot == accepted_flow
+    assert created.input_ref["_debug"] == {
+        "mode": "step",
+        "breakpoints": ["route"],
+    }
+    assert created.input_ref["execution"]["flow_sha256"] == accepted_sha256
+    assert created.input_ref["execution"]["runtime_mode"] == "dag_overlay"
+    assert result["runtime_mode"] == "dag_overlay"
+
+    system.flow_definition = {"schema_version": 3, "nodes": [], "edges": []}
+    db_session.commit()
+    db_session.refresh(created)
+    assert created.flow_snapshot == accepted_flow
+
+
+@pytest.mark.asyncio
+async def test_run_post_rejects_stale_hash_without_creating_run(db_session):
+    workspace = _workspace(db_session, slug=f"trigger-stale-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    system = _managed_system(db_session, workspace)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await systems.trigger_run(
+            system.id,
+            systems.RunCreate(
+                input_ref={"query": "stale"},
+                expected_flow_sha256="0" * 64,
+            ),
+            BackgroundTasks(),
+            workspace,
+            admin,
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "RUN_FLOW_SHA256_MISMATCH"
+    assert db_session.query(systems.Run).filter(systems.Run.system_id == system.id).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_post_rejects_debug_for_sequential_legacy(db_session):
+    workspace = _workspace(db_session, slug=f"trigger-debug-{uuid4().hex[:8]}")
+    admin = _user(db_session, role="admin")
+    system = _managed_system(db_session, workspace)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await systems.trigger_run(
+            system.id,
+            systems.RunCreate(
+                input_ref={"_debug": {"mode": "step"}},
+                expected_flow_sha256=systems._flow_sha256(system.flow_definition),
+            ),
+            BackgroundTasks(),
+            workspace,
+            admin,
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "RUN_DEBUG_REQUIRES_DAG"
+    assert db_session.query(systems.Run).filter(systems.Run.system_id == system.id).count() == 0
 
 
 @pytest.mark.asyncio
@@ -429,6 +550,7 @@ async def test_public_system_run_cannot_forge_reserved_chat_trigger(db_session):
             systems.RunCreate(
                 trigger="chat_agentic",
                 input_ref={"chat_adapter": {"assistant_message_id": "victim"}},
+                expected_flow_sha256=systems._flow_sha256(system.flow_definition),
             ),
             BackgroundTasks(),
             workspace,

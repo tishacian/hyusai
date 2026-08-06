@@ -129,6 +129,26 @@ def _seed_target(db):
     return workspace, system, policy, historical_run, original_flow
 
 
+def test_legacy_rollout_apply_is_blocked_by_flow_publication(db_session) -> None:
+    workspace, system, _, _, original_flow = _seed_target(db_session)
+    settings = copy.deepcopy(workspace.settings)
+    settings.setdefault("features", {})["flow_publication_v1"] = True
+    workspace.settings = settings
+    db_session.commit()
+
+    with pytest.raises(rollout.RolloutError, match="legacy rollout writes are disabled"):
+        rollout.bootstrap(
+            db_session,
+            apply=True,
+            actor="system:lot6-system360-rollout",
+        )
+
+    db_session.rollback()
+    db_session.refresh(system)
+    assert system.flow_definition == original_flow
+    assert db_session.query(SystemVersion).filter_by(system_id=system.id).count() == 0
+
+
 def test_rollout_is_ordered_idempotent_append_only_and_reversible(db_session, monkeypatch):
     workspace, system, policy, historical_run, original_flow = _seed_target(db_session)
 

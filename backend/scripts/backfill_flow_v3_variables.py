@@ -24,7 +24,17 @@ from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.chains.variable_backfill import plan_variable_backfill
 from app.services.chains.version_service import record_new_version
+from app.services.systems.flow_publication import flow_publication_enabled
 from app.services.workspace_features import workspace_family
+
+
+def require_legacy_flow_authority(workspace: Workspace) -> None:
+    """Reject legacy mirror backfills once server publication owns Flow state."""
+
+    if flow_publication_enabled(workspace):
+        raise RuntimeError(
+            "Flow v3 variable backfill is disabled while flow_publication_v1 is active"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,6 +77,8 @@ def main() -> int:
         requested_system_ids = set(args.system_id)
         seen_system_ids: set[str] = set()
         for workspace in workspaces:
+            if args.apply:
+                require_legacy_flow_authority(workspace)
             workspace_report = {
                 "workspace_id": workspace.id,
                 "family": workspace_family(workspace),

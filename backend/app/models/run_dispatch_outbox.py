@@ -6,8 +6,8 @@ from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Int
 
 from app.db.base import Base
 
-
 DISPATCH_EVENT_TYPES = (
+    "trigger_run",
     "subflow_run",
     "subflow_parent_resume",
     "subflow_hitl_resume",
@@ -47,7 +47,7 @@ class RunDispatchOutbox(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('subflow_run', 'subflow_parent_resume', "
+            "event_type IN ('trigger_run', 'subflow_run', 'subflow_parent_resume', "
             "'subflow_hitl_resume', 'run_hitl_resume')",
             name="ck_run_dispatch_outbox_event_type",
         ),

@@ -74,6 +74,23 @@ class Run(Base):
     # row when still present, NULL once purged (snapshot still usable).
     flow_snapshot = Column(JSON, nullable=True)
     flow_version_id = Column(String(36), nullable=True, index=True)
+    # P1 execution authority, frozen when the Run row is inserted. Historical
+    # rows stay nullable and retain their existing engine fallback semantics.
+    published_flow_version_id = Column(
+        String(36),
+        ForeignKey("system_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    flow_sha256 = Column(String(64), nullable=True, index=True)
+    execution_contract = Column(JSON, nullable=True)
+    execution_surface = Column(String(32), nullable=True, index=True)
+    runner_session_id = Column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Vague E / E1 — snapshot of the auto-eval pass fired at run completion.
     # Shape: {"composite_score": float, "hallucination_rate": float,
@@ -86,6 +103,10 @@ class Run(Base):
     trigger = Column(
         String(40), default="manual"
     )  # manual | scheduler | webhook | adaptive | hitl | replay
+    # Durable event-trigger idempotency claim. The key includes the System,
+    # event kind and canonical payload hash; NULL keeps historical/manual Runs
+    # outside this uniqueness domain.
+    trigger_dedup_key = Column(String(255), nullable=True)
 
     # Vague E / E1.5.2 — replay lineage. ``parent_run_id`` points to the
     # run that was the source for a "Re-run with override" replay
@@ -124,6 +145,11 @@ class Run(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint(
+            "system_id",
+            "trigger_dedup_key",
+            name="uq_runs_trigger_dedup_key",
+        ),
         UniqueConstraint(
             "workspace_id",
             "system_id",

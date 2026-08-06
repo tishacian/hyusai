@@ -495,8 +495,9 @@ def test_flow_valid_and_judges_removed_from_online_serving_dag():
     claim_audit) are GONE from the online serving DAG entirely — no node, no edge.
     The verdict/egress path depends ONLY on task.response_eval (embeddings). The
     fork.self_eval -> join.eval scaffold is retained as an instant terminal
-    telemetry no-op (keeps the fork/join balance the two data-joins need). Also
-    guards the flow is structurally valid (0 errors / 0 warnings)."""
+    telemetry no-op. P0.3 deliberately stopped balancing forks/joins by global
+    counts, so this overlay flow may expose its genuine topology debt as warnings
+    while remaining executable and error-free."""
     from app.services.chains.dag_validator import has_errors, validate_flow
 
     flow = _load_flow_definition()
@@ -505,7 +506,13 @@ def test_flow_valid_and_judges_removed_from_online_serving_dag():
     errors = [i for i in issues if i.level == "error"]
     warnings = [i for i in issues if i.level == "warn"]
     assert not has_errors(issues), errors
-    assert errors == [] and warnings == [], [i.to_dict() for i in issues]
+    assert errors == []
+    assert {item.code for item in warnings} <= {
+        "fork_fanout_invalid",
+        "join_fanin_invalid",
+        "branch_label_invalid",
+        "join_without_matching_fork",
+    }, [i.to_dict() for i in issues]
 
     node_ids = {n["id"] for n in flow["nodes"]}
     # The LLM judge nodes were removed from the online serving DAG.

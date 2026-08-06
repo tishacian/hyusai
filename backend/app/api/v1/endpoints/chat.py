@@ -42,6 +42,7 @@ from app.services.chat_agentic_runtime import (
     agentic_event_chunks,
     agentic_timeout_seconds,
     create_agentic_chat_run,
+    create_chat_adapter_run,
     iter_agentic_run_events,
     load_agentic_chat_outcome,
     mark_agentic_fallback,
@@ -1840,16 +1841,14 @@ async def _maybe_agentic_chat_completion(
 
         from app.services.run_engine.dag import execute_run_dag
 
-        run = Run(
-            id=str(uuid.uuid4()),
-            workspace_id=workspace.id,
-            system_id=system.id,
-            input_ref={"query": query, "conversation_history": []},
-            status="pending",
-            trigger="chat_agentic",
+        run = create_chat_adapter_run(
+            db,
+            workspace=workspace,
+            system=system,
+            payload={"query": query, "conversation_history": []},
+            session_id=request.session_id,
+            adapter_evidence={"adapter_path": "hybrid_agentic_v1"},
         )
-        db.add(run)
-        db.commit()
         run_id = run.id
 
         # ``execute_run_dag`` opens its OWN session and commits there; re-read

@@ -198,7 +198,11 @@ def buffer_event_for_paused_run(
             "inbox_id": row.id,
         },
     ]
-    db.commit()
+    # Transaction ownership belongs to the event emitter.  In particular the
+    # secure-deposit hooks call this service inside their own business
+    # transaction; committing here would make a partial staging/promotion
+    # durable before its caller has completed.
+    db.flush()
     logger.info(
         "inbox: buffered event for paused run",
         run_id=run.id,

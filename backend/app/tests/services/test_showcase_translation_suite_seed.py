@@ -13,10 +13,73 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from scripts import seed_hana_demo_flow as hana_seed
 from scripts import seed_showcase_workspace as seed
+
+
+def test_feature_on_showcase_seed_initializes_all_new_systems(db_session):
+    workspace = seed.ensure_workspace(
+        db_session,
+        "agentium-showcase-publication-test",
+        "Agentium Showcase Publication Test",
+    )
+    workspace_settings = copy.deepcopy(workspace.settings)
+    workspace_settings.setdefault("features", {})["flow_publication_v1"] = True
+    workspace.settings = workspace_settings
+    db_session.commit()
+    seed.seed_skills_and_capabilities(db_session)
+    policies = seed.ensure_policies(db_session, workspace)
+    capabilities = seed.ensure_capabilities(db_session, workspace)
+
+    systems = seed.ensure_systems(db_session, workspace, capabilities, policies)
+    reconciled = seed.ensure_systems(db_session, workspace, capabilities, policies)
+
+    assert systems
+    assert {key: system.id for key, system in reconciled.items()} == {
+        key: system.id for key, system in systems.items()
+    }
+    for system in systems.values():
+        draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+        published = (
+            db_session.query(SystemVersion)
+            .filter_by(system_id=system.id, id=system.published_flow_version_id)
+            .one()
+        )
+        assert draft.base_published_version_id == published.id
+        assert system.flow_definition == published.flow_definition
+        assert published.execution_contract is not None
+
+
+def test_feature_on_hana_seed_initializes_new_system(db_session):
+    workspace = seed.ensure_workspace(
+        db_session,
+        "agentium-showcase-hana-publication-test",
+        "Agentium Showcase HANA Publication Test",
+    )
+    workspace_settings = copy.deepcopy(workspace.settings)
+    workspace_settings.setdefault("features", {})["flow_publication_v1"] = True
+    workspace.settings = workspace_settings
+    db_session.commit()
+    seed.seed_skills_and_capabilities(db_session)
+    capability = hana_seed.ensure_hana_capability(db_session, workspace)
+
+    system = hana_seed.ensure_hana_system(db_session, workspace, capability)
+    reconciled = hana_seed.ensure_hana_system(db_session, workspace, capability)
+
+    assert reconciled.id == system.id
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    published = (
+        db_session.query(SystemVersion)
+        .filter_by(system_id=system.id, id=system.published_flow_version_id)
+        .one()
+    )
+    assert draft.base_published_version_id == published.id
+    assert system.flow_definition == published.flow_definition
+    assert published.execution_contract is not None
 
 
 def test_ensure_workspace_reconciles_portfolio_contract_idempotently(db_session):
@@ -172,7 +235,11 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     assert contract_system.settings["steering_model"]["version"] == "contract-risk-v1"
     assert contract_system.flow_definition["schema_version"] == 3
     assert contract_system.flow_definition["io_mode"] == "strict"
-    assert [node["config"]["skill_slug"] for node in contract_system.flow_definition["nodes"]] == [
+    assert [
+        node["config"]["skill_slug"]
+        for node in contract_system.flow_definition["nodes"]
+        if node.get("config", {}).get("skill_slug")
+    ] == [
         "semantic_search_v1",
         "llm_rag_answer_v1",
         "claim_audit_v1",

@@ -34,18 +34,22 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
+from app.models.decision import Decision
 from app.models.run import Run
 from app.models.system import System
+from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.workspace import Workspace
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_persisted_system_catalog_bindings,
 )
+from app.services.systems import flow_ingress, flow_publication
 
 logger = get_logger(__name__)
 
@@ -329,6 +333,23 @@ def build_registry(
 _TRIGGER_META_KEY = "_event_trigger"
 
 
+@dataclass(frozen=True)
+class _PublishedTriggerEvidence:
+    """Published identity accepted under the locked System row."""
+
+    flow: Dict[str, Any]
+    version_id: str
+    flow_sha256: str
+
+
+class _TriggerDeliveryDuplicate(RuntimeError):
+    """Internal control flow carrying a durable prior delivery result."""
+
+    def __init__(self, result: Dict[str, Any]):
+        super().__init__("trigger delivery already claimed")
+        self.result = result
+
+
 def _payload_hash(payload: Any) -> str:
     canonical = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -341,14 +362,29 @@ def _dedup_key(system_id: str, event_kind: str, payload: Any) -> str:
 
 
 def _find_run_by_dedup(db: DBSession, system_id: str, dedup_key: str) -> Optional[Run]:
-    """Return an existing triggered Run (simulated OR real) for this dedup key.
+    """Return the durable claimant for one event-trigger idempotency key."""
 
-    Scans this System's ``webhook``-triggered runs and matches the marker stored
-    in ``input_ref`` — no schema change needed and triggered runs are low volume.
-    """
+    claimed = (
+        db.query(Run)
+        .filter(
+            Run.system_id == system_id,
+            Run.trigger_dedup_key == dedup_key,
+        )
+        .one_or_none()
+    )
+    if claimed is not None:
+        return claimed
+
+    # Rolling-upgrade compatibility only. Migration 079 backfills one
+    # canonical claimant per historical key; the JSON scan keeps a mixed
+    # binary window from replaying an older, not-yet-backfilled delivery.
     candidates = (
         db.query(Run)
-        .filter(Run.system_id == system_id, Run.trigger == "webhook")
+        .filter(
+            Run.system_id == system_id,
+            Run.trigger == "webhook",
+            Run.trigger_dedup_key.is_(None),
+        )
         .all()
     )
     for run in candidates:
@@ -356,6 +392,46 @@ def _find_run_by_dedup(db: DBSession, system_id: str, dedup_key: str) -> Optiona
         if meta.get("dedup_key") == dedup_key:
             return run
     return None
+
+
+def _duplicate_delivery_result(
+    db: DBSession,
+    *,
+    system_id: str,
+    dedup_key: str,
+) -> Dict[str, Any] | None:
+    claim = (
+        db.query(TriggerEventClaim)
+        .filter(
+            TriggerEventClaim.system_id == system_id,
+            TriggerEventClaim.dedup_key == dedup_key,
+        )
+        .one_or_none()
+    )
+    if claim is not None:
+        result: Dict[str, Any] = {
+            "system_id": system_id,
+            "status": "duplicate",
+            "dedup_key": dedup_key,
+            "claim_outcome": claim.outcome,
+        }
+        if claim.run_id:
+            result["run_id"] = claim.run_id
+        if claim.inbox_id:
+            result["inbox_id"] = claim.inbox_id
+        return result
+    # Rolling upgrade compatibility for claims produced by migration 079 or
+    # an older binary before migration 080 is applied.
+    run = _find_run_by_dedup(db, system_id, dedup_key)
+    if run is None:
+        return None
+    return {
+        "system_id": system_id,
+        "status": "duplicate",
+        "run_id": run.id,
+        "dedup_key": dedup_key,
+        "claim_outcome": "simulated" if run.status == "simulated" else "run",
+    }
 
 
 def _trigger_input_ref(
@@ -389,7 +465,7 @@ def _journal_simulated_run(
     dedup_key: str,
     *,
     owns_session: bool,
-) -> Run:
+) -> tuple[Run, bool]:
     """Persist a DRY-RUN Run: ``status='simulated'``, ``trigger='webhook'``, a
     visible ``trigger_simulated`` checkpoint and a ``simulated`` marker in
     ``input_ref``. The run is NEVER executed."""
@@ -403,6 +479,7 @@ def _journal_simulated_run(
         ),
         status="simulated",
         trigger="webhook",
+        trigger_dedup_key=dedup_key,
         checkpoints=[
             {
                 "kind": "trigger_simulated",
@@ -412,7 +489,32 @@ def _journal_simulated_run(
             }
         ],
     )
-    db.add(run)
+    claim = TriggerEventClaim(
+        id=str(uuid4()),
+        workspace_id=workspace_id or system.workspace_id,
+        system_id=system.id,
+        dedup_key=dedup_key,
+        outcome="simulated",
+        run_id=run.id,
+    )
+    try:
+        with db.begin_nested():
+            db.add_all([run, claim])
+            db.flush()
+    except IntegrityError:
+        result = _duplicate_delivery_result(
+            db,
+            system_id=system.id,
+            dedup_key=dedup_key,
+        )
+        if result is None:
+            raise
+        existing_id = result.get("run_id")
+        existing = db.get(Run, existing_id) if existing_id else None
+        if existing is not None:
+            return existing, False
+        raise _TriggerDeliveryDuplicate(result) from None
+
     _commit_or_flush(db, owns_session)
     logger.info(
         "triggers: journaled simulated run",
@@ -420,7 +522,7 @@ def _journal_simulated_run(
         event_kind=event_kind,
         run_id=run.id,
     )
-    return run
+    return run, True
 
 
 # ---------------------------------------------------------------------------
@@ -515,37 +617,44 @@ def _recent_triggered_run_statuses(db: DBSession, system_id: str, limit: int) ->
     return [r.status for r in rows]
 
 
-def _trip_circuit_breaker(db: DBSession, system: System) -> None:
+def _trip_circuit_breaker(
+    db: DBSession,
+    system: System,
+    *,
+    owns_session: bool,
+) -> None:
     """Disable this System's trigger and file a ``proposed`` Decision.
 
-    Reuses the Hypervisor's ``_log_decision`` so the operator sees the same
-    review surface used by ``hitl`` pauses; the trigger stays disabled until an
-    operator flips ``settings.event_trigger.disabled`` back off.
+    The setting and Decision share one savepoint and the caller retains
+    ownership of the surrounding transaction.
     """
-    _set_trigger_settings(
-        system,
-        disabled=True,
-        disabled_reason="circuit_breaker",
-        disabled_at=datetime.utcnow().isoformat(),
-    )
-    db.commit()
     try:
-        from app.services.run_engine.engine import _log_decision  # noqa: WPS433
-
-        _log_decision(
-            db,
-            workspace_id=system.workspace_id,
-            scope="system",
-            target_id=system.id,
-            kind="trigger_circuit_open",
-            status="proposed",
-            title="Event trigger disabled after repeated failures",
-            rationale={
-                "system_id": system.id,
-                "reason": "circuit_breaker",
-                "consecutive_failures": CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-            },
-        )
+        with db.begin_nested():
+            _set_trigger_settings(
+                system,
+                disabled=True,
+                disabled_reason="circuit_breaker",
+                disabled_at=datetime.utcnow().isoformat(),
+            )
+            db.add(
+                Decision(
+                    id=str(uuid4()),
+                    workspace_id=system.workspace_id,
+                    scope="system",
+                    target_id=system.id,
+                    kind="trigger_circuit_open",
+                    status="proposed",
+                    title="Event trigger disabled after repeated failures",
+                    rationale={
+                        "system_id": system.id,
+                        "reason": "circuit_breaker",
+                        "consecutive_failures": CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+                    },
+                    impact_estimate={},
+                )
+            )
+            db.flush()
+        _commit_or_flush(db, owns_session)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "triggers: circuit breaker decision log failed", system_id=system.id, error=str(exc)
@@ -553,7 +662,7 @@ def _trip_circuit_breaker(db: DBSession, system: System) -> None:
     logger.warning("triggers: circuit breaker tripped", system_id=system.id)
 
 
-def _circuit_open(db: DBSession, system: System) -> bool:
+def _circuit_open(db: DBSession, system: System, *, owns_session: bool) -> bool:
     """Return True when the breaker is open — already disabled, OR the last
     :data:`CIRCUIT_BREAKER_FAILURE_THRESHOLD` triggered runs all failed (which
     also TRIPS it here)."""
@@ -561,7 +670,7 @@ def _circuit_open(db: DBSession, system: System) -> bool:
         return True
     statuses = _recent_triggered_run_statuses(db, system.id, CIRCUIT_BREAKER_FAILURE_THRESHOLD)
     if len(statuses) >= CIRCUIT_BREAKER_FAILURE_THRESHOLD and all(s == "failed" for s in statuses):
-        _trip_circuit_breaker(db, system)
+        _trip_circuit_breaker(db, system, owns_session=owns_session)
         return True
     return False
 
@@ -573,30 +682,121 @@ def _create_triggered_run(
     workspace_id: Optional[str],
     payload: Any,
     dedup_key: str,
+    *,
+    published_evidence: _PublishedTriggerEvidence | None = None,
 ) -> Run:
-    """Persist a REAL pending run (``trigger='webhook'``) and COMMIT it so the
-    engine's own session can pick it up. The ``simulated`` marker is False."""
-    run = Run(
-        id=str(uuid4()),
-        workspace_id=workspace_id or system.workspace_id,
-        system_id=system.id,
-        capability_id=system.capability_id,
-        input_ref=_trigger_input_ref(
-            event_kind, dedup_key, payload, mode=TRIGGER_MODE_LIVE, simulated=False
-        ),
-        status="pending",
-        trigger="webhook",
-        checkpoints=[
-            {
-                "kind": "trigger_dispatched",
-                "t": datetime.utcnow().isoformat(),
-                "event_kind": event_kind,
-                "dedup_key": dedup_key,
-            }
-        ],
+    """Insert a REAL pending Run and its dispatch in the caller transaction."""
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == (workspace_id or system.workspace_id)).first()
+        if workspace_id or system.workspace_id
+        else None
     )
-    db.add(run)
-    db.commit()
+    try:
+        with db.begin_nested():
+            if workspace is not None and flow_publication.flow_publication_enabled(workspace):
+                if published_evidence is None:
+                    raise flow_ingress.FlowIngressError(
+                        "PUBLISHED_TRIGGER_EVIDENCE_REQUIRED",
+                        "Published trigger evidence must be accepted before Run creation.",
+                    )
+                trigger_ids = [
+                    str(node.get("id"))
+                    for node in _trigger_nodes(published_evidence.flow)
+                    if TRIGGER_TYPE_TO_EVENT[str(node.get("type"))] == event_kind and node.get("id")
+                ]
+                ingress_kind = "http" if event_kind == EVENT_WEBHOOK_RECEIVED else "event"
+                run = flow_ingress.create_published_ingress_run(
+                    db,
+                    system_id=system.id,
+                    workspace=workspace,
+                    ingress_id=trigger_ids[0] if len(trigger_ids) == 1 else None,
+                    kind=ingress_kind,
+                    payload=payload if isinstance(payload, dict) else {"value": payload},
+                    expected_published_version_id=published_evidence.version_id,
+                    expected_flow_sha256=published_evidence.flow_sha256,
+                    adapter_evidence={
+                        "event_kind": event_kind,
+                        "dedup_key": dedup_key,
+                    },
+                    trigger="webhook",
+                    trigger_dedup_key=dedup_key,
+                )
+                trigger_meta = _trigger_input_ref(
+                    event_kind,
+                    dedup_key,
+                    payload,
+                    mode=TRIGGER_MODE_LIVE,
+                    simulated=False,
+                )[_TRIGGER_META_KEY]
+                run.input_ref = {**(run.input_ref or {}), _TRIGGER_META_KEY: trigger_meta}
+                run.checkpoints = [
+                    *(run.checkpoints or []),
+                    {
+                        "kind": "trigger_dispatched",
+                        "t": datetime.utcnow().isoformat(),
+                        "event_kind": event_kind,
+                        "dedup_key": dedup_key,
+                    },
+                ]
+                db.flush()
+            else:
+                run = Run(
+                    id=str(uuid4()),
+                    workspace_id=workspace_id or system.workspace_id,
+                    system_id=system.id,
+                    capability_id=system.capability_id,
+                    input_ref=_trigger_input_ref(
+                        event_kind,
+                        dedup_key,
+                        payload,
+                        mode=TRIGGER_MODE_LIVE,
+                        simulated=False,
+                    ),
+                    status="pending",
+                    trigger="webhook",
+                    trigger_dedup_key=dedup_key,
+                    checkpoints=[
+                        {
+                            "kind": "trigger_dispatched",
+                            "t": datetime.utcnow().isoformat(),
+                            "event_kind": event_kind,
+                            "dedup_key": dedup_key,
+                        }
+                    ],
+                )
+                db.add(run)
+                db.flush()
+            claim = TriggerEventClaim(
+                id=str(uuid4()),
+                workspace_id=workspace_id or system.workspace_id,
+                system_id=system.id,
+                dedup_key=dedup_key,
+                outcome="run",
+                run_id=run.id,
+            )
+            db.add(claim)
+            from app.services.run_engine.dispatch_outbox import (  # noqa: WPS433
+                TRIGGER_RUN,
+                enqueue_dispatch,
+            )
+
+            enqueue_dispatch(
+                db,
+                event_type=TRIGGER_RUN,
+                workspace_id=str(workspace_id or system.workspace_id),
+                run_id=run.id,
+                source_id=dedup_key,
+            )
+            db.flush()
+    except IntegrityError:
+        result = _duplicate_delivery_result(
+            db,
+            system_id=system.id,
+            dedup_key=dedup_key,
+        )
+        if result is None:
+            raise
+        raise _TriggerDeliveryDuplicate(result) from None
     return run
 
 
@@ -618,9 +818,12 @@ def _process_live(
     workspace_id: Optional[str],
     payload: Dict[str, Any],
     dedup_key: str,
+    *,
+    published_evidence: _PublishedTriggerEvidence | None = None,
+    owns_session: bool,
 ) -> Dict[str, Any]:
-    """Live path guards: circuit breaker → rate limit → dispatch one real run."""
-    if _circuit_open(db, system):
+    """Live guards followed by one transactional, durable Run handoff."""
+    if _circuit_open(db, system, owns_session=owns_session):
         logger.warning("triggers: circuit open, skipping dispatch", system_id=system.id)
         return {"system_id": system.id, "status": "circuit_open", "dedup_key": dedup_key}
 
@@ -629,18 +832,44 @@ def _process_live(
         logger.warning("triggers: rate limited", system_id=system.id, event_kind=event_kind)
         return {"system_id": system.id, "status": "rate_limited", "dedup_key": dedup_key}
 
-    run = _create_triggered_run(db, system, event_kind, workspace_id, payload, dedup_key)
     try:
-        _dispatch_live_run(run.id)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception(
-            "triggers: live dispatch failed", system_id=system.id, run_id=run.id, error=str(exc)
+        run = _create_triggered_run(
+            db,
+            system,
+            event_kind,
+            workspace_id,
+            payload,
+            dedup_key,
+            published_evidence=published_evidence,
         )
-        return {"system_id": system.id, "status": "dispatch_failed", "run_id": run.id, "dedup_key": dedup_key}
+    except flow_ingress.FlowIngressError as exc:
+        logger.warning(
+            "triggers: published ingress rejected before run creation",
+            system_id=system.id,
+            event_kind=event_kind,
+            reason=exc.code,
+        )
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": exc.code.lower(),
+            "dedup_key": dedup_key,
+        }
+    except _TriggerDeliveryDuplicate as duplicate:
+        return duplicate.result
+    _commit_or_flush(db, owns_session)
     logger.info(
-        "triggers: dispatched live run", system_id=system.id, event_kind=event_kind, run_id=run.id
+        "triggers: queued durable live run",
+        system_id=system.id,
+        event_kind=event_kind,
+        run_id=run.id,
     )
-    return {"system_id": system.id, "status": "dispatched", "run_id": run.id, "dedup_key": dedup_key}
+    return {
+        "system_id": system.id,
+        "status": "queued",
+        "run_id": run.id,
+        "dedup_key": dedup_key,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -711,9 +940,9 @@ def emit_event(
     default ``dry_run`` merely journals a ``simulated`` run.
 
     ``system_id`` — when set (webhook hooks), only that System is considered.
-    ``db`` — reuse the caller's session when provided (dry-run journals flush
-    into the caller's transaction; a live dispatch commits it so the engine's
-    own session can read the run); otherwise a private session is opened here.
+    ``db`` — reuse the caller's session when provided; every trigger outcome is
+    flushed into that surrounding transaction without committing or rolling it
+    back. Otherwise a private session is opened and owned here.
     """
     owns_session = db is None
     if owns_session:
@@ -788,9 +1017,7 @@ def _process_target(
             "reason": "catalog_binding_invalid:system_workspace_mismatch",
         }
     workspace = (
-        db.query(Workspace).filter(Workspace.id == workspace_id).first()
-        if workspace_id
-        else None
+        db.query(Workspace).filter(Workspace.id == workspace_id).first() if workspace_id else None
     )
     if workspace_id and workspace is None:
         return {
@@ -798,6 +1025,72 @@ def _process_target(
             "status": "rejected",
             "reason": "catalog_binding_invalid:workspace_not_found",
         }
+
+    published_evidence: _PublishedTriggerEvidence | None = None
+    governance_flow = system.flow_definition or {}
+    if workspace is not None and flow_publication.flow_publication_enabled(workspace):
+        # Publication and trigger acceptance serialize on the same System row.
+        # Governance, ingress selection and the Run snapshot below therefore
+        # all refer to one locked published pointer.
+        locked_system = (
+            db.query(System)
+            .filter(
+                System.id == system.id,
+                System.workspace_id == workspace.id,
+            )
+            .populate_existing()
+            .with_for_update(of=System)
+            .one_or_none()
+        )
+        if locked_system is None:
+            return {
+                "system_id": system.id,
+                "status": "rejected",
+                "reason": "published_system_not_found",
+            }
+        system = locked_system
+        if system.status != "active":
+            return {
+                "system_id": system.id,
+                "status": "rejected",
+                "reason": "published_system_inactive",
+            }
+        try:
+            (
+                version,
+                published_flow,
+                published_hash,
+                _contract,
+            ) = flow_publication.published_run_evidence(
+                db,
+                system=system,
+                workspace=workspace,
+            )
+        except flow_publication.FlowPublicationError as exc:
+            logger.warning(
+                "triggers: published evidence rejected before governance",
+                system_id=system.id,
+                event_kind=event_kind,
+                reason=exc.code,
+            )
+            return {
+                "system_id": system.id,
+                "status": "rejected",
+                "reason": exc.code.lower(),
+            }
+        version_id = str(getattr(version, "id", "") or "")
+        if not version_id:
+            return {
+                "system_id": system.id,
+                "status": "rejected",
+                "reason": "published_flow_version_missing",
+            }
+        governance_flow = published_flow
+        published_evidence = _PublishedTriggerEvidence(
+            flow=published_flow,
+            version_id=version_id,
+            flow_sha256=published_hash,
+        )
     try:
         resolve_persisted_system_catalog_bindings(
             db,
@@ -817,7 +1110,7 @@ def _process_target(
             "reason": f"catalog_binding_invalid:{exc.code}",
         }
 
-    verdict = evaluate_governance(event_kind, system.flow_definition or {})
+    verdict = evaluate_governance(event_kind, governance_flow)
     if not verdict.eligible:
         logger.info(
             "triggers: governance rejected",
@@ -828,14 +1121,13 @@ def _process_target(
         return {"system_id": system.id, "status": "rejected", "reason": verdict.reason}
 
     dedup_key = _dedup_key(system.id, event_kind, payload)
-    existing = _find_run_by_dedup(db, system.id, dedup_key)
+    existing = _duplicate_delivery_result(
+        db,
+        system_id=system.id,
+        dedup_key=dedup_key,
+    )
     if existing is not None:
-        return {
-            "system_id": system.id,
-            "status": "duplicate",
-            "run_id": existing.id,
-            "dedup_key": dedup_key,
-        }
+        return existing
 
     # Phase 4 — while a correlated Run is ``hitl_pending``, buffer inbound
     # transactions into ``run_inbox`` (+ SystemMemory) instead of starting a
@@ -843,31 +1135,85 @@ def _process_target(
     try:
         from app.services.run_engine.inbox import try_buffer_event  # noqa: WPS433
 
-        buffered = try_buffer_event(
-            db,
-            system_id=system.id,
-            event_kind=event_kind,
-            payload=payload if isinstance(payload, dict) else {},
-        )
-        if buffered is not None:
-            buffered["dedup_key"] = dedup_key
-            return buffered
-    except Exception as exc:  # noqa: BLE001 — never break trigger dispatch.
+        try:
+            with db.begin_nested():
+                buffered = try_buffer_event(
+                    db,
+                    system_id=system.id,
+                    event_kind=event_kind,
+                    payload=payload if isinstance(payload, dict) else {},
+                )
+                if buffered is not None:
+                    db.add(
+                        TriggerEventClaim(
+                            id=str(uuid4()),
+                            workspace_id=workspace_id or system.workspace_id,
+                            system_id=system.id,
+                            dedup_key=dedup_key,
+                            outcome="inbox",
+                            inbox_id=str(buffered["inbox_id"]),
+                        )
+                    )
+                    db.flush()
+            if buffered is not None:
+                _commit_or_flush(db, owns_session)
+                buffered["dedup_key"] = dedup_key
+                return buffered
+        except IntegrityError:
+            duplicate = _duplicate_delivery_result(
+                db,
+                system_id=system.id,
+                dedup_key=dedup_key,
+            )
+            if duplicate is None:
+                raise
+            return duplicate
+    except Exception as exc:  # noqa: BLE001 — storage failures must fail closed.
         logger.warning(
             "triggers: inbox buffer failed",
             system_id=system.id,
             event_kind=event_kind,
             error=str(exc),
         )
+        # Never turn an inbox/storage failure into a parallel execution while a
+        # matching HITL gate may still be waiting. The savepoint above has
+        # already removed partial inbox/memory/claim rows; leaving the delivery
+        # unclaimed lets a later redelivery retry safely.
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": "inbox_buffer_failed",
+            "dedup_key": dedup_key,
+        }
 
     # Live execution is opt-in per System AND still gated by the master flag
     # (already asserted in ``emit_event``). Everything else stays dry-run.
     if trigger_mode(system) == TRIGGER_MODE_LIVE:
-        return _process_live(db, system, event_kind, workspace_id, payload, dedup_key)
+        return _process_live(
+            db,
+            system,
+            event_kind,
+            workspace_id,
+            payload,
+            dedup_key,
+            published_evidence=published_evidence,
+            owns_session=owns_session,
+        )
 
-    run = _journal_simulated_run(
-        db, system, event_kind, workspace_id, payload, dedup_key, owns_session=owns_session
-    )
+    try:
+        run, created = _journal_simulated_run(
+            db, system, event_kind, workspace_id, payload, dedup_key, owns_session=owns_session
+        )
+    except _TriggerDeliveryDuplicate as duplicate:
+        return duplicate.result
+    if not created:
+        duplicate = _duplicate_delivery_result(
+            db,
+            system_id=system.id,
+            dedup_key=dedup_key,
+        )
+        if duplicate is not None:
+            return duplicate
     return {
         "system_id": system.id,
         "status": "simulated",

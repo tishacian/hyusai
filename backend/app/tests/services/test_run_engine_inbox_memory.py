@@ -8,9 +8,11 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.decision import Decision
 from app.models.run import Run
+from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.run_inbox import RunInbox
 from app.models.system import System
 from app.models.system_memory import SystemMemory
+from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.workspace import Workspace
 from app.services.run_engine import inbox
 from app.services.run_engine.dag import WalkerState
@@ -50,7 +52,9 @@ def _system(db, workspace_id: str) -> System:
     return system
 
 
-def _paused_run(db, *, workspace_id: str, system_id: str, correlation_key: str | None = "tx-9") -> Run:
+def _paused_run(
+    db, *, workspace_id: str, system_id: str, correlation_key: str | None = "tx-9"
+) -> Run:
     input_ref = {"correlation_key": correlation_key} if correlation_key else {}
     run = Run(
         id=str(uuid.uuid4()),
@@ -149,6 +153,108 @@ def test_emit_event_buffers_instead_of_dispatch(db_session, monkeypatch):
     assert results[0]["run_id"] == run.id
     assert dispatched == []
     assert db_session.query(RunInbox).filter(RunInbox.run_id == run.id).count() == 1
+
+
+def test_emit_event_buffers_one_copy_on_identical_redelivery(db_session, monkeypatch):
+    from app.services.run_engine import triggers
+
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    run = _paused_run(db_session, workspace_id=ws.id, system_id=system.id, correlation_key="tx-9")
+    payload = {"correlation_key": "tx-9", "file": "same.csv"}
+    monkeypatch.setattr(triggers.settings, "enable_event_triggers", True)
+
+    first = triggers.emit_event(
+        triggers.EVENT_WEBHOOK_RECEIVED,
+        ws.id,
+        payload,
+        db=db_session,
+        system_id=system.id,
+    )
+    second = triggers.emit_event(
+        triggers.EVENT_WEBHOOK_RECEIVED,
+        ws.id,
+        payload,
+        db=db_session,
+        system_id=system.id,
+    )
+
+    assert first[0]["status"] == "buffered"
+    assert second[0]["status"] == "duplicate"
+    assert second[0]["claim_outcome"] == "inbox"
+    assert second[0]["inbox_id"] == first[0]["inbox_id"]
+    assert db_session.query(RunInbox).filter(RunInbox.run_id == run.id).count() == 1
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 1
+    memory = db_session.query(SystemMemory).filter_by(system_id=system.id).one()
+    assert memory.state["event_count"] == 1
+
+
+def test_buffering_respects_caller_transaction_rollback(db_session, monkeypatch):
+    from app.services.run_engine import triggers
+
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    run = _paused_run(db_session, workspace_id=ws.id, system_id=system.id)
+    original_objective = system.objective
+    system.objective = "must rollback with caller"
+    monkeypatch.setattr(triggers.settings, "enable_event_triggers", True)
+
+    result = triggers.emit_event(
+        triggers.EVENT_WEBHOOK_RECEIVED,
+        ws.id,
+        {"correlation_key": "tx-9", "file": "rollback.csv"},
+        db=db_session,
+        system_id=system.id,
+    )
+    assert result[0]["status"] == "buffered"
+    db_session.rollback()
+
+    assert db_session.get(System, system.id).objective == original_objective
+    assert db_session.query(RunInbox).filter(RunInbox.run_id == run.id).count() == 0
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 0
+
+
+def test_inbox_failure_is_fail_closed_and_preserves_caller_transaction(
+    db_session,
+    monkeypatch,
+):
+    from app.services.run_engine import triggers
+
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    run = _paused_run(db_session, workspace_id=ws.id, system_id=system.id)
+    original_objective = system.objective
+    system.objective = "caller mutation must remain pending"
+    monkeypatch.setattr(triggers.settings, "enable_event_triggers", True)
+    real_try_buffer_event = inbox.try_buffer_event
+
+    def fail_after_partial_buffer(*args, **kwargs):
+        buffered = real_try_buffer_event(*args, **kwargs)
+        assert buffered is not None
+        raise RuntimeError("synthetic inbox failure")
+
+    monkeypatch.setattr(inbox, "try_buffer_event", fail_after_partial_buffer)
+
+    result = triggers.emit_event(
+        triggers.EVENT_WEBHOOK_RECEIVED,
+        ws.id,
+        {"correlation_key": "tx-9", "file": "fail-closed.csv"},
+        db=db_session,
+        system_id=system.id,
+    )
+
+    assert result[0]["status"] == "rejected"
+    assert result[0]["reason"] == "inbox_buffer_failed"
+    assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+    assert db_session.query(RunInbox).filter_by(run_id=run.id).count() == 0
+    assert db_session.query(SystemMemory).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(RunDispatchOutbox).filter_by(run_id=run.id).count() == 0
+
+    db_session.flush()
+    assert system.objective == "caller mutation must remain pending"
+    db_session.rollback()
+    assert db_session.get(System, system.id).objective == original_objective
 
 
 def test_reinject_memory_into_state_on_resume(db_session):

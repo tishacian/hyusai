@@ -5,6 +5,7 @@ ledger so the cockpit can drill from the Run timeline down to individual
 skill calls.
 """
 import asyncio
+import copy
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
 
@@ -73,6 +74,10 @@ from app.services.run_access import (
 )
 from app.services.run_engine import schedule_run
 from app.services.run_engine.dag import resume_run_dag, resume_run_dag_debug
+from app.services.run_engine.debug_contract import (
+    DebugContractError,
+    normalize_debug_config,
+)
 from app.services.run_engine.events import bus as event_bus
 from app.services.run_outcome_provenance import (
     baseline_run_exclusion_reason,
@@ -195,7 +200,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "duration_ms": r.duration_ms,
         "input_ref": r.input_ref or {},
-        "output_ref": r.output_ref or {},
+        "output_ref": r.output_ref if r.output_ref is not None else {},
         "outcome": {
             "decision": r.decision,
             "confidence": r.confidence,
@@ -291,7 +296,11 @@ def _invocation(
         "latency_ms": i.latency_ms,
         "cost": i.cost,
         "input_ref": {} if redact_io else i.input_ref or {},
-        "output_ref": {} if redact_io else i.output_ref or {},
+        "output_ref": (
+            {}
+            if redact_io
+            else (i.output_ref if i.output_ref is not None else {})
+        ),
         "metrics": i.metrics or {},
         "trace": i.trace or {},
         "error": i.error,
@@ -1153,11 +1162,26 @@ async def resolve_run_hitl(
 # Step debugger — /runs/{id}/step
 # ---------------------------------------------------------------------------
 class DebugStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     action: Literal["step", "continue", "stop"]
     breakpoints: Optional[List[str]] = Field(
         default=None,
         description="Optional replacement breakpoint set applied before resume.",
     )
+
+    @field_validator("breakpoints")
+    @classmethod
+    def _validate_breakpoints(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        try:
+            normalized = normalize_debug_config(
+                {"mode": "step", "breakpoints": value}
+            )
+        except DebugContractError as exc:
+            raise ValueError(exc.message) from exc
+        return list(normalized["breakpoints"])
 
 
 @router.post("/{run_id}/step")
@@ -1184,23 +1208,28 @@ async def step_run(
         user=user,
         workspace=workspace,
     )
-    enforce_action(
+    system = (
+        db.query(System)
+        .filter(
+            System.id == r.system_id,
+            System.workspace_id == workspace.id,
+        )
+        .one_or_none()
+    )
+    if system is None:
+        raise HTTPException(409, detail={"code": "DEBUG_SYSTEM_UNAVAILABLE"})
+    from app.api.v1.endpoints.systems import _enforce_system_run_authority
+
+    _enforce_system_run_authority(
         db,
         user=user,
         workspace=workspace,
-        resource_kind="system",
-        action="engine.run",
-        legacy_allowed=True,
-        resource_attrs={
-            "system_id": r.system_id,
-            "capability_id": r.capability_id,
-            "run_id": r.id,
-            "owner_user_id": r.initiated_by_user_id,
-        },
+        system=system,
+        execution_source="run_debug_resume_api",
     )
     if r.status != "debug_pending":
         raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
-    background_tasks.add_task(_step_wrapper, r.id, body.action, body.breakpoints or None)
+    background_tasks.add_task(_step_wrapper, r.id, body.action, body.breakpoints)
     logger.info("runs.debug: dispatched step", run_id=r.id, action=body.action)
     return {"id": r.id, "status": r.status, "action": body.action}
 
@@ -1699,19 +1728,27 @@ async def rerun_run(
         user=user,
         workspace=workspace,
     )
-    enforce_action(
+    system = (
+        db.query(System)
+        .filter(
+            System.id == parent.system_id,
+            System.workspace_id == workspace.id,
+        )
+        .one_or_none()
+    )
+    if system is None:
+        raise HTTPException(409, detail={"code": "RERUN_SYSTEM_UNAVAILABLE"})
+    # Reuse the canonical System run boundary so the managed-Agentic admin
+    # floor, IAM decision and membrane authority cannot be bypassed through a
+    # historical Run URL.
+    from app.api.v1.endpoints.systems import _enforce_system_run_authority
+
+    _enforce_system_run_authority(
         db,
         user=user,
         workspace=workspace,
-        resource_kind="system",
-        action="engine.run",
-        legacy_allowed=True,
-        resource_attrs={
-            "system_id": parent.system_id,
-            "capability_id": parent.capability_id,
-            "run_id": parent.id,
-            "owner_user_id": parent.initiated_by_user_id,
-        },
+        system=system,
+        execution_source="run_rerun_api",
     )
 
     new_run = Run(
@@ -1720,12 +1757,17 @@ async def rerun_run(
         system_id=parent.system_id,
         capability_id=parent.capability_id,
         initiated_by_user_id=getattr(user, "id", None),
-        input_ref=parent.input_ref or {},
+        input_ref=copy.deepcopy(parent.input_ref or {}),
         status="pending",
         started_at=datetime.utcnow(),
         trigger="rerun",
         parent_run_id=parent.id,
-        flow_snapshot=parent.flow_snapshot,
+        flow_snapshot=copy.deepcopy(parent.flow_snapshot),
+        flow_version_id=parent.flow_version_id,
+        published_flow_version_id=parent.published_flow_version_id,
+        flow_sha256=parent.flow_sha256,
+        execution_contract=copy.deepcopy(parent.execution_contract),
+        execution_surface=parent.execution_surface,
     )
     db.add(new_run)
     db.commit()

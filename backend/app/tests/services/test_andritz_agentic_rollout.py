@@ -50,6 +50,32 @@ def _load_migration_059():
 MIGRATION_059 = _load_migration_059()
 
 
+def _load_migration_078():
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "alembic"
+        / "versions"
+        / "078_andritz_decision_contract.py"
+    )
+    saved = sys.modules.get("alembic")
+    stub = types.ModuleType("alembic")
+    stub.op = types.SimpleNamespace(get_bind=lambda: None)
+    sys.modules["alembic"] = stub
+    try:
+        spec = importlib.util.spec_from_file_location("rollout_migration_078", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        if saved is not None:
+            sys.modules["alembic"] = saved
+        else:
+            sys.modules.pop("alembic", None)
+    return module
+
+
+MIGRATION_078 = _load_migration_078()
+
+
 @pytest.fixture(autouse=True)
 def _enable_agentic_chat(monkeypatch):
     monkeypatch.setattr(rollout.app_settings, "enable_agentic_chat", True)
@@ -290,7 +316,9 @@ def test_rollout_updates_only_percentage_and_writes_atomic_audit(db_session):
     assert result.workspaces[0].audit_event_id == audit.id
 
 
-def test_rollout_accepts_the_marker_envelope_emitted_by_migration_059(db_session):
+def test_rollout_accepts_migration_059_marker_only_after_078_contract_handoff(
+    db_session,
+):
     workspace, system, policy = _seed_contract(db_session, percentage=0)
     marker = MIGRATION_059._new_marker(
         {"family": "andritz"},
@@ -311,6 +339,19 @@ def test_rollout_accepts_the_marker_envelope_emitted_by_migration_059(db_session
     settings[rollout.MIGRATION_MARKER_KEY] = marker
     _replace_settings(workspace, settings)
 
+    with pytest.raises(rollout.RolloutInvariantError, match="invalid migration 059 marker"):
+        rollout.set_andritz_agentic_rollout(
+            db_session,
+            percentage=5,
+            actor="operator@datategy.net",
+        )
+
+    settings = MIGRATION_078._update_rollout_marker(
+        deepcopy(workspace.settings),
+        expected_system_id=system.id,
+        flow_revision=MIGRATION_078.NEW_FLOW_REVISION,
+    )
+    _replace_settings(workspace, settings)
     result = rollout.set_andritz_agentic_rollout(
         db_session,
         percentage=5,

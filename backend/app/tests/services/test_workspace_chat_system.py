@@ -6,6 +6,8 @@ from app.api.v1.endpoints.chat import ChatRequest, _apply_workspace_chat_flow_de
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR
 from app.models.capability import Capability
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.chains.dag_validator import validate_flow
@@ -14,6 +16,10 @@ from app.services.skills_registry.wrappers import runtime_status
 from app.services.systems.bootstrap import (
     WORKSPACE_CHAT_CAPABILITY_SLUG,
     WORKSPACE_CHAT_VARIANT,
+    ensure_client360_pdr_system_default,
+    ensure_expert_capture_system_default,
+    ensure_fse_report_system,
+    ensure_intelligence_system_default,
     ensure_workspace_chat_system_default,
     resolve_workspace_chat_source_policy,
     sync_chat_system_expert_correction_policy,
@@ -85,6 +91,76 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
     )
     assert again.id == system.id
     assert count == 1
+
+
+def test_feature_on_workspace_chat_seed_initializes_publication_state(db_session):
+    workspace = Workspace(
+        id="ws-workspace-chat-publication",
+        name="Published chat workspace",
+        slug="published-chat-workspace",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+
+    assert system is not None
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    version = (
+        db_session.query(SystemVersion)
+        .filter_by(system_id=system.id, id=system.published_flow_version_id)
+        .one()
+    )
+    assert draft.base_published_version_id == version.id
+    assert draft.flow_sha256 == version.flow_sha256
+    assert version.execution_contract is not None
+    assert db_session.query(SystemVersion).filter_by(system_id=system.id).count() == 1
+
+
+def test_feature_on_bootstrap_factories_initialize_every_new_system(db_session):
+    workspace = Workspace(
+        id="ws-bootstrap-publication",
+        name="Published bootstrap workspace",
+        slug="published-bootstrap-workspace",
+        settings={
+            "family": "andritz",
+            "features": {"flow_publication_v1": True},
+        },
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    systems = [
+        ensure_workspace_chat_system_default(db_session, workspace.id),
+        ensure_client360_pdr_system_default(db_session, workspace.id),
+        ensure_intelligence_system_default(db_session, workspace.id),
+        ensure_expert_capture_system_default(db_session, workspace.id),
+        ensure_fse_report_system(db_session, workspace.id),
+    ]
+    initial_ids = [system.id for system in systems if system is not None]
+    reconciled = [
+        ensure_workspace_chat_system_default(db_session, workspace.id),
+        ensure_client360_pdr_system_default(db_session, workspace.id),
+        ensure_intelligence_system_default(db_session, workspace.id),
+        ensure_expert_capture_system_default(db_session, workspace.id),
+        ensure_fse_report_system(db_session, workspace.id),
+    ]
+
+    assert all(system is not None for system in systems)
+    assert len({system.id for system in systems if system is not None}) == len(systems)
+    assert [system.id for system in reconciled if system is not None] == initial_ids
+    for system in systems:
+        assert system is not None
+        draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+        published = (
+            db_session.query(SystemVersion)
+            .filter_by(system_id=system.id, id=system.published_flow_version_id)
+            .one()
+        )
+        assert draft.base_published_version_id == published.id
+        assert system.flow_definition == published.flow_definition
+        assert published.execution_contract is not None
 
 
 def test_workspace_chat_dedupe_retires_concurrent_duplicates(db_session):
@@ -242,6 +318,14 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     assert inventory_request.retrieval_profile == "deep_async"
 
     manifest = serialize_flow_manifest(db_session, system)
+    assert manifest["runtime_mode"] in {
+        "dag_strict",
+        "dag_overlay",
+        "sequential_legacy",
+    }
+    assert manifest["runtime_mode_reason"]
+    assert len(manifest["flow_sha256"]) == 64
+    assert manifest["runtime_surface"] == "chat_runtime"
     effective = manifest["effective_config"]
     assert (
         effective["retrieval_config"]["runtime_read_path"]

@@ -23,6 +23,7 @@ from app.services.chat_agentic_runtime import (
 )
 from app.services.chat_execution_policy import ChatExecutionDecision
 from app.services.run_engine.events import RunEventBus
+from app.services.systems import flow_ingress, flow_publication
 
 
 def _seed_agentic_system(db_session, *, retrieval_contract: dict[str, Any]) -> System:
@@ -195,7 +196,7 @@ def test_create_run_snapshots_retrieval_contract_independently(db_session) -> No
         db_session,
         decision=decision,
         workspace_id=system.workspace_id,
-        workspace_slug="andritz",
+        workspace_slug=db_session.get(Workspace, system.workspace_id).slug,
         user_id=None,
         session_id="session-1",
         query="Resume BCX200",
@@ -220,6 +221,133 @@ def test_create_run_snapshots_retrieval_contract_independently(db_session) -> No
 
     assert run.input_ref["retrieval_contract"] == original_contract
     assert run.input_ref["retrieval_contract"] is not system.settings["retrieval_contract"]
+    assert run.published_flow_version_id is None
+    assert run.execution_contract is None
+    assert run.execution_surface is None
+
+
+def test_feature_on_chat_run_freezes_published_ingress_evidence(db_session) -> None:
+    original_contract = {
+        "collection": "andritz-notices-techniques-spl-pilot",
+        "fallback": {"empty_bound_collection": "abstain"},
+    }
+    system = _seed_agentic_system(db_session, retrieval_contract=original_contract)
+    workspace = db_session.get(Workspace, system.workspace_id)
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "features": {
+            "flow_publication_v1": True,
+            "flow_v3_dag_authoritative": True,
+        },
+    }
+    system.flow_definition = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "variant": "chat_agentic_thinking_v1",
+        "nodes": [
+            {
+                "id": "source.request",
+                "type": "input",
+                "kind": "source",
+                "outputs": [
+                    {"name": "query", "schema": "string", "required": True},
+                    {"name": "conversation_history", "schema": "array"},
+                ],
+            },
+            {"id": "sink.answer", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "source.request", "to": "sink.answer", "kind": "data"}
+        ],
+    }
+    db_session.commit()
+    _draft, version = flow_publication.initialize_publication_state(
+        db_session,
+        system=system,
+        workspace=workspace,
+        actor="chat-boundary-test",
+    )
+    db_session.commit()
+    decision = ChatExecutionDecision(
+        route="agentic",
+        reason="test",
+        mode="agentic_default",
+        policy_version=7,
+        executor_system=system,
+        retrieval_contract=original_contract,
+    )
+
+    run = create_agentic_chat_run(
+        db_session,
+        decision=decision,
+        workspace_id=workspace.id,
+        workspace_slug=workspace.slug,
+        user_id=None,
+        session_id=None,
+        query="Resume BCX200",
+        conversation_history=[],
+        salient_entities={"project": "BCX200"},
+        request_context={},
+    )
+
+    assert run.published_flow_version_id == version.id
+    assert run.flow_version_id == version.id
+    assert run.flow_sha256 == version.flow_sha256
+    assert run.flow_snapshot == version.flow_definition
+    assert run.execution_contract == version.execution_contract
+    assert run.execution_surface == "published_chat"
+    assert run.input_ref["execution"]["execution_surface"] == "published_chat"
+    assert run.input_ref["execution"]["published_flow_version_id"] == version.id
+    assert run.input_ref["_ingress"] == {
+        "ingress_id": "source.request",
+        "source_node_id": "source.request",
+        "kind": "chat",
+        "adapter": {
+            "surface": "chat",
+            "adapter_version": 1,
+            "session_bound": False,
+            "policy_version": 7,
+            "policy_mode": "agentic_default",
+        },
+    }
+
+
+def test_feature_on_chat_never_falls_back_to_mutable_legacy_snapshot(db_session) -> None:
+    system = _seed_agentic_system(
+        db_session,
+        retrieval_contract={"collection": "andritz-notices-techniques-spl-pilot"},
+    )
+    workspace = db_session.get(Workspace, system.workspace_id)
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "features": {"flow_publication_v1": True},
+    }
+    db_session.commit()
+    decision = ChatExecutionDecision(
+        route="agentic",
+        reason="test",
+        mode="agentic_default",
+        policy_version=1,
+        executor_system=system,
+    )
+    before = db_session.query(Run).count()
+
+    with pytest.raises(flow_ingress.FlowIngressError) as exc_info:
+        create_agentic_chat_run(
+            db_session,
+            decision=decision,
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            user_id=None,
+            session_id=None,
+            query="Resume BCX200",
+            conversation_history=[],
+            salient_entities=None,
+            request_context={},
+        )
+
+    assert exc_info.value.code == "PUBLISHED_FLOW_VERSION_INVALID"
+    assert db_session.query(Run).count() == before
 
 
 def test_policy_terminal_outcome_neither_succeeds_nor_falls_back() -> None:

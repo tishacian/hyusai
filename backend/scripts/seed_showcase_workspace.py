@@ -77,6 +77,7 @@ from app.services.seed_catalog_safety import (
 )
 from app.services.skill_invocation_snapshot import capture_skill_execution_evidence
 from app.services.skills_registry import seed_skills_and_capabilities
+from app.services.systems import flow_publication
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
 SHOWCASE_SOURCE = "showcase_seed"
@@ -2371,6 +2372,12 @@ def flow_contract_risk_system360() -> dict[str, Any]:
                 ],
                 "outputs": [{"name": "id", "schema": "string"}],
             },
+            {
+                "id": "sink",
+                "kind": "sink",
+                "label": "Governed audit result",
+                "inputs": [{"name": "id", "schema": "string"}],
+            },
         ],
         "edges": [
             {
@@ -2388,6 +2395,13 @@ def flow_contract_risk_system360() -> dict[str, Any]:
                 "to_port": "answer",
             },
             {"from": "claim_audit", "to": "audit_log", "kind": "data", "to_port": "details"},
+            {
+                "from": "audit_log",
+                "to": "sink",
+                "kind": "data",
+                "from_port": "id",
+                "to_port": "id",
+            },
         ],
     }
 
@@ -2721,11 +2735,30 @@ def ensure_systems(
                 # Once staged, only the rollout/backfill may move the active
                 # flow between append-only versions.
                 payload["flow_definition"] = system.flow_definition
+            desired_flow = dict(payload["flow_definition"] or {})
             system_changed = False
             for key, value in payload.items():
+                if key == "flow_definition":
+                    continue
                 if getattr(system, key) != value:
                     setattr(system, key, value)
                     system_changed = True
+            flow_result = flow_publication.reconcile_system_flow(
+                db,
+                system=system,
+                workspace=workspace,
+                flow_definition=desired_flow,
+                actor="showcase-seed",
+                publish_if_owned=True,
+                ownership_prefix="showcase-seed",
+                message="Showcase seed Flow reconciliation",
+            )
+            if flow_result.status in {
+                "legacy_mirror_updated",
+                "draft_updated",
+                "published",
+            }:
+                system_changed = True
             if system_changed:
                 system.updated_at = datetime.utcnow()
         else:
@@ -2734,6 +2767,12 @@ def ensure_systems(
             )
             db.add(system)
             db.flush()
+            flow_publication.initialize_new_system_publication_if_enabled(
+                db,
+                system=system,
+                workspace=workspace,
+                actor="showcase-seed",
+            )
             configuration_before[system.id] = {}
             version_candidates[system.id] = system
         if spec["key"] == "contract":
@@ -3311,7 +3350,19 @@ def ensure_capture_system(
     }
     if system:
         for key, value in payload.items():
+            if key == "flow_definition":
+                continue
             setattr(system, key, value)
+        flow_publication.reconcile_system_flow(
+            db,
+            system=system,
+            workspace=workspace,
+            flow_definition={},
+            actor="showcase-seed",
+            publish_if_owned=True,
+            ownership_prefix="showcase-seed",
+            message="Showcase Capture seed Flow reconciliation",
+        )
         system.updated_at = datetime.utcnow()
     else:
         system = System(
@@ -3319,6 +3370,12 @@ def ensure_capture_system(
         )
         db.add(system)
         db.flush()
+        flow_publication.initialize_new_system_publication_if_enabled(
+            db,
+            system=system,
+            workspace=workspace,
+            actor="showcase-seed",
+        )
     ensure_system_version(db, workspace, system, {})
     return system
 

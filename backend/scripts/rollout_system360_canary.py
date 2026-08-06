@@ -63,6 +63,7 @@ from app.services.membrane.spec import (
     EnforcementMode,
     MembraneSpec,
 )
+from app.services.systems.flow_publication import flow_publication_enabled
 
 CANARY_MARKER = "v1"
 ROLLOUT_STATE_KEY = "_lot6_system360_rollout_v1"
@@ -79,6 +80,8 @@ REQUIRED_SKILLS = (
     "audit_log_v1",
 )
 REQUIRED_NODE_IDS = ("retrieve", "answer", "claim_audit", "audit_log")
+OUTPUT_SINK_NODE_ID = "sink"
+CANONICAL_NODE_IDS = (*REQUIRED_NODE_IDS, OUTPUT_SINK_NODE_ID)
 PHASES = (
     "prepared",
     "flow_active",
@@ -200,16 +203,21 @@ def canonical_strict_flow() -> dict[str, Any]:
     flow = copy.deepcopy(flow_contract_risk_system360())
     nodes = flow.get("nodes") if isinstance(flow, dict) else None
     skills = tuple(
-        str(_record(_record(node).get("config")).get("skill_slug") or "")
+        skill_slug
         for node in (nodes or [])
+        if (
+            skill_slug := str(
+                _record(_record(node).get("config")).get("skill_slug") or ""
+            )
+        )
     )
     node_ids = tuple(str(_record(node).get("id") or "") for node in (nodes or []))
     if (
         flow.get("schema_version") != 3
         or flow.get("io_mode") != "strict"
         or skills != REQUIRED_SKILLS
-        or node_ids != REQUIRED_NODE_IDS
-        or len(flow.get("edges") or []) != 3
+        or node_ids != CANONICAL_NODE_IDS
+        or len(flow.get("edges") or []) != 4
     ):
         raise RolloutError("canonical System 360 flow contract drifted")
     return flow
@@ -305,6 +313,10 @@ def discover_target(
     """Discover the runtime canary exclusively through its experience marker."""
 
     workspace = _discover_showcase_workspace(db, lock=lock)
+    if lock and flow_publication_enabled(workspace):
+        raise RolloutError(
+            "Lot 6 legacy rollout writes are disabled while flow_publication_v1 is active"
+        )
     marked = _marked_systems(db, workspace, lock=lock)
     if len(marked) != 1:
         raise RolloutError(
@@ -327,6 +339,10 @@ def _discover_bootstrap_candidate(
     """Find the one pre-marker canary candidate from non-business metadata."""
 
     workspace = _discover_showcase_workspace(db, lock=lock)
+    if lock and flow_publication_enabled(workspace):
+        raise RolloutError(
+            "Lot 6 legacy rollout writes are disabled while flow_publication_v1 is active"
+        )
     query = db.query(System).filter(
         System.workspace_id == workspace.id,
         System.status == "active",

@@ -25,6 +25,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.systems import flow_publication
 
 STOCKOUT_SQL = """SELECT PART_ID, EQUIPMENT_ID, DESCRIPTION, QTY_ON_HAND, QTY_MIN, LEAD_TIME_DAYS
 FROM DEMO_SPARE_PARTS
@@ -131,6 +132,12 @@ def main() -> int:
             retrieval_mode_default=demo.retrieval_mode_default,
         )
         db.add(temp)
+        flow_publication.initialize_new_system_publication_if_enabled(
+            db,
+            system=temp,
+            workspace=ws,
+            actor="validation",
+        )
         db.commit()
         temp_system_id = temp.id
 

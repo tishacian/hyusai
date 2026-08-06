@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from app.services.flow_skill_binding import FlowSkillBindingError
 from app.services.run_engine.dag import DagGraph, should_use_dag
+from app.services.run_engine.execution_contract import (
+    canonical_flow_sha256,
+    resolve_flow_execution,
+    resolve_run_flow_execution,
+)
 
 
 def _system(flow: dict) -> SimpleNamespace:
@@ -43,6 +51,58 @@ def test_should_use_dag_accepts_v2_with_decision_node() -> None:
         "edges": [],
     }
     assert should_use_dag(_system(flow)) is True
+
+
+def test_runtime_resolver_names_strict_overlay_and_legacy_truthfully() -> None:
+    strict_workspace = SimpleNamespace(
+        settings={"features": {"flow_v3_dag_authoritative": True}}
+    )
+    strict = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [{"id": "work", "kind": "task"}],
+        "edges": [],
+    }
+    overlay = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [{"id": "route", "kind": "decision"}],
+        "edges": [],
+    }
+
+    assert resolve_flow_execution(strict, strict_workspace).runtime_mode == "dag_strict"
+    assert resolve_flow_execution(overlay).runtime_mode == "dag_overlay"
+    assert resolve_flow_execution(strict).runtime_mode == "sequential_legacy"
+    assert canonical_flow_sha256({"b": 1, "a": 2}) == canonical_flow_sha256(
+        {"a": 2, "b": 1}
+    )
+
+
+def test_run_runtime_uses_even_an_empty_frozen_snapshot_and_pinned_mode() -> None:
+    mutable_system = _system(
+        {
+            "schema_version": 3,
+            "io_mode": "strict",
+            "nodes": [{"id": "route", "kind": "decision"}],
+        }
+    )
+    empty_snapshot = SimpleNamespace(flow_snapshot={}, input_ref={})
+    assert (
+        resolve_run_flow_execution(empty_snapshot, mutable_system).runtime_mode
+        == "sequential_legacy"
+    )
+
+    pinned = SimpleNamespace(
+        flow_snapshot=mutable_system.flow_definition,
+        input_ref={"execution": {"runtime_mode": "dag_overlay"}},
+    )
+    strict_workspace = SimpleNamespace(
+        settings={"features": {"flow_v3_dag_authoritative": True}}
+    )
+    assert (
+        resolve_run_flow_execution(pinned, mutable_system, strict_workspace).runtime_mode
+        == "dag_overlay"
+    )
 
 
 def test_graph_parsing_preserves_ports_and_branch_labels() -> None:
@@ -107,3 +167,42 @@ def test_graph_pulls_skill_slug_from_data_fallback() -> None:
     }
     g = DagGraph.from_flow_definition(flow)
     assert g.nodes["t"].skill_slug == "eval_radar_v1"
+
+
+def test_graph_rejects_skill_id_without_dispatch_slug() -> None:
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {
+                "id": "t",
+                "kind": "task",
+                "config": {"skill_id": "skill-id-only"},
+            }
+        ],
+        "edges": [],
+    }
+
+    with pytest.raises(FlowSkillBindingError) as exc_info:
+        DagGraph.from_flow_definition(flow)
+
+    assert exc_info.value.code == "skill_slug_required"
+
+
+def test_graph_rejects_conflicting_skill_slug_locations() -> None:
+    flow = {
+        "schema_version": 2,
+        "nodes": [
+            {
+                "id": "t",
+                "kind": "task",
+                "config": {"skill_slug": "first"},
+                "data": {"skill_slug": "second"},
+            }
+        ],
+        "edges": [],
+    }
+
+    with pytest.raises(FlowSkillBindingError) as exc_info:
+        DagGraph.from_flow_definition(flow)
+
+    assert exc_info.value.code == "skill_binding_conflict"

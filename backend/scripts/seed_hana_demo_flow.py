@@ -51,6 +51,7 @@ from app.services.seed_catalog_safety import (
     require_showcase_workspace_for_seed,
 )
 from app.services.skills_registry import seed_skills_and_capabilities
+from app.services.systems import flow_publication
 
 DEFAULT_WORKSPACE_SLUG = "agentium-showcase"
 DEFAULT_HOST = "535f81d3-5d3d-4313-92c6-187da6dd50a6" ".hna1.prod-us10.hanacloud.ondemand.com"
@@ -320,7 +321,19 @@ def ensure_hana_system(db: DBSession, workspace: Workspace, capability: Capabili
     )
     if system:
         for key, value in payload.items():
+            if key == "flow_definition":
+                continue
             setattr(system, key, value)
+        flow_publication.reconcile_system_flow(
+            db,
+            system=system,
+            workspace=workspace,
+            flow_definition=flow,
+            actor="showcase-seed",
+            publish_if_owned=True,
+            ownership_prefix="showcase-seed",
+            message="HANA demo seed Flow reconciliation",
+        )
         system.updated_at = datetime.utcnow()
     else:
         system = System(
@@ -331,30 +344,37 @@ def ensure_hana_system(db: DBSession, workspace: Workspace, capability: Capabili
         )
         db.add(system)
         db.flush()
+        flow_publication.initialize_new_system_publication_if_enabled(
+            db,
+            system=system,
+            workspace=workspace,
+            actor="showcase-seed",
+        )
 
-    existing = (
-        db.query(SystemVersion)
-        .filter(
-            SystemVersion.system_id == system.id,
-            SystemVersion.version_number == 1,
-        )
-        .first()
-    )
-    if existing:
-        existing.flow_definition = flow
-        existing.message = "HANA demo flow baseline"
-    else:
-        db.add(
-            SystemVersion(
-                id=str(uuid4()),
-                workspace_id=workspace.id,
-                system_id=system.id,
-                version_number=1,
-                flow_definition=flow,
-                message="HANA demo flow baseline",
-                created_by="showcase-seed",
+    if not flow_publication.flow_publication_enabled(workspace):
+        existing = (
+            db.query(SystemVersion)
+            .filter(
+                SystemVersion.system_id == system.id,
+                SystemVersion.version_number == 1,
             )
+            .first()
         )
+        if existing:
+            existing.flow_definition = flow
+            existing.message = "HANA demo flow baseline"
+        else:
+            db.add(
+                SystemVersion(
+                    id=str(uuid4()),
+                    workspace_id=workspace.id,
+                    system_id=system.id,
+                    version_number=1,
+                    flow_definition=flow,
+                    message="HANA demo flow baseline",
+                    created_by="showcase-seed",
+                )
+            )
     db.commit()
     db.refresh(system)
     return system

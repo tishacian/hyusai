@@ -13,6 +13,8 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.rag_preset import RagPreset
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -60,6 +62,42 @@ from app.services.workspace_maps import (
     ensure_workspace_map_seed,
     handle_map_chat_query,
 )
+
+
+def test_feature_on_mission_room_seed_initializes_every_created_system(db_session):
+    workspace = Workspace(
+        id="ws-sentinel-publication",
+        name="Published SENTINEL-CI",
+        slug=SENTINEL_WORKSPACE_SLUG,
+        mode="demo",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    ensure_sentinel_ci_workspace(db_session)
+    ensure_sentinel_ci_workspace(db_session)
+
+    systems = db_session.query(System).filter_by(workspace_id=workspace.id).all()
+    assert len(systems) >= 15
+    assert (
+        db_session.query(SystemFlowDraft).filter_by(workspace_id=workspace.id).count()
+        == len(systems)
+    )
+    for system in systems:
+        assert system.published_flow_version_id is not None
+        published = (
+            db_session.query(SystemVersion)
+            .filter_by(
+                workspace_id=workspace.id,
+                system_id=system.id,
+                id=system.published_flow_version_id,
+            )
+            .one()
+        )
+        assert system.flow_definition == published.flow_definition
+        assert published.execution_contract is not None
 
 
 def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):

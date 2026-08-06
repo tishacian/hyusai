@@ -65,6 +65,7 @@ from app.services.system_catalog_bindings import (
     resolve_persisted_system_authoring_bindings,
     resolve_system_catalog_bindings,
 )
+from app.services.systems import flow_publication
 from app.services.workspace_app_lifecycle import (
     WorkspaceAppLifecycleConflict,
     WorkspaceAppLifecycleError,
@@ -4227,13 +4228,27 @@ def _apply_systems(
             kind="system",
             stable_key=stable_key,
         )
-        version_service.record_new_version(
-            db=db,
-            system=system,
-            flow_definition=flow,
-            created_by=actor_name,
-            message="Imported from workspace blueprint",
-        )
+        try:
+            publication_state = (
+                flow_publication.initialize_new_system_publication_if_enabled(
+                    db,
+                    system=system,
+                    workspace=workspace,
+                    actor=actor_name,
+                )
+            )
+        except flow_publication.FlowPublicationError as exc:
+            raise WorkspaceBlueprintConflictError(
+                f"System {name!r} publication initialization failed ({exc.code})."
+            ) from exc
+        if publication_state is None:
+            version_service.record_new_version(
+                db=db,
+                system=system,
+                flow_definition=flow,
+                created_by=actor_name,
+                message="Imported from workspace blueprint",
+            )
         _add_identity_mapping(
             out,
             stable_key=stable_key,

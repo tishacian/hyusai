@@ -17,6 +17,7 @@ from app.services.membrane.enforcement import (
     ProvenanceArtifact,
     collect_valve_usage,
 )
+from app.services.projection_integrity import canonical_run_provenance
 from app.services.run_engine import dag as dag_module
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag, resume_run_dag
@@ -227,7 +228,25 @@ async def test_citations_from_typed_pool_are_persisted_as_provenance(
 
     _install_skill(monkeypatch, "answer_v1", answer)
     monkeypatch.setattr(dag_module, "persist_provenance_artifact", _fake_artifact)
-    _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=_spec())
+    system, run = _create_contract(db_session, slug="answer_v1", membrane_spec=_spec())
+    closed_schema = {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string"},
+            "confidence": {"type": "number"},
+            "citations": {"type": "array"},
+            "usage": {"type": "object"},
+        },
+        "required": ["answer", "confidence", "citations", "usage"],
+        "additionalProperties": False,
+    }
+    run.flow_snapshot = system.flow_definition
+    run.execution_contract = {
+        "validation_mode": "enforce",
+        "nodes": {"work": {"output_schema": closed_schema}},
+        "outputs": [{"node_id": "sink", "schema": closed_schema}],
+    }
+    db_session.commit()
 
     summary = await execute_run_dag(run.id)
     assert summary["status"] == "completed"
@@ -235,7 +254,7 @@ async def test_citations_from_typed_pool_are_persisted_as_provenance(
     db_session.expire_all()
     stored = db_session.query(Run).filter(Run.id == run.id).one()
     assert stored.output_ref["answer"] == "risk found"
-    assert stored.output_ref["_membrane_provenance"]["sha256"] == "a" * 64
+    assert "_membrane_provenance" not in stored.output_ref
     invocation = (
         db_session.query(SkillInvocation)
         .filter(SkillInvocation.run_id == run.id)
@@ -243,6 +262,12 @@ async def test_citations_from_typed_pool_are_persisted_as_provenance(
     )
     assert invocation.metrics["total_tokens"] == 21
     assert invocation.trace["membrane_provenance"]["uri"].startswith("object://")
+    provenance = canonical_run_provenance(stored, [invocation])
+    assert provenance[0]["sha256"] == "a" * 64
+    assert provenance[0]["evidence_sources"] == [
+        "runs.checkpoints[kind=membrane_provenance]",
+        "skill_invocations.trace.membrane_provenance",
+    ]
 
 
 async def test_low_confidence_egress_holds_without_publishing_then_resumes_once(
@@ -490,6 +515,59 @@ async def test_disallowed_model_blocks_before_first_invocation(
     _install_skill(monkeypatch, "answer_v1", answer)
     _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=spec)
     summary = await execute_run_dag(run.id)
+    assert summary["status"] == "failed"
+    assert summary["error"] == "membrane_capability_block:system.engine.run"
+    assert (
+        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count()
+        == 0
+    )
+
+
+async def test_debug_resume_rechecks_revoked_membrane_capability(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def answer(_payload, _ctx):
+        raise AssertionError("a revoked debug resume must not invoke the Skill")
+
+    allowed = _spec(
+        capabilities={
+            "allowed_skills": ["answer_v1"],
+            "allowed_models": ["gpt-test"],
+            "allowed_actions": ["system.engine.run"],
+        }
+    )
+    _install_skill(monkeypatch, "answer_v1", answer)
+    system, run = _create_contract(
+        db_session,
+        slug="answer_v1",
+        membrane_spec=allowed,
+    )
+    run.status = "debug_pending"
+    run.flow_snapshot = system.flow_definition
+    run.checkpoints = [
+        {
+            "kind": "debug_pause",
+            "node_id": "source",
+            "state": {
+                "pending_counts": {"source": 0, "work": 1, "sink": 1},
+            },
+        }
+    ]
+    policy = db_session.get(ControlPolicy, system.control_policy_id)
+    policy.extra = {
+        "membrane_spec": _spec(
+            capabilities={
+                "allowed_skills": ["answer_v1"],
+                "allowed_models": ["gpt-revoked"],
+                "allowed_actions": ["system.engine.run"],
+            }
+        )
+    }
+    db_session.commit()
+
+    summary = await dag_module.resume_run_dag_debug(run.id, action="continue")
+
     assert summary["status"] == "failed"
     assert summary["error"] == "membrane_capability_block:system.engine.run"
     assert (

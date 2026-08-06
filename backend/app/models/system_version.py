@@ -56,6 +56,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -90,6 +91,12 @@ class SystemVersion(Base):
     # transition. Validation lives in ``chains.version_service``; nullable is
     # intentional for backward compatibility with all pre-065 rows.
     configuration_snapshot = Column(JSON, nullable=True)
+    # Publication metadata is nullable for all pre-077 immutable rows. Runtime
+    # treats NULL release_kind as ``legacy_snapshot`` without rewriting them.
+    flow_sha256 = Column(String(64), nullable=True, index=True)
+    release_kind = Column(String(32), nullable=True)
+    draft_revision = Column(Integer, nullable=True)
+    execution_contract = Column(JSON, nullable=True)
     # Free-form changelog-style note ("rollback to v34", "add retry on
     # LLM node"). Optional — empty when auto-saved by the editor.
     message = Column(Text, nullable=True)
@@ -109,5 +116,14 @@ class SystemVersion(Base):
             "system_id",
             "version_number",
             name="uq_system_versions_system_version_number",
+        ),
+        CheckConstraint(
+            "release_kind IS NULL OR release_kind IN "
+            "('legacy_snapshot', 'publish', 'rollback', 'migration')",
+            name="ck_system_versions_release_kind",
+        ),
+        CheckConstraint(
+            "draft_revision IS NULL OR draft_revision >= 1",
+            name="ck_system_versions_draft_revision_positive",
         ),
     )

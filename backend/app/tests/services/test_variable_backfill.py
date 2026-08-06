@@ -1,4 +1,20 @@
+import pytest
+
+from app.models.workspace import Workspace
 from app.services.chains.variable_backfill import plan_variable_backfill
+from scripts import backfill_flow_v3_variables as backfill_script
+
+
+def test_legacy_variable_backfill_is_blocked_by_flow_publication() -> None:
+    workspace = Workspace(
+        id="ws-variable-backfill-publication",
+        name="Variable backfill publication",
+        slug="variable-backfill-publication",
+        settings={"features": {"flow_publication_v1": True}},
+    )
+
+    with pytest.raises(RuntimeError, match="backfill is disabled"):
+        backfill_script.require_legacy_flow_authority(workspace)
 
 
 def _flow(selector, *, io_mode="overlay"):

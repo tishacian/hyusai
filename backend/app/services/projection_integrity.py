@@ -179,47 +179,58 @@ def canonical_run_provenance(
     """Return a provenance reference only when typed runtime markers agree.
 
     A URI/checksum-shaped mapping inside normal output is not evidence.  The
-    DAG producer records canonical provenance in three independent typed
-    locations: the reserved terminal-output field, a SkillInvocation trace,
-    and a ``membrane_provenance`` checkpoint.  Projection accepts the reference
-    only when all three contain the same well-formed pair.  This verifies the
-    ledger markers, not the object bytes themselves.
+    DAG producer records canonical provenance in a SkillInvocation trace and a
+    ``membrane_provenance`` checkpoint. Historical Runs may additionally carry
+    a reserved terminal-output field; when present it must agree. This verifies
+    typed ledger markers without mutating schema-bound business output.
     """
 
     output = run.output_ref if isinstance(run.output_ref, Mapping) else {}
     output_evidence = output.get("_membrane_provenance")
     output_pair = _canonical_provenance_pair(output_evidence)
-    if output_pair is None:
-        return []
 
-    checkpoint_pairs = {
-        pair
+    checkpoint_evidence = {
+        pair: checkpoint
         for checkpoint in (run.checkpoints or [])
         if isinstance(checkpoint, Mapping)
         and checkpoint.get("kind") == "membrane_provenance"
         and (pair := _canonical_provenance_pair(checkpoint)) is not None
     }
-    trace_pairs = {
-        pair
+    trace_evidence = {
+        pair: invocation.trace.get("membrane_provenance")
         for invocation in invocations
         if invocation.run_id == run.id
         and isinstance(invocation.trace, Mapping)
         and (pair := _canonical_provenance_pair(invocation.trace.get("membrane_provenance")))
         is not None
     }
-    if output_pair not in checkpoint_pairs or output_pair not in trace_pairs:
+    matching_pairs = set(checkpoint_evidence) & set(trace_evidence)
+    if len(matching_pairs) != 1:
+        return []
+    canonical_pair = next(iter(matching_pairs))
+    # Historical Runs may also carry the reserved output marker.  When it is
+    # present it remains an additional integrity vote and must agree; new
+    # schema-bound Runs intentionally keep provenance outside business output.
+    if output_evidence is not None and output_pair != canonical_pair:
         return []
 
-    evidence = output_evidence if isinstance(output_evidence, Mapping) else {}
+    trace_payload = trace_evidence[canonical_pair]
+    evidence = (
+        output_evidence
+        if isinstance(output_evidence, Mapping)
+        else trace_payload if isinstance(trace_payload, Mapping) else {}
+    )
+    evidence_sources = [
+        "runs.checkpoints[kind=membrane_provenance]",
+        "skill_invocations.trace.membrane_provenance",
+    ]
+    if output_pair == canonical_pair:
+        evidence_sources.insert(0, "runs.output_ref._membrane_provenance")
     row: dict[str, Any] = {
-        "uri": output_pair[0],
-        "sha256": output_pair[1],
+        "uri": canonical_pair[0],
+        "sha256": canonical_pair[1],
         "verification": "runtime_markers_agree",
-        "evidence_sources": [
-            "runs.output_ref._membrane_provenance",
-            "runs.checkpoints[kind=membrane_provenance]",
-            "skill_invocations.trace.membrane_provenance",
-        ],
+        "evidence_sources": evidence_sources,
     }
     size_bytes = evidence.get("size_bytes")
     if isinstance(size_bytes, int) and not isinstance(size_bytes, bool) and size_bytes >= 0:
