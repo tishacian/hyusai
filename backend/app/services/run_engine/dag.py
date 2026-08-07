@@ -83,6 +83,7 @@ from .engine import (
 )
 from .events import bus as event_bus
 from .execution_contract import (
+    NON_PUBLISHED_EXECUTION_SURFACES,
     resolve_flow_execution,
     resolve_run_flow_execution,
     workspace_strict_dag_enabled,
@@ -215,6 +216,7 @@ def should_use_dag(system: System, workspace: Optional[Workspace] = None) -> boo
 @dataclass
 class DagNode:
     id: str
+    type: str
     kind: str
     label: Optional[str]
     config: Dict[str, Any]
@@ -259,6 +261,7 @@ class DagGraph:
             skill_slug = resolve_flow_skill_binding(n).skill_slug
             nodes[nid] = DagNode(
                 id=nid,
+                type=str(n.get("type") or ""),
                 kind=str(kind),
                 label=(n.get("label") or data.get("title") or None),
                 config=dict(config) if isinstance(config, dict) else {},
@@ -498,13 +501,15 @@ def _contract_ingress_selection(
     if execution_ingress_id != ingress_id:
         raise ContractIngressSelectionError("contract_ingress_identity_mismatch")
     expected_surface = (
-        "draft_test" if run.execution_surface == "draft_test" else f"published_{kind}"
+        run.execution_surface
+        if run.execution_surface in NON_PUBLISHED_EXECUTION_SURFACES
+        else f"published_{kind}"
     )
     if run.execution_surface != expected_surface:
         raise ContractIngressSelectionError("contract_ingress_surface_mismatch")
     if execution.get("execution_surface") != run.execution_surface:
         raise ContractIngressSelectionError("contract_ingress_execution_surface_mismatch")
-    if run.execution_surface != "draft_test" and (
+    if run.execution_surface not in NON_PUBLISHED_EXECUTION_SURFACES and (
         execution.get("published_flow_version_id") != run.published_flow_version_id
     ):
         raise ContractIngressSelectionError("contract_ingress_version_mismatch")
@@ -1852,6 +1857,91 @@ def _effective_inputs_map(node: DagNode, graph: DagGraph) -> Optional[Dict[str, 
     return filtered or None
 
 
+def _apply_retrieval_node_scope(node: DagNode, node_input: Dict[str, Any]) -> None:
+    """Project a Builder-authored Retrieval scope into canonical RAG input.
+
+    Graph configuration is authoritative: caller input and upstream nodes cannot
+    widen the selected collections or documents. ``dag_validator`` rejects the
+    same malformed shapes during authoring; these checks keep historical or
+    directly-created Runs fail-closed at the execution boundary.
+    """
+
+    config = node.config if isinstance(node.config, dict) else {}
+    raw_collections = config.get("collection_slugs")
+    raw_documents = config.get("document_refs")
+    if raw_collections is None and raw_documents is None:
+        # This marker is graph-owned. An ingress/upstream payload cannot arm it.
+        node_input.pop("authoritative_document_scope", None)
+        return
+    identity = f"{node.type or ''} {node.skill_slug or ''}".lower()
+    declared_category = str(config.get("skill_category") or "").strip().lower()
+    if declared_category != "retrieval" and not any(
+        token in identity
+        for token in ("retriev", "semantic_search", "rag_search", "vector_search", "lookup")
+    ):
+        raise ValueError("retrieval_scope_node_invalid")
+    if (
+        not isinstance(raw_collections, list)
+        or len(raw_collections) > 32
+        or any(
+            not isinstance(item, str) or not item.strip() or item != item.strip()
+            for item in raw_collections
+        )
+        or len(set(raw_collections)) != len(raw_collections)
+    ):
+        raise ValueError("retrieval_collections_invalid")
+    if not isinstance(raw_documents, list) or len(raw_documents) > 1000:
+        raise ValueError("retrieval_documents_invalid")
+
+    allowed = set(raw_collections)
+    document_ids: list[str] = []
+    document_refs_by_collection: dict[str, list[str]] = {}
+    seen_refs: set[tuple[str, str]] = set()
+    for raw in raw_documents:
+        if not isinstance(raw, dict):
+            raise ValueError("retrieval_documents_invalid")
+        collection = raw.get("collection_slug")
+        document_id = raw.get("document_id")
+        if (
+            not isinstance(collection, str)
+            or collection not in allowed
+            or not isinstance(document_id, str)
+            or not document_id.strip()
+            or document_id != document_id.strip()
+            or (collection, document_id) in seen_refs
+        ):
+            raise ValueError("retrieval_documents_invalid")
+        seen_refs.add((collection, document_id))
+        document_refs_by_collection.setdefault(collection, []).append(document_id)
+        if document_id not in document_ids:
+            document_ids.append(document_id)
+
+    if raw_collections:
+        node_input["authoritative_collections"] = list(raw_collections)
+    else:
+        node_input.pop("authoritative_collections", None)
+    filters = (
+        dict(node_input.get("retrieval_filters"))
+        if isinstance(node_input.get("retrieval_filters"), dict)
+        else {}
+    )
+    if document_ids:
+        filters["document_id"] = document_ids
+        node_input["authoritative_document_scope"] = True
+        # Keep the pair relationship intact. A flat document-id union applied
+        # to every collection creates a cartesian scope and can admit an
+        # identically-named document from a collection where it was not chosen.
+        node_input["authoritative_document_refs"] = document_refs_by_collection
+    else:
+        filters.pop("document_id", None)
+        node_input.pop("authoritative_document_scope", None)
+        node_input.pop("authoritative_document_refs", None)
+    if filters:
+        node_input["retrieval_filters"] = filters
+    else:
+        node_input.pop("retrieval_filters", None)
+
+
 # ---------------------------------------------------------------------------
 # Per-node dispatcher
 # ---------------------------------------------------------------------------
@@ -2003,6 +2093,20 @@ async def _execute_node(
                 config_params
             ).items():
                 node_input.setdefault(param_key, param_value)
+
+    try:
+        _apply_retrieval_node_scope(node, node_input)
+    except ValueError as exc:
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "retrieval_scope_error",
+                "node_id": node.id,
+                "reason": str(exc),
+            },
+        )
+        return {"output": {}, "terminal_error": str(exc)}
 
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}

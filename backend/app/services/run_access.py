@@ -25,8 +25,20 @@ from app.services.iam.decision_plane import (
     emit_shadow_diff_summary,
     resolve_action,
 )
+from app.services.run_engine.execution_contract import WORKBENCH_EXECUTION_SURFACES
 
 PRIVATE_CHAT_TRIGGER = "chat_agentic"
+
+
+def is_workbench_run(run: Run) -> bool:
+    """Recognise durable authoring executions, including older trigger-only rows."""
+
+    execution_surface = str(run.execution_surface or "").strip().lower()
+    trigger = str(run.trigger or "").strip().lower()
+    return (
+        execution_surface in WORKBENCH_EXECUTION_SURFACES
+        or trigger in WORKBENCH_EXECUTION_SURFACES
+    )
 
 
 def has_private_chat_admin_access(
@@ -153,6 +165,14 @@ def run_is_visible(
         allow_managed_hitl_for_resolution and run.status == "hitl_pending"
     )
     if requires_admin and not resolution_may_authorize:
+        return has_private_chat_admin_access(
+            db,
+            user=user,
+            workspace=workspace,
+        )
+    if is_workbench_run(run):
+        if run.initiated_by_user_id == user.id:
+            return True
         return has_private_chat_admin_access(
             db,
             user=user,

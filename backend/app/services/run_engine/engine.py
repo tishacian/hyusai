@@ -69,6 +69,7 @@ from app.services.system_catalog_bindings import (
 
 from .events import bus as event_bus
 from .execution_contract import (
+    WORKBENCH_EXECUTION_SURFACES,
     canonical_flow_sha256,
     execution_runtime_mode,
     resolve_flow_execution,
@@ -847,14 +848,21 @@ def _snapshot_run_flow(
     execution.setdefault("system_id", system.id)
     input_ref["execution"] = execution
     run.input_ref = input_ref
-    _bind_run_flow_version(
-        db,
-        run,
-        system,
-        workspace_id=canonical_workspace_id,
-        snapshot_at=snapshot_at,
-        initial_binding=bool(first_start),
-    )
+    if run.execution_surface in WORKBENCH_EXECUTION_SURFACES:
+        # A Builder workbench Run is durable execution evidence for an
+        # ephemeral graph, never evidence that this graph was versioned or
+        # published. Keep the linkage empty even if identical JSON happens to
+        # exist in historical SystemVersion rows.
+        run.flow_version_id = None
+    else:
+        _bind_run_flow_version(
+            db,
+            run,
+            system,
+            workspace_id=canonical_workspace_id,
+            snapshot_at=snapshot_at,
+            initial_binding=bool(first_start),
+        )
 
 
 async def _execute_task_node(

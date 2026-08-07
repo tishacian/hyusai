@@ -1,10 +1,26 @@
 """Chroma vector database implementation"""
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import numpy as np
-from app.services.vector_db.base import VectorDBBase
+
 from app.core.logging import get_logger
+from app.services.vector_db.base import VectorDBBase
 
 logger = get_logger(__name__)
+
+
+def _filters_to_chroma_where(filters: dict | None) -> dict | None:
+    clauses: list[dict] = []
+    for key, expected in (filters or {}).items():
+        if isinstance(expected, list | tuple | set):
+            clauses.append({key: {"$in": list(expected)}})
+        else:
+            clauses.append({key: expected})
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
 
 
 class ChromaVectorDB(VectorDBBase):
@@ -114,6 +130,11 @@ class ChromaVectorDB(VectorDBBase):
         # ChromaDB requires at least 1 result
         if top_k <= 0:
             return []
+        if filters and any(
+            isinstance(expected, list | tuple | set) and not expected
+            for expected in filters.values()
+        ):
+            return []
         
         loop = asyncio.get_event_loop()
         
@@ -121,9 +142,7 @@ class ChromaVectorDB(VectorDBBase):
             query_list = query_vector.tolist()
             
             # Convert filters to Chroma format
-            where = None
-            if filters:
-                where = filters
+            where = _filters_to_chroma_where(filters)
             
             results = self.collection.query(
                 query_embeddings=[query_list],
@@ -292,4 +311,3 @@ class ChromaVectorDB(VectorDBBase):
         
         await loop.run_in_executor(None, _clear)
         logger.info(f"Cleared all vectors from collection {self.collection_name}")
-

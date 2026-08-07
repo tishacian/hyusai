@@ -261,6 +261,9 @@ async def test_falsy_scalar_output_survives_runtime_persistence_and_runner_proje
     [
         ("published_manual", "manual.input", "manual", "manual"),
         ("draft_test", "http.input", "http", "http"),
+        ("builder_preview", "manual.input", "manual", "manual"),
+        ("node_preview", "http.input", "http", "http"),
+        ("golden_preview", "manual.input", "manual", "manual"),
     ],
 )
 async def test_normalized_ingress_executes_only_its_frozen_source_branch(
@@ -364,6 +367,9 @@ async def test_normalized_ingress_executes_only_its_frozen_source_branch(
     db_session.expire_all()
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
     assert persisted.output_ref == {"adapter": expected_call}
+    if execution_surface.endswith("_preview"):
+        assert persisted.flow_version_id is None
+        assert persisted.published_flow_version_id is None
     start = next(
         checkpoint
         for checkpoint in persisted.checkpoints

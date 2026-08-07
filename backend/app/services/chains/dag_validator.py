@@ -886,6 +886,88 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                         node_id=nid,
                     )
                 )
+            collection_scope = cfg.get("collection_slugs")
+            document_scope = cfg.get("document_refs")
+            if collection_scope is not None or document_scope is not None:
+                identity = f"{node.get('type') or ''} {cfg.get('skill_slug') or ''}".lower()
+                declared_category = str(cfg.get("skill_category") or "").strip().lower()
+                if declared_category != "retrieval" and not any(
+                    token in identity
+                    for token in (
+                        "retriev",
+                        "semantic_search",
+                        "rag_search",
+                        "vector_search",
+                        "lookup",
+                    )
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="retrieval_scope_node_invalid",
+                            message="Only a Retrieval task can declare collection_slugs or document_refs.",
+                            node_id=nid,
+                        )
+                    )
+                collections_valid = (
+                    isinstance(collection_scope, list)
+                    and len(collection_scope) <= 32
+                    and all(
+                        isinstance(item, str)
+                        and bool(item.strip())
+                        and item == item.strip()
+                        for item in collection_scope
+                    )
+                    and len(set(collection_scope)) == len(collection_scope)
+                )
+                if not collections_valid:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="retrieval_collections_invalid",
+                            message=(
+                                "Retrieval collection_slugs must be a deduplicated array of "
+                                "at most 32 non-empty, trimmed strings."
+                            ),
+                            node_id=nid,
+                        )
+                    )
+                documents_valid = isinstance(document_scope, list) and len(document_scope) <= 1000
+                if documents_valid:
+                    seen_document_refs: set[tuple[str, str]] = set()
+                    allowed_collections = set(collection_scope) if collections_valid else set()
+                    for item in document_scope:
+                        if not isinstance(item, Mapping):
+                            documents_valid = False
+                            break
+                        collection_slug = item.get("collection_slug")
+                        document_id = item.get("document_id")
+                        ref = (collection_slug, document_id)
+                        if (
+                            not isinstance(collection_slug, str)
+                            or not collection_slug.strip()
+                            or collection_slug != collection_slug.strip()
+                            or collection_slug not in allowed_collections
+                            or not isinstance(document_id, str)
+                            or not document_id.strip()
+                            or document_id != document_id.strip()
+                            or ref in seen_document_refs
+                        ):
+                            documents_valid = False
+                            break
+                        seen_document_refs.add(ref)
+                if not documents_valid:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="retrieval_documents_invalid",
+                            message=(
+                                "Retrieval document_refs must contain at most 1000 unique "
+                                "{collection_slug, document_id} entries inside the selected collections."
+                            ),
+                            node_id=nid,
+                        )
+                    )
         elif kind == "decision":
             outgoing = [(idx, edge) for idx, edge in enumerate(edges) if edge.get("from") == nid]
             issues.extend(

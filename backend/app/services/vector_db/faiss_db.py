@@ -3,7 +3,6 @@
 import os
 import pickle
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -11,6 +10,17 @@ from app.core.logging import get_logger
 from app.services.vector_db.base import VectorDBBase
 
 logger = get_logger(__name__)
+
+
+def _metadata_matches_filters(metadata: dict, filters: dict | None) -> bool:
+    for key, expected in (filters or {}).items():
+        actual = metadata.get(key)
+        if isinstance(expected, list | tuple | set):
+            if not expected or actual not in expected:
+                return False
+        elif actual != expected:
+            return False
+    return True
 
 
 class FAISSVectorDB(VectorDBBase):
@@ -22,7 +32,7 @@ class FAISSVectorDB(VectorDBBase):
         self.index = None
         self.metadatas: dict[str, dict] = {}  # id -> metadata
         self.ids: list[str] = []  # Order matches index
-        self.vectors: Optional[np.ndarray] = None
+        self.vectors: np.ndarray | None = None
         self.dimension = None
         self._initialize()
 
@@ -114,7 +124,7 @@ class FAISSVectorDB(VectorDBBase):
         logger.debug(f"Added {len(ids)} vectors to FAISS index")
 
     async def search(
-        self, query_vector: np.ndarray, top_k: int = 10, filters: Optional[dict] = None
+        self, query_vector: np.ndarray, top_k: int = 10, filters: dict | None = None
     ) -> list[dict]:
         """Search similar vectors"""
         import asyncio
@@ -153,14 +163,8 @@ class FAISSVectorDB(VectorDBBase):
                 similarity = float(distances[0][i])
 
                 # Apply filters if provided
-                if filters:
-                    match = True
-                    for key, value in filters.items():
-                        if metadata.get(key) != value:
-                            match = False
-                            break
-                    if not match:
-                        continue
+                if filters and not _metadata_matches_filters(metadata, filters):
+                    continue
 
                 # Extract content from metadata for FAISS
                 content = metadata.get("content", "")
@@ -275,7 +279,7 @@ class FAISSVectorDB(VectorDBBase):
 
     async def list_payloads(
         self,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict]:
@@ -286,14 +290,8 @@ class FAISSVectorDB(VectorDBBase):
         seen = 0
         for vec_id in self.ids:
             metadata = dict(self.metadatas.get(vec_id, {}))
-            if filters:
-                matched = True
-                for key, value in filters.items():
-                    if metadata.get(key) != value:
-                        matched = False
-                        break
-                if not matched:
-                    continue
+            if filters and not _metadata_matches_filters(metadata, filters):
+                continue
             if seen < offset_count:
                 seen += 1
                 continue
@@ -306,7 +304,7 @@ class FAISSVectorDB(VectorDBBase):
     async def sample_chunk_vectors(
         self,
         limit: int = 200,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[dict]:
         """Sample points (with vectors) for the embedding-map visualization."""
         if self.vectors is None or not len(self.ids):
@@ -317,7 +315,7 @@ class FAISSVectorDB(VectorDBBase):
             if idx >= len(self.vectors):
                 break
             metadata = self.metadatas.get(vec_id, {})
-            if filters and not all(metadata.get(k) == v for k, v in filters.items()):
+            if filters and not _metadata_matches_filters(metadata, filters):
                 continue
             candidate_indices.append(idx)
 

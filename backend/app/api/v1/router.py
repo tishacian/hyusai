@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     flow_ingresses,
     flow_publication,
     flow_runner,
+    flow_workbench,
     hana,
     health,
     help_content,
@@ -102,6 +103,7 @@ api_router.include_router(systems.router,       prefix="/systems",       tags=["
 api_router.include_router(flow_publication.router, prefix="/systems", tags=["flow-publication"])
 api_router.include_router(flow_ingresses.router, prefix="/systems", tags=["flow-ingresses"])
 api_router.include_router(flow_runner.router, prefix="/systems", tags=["flow-runner"])
+api_router.include_router(flow_workbench.router, prefix="/systems", tags=["flow-workbench"])
 api_router.include_router(flow_diffs.router, prefix="/systems", tags=["flow-diffs"])
 api_router.include_router(value_loop.router,    prefix="/systems",       tags=["value-loop"])
 api_router.include_router(capabilities.router,  prefix="/capabilities",  tags=["capabilities"])

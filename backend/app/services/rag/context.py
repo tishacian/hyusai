@@ -779,6 +779,185 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     return metrics
 
 
+def _normalise_authoritative_document_refs(
+    raw_refs: Any,
+    *,
+    collections: list[str],
+) -> dict[str, list[str]]:
+    """Return a bounded collection -> document-id allowlist.
+
+    The collection/document pair is security-significant. Flattening it into a
+    single list and applying that list to every collection permits accidental
+    cross-collection matches when document identifiers collide.
+    """
+
+    if not isinstance(raw_refs, Mapping):
+        return {}
+    allowed_collections = set(collections)
+    normalized: dict[str, list[str]] = {}
+    total = 0
+    for raw_collection, raw_document_ids in raw_refs.items():
+        collection = str(raw_collection or "").strip()
+        if (
+            not collection
+            or collection not in allowed_collections
+            or not isinstance(raw_document_ids, list | tuple | set)
+        ):
+            continue
+        document_ids = list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in raw_document_ids
+                if isinstance(item, str) and item.strip()
+            )
+        )
+        remaining = max(0, 1000 - total)
+        if document_ids and remaining:
+            normalized[collection] = document_ids[:remaining]
+            total += len(normalized[collection])
+        if total >= 1000:
+            break
+    return normalized
+
+
+def _authoritative_filters_for_collection(
+    profile: Mapping[str, Any],
+    collection: Any,
+    retrieval_filters: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Narrow filters to the documents explicitly selected for a collection.
+
+    ``None`` is fail-closed: an authoritative pair-map exists but contains no
+    selected document for this collection, so that collection must not run.
+    """
+
+    filters = dict(retrieval_filters or {})
+    if profile.get("authoritative_document_scope") is not True:
+        return filters
+    refs = profile.get("authoritative_document_refs")
+    refs_provided = profile.get("authoritative_document_refs_provided") is True
+    if not refs_provided and (not isinstance(refs, Mapping) or not refs):
+        # Compatibility for older scoped snapshots that only carried the flat
+        # document_id filter. It is safe only for one known collection; applying
+        # a flat union to several collections recreates a collection/document
+        # cartesian product when identifiers collide.
+        document_ids = filters.get("document_id")
+        effective_collections = [
+            str(item).strip()
+            for item in (profile.get("collections") or [])
+            if str(item or "").strip()
+        ]
+        if not effective_collections:
+            single_collection = str(profile.get("collection") or "").strip()
+            if single_collection:
+                effective_collections = [single_collection]
+        normalized_document_ids = (
+            list(
+                dict.fromkeys(
+                    item.strip()
+                    for item in document_ids
+                    if isinstance(item, str) and item.strip() == item
+                )
+            )
+            if isinstance(document_ids, list)
+            else []
+        )
+        if (
+            not normalized_document_ids
+            or not all(
+                isinstance(item, str) and bool(item) and item.strip() == item
+                for item in (document_ids or [])
+            )
+            or len(effective_collections) != 1
+            or effective_collections[0] != str(collection)
+        ):
+            return None
+        filters["document_id"] = normalized_document_ids[:1000]
+        return filters
+    if not isinstance(refs, Mapping) or not refs:
+        return None
+    document_ids = refs.get(str(collection))
+    if not isinstance(document_ids, list) or not document_ids:
+        return None
+    filters["document_id"] = list(document_ids)
+    return filters
+
+
+def _enforce_authoritative_document_evidence(
+    chunks: list[Any],
+    scores: list[Any],
+    metadatas: list[Any],
+    *,
+    profile: Mapping[str, Any],
+    collection: str | None = None,
+) -> tuple[list[Any], list[Any], list[dict[str, Any]], int]:
+    """Revalidate backend evidence against the graph-owned document allowlist.
+
+    Some legacy vector adapters reject filters or fall back to an unfiltered
+    search. The adapter is therefore not a trust boundary: missing metadata and
+    collection/document mismatches are dropped before rerank or synthesis.
+    """
+
+    if profile.get("authoritative_document_scope") is not True:
+        return (
+            list(chunks),
+            list(scores),
+            [dict(item) if isinstance(item, Mapping) else {} for item in metadatas],
+            0,
+        )
+
+    kept_chunks: list[Any] = []
+    kept_scores: list[Any] = []
+    kept_metadatas: list[dict[str, Any]] = []
+    dropped = 0
+    for index, chunk in enumerate(chunks):
+        metadata = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], Mapping)
+            else {}
+        )
+        lane_collection = str(collection or "").strip()
+        declared_collections = list(
+            dict.fromkeys(
+                str(metadata.get(key) or "").strip()
+                for key in ("collection", "collection_name", "collection_slug")
+                if str(metadata.get(key) or "").strip()
+            )
+        )
+        if (
+            len(declared_collections) > 1
+            or (
+                lane_collection
+                and declared_collections
+                and declared_collections[0] != lane_collection
+            )
+        ):
+            dropped += 1
+            continue
+        effective_collection = declared_collections[0] if declared_collections else lane_collection
+        filters = _authoritative_filters_for_collection(
+            profile,
+            effective_collection,
+            profile.get("retrieval_filters")
+            if isinstance(profile.get("retrieval_filters"), Mapping)
+            else {},
+        )
+        allowed_document_ids = filters.get("document_id") if isinstance(filters, Mapping) else None
+        document_id = metadata.get("document_id")
+        if (
+            not isinstance(allowed_document_ids, list)
+            or not allowed_document_ids
+            or not isinstance(document_id, str)
+            or document_id not in allowed_document_ids
+        ):
+            dropped += 1
+            continue
+        kept_chunks.append(chunk)
+        kept_scores.append(scores[index] if index < len(scores) else 0.0)
+        kept_metadatas.append(metadata)
+    return kept_chunks, kept_scores, kept_metadatas, dropped
+
+
 def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     """Resolve retrieval settings that do not require a live vector search."""
     app_settings = get_resolved_settings(
@@ -941,6 +1120,11 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         collections,
         source_policy=request.get("source_policy"),
     )
+    raw_authoritative_document_refs = request.get("authoritative_document_refs")
+    authoritative_document_refs = _normalise_authoritative_document_refs(
+        raw_authoritative_document_refs,
+        collections=collections,
+    )
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": _history_augmented_query(request),
@@ -977,6 +1161,14 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
         "_membrane_expected_project": request.get("project_code"),
+        # A Builder-authored document allowlist is a hard authority boundary,
+        # not a planner hint. Downstream recovery paths must not drop it.
+        "authoritative_document_scope": request.get("authoritative_document_scope") is True,
+        "authoritative_document_refs": authoritative_document_refs,
+        "authoritative_document_refs_provided": isinstance(
+            raw_authoritative_document_refs,
+            Mapping,
+        ),
         "retrieval_filters": {
             key: value
             for key, value in raw_retrieval_filters.items()
@@ -1768,12 +1960,23 @@ def _summary_artifact_for_profile(
         )
         if not collection:
             return None
-        scope = (
-            metrics.get("retrieval_scope")
-            if isinstance(metrics.get("retrieval_scope"), Mapping)
-            else {}
-        )
-        filters = scope.get("filters") if isinstance(scope.get("filters"), Mapping) else {}
+        if profile.get("authoritative_document_scope") is True:
+            filters = _authoritative_filters_for_collection(
+                profile,
+                collection_ref,
+                profile.get("retrieval_filters")
+                if isinstance(profile.get("retrieval_filters"), Mapping)
+                else {},
+            )
+            if filters is None:
+                return None
+        else:
+            scope = (
+                metrics.get("retrieval_scope")
+                if isinstance(metrics.get("retrieval_scope"), Mapping)
+                else {}
+            )
+            filters = scope.get("filters") if isinstance(scope.get("filters"), Mapping) else {}
         allowed_filters = {
             key: value
             for key, value in dict(filters or {}).items()
@@ -2008,6 +2211,8 @@ def _recall_floor_active(
     hard filter to actually be present (so it never broadens an unscoped query)
     and ``collection`` to be one the planner flagged; a no-op otherwise.
     """
+    if profile.get("authoritative_document_scope") is True:
+        return False
     recall_floor_collections = profile.get("_corpus_plan_recall_floor_collections") or []
     if not recall_floor_collections:
         return False
@@ -2325,6 +2530,7 @@ def _retrieval_context_cache_key(
     retrieval_filters: dict[str, Any],
     metrics: dict[str, Any],
     guides: list[Any],
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> str | None:
     if not settings.rag_context_cache_enabled:
         return None
@@ -2346,6 +2552,23 @@ def _retrieval_context_cache_key(
         "collection": profile.get("collection"),
         "collections": profile.get("collections") or [],
         "knowledge_scope": profile.get("knowledge_scope"),
+        "authoritative_document_scope": profile.get("authoritative_document_scope") is True,
+        "authoritative_document_refs": profile.get("authoritative_document_refs") or {},
+        "authoritative_document_refs_provided": (
+            profile.get("authoritative_document_refs_provided") is True
+        ),
+        # Cached evidence has already crossed this membrane. Its policy and
+        # expected project therefore belong to the cache authority boundary.
+        "membrane_spec": profile.get("_membrane_spec") or {},
+        "membrane_expected_project": profile.get("_membrane_expected_project"),
+        "source_policy_retrieval_boundary": {
+            "require_project_code_match": bool(
+                retrieval_policy and retrieval_policy.require_project_code_match
+            ),
+            "cross_project_log_only": bool(
+                retrieval_policy and retrieval_policy.cross_project_log_only
+            ),
+        },
         "query": query,
         "rag_mode": profile.get("rag_mode"),
         "latency_profile": profile.get("latency_profile"),
@@ -2745,20 +2968,42 @@ async def _retrieve_rag_context(
     """Run retrieval only and return a stable, serialisable context payload."""
     started = time.time()
     profile = get_retrieval_profile(request)
-    authoritative_collections = [
+    requested_authoritative_collections = [
         str(item).strip()
         for item in (request.get("authoritative_collections") or [])
         if str(item or "").strip()
     ]
-    authoritative_collections = list(dict.fromkeys(authoritative_collections))
+    requested_authoritative_collections = list(
+        dict.fromkeys(requested_authoritative_collections)
+    )
+    # `get_retrieval_profile` already applied the tenant Membrane to the
+    # graph-owned list. Reassert only that effective intersection after corpus
+    # planning; replaying the raw request here would reintroduce a collection
+    # the Membrane deliberately removed.
+    authoritative_collections = (
+        list(profile.get("collections") or [])
+        if requested_authoritative_collections
+        else []
+    )
+    authoritative_document_scope = profile.get("authoritative_document_scope") is True
+    authoritative_retrieval_filters = dict(profile.get("retrieval_filters") or {})
     query = profile["query"]
     guides = _effective_guides_for_profile(profile)
     guide_hint = guide_query_hint(guides)
     retrieval_policy = retrieval_policy_from_guides(guides)
     retrieval_policy = _apply_source_policy_to_retrieval_policy(request, retrieval_policy)
     clarification = clarification_from_policy(query, retrieval_policy)
-    table_analysis = _table_analysis_for_profile(request, profile)
-    document_analysis = _document_analysis_for_profile(request, profile)
+    # These auxiliary lanes do not currently accept a document allowlist. They
+    # must be disabled under a Builder-authored hard scope instead of silently
+    # searching the whole collection.
+    table_analysis = (
+        None if authoritative_document_scope else _table_analysis_for_profile(request, profile)
+    )
+    document_analysis = (
+        None
+        if authoritative_document_scope
+        else _document_analysis_for_profile(request, profile)
+    )
     retrieval_query = query
     collections = profile.get("collections") or [profile["collection"]]
     corpus_plan = None
@@ -2802,7 +3047,11 @@ async def _retrieve_rag_context(
         profile["synthesis_k"] = corpus_plan.synthesis_k
         profile["source_display_k"] = corpus_plan.source_display_k
         profile["latency_profile"] = corpus_plan.latency_profile
-        profile["retrieval_filters"] = corpus_plan.filters
+        profile["retrieval_filters"] = (
+            {**dict(corpus_plan.filters or {}), **authoritative_retrieval_filters}
+            if authoritative_document_scope
+            else corpus_plan.filters
+        )
         profile["deadline_seconds"] = corpus_plan.deadline_seconds
         profile_contract = profile.get("retrieval_profile_contract")
         allow_cross_encoder = bool(
@@ -2955,6 +3204,7 @@ async def _retrieve_rag_context(
         retrieval_filters=retrieval_filters,
         metrics=metrics,
         guides=guides,
+        retrieval_policy=retrieval_policy,
     )
     cached_context = _get_cached_retrieval_context(cache_key, started=started)
     if cached_context is not None:
@@ -2969,7 +3219,7 @@ async def _retrieve_rag_context(
     # facet runs concurrently with retrieval and is awaited at payload assembly;
     # any failure leaves the existing deep-retrieval behaviour untouched.
     inventory_task = None
-    if _should_build_project_inventory(request, query):
+    if not authoritative_document_scope and _should_build_project_inventory(request, query):
         inventory_task = asyncio.ensure_future(
             asyncio.to_thread(_safe_build_project_inventory, dict(profile), query)
         )
@@ -2992,8 +3242,9 @@ async def _retrieve_rag_context(
                 payload_metrics["project_inventory_terms"] = inventory.get("terms")
         return payload
 
-    if is_collection_inventory_query(query) or (
-        corpus_plan is not None and corpus_plan.intent == "catalogue"
+    if not authoritative_document_scope and (
+        is_collection_inventory_query(query)
+        or (corpus_plan is not None and corpus_plan.intent == "catalogue")
     ):
         inventory_context = _retrieve_collection_inventory_context(
             profile,
@@ -3147,7 +3398,21 @@ async def _retrieve_rag_context(
         and not retrieval_filters
         and str(profile["collection"]) in soft_scope_collections
     )
-    primary_filters = soft_scope_filters if use_soft_single else retrieval_filters
+    primary_filters = (
+        soft_scope_filters
+        if use_soft_single
+        else _authoritative_filters_for_collection(
+            profile,
+            profile["collection"],
+            retrieval_filters,
+        )
+    )
+    if primary_filters is None:
+        # This is only reachable for malformed/direct requests: a hard pair-map
+        # names documents in other collections but not the selected collection.
+        # Use an impossible document id rather than treating an empty filter as
+        # an instruction to search the full collection.
+        primary_filters = {"document_id": ["__omnirag_no_authoritative_document__"]}
     if use_soft_single:
         metrics["soft_scope_boost"] = {
             "applied": True,
@@ -3240,6 +3505,20 @@ async def _retrieve_rag_context(
             )
         )
 
+    (
+        result.chunks,
+        result.scores,
+        result.metadatas,
+        authoritative_evidence_dropped,
+    ) = _enforce_authoritative_document_evidence(
+        list(result.chunks or []),
+        list(result.scores or []),
+        list(result.metadatas or []),
+        profile=profile,
+        collection=str(profile["collection"]),
+    )
+    metrics["authoritative_document_evidence_dropped"] = authoritative_evidence_dropped
+
     # Deep scope-miss recovery. A ledger-inferred document scope can point at
     # documents that exist in the SQL ledger but were never ingested into the
     # vector store (the SQL ledger is a superset of Qdrant on partially-ingested
@@ -3255,6 +3534,7 @@ async def _retrieve_rag_context(
     if (
         str(profile.get("latency_profile") or "") == "deep"
         and not result.chunks
+        and profile.get("authoritative_document_scope") is not True
         and isinstance(retrieval_filters, dict)
         and any(key in retrieval_filters for key in _SCOPE_MISS_FILTER_KEYS)
     ):
@@ -3312,11 +3592,26 @@ async def _retrieve_rag_context(
         if comparative_remaining >= 0.5:
 
             async def _comparative_subretrieve(subquery: str, sub_deadline: float):
-                return await _retrieve_coro(
+                nonlocal authoritative_evidence_dropped
+                sub_result = await _retrieve_coro(
                     primary_filters,
                     min(sub_deadline, comparative_remaining),
                     query_override=subquery,
                 )
+                (
+                    sub_result.chunks,
+                    sub_result.scores,
+                    sub_result.metadatas,
+                    dropped,
+                ) = _enforce_authoritative_document_evidence(
+                    list(sub_result.chunks or []),
+                    list(sub_result.scores or []),
+                    list(sub_result.metadatas or []),
+                    profile=profile,
+                    collection=str(profile["collection"]),
+                )
+                authoritative_evidence_dropped += dropped
+                return sub_result
 
             (
                 merged_chunks,
@@ -3335,6 +3630,22 @@ async def _retrieve_rag_context(
                 merged_chunks,
                 merged_scores,
                 merged_metas,
+            )
+            (
+                result.chunks,
+                result.scores,
+                result.metadatas,
+                dropped,
+            ) = _enforce_authoritative_document_evidence(
+                list(result.chunks or []),
+                list(result.scores or []),
+                list(result.metadatas or []),
+                profile=profile,
+                collection=str(profile["collection"]),
+            )
+            authoritative_evidence_dropped += dropped
+            metrics["authoritative_document_evidence_dropped"] = (
+                authoritative_evidence_dropped
             )
             metrics.update(comparative_diag)
         else:
@@ -3398,10 +3709,14 @@ async def _retrieve_rag_context(
         else:
             metrics["recall_floor"] = {"applied": False, "reason": "deadline"}
 
-    inventory_evidence_spec = _single_project_inventory_evidence_spec(
-        retrieval_query,
-        retrieval_filters,
-        retrieval_policy,
+    inventory_evidence_spec = (
+        None
+        if authoritative_document_scope
+        else _single_project_inventory_evidence_spec(
+            retrieval_query,
+            retrieval_filters,
+            retrieval_policy,
+        )
     )
     inventory_evidence_rows: list[dict[str, Any]] = []
     inventory_evidence_diag: dict[str, Any] | None = None
@@ -3534,6 +3849,16 @@ async def _retrieve_rag_context(
         metadatas,
         doc_svc=doc_svc,
     )
+    chunks, scores, metadatas, dropped = _enforce_authoritative_document_evidence(
+        chunks,
+        scores,
+        metadatas,
+        profile=profile,
+        collection=str(profile["collection"]),
+    )
+    authoritative_evidence_dropped += dropped
+    parent_context_count = max(0, parent_context_count - dropped)
+    metrics["authoritative_document_evidence_dropped"] = authoritative_evidence_dropped
     context_build_started_perf = time.perf_counter()
     summary_artifact = _summary_artifact_for_profile(
         profile, metrics=metrics, query=retrieval_query
@@ -3806,6 +4131,7 @@ async def _retrieve_multi_collection_context(
     retrieval_loop_started_perf = time.perf_counter()
     retrieval_loop_deadline_perf = retrieval_loop_started_perf + max(deadline_seconds, 0.01)
     deadline_exceeded = False
+    authoritative_evidence_dropped = 0
     for collection in profile.get("collections") or []:
         is_expert_fiche = (
             bool(expert_fiche_collection) and str(collection) == expert_fiche_collection
@@ -3816,12 +4142,21 @@ async def _retrieve_multi_collection_context(
             and not retrieval_filters
             and str(collection) in soft_scope_collections
         )
+        authoritative_filters = _authoritative_filters_for_collection(
+            profile,
+            collection,
+            retrieval_filters,
+        )
+        if authoritative_filters is None:
+            # A pair-map exists but no document was selected for this
+            # collection. Skipping is the only fail-closed interpretation.
+            continue
         if is_expert_fiche:
             call_filters: dict[str, Any] = {}
         elif use_soft_scope:
             call_filters = soft_scope_filters
         else:
-            call_filters = retrieval_filters
+            call_filters = authoritative_filters
         remaining_seconds = retrieval_loop_deadline_perf - time.perf_counter()
         if remaining_seconds <= 0:
             deadline_exceeded = True
@@ -3885,8 +4220,18 @@ async def _retrieve_multi_collection_context(
                 soft_scope_used.append(collection)
             if is_expert_fiche:
                 expert_fiche_searched = True
+            safe_chunks, safe_scores, safe_metadatas, dropped = (
+                _enforce_authoritative_document_evidence(
+                    list(result.chunks or []),
+                    list(result.scores or []),
+                    list(result.metadatas or []),
+                    profile=profile,
+                    collection=str(collection),
+                )
+            )
+            authoritative_evidence_dropped += dropped
             metadatas = []
-            for meta in result.metadatas or []:
+            for meta in safe_metadatas:
                 annotated = dict(meta or {})
                 annotated["collection"] = collection
                 annotated["collection_name"] = collection
@@ -3896,15 +4241,15 @@ async def _retrieve_multi_collection_context(
             collection_results.append(
                 {
                     "collection": collection,
-                    "chunks": result.chunks,
-                    "scores": result.scores,
+                    "chunks": safe_chunks,
+                    "scores": safe_scores,
                     "metadatas": metadatas,
                     "pipeline": result.pipeline,
                     "label": result.label,
                     "mode_label": mode_label,
                     "mode_reason": mode_reason,
                     "detail": result.detail,
-                    "chunks_retrieved": len(result.chunks),
+                    "chunks_retrieved": len(safe_chunks),
                     "diagnostics": {
                         key: value
                         for key, value in (getattr(result, "diagnostics", {}) or {}).items()
@@ -3993,6 +4338,7 @@ async def _retrieve_multi_collection_context(
         }
     if expert_fiche_collection:
         metrics["expert_fiche_collection_searched"] = expert_fiche_searched
+    metrics["authoritative_document_evidence_dropped"] = authoritative_evidence_dropped
     retrieval_loop_ms = int((time.perf_counter() - retrieval_loop_started_perf) * 1000)
 
     # For discovery intent keep the fused pool wide enough that every collection's
@@ -4004,6 +4350,14 @@ async def _retrieve_multi_collection_context(
         collection_results,
         limit=fuse_limit,
     )
+    chunks, scores, metadatas, dropped = _enforce_authoritative_document_evidence(
+        chunks,
+        scores,
+        metadatas,
+        profile=profile,
+    )
+    authoritative_evidence_dropped += dropped
+    metrics["authoritative_document_evidence_dropped"] = authoritative_evidence_dropped
     raw_chunk_count = len(chunks)
     rerank_started_perf = time.perf_counter()
     chunks, scores, metadatas, duplicates_removed = _dedupe_aligned_results(
