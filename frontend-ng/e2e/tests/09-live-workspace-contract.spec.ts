@@ -1,5 +1,8 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { findOctocityForbiddenPresentationTerms } from '../../src/app/features/mission-room/mission-room.presentation';
+import {
+  findOctocityForbiddenPresentationTerms,
+  findSentinelForbiddenPresentationTerms,
+} from '../../src/app/features/mission-room/mission-room.presentation';
 
 /**
  * Lot 0 — live workspace contract.
@@ -1262,7 +1265,7 @@ test.describe('Lot 0 — live workspace experience contract', () => {
         await page.goto('/hypervisor/mission-room/cockpit');
       } else {
         const corpus = await missionPresentationCorpus(page);
-        expect(corpus).not.toMatch(/Octocity|\bOCTAVE\b|\bAsteria\b|\bMeridian\b/i);
+        expect(findSentinelForbiddenPresentationTerms(corpus)).toEqual([]);
       }
       await attachViewport(page, testInfo, missionRoom.screenshot);
     });

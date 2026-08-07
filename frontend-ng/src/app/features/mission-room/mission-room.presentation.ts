@@ -102,6 +102,18 @@ const OCTOCITY_FORBIDDEN_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = Ob
   ['CI', /\bCI\b/],
 ]);
 
+/**
+ * Mirror of OCTOCITY_FORBIDDEN_PATTERNS: the Octocity vocabulary that must
+ * never surface in a non-Octocity workspace. Kept here so the Playwright
+ * `cross_terms_absent` canary and the unit suite assert one single list.
+ */
+const SENTINEL_FORBIDDEN_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = Object.freeze([
+  ['Octocity', /Octocity/i],
+  ['OCTAVE', /\bOCTAVE\b/i],
+  ['Asteria', /\bAsteria\b/i],
+  ['Meridian', /\bMeridian\b/i],
+]);
+
 export function presentMissionRoomText(profile: string | null, value: string): string {
   if (profile !== OCTOCITY_MISSION_ROOM_PROFILE || !value) return value;
 
@@ -121,6 +133,12 @@ export function presentMissionRoomText(profile: string | null, value: string): s
 
 export function findOctocityForbiddenPresentationTerms(value: string): string[] {
   return OCTOCITY_FORBIDDEN_PATTERNS
+    .filter(([, pattern]) => pattern.test(value))
+    .map(([label]) => label);
+}
+
+export function findSentinelForbiddenPresentationTerms(value: string): string[] {
+  return SENTINEL_FORBIDDEN_PATTERNS
     .filter(([, pattern]) => pattern.test(value))
     .map(([label]) => label);
 }

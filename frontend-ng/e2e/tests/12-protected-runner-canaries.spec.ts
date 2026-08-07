@@ -10,6 +10,7 @@ import { isAbsolute, join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import {
   findOctocityForbiddenPresentationTerms,
+  findSentinelForbiddenPresentationTerms,
   OCTOCITY_MISSION_ROOM_PROFILE,
   SENTINEL_MISSION_ROOM_PROFILE,
 } from '../../src/app/features/mission-room/mission-room.presentation';
@@ -700,7 +701,7 @@ async function missionRoomContract(
   const corpus = await missionRoomCorpus(page);
   const crossTermsAbsent = profile === OCTOCITY_MISSION_ROOM_PROFILE
     ? findOctocityForbiddenPresentationTerms(corpus).length === 0
-    : !/Octocity|\bOCTAVE\b|\bAsteria\b|\bMeridian\b/i.test(corpus);
+    : findSentinelForbiddenPresentationTerms(corpus).length === 0;
   const actionPacksExact = arraysEqual(expectedSettingsPacks, expectedPacks);
   const actionPackNamespaceIsolated = profile === SENTINEL_MISSION_ROOM_PROFILE
     ? expectedSettingsPacks.every(

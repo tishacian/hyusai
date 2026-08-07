@@ -99,6 +99,7 @@ const storeSpecs = [
   'src/app/features/layout/title-bar.component.spec.ts',
   'src/app/features/mission-room/mission-room.component.spec.ts',
   'src/app/features/mission-room/generic-mission-room.component.spec.ts',
+  'src/app/features/mission-room/vp-macro-indicators.component.spec.ts',
   'src/app/features/mission-room/mission-room.routes.spec.ts',
   'src/app/features/runs/runs.routes.spec.ts',
   'src/app/features/runs/run-view.component.spec.ts',

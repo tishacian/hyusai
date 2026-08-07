@@ -72,227 +72,6 @@ function rollSeriesDates(series: MacroIndicatorPoint[]): MacroIndicatorPoint[] {
   });
 }
 
-function rollIndicatorDates(indicators: MacroIndicator[]): MacroIndicator[] {
-  return indicators.map((indicator) => ({
-    ...indicator,
-    series: rollSeriesDates(indicator.series || []),
-  }));
-}
-
-const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
-  {
-    key: 'bio_composites',
-    label: 'Bio-composites',
-    current: 4095000,
-    unit: 'CFA/t',
-    trend: '-0.4%',
-    trend_direction: 'down',
-    prism: 'matieres_premieres',
-    source: 'Octocity market cache',
-    series: [
-      { date: '2026-05-20', value: 4155000 },
-      { date: '2026-05-22', value: 4140000 },
-      { date: '2026-05-23', value: 4125000 },
-      { date: '2026-05-24', value: 4110000 },
-      { date: '2026-05-25', value: 4095000 },
-    ],
-  },
-  {
-    key: 'fibre_solaire',
-    label: 'Fibre solaire',
-    current: 825,
-    unit: 'CFA/kg',
-    trend: '-0.8%',
-    trend_direction: 'down',
-    prism: 'matieres_premieres',
-    source: 'Octocity market cache',
-    series: [
-      { date: '2026-05-20', value: 852 },
-      { date: '2026-05-22', value: 845 },
-      { date: '2026-05-23', value: 838 },
-      { date: '2026-05-24', value: 832 },
-      { date: '2026-05-25', value: 825 },
-    ],
-  },
-  {
-    key: 'brent',
-    label: 'Brent',
-    current: 78.5,
-    unit: 'USD/bbl',
-    trend: '+0.0%',
-    trend_direction: 'flat',
-    prism: 'matieres_premieres',
-    source: 'Yahoo Finance (cache baseline)',
-    series: [
-      { date: '2026-05-20', value: 78.4 },
-      { date: '2026-05-22', value: 78.5 },
-      { date: '2026-05-23', value: 78.4 },
-      { date: '2026-05-24', value: 78.5 },
-      { date: '2026-05-25', value: 78.5 },
-    ],
-  },
-  {
-    key: 'sovereign_spread',
-    label: 'Spread souverain AS',
-    current: 300,
-    unit: 'bps',
-    trend: '+15 bps',
-    trend_direction: 'up',
-    prism: 'souverainete_financiere',
-    source: 'Aurora bonds cache',
-    series: [
-      { date: '2026-05-20', value: 299 },
-      { date: '2026-05-22', value: 300 },
-      { date: '2026-05-23', value: 299 },
-      { date: '2026-05-24', value: 300 },
-      { date: '2026-05-25', value: 300 },
-    ],
-  },
-  {
-    key: 'aurora_reserves',
-    label: 'Reserves Aurora',
-    current: 4.2,
-    unit: 'mois',
-    trend: '-0.1',
-    trend_direction: 'down',
-    prism: 'souverainete_financiere',
-    source: 'Aurora reserve desk',
-    series: [
-      { date: '2026-05-20', value: 4.22 },
-      { date: '2026-05-22', value: 4.21 },
-      { date: '2026-05-23', value: 4.2 },
-      { date: '2026-05-24', value: 4.2 },
-      { date: '2026-05-25', value: 4.2 },
-    ],
-  },
-  {
-    key: 'aurora_tension',
-    label: 'Tension regionale Aurora',
-    current: 72,
-    unit: '/100',
-    trend: '+1',
-    trend_direction: 'up',
-    prism: 'securite_opinion',
-    source: 'OSINT composite (cache baseline)',
-    series: [
-      { date: '2026-05-20', value: 71 },
-      { date: '2026-05-22', value: 71 },
-      { date: '2026-05-23', value: 72 },
-      { date: '2026-05-24', value: 72 },
-      { date: '2026-05-25', value: 72 },
-    ],
-  },
-  {
-    key: 'opinion_as',
-    label: 'Sentiment opinion AS',
-    current: 58,
-    unit: '/100',
-    trend: '0',
-    trend_direction: 'flat',
-    prism: 'securite_opinion',
-    source: 'OSINT composite (cache baseline)',
-    series: [
-      { date: '2026-05-20', value: 58 },
-      { date: '2026-05-22', value: 58 },
-      { date: '2026-05-23', value: 58 },
-      { date: '2026-05-24', value: 58 },
-      { date: '2026-05-25', value: 58 },
-    ],
-  },
-  {
-    key: 'meridian_port',
-    label: 'Trafic Port Meridian',
-    current: 12400,
-    unit: 'TEU/j',
-    trend: '-0.3%',
-    trend_direction: 'down',
-    prism: 'operationnel',
-    source: 'Meridian harbor cache',
-    series: [
-      { date: '2026-05-20', value: 12480 },
-      { date: '2026-05-22', value: 12460 },
-      { date: '2026-05-23', value: 12450 },
-      { date: '2026-05-24', value: 12440 },
-      { date: '2026-05-25', value: 12400 },
-    ],
-  },
-]);
-
-const FALLBACK_INDICATORS: MacroIndicator[] = [
-  {
-    key: 'unemployment',
-    label: 'Chômage',
-    current: 3.4,
-    unit: '%',
-    trend: '+0.2',
-    trend_direction: 'up',
-    source: 'Banque mondiale',
-    source_url: 'https://data.worldbank.org/indicator/SL.UEM.TOTL.ZS?locations=CI',
-    series: [
-      { year: 2014, value: 3.0 },
-      { year: 2015, value: 3.0 },
-      { year: 2016, value: 2.9 },
-      { year: 2017, value: 2.8 },
-      { year: 2018, value: 2.7 },
-      { year: 2019, value: 2.7 },
-      { year: 2020, value: 3.3 },
-      { year: 2021, value: 3.4 },
-      { year: 2022, value: 3.3 },
-      { year: 2023, value: 3.2 },
-      { year: 2024, value: 3.2 },
-      { year: 2025, value: 3.4 },
-    ],
-  },
-  {
-    key: 'inflation',
-    label: 'Inflation',
-    current: 4.2,
-    unit: '%',
-    trend: '-0.6',
-    trend_direction: 'down',
-    source: 'Banque mondiale',
-    source_url: 'https://data.worldbank.org/indicator/FP.CPI.TOTL.ZG?locations=CI',
-    series: [
-      { year: 2014, value: 0.4 },
-      { year: 2015, value: 1.2 },
-      { year: 2016, value: 0.7 },
-      { year: 2017, value: 0.8 },
-      { year: 2018, value: 0.6 },
-      { year: 2019, value: 0.8 },
-      { year: 2020, value: 2.4 },
-      { year: 2021, value: 4.2 },
-      { year: 2022, value: 5.2 },
-      { year: 2023, value: 4.4 },
-      { year: 2024, value: 3.8 },
-      { year: 2025, value: 4.2 },
-    ],
-  },
-  {
-    key: 'gdp_growth',
-    label: 'Croissance PIB',
-    current: 6.5,
-    unit: '%',
-    trend: '+0.3',
-    trend_direction: 'up',
-    source: 'Banque mondiale',
-    source_url: 'https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=CI',
-    series: [
-      { year: 2014, value: 8.8 },
-      { year: 2015, value: 8.8 },
-      { year: 2016, value: 7.2 },
-      { year: 2017, value: 7.4 },
-      { year: 2018, value: 6.9 },
-      { year: 2019, value: 6.2 },
-      { year: 2020, value: 1.7 },
-      { year: 2021, value: 7.0 },
-      { year: 2022, value: 6.7 },
-      { year: 2023, value: 6.5 },
-      { year: 2024, value: 6.2 },
-      { year: 2025, value: 6.5 },
-    ],
-  },
-];
-
 @Component({
   selector: 'app-vp-macro-indicators',
   standalone: true,
@@ -309,39 +88,47 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
           <small class="source-tag">{{ sourceLabel() }}</small>
         }
       </header>
-      <div class="macro-cards sovereign-grid">
-        @for (indicator of sovereignIndicators(); track indicator.key) {
-          <button
-            type="button"
-            class="macro-card"
-            [class.expanded]="expandedKey() === indicator.key"
-            [class.up]="trendClass(indicator) === 'up'"
-            [class.down]="trendClass(indicator) === 'down'"
-            (click)="toggleExpand(indicator.key)"
-            [attr.aria-expanded]="expandedKey() === indicator.key"
-          >
-            <span class="kpi-prism">{{ prismLabel(indicator.prism) }}</span>
-            <span class="kpi-label">{{ indicator.label }}</span>
-            <span class="kpi-trend-pill">{{ indicator.trend || trendFallback(indicator) }}</span>
-            <strong class="kpi-value">
-              {{ formatValue(indicator.current) }}<em>{{ indicator.unit || '' }}</em>
-            </strong>
-            <svg class="sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true">
-              <path class="spark-area" [attr.d]="areaPath(indicator)" />
-              <path class="spark-line" [attr.d]="linePath(indicator)" />
-              <circle
-                class="spark-dot"
-                [attr.cx]="lastPoint(indicator).x"
-                [attr.cy]="lastPoint(indicator).y"
-                r="2.4"
-              />
-            </svg>
-            @if (indicator.source) {
-              <small class="kpi-source">{{ indicator.source }}</small>
-            }
-          </button>
-        }
-      </div>
+      @if (sovereignIndicators().length) {
+        <div class="macro-cards sovereign-grid">
+          @for (indicator of sovereignIndicators(); track indicator.key) {
+            <button
+              type="button"
+              class="macro-card"
+              [class.expanded]="expandedKey() === indicator.key"
+              [class.up]="trendClass(indicator) === 'up'"
+              [class.down]="trendClass(indicator) === 'down'"
+              (click)="toggleExpand(indicator.key)"
+              [attr.aria-expanded]="expandedKey() === indicator.key"
+            >
+              <span class="kpi-prism">{{ prismLabel(indicator.prism) }}</span>
+              <span class="kpi-label">{{ indicator.label }}</span>
+              <span class="kpi-trend-pill">{{ indicator.trend || trendFallback(indicator) }}</span>
+              <strong class="kpi-value">
+                {{ formatValue(indicator.current) }}<em>{{ indicator.unit || '' }}</em>
+              </strong>
+              <svg class="sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true">
+                <path class="spark-area" [attr.d]="areaPath(indicator)" />
+                <path class="spark-line" [attr.d]="linePath(indicator)" />
+                <circle
+                  class="spark-dot"
+                  [attr.cx]="lastPoint(indicator).x"
+                  [attr.cy]="lastPoint(indicator).y"
+                  r="2.4"
+                />
+              </svg>
+              @if (indicator.source) {
+                <small class="kpi-source">{{ indicator.source }}</small>
+              }
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="macro-empty" role="status">
+          <span class="macro-empty-icon" aria-hidden="true">○</span>
+          <strong>Indicateurs en cours de chargement</strong>
+          <small>Les indicateurs s'affichent dès que la source du workspace répond.</small>
+        </div>
+      }
 
       @if (contextIndicators().length) {
         <div class="macro-context">
@@ -454,6 +241,30 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
       }
       .sovereign-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .macro-empty {
+        display: grid;
+        place-items: center;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-6) var(--mission-space-4);
+        border: 1px dashed var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        color: var(--mission-text-secondary);
+        text-align: center;
+      }
+      .macro-empty-icon {
+        color: var(--mission-text-tertiary);
+        font-size: 28px;
+        line-height: 1;
+      }
+      .macro-empty strong {
+        font-size: var(--mission-text-base);
+        color: var(--mission-text-primary);
+      }
+      .macro-empty small {
+        max-width: 320px;
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
       }
       .context-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -715,10 +526,13 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
 export class VpMacroIndicatorsComponent implements OnInit {
   private readonly api = inject(ApiService);
 
-  readonly sovereignIndicators = signal<MacroIndicator[]>(SOVEREIGN_FALLBACK);
-  readonly contextIndicators = signal<MacroIndicator[]>(FALLBACK_INDICATORS);
+  // The cockpit mounts this strip in every workspace, so it must stay empty
+  // until the workspace's own aggregate answers: any seeded placeholder would
+  // render one tenant's branding inside another tenant's Mission Room.
+  readonly sovereignIndicators = signal<MacroIndicator[]>([]);
+  readonly contextIndicators = signal<MacroIndicator[]>([]);
   readonly expandedKey = signal<string | null>(null);
-  readonly sourceLabel = signal<string>('demo-fixture · osiris baseline');
+  readonly sourceLabel = signal<string>('');
 
   readonly expandedIndicator = computed<MacroIndicator | null>(() => {
     const key = this.expandedKey();
