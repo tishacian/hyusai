@@ -22,6 +22,12 @@ RUNTIME_MODES: frozenset[str] = frozenset(
 CONTROL_KINDS: frozenset[str] = frozenset(
     {"decision", "fork", "join", "retry", "hitl", "subflow", "loop"}
 )
+WORKBENCH_EXECUTION_SURFACES: frozenset[str] = frozenset(
+    {"builder_preview", "node_preview", "golden_preview"}
+)
+NON_PUBLISHED_EXECUTION_SURFACES: frozenset[str] = frozenset(
+    {"draft_test", *WORKBENCH_EXECUTION_SURFACES}
+)
 
 
 @dataclass(frozen=True, slots=True)

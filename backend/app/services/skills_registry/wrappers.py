@@ -272,6 +272,50 @@ def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     retrieval_filters = payload.get("retrieval_filters")
     if isinstance(retrieval_filters, dict):
         kwargs["retrieval_filters"] = retrieval_filters
+    authoritative_collections = payload.get("authoritative_collections")
+    if isinstance(authoritative_collections, list):
+        normalized = list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in authoritative_collections[:32]
+                if isinstance(item, str) and item.strip()
+            )
+        )
+        if normalized:
+            kwargs["authoritative_collections"] = normalized
+    if payload.get("authoritative_document_scope") is True:
+        kwargs["authoritative_document_scope"] = True
+        if "authoritative_document_refs" in payload:
+            raw_refs = payload.get("authoritative_document_refs")
+            allowed_collections = set(kwargs.get("authoritative_collections") or [])
+            normalized_refs: dict[str, list[str]] = {}
+            total_refs = 0
+            ref_items = raw_refs.items() if isinstance(raw_refs, dict) else ()
+            for raw_collection, raw_document_ids in ref_items:
+                collection = str(raw_collection or "").strip()
+                if (
+                    not collection
+                    or (allowed_collections and collection not in allowed_collections)
+                    or not isinstance(raw_document_ids, list)
+                ):
+                    continue
+                document_ids = list(
+                    dict.fromkeys(
+                        str(item).strip()
+                        for item in raw_document_ids
+                        if isinstance(item, str) and item.strip()
+                    )
+                )
+                remaining = max(0, 1000 - total_refs)
+                if document_ids and remaining:
+                    normalized_refs[collection] = document_ids[:remaining]
+                    total_refs += len(normalized_refs[collection])
+                if total_refs >= 1000:
+                    break
+            # Presence is security-significant. Forward an explicit empty map so
+            # the RAG boundary can distinguish malformed/new input from a legacy
+            # snapshot that genuinely omitted pair refs.
+            kwargs["authoritative_document_refs"] = normalized_refs
     knowledge_scope = payload.get("knowledge_scope") or ctx.get("knowledge_scope")
     if knowledge_scope:
         kwargs["knowledge_scope"] = knowledge_scope
@@ -567,6 +611,11 @@ async def _semantic_search_v1(
             # fast) so factual lookups get a real candidate pool, matching classic.
             **kwargs,
         }
+        # A persisted System retrieval contract is stronger than a node-local
+        # Builder scope. Re-assert it after ``kwargs`` so payload data can never
+        # widen the governed collection boundary.
+        if authoritative_collection:
+            request["authoritative_collections"] = [authoritative_collection]
         run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
         history = payload.get("conversation_history") or run_input.get("conversation_history")
         salient = payload.get("salient_entities") or run_input.get("salient_entities")
@@ -804,6 +853,15 @@ async def _multi_hop_retrieve_v1(
             "candidate_pool_k",
             "deep_retrieval",
             "rag_pipeline_mode",
+            "retrieval_filters",
+            "authoritative_collections",
+            "authoritative_document_scope",
+            "authoritative_document_refs",
+            "collection",
+            "collection_name",
+            "context_collection",
+            "context_mode",
+            "source_policy",
         )
         if payload.get(key) is not None
     }

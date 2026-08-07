@@ -57,6 +57,7 @@ from app.services.run_access import (
 from app.services.run_access import (
     has_private_chat_admin_access as _has_private_chat_admin_access,
 )
+from app.services.run_access import is_workbench_run as _is_workbench_run
 from app.services.run_access import (
     managed_agentic_run_requires_admin as _managed_agentic_run_requires_admin,
 )
@@ -87,6 +88,29 @@ from app.services.run_outcome_provenance import (
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _reject_generic_workbench_reexecution(run: Run, *, operation: str) -> None:
+    """Keep authoring executions on their explicit, acknowledged surfaces."""
+
+    if not _is_workbench_run(run):
+        return
+    code = (
+        "WORKBENCH_RUN_REPLAY_FORBIDDEN"
+        if operation == "replay"
+        else "WORKBENCH_RUN_RERUN_FORBIDDEN"
+    )
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": (
+                "Flow Workbench Runs cannot be re-executed through the generic "
+                f"{operation} endpoint. Start a new acknowledged Workbench run."
+            ),
+            "execution_surface": run.execution_surface or run.trigger,
+        },
+    )
 
 
 def _projection_evidence_sha256(value: Any) -> Optional[str]:
@@ -1598,6 +1622,7 @@ async def replay_run(
         user=user,
         workspace=workspace,
     )
+    _reject_generic_workbench_reexecution(parent, operation="replay")
     enforce_action(
         db,
         user=user,
@@ -1728,6 +1753,7 @@ async def rerun_run(
         user=user,
         workspace=workspace,
     )
+    _reject_generic_workbench_reexecution(parent, operation="rerun")
     system = (
         db.query(System)
         .filter(

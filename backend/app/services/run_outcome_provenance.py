@@ -21,6 +21,7 @@ from app.services.control_policy_snapshot import (
     control_policy_execution_contract,
     validated_control_policy_execution_contract,
 )
+from app.services.run_engine.execution_contract import WORKBENCH_EXECUTION_SURFACES
 
 RUN_OUTCOME_PROVENANCE_SCHEMA_VERSION = 1
 RUN_OPERATOR_OVERRIDE_RECEIPT_SCHEMA_VERSION = 2
@@ -606,16 +607,23 @@ def is_canary_authored_operator_outcome(run: Run) -> bool:
 
 
 def baseline_run_exclusion_reason(run: Run) -> str | None:
-    """Reject fixtures and canary-authored Runs as an independent baseline.
+    """Reject authoring previews, fixtures and canary Runs as a baseline.
 
-    The value loop may only start from ordinary runtime evidence. Showcase
-    fixtures and Runs created by the mutating Lot 8 canary are useful for
-    demonstrations and post-action liveness, but neither is an independent
-    pre-action observation.
+    The value loop may only start from ordinary runtime evidence. Workbench
+    executions, showcase fixtures and Runs created by the mutating Lot 8
+    canary are useful for authoring, demonstrations and post-action liveness,
+    but none is an independent pre-action observation.
     """
 
     input_ref = run.input_ref if isinstance(run.input_ref, Mapping) else {}
     output_ref = run.output_ref if isinstance(run.output_ref, Mapping) else {}
+    if (
+        str(run.execution_surface or "").strip().lower()
+        in WORKBENCH_EXECUTION_SURFACES
+        or str(run.trigger or "").strip().lower()
+        in WORKBENCH_EXECUTION_SURFACES
+    ):
+        return "baseline_run_is_flow_workbench"
     if (
         input_ref.get("showcase_seed") is True
         or output_ref.get("showcase_seed") is True
