@@ -20,6 +20,11 @@ readonly W="$R/docker"
 readonly ENV_HELPER="$R/scripts/agentium_runtime_env_bundle.py"
 readonly DATA_ROOT=/srv/agentium-data
 readonly EXPECTED_DATA_SOURCE=/dev/sdb
+readonly OBJECT_STORE_ROOT="$DATA_ROOT/object_store"
+readonly SECURE_DEPOSIT_ROOT=/home/ubuntu/omnirag/backend/data/secure_deposit
+readonly EXPECTED_SECURE_SOURCE=/dev/sdc
+readonly FAISS_ROOT=/home/ubuntu/omnirag/backend/faiss_db
+readonly EXPECTED_ROOT_SOURCE=/dev/sda1
 readonly DOCKER_SOCKET=unix:///var/run/docker.sock
 readonly DOCKER_VOLUME_ROOT=/var/lib/docker/volumes
 readonly COMPOSE_CLEAN_HOME=/home/ubuntu
@@ -107,6 +112,24 @@ assert_protected_data_path() {
     fail "$path must resolve directly through $DATA_ROOT on $EXPECTED_DATA_SOURCE"
 }
 
+assert_exact_backing_path() {
+  local path="$1"
+  local expected_source="$2"
+  local expected_mountpoint="$3"
+  local canonical source target mount_device path_device
+  [[ -d "$path" && ! -L "$path" ]] ||
+    fail "$path must be a real directory on $expected_source"
+  canonical="$(clean_exec readlink -e -- "$path")"
+  [[ "$canonical" == "$path" ]] ||
+    fail "$path must be canonical and must not traverse a symlink"
+  source="$(clean_exec findmnt -n -o SOURCE --target "$path")"
+  target="$(clean_exec findmnt -n -o TARGET --target "$path")"
+  mount_device="$(clean_exec stat -c %d -- "$expected_mountpoint")"
+  path_device="$(clean_exec stat -c %d -- "$path")"
+  [[ "$source" == "$expected_source" && "$target" == "$expected_mountpoint" && "$path_device" == "$mount_device" ]] ||
+    fail "$path must resolve directly through $expected_mountpoint on $expected_source"
+}
+
 assert_volume_mountpoint() {
   local volume_name="$1"
   local expected_fs_root="$2"
@@ -134,7 +157,11 @@ storage_check() {
   assert_protected_data_path "$DATA_ROOT/minio"
   assert_protected_data_path "$DATA_ROOT/qdrant"
   assert_protected_data_path "$DATA_ROOT/qdrant-snapshots"
-  compose --profile infra config --format json |
+  assert_protected_data_path "$OBJECT_STORE_ROOT"
+  assert_exact_backing_path \
+    "$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
+  assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /
+  compose --profile infra --profile tools --profile sftp config --format json |
     clean_exec python3 "$ENV_HELPER" vm-storage-compose-check
   readonly_docker volume inspect agentium_minio_block |
     clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
@@ -144,17 +171,18 @@ storage_check() {
     clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
       --name agentium_qdrant_block
   assert_volume_mountpoint agentium_qdrant_block /qdrant
-  readonly_docker inspect --type container agentium-minio qdrant |
+  readonly_docker inspect --type container \
+    agentium-minio qdrant agentium-backend agentium-worker-cpu \
+    agentium-p4-maintenance agentium-sftp |
     clean_exec python3 "$ENV_HELPER" vm-storage-runtime-check
-  printf 'storage-check passed: MinIO and Qdrant remain bind-backed on %s\n' \
-    "$EXPECTED_DATA_SOURCE"
+  printf 'storage-check passed: block stores and application binds remain on their protected devices\n'
 }
 
 case "${1:-}" in
   images)        compose config --images ;;
   storage-check) storage_check ;;
-  migrate)       storage_check; compose run --rm --no-deps agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps agentium-backend agentium-worker-cpu agentium-frontend ;;
+  migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-backend agentium-worker-cpu agentium-frontend ;;
   ps)            compose ps ;;
   *)             echo "usage: $0 {images|storage-check|migrate|up|ps}" >&2; exit 2 ;;
 esac

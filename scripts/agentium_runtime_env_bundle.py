@@ -60,6 +60,38 @@ VM_STORAGE_ENVIRONMENT = {
     "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
 }
+VM_APPLICATION_STORAGE_ENVIRONMENT = {
+    "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
+    "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
+    "AGENTIUM_SECURE_DEPOSIT_PATH": (
+        "/home/ubuntu/omnirag/backend/data/secure_deposit"
+    ),
+}
+VM_APPLICATION_STORAGE_MOUNTS = {
+    "agentium-migrate": {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", True),
+        "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", True),
+        "/data/faiss_db": ("AGENTIUM_FAISS_PATH", True),
+    },
+    "agentium-backend": {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", False),
+        "/data/faiss_db": ("AGENTIUM_FAISS_PATH", False),
+    },
+    "agentium-worker-cpu": {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", True),
+        "/data/faiss_db": ("AGENTIUM_FAISS_PATH", False),
+    },
+    "agentium-p4-maintenance": {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", True),
+        "/data/faiss_db": ("AGENTIUM_FAISS_PATH", False),
+    },
+    "agentium-sftp": {
+        "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", False),
+    },
+}
 VM_BIND_BACKED_VOLUMES = {
     "agentium_minio_block": "/srv/agentium-data/minio",
     "agentium_qdrant_block": "/srv/agentium-data/qdrant",
@@ -221,14 +253,34 @@ def _parse_role_contents(contents: Mapping[str, bytes]) -> dict[str, dict[str, s
     }
 
 
-def assert_vm_storage_environment(content: bytes) -> None:
-    """Require the literal production storage identity without emitting values."""
+def _assert_storage_environment(
+    content: bytes, *, expected: Mapping[str, str], contract: str
+) -> None:
+    """Require literal storage identities without emitting their values."""
 
     values, _ = _parse_dotenv(content, label="VM Compose environment")
-    if any(values.get(key) != expected for key, expected in VM_STORAGE_ENVIRONMENT.items()):
+    if any(values.get(key) != value for key, value in expected.items()):
         raise RuntimeEnvBundleError(
-            "VM production storage environment differs from the block-backed contract"
+            f"VM production storage environment differs from the {contract} contract"
         )
+
+
+def assert_vm_storage_environment(content: bytes) -> None:
+    """Require every literal VM storage identity before a deployment command."""
+
+    _assert_storage_environment(
+        content,
+        expected=VM_STORAGE_ENVIRONMENT | VM_APPLICATION_STORAGE_ENVIRONMENT,
+        contract="protected storage",
+    )
+
+
+def assert_vm_block_storage_environment(content: bytes) -> None:
+    """Require block-volume identities in a portable production env bundle."""
+
+    _assert_storage_environment(
+        content, expected=VM_STORAGE_ENVIRONMENT, contract="block-backed storage"
+    )
 
 
 def _rendered_service_mounts(compose: Mapping[str, Any], service_name: str) -> dict[str, Any]:
@@ -287,6 +339,54 @@ def assert_vm_compose_storage(compose: Any) -> None:
     ):
         raise RuntimeEnvBundleError("rendered VM Qdrant snapshot bind differs")
 
+    protected_sources = {
+        VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key]
+        for required in VM_APPLICATION_STORAGE_MOUNTS.values()
+        for environment_key, _ in required.values()
+    }
+    protected_targets = {
+        target
+        for required in VM_APPLICATION_STORAGE_MOUNTS.values()
+        for target in required
+    }
+    observed: set[tuple[str, str]] = set()
+    services = compose["services"]
+    for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
+        mounts = _rendered_service_mounts(compose, service_name)
+        for target, (environment_key, must_be_read_only) in required.items():
+            mount = mounts.get(target)
+            if not isinstance(mount, dict):
+                raise RuntimeEnvBundleError(
+                    "rendered VM protected storage mount inventory is incomplete"
+                )
+            if (
+                mount.get("type") != "bind"
+                or mount.get("source")
+                != VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key]
+                or mount.get("read_only", False) is not must_be_read_only
+            ):
+                raise RuntimeEnvBundleError(
+                    "rendered VM protected storage source or access mode differs"
+                )
+            observed.add((service_name, target))
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            raise RuntimeEnvBundleError("rendered VM Compose storage services are invalid")
+        mounts = service.get("volumes", [])
+        if not isinstance(mounts, list):
+            raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+        for mount in mounts:
+            if not isinstance(mount, dict):
+                raise RuntimeEnvBundleError("rendered VM Compose storage mounts are invalid")
+            source = mount.get("source")
+            target = mount.get("target")
+            if source not in protected_sources and target not in protected_targets:
+                continue
+            if (service_name, target) not in observed:
+                raise RuntimeEnvBundleError(
+                    "rendered VM protected storage is mounted outside the approved boundary"
+                )
+
 
 def assert_vm_volume_inspect(payload: Any, *, volume_name: str) -> None:
     """Validate one existing Docker local volume without creating it."""
@@ -309,9 +409,13 @@ def assert_vm_volume_inspect(payload: Any, *, volume_name: str) -> None:
 
 
 def assert_vm_active_storage_mounts(payload: Any) -> None:
-    """Require the running MinIO and Qdrant containers to use the protected stores."""
+    """Require running stateful/application containers to use protected stores."""
 
-    if not isinstance(payload, list) or len(payload) != 2:
+    expected_container_names = {
+        "agentium-minio",
+        "qdrant",
+    } | (set(VM_APPLICATION_STORAGE_MOUNTS) - {"agentium-migrate"})
+    if not isinstance(payload, list) or len(payload) != len(expected_container_names):
         raise RuntimeEnvBundleError("VM storage containers are missing or ambiguous")
     containers: dict[str, Mapping[str, Any]] = {}
     for container in payload:
@@ -321,21 +425,34 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         if name in containers:
             raise RuntimeEnvBundleError("VM storage container inspection is duplicated")
         containers[name] = container
-    if set(containers) != {"agentium-minio", "qdrant"}:
+    if set(containers) != expected_container_names:
         raise RuntimeEnvBundleError("VM storage container identity differs")
     expected = {
         "agentium-minio": {
-            "/data": ("volume", "agentium_minio_block", None),
+            "/data": ("volume", "agentium_minio_block", None, True),
         },
         "qdrant": {
-            "/qdrant/storage": ("volume", "agentium_qdrant_block", None),
+            "/qdrant/storage": ("volume", "agentium_qdrant_block", None, True),
             "/qdrant/snapshots": (
                 "bind",
                 None,
                 VM_STORAGE_ENVIRONMENT["AGENTIUM_QDRANT_SNAPSHOT_PATH"],
+                True,
             ),
         },
     }
+    for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
+        if service_name == "agentium-migrate":
+            continue
+        expected[service_name] = {
+            target: (
+                "bind",
+                None,
+                VM_APPLICATION_STORAGE_ENVIRONMENT[environment_key],
+                not read_only,
+            )
+            for target, (environment_key, read_only) in required.items()
+        }
     for name, required in expected.items():
         container = containers[name]
         state = container.get("State")
@@ -351,11 +468,11 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         }
         if len(by_target) != len(mounts) or set(by_target) != set(required):
             raise RuntimeEnvBundleError("VM active storage mount targets differ")
-        for target, (kind, volume_name, source) in required.items():
+        for target, (kind, volume_name, source, read_write) in required.items():
             row = by_target[target]
             if (
                 row.get("Type") != kind
-                or row.get("RW") is not True
+                or row.get("RW") is not read_write
                 or (volume_name is not None and row.get("Name") != volume_name)
                 or (source is not None and row.get("Source") != source)
             ):
@@ -499,7 +616,7 @@ def _assert_production_contract(contents: Mapping[str, bytes]) -> None:
             )
         for key in keys:
             _assert_literal_credential(values[role][key])
-    assert_vm_storage_environment(contents["compose_main"])
+    assert_vm_block_storage_environment(contents["compose_main"])
     _assert_credential_url(
         values["application"]["DATABASE_URL"],
         schemes=frozenset({"postgres", "postgresql", "postgresql+psycopg"}),
