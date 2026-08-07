@@ -1192,3 +1192,135 @@ Cette fenêtre a délibérément suivi la boucle d'itération courte, sans ferme
 d'ingress ni drainage des writers, là où la note de handoff recommandait la voie
 orchestrée. Le dump et la répétition compensent le risque base ; le risque de
 contention pendant le backfill 077 a été assumé.
+
+## Correctifs jumelés (07/08, soir) — déployé sur `5c1f8838`
+
+Deux correctifs indépendants batchés délibérément pour que les trois images
+atterrissent sur un seul SHA : `b229b4a6` (frontend, déjà sur `origin`) retire
+les libellés de repli marqués tenant de `vp-macro-indicators.component.ts` ;
+`5c1f8838` (backend) corrige la latence de `/api/v1/skills` sur `andritz`.
+
+Contrairement à la fenêtre Flow Builder P0, cette tranche ne porte **ni
+migration ni changement de dépendance** : c'est un pur échange de trois images.
+Les étapes dump et répétition du 07/08 n'ont donc pas lieu d'être, et le
+rollback redevient intégral (voir plus bas).
+
+### Atterrissage
+
+`origin/demo/agentic` avancée en fast-forward de
+`b229b4a6a844143e662dede33de2b7e0600f56a5` vers
+`5c1f8838ac665706dfeecd79cc35ff63f55bb51a`, par bundle Git (accès Bitbucket
+local toujours indisponible, même voie que les 31/07 et 07/08) : bundle borné
+`b229b4a6..`, 4522 octets, `sha256`
+`46e6dc39f8622da09f38b27029a603105f3c44fed6b89ea64fafc9962d961a61` identique
+des deux côtés, `git bundle verify` local et sur la VM, `git fetch` du bundle
+dans `/home/ubuntu/omnirag`, puis push depuis la VM. Un seul commit transféré,
+descendance de `b229b4a6` vérifiée avant push. Aucun `--force`. Le checkout
+live et le worktree de build sont tous deux à ce SHA, porcelain vide.
+
+Avant d'avancer `/home/ubuntu/omnirag`, il a été vérifié que le delta
+`9b0a116a..5c1f8838` ne touche aucun des fichiers montés en bind dans des
+conteneurs vivants (`docker/livekit/agentium-livekit.yaml`,
+`backend/keycloak/realm-export.json`, `backend/keycloak/themes/agentium`) : ces
+montages exposent le checkout en direct, un `checkout` les réécrirait sous les
+conteneurs en cours. Les ancres `backend/faiss_db` (`/dev/sda1`) et
+`backend/data/secure_deposit` (`/dev/sdc`) sont restées en place.
+
+### Images
+
+Rebuild des trois seuls services applicatifs depuis
+`/srv/agentium-data/worktrees/demo-agentic`, `AGENTIUM_IMAGE_REVISION` en 40-hex
+complet, `PIP_INDEX_URL` explicite, `USER_UID/GID` 1000. Double tag habituel
+`5c1f8838ac66` (immuable) + `demo-agentic` (mouvant) :
+
+| Service | ID OCI |
+|---|---|
+| `agentium-backend` | `sha256:e77c1fc802b4ac7aa205e0c330d57fbaed0bb9b8119ba289cb5da708f77ba5cb` |
+| `agentium-worker` | `sha256:84daf3d477e5bb9239c029e799db266d66b28dc2d5a42ae11eeac122b022d459` |
+| `agentium-frontend` | `sha256:5e4c3525a238a6d37d0e374869326536d1647544a5a4a6a89bf1009063b1488a` |
+
+Les trois portent le label `org.opencontainers.image.revision` en 40-hex
+complet, et les deux tags pointent bien le même ID. Les images `9b0a116a25e4`
+sont conservées intactes comme point de rollback. À noter : l'environnement
+figé `compose.effective.env` porte `AGENTIUM_IMAGE_TAG=local` ; le tag doit
+être passé par l'environnement du shell, qui l'emporte sur `--env-file`.
+
+### Vérifications
+
+- `/api/v1/build-info` backend et `build-info.json` frontend : `revision` =
+  `5c1f8838ac665706dfeecd79cc35ff63f55bb51a`, `revision_verified: true` ;
+- Alembic reste à `080_trigger_event_claims`, avant **et** après : aucune
+  commande `migrate` n'a été exécutée dans cette fenêtre ;
+- `storage-check` vert en autonome et rejoué dans `up` ;
+- seuls backend, worker et frontend recréés ; `agentium-sftp`
+  (`eddce4dfca79`, `sha256:af7ef7a7…`) et `agentium-p4-maintenance`
+  (`e60e2745b3a1`, `sha256:54d942c3…`) conservent conteneur, digest épinglé et
+  `StartedAt` (`2026-08-07T07:01:36Z` / `07:01:37Z`) ; PostgreSQL, RabbitMQ,
+  Qdrant, MinIO, Keycloak et LiveKit intouchés (mêmes IDs et mêmes `StartedAt`
+  relevés avant et après) ;
+- drapeau `flow_workbench_v1` absent des 17 workspaces : la tranche Flow
+  Builder reste fermée en production ;
+- logs backend et worker sans `error`/`traceback` après recréation, worker
+  Celery `ready` et reconnecté à RabbitMQ.
+
+### Latence `/api/v1/skills` mesurée en production
+
+Mesures depuis carakai contre `https://agentium.papai.ai`, même principal et
+même méthode avant et après (4 appels avant, 5 après) :
+
+| Workspace | Avant (`9b0a116a25e4`) | Après (`5c1f8838ac66`) |
+|---|---|---|
+| `andritz` | 10,03 – 10,86 s | 2,87 – 3,25 s |
+| `agentium-showcase` (témoin) | 0,25 – 0,45 s | 0,14 – 0,17 s |
+| `sentinel-ci` (témoin) | 0,18 – 0,31 s | 0,13 – 0,15 s |
+
+Soit ~10,5 s → ~3,0 s sur `andritz` (~3,5×), sans régression sur les témoins,
+qui s'améliorent eux aussi légèrement. Mesuré en direct sur la boucle locale
+(`127.0.0.1:8001`, sans TLS ni nginx) : ~2,89 s — l'écart réseau n'est que de
+~0,15 s. Le chiffre côté serveur est donc ~2,9 s, un peu au-dessus des 2,57 s
+du banc pré-commit ; même ordre de grandeur, l'écart n'a pas été instruit.
+
+Sortie **octet pour octet identique** avant/après sur les trois workspaces
+(`sha256` des trois charges utiles inchangés, respectivement
+`0340c1cd…`, `826666f1…`, `dc0da599…`) : l'optimisation ne change pas le
+contrat de l'endpoint.
+
+### Canaris
+
+`run-iteration-canaries.sh` sur carakai en root contre le SHA déployé :
+**6/6 vertes au premier passage**, pas de reprise.
+
+Le checkout source revu du runner protégé est resté à `b0ce840a` (comme lors
+du passage du 07/08). C'est délibéré et c'est ici une propriété utile :
+l'assertion `cross_terms_absent` qu'il porte est la regex inline d'origine
+(`/Octocity|\bOCTAVE\b|\bAsteria\b|\bMeridian\b/i`), écrite **avant** le
+correctif. Le vert obtenu atteste donc du comportement du runtime, pas d'une
+assertion réajustée.
+
+### Dette `cross_terms_absent` (lignes 1161-1170) — résorbée
+
+Le correctif `b229b4a6` supprime le repli marqué tenant. Preuve déterministe,
+indépendante du caractère intermittent du canari : les libellés
+`Octocity market cache` et `Meridian harbor cache` sont présents dans le bundle
+de l'image `9b0a116a25e4` (`chunk-IUV35RMM.js`) et **totalement absents** du
+bundle servi par l'image déployée. Les occurrences résiduelles d'`Octocity` et
+de `Meridian` dans le nouveau bundle sont toutes gardées derrière
+`isOctocityMode` : elles ne peuvent pas s'afficher dans le workspace d'un autre
+tenant, y compris avant réponse de l'agrégat macro.
+
+`b229b4a6` refactore par ailleurs l'assertion des canaris en
+`findSentinelForbiddenPresentationTerms`, sémantiquement identique à la regex
+inline précédente (mêmes quatre termes, même insensibilité à la casse, mêmes
+limites de mots) ; elle renvoie en plus le terme fautif au lieu d'un booléen.
+Cette liste partagée n'entrera en vigueur sur le runner qu'au prochain
+rafraîchissement du checkout revu.
+
+### Rollback
+
+- images : `AGENTIUM_IMAGE_TAG=9b0a116a25e4` puis `up` (les trois images
+  précédentes sont conservées) ;
+- base : **rien à défaire**. Aucune migration, aucun changement de dépendance
+  dans cette tranche ; la base reste en `080_trigger_event_claims` quel que
+  soit le sens du basculement. Contrairement à la fenêtre du 07/08, où un
+  retour d'image aurait laissé un runtime ancien sur un schéma 080, ce rollback
+  est intégral et réellement réversible.
