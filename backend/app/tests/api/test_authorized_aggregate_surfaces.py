@@ -14,6 +14,7 @@ from app.models.skill import Skill
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
+from app.services.iam import decision_plane
 
 
 def _seed(db, attest_authorization_v2):
@@ -258,21 +259,25 @@ def _bulk_seed(db, workspace, user, system, capability, skill, *, runs: int) -> 
     db.commit()
 
 
-def _count_selects(db, fn) -> int:
-    """Run ``fn`` and count SQL statements emitted on the session's engine."""
+def _capture_selects(db, fn) -> list[str]:
+    """Run ``fn`` and return every SELECT emitted on the session's engine."""
     engine = db.get_bind()
-    counter = {"n": 0}
+    statements: list[str] = []
 
     def _on_execute(conn, cursor, statement, parameters, context, executemany):
         if statement.lstrip().upper().startswith("SELECT"):
-            counter["n"] += 1
+            statements.append(statement)
 
     event.listen(engine, "before_cursor_execute", _on_execute)
     try:
         fn()
     finally:
         event.remove(engine, "before_cursor_execute", _on_execute)
-    return counter["n"]
+    return statements
+
+
+def _count_selects(db, fn) -> int:
+    return len(_capture_selects(db, fn))
 
 
 def test_skill_metrics_query_count_is_constant_regardless_of_batch_size(
@@ -311,4 +316,128 @@ def test_skill_metrics_query_count_is_constant_regardless_of_batch_size(
     assert large - small < 30, (
         f"SELECT count grew from {small} to {large} when adding 40 runs/80 "
         "invocations — the /skills aggregate reintroduced a per-row N+1"
+    )
+
+
+# Every JSON payload column on ``SkillInvocation``.  The aggregate reads six
+# scalars per invocation and none of these, but selecting the whole entity
+# still transferred and JSON-decoded all of them.
+INVOCATION_PAYLOAD_COLUMNS = (
+    "input_ref",
+    "output_ref",
+    "metrics",
+    "trace",
+    "execution_snapshot",
+)
+
+
+def test_skill_metrics_never_loads_invocation_payload_columns(
+    db_session,
+    attest_authorization_v2,
+):
+    """A constant SELECT count is not a constant amount of work.
+
+    The aggregate used to fetch every JSON payload column of every invocation
+    just to read ``skill_slug``/``status``/``latency_ms``/``cost``, which on a
+    mature workspace meant decoding hundreds of megabytes of JSON that the
+    response never uses — invisible to a statement counter.  Pin the projection
+    so the payload cannot creep back in, and make sure pruning it was not
+    traded for a per-row deferred column load.
+    """
+    workspace, user, capability, system, skill = _seed(
+        db_session,
+        attest_authorization_v2,
+    )
+    _bulk_seed(
+        db_session,
+        workspace,
+        user,
+        system,
+        capability,
+        skill,
+        runs=40,
+    )
+
+    def _aggregate() -> None:
+        response = _client(db_session, workspace, user).get("/skills")
+        assert response.status_code == 200
+
+    statements = _capture_selects(db_session, _aggregate)
+    touching_invocations = [
+        statement for statement in statements if "skill_invocations" in statement
+    ]
+    assert touching_invocations, "the aggregate no longer queries skill_invocations"
+
+    for statement in touching_invocations:
+        for column in INVOCATION_PAYLOAD_COLUMNS:
+            assert f"skill_invocations.{column}" not in statement, (
+                f"the /skills aggregate loads skill_invocations.{column}; it "
+                "only needs the metric scalars, and fetching the payload "
+                "columns costs hundreds of MB of JSON decoding per request"
+            )
+
+    # A deferred column would be re-fetched one statement per row, trading the
+    # payload cost for the N+1 the sibling test guards against.
+    assert len(touching_invocations) == 1, (
+        f"expected a single skill_invocations SELECT, got "
+        f"{len(touching_invocations)} — a deferred column is being lazy-loaded"
+    )
+
+
+class _CountingManifests(dict):
+    """Count how often the manifest registry is walked for canonicalisation."""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self.walks = 0
+
+    def items(self):
+        self.walks += 1
+        return super().items()
+
+
+def test_skill_metrics_digests_the_iam_policy_once_per_request(
+    db_session,
+    attest_authorization_v2,
+    monkeypatch,
+):
+    """``candidate_config_sha256`` is per-resolution but not per-resource.
+
+    It canonicalises and hashes the whole manifest registry, which the
+    aggregate then redid for every Run and SkillInvocation in the batch —
+    seconds of pure CPU spent re-deriving one identical digest, and invisible
+    to a statement counter because it issues no SQL.  The digest depends only
+    on the workspace policy, so this work must not grow with the batch.
+    """
+    workspace, user, capability, system, skill = _seed(
+        db_session,
+        attest_authorization_v2,
+    )
+    _bulk_seed(
+        db_session,
+        workspace,
+        user,
+        system,
+        capability,
+        skill,
+        runs=40,
+    )
+
+    counting = _CountingManifests(decision_plane.MANIFESTS)
+    monkeypatch.setattr(decision_plane, "MANIFESTS", counting)
+    # The memo is process-global, so an earlier test can leave it warm and drop
+    # the count to zero — satisfying the bound below without ever exercising the
+    # path it guards.  Start cold so the count means what it claims.
+    decision_plane._candidate_config_sha256.cache_clear()
+    response = _client(db_session, workspace, user).get("/skills")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json()["skills"] if item["slug"] == skill.slug)
+    # 42 runs and 82 invocations were authorized, so the digest was needed 124
+    # times.  Deriving it more than once per distinct policy is wasted work.
+    assert row["metrics"]["calls"] == 82
+    assert counting.walks <= 2, (
+        f"the manifest registry was canonicalised {counting.walks} times while "
+        "resolving 124 resources — the /skills aggregate re-derives the IAM "
+        "policy digest per row"
     )

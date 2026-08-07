@@ -34,6 +34,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import lru_cache
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -123,6 +124,28 @@ def candidate_config_sha256(config: Optional[WorkspaceIAMConfig]) -> str:
     """
 
     policy = authorization_v2_config(config)
+    # The digest is a pure function of the three values below plus the static
+    # manifest registry, but serialising every manifest is far from free.  An
+    # aggregate resolves thousands of resources against one config, so key the
+    # cache on the complete input set: the digest stays byte-identical while
+    # the canonical serialisation runs once per distinct policy.
+    return _candidate_config_sha256(
+        json.dumps(
+            {
+                "policy_version": policy.get("policy_version"),
+                "default_mode": policy.get("default_mode", AuthorizationMode.COMPAT.value),
+                "role_flags": effective_role_flags(config),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    )
+
+
+@lru_cache(maxsize=256)
+def _candidate_config_sha256(inputs: str) -> str:
+    payload = json.loads(inputs)
     manifests = []
     for manifest_id, manifest in sorted(MANIFESTS.items()):
         manifests.append(
@@ -143,10 +166,10 @@ def candidate_config_sha256(config: Optional[WorkspaceIAMConfig]) -> str:
     document = {
         "schema_version": 1,
         "authorization_v2": {
-            "policy_version": policy.get("policy_version"),
-            "default_mode": policy.get("default_mode", AuthorizationMode.COMPAT.value),
+            "policy_version": payload["policy_version"],
+            "default_mode": payload["default_mode"],
         },
-        "role_flags": effective_role_flags(config),
+        "role_flags": payload["role_flags"],
         "manifests": manifests,
     }
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str)

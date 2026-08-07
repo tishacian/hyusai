@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import load_only
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
@@ -187,6 +188,21 @@ def _aggregate_metrics(
         .join(Run, Run.id == SkillInvocation.run_id)
         .filter(Run.workspace_id == workspace.id)
         .filter(SkillInvocation.skill_slug.in_(slugs))
+        # This rollup and ``skill_invocation.read`` only read these scalars.
+        # Selecting the whole entity also transfers and JSON-decodes every
+        # payload column (``trace``, ``output_ref``, ``execution_snapshot``,
+        # ...), which reaches hundreds of megabytes on a mature workspace and
+        # dominated the endpoint's latency while contributing nothing.
+        .options(
+            load_only(
+                SkillInvocation.run_id,
+                SkillInvocation.skill_slug,
+                SkillInvocation.status,
+                SkillInvocation.latency_ms,
+                SkillInvocation.cost,
+                SkillInvocation.cost_measured,
+            )
+        )
         .all()
     )
     run_ids = {row.run_id for row in invocations}
