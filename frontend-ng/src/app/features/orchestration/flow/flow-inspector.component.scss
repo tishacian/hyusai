@@ -282,6 +282,21 @@
     font-family: var(--ck-font-mono, monospace);
     line-height: 1.45;
   }
+
+  &--multi {
+    min-height: 104px;
+    padding: 4px;
+
+    option {
+      padding: 6px 8px;
+      border-radius: 3px;
+    }
+
+    option:checked {
+      color: var(--ck-fg-1, #f2f5f8);
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 24%, transparent);
+    }
+  }
 }
 
 .ck-flow-hint {
@@ -289,6 +304,10 @@
   font-size: 11px;
   line-height: 1.5;
   color: var(--ck-fg-3, #8891a0);
+
+  &--error {
+    color: var(--ck-signal-danger, #fb7185);
+  }
 }
 
 .ck-flow-hint__btn {

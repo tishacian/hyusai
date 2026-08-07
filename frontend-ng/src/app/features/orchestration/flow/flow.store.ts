@@ -360,12 +360,20 @@ export const FlowStore = signalStore(
         return id;
       },
 
+      /** Remove a node and every incident edge in one undo frame.
+       *
+       * This is deliberately fail-closed: deleting a Skill, Governance guard
+       * or ordinary task must never create a new executable route implicitly.
+       * An operator can reconnect the remaining nodes as a separate, visible
+       * and independently undoable authoring intent. */
       removeNode(nodeId: string): void {
-        if (!store.nodes().some((n) => n.id === nodeId)) return;
+        if (!store.nodes().some((node) => node.id === nodeId)) return;
         checkpoint();
         patchState(store, {
-          nodes: store.nodes().filter((n) => n.id !== nodeId),
-          edges: store.edges().filter((e) => e.from !== nodeId && e.to !== nodeId),
+          nodes: store.nodes().filter((node) => node.id !== nodeId),
+          edges: store.edges().filter(
+            (edge) => edge.from !== nodeId && edge.to !== nodeId,
+          ),
           selectedNodeId:
             store.selectedNodeId() === nodeId ? null : store.selectedNodeId(),
           dirty: true,

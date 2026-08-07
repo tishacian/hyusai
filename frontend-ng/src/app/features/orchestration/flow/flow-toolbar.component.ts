@@ -30,7 +30,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
   // thus its `serverIssues` signal). The toolbar still injects it here.
   styleUrl: './flow-toolbar.component.scss',
   template: `
-    <div class="ck-flow-toolbar" role="toolbar" aria-label="Flow canvas tools">
+    <div
+      class="ck-flow-toolbar"
+      [class.is-compact]="compact()"
+      role="toolbar"
+      aria-label="Flow canvas tools"
+    >
       <!-- Execution actions are projected here by the shell (run controls)
            so this toolbar stays a thin view-controls component. -->
       <div class="ck-flow-toolbar__group ck-flow-toolbar__group--actions">
@@ -76,6 +81,74 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
       </div>
 
       <div class="ck-flow-toolbar__group">
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          [class.is-active]="paletteOpen() && !focusMode()"
+          [disabled]="!hydrationReady() || focusMode()"
+          (click)="togglePalette.emit()"
+          [attr.aria-pressed]="paletteOpen() && !focusMode()"
+          [title]="paletteOpen() ? 'Collapse node palette' : 'Expand node palette'"
+          aria-label="Toggle node palette"
+        >
+          <app-icon name="panel-left" [size]="14" />
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          [class.is-active]="inspectorOpen() && !focusMode()"
+          [disabled]="!hydrationReady() || focusMode() || (!canInspect() && !inspectorOpen())"
+          (click)="toggleInspector.emit()"
+          [attr.aria-pressed]="inspectorOpen() && !focusMode()"
+          [title]="inspectorOpen() ? 'Collapse node inspector' : 'Expand node inspector'"
+          aria-label="Toggle node inspector"
+        >
+          <app-icon name="panel-right" [size]="14" />
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="focusMode()"
+          [disabled]="!hydrationReady()"
+          (click)="toggleFocus.emit()"
+          [attr.aria-pressed]="focusMode()"
+          [title]="focusMode() ? 'Exit canvas focus / fullscreen' : 'Focus canvas in fullscreen'"
+          aria-label="Toggle canvas focus mode"
+        >
+          <app-icon [name]="focusMode() ? 'x' : 'maximize'" [size]="14" />
+          <span>{{ focusMode() ? 'Exit focus' : 'Focus' }}</span>
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          [class.is-active]="compact()"
+          (click)="toggleCompact.emit()"
+          [attr.aria-pressed]="compact()"
+          [title]="compact() ? 'Expand toolbar labels' : 'Compact toolbar'"
+          aria-label="Toggle compact toolbar"
+        >
+          <app-icon [name]="compact() ? 'chevron-down' : 'chevron-up'" [size]="14" />
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="workbenchOpen()"
+          [disabled]="!hydrationReady() || !workbenchAvailable()"
+          (click)="toggleWorkbench.emit()"
+          [attr.aria-pressed]="workbenchOpen()"
+          [title]="
+            workbenchAvailable()
+              ? 'Test the exact local Flow without saving or publishing it'
+              : 'Promote this scratchpad to a System before running previews'
+          "
+          aria-label="Toggle local Flow workbench"
+        >
+          <app-icon name="message-square" [size]="14" />
+          <span>Workbench</span>
+        </button>
+
+        <span class="ck-flow-toolbar__sep"></span>
+
         <button
           type="button"
           class="ck-flow-toolbar__btn"
@@ -253,6 +326,13 @@ export class FlowToolbarComponent {
   readonly canUndo = input(false);
   readonly canRedo = input(false);
   readonly routingLabel = input('segment');
+  readonly paletteOpen = input(true);
+  readonly inspectorOpen = input(false);
+  readonly canInspect = input(false);
+  readonly focusMode = input(false);
+  readonly compact = input(false);
+  readonly workbenchOpen = input(false);
+  readonly workbenchAvailable = input(false);
   /** The bound System must be authoritatively hydrated before controls can
    * read or mutate its graph. Scratchpad routes explicitly bind this to true. */
   readonly hydrationReady = input(false);
@@ -268,6 +348,11 @@ export class FlowToolbarComponent {
   readonly fit = output<void>();
   readonly autoLayout = output<void>();
   readonly cycleRouting = output<void>();
+  readonly togglePalette = output<void>();
+  readonly toggleInspector = output<void>();
+  readonly toggleFocus = output<void>();
+  readonly toggleCompact = output<void>();
+  readonly toggleWorkbench = output<void>();
   readonly clear = output<void>();
 
   /** Read an imported JSON file and round-trip it through the store. */

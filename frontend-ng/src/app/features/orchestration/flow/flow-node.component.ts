@@ -32,7 +32,9 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { FlowNodeView } from './flow-foblex.adapter';
 import { FlowManifestService } from './flow-manifest.service';
+import { FlowPersistenceService } from './flow-persistence.service';
 import { FlowRunService } from './flow-run.service';
+import { FlowStore } from './flow.store';
 
 type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
 
@@ -74,6 +76,7 @@ interface RuntimeBadge {
           ></button>
         }
         <span class="ck-flow-node__pill">{{ typeLabel() }}</span>
+        <span class="ck-flow-node__spacer"></span>
         @if (badge(); as b) {
           <span
             class="ck-flow-node__badge"
@@ -84,6 +87,18 @@ interface RuntimeBadge {
             {{ b.label }}
           </span>
         }
+        <button
+          type="button"
+          class="ck-flow-node__delete"
+          (click)="onDeleteNode(view().id, $event)"
+          (mousedown)="$event.stopPropagation()"
+          [disabled]="editingLocked()"
+          [attr.aria-label]="'Delete node ' + label()"
+          aria-keyshortcuts="Delete Backspace"
+          [title]="'Delete node ' + label() + ' (Delete/Backspace)'"
+        >
+          <app-icon name="trash-2" [size]="12" />
+        </button>
       </header>
 
       <div class="ck-flow-node__title">
@@ -121,6 +136,8 @@ interface RuntimeBadge {
 })
 export class FlowNodeComponent {
   private readonly manifest = inject(FlowManifestService);
+  private readonly store = inject(FlowStore);
+  private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: present whenever the node renders inside the builder shell. */
   private readonly run = inject(FlowRunService, { optional: true });
 
@@ -134,11 +151,19 @@ export class FlowNodeComponent {
   readonly breakpoint = computed(() => this.run?.isBreakpoint(this.node().id) ?? false);
   /** Pulse overlay while this node is the one currently executing / paused. */
   readonly runActive = computed(() => this.run?.isActiveNode(this.node().id) ?? false);
+  readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
 
   onToggleBreakpoint(event: MouseEvent): void {
     event.stopPropagation();
     event.preventDefault();
     this.run?.toggleBreakpoint(this.node().id);
+  }
+
+  onDeleteNode(nodeId: string, event: MouseEvent): void {
+    event.stopPropagation();
+    event.preventDefault();
+    if (this.editingLocked()) return;
+    this.store.removeNode(nodeId);
   }
 
   readonly kind = computed(() => this.node().kind ?? 'task');

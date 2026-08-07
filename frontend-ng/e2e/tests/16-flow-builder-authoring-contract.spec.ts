@@ -14,6 +14,7 @@ const WORKSPACE_SLUG = 'flow-contract';
 const WORKSPACE_ID = 'workspace-flow-contract';
 const SYSTEM_ID = 'system-flow-contract-clone';
 const RUN_ID = 'run-flow-contract';
+const WORKBENCH_RUN_ID = 'run-flow-contract-workbench';
 const TOKEN = 'Bearer local-flow-contract-token';
 
 const INITIAL_HASH = '1'.repeat(64);
@@ -25,7 +26,7 @@ const EDITED_LABEL = 'Contract source edited';
 type JsonRecord = Record<string, unknown>;
 
 interface ContractCall {
-  step: 'clone' | 'save' | 'execute' | 'restore';
+  step: 'clone' | 'preview' | 'save' | 'execute' | 'restore';
   method: string;
   path: string;
   authorization: string | null;
@@ -47,7 +48,18 @@ const initialFlow = {
       position: { x: 120, y: 180 },
       inputs: [],
       outputs: [{ name: 'payload', schema: 'object' }],
-      config: { ingress: { kind: 'manual' } },
+      config: {
+        ingress: { kind: 'manual' },
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            ticket: { type: 'string' },
+          },
+          required: ['query'],
+          additionalProperties: false,
+        },
+      },
       data: { description: 'Local authoring contract input' },
     },
     {
@@ -191,6 +203,11 @@ test('clone → edit → validate → save → input → execute → result → 
       flow_definition: clone(initialFlow),
       release_kind: 'standard',
       execution_contract_ready: true,
+      execution_contract: {
+        schema_version: 1,
+        contract_sha256: 'contract-published-v2',
+        runtime_mode: 'dag_strict',
+      },
       published_by: 'flow.contract@example.test',
       published_at: '2026-08-06T07:00:00Z',
     },
@@ -365,6 +382,33 @@ test('clone → edit → validate → save → input → execute → result → 
         updated_at: '2026-08-06T08:08:00Z',
       });
     }
+    if (path === `/systems/${SYSTEM_ID}/flow-workbench/preview-runs` && method === 'POST') {
+      const body = requestBody(request);
+      recordMutation('preview', request, path, body);
+      expect(sourceLabel(body['flow_definition'])).toBe(EDITED_LABEL);
+      expect(body['expected_flow_sha256']).toBe(EDITED_HASH);
+      expect(body['acknowledge_real_side_effects']).toBe(true);
+      return json(route, {
+        id: WORKBENCH_RUN_ID,
+        system_id: SYSTEM_ID,
+        status: 'pending',
+        execution_surface: 'builder_preview',
+        flow_sha256: EDITED_HASH,
+        source_flow_sha256: EDITED_HASH,
+        runtime_mode: 'dag_strict',
+        input_ref: {
+          ...(body['input_ref'] as JsonRecord),
+          execution: {
+            execution_surface: 'builder_preview',
+            flow_sha256: EDITED_HASH,
+            source_flow_sha256: EDITED_HASH,
+            runtime_mode: 'dag_strict',
+          },
+        },
+        output_ref: {},
+        checkpoints: [],
+      }, 201);
+    }
     if (path === `/systems/${SYSTEM_ID}/flow-draft/test-runs` && method === 'POST') {
       const body = requestBody(request);
       recordMutation('execute', request, path, body);
@@ -398,6 +442,22 @@ test('clone → edit → validate → save → input → execute → result → 
         ].join('\n'),
       });
     }
+    if (path === `/runs/${WORKBENCH_RUN_ID}` && method === 'GET') {
+      return json(route, {
+        id: WORKBENCH_RUN_ID,
+        system_id: SYSTEM_ID,
+        status: 'completed',
+        trigger: 'builder_preview',
+        input_ref: {
+          query: 'Preview this unsaved edit',
+          ticket: 'INC-LOCAL',
+        },
+        output_ref: { answer: 'Unsaved preview result', local_snapshot: true },
+        checkpoints: [],
+        started_at: '2026-08-06T08:07:00Z',
+        completed_at: '2026-08-06T08:07:01Z',
+      });
+    }
     if (path === `/runs/${RUN_ID}` && method === 'GET') {
       if (!events.includes('api:result')) events.push('api:result');
       return json(route, {
@@ -420,25 +480,17 @@ test('clone → edit → validate → save → input → execute → result → 
     }
     if (path === `/systems/${SYSTEM_ID}/versions` && method === 'GET') {
       return json(route, {
-        total: 2,
+        total: 1,
         limit: 25,
         offset: 0,
         versions: [
           {
-            id: 'version-draft-r8',
-            system_id: SYSTEM_ID,
-            version_number: 8,
-            message: 'Edited draft',
-            rolled_back_from_id: null,
-            created_at: '2026-08-06T08:08:00Z',
-            created_by: 'flow.contract@example.test',
-            node_count: 2,
-            edge_count: 1,
-          },
-          {
             id: PUBLISHED_VERSION_ID,
             system_id: SYSTEM_ID,
             version_number: 2,
+            flow_sha256: INITIAL_HASH,
+            release_kind: 'publish',
+            draft_revision: 2,
             message: 'Published baseline',
             rolled_back_from_id: null,
             created_at: '2026-08-06T07:00:00Z',
@@ -455,11 +507,38 @@ test('clone → edit → validate → save → input → execute → result → 
         system_id: SYSTEM_ID,
         workspace_id: WORKSPACE_ID,
         version_number: 2,
+        flow_sha256: INITIAL_HASH,
+        release_kind: 'publish',
+        draft_revision: 2,
         message: 'Published baseline',
         rolled_back_from_id: null,
         created_at: '2026-08-06T07:00:00Z',
         created_by: 'flow.contract@example.test',
         flow_definition: clone(initialFlow),
+        execution_contract: {
+          schema_version: 1,
+          contract_sha256: 'contract-published-v2',
+          runtime_mode: 'dag_strict',
+        },
+      });
+    }
+    if (path === `/systems/${SYSTEM_ID}/flow-diff` && method === 'GET') {
+      expect(url.searchParams.get('base')).toBe('version:2');
+      expect(url.searchParams.get('target')).toBe('draft');
+      events.push('api:version-preview');
+      return json(route, {
+        base: { identity: 'version:2', flow_sha256: INITIAL_HASH },
+        target: { identity: 'draft:8', flow_sha256: EDITED_HASH },
+        summary: { breaking: 0, behavioral: 0, presentation: 1, total: 1 },
+        changes: [
+          {
+            category: 'presentation',
+            impact: 'presentation',
+            subject: 'source.contract',
+            path: 'nodes/source.contract/presentation',
+            description: 'Source label changed.',
+          },
+        ],
       });
     }
     if (
@@ -529,12 +608,38 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect.poll(() => events.includes('api:validate:initial')).toBe(true);
 
+  // The autosave hold spans the Workbench panel's lifetime only, so the panel
+  // must be open before the edit. Editing first lets the 1.2s autosave debounce
+  // persist the draft while no hold exists yet, which the panel cannot undo and
+  // which would add a `save` mutation ahead of the preview.
+  await page.getByRole('button', { name: 'Toggle local Flow workbench' }).click();
+  const workbench = page.getByRole('region', { name: 'Local Flow workbench', exact: true });
+  await expect(workbench).toBeVisible();
+
   await page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL }).click();
   const inspector = page.locator('app-flow-inspector');
   await expect(inspector).toBeVisible();
   await inspector.getByRole('textbox', { name: 'Label' }).fill(EDITED_LABEL);
   events.push('ui:edit');
   await expect(page.locator('app-flow-node').filter({ hasText: EDITED_LABEL })).toBeVisible();
+
+  // The in-builder Workbench must execute the exact dirty snapshot without
+  // saving the draft or moving the published pointer first.
+  await workbench.getByRole('textbox', { name: 'Additional input_ref (JSON)' }).fill(
+    JSON.stringify({ ticket: 'INC-LOCAL' }),
+  );
+  await workbench.getByRole('textbox', { name: 'Message' }).fill('Preview this unsaved edit');
+  await workbench.getByRole('checkbox', {
+    name: /I understand this preview invokes real Skills/i,
+  }).check();
+  events.push('ui:preview');
+  await workbench.getByRole('button', { name: 'Send preview' }).click();
+  await expect(workbench).toContainText('Unsaved preview result');
+  await expect(workbench).toContainText('local_snapshot');
+  events.push('ui:preview-result');
+  await expect(page.locator('app-flow-toolbar .ck-flow-toolbar__state')).toContainText('Unsaved');
+  expect(draftRevision).toBe(7);
+  expect(draftHash).toBe(INITIAL_HASH);
 
   const validateButton = page.getByRole('button', { name: 'Validate current flow' });
   await expect(validateButton).toBeEnabled();
@@ -569,11 +674,16 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.getByText('Flow history')).toBeVisible();
   const versionTwo = page.locator('app-flow-versions li').filter({ hasText: 'v2' });
   await expect(versionTwo).toBeVisible();
+  await expect(versionTwo).toContainText('PUBLISHED');
   events.push('ui:restore');
   await versionTwo.getByRole('button', { name: /Roll back/i }).click();
   const restoreDialog = page.getByRole('dialog', { name: 'Confirm rollback' });
   await expect(restoreDialog).toContainText('published pointer');
-  await restoreDialog.getByRole('button', { name: 'Restore draft' }).click();
+  await expect(restoreDialog).toContainText('Exact preview ready');
+  await expect(restoreDialog).toContainText('1 presentation');
+  const restoreButton = restoreDialog.getByRole('button', { name: 'Restore draft' });
+  await expect(restoreButton).toBeEnabled();
+  await restoreButton.click();
 
   await expect(
     page.locator('.flow-builder__publication-boundary').getByText('Server Draft r9', { exact: true }),
@@ -589,9 +699,16 @@ test('clone → edit → validate → save → input → execute → result → 
     request.startsWith('GET https://fonts.googleapis.com/')
     || request.startsWith('GET https://fonts.gstatic.com/')
   ))).toBe(true);
-  expect(mutations.map((call) => call.step)).toEqual(['clone', 'save', 'execute', 'restore']);
+  expect(mutations.map((call) => call.step)).toEqual([
+    'clone',
+    'preview',
+    'save',
+    'execute',
+    'restore',
+  ]);
   expect(mutations.map((call) => `${call.method} ${call.path}`)).toEqual([
     'POST /systems',
+    `POST /systems/${SYSTEM_ID}/flow-workbench/preview-runs`,
     `PUT /systems/${SYSTEM_ID}/flow-draft`,
     `POST /systems/${SYSTEM_ID}/flow-draft/test-runs`,
     `POST /systems/${SYSTEM_ID}/flow-draft/restore/${PUBLISHED_VERSION_ID}`,
@@ -601,28 +718,43 @@ test('clone → edit → validate → save → input → execute → result → 
     expect(mutation.workspace, mutation.step).toBe(WORKSPACE_SLUG);
   }
 
-  expect(mutations[1].body).toMatchObject({ expected_revision: 7 });
+  expect(mutations[1].body).toMatchObject({
+    acknowledge_real_side_effects: true,
+    expected_flow_sha256: EDITED_HASH,
+    ingress_id: 'source.contract',
+    kind: 'manual',
+    input_ref: {
+      query: 'Preview this unsaved edit',
+      ticket: 'INC-LOCAL',
+    },
+  });
   expect(sourceLabel(mutations[1].body['flow_definition'])).toBe(EDITED_LABEL);
-  expect(mutations[2].body).toEqual({
+  expect(mutations[2].body).toMatchObject({ expected_revision: 7 });
+  expect(sourceLabel(mutations[2].body['flow_definition'])).toBe(EDITED_LABEL);
+  expect(mutations[3].body).toEqual({
     input_ref: { case: { id: 'INC-42' }, priority: 'high' },
     expected_draft_revision: 8,
     expected_flow_sha256: EDITED_HASH,
     ingress_id: 'source.contract',
     kind: 'manual',
   });
-  expect(mutations[3].body).toEqual({ expected_revision: 8 });
+  expect(mutations[4].body).toEqual({ expected_revision: 8 });
 
   assertOrdered(events, [
     'api:clone',
     'api:hydrate:initial',
     'api:validate:initial',
     'ui:edit',
+    'ui:preview',
     'api:validate:edited',
+    'api:preview',
+    'ui:preview-result',
     'api:save',
     'ui:input',
     'api:execute',
     'api:result',
     'ui:restore',
+    'api:version-preview',
     'api:restore',
     'api:hydrate:restored',
     'api:validate:restored',

@@ -22,6 +22,22 @@ export type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose
 /** Which palette group an entry belongs to. */
 export type PaletteGroup = 'skill' | 'primitive';
 
+/** Product taxonomy for Skills in the Flow Builder palette. Keep this order:
+ * it is both the visual section order and the deterministic tie-breaker used
+ * by the compatibility classifier for catalogs that predate `category`. */
+export const SKILL_PALETTE_CATEGORIES = [
+  'LLM',
+  'Retrieval',
+  'Connections',
+  'Ingestion',
+  'Voice',
+  'Governance',
+] as const;
+
+export type SkillPaletteCategory = (typeof SKILL_PALETTE_CATEGORIES)[number];
+export type SkillPaletteSection = SkillPaletteCategory | 'Other';
+export type SkillRuntimeStatus = NonNullable<Skill['runtime_status']>;
+
 /** A palette entry. `paletteItemToNode()` yields the node for `store.addNode`. */
 export interface PaletteItem {
   /** Canonical node `type`. */
@@ -47,6 +63,12 @@ export interface PaletteItem {
   data?: Record<string, unknown>;
   /** Short status tag rendered in the palette (e.g. a skill binding state). */
   badge?: string;
+  /** Palette presentation taxonomy. Catalog Skills also persist the same
+   * value under `config.skill_category` so inspectors/runtime adapters do not
+   * need to re-infer product semantics from a mutable slug. */
+  skillCategory?: SkillPaletteSection;
+  /** Palette-only runtime state rendered as an explicit status badge. */
+  runtimeStatus?: SkillRuntimeStatus;
 }
 
 /** Convert a palette item into a node payload for the store. */
@@ -209,6 +231,105 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const CATEGORY_ALIASES: ReadonlyArray<readonly [SkillPaletteCategory, RegExp]> = [
+  ['LLM', /^(?:llm|language[ _-]?model|generation|generative)$/i],
+  ['Retrieval', /^(?:retrieval|rag|search|knowledge)$/i],
+  [
+    'Connections',
+    /^(?:connection|connections|connector|connectors|integration|integrations|tool|tools)$/i,
+  ],
+  ['Ingestion', /^(?:ingestion|ingest|document[ _-]?processing)$/i],
+  ['Voice', /^(?:voice|speech|audio)$/i],
+  [
+    'Governance',
+    /^(?:governance|policy|guardrail|guardrails|safety|compliance|evaluation)$/i,
+  ],
+];
+
+const CATEGORY_HEURISTICS: ReadonlyArray<readonly [SkillPaletteCategory, RegExp]> = [
+  [
+    'LLM',
+    /\b(?:llm|language model|model|generat\w*|summari\w*|synthesi\w*|answer\w*|draft\w*|completion|prompt|planner|planning|explain\w*|translat\w*|vision)\b/i,
+  ],
+  [
+    'Retrieval',
+    /\b(?:retriev\w*|rag|search\w*|lookup|vector\w*|embedd\w*|knowledge)\b/i,
+  ],
+  [
+    'Connections',
+    /\b(?:connect\w*|integration|webhook|http|api|sftp|email|calendar|slack|teams|jira|salesforce|sharepoint|tool)\b/i,
+  ],
+  [
+    'Ingestion',
+    /\b(?:ingest\w*|import\w*|upload\w*|extract\w*|pars\w*|chunk\w*|ocr|document processing)\b/i,
+  ],
+  ['Voice', /\b(?:voice|speech|audio|transcri\w*|tts|stt|livekit|speak\w*)\b/i],
+  [
+    'Governance',
+    /\b(?:govern\w*|policy|guard\w*|safe\w*|moderat\w*|complian\w*|audit\w*|validat\w*|evaluation|eval|score|pii|approval|risk)\b/i,
+  ],
+];
+
+function capabilityTerms(value: Skill['capabilities']): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (!value || typeof value !== 'object') return [];
+  const terms: string[] = [];
+  for (const [key, raw] of Object.entries(value)) {
+    terms.push(key);
+    if (typeof raw === 'string') terms.push(raw);
+    if (Array.isArray(raw)) {
+      terms.push(...raw.filter((item): item is string => typeof item === 'string'));
+    }
+  }
+  return terms;
+}
+
+function canonicalCategory(value: string | null | undefined): SkillPaletteCategory | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  for (const [category, pattern] of CATEGORY_ALIASES) {
+    if (pattern.test(normalized)) return category;
+  }
+  return null;
+}
+
+/**
+ * Resolve a Skill to the six-section product taxonomy. Explicit catalog
+ * metadata wins. Older catalogs are classified from stable public fields in
+ * a fixed rule order; genuinely unknown skills stay visible under `Other`.
+ */
+export function skillPaletteCategory(skill: Skill): SkillPaletteSection {
+  const explicit = canonicalCategory(skill.category);
+  if (explicit) return explicit;
+
+  const capabilities = capabilityTerms(skill.capabilities);
+  for (const term of capabilities) {
+    const category = canonicalCategory(term);
+    if (category) return category;
+  }
+
+  const typeCategory = canonicalCategory(skill.type);
+  if (typeCategory) return typeCategory;
+
+  const haystack = [
+    skill.type,
+    skill.slug,
+    skill.name,
+    skill.provider,
+    skill.description,
+    ...capabilities,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .replace(/[_-]+/g, ' ');
+  for (const [category, pattern] of CATEGORY_HEURISTICS) {
+    if (pattern.test(haystack)) return category;
+  }
+  return 'Other';
+}
+
 /** A type-appropriate empty value, used to seed required params with no default. */
 function zeroForType(type: string): unknown {
   switch (type) {
@@ -320,10 +441,12 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   const bound = status === 'bound';
   const description = (skill.description ?? '').trim() || skill.slug;
   const params = defaultParamsFromSchema(skill.input_schema);
+  const category = skillPaletteCategory(skill);
 
   const config: Record<string, unknown> = {
     skill_slug: skill.slug,
     skill_id: skill.id,
+    skill_category: category,
     inputs_map: {},
     outputs_map: {},
   };
@@ -346,6 +469,8 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
     config,
     data: { description, runtime_status: status },
     badge: status.replace(/_/g, ' '),
+    skillCategory: category,
+    runtimeStatus: status,
   };
 }
 

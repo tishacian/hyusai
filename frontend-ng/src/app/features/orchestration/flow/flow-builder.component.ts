@@ -14,12 +14,14 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
   signal,
   viewChild,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, map, of, switchMap, throwError } from 'rxjs';
@@ -49,6 +51,8 @@ import { FlowManifestStripComponent } from './flow-manifest-strip.component';
 import { FlowValidationStripComponent } from './flow-validation-strip.component';
 import { FlowValidationService } from './flow-validation.service';
 import { FlowPublicationPanelComponent } from './flow-publication-panel.component';
+import { FlowWorkbenchPanelComponent } from './flow-workbench-panel.component';
+import { FlowWorkbenchService } from './flow-workbench.service';
 import {
   type ParsedConnector,
 } from './flow-foblex.adapter';
@@ -68,7 +72,13 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   // FlowPersistenceService lives here (not the toolbar) so the toolbar and the
   // validation strip share one instance — the strip reads its `serverIssues`.
-  providers: [FlowStore, FlowRunService, FlowPersistenceService, FlowValidationService],
+  providers: [
+    FlowStore,
+    FlowRunService,
+    FlowWorkbenchService,
+    FlowPersistenceService,
+    FlowValidationService,
+  ],
   imports: [
     RouterLink,
     FlowCanvasComponent,
@@ -81,11 +91,16 @@ import {
     FlowManifestStripComponent,
     FlowValidationStripComponent,
     FlowPublicationPanelComponent,
+    FlowWorkbenchPanelComponent,
     ConfirmDialogComponent,
   ],
   styleUrl: './flow-builder.component.scss',
   template: `
-    <section class="flow-builder">
+    <section
+      #builderRoot
+      class="flow-builder"
+      [class.is-focus-mode]="focusMode()"
+    >
       <header class="flow-builder__header">
         <div class="flow-builder__crumbs">
           <a routerLink="/systems" class="flow-builder__crumb">Systems</a>
@@ -109,6 +124,13 @@ import {
         [canUndo]="store.canUndo()"
         [canRedo]="store.canRedo()"
         [routingLabel]="routingLabel()"
+        [paletteOpen]="paletteOpen()"
+        [inspectorOpen]="inspectorOpen()"
+        [canInspect]="!!store.selectedNode()"
+        [focusMode]="focusMode()"
+        [compact]="toolbarCompact()"
+        [workbenchOpen]="workbenchOpen()"
+        [workbenchAvailable]="!!systemId()"
         [hydrationReady]="persistence.hydrationReady()"
         (undo)="store.undo()"
         (redo)="store.redo()"
@@ -117,6 +139,11 @@ import {
         (fit)="canvas()?.fit()"
         (autoLayout)="canvas()?.autoLayout()"
         (cycleRouting)="onCycleRouting()"
+        (togglePalette)="togglePalette()"
+        (toggleInspector)="toggleInspector()"
+        (toggleFocus)="toggleCanvasFocus()"
+        (toggleCompact)="toggleToolbarCompact()"
+        (toggleWorkbench)="toggleWorkbench()"
         (clear)="requestClear()"
       >
         @if (persistence.hydrationReady()) {
@@ -169,27 +196,39 @@ import {
 
         <div
           class="flow-builder__body"
-          [class.is-inspecting]="inspectorOpen()"
+          [class.has-palette]="paletteOpen() && !focusMode()"
+          [class.is-inspecting]="inspectorOpen() && !focusMode()"
+          [class.is-focus-mode]="focusMode()"
           [class.is-locked]="persistence.actionsDisabled()"
         >
-          <app-flow-palette
-            class="flow-builder__palette"
-            [items]="palette"
-            (add)="onAddNode($event)"
-          />
+          @if (paletteOpen() && !focusMode()) {
+            <app-flow-palette
+              class="flow-builder__palette"
+              [items]="palette"
+              (add)="onAddNode($event)"
+            />
+          }
 
           <div class="flow-builder__canvas">
             <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
           </div>
 
-          @if (inspectorOpen()) {
+          @if (inspectorOpen() && !focusMode()) {
             <app-flow-inspector
               class="flow-builder__inspector"
               [systemId]="systemId()"
-              (close)="inspectorOpen.set(false)"
+              (close)="closeInspector()"
             />
           }
         </div>
+
+        @if (workbenchOpen()) {
+          <app-flow-workbench-panel
+            class="flow-builder__workbench"
+            [open]="true"
+            (close)="closeWorkbench()"
+          />
+        }
       } @else {
         <div class="flow-builder__load-state" role="status">
           @if (loadState() === 'loading') {
@@ -294,6 +333,7 @@ export class FlowBuilderComponent {
   protected readonly run = inject(FlowRunService);
   /** Provided here (see decorator) so the toolbar + validation strip share it. */
   protected readonly persistence = inject(FlowPersistenceService);
+  protected readonly workbench = inject(FlowWorkbenchService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly catalog = inject(FlowCatalogService);
   private readonly route = inject(ActivatedRoute);
@@ -302,13 +342,19 @@ export class FlowBuilderComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspace = inject(WorkspaceService);
   private readonly validation = inject(FlowValidationService);
+  private readonly document = inject(DOCUMENT);
 
   protected readonly canvas = viewChild(FlowCanvasComponent);
+  protected readonly builderRoot = viewChild<ElementRef<HTMLElement>>('builderRoot');
 
   protected readonly palette: PaletteItem[] = DEFAULT_PALETTE;
   protected readonly systemId = signal<string | null>(null);
   protected readonly system = signal<System | null>(null);
+  protected readonly paletteOpen = signal(true);
   protected readonly inspectorOpen = signal(false);
+  protected readonly focusMode = signal(false);
+  protected readonly toolbarCompact = signal(false);
+  protected readonly workbenchOpen = signal(false);
   protected readonly versionsOpen = signal(false);
   protected readonly routingLabel = signal('segment');
   protected readonly loadState = signal<'loading' | 'ready' | 'error'>('loading');
@@ -322,6 +368,8 @@ export class FlowBuilderComponent {
       `This will remove ${this.store.nodeCount()} nodes and ${this.store.edgeCount()} edges locally. ` +
       'Autosave will pause; the persisted Flow is unchanged until you explicitly save.',
   );
+  private ownsNativeFullscreen = false;
+  private lastInspectorSelectionId: string | null = null;
 
   /** On-handle insertion: open menu state (connector + drop anchor + schema). */
   protected readonly handleMenu = signal<{
@@ -343,9 +391,33 @@ export class FlowBuilderComponent {
   });
 
   constructor() {
-    // Deterministic, single-frame: opening the inspector follows selection.
+    // Opening follows selection identity, not node object mutations. This
+    // lets an operator collapse the inspector and keep it closed while moving
+    // or editing that same selected node; selecting another node reopens it.
     effect(() => {
-      if (this.store.selectedNode()) this.inspectorOpen.set(true);
+      const selectedId = this.store.selectedNodeId();
+      if (selectedId === this.lastInspectorSelectionId) return;
+      this.lastInspectorSelectionId = selectedId;
+      this.inspectorOpen.set(!!selectedId);
+    });
+
+    // Escape exits native fullscreen. Mirror that browser-owned transition
+    // into the CSS fallback state so the toolbar and side panels recover too.
+    const onFullscreenChange = (): void => {
+      const root = this.builderRoot()?.nativeElement;
+      const ownsFullscreen = !!root && this.document.fullscreenElement === root;
+      if (ownsFullscreen) {
+        this.ownsNativeFullscreen = true;
+        this.focusMode.set(true);
+      } else if (this.ownsNativeFullscreen) {
+        this.ownsNativeFullscreen = false;
+        this.focusMode.set(false);
+        this.scheduleCanvasFit();
+      }
+    };
+    this.document.addEventListener('fullscreenchange', onFullscreenChange);
+    this.destroyRef.onDestroy(() => {
+      this.document.removeEventListener('fullscreenchange', onFullscreenChange);
     });
 
     // Server diagnostics follow the exact live editor revision. The sidecar
@@ -365,7 +437,11 @@ export class FlowBuilderComponent {
     // Bind the run orchestrator to the route's System (or scratchpad) so the
     // projected controls / terminal / nodes all gate + execute consistently.
     this.run.bindSystem(sid);
-    this.destroyRef.onDestroy(() => this.run.dispose());
+    this.workbench.bindSystem(sid);
+    this.destroyRef.onDestroy(() => {
+      this.persistence.setWorkbenchAutosaveHold(false);
+      this.run.dispose();
+    });
 
     // Single, shell-owned manifest fetch for the whole builder. Children
     // (node badges, inspector fields) consume the shared service reactively
@@ -469,6 +545,99 @@ export class FlowBuilderComponent {
   protected confirmClear(): void {
     this.clearConfirmationOpen.set(false);
     this.persistence.confirmClear();
+  }
+
+  protected togglePalette(): void {
+    if (this.focusMode()) return;
+    this.paletteOpen.update((open) => !open);
+    this.scheduleCanvasFit();
+  }
+
+  protected toggleInspector(): void {
+    if (this.focusMode()) return;
+    if (this.inspectorOpen()) {
+      this.closeInspector();
+      return;
+    }
+    if (this.store.selectedNode()) {
+      this.inspectorOpen.set(true);
+      this.scheduleCanvasFit();
+    }
+  }
+
+  /** Closing is view-only: the graph selection remains authoritative for
+   * keyboard actions and toolbar reopening. Selecting another node changes
+   * `selectedNode()` and the constructor effect reopens the inspector. */
+  protected closeInspector(): void {
+    this.inspectorOpen.set(false);
+    this.scheduleCanvasFit();
+  }
+
+  protected toggleToolbarCompact(): void {
+    this.toolbarCompact.update((compact) => !compact);
+    this.scheduleCanvasFit();
+  }
+
+  protected toggleWorkbench(): void {
+    if (!this.systemId() || !this.persistence.hydrationReady()) return;
+    const open = !this.workbenchOpen();
+    this.workbenchOpen.set(open);
+    this.persistence.setWorkbenchAutosaveHold(open);
+    if (open) this.run.terminalOpen.set(false);
+    this.scheduleCanvasFit();
+  }
+
+  protected closeWorkbench(): void {
+    if (!this.workbenchOpen()) return;
+    this.workbenchOpen.set(false);
+    this.persistence.setWorkbenchAutosaveHold(false);
+    this.scheduleCanvasFit();
+  }
+
+  /** Enter browser fullscreen when permitted; the fixed-position CSS class is
+   * the safe fallback when the API is missing or denied by browser policy. */
+  protected async toggleCanvasFocus(): Promise<void> {
+    const root = this.builderRoot()?.nativeElement;
+    if (!root) return;
+
+    if (this.focusMode()) {
+      if (
+        this.document.fullscreenElement === root &&
+        typeof this.document.exitFullscreen === 'function'
+      ) {
+        try {
+          await this.document.exitFullscreen();
+        } catch {
+          if (this.document.fullscreenElement === root) return;
+        }
+      }
+      this.ownsNativeFullscreen = false;
+      this.focusMode.set(false);
+      this.scheduleCanvasFit();
+      return;
+    }
+
+    this.handleMenu.set(null);
+    this.focusMode.set(true);
+    this.scheduleCanvasFit();
+    if (typeof root.requestFullscreen !== 'function') return;
+    try {
+      await root.requestFullscreen();
+      this.ownsNativeFullscreen = this.document.fullscreenElement === root;
+    } catch {
+      // Browser policy may deny fullscreen (embedded window, lost user
+      // gesture). Keep CSS focus mode active as the explicit fallback.
+      this.ownsNativeFullscreen = false;
+    }
+  }
+
+  private scheduleCanvasFit(): void {
+    const view = this.document.defaultView;
+    if (view) {
+      view.requestAnimationFrame(() => this.canvas()?.fit());
+      return;
+    }
+    queueMicrotask(() => this.canvas()?.fit());
   }
 
   protected reloadAuthoritativeSystem(): void {

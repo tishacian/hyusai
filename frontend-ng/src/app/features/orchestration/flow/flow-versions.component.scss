@@ -56,6 +56,18 @@
   line-height: 1.5;
 }
 
+.ck-vers__error,
+.ck-vers__preview-error {
+  margin: 6px 0 0;
+  padding: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  border-radius: var(--ck-radius-sm, 4px);
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--ck-signal-neg, #f87171);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .ck-vers__list {
   list-style: none;
   margin: 0;
@@ -233,6 +245,31 @@
     color: var(--ck-signal-cool, #7dd3fc);
     font-family: var(--ck-font-mono, monospace);
   }
+}
+
+.ck-vers__preview-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px;
+  border-radius: var(--ck-radius-sm, 4px);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-3, #8891a0);
+  font-size: 11px;
+  line-height: 1.45;
+
+  &[data-tone='ready'] {
+    border-color: rgba(52, 211, 153, 0.35);
+    color: var(--ck-signal-pos, #34d399);
+  }
+}
+
+.ck-vers__preview-state--error {
+  border-color: rgba(248, 113, 113, 0.38);
+  color: var(--ck-signal-neg, #f87171);
 }
 
 .ck-vers__confirm-input {

@@ -162,6 +162,43 @@
   color: var(--ck-fg-2, #c8cdd4);
 }
 
+.ck-flow-node__spacer {
+  flex: 1 1 auto;
+}
+
+.ck-flow-node__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  background: transparent;
+  color: var(--ck-fg-3, #8891a0);
+  cursor: pointer;
+  transition:
+    color var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    border-color var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    background var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+
+  &:hover:not(:disabled) {
+    color: var(--ck-signal-neg, #ef5a6f);
+    border-color: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 42%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 12%, transparent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 1px;
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+
 .ck-flow-node__badge {
   font: 600 8px / 1 var(--ck-font-mono, monospace);
   letter-spacing: 0.1em;

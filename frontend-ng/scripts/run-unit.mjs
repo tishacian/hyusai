@@ -27,6 +27,10 @@ const stub = join(here, 'ng-core.stub.mjs');
 const pureSpecs = [
   'src/app/features/orchestration/flow/flow-foblex.adapter.spec.ts',
   'src/app/features/orchestration/flow/flow-preconnect.spec.ts',
+  'src/app/features/orchestration/flow/flow-builder-ui-contract.spec.ts',
+  'src/app/features/orchestration/flow/flow-keyboard-target.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow-semantic-diff.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow.types.spec.ts',
   'src/app/features/orchestration/flow/flow-manifest-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-variable.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.vm.spec.ts',
@@ -60,6 +64,8 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/core/canonical-api-skills.spec.ts',
+  'src/app/core/canonical-api-versions.spec.ts',
   'src/app/core/api.service.spec.ts',
   'src/app/store/auth.store.spec.ts',
   'src/app/core/auth.interceptor.spec.ts',
@@ -108,10 +114,32 @@ const storeSpecs = [
   'src/app/features/knowledge/capture-fil/capture-templates.spec.ts',
   'src/app/features/orchestration/flow/flow.store.spec.ts',
   'src/app/features/orchestration/flow/flow-run.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-workbench.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-workbench-panel.component.spec.ts',
+  'src/app/features/orchestration/flow/flow-versions.component.spec.ts',
   'src/app/features/orchestration/flow/flow-persistence.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.spec.ts',
+  'src/app/features/orchestration/flow/flow-catalog.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-collections.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-inspector-retrieval.spec.ts',
+  'src/app/features/orchestration/flow/flow-palette.component.spec.ts',
 ];
+
+// Optional comma-separated basename/path filter for constrained developer
+// machines and focused CI jobs. The default remains the complete suite.
+const requested = (process.env['FLOW_UNIT_FILTER'] ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const selected = (specs) => requested.length === 0
+  ? specs
+  : specs.filter((spec) => requested.some((value) => spec.includes(value)));
+const selectedPureSpecs = selected(pureSpecs);
+const selectedStoreSpecs = selected(storeSpecs);
+if (requested.length > 0 && selectedPureSpecs.length + selectedStoreSpecs.length === 0) {
+  throw new Error(`FLOW_UNIT_FILTER matched no specs: ${requested.join(', ')}`);
+}
 
 const outDir = mkdtempSync(join(tmpdir(), 'flow-unit-'));
 const common = {
@@ -129,21 +157,25 @@ const common = {
 
 let exitCode = 1;
 try {
-  await build({
-    ...common,
-    entryPoints: pureSpecs.map((s) => join(root, s)),
-    outdir: outDir,
-    outbase: root,
-    alias: { '@angular/core': stub },
-  });
-  await build({
-    ...common,
-    entryPoints: storeSpecs.map((s) => join(root, s)),
-    outdir: outDir,
-    outbase: root,
-  });
+  if (selectedPureSpecs.length > 0) {
+    await build({
+      ...common,
+      entryPoints: selectedPureSpecs.map((s) => join(root, s)),
+      outdir: outDir,
+      outbase: root,
+      alias: { '@angular/core': stub },
+    });
+  }
+  if (selectedStoreSpecs.length > 0) {
+    await build({
+      ...common,
+      entryPoints: selectedStoreSpecs.map((s) => join(root, s)),
+      outdir: outDir,
+      outbase: root,
+    });
+  }
 
-  const bundles = [...pureSpecs, ...storeSpecs].map((s) =>
+  const bundles = [...selectedPureSpecs, ...selectedStoreSpecs].map((s) =>
     join(outDir, s.replace(/\.ts$/, '.mjs')),
   );
   const result = spawnSync(process.execPath, ['--test', ...bundles], {

@@ -20,8 +20,9 @@
  *   - Keyboard: this service is the SINGLE owner of the builder's global
  *     shortcuts (one `document` listener, cleaned up on destroy) so nothing
  *     double-fires: Ctrl/Cmd+S save, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z and
- *     Ctrl+Y redo, Delete/Backspace removes the selected node (ignored while
- *     typing in a field). The shell no longer binds any shortcuts.
+ *     Ctrl+Y redo, Delete/Backspace removes the selected node (ignored inside
+ *     fields, controls, dialogs and ARIA interaction surfaces). The shell no
+ *     longer binds any shortcuts.
  *
  * This service is deliberately self-contained: it does not edit the shell.
  */
@@ -56,6 +57,7 @@ import {
   FlowValidationService,
   flowValidationFingerprint,
 } from './flow-validation.service';
+import { blocksFlowDeleteShortcut } from './flow-keyboard-target.vm';
 import { defaultScratchFlow } from './flow.types';
 import {
   clearWorkspaceFlowDraft,
@@ -204,6 +206,9 @@ export class FlowPersistenceService {
   readonly publishedVersionId = signal<string | null>(null);
   readonly publishedVersionNumber = signal<number | null>(null);
   readonly publishedFlowSha256 = signal<string | null>(null);
+  /** Exact immutable execution contract pinned to the published version.
+   * Mutable drafts deliberately have no equivalent pinned contract. */
+  readonly publishedExecutionContract = signal<Record<string, unknown> | null>(null);
   readonly publishedContractReady = signal(false);
   readonly draftUpdatedAt = signal<string | null>(null);
   readonly draftMatchesPublished = computed(
@@ -215,6 +220,13 @@ export class FlowPersistenceService {
   readonly lastSavedAt = signal<number | null>(null);
   readonly draftAvailable = signal(false);
   readonly autosavePaused = signal(false);
+  /** Ephemeral authoring hold: while the in-builder Workbench is open, its
+   * dirty snapshot must remain genuinely unsaved. Manual Save is still an
+   * explicit operator action and is therefore never blocked by this hold. */
+  readonly workbenchAutosaveHeld = signal(false);
+  private readonly autosaveSuspended = computed(
+    () => this.autosavePaused() || this.workbenchAutosaveHeld(),
+  );
   readonly reviewRequired = signal<FlowReviewReason | null>(null);
   readonly replacementConfirmationRequested = signal(false);
   private readonly externalMutationPending = signal(false);
@@ -377,7 +389,7 @@ export class FlowPersistenceService {
         this.saving() ||
         this.promoting() ||
         this.autosaveBlocked ||
-        this.autosavePaused()
+        this.autosaveSuspended()
       ) {
         return;
       }
@@ -540,6 +552,11 @@ export class FlowPersistenceService {
     this.publishedVersionId.set(flowState.published.version_id);
     this.publishedVersionNumber.set(flowState.published.version_number);
     this.publishedFlowSha256.set(flowState.published.flow_sha256);
+    this.publishedExecutionContract.set(
+      flowState.published.execution_contract
+        ? structuredClone(flowState.published.execution_contract)
+        : null,
+    );
     const explicitContractReadiness =
       flowState.published.execution_contract_ready;
     this.publishedContractReady.set(
@@ -688,6 +705,28 @@ export class FlowPersistenceService {
     this.persist('manual');
   }
 
+  /** Keep a dirty Workbench snapshot local for the lifetime of the panel.
+   * Releasing the hold restores the normal debounced autosave policy. */
+  setWorkbenchAutosaveHold(held: boolean): void {
+    if (this.workbenchAutosaveHeld() === held) return;
+    this.workbenchAutosaveHeld.set(held);
+    if (held) {
+      this.cancelAutosave();
+      return;
+    }
+    if (
+      !this.hydrationReady() ||
+      !this.store.dirty() ||
+      this.saving() ||
+      this.promoting() ||
+      this.autosaveBlocked ||
+      this.autosavePaused()
+    ) {
+      return;
+    }
+    this.scheduleAutosave();
+  }
+
   /** Explicit non-mutating server analysis for the exact live revision. */
   validateNow(): void {
     if (!this.systemId() || !this.hydrationReady() || this.actionsDisabled()) return;
@@ -812,6 +851,11 @@ export class FlowPersistenceService {
           this.publishedVersionId.set(result.published.version_id);
           this.publishedVersionNumber.set(result.published.version_number);
           this.publishedFlowSha256.set(result.published.flow_sha256);
+          this.publishedExecutionContract.set(
+            result.published.execution_contract
+              ? structuredClone(result.published.execution_contract)
+              : null,
+          );
           this.publishedContractReady.set(true);
           this.draftRevision.set(result.draft.revision);
           this.savedFlowSha256.set(result.draft.flow_sha256);
@@ -1014,7 +1058,7 @@ export class FlowPersistenceService {
         this.saving() ||
         this.promoting() ||
         this.autosaveBlocked ||
-        this.autosavePaused()
+        this.autosaveSuspended()
       ) {
         return;
       }
@@ -1120,7 +1164,7 @@ export class FlowPersistenceService {
               this.resetReviewGate();
             } else if (this.isDestructiveReplacement(this.store.snapshot())) {
               this.pauseForReview('destructive-change');
-            } else if (!this.autosavePaused()) {
+            } else if (!this.autosaveSuspended()) {
               // A newer edit landed while this request was in flight. The
               // response only acknowledges its captured revision.
               this.scheduleAutosave();
@@ -1195,7 +1239,7 @@ export class FlowPersistenceService {
             this.resetReviewGate();
           } else if (this.isDestructiveReplacement(this.store.snapshot())) {
             this.pauseForReview('destructive-change');
-          } else if (!this.autosavePaused()) {
+          } else if (!this.autosaveSuspended()) {
             this.scheduleAutosave();
           }
           if (trigger === 'manual') {
@@ -1279,6 +1323,7 @@ export class FlowPersistenceService {
     this.publishedVersionId.set(null);
     this.publishedVersionNumber.set(null);
     this.publishedFlowSha256.set(null);
+    this.publishedExecutionContract.set(null);
     this.publishedContractReady.set(false);
     this.draftUpdatedAt.set(null);
     this.publishReviewOpen.set(false);
@@ -1414,7 +1459,7 @@ export class FlowPersistenceService {
     if (
       !this.actionsDisabled() &&
       (event.key === 'Delete' || event.key === 'Backspace') &&
-      !editable
+      !blocksFlowDeleteShortcut(event.target)
     ) {
       const id = this.store.selectedNodeId();
       if (id) {
