@@ -94,6 +94,50 @@ function decisionFlow(): CanonicalFlow {
   };
 }
 
+function passthroughFlow(): CanonicalFlow {
+  return {
+    source: 'flow',
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'upstream',
+        type: 'source',
+        kind: 'source',
+        outputs: [{ name: 'payload', schema: 'object' }],
+      },
+      {
+        id: 'middle',
+        type: 'skill',
+        kind: 'task',
+        inputs: [{ name: 'input', schema: 'object' }],
+        outputs: [{ name: 'result', schema: 'object' }],
+      },
+      {
+        id: 'downstream',
+        type: 'sink',
+        kind: 'sink',
+        inputs: [{ name: 'result', schema: 'object' }],
+      },
+    ],
+    edges: [
+      {
+        from: 'upstream',
+        to: 'middle',
+        kind: 'data',
+        from_port: 'payload',
+        to_port: 'input',
+      },
+      {
+        from: 'middle',
+        to: 'downstream',
+        kind: 'data',
+        from_port: 'result',
+        to_port: 'result',
+      },
+    ],
+  };
+}
+
 test('selection is deterministic and synchronous (inspector updates within one frame)', () => {
   const store = makeStore();
   store.load(budgetFlow());
@@ -300,6 +344,82 @@ test('undo/redo + connect/disconnect behave as single steps', () => {
 
   store.disconnect({ from: 'flow.retrieve', to: 'runtime.settings_budget', kind: 'data' });
   assert.equal(store.edgeCount(), 1);
+});
+
+test('task deletion cuts incident routes and undo restores the exact graph atomically', () => {
+  const store = makeStore();
+  store.load(passthroughFlow());
+  store.setSelection('middle');
+  const baseline = store.snapshot();
+  const loadedRevision = store.revision();
+
+  store.removeNode('middle');
+
+  assert.equal(store.revision(), loadedRevision + 1, 'delete is one persisted mutation');
+  assert.equal(store.selectedNodeId(), null);
+  assert.deepEqual(store.snapshot().nodes.map((node) => node.id), ['upstream', 'downstream']);
+  assert.deepEqual(store.snapshot().edges, [], 'delete never synthesises a bypass');
+  const deleted = store.snapshot();
+
+  store.undo();
+  assert.deepEqual(store.snapshot(), baseline, 'one undo restores node and both original edges');
+  assert.equal(store.selectedNodeId(), 'middle', 'selection is restored with the undo frame');
+  assert.equal(store.canUndo(), false);
+
+  store.redo();
+  assert.deepEqual(store.snapshot(), deleted, 'redo reapplies the same fail-closed deletion');
+});
+
+test('Skill, Governance and ordinary tasks never reconnect compatible routes', () => {
+  const variants = [
+    {
+      name: 'bound Skill',
+      type: 'skill',
+      config: { skill_slug: 'answer_question', runtime_ref: 'skill:answer_question' },
+    },
+    {
+      name: 'Governance Skill',
+      type: 'skill',
+      config: {
+        skill_slug: 'policy_guardrail',
+        skill_category: 'Governance',
+        runtime_ref: 'skill:policy_guardrail',
+      },
+    },
+    {
+      name: 'ordinary task',
+      type: 'transform',
+      config: {},
+    },
+  ] as const;
+
+  for (const variant of variants) {
+    const store = makeStore();
+    const flow = passthroughFlow();
+    flow.nodes[1].type = variant.type;
+    flow.nodes[1].kind = 'task';
+    flow.nodes[1].config = variant.config;
+    store.load(flow);
+    store.removeNode('middle');
+    assert.deepEqual(
+      store.snapshot().edges,
+      [],
+      `${variant.name} must cut, never bypass, its routes`,
+    );
+  }
+});
+
+test('deletion preserves pre-existing non-incident routes without synthesising another', () => {
+  const store = makeStore();
+  const flow = passthroughFlow();
+  flow.edges.push({ from: 'upstream', to: 'downstream', kind: 'data' });
+  store.load(flow);
+
+  store.removeNode('middle');
+
+  assert.deepEqual(store.snapshot().edges, [
+    { from: 'upstream', to: 'downstream', kind: 'data' },
+  ]);
 });
 
 test('clear is one revision and undo restores the graph', () => {

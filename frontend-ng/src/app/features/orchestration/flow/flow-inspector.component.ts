@@ -26,6 +26,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
@@ -36,9 +37,68 @@ import type {
 } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { ManifestFieldsComponent } from './manifest-fields.component';
-import { FlowCollectionsService } from './flow-collections.service';
+import {
+  FlowCollectionsService,
+  type FlowDocumentOption,
+} from './flow-collections.service';
 import { FlowTriggerControlsComponent } from './flow-trigger-controls.component';
 import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
+
+export interface RetrievalDocumentRef {
+  collection_slug: string;
+  document_id: string;
+}
+
+export interface RetrievalDocumentOption extends FlowDocumentOption {
+  collection: string;
+  key: string;
+  catalogued: boolean;
+}
+
+/** Preserve saved scopes even when their collection is absent from the live
+ * catalogue (deleted, unavailable, or tenant catalogue temporarily stale). */
+export function buildCollectionOptions(
+  catalogued: readonly string[],
+  persisted: readonly string[],
+): string[] {
+  const catalog = [...new Set(catalogued.map((value) => value.trim()).filter(Boolean))];
+  const missing = [...new Set(persisted.map((value) => value.trim()).filter(Boolean))]
+    .filter((value) => !catalog.includes(value));
+  return [...missing, ...catalog];
+}
+
+/** Merge the bounded live catalogue with persisted refs. A saved ref may sit
+ * beyond the endpoint's first 1000 rows (or reference a temporarily missing
+ * document); keeping it visible makes reload faithful and lets the operator
+ * explicitly deselect it instead of silently carrying hidden configuration. */
+export function buildRetrievalDocumentOptions(
+  collections: readonly string[],
+  documentsFor: (collection: string) => readonly FlowDocumentOption[],
+  persistedRefs: readonly RetrievalDocumentRef[],
+): RetrievalDocumentOption[] {
+  const options = new Map<string, RetrievalDocumentOption>();
+  for (const collection of collections) {
+    for (const document of documentsFor(collection)) {
+      const key = `${collection}\u0000${document.id}`;
+      options.set(key, { ...document, collection, key, catalogued: true });
+    }
+  }
+  const allowed = new Set(collections);
+  for (const ref of persistedRefs) {
+    if (!allowed.has(ref.collection_slug)) continue;
+    const key = `${ref.collection_slug}\u0000${ref.document_id}`;
+    if (options.has(key)) continue;
+    options.set(key, {
+      id: ref.document_id,
+      filename: ref.document_id,
+      status: null,
+      collection: ref.collection_slug,
+      key,
+      catalogued: false,
+    });
+  }
+  return [...options.values()];
+}
 
 @Component({
   selector: 'app-flow-inspector',
@@ -306,6 +366,103 @@ import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
             </section>
           }
 
+          @if (isRetrievalNode(n)) {
+            <section class="ck-flow-section" data-testid="retrieval-scope-editor">
+              <span class="ck-flow-section__label">Retrieval scope</span>
+              <p class="ck-flow-hint">
+                This scope is owned by this Retrieval node. It does not change the
+                workspace default or another Retrieval node.
+              </p>
+              @if (retrievalScopeError(); as scopeError) {
+                <p class="ck-flow-hint ck-flow-hint--error" role="alert">{{ scopeError }}</p>
+              }
+
+              @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">Collections</span>
+                  <select
+                    class="ck-flow-input ck-flow-input--multi"
+                    multiple
+                    size="5"
+                    (change)="onRetrievalCollections($event)"
+                    aria-label="Collections used by this Retrieval node"
+                  >
+                    @for (slug of collectionOptions(); track slug) {
+                      <option [value]="slug" [selected]="retrievalCollectionSelected(n, slug)">
+                        {{ slug }}
+                      </option>
+                    }
+                  </select>
+                </label>
+              } @else {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">Collection slugs</span>
+                  <textarea
+                    class="ck-flow-input ck-flow-input--area"
+                    rows="2"
+                    [value]="retrievalCollections(n).join(', ')"
+                    (change)="onRetrievalCollectionsText($event)"
+                    placeholder="collection-a, collection-b"
+                  ></textarea>
+                </label>
+              }
+
+              @if (retrievalCollections(n).length > 0) {
+                @if (retrievalDocumentsLoading()) {
+                  <p class="ck-flow-hint">Loading documents for the selected collections…</p>
+                }
+                @if (retrievalDocumentsError()) {
+                  <p class="ck-flow-hint">
+                    Some document catalogues are unavailable.
+                    <button type="button" class="ck-flow-hint__btn" (click)="retryRetrievalDocuments()">
+                      Retry
+                    </button>
+                  </p>
+                }
+                @if (retrievalDocumentOptions().length > 0) {
+                  <label class="ck-flow-field">
+                    <span class="ck-flow-field__label">Documents</span>
+                    <select
+                      class="ck-flow-input ck-flow-input--multi"
+                      multiple
+                      size="7"
+                      (change)="onRetrievalDocuments($event)"
+                      aria-label="Documents used by this Retrieval node"
+                    >
+                      @for (doc of retrievalDocumentOptions(); track doc.key) {
+                        <option
+                          [value]="doc.key"
+                          [selected]="retrievalDocumentSelected(n, doc.collection, doc.id)"
+                        >
+                          {{ doc.filename }} · {{ doc.collection }}
+                          @if (!doc.catalogued) { · stored reference }
+                        </option>
+                      }
+                    </select>
+                  </label>
+                  <p class="ck-flow-hint">
+                    No document selected means all documents in the selected collections.
+                    @if (retrievalDocumentsTruncated()) {
+                      More documents are available beyond the loaded pages.
+                      <button
+                        type="button"
+                        class="ck-flow-hint__btn"
+                        [disabled]="retrievalDocumentsLoading()"
+                        (click)="loadMoreRetrievalDocuments()"
+                      >
+                        Load next page
+                      </button>
+                    }
+                  </p>
+                } @else if (!retrievalDocumentsLoading() && !retrievalDocumentsError()) {
+                  <p class="ck-flow-hint">No selectable document in this scope.</p>
+                }
+              } @else {
+                <p class="ck-flow-hint">No explicit scope: runtime workspace defaults apply.</p>
+              }
+            </section>
+          }
+
           @if (isTriggerSource(n)) {
             <section class="ck-flow-section">
               <span class="ck-flow-section__label">Déclencheur (source)</span>
@@ -373,21 +530,70 @@ export class FlowInspectorComponent {
   /** Picker options: the catalogue plus the node's current slug when it isn't
    *  in the catalogue, so an existing binding is never dropped from the list. */
   readonly collectionOptions = computed<string[]>(() => {
-    const list = [...this.collectionsSvc.collections()];
     const n = this.node();
-    const cur = n ? this.collectionSlug(n) : '';
-    if (cur && !list.includes(cur)) list.unshift(cur);
-    return list;
+    const persisted = !n
+      ? []
+      : this.isRetrievalNode(n)
+        ? this.retrievalCollections(n)
+        : [this.collectionSlug(n)];
+    return buildCollectionOptions(this.collectionsSvc.collections(), persisted);
   });
+
+  readonly retrievalDocumentOptions = computed(() => {
+    const node = this.node();
+    if (!node) return [];
+    return buildRetrievalDocumentOptions(
+      this.retrievalCollections(node),
+      (collection) => this.collectionsSvc.documentsFor(collection),
+      this.retrievalDocumentRefs(node),
+    );
+  });
+
+  readonly retrievalDocumentsLoading = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentStates()[slug] === 'loading',
+    );
+  });
+
+  readonly retrievalDocumentsError = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentStates()[slug] === 'error',
+    );
+  });
+
+  readonly retrievalDocumentsTruncated = computed(() => {
+    const node = this.node();
+    return !!node && this.retrievalCollections(node).some(
+      (slug) => this.collectionsSvc.documentHasMore()[slug] === true,
+    );
+  });
+  readonly retrievalScopeError = signal<string | null>(null);
+  private lastRetrievalScopeNodeId: string | null = null;
 
   readonly close = output<void>();
 
   constructor() {
+    effect(() => {
+      const selectedId = this.store.selectedNodeId();
+      if (selectedId === this.lastRetrievalScopeNodeId) return;
+      this.lastRetrievalScopeNodeId = selectedId;
+      this.retrievalScopeError.set(null);
+    });
     // Lazy, cached fetch: only hit the collections endpoint once an asset node
     // is actually inspected (keeps the fetch off the builder's hot path).
     effect(() => {
       const n = this.node();
-      if (n && (n.kind ?? 'task') === 'asset') this.collectionsSvc.ensureLoaded();
+      if (!n) return;
+      if ((n.kind ?? 'task') === 'asset' || this.isRetrievalNode(n)) {
+        this.collectionsSvc.ensureLoaded();
+      }
+      if (this.isRetrievalNode(n)) {
+        for (const slug of this.retrievalCollections(n)) {
+          this.collectionsSvc.ensureDocumentsLoaded(slug);
+        }
+      }
     });
   }
 
@@ -419,6 +625,58 @@ export class FlowInspectorComponent {
   collectionSlug(n: CanonicalFlowNode): string {
     const v = (n.config as Record<string, unknown> | undefined)?.['collection_slug'];
     return typeof v === 'string' ? v : '';
+  }
+
+  isRetrievalNode(n: CanonicalFlowNode): boolean {
+    const config = (n.config ?? {}) as Record<string, unknown>;
+    const category = typeof config['skill_category'] === 'string'
+      ? config['skill_category'].trim().toLowerCase()
+      : '';
+    const identity = `${n.type ?? ''} ${config['skill_slug'] ?? ''}`.toLowerCase();
+    return (n.kind ?? 'task') === 'task' && (
+      category === 'retrieval'
+      || /retriev|semantic[._ -]?search|rag[._ -]?search/.test(identity)
+    );
+  }
+
+  retrievalCollections(n: CanonicalFlowNode): string[] {
+    const value = ((n.config ?? {}) as Record<string, unknown>)['collection_slugs'];
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.map((item) => String(item ?? '').trim()).filter(Boolean))].sort();
+  }
+
+  retrievalCollectionSelected(n: CanonicalFlowNode, slug: string): boolean {
+    return this.retrievalCollections(n).includes(slug);
+  }
+
+  retrievalDocumentRefs(n: CanonicalFlowNode): RetrievalDocumentRef[] {
+    const value = ((n.config ?? {}) as Record<string, unknown>)['document_refs'];
+    if (!Array.isArray(value)) return [];
+    const refs = value.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      const collection_slug = String(record['collection_slug'] ?? '').trim();
+      const document_id = String(record['document_id'] ?? '').trim();
+      return collection_slug && document_id ? [{ collection_slug, document_id }] : [];
+    });
+    return refs.filter(
+      (ref, index) =>
+        refs.findIndex(
+          (candidate) =>
+            candidate.collection_slug === ref.collection_slug &&
+            candidate.document_id === ref.document_id,
+        ) === index,
+    );
+  }
+
+  retrievalDocumentSelected(
+    n: CanonicalFlowNode,
+    collection: string,
+    documentId: string,
+  ): boolean {
+    return this.retrievalDocumentRefs(n).some(
+      (ref) => ref.collection_slug === collection && ref.document_id === documentId,
+    );
   }
 
   /** Current `workspace_scoped` flag; defaults to true (the palette seed). */
@@ -510,6 +768,95 @@ export class FlowInspectorComponent {
       'collection_slug',
       (event.target as HTMLInputElement | HTMLSelectElement).value,
     );
+  }
+
+  onRetrievalCollections(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    this.patchRetrievalCollections(
+      Array.from(select.selectedOptions).map((option) => option.value),
+    );
+  }
+
+  onRetrievalCollectionsText(event: Event): void {
+    const value = (event.target as HTMLTextAreaElement).value;
+    this.patchRetrievalCollections(value.split(/[\n,]/g));
+  }
+
+  onRetrievalDocuments(event: Event): void {
+    const node = this.node();
+    if (!node) return;
+    const refs = Array.from((event.target as HTMLSelectElement).selectedOptions).flatMap((option) => {
+      const separator = option.value.indexOf('\u0000');
+      if (separator <= 0) return [];
+      const collection_slug = option.value.slice(0, separator);
+      const document_id = option.value.slice(separator + 1);
+      return collection_slug && document_id ? [{ collection_slug, document_id }] : [];
+    });
+    if (refs.length > 1000) {
+      this.retrievalScopeError?.set(
+        'Select at most 1000 documents for one Retrieval node.',
+      );
+      return;
+    }
+    this.retrievalScopeError?.set(null);
+    this.patchRetrievalConfig(node, {
+      collection_slugs: this.retrievalCollections(node),
+      document_refs: refs,
+    });
+  }
+
+  retryRetrievalDocuments(): void {
+    const node = this.node();
+    if (!node) return;
+    for (const slug of this.retrievalCollections(node)) {
+      this.collectionsSvc.ensureDocumentsLoaded(slug, true);
+    }
+  }
+
+  loadMoreRetrievalDocuments(): void {
+    const node = this.node();
+    if (!node) return;
+    for (const slug of this.retrievalCollections(node)) {
+      if (this.collectionsSvc.documentHasMore()[slug] === true) {
+        this.collectionsSvc.loadMoreDocuments(slug);
+      }
+    }
+  }
+
+  private patchRetrievalCollections(rawCollections: string[]): void {
+    const node = this.node();
+    if (!node) return;
+    const collection_slugs = [...new Set(
+      rawCollections.map((item) => String(item ?? '').trim()).filter(Boolean),
+    )].sort();
+    if (collection_slugs.length > 32) {
+      this.retrievalScopeError?.set(
+        'Select at most 32 collections for one Retrieval node.',
+      );
+      return;
+    }
+    this.retrievalScopeError?.set(null);
+    const allowed = new Set(collection_slugs);
+    const document_refs = this.retrievalDocumentRefs(node).filter((ref) =>
+      allowed.has(ref.collection_slug),
+    );
+    this.patchRetrievalConfig(node, { collection_slugs, document_refs });
+  }
+
+  private patchRetrievalConfig(
+    node: CanonicalFlowNode,
+    scope: {
+      collection_slugs: string[];
+      document_refs: Array<{ collection_slug: string; document_id: string }>;
+    },
+  ): void {
+    this.store.patchNode(node.id, {
+      config: {
+        ...(node.config ?? {}),
+        collection_slugs: scope.collection_slugs,
+        document_refs: scope.document_refs,
+      },
+    });
   }
 
   onWorkspaceScoped(event: Event): void {

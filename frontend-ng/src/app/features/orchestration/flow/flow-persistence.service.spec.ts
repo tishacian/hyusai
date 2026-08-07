@@ -604,7 +604,9 @@ test('P1 hydration uses the server draft and never the System compatibility mirr
         flow_definition: flow('must-not-hydrate') as unknown as Record<string, unknown>,
         flow_sha256: 'sha-published',
       },
-      publicationState(flow('authoritative-draft')),
+      publicationState(flow('authoritative-draft'), {
+        executionContractSha256: 'contract-published-v2',
+      }),
     );
 
     assert.equal(hydrated, true);
@@ -613,6 +615,9 @@ test('P1 hydration uses the server draft and never the System compatibility mirr
     assert.equal(harness.service.draftRevision(), 3);
     assert.equal(harness.service.savedFlowSha256(), 'sha-draft');
     assert.equal(harness.service.publishedFlowSha256(), 'sha-published');
+    assert.deepEqual(harness.service.publishedExecutionContract(), {
+      contract_sha256: 'contract-published-v2',
+    });
     assert.equal(harness.store.dirty(), false);
   } finally {
     harness.cleanup();
@@ -631,6 +636,31 @@ test('P1 explicit false contract readiness overrides a raw contract hash', () =>
     );
 
     assert.equal(hydrated, true);
+    assert.equal(harness.service.publishedContractReady(), false);
+    assert.deepEqual(harness.service.publishedExecutionContract(), {
+      contract_sha256: 'sha-untrusted-contract',
+    });
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 hydration barrier clears the previously pinned published contract', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('draft'), {
+        executionContractSha256: 'contract-before-reload',
+      }),
+    );
+    assert.deepEqual(harness.service.publishedExecutionContract(), {
+      contract_sha256: 'contract-before-reload',
+    });
+
+    harness.service.beginHydration();
+
+    assert.equal(harness.service.publishedExecutionContract(), null);
     assert.equal(harness.service.publishedContractReady(), false);
   } finally {
     harness.cleanup();
@@ -759,6 +789,7 @@ test('P1 Publish requires rendered diff, release message and breaking acknowledg
         version_id: 'version-published-3',
         version_number: 3,
         flow_sha256: 'sha-draft',
+        execution_contract: { contract_sha256: 'contract-published-v3' },
       },
       draft: {
         system_id: 'system-a',
@@ -772,6 +803,9 @@ test('P1 Publish requires rendered diff, release message and breaking acknowledg
     });
 
     assert.equal(harness.service.publishedVersionNumber(), 3);
+    assert.deepEqual(harness.service.publishedExecutionContract(), {
+      contract_sha256: 'contract-published-v3',
+    });
     assert.equal(harness.service.draftMatchesPublished(), true);
     assert.equal(harness.service.publishReviewOpen(), false);
     assert.equal(harness.manifestReloads.count, 1);
@@ -1158,6 +1192,58 @@ test('Clear and mass import schedule no autosave while a meta-only edit does', (
     Object.defineProperty(globalThis, 'setTimeout', {
       configurable: true,
       value: originalSetTimeout,
+    });
+    harness.cleanup();
+  }
+});
+
+test('Workbench holds a dirty snapshot unsaved and resumes autosave on close', () => {
+  const harness = makeHarness();
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const delays: number[] = [];
+  const cleared: number[] = [];
+  let nextTimer = 0;
+  Object.defineProperty(globalThis, 'setTimeout', {
+    configurable: true,
+    value: ((_handler: TimerHandler, delay?: number) => {
+      delays.push(Number(delay ?? 0));
+      nextTimer += 1;
+      return nextTimer as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout,
+  });
+  Object.defineProperty(globalThis, 'clearTimeout', {
+    configurable: true,
+    value: ((timer?: ReturnType<typeof setTimeout>) => {
+      cleared.push(Number(timer));
+    }) as typeof clearTimeout,
+  });
+  try {
+    harness.service.hydrateScratch();
+    harness.effects.flush();
+    harness.store.setSource(harness.store.snapshot().source === 'form' ? 'flow' : 'form');
+    harness.effects.flush();
+    assert.deepEqual(delays, [1200]);
+
+    harness.service.setWorkbenchAutosaveHold(true);
+    assert.equal(harness.service.workbenchAutosaveHeld(), true);
+    assert.deepEqual(cleared, [1]);
+
+    harness.store.addNode({ type: 'task', label: 'still local' });
+    harness.effects.flush();
+    assert.deepEqual(delays, [1200], 'edits made in Workbench stay unsaved');
+
+    harness.service.setWorkbenchAutosaveHold(false);
+    assert.equal(harness.service.workbenchAutosaveHeld(), false);
+    assert.deepEqual(delays, [1200, 1200], 'closing restores the normal debounce');
+  } finally {
+    Object.defineProperty(globalThis, 'setTimeout', {
+      configurable: true,
+      value: originalSetTimeout,
+    });
+    Object.defineProperty(globalThis, 'clearTimeout', {
+      configurable: true,
+      value: originalClearTimeout,
     });
     harness.cleanup();
   }

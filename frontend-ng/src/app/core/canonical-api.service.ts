@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Observable, catchError, map, of } from 'rxjs';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import type { ObjectLens } from './navigation.catalog';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
@@ -33,6 +33,11 @@ export interface Skill {
   name: string;
   description?: string;
   type?: string;
+  /** Optional catalog taxonomy. Older backends omit it; consumers must keep a
+   * deterministic fallback rather than treating it as required transport. */
+  category?: string | null;
+  /** Optional catalog hints used by discovery surfaces when present. */
+  capabilities?: string[] | Record<string, unknown>;
   provider?: string;
   certification_level?: 'basic' | 'production' | 'enterprise';
   input_schema?: Record<string, unknown>;
@@ -52,6 +57,13 @@ export interface Skill {
   };
   is_seeded?: 'Y' | 'N';
   runtime_status?: 'bound' | 'stub' | 'unbound' | 'catalog_only';
+}
+
+export interface ListSkillsOptions {
+  /** Keep the historical empty-list fallback by default. Surfaces that must
+   * distinguish an unavailable catalog from an authoritative empty catalog
+   * opt into the original transport error. */
+  propagateErrors?: boolean;
 }
 
 export interface Outcome {
@@ -191,6 +203,19 @@ export interface Run {
    * so the step debugger UI can render without another request.
    */
   debug?: RunDebugPayload;
+  /** Execution provenance is additive on Builder workbench responses. Older
+   * Run projections may omit it, so consumers must retain the envelope from
+   * the trigger response while polling. */
+  execution_surface?:
+    | 'published_manual'
+    | 'draft_test'
+    | 'builder_preview'
+    | 'node_preview'
+    | 'golden_preview'
+    | string;
+  flow_sha256?: string | null;
+  source_flow_sha256?: string | null;
+  runtime_mode?: FlowExecutionRuntimeMode | string | null;
 }
 
 export interface SystemHealthRow {
@@ -533,6 +558,56 @@ export interface SystemFlowDraftTestRunRequest {
   kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
 }
 
+export type FlowWorkbenchExecutionSurface =
+  | 'builder_preview'
+  | 'node_preview'
+  | 'golden_preview';
+
+export interface FlowWorkbenchRun extends Run {
+  execution_surface: FlowWorkbenchExecutionSurface;
+  flow_sha256: string;
+  source_flow_sha256: string;
+  runtime_mode: FlowExecutionRuntimeMode;
+}
+
+export interface SystemFlowWorkbenchPreviewRunRequest {
+  acknowledge_real_side_effects: true;
+  flow_definition: Record<string, unknown>;
+  expected_flow_sha256: string;
+  input_ref: Record<string, unknown>;
+  ingress_id?: string;
+  kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+}
+
+export interface SystemFlowWorkbenchNodeRunRequest {
+  acknowledge_real_side_effects: true;
+  flow_definition: Record<string, unknown>;
+  expected_flow_sha256: string;
+  node_id: string;
+  input_ref: Record<string, unknown>;
+}
+
+export interface SystemFlowWorkbenchGoldenCase {
+  id: string;
+  input_ref: Record<string, unknown>;
+  expected?: unknown;
+}
+
+export interface SystemFlowWorkbenchGoldenRunRequest {
+  acknowledge_real_side_effects: true;
+  flow_definition: Record<string, unknown>;
+  expected_flow_sha256: string;
+  ingress_id?: string;
+  kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
+  cases: SystemFlowWorkbenchGoldenCase[];
+}
+
+export interface SystemFlowWorkbenchGoldenRunResponse {
+  batch_id: string;
+  flow_sha256: string;
+  runs: FlowWorkbenchRun[];
+}
+
 /** Immutable published evidence shown by the operator Runner.  The mutable
  * server draft is intentionally absent from this transport. */
 export interface FlowRunnerPublished {
@@ -599,6 +674,11 @@ export interface SystemVersionSummary {
   id: string;
   system_id: string;
   version_number: number;
+  /** Immutable identity of this exact version payload. Older API adapters may
+   * omit it, but publication-mode restore previews fail closed without it. */
+  flow_sha256?: string | null;
+  release_kind?: string | null;
+  draft_revision?: number | null;
   message?: string | null;
   rolled_back_from_id?: string | null;
   created_at: string;
@@ -610,6 +690,8 @@ export interface SystemVersionSummary {
 export interface SystemVersionFull extends Omit<SystemVersionSummary, 'node_count' | 'edge_count'> {
   workspace_id: string | null;
   flow_definition: Record<string, unknown>;
+  configuration_snapshot?: Record<string, unknown> | null;
+  execution_contract?: Record<string, unknown> | null;
 }
 
 export interface SystemVersionList {
@@ -617,6 +699,18 @@ export interface SystemVersionList {
   limit: number;
   offset: number;
   versions: SystemVersionSummary[];
+}
+
+export interface SystemVersionListOptions {
+  limit?: number;
+  offset?: number;
+  /** Preserve transport errors for truth-sensitive history surfaces. */
+  propagateErrors?: boolean;
+}
+
+export interface SystemVersionReadOptions {
+  /** Preserve transport errors for fail-closed preview/rollback gates. */
+  propagateErrors?: boolean;
 }
 
 export interface SystemRollbackResult {
@@ -1169,12 +1263,14 @@ export class CanonicalApiService {
   }
 
   // ---- Skills --------------------------------------------------------------
-  listSkills(): Observable<Skill[]> {
+  listSkills(options: ListSkillsOptions = {}): Observable<Skill[]> {
     return this.api
       .get<Skill[] | { skills: Skill[] }>('/skills')
       .pipe(
         map((r) => this.unwrap<Skill>(r, 'skills')),
-        catchError(() => of([] as Skill[])),
+        catchError((error: unknown) => options.propagateErrors
+          ? throwError(() => error)
+          : of([] as Skill[])),
       );
   }
 
@@ -1470,24 +1566,30 @@ export class CanonicalApiService {
 
   listSystemVersions(
     id: string,
-    params?: { limit?: number; offset?: number },
+    options: SystemVersionListOptions = {},
   ): Observable<SystemVersionList> {
     const q: Record<string, string> = {};
-    if (params?.limit != null) q['limit'] = String(params.limit);
-    if (params?.offset != null) q['offset'] = String(params.offset);
-    return this.api
-      .get<SystemVersionList>(`/systems/${id}/versions`, q)
-      .pipe(
-        catchError(() =>
-          of<SystemVersionList>({ total: 0, limit: 0, offset: 0, versions: [] }),
-        ),
-      );
+    if (options.limit != null) q['limit'] = String(options.limit);
+    if (options.offset != null) q['offset'] = String(options.offset);
+    const request = this.api.get<SystemVersionList>(`/systems/${id}/versions`, q);
+    return options.propagateErrors
+      ? request
+      : request.pipe(
+          catchError(() =>
+            of<SystemVersionList>({ total: 0, limit: 0, offset: 0, versions: [] }),
+          ),
+        );
   }
 
-  getSystemVersion(id: string, versionNumber: number): Observable<SystemVersionFull | null> {
-    return this.api
-      .get<SystemVersionFull>(`/systems/${id}/versions/${versionNumber}`)
-      .pipe(catchError(() => of(null)));
+  getSystemVersion(
+    id: string,
+    versionNumber: number,
+    options: SystemVersionReadOptions = {},
+  ): Observable<SystemVersionFull | null> {
+    const request = this.api.get<SystemVersionFull>(`/systems/${id}/versions/${versionNumber}`);
+    return options.propagateErrors
+      ? request
+      : request.pipe(catchError(() => of(null)));
   }
 
   rollbackSystemVersion(
@@ -1697,6 +1799,43 @@ export class CanonicalApiService {
     payload: SystemFlowDraftTestRunRequest,
   ): Observable<Run> {
     return this.api.post<Run>(`/systems/${systemId}/flow-draft/test-runs`, payload);
+  }
+
+  /** Execute the exact local Builder snapshot without saving it as a draft or
+   * moving the published pointer. The server binds the request to the digest
+   * returned by `validateSystemFlow`. */
+  triggerSystemFlowWorkbenchPreviewRun(
+    systemId: string,
+    payload: SystemFlowWorkbenchPreviewRunRequest,
+  ): Observable<FlowWorkbenchRun> {
+    return this.api.post<FlowWorkbenchRun>(
+      `/systems/${encodeURIComponent(systemId)}/flow-workbench/preview-runs`,
+      payload,
+    );
+  }
+
+  /** Execute one Skill task in a server-built isolated source → task → sink
+   * graph. The supplied full snapshot remains hash-bound provenance only. */
+  triggerSystemFlowWorkbenchNodeRun(
+    systemId: string,
+    payload: SystemFlowWorkbenchNodeRunRequest,
+  ): Observable<FlowWorkbenchRun> {
+    return this.api.post<FlowWorkbenchRun>(
+      `/systems/${encodeURIComponent(systemId)}/flow-workbench/node-runs`,
+      payload,
+    );
+  }
+
+  /** Queue a bounded set of hash-identical preview Runs. Each result remains
+   * an ordinary durable Run; the batch envelope only supplies correlation. */
+  triggerSystemFlowWorkbenchGoldenRuns(
+    systemId: string,
+    payload: SystemFlowWorkbenchGoldenRunRequest,
+  ): Observable<SystemFlowWorkbenchGoldenRunResponse> {
+    return this.api.post<SystemFlowWorkbenchGoldenRunResponse>(
+      `/systems/${encodeURIComponent(systemId)}/flow-workbench/golden-runs`,
+      payload,
+    );
   }
 
   /**

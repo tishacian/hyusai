@@ -1,0 +1,793 @@
+/**
+ * Ephemeral Flow Builder workbench orchestration.
+ *
+ * Every dispatch is bound to the exact local snapshot analysed by the server.
+ * It deliberately has no dependency on FlowPersistenceService: previewing a
+ * dirty graph must neither save a draft nor move the published pointer.
+ */
+import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Subject, firstValueFrom, timer } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
+import {
+  CanonicalApiService,
+  type FlowExecutionRuntimeMode,
+  type FlowWorkbenchExecutionSurface,
+  type FlowWorkbenchRun,
+  type Run,
+  type SystemFlowWorkbenchGoldenCase,
+} from '@app/core/canonical-api.service';
+import type { CanonicalFlow } from '@app/core/flow-serializer.service';
+import {
+  WorkspaceService,
+  type WorkspaceRequestScope,
+} from '@app/core/workspace.service';
+import { FlowStore } from './flow.store';
+import {
+  draftTestIngressOptions,
+  type DraftTestIngressOption,
+} from './flow-run.service';
+import { flowValidationFingerprint } from './flow-validation.service';
+
+export interface FlowWorkbenchPollPolicy {
+  intervalMs: number;
+  maxAttempts: number;
+  timeoutLabel: string;
+}
+
+/** Interactive chat/node previews retain the existing two-minute budget. */
+export const FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY: FlowWorkbenchPollPolicy = Object.freeze({
+  intervalMs: 500,
+  maxAttempts: 240,
+  timeoutLabel: 'The workbench Run',
+});
+
+/** FastAPI executes golden BackgroundTasks sequentially. Polling follows the
+ * server-owned queue order, one Run at a time, so every case gets its own
+ * one-hour window without multiplying read traffic by the batch size.
+ */
+export const FLOW_WORKBENCH_GOLDEN_POLL_POLICY: FlowWorkbenchPollPolicy = Object.freeze({
+  intervalMs: 3_000,
+  maxAttempts: 1_200,
+  timeoutLabel: 'The golden Run',
+});
+const TERMINAL_STATUSES = new Set<Run['status']>([
+  'completed',
+  'failed',
+  'cancelled',
+  'hitl_pending',
+  'debug_pending',
+]);
+const RUNTIME_MODES = new Set<FlowExecutionRuntimeMode>([
+  'dag_strict',
+  'dag_overlay',
+  'sequential_legacy',
+]);
+
+export interface FlowWorkbenchChatMessage {
+  id: string;
+  role: 'operator' | 'assistant' | 'system';
+  content: string;
+  runId?: string;
+  status?: Run['status'];
+  output?: Record<string, unknown>;
+}
+
+export interface FlowWorkbenchNodeResult {
+  nodeId: string;
+  run: FlowWorkbenchRun;
+  output: Record<string, unknown>;
+  successful: boolean;
+}
+
+export interface FlowWorkbenchGoldenCase extends SystemFlowWorkbenchGoldenCase {}
+
+export interface FlowWorkbenchGoldenResult {
+  caseId: string;
+  expected?: unknown;
+  expectedProvided: boolean;
+  run: FlowWorkbenchRun;
+  actual: Record<string, unknown> | null;
+  passed: boolean | null;
+  error: string | null;
+}
+
+export interface FlowWorkbenchGoldenSummary {
+  total: number;
+  completed: number;
+  pending: number;
+  passed: number;
+  failed: number;
+}
+
+interface OperationContext {
+  generation: number;
+  systemId: string;
+  revision: number;
+  fingerprint: string;
+  flow: CanonicalFlow;
+  workspaceScope: WorkspaceRequestScope | null;
+  selectedIngressId: string;
+  fenceIngress: boolean;
+}
+
+interface ValidatedOperation extends OperationContext {
+  flowSha256: string;
+  validationRuntimeMode: FlowExecutionRuntimeMode;
+}
+
+class WorkbenchContextChangedError extends Error {
+  override readonly name = 'WorkbenchContextChangedError';
+
+  constructor() {
+    super('The Flow or workspace changed while the preview was running. Run it again on the current snapshot.');
+  }
+}
+
+class WorkbenchRejectedError extends Error {
+  override readonly name = 'WorkbenchRejectedError';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export type FlowWorkbenchChatInput =
+  | { ok: true; value: Record<string, unknown>; messageField: string }
+  | { ok: false; message: string };
+
+const CHAT_TEXT_FIELDS = ['query', 'message', 'prompt', 'text', 'input'] as const;
+
+function schemaAcceptsText(value: unknown): boolean {
+  if (!isRecord(value)) return true;
+  const type = value['type'];
+  return type === undefined
+    || type === 'string'
+    || (Array.isArray(type) && type.includes('string'));
+}
+
+function ingressInputSchema(source: CanonicalFlow['nodes'][number]): Record<string, unknown> {
+  const config = isRecord(source.config) ? source.config : {};
+  if (isRecord(config['input_schema'])) return config['input_schema'];
+
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const port of source.outputs ?? []) {
+    if (!port.name) continue;
+    properties[port.name] = typeof port.schema === 'string' ? { type: port.schema } : {};
+    if (port.required === true) required.push(port.name);
+  }
+  return {
+    type: 'object',
+    properties,
+    additionalProperties: true,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
+
+/** Shape a chat message against the selected source's authored input schema.
+ * Additional JSON is merged at the input_ref root; it is never hidden below a
+ * synthetic `context` property. Closed schemas therefore receive no invented
+ * `message`/`context` keys, while legacy open ingresses keep `query`.
+ */
+export function buildFlowWorkbenchChatInput(
+  flow: CanonicalFlow,
+  ingressId: string,
+  message: string,
+  additionalInputRef: Record<string, unknown>,
+): FlowWorkbenchChatInput {
+  const source = flow.nodes.find((node) => node.id === ingressId && node.kind === 'source');
+  if (!source) {
+    return { ok: false, message: 'The selected ingress no longer exists in the current Flow.' };
+  }
+  const schema = ingressInputSchema(source);
+  const properties = isRecord(schema['properties']) ? schema['properties'] : null;
+
+  let messageField: string | null = null;
+  if (properties) {
+    messageField = CHAT_TEXT_FIELDS.find(
+      (key) => Object.prototype.hasOwnProperty.call(properties, key)
+        && schemaAcceptsText(properties[key]),
+    ) ?? null;
+    const required = Array.isArray(schema['required']) ? schema['required'] : [];
+    messageField ??= required.find(
+      (key): key is string => typeof key === 'string'
+        && Object.prototype.hasOwnProperty.call(properties, key)
+        && schemaAcceptsText(properties[key]),
+    ) ?? null;
+    messageField ??= Object.keys(properties).find((key) => schemaAcceptsText(properties[key])) ?? null;
+  }
+  if (!messageField && schema['additionalProperties'] !== false) messageField = 'query';
+  if (!messageField) {
+    return {
+      ok: false,
+      message: 'The selected ingress has no text field. Add a query, message, prompt, text or input string to its input schema.',
+    };
+  }
+
+  const inputRef = structuredClone(additionalInputRef);
+  if (schema['additionalProperties'] === false && properties) {
+    const unknownKeys = Object.keys(inputRef).filter(
+      (key) => key !== '_debug' && !Object.prototype.hasOwnProperty.call(properties, key),
+    );
+    if (unknownKeys.length > 0) {
+      return {
+        ok: false,
+        message: `The selected ingress does not accept: ${unknownKeys.join(', ')}.`,
+      };
+    }
+  }
+  inputRef[messageField] = message;
+
+  const required = Array.isArray(schema['required'])
+    ? schema['required'].filter((key): key is string => typeof key === 'string')
+    : [];
+  const missing = required.filter((key) => !Object.prototype.hasOwnProperty.call(inputRef, key));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      message: `The selected ingress also requires: ${missing.join(', ')}. Add them to input_ref JSON.`,
+    };
+  }
+
+  return {
+    ok: true,
+    value: inputRef,
+    messageField,
+  };
+}
+
+/** Deterministic deep-partial comparison for golden expectations.
+ *
+ * Object expectations may name a subset of keys recursively. Arrays remain
+ * exact-length ordered sequences so extra or reordered evidence cannot pass
+ * silently. Primitive comparison uses `Object.is`.
+ */
+export function matchesGoldenExpected(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual)
+      && expected.length === actual.length
+      && expected.every((item, index) => matchesGoldenExpected(item, actual[index]));
+  }
+  if (isRecord(expected)) {
+    if (!isRecord(actual)) return false;
+    return Object.entries(expected).every(
+      ([key, value]) => Object.prototype.hasOwnProperty.call(actual, key)
+        && matchesGoldenExpected(value, actual[key]),
+    );
+  }
+  return Object.is(expected, actual);
+}
+
+function runtimeMode(value: unknown): FlowExecutionRuntimeMode | null {
+  return typeof value === 'string' && RUNTIME_MODES.has(value as FlowExecutionRuntimeMode)
+    ? value as FlowExecutionRuntimeMode
+    : null;
+}
+
+function executionMetadata(run: Run): Record<string, unknown> {
+  const input = isRecord(run.input_ref) ? run.input_ref : {};
+  return isRecord(input['execution']) ? input['execution'] : {};
+}
+
+function outputText(output: Record<string, unknown>): string {
+  for (const key of ['answer', 'message', 'text', 'result']) {
+    if (typeof output[key] === 'string' && output[key]) return output[key] as string;
+  }
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return '[Result is not serialisable]';
+  }
+}
+
+@Injectable()
+export class FlowWorkbenchService {
+  private readonly store = inject(FlowStore);
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly cancelled = new Subject<void>();
+  private generation = 0;
+  private messageSequence = 0;
+  private disposed = false;
+  private unregisterWorkspaceReset: (() => void) | undefined;
+
+  readonly systemId = signal<string | null>(null);
+  readonly selectedIngressId = signal('');
+  readonly ingresses = computed<DraftTestIngressOption[]>(() =>
+    draftTestIngressOptions(this.store.snapshot()),
+  );
+  readonly busy = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly runtimeMode = signal<FlowExecutionRuntimeMode | null>(null);
+  readonly chatMessages = signal<FlowWorkbenchChatMessage[]>([]);
+  readonly nodeResult = signal<FlowWorkbenchNodeResult | null>(null);
+  readonly goldenResults = signal<FlowWorkbenchGoldenResult[]>([]);
+  readonly goldenSummary = computed<FlowWorkbenchGoldenSummary>(() => {
+    const results = this.goldenResults();
+    const pending = results.filter((item) => !TERMINAL_STATUSES.has(item.run.status)).length;
+    return {
+      total: results.length,
+      completed: results.length - pending,
+      pending,
+      passed: results.filter((item) => item.passed === true).length,
+      failed: results.filter((item) => item.passed === false).length,
+    };
+  });
+
+  constructor() {
+    let observedRevision = this.store.revision();
+    effect(() => {
+      const revision = this.store.revision();
+      if (revision === observedRevision || this.disposed) return;
+      observedRevision = revision;
+      // Every result and runtime label belongs to one exact graph fingerprint.
+      // A local edit, reload or rollback invalidates it immediately.
+      this.invalidateRequests();
+      this.clearEphemeralState();
+    });
+    this.unregisterWorkspaceReset = this.workspace?.registerContextReset(() => {
+      this.bindSystem(null);
+    });
+    this.destroyRef.onDestroy(() => this.dispose());
+  }
+
+  bindSystem(systemId: string | null): void {
+    if (this.disposed) return;
+    this.invalidateRequests();
+    this.systemId.set(systemId);
+    this.clearEphemeralState();
+  }
+
+  reset(): void {
+    if (this.disposed) return;
+    this.invalidateRequests();
+    this.clearEphemeralState();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.invalidateRequests();
+    this.systemId.set(null);
+    this.clearEphemeralState();
+    this.unregisterWorkspaceReset?.();
+    this.unregisterWorkspaceReset = undefined;
+    this.cancelled.complete();
+  }
+
+  async runChat(
+    message: string,
+    additionalInputRef: Record<string, unknown> = {},
+    acknowledgeRealSideEffects = false,
+  ): Promise<FlowWorkbenchRun | null> {
+    const normalizedMessage = message.trim();
+    if (!normalizedMessage) {
+      this.error.set('Enter a message before running the local preview.');
+      return null;
+    }
+    if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
+    const operation = this.beginOperation(true);
+    if (!operation) return null;
+    this.appendChat({ role: 'operator', content: normalizedMessage });
+
+    try {
+      const validated = await this.validate(operation, true);
+      const ingress = this.resolveIngress(validated);
+      const shapedInput = buildFlowWorkbenchChatInput(
+        validated.flow,
+        ingress.ingress_id,
+        normalizedMessage,
+        additionalInputRef,
+      );
+      if (!shapedInput.ok) throw new WorkbenchRejectedError(shapedInput.message);
+      const initial = await this.awaitRequest(
+        this.canonical.triggerSystemFlowWorkbenchPreviewRun(validated.systemId, {
+          acknowledge_real_side_effects: true,
+          flow_definition: validated.flow as unknown as Record<string, unknown>,
+          expected_flow_sha256: validated.flowSha256,
+          input_ref: shapedInput.value,
+          ...ingress,
+        }),
+      );
+      this.assertCurrent(validated);
+      this.assertInitialRun(initial, validated, 'builder_preview');
+      const run = await this.pollRun(initial, validated);
+      const output = isRecord(run.output_ref) ? run.output_ref : {};
+      const failed = run.status !== 'completed';
+      this.appendChat({
+        role: failed ? 'system' : 'assistant',
+        content: failed
+          ? run.error || `Preview stopped with status ${run.status}.`
+          : outputText(output),
+        runId: run.id,
+        status: run.status,
+        output,
+      });
+      return run;
+    } catch (error: unknown) {
+      this.reportOperationError(operation, error, true);
+      return null;
+    } finally {
+      this.finishOperation(operation);
+    }
+  }
+
+  async runSelectedNode(
+    nodeId: string,
+    input: Record<string, unknown>,
+    acknowledgeRealSideEffects = false,
+  ): Promise<FlowWorkbenchRun | null> {
+    const normalizedNodeId = nodeId.trim();
+    if (!normalizedNodeId) {
+      this.error.set('Select a Skill node before running it in isolation.');
+      return null;
+    }
+    if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
+    const operation = this.beginOperation(false);
+    if (!operation) return null;
+    this.nodeResult.set(null);
+
+    try {
+      // The backend shape-checks the full snapshot but executes and validates
+      // only its isolated source → selected Skill → sink projection. This lets
+      // an operator repair one node while unrelated dirty branches are still
+      // incomplete, without weakening the hash or context fence.
+      const validated = await this.validate(operation, false);
+      const initial = await this.awaitRequest(
+        this.canonical.triggerSystemFlowWorkbenchNodeRun(validated.systemId, {
+          acknowledge_real_side_effects: true,
+          flow_definition: validated.flow as unknown as Record<string, unknown>,
+          expected_flow_sha256: validated.flowSha256,
+          node_id: normalizedNodeId,
+          input_ref: structuredClone(input),
+        }),
+      );
+      this.assertCurrent(validated);
+      this.assertInitialRun(initial, validated, 'node_preview');
+      this.nodeResult.set({
+        nodeId: normalizedNodeId,
+        run: initial,
+        output: isRecord(initial.output_ref) ? initial.output_ref : {},
+        successful: false,
+      });
+      const run = await this.pollRun(initial, validated);
+      const result: FlowWorkbenchNodeResult = {
+        nodeId: normalizedNodeId,
+        run,
+        output: isRecord(run.output_ref) ? run.output_ref : {},
+        successful: run.status === 'completed',
+      };
+      this.nodeResult.set(result);
+      return run;
+    } catch (error: unknown) {
+      this.reportOperationError(operation, error);
+      return null;
+    } finally {
+      this.finishOperation(operation);
+    }
+  }
+
+  async runGoldenSet(
+    cases: FlowWorkbenchGoldenCase[],
+    acknowledgeRealSideEffects = false,
+  ): Promise<FlowWorkbenchGoldenResult[] | null> {
+    if (cases.length < 1 || cases.length > 20) {
+      this.error.set('A golden set must contain between 1 and 20 cases.');
+      return null;
+    }
+    const ids = cases.map((item) => item.id);
+    if (ids.some((id) => !id || id !== id.trim()) || new Set(ids).size !== ids.length) {
+      this.error.set('Golden case ids must be unique, non-empty, trimmed strings.');
+      return null;
+    }
+    if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
+    const operation = this.beginOperation(true);
+    if (!operation) return null;
+    this.goldenResults.set([]);
+    const capturedCases = structuredClone(cases);
+
+    try {
+      const validated = await this.validate(operation, true);
+      const ingress = this.resolveIngress(validated);
+      const batch = await this.awaitRequest(
+        this.canonical.triggerSystemFlowWorkbenchGoldenRuns(validated.systemId, {
+          acknowledge_real_side_effects: true,
+          flow_definition: validated.flow as unknown as Record<string, unknown>,
+          expected_flow_sha256: validated.flowSha256,
+          cases: capturedCases,
+          ...ingress,
+        }),
+      );
+      this.assertCurrent(validated);
+      if (batch.flow_sha256 !== validated.flowSha256 || batch.runs.length !== capturedCases.length) {
+        throw new WorkbenchRejectedError('The golden batch response does not match the validated Flow and case set.');
+      }
+
+      const casesById = new Map(capturedCases.map((item) => [item.id, item]));
+      const queued = batch.runs.map((run) => {
+        this.assertInitialRun(run, validated, 'golden_preview');
+        const caseId = executionMetadata(run)['golden_case_id'];
+        if (typeof caseId !== 'string' || !casesById.has(caseId)) {
+          throw new WorkbenchRejectedError('A golden Run is missing its server-owned case identity.');
+        }
+        const goldenCase = casesById.get(caseId)!;
+        return {
+          goldenCase,
+          initial: run,
+          result: {
+            caseId,
+            ...(Object.prototype.hasOwnProperty.call(goldenCase, 'expected')
+              ? { expected: structuredClone(goldenCase.expected) }
+              : {}),
+            expectedProvided: Object.prototype.hasOwnProperty.call(goldenCase, 'expected'),
+            run,
+            actual: null,
+            passed: null,
+            error: null,
+          } satisfies FlowWorkbenchGoldenResult,
+        };
+      });
+      if (new Set(queued.map((item) => item.result.caseId)).size !== capturedCases.length) {
+        throw new WorkbenchRejectedError('The golden batch contains duplicate or missing case identities.');
+      }
+      this.goldenResults.set(queued.map((item) => item.result));
+
+      for (const { goldenCase, initial } of queued) {
+        const run = await this.pollRun(
+          initial,
+          validated,
+          FLOW_WORKBENCH_GOLDEN_POLL_POLICY,
+        );
+        const expectedProvided = Object.prototype.hasOwnProperty.call(goldenCase, 'expected');
+        const output = isRecord(run.output_ref) ? run.output_ref : {};
+        const passed = run.status === 'completed'
+          && (!expectedProvided || matchesGoldenExpected(goldenCase.expected, output));
+        this.replaceGoldenResult(goldenCase.id, {
+          run,
+          actual: output,
+          passed,
+          error: run.status === 'completed'
+            ? (passed ? null : 'Output did not match the expected deep-partial value.')
+            : run.error || `Run stopped with status ${run.status}.`,
+        });
+      }
+      return this.goldenResults();
+    } catch (error: unknown) {
+      this.reportOperationError(operation, error);
+      return null;
+    } finally {
+      this.finishOperation(operation);
+    }
+  }
+
+  private beginOperation(fenceIngress: boolean): OperationContext | null {
+    if (this.disposed) return null;
+    if (this.busy()) {
+      this.error.set('Wait for the current workbench run to finish.');
+      return null;
+    }
+    const systemId = this.systemId();
+    if (!systemId) {
+      this.error.set('The workbench is not bound to a hydrated System.');
+      return null;
+    }
+    const flow = this.store.snapshot();
+    const operation: OperationContext = {
+      generation: ++this.generation,
+      systemId,
+      revision: this.store.revision(),
+      fingerprint: flowValidationFingerprint(flow),
+      flow,
+      workspaceScope: this.workspace?.captureRequestScope() ?? null,
+      selectedIngressId: this.selectedIngressId(),
+      fenceIngress,
+    };
+    this.busy.set(true);
+    this.error.set(null);
+    return operation;
+  }
+
+  private async validate(
+    operation: OperationContext,
+    requireExecutable: boolean,
+  ): Promise<ValidatedOperation> {
+    const response = await this.awaitRequest(
+      this.canonical.validateSystemFlow(
+        operation.systemId,
+        operation.flow as unknown as Record<string, unknown>,
+      ),
+    );
+    this.assertCurrent(operation);
+    if (
+      requireExecutable
+      && (!response.valid || response.issues.some((issue) => issue.level === 'error'))
+    ) {
+      throw new WorkbenchRejectedError('The current Flow has blocking server diagnostics.');
+    }
+    if (!/^[0-9a-f]{64}$/.test(response.flow_sha256)) {
+      throw new WorkbenchRejectedError('The server did not return a valid canonical Flow digest.');
+    }
+    const mode = runtimeMode(response.runtime_mode);
+    if (!mode) {
+      throw new WorkbenchRejectedError('The server returned an unsupported Flow runtime mode.');
+    }
+    this.runtimeMode.set(mode);
+    if (mode === 'sequential_legacy') {
+      throw new WorkbenchRejectedError(
+        'Workbench execution requires a DAG runtime. LEGACY · SEQUENTIAL does not execute the edited graph topology.',
+      );
+    }
+    return {
+      ...operation,
+      flowSha256: response.flow_sha256,
+      validationRuntimeMode: mode,
+    };
+  }
+
+  private resolveIngress(operation: ValidatedOperation): {
+    ingress_id: string;
+    kind: DraftTestIngressOption['kind'];
+  } {
+    const options = draftTestIngressOptions(operation.flow);
+    if (options.length === 0) {
+      throw new WorkbenchRejectedError('The current Flow has no executable ingress.');
+    }
+    const selected = operation.selectedIngressId
+      ? options.find((option) => option.ingress_id === operation.selectedIngressId)
+      : options.length === 1 ? options[0] : null;
+    if (!selected) {
+      throw new WorkbenchRejectedError(
+        options.length > 1
+          ? `Choose one of the ${options.length} Flow ingresses before running the workbench.`
+          : 'The selected Flow ingress no longer exists.',
+      );
+    }
+    return { ingress_id: selected.ingress_id, kind: selected.kind };
+  }
+
+  private assertInitialRun(
+    run: FlowWorkbenchRun,
+    operation: ValidatedOperation,
+    expectedSurface: FlowWorkbenchExecutionSurface,
+  ): void {
+    const sourceSha = run.source_flow_sha256 || executionMetadata(run)['source_flow_sha256'];
+    const mode = runtimeMode(run.runtime_mode ?? executionMetadata(run)['runtime_mode']);
+    if (
+      run.system_id !== operation.systemId
+      || run.execution_surface !== expectedSurface
+      || sourceSha !== operation.flowSha256
+      || !/^[0-9a-f]{64}$/.test(run.flow_sha256)
+      || !mode
+      || mode === 'sequential_legacy'
+    ) {
+      throw new WorkbenchRejectedError('The Run evidence does not match the validated workbench request.');
+    }
+    this.runtimeMode.set(mode);
+  }
+
+  private async pollRun(
+    initial: FlowWorkbenchRun,
+    operation: ValidatedOperation,
+    policy: FlowWorkbenchPollPolicy = FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY,
+  ): Promise<FlowWorkbenchRun> {
+    if (TERMINAL_STATUSES.has(initial.status)) return initial;
+    for (let attempt = 0; attempt < policy.maxAttempts; attempt += 1) {
+      this.assertCurrent(operation);
+      const projected = await this.awaitRequest(this.canonical.getRun(initial.id));
+      this.assertCurrent(operation);
+      if (projected) {
+        if (projected.id !== initial.id || projected.system_id !== operation.systemId) {
+          throw new WorkbenchRejectedError('The polled Run identity changed unexpectedly.');
+        }
+        const merged = {
+          ...initial,
+          ...projected,
+          execution_surface: initial.execution_surface,
+          flow_sha256: initial.flow_sha256,
+          source_flow_sha256: initial.source_flow_sha256,
+          runtime_mode: initial.runtime_mode,
+        } satisfies FlowWorkbenchRun;
+        if (TERMINAL_STATUSES.has(merged.status)) return merged;
+      }
+      await this.awaitRequest(timer(policy.intervalMs));
+    }
+    const timeoutMinutes = Math.round((policy.intervalMs * policy.maxAttempts) / 60_000);
+    throw new WorkbenchRejectedError(
+      `${policy.timeoutLabel} did not finish within ${timeoutMinutes} minutes. Its durable Run may still be queued or running.`,
+    );
+  }
+
+  private assertCurrent(operation: OperationContext): void {
+    if (
+      this.disposed
+      || operation.generation !== this.generation
+      || this.systemId() !== operation.systemId
+      || this.store.revision() !== operation.revision
+      || flowValidationFingerprint(this.store.snapshot()) !== operation.fingerprint
+      || (operation.fenceIngress && this.selectedIngressId() !== operation.selectedIngressId)
+      || (
+        operation.workspaceScope !== null
+        && this.workspace !== null
+        && !this.workspace.isRequestScopeCurrent(operation.workspaceScope)
+      )
+    ) {
+      throw new WorkbenchContextChangedError();
+    }
+  }
+
+  private async awaitRequest<T>(request: import('rxjs').Observable<T>): Promise<T> {
+    return firstValueFrom(request.pipe(takeUntil(this.cancelled)));
+  }
+
+  private finishOperation(operation: OperationContext): void {
+    if (operation.generation === this.generation) this.busy.set(false);
+  }
+
+  private reportOperationError(
+    operation: OperationContext,
+    error: unknown,
+    appendToChat = false,
+  ): void {
+    if (operation.generation !== this.generation || this.disposed) return;
+    const message = this.errorMessage(error);
+    this.error.set(message);
+    if (appendToChat) this.appendChat({ role: 'system', content: message });
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error instanceof WorkbenchContextChangedError || error instanceof WorkbenchRejectedError) {
+      return error.message;
+    }
+    if (error instanceof HttpErrorResponse) {
+      const detail = isRecord(error.error) ? error.error['detail'] : null;
+      if (isRecord(detail) && typeof detail['message'] === 'string') return detail['message'];
+      if (typeof detail === 'string' && detail) return detail;
+      return `The workbench request failed (HTTP ${error.status || 'network'}).`;
+    }
+    return error instanceof Error && error.message
+      ? error.message
+      : 'The workbench request failed.';
+  }
+
+  private appendChat(message: Omit<FlowWorkbenchChatMessage, 'id'>): void {
+    this.chatMessages.update((messages) => [
+      ...messages,
+      { ...message, id: `workbench-message-${++this.messageSequence}` },
+    ]);
+  }
+
+  private replaceGoldenResult(
+    caseId: string,
+    patch: Pick<FlowWorkbenchGoldenResult, 'run' | 'actual' | 'passed' | 'error'>,
+  ): void {
+    this.goldenResults.update((results) => results.map((item) =>
+      item.caseId === caseId ? { ...item, ...patch } : item,
+    ));
+  }
+
+  private invalidateRequests(): void {
+    this.generation += 1;
+    this.cancelled.next();
+    this.busy.set(false);
+  }
+
+  private requireRealSideEffectsAcknowledgement(acknowledged: boolean): acknowledged is true {
+    if (acknowledged === true) return true;
+    this.error.set(
+      'Acknowledge that this Workbench run invokes real Skills and may cause external side effects.',
+    );
+    return false;
+  }
+
+  private clearEphemeralState(): void {
+    this.selectedIngressId.set('');
+    this.busy.set(false);
+    this.error.set(null);
+    this.runtimeMode.set(null);
+    this.chatMessages.set([]);
+    this.nodeResult.set(null);
+    this.goldenResults.set([]);
+  }
+}

@@ -13,9 +13,25 @@
  */
 import { Injectable, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { skillToPaletteItem, type PaletteItem } from './flow.types';
+
+export type FlowCatalogState = 'loading' | 'loaded' | 'error';
+
+/** Stable projection kept outside the service so ordering/classification can
+ * be regression-tested without HTTP or Angular lifecycle machinery. */
+export function projectSkillCatalog(skills: readonly Skill[]): PaletteItem[] {
+  return skills
+    .map((skill) => skillToPaletteItem(skill))
+    .sort(
+      (a, b) =>
+        a.label.localeCompare(b.label) ||
+        String(a.config?.['skill_slug'] ?? '').localeCompare(
+          String(b.config?.['skill_slug'] ?? ''),
+        ),
+    );
+}
 
 @Injectable({ providedIn: 'root' })
 export class FlowCatalogService {
@@ -25,6 +41,7 @@ export class FlowCatalogService {
   private readonly _skillItems = signal<PaletteItem[]>([]);
 
   readonly skillItems = this._skillItems.asReadonly();
+  readonly state = signal<FlowCatalogState>('loading');
 
   constructor() {
     this.load();
@@ -32,25 +49,33 @@ export class FlowCatalogService {
       this.request?.unsubscribe();
       this.request = null;
       this._skillItems.set([]);
+      this.state.set('loading');
       queueMicrotask(() => {
         if (this.workspace.contextEpoch() === transition.nextEpoch) this.load();
       });
     });
   }
 
+  /** Retry is deliberately public so an unavailable catalog never looks like
+   * an authoritative empty catalog. */
+  retry(): void {
+    this.load();
+  }
+
   private load(): void {
     const scope = this.workspace.captureRequestScope();
-    this.request = this.canonical.listSkills().subscribe({
+    this.request?.unsubscribe();
+    this.state.set('loading');
+    this.request = this.canonical.listSkills({ propagateErrors: true }).subscribe({
       next: (skills) => {
         if (!this.workspace.isRequestScopeCurrent(scope)) return;
-        this._skillItems.set(
-          skills
-            .map((skill) => skillToPaletteItem(skill))
-            .sort((a, b) => a.label.localeCompare(b.label)),
-        );
+        this._skillItems.set(projectSkillCatalog(skills));
+        this.state.set('loaded');
       },
       error: () => {
-        if (this.workspace.isRequestScopeCurrent(scope)) this._skillItems.set([]);
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this._skillItems.set([]);
+        this.state.set('error');
       },
     });
   }
