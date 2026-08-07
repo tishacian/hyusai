@@ -105,9 +105,35 @@ rollback : restaurer le dump frais sous writers fermés ou appliquer un roll-for
 
 ## Reçu à compléter à la reprise
 
-- commit frontend : à résoudre depuis cette note ;
-- SHA intégré candidat : non créé ;
-- SHA final `demo/agentic` : non avancé ;
-- reçu dump/restauration : non créé ;
-- digests OCI candidat : non construits ;
-- canaris et attestation : non exécutés.
+Complété le 07/08/2026 après déploiement. Détail complet dans
+`docs/ops/agentium-safe-vm-deployment.md`, section « Flow Builder P0 (07/08) ».
+
+- commit frontend : `9b0a116a25e46b9303d850a518cc992ab78359e4`
+  (`feat(flow): complete operator workbench authoring UX`), qui porte cette note ;
+- SHA intégré candidat : `9b0a116a25e46b9303d850a518cc992ab78359e4`, cinq commits
+  au-dessus de `b0b8f452` (`73f94877`, `aab6b5a6`, `c09c49e9`, `c055493c`,
+  `9b0a116a`) ;
+- SHA final `demo/agentic` : `9b0a116a25e46b9303d850a518cc992ab78359e4`, avancé en
+  fast-forward depuis `b0b8f452` par bundle Git poussé depuis la VM ;
+- reçu dump/restauration :
+  `/srv/agentium-data/flow-p0-deployments/2026-08-07-9b0a116a25e4/postgres-pre-migration.dump`,
+  `sha256` `1c63327751f3ea2f5d7920600044edb3d056406a3d53180e5f79a9b9dc05269f`,
+  448 212 403 octets, triplet `.sha256`/`.ready` publié ; restauration rejouée sur
+  base jetable et migrations 077–080 menées jusqu'à `080_trigger_event_claims`
+  avant toute mutation de production ;
+- digests OCI candidat : backend
+  `sha256:cbd828d527b0a7cfd2369397d21e669738907a67bdbaaafe038c661c33427fe6`,
+  worker `sha256:48a441d24cbbc1bb78172704b204ece908bbbc96e41c3f33bf562659b3f41a14`,
+  frontend `sha256:bf4fe6e76661aeb999bb27a599960c5da4491f1ad3024e8d47d09104237d0414`,
+  double tag `9b0a116a25e4` + `demo-agentic` ;
+- canaris et attestation : `run-iteration-canaries.sh` 6/6 vertes sur le SHA
+  déployé (gate léger, non signé). L'attestation signée 7 tokens reste à produire
+  au prochain jalon.
+
+Le drapeau `flow_workbench_v1` est resté absent de tous les workspaces : la
+tranche est déployée mais fermée.
+
+La migration 078 a effectivement muté le graphe Andritz — elle ne s'est pas
+abstenue. Une seule arête ajoutée (`decision.verdict --[strong]--> join.answer`),
+23 nœuds inchangés, 30 → 31 arêtes, nouvelle version immuable #20 et pointeur
+publié réémis, l'ancienne version restant intacte.

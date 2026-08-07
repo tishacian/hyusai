@@ -1061,3 +1061,134 @@ rebuildé au tip et déployé par la boucle d'itération :
 L'attestation SFTP signée référence toujours l'ancien SHA (`ea80e656`) : à
 régulariser au prochain jalon attesté, comme fait pour le backend. Gate
 d'itération `run-iteration-canaries.sh` : 6/6 specs vertes sur `b0ce840a`.
+
+## Flow Builder P0 (07/08) — déployé sur `9b0a116a`
+
+Tranche Flow Builder P0 (cinq commits `73f94877`, `aab6b5a6`, `c09c49e9`,
+`c055493c`, `9b0a116a`) atterrie sur `demo/agentic` puis déployée par la boucle
+d'itération courte. Première itération de cette boucle qui embarque des
+migrations : elle a donc été précédée d'un dump checksummé et d'une répétition
+complète sur copie restaurée.
+
+### Atterrissage
+
+`origin/demo/agentic` avancée en fast-forward de `b0b8f452` vers
+`9b0a116a25e46b9303d850a518cc992ab78359e4`, par bundle Git (accès Bitbucket
+local toujours indisponible, même voie que le 31/07) : `git bundle create` local
+borné `b0b8f452..`, `git bundle verify` des deux côtés, `git fetch` du bundle
+dans `/home/ubuntu/omnirag`, puis push depuis la VM. Aucun `--force`. Le
+checkout live et le worktree de build sont tous deux à ce SHA, porcelain vide.
+
+### Images
+
+Rebuild des trois seuls services applicatifs depuis
+`/srv/agentium-data/worktrees/demo-agentic`, `AGENTIUM_IMAGE_REVISION` en 40-hex
+complet, `PIP_INDEX_URL` explicite, `USER_UID/GID` 1000. Double tag habituel
+`9b0a116a25e4` (immuable) + `demo-agentic` (mouvant) :
+
+| Service | ID OCI |
+|---|---|
+| `agentium-backend` | `sha256:cbd828d527b0a7cfd2369397d21e669738907a67bdbaaafe038c661c33427fe6` |
+| `agentium-worker` | `sha256:48a441d24cbbc1bb78172704b204ece908bbbc96e41c3f33bf562659b3f41a14` |
+| `agentium-frontend` | `sha256:bf4fe6e76661aeb999bb27a599960c5da4491f1ad3024e8d47d09104237d0414` |
+
+Le rebuild est obligatoire : la tranche ajoute la dépendance backend
+`jsonschema` (4.26.0 résolue dans les images backend et worker). Les images
+`b0ce840ab020` sont conservées intactes comme point de rollback.
+
+### Dump avant migration
+
+Triplet publié sur `/dev/sdb`, en `0600` sous un répertoire `0700` :
+
+- `/srv/agentium-data/flow-p0-deployments/2026-08-07-9b0a116a25e4/postgres-pre-migration.dump`
+- `sha256` `1c63327751f3ea2f5d7920600044edb3d056406a3d53180e5f79a9b9dc05269f`
+- `bytes` `448212403`, 1178 entrées TOC, relu par `pg_restore --list`
+- marqueur `.ready` au format documenté (`format`/`sha256`/`bytes` tabulés)
+
+C'est le seul rollback réel de la base. Un retour d'image ou un downgrade
+Alembic aveugle n'en est pas un.
+
+### Répétition sur copie restaurée
+
+Base jetable `agentium_flowp0_rehearsal` créée dans le conteneur `agentium-pg`
+existant, restaurée avec `pg_restore --exit-on-error` (163 tables, Alembic 076),
+puis `alembic upgrade head` avec l'image candidate pointée exclusivement sur
+cette base. Elle atteint `080_trigger_event_claims`, l'effet de 078 est constaté,
+puis la base est supprimée. La base live est restée à 076 pendant toute la
+répétition.
+
+### Effet réel de la migration 078
+
+Sur les données de production, la migration **a bien muté** le graphe Andritz :
+elle ne s'est pas abstenue. Le graphe live hachait exactement l'ancien contrat
+épinglé (`6780628580346fb9…`), le seul workspace porteur du marqueur 059 étant
+`andritz` (System `874211ee`, `system_type=chat_agentic`,
+`flow_revision=056_andritz_chat_asset_binding`).
+
+La mutation est minimale et identique en répétition et en production
+(`flow_sha256` résultant `d17d9f8ba63682dd…` dans les deux cas) :
+
+- une seule arête ajoutée, `decision.verdict --[strong]--> join.answer` ;
+- 23 nœuds inchangés, 30 → 31 arêtes, aucune suppression ;
+- contrat `6780628580346fb9…` → `55611adbfba88483…` ;
+- `state.graph_changed=true`, `state.draft_upgraded=true` ;
+- nouvelle version immuable #20 (`created_by=migration-078`,
+  `release_kind=migration`), pointeur publié `2206fc61…` → `d433a466…`,
+  l'ancienne version #19 restant intacte ;
+- `systems.settings.flow_revision` et le marqueur de rollout workspace passent
+  à `078_andritz_decision_contract` ;
+- exactement 1 System sur 104 porte la clé d'état 078.
+
+La 077 a par ailleurs backfillé 104 Drafts et 104 pointeurs publiés
+(`system_versions` 138 → 226, dont 87 insertions 077 et 1 insertion 078). La
+080 crée `trigger_event_claims`, vide.
+
+### Vérifications
+
+- `/api/v1/build-info` backend et frontend : `revision` = SHA 40-hex complet,
+  `revision_verified: true` ;
+- Alembic `080_trigger_event_claims` ;
+- `storage-check` vert avant et après, en autonome et dans `migrate`/`up` ;
+- seuls backend, worker et frontend recréés ; `agentium-sftp`
+  (`eddce4dfca79`, `sha256:af7ef7a7…`) et `agentium-p4-maintenance`
+  (`e60e2745b3a1`, `sha256:54d942c3…`) conservent conteneur, digest épinglé et
+  `StartedAt` ; PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak et LiveKit
+  intouchés ;
+- drapeau `flow_workbench_v1` absent de tous les workspaces : la tranche reste
+  fermée en production, conformément au handoff ;
+- `run-iteration-canaries.sh` : 6/6 vertes sur le SHA déployé.
+
+Le premier passage des canaris a signalé un échec `cross_terms_absent` sur
+Sentinel, non reproduit au second passage (6/6). Cause qualifiée et **antérieure
+à cette tranche** : `vp-macro-indicators.component.ts` (inchangé ici, introduit
+le 30/06) initialise ses signaux avec `SOVEREIGN_FALLBACK`, dont les libellés
+portent `Octocity market cache` et `Meridian harbor cache`, et conserve ce repli
+via `catchError`. Tant que l'agrégat macro n'a pas répondu — typiquement juste
+après un redémarrage du backend — ces termes d'un autre tenant sont présents
+dans le DOM de n'importe quel workspace. Les lignes
+`workspace_macro_indicators` de `sentinel-ci` sont elles correctes. À traiter :
+le repli ne doit pas porter de marque tenant.
+
+### Dette relevée, non traitée dans cette fenêtre
+
+`/api/v1/skills` sur `andritz` répond en ~9,6 s de façon stable (4 mesures),
+contre ~0,1–0,3 s sur les autres workspaces et ~2,5 s documentés après
+l'optimisation N+1 du 31/07, à volume quasi identique (1335 Runs / 4500
+SkillInvocations contre 1333 / 4496). Le changement `run_access.py` de cette
+tranche est écarté : `is_workbench_run` ne matche aucun Run existant
+(`execution_surface` NULL sur les 1335) et `has_private_chat_admin_access`
+court-circuite sur un principal admin. La cause reste à établir ; l'endpoint
+répond correctement en HTTP 200.
+
+### Rollback
+
+- images : `AGENTIUM_IMAGE_TAG=b0ce840ab020` puis `up` (les trois images
+  précédentes sont conservées) ;
+- base : restaurer le triplet ci-dessus sous writers fermés. La base étant déjà
+  en 080, un simple retour d'image laisserait un runtime `b0ce840a` sur un
+  schéma 080 — dégradé, jamais un rollback.
+
+Cette fenêtre a délibérément suivi la boucle d'itération courte, sans fermeture
+d'ingress ni drainage des writers, là où la note de handoff recommandait la voie
+orchestrée. Le dump et la répétition compensent le risque base ; le risque de
+contention pendant le backfill 077 a été assumé.
