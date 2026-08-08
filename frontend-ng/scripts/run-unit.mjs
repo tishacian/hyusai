@@ -33,6 +33,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow.types.spec.ts',
   'src/app/features/orchestration/flow/flow-manifest-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-variable.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-contract-bindings.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-draft.storage.spec.ts',
   'src/app/core/flow-serializer.service.spec.ts',

@@ -588,3 +588,111 @@ def test_compile_rejects_conflicting_skill_slug_locations() -> None:
         )
 
     assert exc_info.value.code == "skill_binding_conflict"
+
+
+def _authored_schema_flow(node_kind: str, config_extra: dict) -> dict:
+    return {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {
+                "id": "manual",
+                "kind": "source",
+                "type": "source",
+                "outputs": [{"name": "query", "schema": "string", "required": True}],
+            },
+            {
+                "id": "task",
+                "kind": node_kind,
+                "config": {"skill_slug": "contract-skill", **config_extra},
+            },
+            {
+                "id": "result",
+                "kind": "sink",
+                "inputs": [{"name": "answer", "schema": "string", "required": True}],
+            },
+        ],
+        "edges": [
+            {"from": "manual", "to": "task", "kind": "data"},
+            {"from": "task", "to": "result", "kind": "data"},
+        ],
+    }
+
+
+def _contract_skill(db_session) -> Skill:
+    skill = Skill(
+        id="skill-authored",
+        workspace_id=None,
+        slug="contract-skill",
+        version="7",
+        name="Contract skill",
+        input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        output_schema={
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+        },
+    )
+    db_session.add(skill)
+    db_session.commit()
+    return skill
+
+
+def test_authored_node_output_schema_overrides_the_mutable_catalogue(db_session) -> None:
+    """The Flow, not the Skill row, decides what a node is allowed to publish.
+
+    A prose "answer in JSON" prompt is unenforceable; an authored schema is the
+    surface that makes a malformed answer fail at its own node instead of at
+    whatever reads it next.
+    """
+
+    _contract_skill(db_session)
+    authored = {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string"},
+            "line_manager_approved": {"type": "boolean"},
+        },
+        "required": ["answer", "line_manager_approved"],
+        "additionalProperties": False,
+    }
+
+    contract = compile_execution_contract(
+        db_session,
+        flow=_authored_schema_flow("task", {"output_schema": authored}),
+        workspace_id="workspace-authored",
+        runtime_mode="dag_strict",
+    )
+
+    node = contract["nodes"]["task"]
+    assert node["output_schema"]["required"] == ["answer", "line_manager_approved"]
+    assert node["output_schema_sha256"] != canonical_sha256(
+        {"type": "object", "properties": {"answer": {"type": "string"}}}
+    )
+    assert validate_execution_contract(contract) == contract
+
+
+@pytest.mark.parametrize("node_kind", ["retry", "loop"])
+def test_a_control_envelope_output_schema_cannot_be_authored(db_session, node_kind) -> None:
+    """Retry and Loop publish an adapter envelope, not the Skill's own output,
+    so an authored schema would describe a payload the node never emits."""
+
+    _contract_skill(db_session)
+
+    with pytest.raises(FlowContractError) as rejected:
+        compile_execution_contract(
+            db_session,
+            flow=_authored_schema_flow(
+                node_kind,
+                {
+                    "max_attempts": 2,
+                    "max_iterations": 2,
+                    "output_schema": {"type": "object"},
+                },
+            ),
+            workspace_id="workspace-authored",
+            runtime_mode="dag_strict",
+        )
+
+    assert rejected.value.code == "node_output_schema_not_overridable"
+    assert rejected.value.path == "nodes/task/config/output_schema"

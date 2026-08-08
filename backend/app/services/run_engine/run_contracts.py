@@ -17,6 +17,9 @@ from app.services.flow_contracts import (
     validate_payload,
 )
 
+from .condition import ConditionError
+from .condition import references as condition_references
+
 ValidationMode = Literal["enforce", "observe"]
 
 
@@ -172,6 +175,47 @@ def validate_node_invocation_output(
     except FlowContractError as exc:
         return _translate(exc, node_id=node_id)
     return None
+
+
+def unbound_decision_inputs(
+    *,
+    branches: Any,
+    resolved_input: Mapping[str, Any] | None,
+) -> list[str]:
+    """Names the branch conditions read that the resolved input never binds.
+
+    ``condition.evaluate`` resolves an unknown name to ``None``, so a Decision
+    fed a differently-shaped upstream payload routes on ``None`` comparisons
+    instead of failing.  Listing the names here lets the walker surface the
+    real cause before the first predicate runs.  An invalid expression is left
+    to the existing condition validation and reported as bound.
+    """
+
+    if not isinstance(branches, list):
+        return []
+    bound = set(resolved_input or {})
+    inner = (resolved_input or {}).get("input")
+    if isinstance(inner, Mapping):
+        bound |= set(inner)
+    unbound: set[str] = set()
+    for branch in branches:
+        if not isinstance(branch, Mapping):
+            continue
+        try:
+            unbound |= condition_references(str(branch.get("condition") or "")) - bound
+        except ConditionError:
+            continue
+    return sorted(unbound)
+
+
+def decision_input_error(*, node_id: str, unbound: list[str]) -> RuntimeContractError:
+    named = ", ".join(repr(name) for name in unbound)
+    return RuntimeContractError(
+        code="decision_input_unbound",
+        message=f"The Decision reads {named}, which its resolved input does not bind.",
+        path=f"nodes/{node_id}/config/branches",
+        node_id=node_id,
+    )
 
 
 def validate_sink_output(run: Any, *, node_id: str, payload: Any) -> RuntimeContractError | None:

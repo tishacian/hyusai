@@ -61,6 +61,10 @@ type ControlKind =
 interface VariableOption {
   value: string;
   label: string;
+  /** Listed but not selectable — an upstream output of an incompatible type,
+   *  shown so the picker explains its own emptiness instead of just being
+   *  empty. */
+  disabled?: boolean;
 }
 
 interface FieldVM {
@@ -178,7 +182,11 @@ function humanize(key: string): string {
                           (change)="onVariable(f, $event)"
                         >
                           @for (opt of f.variableOptions ?? []; track opt.value) {
-                            <option [value]="opt.value" [selected]="opt.value === f.stringValue">
+                            <option
+                              [value]="opt.value"
+                              [disabled]="opt.disabled === true"
+                              [selected]="opt.value === f.stringValue"
+                            >
                               {{ opt.label }}
                             </option>
                           }
@@ -452,6 +460,24 @@ export class ManifestFieldsComponent {
       options.push({ value: refValue, label: variableRefLabel(current) });
     }
 
+    // An empty picker used to be indistinguishable from a picker whose
+    // candidates were all filtered out by the port type. List the rejected
+    // ones, disabled and typed, so the mismatch is visible where it is felt.
+    const rejected = candidates.filter((c) => !compatible.includes(c));
+    for (const c of rejected) {
+      options.push({
+        value: encodeCandidateValue(c.node_id, c.port),
+        label: `${c.label} · ${c.schema} — not a ${port.schema}`,
+        disabled: true,
+      });
+    }
+
+    const diagnostic = compatible.length > 0
+      ? null
+      : candidates.length === 0
+        ? 'Nothing upstream produces a value yet — connect a node into this one first.'
+        : `No upstream output is a ${port.schema}. Bind a compatible output, or read the value on a Decision as a named input.`;
+
     return {
       key: port.name,
       label: humanize(port.name),
@@ -459,6 +485,7 @@ export class ManifestFieldsComponent {
       type: port.schema,
       required: Boolean(port.required),
       description:
+        diagnostic ??
         port.description ??
         `Bind input "${port.name}" (${port.schema}) to an upstream output.`,
       options: [],
@@ -467,7 +494,7 @@ export class ManifestFieldsComponent {
       stringValue: value,
       boolValue: false,
       jsonValue: '',
-      invalid: false,
+      invalid: Boolean(port.required) && diagnostic !== null,
       error: null,
       variableOptions: options,
     };

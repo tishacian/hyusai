@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.run_engine.condition import ConditionError, evaluate, validate
+from app.services.run_engine.condition import (
+    ConditionError,
+    evaluate,
+    references,
+    validate,
+)
 
 
 @pytest.mark.parametrize("expression", ["", "   ", None])
@@ -94,3 +99,32 @@ def test_invalid_syntax_raises_condition_error() -> None:
     with pytest.raises(ConditionError) as captured:
         evaluate("status ==", {"status": "ok"})
     assert captured.value.code == "condition_syntax_error"
+
+
+def test_references_names_only_what_the_ctx_has_to_bind() -> None:
+    assert references("line_manager_approved == True") == {"line_manager_approved"}
+    assert references("approved and score > 0.8") == {"approved", "score"}
+    assert references("status in ['ok', 'partial']") == {"status"}
+    assert references("True") == set()
+
+
+def test_references_excludes_namespaced_reads() -> None:
+    """``ctx.x`` resolves outside the node payload, so it is not a binding."""
+
+    assert references("ctx.confidence < 0.5") == set()
+    assert references("ctx.confidence < 0.5 and approved") == {"approved"}
+
+
+def test_references_rejects_an_unsafe_expression_like_validate() -> None:
+    with pytest.raises(ConditionError):
+        references("len(answer) > 0")
+
+
+def test_an_unbound_equality_silently_never_matches() -> None:
+    """The failure mode ``references`` exists to make visible.
+
+    Nothing raises here: the branch simply never wins, which is why an unbound
+    name has to be reported before the predicate runs.
+    """
+
+    assert evaluate("line_manager_approved == True", {}) is False

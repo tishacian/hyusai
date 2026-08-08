@@ -971,3 +971,61 @@ def test_ingress_kind_typo_and_non_root_source_are_blocking() -> None:
     assert "ingress_source_not_root" in _codes(validate_flow(inbound))
     assert has_errors(validate_flow(typo))
     assert has_errors(validate_flow(inbound))
+
+
+def _decision_flow(io_mode: str, config_extra: dict | None = None) -> dict:
+    config = {
+        "branches": [
+            {"label": "approved", "condition": "line_manager_approved == True"},
+            {"label": "refused", "condition": "line_manager_approved == False"},
+        ],
+        **(config_extra or {}),
+    }
+    return {
+        "schema_version": 3,
+        "io_mode": io_mode,
+        "nodes": [
+            {"id": "entry", "kind": "source", "outputs": [{"name": "goal", "schema": "string"}]},
+            {"id": "route", "kind": "decision", "config": config},
+            {"id": "yes", "kind": "sink"},
+            {"id": "no", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "entry", "to": "route"},
+            {"from": "route", "to": "yes", "kind": "branch", "branch_label": "approved"},
+            {"from": "route", "to": "no", "kind": "branch", "branch_label": "refused"},
+        ],
+    }
+
+
+def test_strict_decision_reading_an_unnamed_input_warns_without_blocking() -> None:
+    issues = validate_flow(_decision_flow("strict"))
+
+    warning = next(i for i in issues if i.code == "decision_condition_unbound")
+    assert warning.level == "warn", "an authoring hint must never block Save"
+    assert "line_manager_approved" in warning.message
+    assert warning.node_id == "route"
+
+
+@pytest.mark.parametrize(
+    "config_extra",
+    [
+        {"inputs_map": {"line_manager_approved": {"node_id": "entry", "path": ["goal"]}}},
+        {"passthrough_inputs": ["line_manager_approved"]},
+    ],
+)
+def test_a_named_binding_or_passthrough_satisfies_the_predicate(config_extra) -> None:
+    """Both halves of strict resolution count as binding the name."""
+
+    assert "decision_condition_unbound" not in _codes(
+        validate_flow(_decision_flow("strict", config_extra))
+    )
+
+
+def test_overlay_decisions_are_not_second_guessed_at_design_time() -> None:
+    """Overlay merges the whole accumulated ctx, so the name set is not
+    decidable from the graph — the runtime check owns that case."""
+
+    assert "decision_condition_unbound" not in _codes(
+        validate_flow(_decision_flow("overlay"))
+    )

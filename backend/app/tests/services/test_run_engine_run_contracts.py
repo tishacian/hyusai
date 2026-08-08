@@ -5,6 +5,8 @@ import pytest
 from app.services.run_engine.dag import _apply_runtime_output_contract
 from app.services.run_engine.run_contracts import (
     RuntimeContractError,
+    decision_input_error,
+    unbound_decision_inputs,
     validate_ingress_payload,
     validate_node_invocation_output,
     validate_node_output,
@@ -121,3 +123,52 @@ def test_control_invocation_contract_fails_closed_when_schema_is_missing() -> No
     assert error.terminal_error() == (
         "execution_contract:node_invocation_output_schema_missing:retry"
     )
+
+
+_BRANCHES = [
+    {"label": "approved", "condition": "line_manager_approved == True"},
+    {"label": "escalate", "condition": "score > 0.8 and status == 'open'"},
+]
+
+
+def test_unbound_decision_inputs_lists_only_what_the_payload_misses() -> None:
+    assert unbound_decision_inputs(
+        branches=_BRANCHES,
+        resolved_input={"line_manager_approved": False, "score": 0.9, "status": "open"},
+    ) == []
+    assert unbound_decision_inputs(
+        branches=_BRANCHES,
+        resolved_input={"score": 0.9},
+    ) == ["line_manager_approved", "status"]
+
+
+def test_unbound_decision_inputs_honours_the_input_bag_fallback() -> None:
+    """``condition.evaluate`` reads through ``ctx['input']``; so does this."""
+
+    assert unbound_decision_inputs(
+        branches=[{"condition": "query == 'hello'"}],
+        resolved_input={"input": {"query": "hello"}},
+    ) == []
+
+
+def test_unbound_decision_inputs_defers_an_invalid_expression() -> None:
+    """Syntax and safety already have an owner; do not report twice."""
+
+    assert unbound_decision_inputs(
+        branches=[{"condition": "len(answer) > 0"}, {"condition": "status =="}],
+        resolved_input={},
+    ) == []
+
+
+def test_unbound_decision_inputs_tolerates_a_malformed_branch_list() -> None:
+    assert unbound_decision_inputs(branches=None, resolved_input={}) == []
+    assert unbound_decision_inputs(branches=["not a branch"], resolved_input=None) == []
+
+
+def test_decision_input_error_names_the_missing_bindings() -> None:
+    error = decision_input_error(node_id="route", unbound=["line_manager_approved"])
+
+    assert error.code == "decision_input_unbound"
+    assert "line_manager_approved" in error.message
+    assert error.path == "nodes/route/config/branches"
+    assert error.terminal_error() == "execution_contract:decision_input_unbound:route"

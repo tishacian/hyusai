@@ -43,6 +43,9 @@ import {
 } from './flow-collections.service';
 import { FlowTriggerControlsComponent } from './flow-trigger-controls.component';
 import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
+import { FlowIngressEditorComponent } from './flow-ingress-editor.component';
+import { FlowDecisionBindingsComponent } from './flow-decision-bindings.component';
+import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
 
 export interface RetrievalDocumentRef {
   collection_slug: string;
@@ -111,6 +114,9 @@ export function buildRetrievalDocumentOptions(
     ManifestFieldsComponent,
     FlowTriggerControlsComponent,
     FlowTriggersPanelComponent,
+    FlowIngressEditorComponent,
+    FlowDecisionBindingsComponent,
+    FlowSchemaEditorComponent,
   ],
   styleUrl: './flow-inspector.component.scss',
   template: `
@@ -297,6 +303,8 @@ export function buildRetrievalDocumentOptions(
                   }
                 </select>
               </label>
+
+              <app-flow-decision-bindings />
             </section>
           }
 
@@ -463,6 +471,26 @@ export function buildRetrievalDocumentOptions(
             </section>
           }
 
+          @if ((n.kind ?? 'task') === 'source') {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">Entry point</span>
+              <app-flow-ingress-editor [systemId]="systemId()" />
+            </section>
+          }
+
+          @if (declaresOutputContract(n)) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">Output contract</span>
+              <app-flow-schema-editor
+                configKey="output_schema"
+                label="Published output schema"
+                [deriveFrom]="(n.kind ?? 'task') === 'sink' ? 'inputs' : 'outputs'"
+                [hint]="outputContractHint(n)"
+                [fallbackHint]="outputContractFallback(n)"
+              />
+            </section>
+          }
+
           @if (isTriggerSource(n)) {
             <section class="ck-flow-section">
               <span class="ck-flow-section__label">Déclencheur (source)</span>
@@ -614,6 +642,26 @@ export class FlowInspectorComponent {
   /** True for the SFTP arrival trigger specifically (offers the deposit link). */
   isSftpTrigger(n: CanonicalFlowNode): boolean {
     return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
+
+  /** Nodes whose published output schema is authored rather than derived.
+   *  Retry and Loop are excluded: their contract output is the control
+   *  envelope produced by the adapter, and publication rejects an override. */
+  declaresOutputContract(n: CanonicalFlowNode): boolean {
+    const kind = n.kind ?? 'task';
+    return kind === 'task' || kind === 'sink';
+  }
+
+  outputContractHint(n: CanonicalFlowNode): string {
+    return (n.kind ?? 'task') === 'sink'
+      ? 'Validated before the Run result becomes visible.'
+      : 'Validated on every node output, so a malformed answer fails here rather than at the Decision reading it.';
+  }
+
+  outputContractFallback(n: CanonicalFlowNode): string {
+    return (n.kind ?? 'task') === 'sink'
+      ? "No schema declared — publication derives one from this node's input ports and accepts any extra field."
+      : "No schema declared — publication freezes the bound Skill's catalogue schema, whatever it says at that moment.";
   }
 
   description(n: { data?: Record<string, unknown> }): string {

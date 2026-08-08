@@ -1,0 +1,63 @@
+/* `<app-flow-ingress-editor>` — own namespace + own styles: the inspector's
+   emulated encapsulation does not reach a child component's DOM. */
+:host {
+  display: block;
+}
+
+.ck-ingress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ck-ingress__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ck-ingress__label {
+  font: 600 10px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-ingress__select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  transition: border-color var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+.ck-ingress__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3, #8891a0);
+
+  &--warn {
+    color: var(--ck-signal-warn, #fbbf24);
+  }
+  &--ok {
+    color: var(--ck-signal-pos, #4ade80);
+  }
+}
+
+.ck-ingress__link {
+  color: var(--ck-signal-cool, #7dd3fc);
+}

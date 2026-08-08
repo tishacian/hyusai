@@ -1682,3 +1682,99 @@ async def test_nested_subflow_hitl_resumes_entire_lineage_once(db_session, monke
         db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run_c.id).all()
     )
     assert [item.skill_slug for item in leaf_invocations] == ["nested_child_tail_v1"]
+
+
+def _unbound_decision_flow() -> dict:
+    return {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "route",
+                "kind": "decision",
+                "config": {
+                    "branches": [
+                        {
+                            "label": "approved",
+                            "condition": "line_manager_approved == True",
+                        },
+                        {"label": "refused", "condition": "True"},
+                    ],
+                },
+            },
+            {"id": "yes", "kind": "sink"},
+            {"id": "no", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "route"},
+            {"from": "route", "to": "yes", "kind": "branch", "branch_label": "approved"},
+            {"from": "route", "to": "no", "kind": "branch", "branch_label": "refused"},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("validation_mode", "expected_status", "expected_disposition"),
+    [
+        ("enforce", "failed", "failed"),
+        ("observe", "completed", "observed"),
+    ],
+)
+async def test_a_decision_reading_an_unbound_name_is_enforced_or_observed(
+    db_session,
+    validation_mode,
+    expected_status,
+    expected_disposition,
+):
+    """The silent routing bug, made loud.
+
+    ``line_manager_approved`` is bound nowhere, so the predicate compares None
+    against True and the run quietly takes the fallback branch. Enforcing
+    contracts refuse to route on that; observing ones record it and keep the
+    historical behaviour.
+    """
+
+    flow = _unbound_decision_flow()
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"query": "hello"})
+    run.flow_snapshot = flow
+    run.execution_contract = {
+        "validation_mode": validation_mode,
+        "nodes": {},
+        "outputs": [],
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == expected_status
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    reported = next(
+        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_input_unbound"
+    )
+    assert reported["names"] == ["line_manager_approved"]
+    assert reported["node_id"] == "route"
+    assert reported["disposition"] == expected_disposition
+
+
+async def test_a_decision_whose_names_are_all_bound_routes_untouched(db_session):
+    flow = _unbound_decision_flow()
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"line_manager_approved": True})
+    run.flow_snapshot = flow
+    run.execution_contract = {
+        "validation_mode": "enforce",
+        "nodes": {},
+        "outputs": [],
+    }
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "completed"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert not [
+        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_input_unbound"
+    ]

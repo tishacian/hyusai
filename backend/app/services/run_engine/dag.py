@@ -90,6 +90,8 @@ from .execution_contract import (
 )
 from .run_contracts import (
     RuntimeContractError,
+    decision_input_error,
+    unbound_decision_inputs,
     validate_node_invocation_output,
     validate_node_output,
     validate_sink_output,
@@ -2150,6 +2152,22 @@ async def _execute_node(
             return result
 
         if node.kind == "decision":
+            unbound = unbound_decision_inputs(
+                branches=(node.config or {}).get("branches"),
+                resolved_input=_decision_ctx(state, node_input, strict=strict),
+            )
+            enforced = bool(unbound) and validation_mode(run) == "enforce"
+            if unbound:
+                _append_checkpoint(
+                    db,
+                    run,
+                    {
+                        "kind": "decision_input_unbound",
+                        "node_id": node.id,
+                        "names": unbound,
+                        "disposition": "failed" if enforced else "observed",
+                    },
+                )
             result = _run_decision(
                 node,
                 graph,
@@ -2157,6 +2175,7 @@ async def _execute_node(
                 node_input,
                 pool=node_pool,
                 strict=strict,
+                unbound_inputs=unbound if enforced else None,
             )
             _append_checkpoint(db, run, _decision_resolution_checkpoint(node, result))
             return result
@@ -2298,6 +2317,22 @@ async def _run_task(
     return {"output": err_output}
 
 
+def _decision_ctx(
+    state: WalkerState,
+    merged_input: Optional[Dict[str, Any]],
+    *,
+    strict: bool,
+) -> Dict[str, Any]:
+    """Names a Decision predicate can read.
+
+    Strict conditions are evaluated from the node's typed payload; built-in and
+    declared namespaces remain addressable through the pool. Overlay preserves
+    the historical flat ctx merge.
+    """
+
+    return dict(merged_input or {}) if strict else {**state.ctx, **(merged_input or {})}
+
+
 def _run_decision(
     node: DagNode,
     graph: DagGraph,
@@ -2306,24 +2341,33 @@ def _run_decision(
     *,
     pool: Optional[VariablePool] = None,
     strict: bool = False,
+    unbound_inputs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Resolve one Decision route, failing closed on every ambiguous outcome.
 
     Every predicate is validated before the first one is evaluated, so an
     unsafe expression cannot hide behind an earlier match.  Runtime evaluation
     itself remains first-match and short-circuited.
+
+    ``unbound_inputs`` are predicate names the caller proved the payload never
+    bound. They resolve to null and would route the run on a comparison against
+    nothing, so an enforcing contract refuses to route before evaluating.
     """
     config = node.config or {}
     branches = config.get("branches") or []
     default_label = str(config.get("default_branch") or "").strip()
-    # Strict conditions are evaluated from the node's typed payload. Built-in
-    # and declared namespaces remain addressable through the pool. Overlay
-    # preserves the historical flat ctx merge.
-    ctx_with_input = (
-        dict(merged_input or {})
-        if strict
-        else {**state.ctx, **(merged_input or {})}
-    )
+    if unbound_inputs:
+        violation = decision_input_error(node_id=node.id, unbound=unbound_inputs)
+        return {
+            "output": {
+                "chosen_branch": None,
+                "decision_resolution": "error",
+                "evaluations": [],
+            },
+            "decision_resolution": "error",
+            "terminal_error": violation.terminal_error(),
+        }
+    ctx_with_input = _decision_ctx(state, merged_input, strict=strict)
 
     branch_specs: List[Tuple[int, str, str]] = []
     evaluations: List[Dict[str, Any]] = []

@@ -25,6 +25,9 @@ also declared on the frontend and emitted here in lockstep:
   (``{node_id, path}``) pointing at a node_id/port that is neither a
   reserved namespace nor present upstream. Legacy dot-path strings are
   left untouched (resolved by the run engine, not the graph).
+- ``decision_condition_unbound``: a strict Decision branch predicate reads a
+  name no named input binds, so it would silently evaluate as null. Emitted
+  for ``io_mode: strict`` only, where the readable name set is decidable.
 
 The result is a list of ``ValidationIssue`` dicts, shaped identically
 to the frontend ``FlowValidationIssue`` so the editor can display
@@ -52,6 +55,7 @@ from app.services.flow_skill_binding import (
     resolve_flow_skill_binding,
 )
 from app.services.run_engine.condition import ConditionError
+from app.services.run_engine.condition import references as condition_references
 from app.services.run_engine.condition import validate as validate_condition
 from app.services.run_engine.variable_pool import (
     RESERVED_NAMESPACES,
@@ -356,12 +360,30 @@ def _edge_branch_label(edge: Mapping[str, Any]) -> Optional[str]:
     return raw.strip() if isinstance(raw, str) and raw.strip() else None
 
 
+def _strict_decision_bindings(config: Mapping[str, Any]) -> Set[str]:
+    """Names a strict Decision's resolved input can carry.
+
+    Strict resolution keeps only ``passthrough_inputs`` from the predecessor
+    merge and then overlays ``inputs_map`` (see ``variable_pool.apply_inputs_map``),
+    so this set is exact rather than heuristic.
+    """
+    bindings: Set[str] = set()
+    inputs_map = config.get("inputs_map")
+    if isinstance(inputs_map, Mapping):
+        bindings |= {str(port) for port in inputs_map}
+    passthrough = config.get("passthrough_inputs")
+    if isinstance(passthrough, list):
+        bindings |= {str(item) for item in passthrough if isinstance(item, str)}
+    return bindings
+
+
 def _decision_contract_issues(
     *,
     node: Mapping[str, Any],
     node_id: str,
     config: Mapping[str, Any],
     outgoing_edges: Sequence[tuple[int, Mapping[str, Any]]],
+    strict: bool = False,
 ) -> List[ValidationIssue]:
     """Validate Decision branches and their route edges as one contract."""
     issues: List[ValidationIssue] = []
@@ -430,6 +452,27 @@ def _decision_contract_issues(
                         node_id=node_id,
                     )
                 )
+                continue
+            # Only strict resolution makes the readable name set decidable at
+            # design time; overlay merges the whole accumulated ctx, so the
+            # equivalent check runs against the real payload at execution.
+            if strict:
+                unbound = sorted(
+                    condition_references(expression) - _strict_decision_bindings(config)
+                )
+                if unbound:
+                    issues.append(
+                        ValidationIssue(
+                            level="warn",
+                            code="decision_condition_unbound",
+                            message=(
+                                f"Decision branch {label or branch_index + 1!r} reads "
+                                + ", ".join(repr(name) for name in unbound)
+                                + ", which no named input binds. It will evaluate as null."
+                            ),
+                            node_id=node_id,
+                        )
+                    )
 
     duplicate_labels = sorted({label for label in labels if labels.count(label) > 1})
     if duplicate_labels:
@@ -976,6 +1019,7 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                     node_id=nid,
                     config=cfg,
                     outgoing_edges=outgoing,
+                    strict=strict,
                 )
             )
         elif kind == "loop":

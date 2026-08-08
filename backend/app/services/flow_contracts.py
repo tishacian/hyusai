@@ -743,6 +743,21 @@ def compile_execution_contract(
                     ),
                     field=f"nodes.{node_id}.adapted_output_schema",
                 )
+            declared_output_schema = config.get("output_schema")
+            if isinstance(declared_output_schema, Mapping):
+                if output_adapter is not None:
+                    raise FlowContractError(
+                        code="node_output_schema_not_overridable",
+                        message=(
+                            f"Node {node_id!r} publishes a control envelope; its output "
+                            "schema is derived from the adapter, not authored."
+                        ),
+                        path=f"nodes/{node_id}/config/output_schema",
+                    )
+                public_output_schema = validate_schema_definition(
+                    declared_output_schema,
+                    field=f"nodes.{node_id}.output_schema",
+                )
             execution = skill.execution if isinstance(skill.execution, Mapping) else {}
             capabilities = execution.get("capabilities")
             provider_json_schema = bool(

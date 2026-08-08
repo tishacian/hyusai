@@ -28,7 +28,7 @@ True
 from __future__ import annotations
 
 import ast
-from typing import Any, Dict, NoReturn, Optional
+from typing import Any, Dict, NoReturn, Optional, Set
 
 
 class ConditionError(ValueError):
@@ -79,6 +79,30 @@ def validate(expression: str) -> None:
     """
 
     _parse_and_validate(expression)
+
+
+def references(expression: str) -> Set[str]:
+    """Bare names a validated expression reads from the evaluation ctx.
+
+    Namespaced accesses (``ctx.x``, ``run.x``) resolve outside the node payload
+    and are excluded, so callers can check exactly the names a node's resolved
+    input has to supply. Raises :class:`ConditionError` on an invalid
+    expression, like :func:`validate`.
+    """
+
+    names: Set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.Attribute):
+            return
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(_parse_and_validate(expression).body)
+    return names
 
 
 def evaluate(expression: str, ctx: Dict[str, Any], *, pool: Optional[Any] = None) -> bool:

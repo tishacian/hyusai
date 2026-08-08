@@ -1,0 +1,87 @@
+/* `<app-flow-schema-editor>` — own namespace + own styles: the inspector's
+   emulated encapsulation does not reach a child component's DOM. */
+:host {
+  display: block;
+}
+
+.ck-schema {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ck-schema__label {
+  font: 600 10px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-schema__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3, #8891a0);
+
+  &--error {
+    color: var(--ck-signal-danger, #fb7185);
+  }
+}
+
+.ck-schema__editor {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 96px;
+  font-family: var(--ck-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  transition: border-color var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+  &[aria-invalid='true'] {
+    border-color: var(--ck-signal-danger, #fb7185);
+  }
+}
+
+.ck-schema__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ck-schema__btn {
+  padding: 5px 8px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ck-fg-2, #c8cdd4);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ck-signal-violet, #a78bfa);
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
