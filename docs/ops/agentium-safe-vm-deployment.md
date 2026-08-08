@@ -1354,7 +1354,7 @@ délibérément `execution_contract = NULL`.
 |---|---|---|
 | `077_flow_publication_v1` | 104 pointeurs publiés, 104 Drafts, 87 versions insérées, 17 versions historiques réutilisées | `NULL` (insertions) ; colonne créée nullable, donc `NULL` aussi sur les réutilisées |
 | `078_andritz_decision_contract` | 1 version insérée, pointeur Andritz redirigé | `NULL` |
-| `081_flow_publication_default_posture` | baselines des Systems créés après 077 par la voie legacy | `NULL` |
+| `081_flow_publication_baseline` | baselines des Systems créés après 077 par la voie legacy | `NULL` |
 
 Côté runtime, `flow_publication.published_run_evidence` refuse d'exécuter une
 version publiée sans contrat immuable valide et lève
@@ -1480,11 +1480,17 @@ le GO.
 
 | Révision | Objet | Nature |
 |---|---|---|
-| `081_flow_publication_default_posture` | baselines de publication manquantes | data-only, idempotente, ne touche jamais `systems.flow_definition` |
+| `081_flow_publication_baseline` | baselines de publication manquantes | data-only, idempotente, ne touche jamais `systems.flow_definition` |
 | `082_skill_category` | colonne `category` du catalogue Skill + backfill figé | expand + data |
 
 `083` est **déjà pris** par le travail en cours sur le CRUD Skill scopé
 workspace : ne pas réattribuer ce numéro à un correctif de cette fenêtre.
+
+Un identifiant de révision ne peut pas dépasser **32 caractères** :
+`alembic_version.version_num` est un `character varying(32)` et Alembic n'expose
+aucune option pour l'élargir. Au-delà, l'`UPDATE` du tampon échoue en
+`StringDataRightTruncation` après que la migration a déjà écrit ses données. Le
+nom de fichier peut rester long et descriptif, seul l'identifiant est contraint.
 
 ### Séquence
 

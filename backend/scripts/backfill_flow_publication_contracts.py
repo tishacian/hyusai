@@ -15,7 +15,7 @@ The remedy the service already implements is one explicit Publish, which appends
 a version carrying the frozen contract even when the graph bytes are unchanged.
 This script performs that Publish for the whole estate.
 
-Run it after ``081_flow_publication_default_posture`` and before traffic resumes.
+Run it after ``081_flow_publication_baseline`` and before traffic resumes.
 A System whose draft has moved ahead of its published version is skipped, never
 published: promoting unreviewed editor work is exactly the destructive behaviour
 draft/publish separation exists to prevent.

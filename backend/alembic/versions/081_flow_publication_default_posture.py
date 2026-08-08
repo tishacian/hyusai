@@ -1,6 +1,6 @@
 """Backfill the publication baseline Systems created after 077 never received.
 
-Revision ID: 081_flow_publication_default_posture
+Revision ID: 081_flow_publication_baseline
 Revises: 080_trigger_event_claims
 
 Migration 077 expanded the schema and gave every System of the day a published
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "081_flow_publication_default_posture"
+revision = "081_flow_publication_baseline"
 down_revision = "080_trigger_event_claims"
 branch_labels = None
 depends_on = None

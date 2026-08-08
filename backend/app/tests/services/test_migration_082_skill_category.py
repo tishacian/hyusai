@@ -64,7 +64,7 @@ class _SQLiteOps:
 
 def test_revision_chains_onto_the_publication_posture_head():
     assert MIG.revision == "082_skill_category"
-    assert MIG.down_revision == "081_flow_publication_default_posture"
+    assert MIG.down_revision == "081_flow_publication_baseline"
 
 
 def test_upgrade_categorises_the_catalog_and_leaves_unknown_slugs_null(monkeypatch):

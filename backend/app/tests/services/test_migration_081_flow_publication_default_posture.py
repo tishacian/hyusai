@@ -97,9 +97,8 @@ def _downgrade(connection) -> None:
 
 
 def test_revision_extends_current_head() -> None:
-    assert MIG.revision == "081_flow_publication_default_posture"
+    assert MIG.revision == "081_flow_publication_baseline"
     assert MIG.down_revision == "080_trigger_event_claims"
-    assert len(MIG.revision) <= 40
 
 
 def test_post_077_system_receives_pointer_and_draft_reusing_exact_version() -> None:

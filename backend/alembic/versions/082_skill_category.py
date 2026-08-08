@@ -1,7 +1,7 @@
 """Add the product category column to the Skill catalog.
 
 Revision ID: 082_skill_category
-Revises: 081_flow_publication_default_posture
+Revises: 081_flow_publication_baseline
 
 Discovery surfaces used to re-derive a product taxonomy from slugs and
 descriptions with a frontend regex, because the catalog never carried one.
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "082_skill_category"
-down_revision = "081_flow_publication_default_posture"
+down_revision = "081_flow_publication_baseline"
 branch_labels = None
 depends_on = None
 
