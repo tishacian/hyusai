@@ -22,6 +22,26 @@ from app.models.workspace import Workspace
 from app.services.chat_execution_policy import migration_059_system_id
 
 
+def legacy_workspace_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> bool:
+    """Whether the subject holds workspace administration, by role or platform.
+
+    Boundaries introduced after authorization-v2 have no permissive legacy
+    behaviour to preserve, so they pass this as their compat decision: compat
+    then matches the candidate rule and promotion changes the audit trail
+    rather than the answer.
+    """
+
+    if getattr(user, "role", None) == "admin":
+        return True
+    membership = current_membership(db, user, workspace)
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
+
+
 def legacy_run_approval_allowed(
     db: DBSession,
     *,
@@ -80,13 +100,7 @@ def legacy_object_action_allowed(
         if resource_kind not in {"capability", "system", "run"}:
             return False
         if resource_kind == "system" and attrs.get("managed_system") is True:
-            if getattr(user, "role", None) == "admin":
-                return True
-            membership = current_membership(db, user, workspace)
-            return bool(
-                membership
-                and is_admin_template(membership.role_template, membership.role)
-            )
+            return legacy_workspace_admin(db, user=user, workspace=workspace)
         return True
     if resource_kind == "run" and action == "approve":
         return legacy_run_approval_allowed(

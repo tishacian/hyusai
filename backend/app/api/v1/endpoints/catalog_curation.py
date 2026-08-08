@@ -19,8 +19,6 @@ from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.auth import get_current_user, get_current_workspace
-from app.core.iam.dependencies import current_membership
-from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.skill import Skill
@@ -32,6 +30,7 @@ from app.services.catalog_visibility import (
     catalog_coverage,
 )
 from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import legacy_workspace_admin
 from app.services.workspace_apps import app_owned_catalog_skills
 
 router = APIRouter()
@@ -184,7 +183,4 @@ def _normalized(values: Any) -> list[str]:
 
 
 def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
-    if getattr(user, "role", None) == "admin":
-        return True
-    membership = current_membership(db, user, workspace)
-    return bool(membership and is_admin_template(membership.role_template, membership.role))
+    return legacy_workspace_admin(db, user=user, workspace=workspace)

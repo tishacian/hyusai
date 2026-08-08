@@ -1,13 +1,16 @@
 """Canonical /skills endpoints — Registry with certification + metrics.
 
-Skills are mostly read-only from the UI: the registry is seeded from the
-in-process `app.services.skills_registry` and metrics are aggregated from
-`SkillInvocation` records.
+The seeded registry is read-only from the UI: it comes from the in-process
+`app.services.skills_registry` and metrics are aggregated from
+`SkillInvocation` records. A workspace can additionally author its own Skills,
+under `skill.admin` and inside its own slug namespace, binding them to the
+verified executor set rather than to code of its own.
 """
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import load_only
 
@@ -27,27 +30,97 @@ from app.services.catalog_visibility import (
     visible_skill_ids_from_capabilities,
     workspace_catalog_policy,
 )
+from app.services.flow_contracts import FlowContractError, validate_schema_definition
+from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import legacy_workspace_admin
 from app.services.run_access import readable_runs, readable_skill_invocations_for_runs
 from app.services.projection_integrity import invocation_cost_is_measured
+from app.services.skills_registry.binding import SkillBindingError, workspace_skill_slug
+from app.services.skills_registry.executors import (
+    validate_executor_binding,
+    verified_executor_catalog,
+)
+from app.services.skills_registry.seed import SKILL_CATEGORIES
 
 router = APIRouter()
 
+# A workspace picks from the taxonomy the seeder already established rather than
+# inventing a tenth section: the palette groups by category, so a private
+# category would fragment the very surface authoring is meant to populate.
+AUTHORABLE_CATEGORIES = tuple(sorted(set(SKILL_CATEGORIES.values())))
 
-def _runtime_status(slug: str) -> str:
-    """Resolve the canonical 4-state runtime status for a skill slug.
+
+def _known_category(value: Optional[str]) -> Optional[str]:
+    if value is not None and value not in AUTHORABLE_CATEGORIES:
+        raise ValueError("category must be one of: " + ", ".join(AUTHORABLE_CATEGORIES))
+    return value
+
+
+class SkillCreate(BaseModel):
+    """A Skill definition, minus everything the workspace does not decide.
+
+    ``slug`` is derived from ``local_name`` and the workspace id.
+    ``certification_level``, ``is_seeded``, ``workspace_id``, ``version`` and
+    ``metrics`` are the platform's or the runtime's, so accepting them here
+    would let an authored row assert something no one measured or granted.
+    """
+
+    local_name: str
+    name: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    type: str = Field(default="generic", max_length=60)
+    category: Optional[str] = None
+    input_schema: Dict[str, Any] = {}
+    output_schema: Dict[str, Any] = {}
+    executor: Dict[str, Any]
+    execution: Optional[Dict[str, Any]] = None
+    pricing: Optional[Dict[str, Any]] = None
+
+    _category = field_validator("category")(_known_category)
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    type: Optional[str] = Field(default=None, max_length=60)
+    category: Optional[str] = None
+    input_schema: Optional[Dict[str, Any]] = None
+    output_schema: Optional[Dict[str, Any]] = None
+    executor: Optional[Dict[str, Any]] = None
+    execution: Optional[Dict[str, Any]] = None
+    pricing: Optional[Dict[str, Any]] = None
+
+    _category = field_validator("category")(_known_category)
+
+
+def _runtime_status(s: Skill) -> str:
+    """Resolve the canonical 4-state runtime status for one catalog row.
 
     Returns one of ``bound`` | ``stub`` | ``unbound`` | ``catalog_only``.
     ``catalog_only`` means the Skill row exists in the database but has
     no registered wrapper — useful to flag "declared-but-unimplemented"
     capabilities in the UI.
+
+    A workspace-defined row is never ``catalog_only``: it is not waiting for
+    someone to implement a wrapper, it either has a verified executor binding
+    and will run, or it has none and its resolution fails closed.
     """
     from app.services.skills_registry import registry_snapshot
 
-    snap = registry_snapshot()
-    entry = snap.get(slug)
+    if s.workspace_id is not None:
+        return _authored_runtime_status(s.executor)
+    entry = registry_snapshot().get(s.slug)
     if entry is None:
         return "catalog_only"
     return entry.get("status", "unbound")
+
+
+def _authored_runtime_status(executor: Any) -> str:
+    try:
+        validate_executor_binding(executor)
+    except SkillBindingError:
+        return "unbound"
+    return "bound"
 
 
 def _serialize(
@@ -71,8 +144,11 @@ def _serialize(
         "is_seeded": s.is_seeded == "Y",
         "provider": s.provider,
         "metrics": metrics or s.metrics or {},
-        "runtime_status": _runtime_status(s.slug),
+        "runtime_status": _runtime_status(s),
         "workspace_scope": "global" if s.workspace_id is None else "workspace",
+        # Safe to serialise beside the schemas because no verified executor
+        # declares a credential parameter and every params_schema is closed.
+        "executor": s.executor or None,
     }
     if visibility is not None:
         payload["visibility"] = visibility.to_dict()
@@ -149,9 +225,109 @@ def _visible_skill_rows(db: DBSession, workspace: Workspace) -> list[Skill]:
     return _catalog_view(db, workspace).visible
 
 
+def _enforce_catalog_read(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    resource_attrs: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Resolve the catalog read boundary; `skill.read` is role-scoped."""
+
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="skill",
+        action="read",
+        # Membership was already resolved by the workspace dependency, which is
+        # the whole of the historical gate on browsing the catalog.
+        legacy_allowed=True,
+        resource_attrs=resource_attrs or {"scope": "collection"},
+    )
+
+
+def _enforce_catalog_admin(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    resource_attrs: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Resolve the authoring boundary.
+
+    Authoring has no pre-v2 behaviour to preserve, so compat is given the
+    candidate rule rather than the permissive default the older mutation routes
+    inherited. Promotion out of compat must not be what makes this gate real.
+    """
+
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="skill",
+        action="admin",
+        legacy_allowed=legacy_workspace_admin(db, user=user, workspace=workspace),
+        resource_attrs=resource_attrs or {"scope": "collection"},
+    )
+
+
+def _authored_skill(db: DBSession, workspace: Workspace, slug: str) -> Skill:
+    """Load one editable row, or 404.
+
+    Seeded rows are reachable through this path only to be refused: a workspace
+    admin who could edit them would be editing every other workspace's catalog,
+    and the next seeder run would silently revert the edit anyway.
+    """
+
+    row = (
+        db.query(Skill)
+        .filter(
+            Skill.slug == slug,
+            Skill.workspace_id == workspace.id,
+            Skill.is_seeded == "N",
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(404, "Skill not found (or not editable in this workspace)")
+    return row
+
+
+def _contract_error(exc: FlowContractError | SkillBindingError) -> HTTPException:
+    detail = (
+        exc.to_dict()
+        if isinstance(exc, FlowContractError)
+        else {"code": exc.code, "message": exc.message}
+    )
+    return HTTPException(400, detail)
+
+
+def _validated_schemas(body: SkillCreate | SkillUpdate) -> Dict[str, Any]:
+    """Compile both contracts with the executable-schema rules Flows enforce.
+
+    Reusing ``validate_schema_definition`` rather than a bare ``check_schema``
+    keeps one definition of "executable": remote ``$ref``, unbounded size and
+    unbounded nesting are refused here exactly as they are at publication, so an
+    author cannot save a Skill that only fails once a Flow is built on it.
+    """
+
+    fields = body.model_dump(exclude_unset=True)
+    validated: Dict[str, Any] = {}
+    for field in ("input_schema", "output_schema"):
+        if fields.get(field) is None:
+            continue
+        try:
+            validated[field] = validate_schema_definition(fields[field], field=field)
+        except FlowContractError as exc:
+            raise _contract_error(exc) from exc
+    return validated
+
+
 @router.get("/runtime-health")
 async def runtime_health(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Report the live runtime status of every registered skill wrapper.
@@ -163,6 +339,7 @@ async def runtime_health(
     """
     from app.services.skills_registry import registry_snapshot
 
+    _enforce_catalog_read(db, user=user, workspace=workspace)
     snapshot = registry_snapshot()
     visible_rows = _visible_skill_rows(db, workspace)
     visible_slugs = {s.slug for s in visible_rows}
@@ -171,6 +348,15 @@ async def runtime_health(
         for slug, entry in snapshot.items()
         if slug in visible_slugs
     }
+    # An authored row has a runtime of its own, so reporting it as awaiting a
+    # wrapper would misdirect the operator reading this surface.
+    for row in visible_rows:
+        if row.workspace_id is not None:
+            snapshot[row.slug] = {
+                "status": _authored_runtime_status(row.executor),
+                "declared_status": "workspace_executor",
+                "module": (row.executor or {}).get("kind"),
+            }
     summary = {"bound": 0, "stub": 0, "unbound": 0, "catalog_only": 0}
     for entry in snapshot.values():
         summary[entry["status"]] = summary.get(entry["status"], 0) + 1
@@ -200,6 +386,7 @@ async def list_skills(
     them instead of pretending they do not exist. It is opt-in: the default
     payload and its size are unchanged.
     """
+    _enforce_catalog_read(db, user=user, workspace=workspace)
     view = _catalog_view(db, workspace)
     rows: list[Skill] = list(view.visible)
     if include_filtered:
@@ -232,6 +419,75 @@ async def list_skills(
     }
 
 
+@router.get("/executors")
+async def list_verified_executors(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The runtimes an authored Skill may bind to, and their parameter shapes.
+
+    An authoring surface offers a choice from this list. There is no free-text
+    path, module or URL to type, which is the whole point of the set.
+    """
+
+    _enforce_catalog_read(db, user=user, workspace=workspace)
+    return {
+        "executors": verified_executor_catalog(),
+        "categories": list(AUTHORABLE_CATEGORIES),
+        "editable": legacy_workspace_admin(db, user=user, workspace=workspace),
+    }
+
+
+@router.post("")
+async def create_skill(
+    body: SkillCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Define a Skill owned by this workspace.
+
+    The caller names the Skill; the server derives the slug. That is what makes
+    cross-namespace authoring unreachable rather than merely rejected.
+    """
+
+    _enforce_catalog_admin(db, user=user, workspace=workspace)
+    try:
+        identity = workspace_skill_slug(
+            workspace_id=workspace.id,
+            local_name=body.local_name,
+        )
+        executor = validate_executor_binding(body.executor)
+    except SkillBindingError as exc:
+        raise _contract_error(exc) from exc
+    if db.query(Skill).filter(Skill.slug == identity.slug).first():
+        raise HTTPException(409, "A Skill with this name already exists in this workspace")
+
+    row = Skill(
+        workspace_id=workspace.id,
+        slug=identity.slug,
+        name=body.name,
+        description=body.description,
+        type=body.type,
+        category=body.category,
+        executor=executor,
+        # An authored Skill cannot claim a certification nobody granted it, and
+        # ``is_seeded`` decides both editability and what the seeder owns.
+        certification_level="basic",
+        is_seeded="N",
+        **_validated_schemas(body),
+    )
+    if body.execution is not None:
+        row.execution = body.execution
+    if body.pricing is not None:
+        row.pricing = body.pricing
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _serialize(row)
+
+
 @router.get("/{slug}")
 async def get_skill(
     slug: str,
@@ -239,6 +495,12 @@ async def get_skill(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    _enforce_catalog_read(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_attrs={"skill_slug": slug},
+    )
     view = _catalog_view(db, workspace)
     s = next((row for row in view.visible if row.slug == slug), None)
     if not s:
@@ -250,6 +512,100 @@ async def get_skill(
         slugs=[s.slug],
     ).get(s.slug)
     return _serialize(s, metrics, view.visibility_by_id.get(str(s.id)))
+
+
+@router.patch("/{slug}")
+async def update_skill(
+    slug: str,
+    body: SkillUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Edit a Skill this workspace owns.
+
+    The slug is absent from the patch on purpose: it is the dispatch key already
+    written into every Flow node bound to this Skill, so renaming it would break
+    those bindings silently. The display name is the mutable identity.
+    """
+
+    row = _authored_skill(db, workspace, slug)
+    _enforce_catalog_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_attrs={"skill_id": row.id, "skill_slug": row.slug},
+    )
+    patch = body.model_dump(exclude_unset=True)
+    if "executor" in patch:
+        try:
+            row.executor = validate_executor_binding(patch["executor"])
+        except SkillBindingError as exc:
+            raise _contract_error(exc) from exc
+    for field, value in _validated_schemas(body).items():
+        setattr(row, field, value)
+    for field in ("name", "description", "type", "category", "execution", "pricing"):
+        if field in patch:
+            setattr(row, field, patch[field])
+    db.commit()
+    db.refresh(row)
+    return _serialize(row)
+
+
+@router.delete("/{slug}")
+async def delete_skill(
+    slug: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Remove a Skill this workspace owns and nothing depends on.
+
+    An invoked Skill is part of the run ledger's account of what happened, and a
+    Capability that claims it would be left pointing at nothing. Both refuse the
+    delete and name the dependency, so the answer is not "try again".
+    """
+
+    row = _authored_skill(db, workspace, slug)
+    _enforce_catalog_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_attrs={"skill_id": row.id, "skill_slug": row.slug},
+    )
+    invoked = (
+        db.query(SkillInvocation.id)
+        .join(Run, Run.id == SkillInvocation.run_id)
+        .filter(Run.workspace_id == workspace.id, SkillInvocation.skill_slug == row.slug)
+        .first()
+    )
+    if invoked is not None:
+        raise HTTPException(
+            409,
+            {
+                "code": "skill_has_run_history",
+                "message": "This Skill has been invoked and is part of the run ledger.",
+            },
+        )
+    carriers = [
+        cap.slug
+        for cap in db.query(Capability)
+        .filter(Capability.workspace_id == workspace.id)
+        .all()
+        if row.id in (cap.skill_ids or [])
+    ]
+    if carriers:
+        raise HTTPException(
+            409,
+            {
+                "code": "skill_claimed_by_capability",
+                "message": "Remove this Skill from " + ", ".join(sorted(carriers)) + " first.",
+            },
+        )
+    deleted = row.slug
+    db.delete(row)
+    db.commit()
+    return {"deleted": deleted}
 
 
 def _aggregate_metrics(

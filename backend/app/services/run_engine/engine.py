@@ -62,6 +62,7 @@ from app.services.skill_invocation_snapshot import (
     resolve_skill_invocation_cost,
 )
 from app.services.skills_registry import resolve as resolve_skill
+from app.services.skills_registry import workspace_skill_callable
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_run_system_catalog_bindings,
@@ -1018,7 +1019,11 @@ async def _execute_task_node(
 
     t0 = time.monotonic()
     try:
-        fn = resolve_skill(slug)
+        # A workspace-defined Skill carries its runtime on its own row, so the
+        # namespace in the slug decides which resolver answers. Seeded slugs
+        # short-circuit on the string alone and pay no extra query.
+        authored = workspace_skill_callable(db, workspace_id=run.workspace_id, slug=slug)
+        fn = resolve_skill(slug) if authored is None else authored
         output = await fn(invocation.input_ref, skill_ctx)
         # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``
         # and ``""``) are valid contract outputs and must not be rewritten to

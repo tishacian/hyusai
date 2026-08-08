@@ -1054,6 +1054,15 @@ def build_authorization_v2_backfill(
             "run.approve": parsed_mode.value,
             "run.admin": parsed_mode.value,
             "skill_invocation.read": parsed_mode.value,
+            # The Skill catalog, distinct from a recorded invocation of it.
+            # Governing these here is what lets them ever leave ``compat``: the
+            # manifest rule alone only makes the candidate evaluable, and the
+            # rollout script refuses to promote an action the document does not
+            # own. Adding them cannot move ``candidate_config_sha256`` because
+            # that digest excludes ``modes`` by construction, so stored
+            # enforcement attestations stay valid.
+            "skill.read": parsed_mode.value,
+            "skill.admin": parsed_mode.value,
             "system.engine.run": parsed_mode.value,
             "mail_draft.mail.send": parsed_mode.value,
             "decision.read": parsed_mode.value,

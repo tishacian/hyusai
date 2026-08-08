@@ -1898,7 +1898,7 @@ async def test_response_eval_empty_metrics_route_weak(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_skills_are_registered_and_seeded():
     for slug in ("chat_agentic_plan_v1", "chat_self_correct_v1", "response_eval_v1"):
-        assert wrappers.resolve(slug) is not wrappers._unimplemented
+        assert callable(wrappers.resolve(slug))
 
     by_slug = {entry["slug"]: entry for entry in SEED_SKILLS}
     plan_out = by_slug["chat_agentic_plan_v1"]["output_schema"]["properties"]

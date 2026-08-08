@@ -32,6 +32,13 @@ class Skill(Base):
     input_schema = Column(JSON, default=dict)
     output_schema = Column(JSON, default=dict)
 
+    # Runtime binding for a workspace-defined Skill: ``{"kind", "params"}``
+    # naming one entry of the verified executor table (cf.
+    # skills_registry/executors.py) with its frozen parameters. Seeded rows
+    # leave this null and dispatch through ``_REGISTRY`` instead. A workspace
+    # never supplies an import path here, only a kind the platform verified.
+    executor = Column(JSON, nullable=True)
+
     execution = Column(JSON, default=lambda: {"mode": "sync", "timeout_ms": 30000, "retryable": True, "idempotent": True})
     pricing = Column(JSON, default=lambda: {"unit": "per_call", "unit_price": 0.0, "currency": "USD"})
 

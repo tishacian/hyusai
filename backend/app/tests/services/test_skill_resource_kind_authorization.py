@@ -115,11 +115,31 @@ def test_a_wildcard_enforce_cannot_promote_the_new_kind_by_inheritance(db_sessio
     assert resolve_mode(config, resource_kind="skill", action="admin").value == "shadow"
 
 
-def test_skill_actions_are_not_yet_promotable_by_the_rollout_document():
-    """`skill.admin` cannot reach enforce until the rollout document governs
-    it; the manifest rule alone only makes the candidate evaluable."""
+def test_the_rollout_document_governs_both_skill_actions():
+    """The manifest rule alone only makes the candidate evaluable. An action the
+    rollout document does not own can never leave compat, because the promotion
+    script refuses to promote outside the canonical key set."""
 
-    assert not [key for key in build_authorization_v2_backfill()["modes"] if key.startswith("skill.")]
+    modes = build_authorization_v2_backfill(mode="shadow")["modes"]
+
+    assert modes["skill.read"] == "shadow"
+    assert modes["skill.admin"] == "shadow"
+
+
+def test_governing_the_skill_actions_leaves_the_candidate_digest_alone():
+    """Stored enforcement attestations are bound to the candidate digest.
+
+    Declaring the resource kind moved it once, deliberately (see below). Putting
+    the same two actions under rollout control must not move it a second time:
+    ``candidate_config_sha256`` excludes ``modes`` precisely so that promoting an
+    action does not invalidate the receipt that authorised the promotion.
+    """
+
+    before = candidate_config_sha256(None)
+    governed = build_authorization_v2_backfill(mode="enforce")
+
+    assert governed["modes"]["skill.admin"] == "enforce"
+    assert candidate_config_sha256(None) == before
 
 
 def test_declaring_the_kind_moves_the_candidate_digest_once(monkeypatch):

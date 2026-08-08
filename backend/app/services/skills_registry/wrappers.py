@@ -7,7 +7,7 @@ thin — they never introduce new business logic.
 Runtime status (returned by `bound_slugs()`) is tri-state:
  - ``bound``     : an actual implementation module is resolvable and will be invoked.
  - ``stub``      : a placeholder that logs + returns a degraded payload (no hard-fail).
- - ``unbound``   : no wrapper declared for that slug (falls through to `_unimplemented`).
+ - ``unbound``   : no wrapper declared for that slug (`resolve()` refuses it).
 
 The check happens lazily on first use, cached in
 ``_RESOLVED_STATUS`` so the admin `/skills/runtime-health` endpoint is
@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Optional
 
 from app.core.logging import get_logger
 from app.services.evaluation.judge import (
@@ -38,10 +38,13 @@ from app.services.rag.project_references import (
     extract_query_project_codes,
     numeric_project_candidates,
 )
+from app.services.skills_registry.binding import (
+    SkillBindingError,
+    SkillCallable,
+    is_workspace_skill_slug,
+)
 
 logger = get_logger(__name__)
-
-SkillCallable = Callable[[dict[str, Any], Optional[dict[str, Any]]], Awaitable[dict[str, Any]]]
 
 
 # workspace_id -> slug cache (process-lifetime). The run_engine ctx
@@ -338,15 +341,6 @@ def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[st
 # ---------------------------------------------------------------------------
 # Fallbacks
 # ---------------------------------------------------------------------------
-async def _unimplemented(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
-) -> dict[str, Any]:
-    raise NotImplementedError(
-        "This canonical skill has no runtime wrapper bound. Add it to `_REGISTRY` in "
-        "`skills_registry/wrappers.py` or mark it as a stub."
-    )
-
-
 async def _stub(payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Degraded placeholder for skills whose runtime is not yet available."""
     logger.info("skills_registry: stub invocation", payload_keys=list(payload.keys()))
@@ -5135,13 +5129,34 @@ _RESOLVED_STATUS: dict[str, str] = {}
 
 
 def resolve(slug: str) -> SkillCallable:
-    """Return the runtime callable bound to a skill slug.
+    """Return the runtime callable bound to a seeded skill slug.
 
-    Unknown slugs fall through to ``_unimplemented``.
+    Fail-closed, in two different ways because the two mistakes differ.
+    Resolution used to hand back a callable that raised only once awaited, so
+    the failure surfaced as a node the walker had already committed to running.
+
+    An unknown seeded slug raises ``NotImplementedError``: nothing was ever
+    declared for it, which the walker records as a skipped node. A
+    workspace-namespaced slug raises instead, because reaching here means a
+    caller skipped executor resolution entirely — its runtime binding lives on
+    the Skill row (cf. :func:`app.services.skills_registry.executors.bind_executor`)
+    and treating that as "not declared" would turn a dispatch bug into a quietly
+    skipped node.
     """
+    if is_workspace_skill_slug(slug):
+        raise SkillBindingError(
+            code="workspace_skill_requires_executor",
+            message=(
+                f"{slug} is a workspace-defined Skill and has no registry wrapper; "
+                "it must be resolved through its verified executor binding."
+            ),
+        )
     entry = _REGISTRY.get(slug)
     if entry is None:
-        return _unimplemented
+        raise NotImplementedError(
+            f"No runtime wrapper is bound to {slug!r}. Add it to `_REGISTRY` in "
+            "`skills_registry/wrappers.py` or mark it as a stub."
+        )
     return entry[0]
 
 
