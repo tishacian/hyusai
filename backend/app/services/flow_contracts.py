@@ -196,6 +196,59 @@ def _validate_frozen_schema(
         )
 
 
+def _validate_frozen_executor(node: Mapping[str, Any], *, path: str) -> None:
+    """Check the shape of a frozen authored runtime, not its admissibility.
+
+    Whether the named kind still exists and its parameters are still allowed is
+    re-decided by ``skills_registry.bind_executor`` on every dispatch, so a
+    binding the platform has since withdrawn fails closed there rather than
+    becoming executable by virtue of having been frozen. Keeping the check
+    structural also keeps this module free of the registry it validates for.
+    """
+
+    executor = node.get("executor")
+    if not isinstance(executor, Mapping) or set(executor) != {"kind", "params"}:
+        raise _execution_contract_error(
+            message="A frozen executor must declare exactly a kind and its params.",
+            path=f"{path}/executor",
+        )
+    _contract_identity(executor.get("kind"), path=f"{path}/executor/kind")
+    if not isinstance(executor.get("params"), Mapping):
+        raise _execution_contract_error(
+            message="Frozen executor params must be a JSON object.",
+            path=f"{path}/executor/params",
+        )
+    digest = node.get("skill_definition_sha256")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise _execution_contract_error(
+            message="A frozen authored node must carry its Skill definition digest.",
+            path=f"{path}/skill_definition_sha256",
+        )
+
+
+def skill_definition_sha256(
+    *,
+    input_schema: Any,
+    output_schema: Any,
+    executor: Any,
+) -> str:
+    """Digest the part of a Skill row that publication freezes.
+
+    Identity comes from the payload rather than from ``Skill.version``, which
+    authoring never bumps, for the reason 522632e0 established for published
+    versions: a column nobody writes answers "unchanged" for exactly the rows
+    the question exists to catch.
+    """
+
+    return canonical_sha256(
+        {
+            "input_schema": input_schema,
+            "output_schema": output_schema,
+            "executor": executor,
+        }
+    )
+
+
 def validate_execution_contract(value: Any) -> dict[str, Any]:
     """Validate one immutable execution contract without mutable lookups.
 
@@ -340,6 +393,7 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
         "invocation_output_schema",
         "invocation_output_schema_sha256",
     }
+    authored_node_keys = {"executor", "skill_definition_sha256"}
     for raw_node_id, raw_node in nodes.items():
         node_id = _contract_identity(raw_node_id, path="/nodes")
         path = f"/nodes/{node_id}"
@@ -351,12 +405,22 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
         node = dict(raw_node)
         node_keys = set(node)
         has_adapter = "output_adapter" in node
-        expected_keys = base_node_keys | (adapter_node_keys if has_adapter else set())
+        # Seeded Skills dispatch through the hardcoded registry and freeze no
+        # executor, so contracts compiled before authoring existed keep exactly
+        # the key set they were digested with.
+        has_executor = "executor" in node
+        expected_keys = (
+            base_node_keys
+            | (adapter_node_keys if has_adapter else set())
+            | (authored_node_keys if has_executor else set())
+        )
         if node_keys != expected_keys:
             raise _execution_contract_error(
                 message="The execution contract node has missing or unknown fields.",
                 path=path,
             )
+        if has_executor:
+            _validate_frozen_executor(node, path=path)
         for field in ("skill_id", "skill_slug", "skill_version"):
             _contract_identity(node.get(field), path=f"{path}/{field}")
         if not isinstance(node.get("provider_json_schema"), bool):
@@ -782,6 +846,22 @@ def compile_execution_contract(
                         "output_adapter": output_adapter,
                         "invocation_output_schema": output_schema,
                         "invocation_output_schema_sha256": canonical_sha256(output_schema),
+                    }
+                )
+            # An authored Skill's runtime lives on its own mutable row, so a
+            # published node that resolved it live would change behaviour on an
+            # edit to the catalog with no new version. Freeze the binding; the
+            # edit reaches production only through the next Publish.
+            if isinstance(skill.executor, Mapping):
+                frozen_executor = copy.deepcopy(dict(skill.executor))
+                node_contracts[node_id].update(
+                    {
+                        "executor": frozen_executor,
+                        "skill_definition_sha256": skill_definition_sha256(
+                            input_schema=input_schema,
+                            output_schema=output_schema,
+                            executor=frozen_executor,
+                        ),
                     }
                 )
 

@@ -40,6 +40,7 @@ from app.services.skills_registry.executors import (
     validate_executor_binding,
     verified_executor_catalog,
 )
+from app.services.skills_registry.published_bindings import published_skill_bindings
 from app.services.skills_registry.seed import SKILL_CATEGORIES
 
 router = APIRouter()
@@ -527,6 +528,14 @@ async def update_skill(
     The slug is absent from the patch on purpose: it is the dispatch key already
     written into every Flow node bound to this Skill, so renaming it would break
     those bindings silently. The display name is the mutable identity.
+
+    The edit is admitted even when a published Flow dispatches this Skill, since
+    publication froze the contract and the runtime it accepted: the edit cannot
+    change what that Flow does. Refusing instead would make a Skill uneditable
+    for as long as anything published used it. What the response owes the author
+    is therefore not a veto but the truth about reach, so ``published_bindings``
+    names every published version that dispatches this Skill and which of them
+    are now behind the definition just saved.
     """
 
     row = _authored_skill(db, workspace, slug)
@@ -549,7 +558,11 @@ async def update_skill(
             setattr(row, field, patch[field])
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+    bindings = published_skill_bindings(db, workspace_id=workspace.id, skill=row)
+    return {
+        **_serialize(row),
+        "published_bindings": [binding.to_dict() for binding in bindings],
+    }
 
 
 @router.delete("/{slug}")
@@ -564,6 +577,11 @@ async def delete_skill(
     An invoked Skill is part of the run ledger's account of what happened, and a
     Capability that claims it would be left pointing at nothing. Both refuse the
     delete and name the dependency, so the answer is not "try again".
+
+    A published Flow refuses too. Its frozen contract would keep the runs going,
+    but the graph could no longer be validated or republished, so the System
+    would be executable and uneditable at once -- and a version published before
+    authored runtimes were frozen resolves the row live and would simply stop.
     """
 
     row = _authored_skill(db, workspace, slug)
@@ -573,6 +591,20 @@ async def delete_skill(
         workspace=workspace,
         resource_attrs={"skill_id": row.id, "skill_slug": row.slug},
     )
+    bindings = published_skill_bindings(db, workspace_id=workspace.id, skill=row)
+    if bindings:
+        raise HTTPException(
+            409,
+            {
+                "code": "skill_bound_by_published_flow",
+                "message": (
+                    "This Skill is dispatched by the published Flow of "
+                    + ", ".join(binding.system_name for binding in bindings)
+                    + ". Publish a Flow that no longer uses it first."
+                ),
+                "published_bindings": [binding.to_dict() for binding in bindings],
+            },
+        )
     invoked = (
         db.query(SkillInvocation.id)
         .join(Run, Run.id == SkillInvocation.run_id)

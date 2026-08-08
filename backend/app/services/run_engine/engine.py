@@ -866,6 +866,23 @@ def _snapshot_run_flow(
         )
 
 
+def _frozen_node_executor(run: Run, node_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The authored runtime this node's contract pinned, if it pinned one.
+
+    Absent for seeded Skills, and absent from contracts compiled before authored
+    runtimes were frozen; both keep resolving the live row, which is what they
+    have always done.
+    """
+
+    if not node_id:
+        return None
+    contract = run.execution_contract if isinstance(run.execution_contract, dict) else None
+    nodes = contract.get("nodes") if contract is not None else None
+    node = nodes.get(node_id) if isinstance(nodes, dict) else None
+    executor = node.get("executor") if isinstance(node, dict) else None
+    return executor if isinstance(executor, dict) else None
+
+
 async def _execute_task_node(
     db: DBSession,
     run: Run,
@@ -1022,7 +1039,12 @@ async def _execute_task_node(
         # A workspace-defined Skill carries its runtime on its own row, so the
         # namespace in the slug decides which resolver answers. Seeded slugs
         # short-circuit on the string alone and pay no extra query.
-        authored = workspace_skill_callable(db, workspace_id=run.workspace_id, slug=slug)
+        authored = workspace_skill_callable(
+            db,
+            workspace_id=run.workspace_id,
+            slug=slug,
+            frozen_executor=_frozen_node_executor(run, node_id),
+        )
         fn = resolve_skill(slug) if authored is None else authored
         output = await fn(invocation.input_ref, skill_ctx)
         # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``

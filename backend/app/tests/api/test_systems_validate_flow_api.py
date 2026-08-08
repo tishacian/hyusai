@@ -49,24 +49,30 @@ def _seed(db_session) -> tuple[Workspace, User, System]:
     return workspace, user, system
 
 
-def _strict_decision_flow() -> dict:
+def _strict_decision_flow(*, bind_value: bool = True) -> dict:
+    """A strict v3 graph whose Decision routes on a name it actually binds.
+
+    Strict resolution keeps only ``inputs_map`` / ``passthrough_inputs``, so
+    without the binding the Decision reads ``value`` out of an empty payload
+    and every branch loses to the default. ``bind_value=False`` reproduces
+    that graph for the tests that assert the warning.
+    """
+    config: dict = {
+        "branches": [
+            {"label": "yes", "condition": "value == True"},
+            {"label": "no", "condition": "value == False"},
+        ],
+        "default_branch": "no",
+    }
+    if bind_value:
+        config["inputs_map"] = {"value": {"node_id": "source", "path": ["value"]}}
     return {
         "schema_version": 3,
         "io_mode": "strict",
         "variable_namespaces": [],
         "nodes": [
             {"id": "source", "kind": "source"},
-            {
-                "id": "decision",
-                "kind": "decision",
-                "config": {
-                    "branches": [
-                        {"label": "yes", "condition": "value == True"},
-                        {"label": "no", "condition": "value == False"},
-                    ],
-                    "default_branch": "no",
-                },
-            },
+            {"id": "decision", "kind": "decision", "config": config},
             {"id": "result", "kind": "sink"},
         ],
         "edges": [
@@ -108,6 +114,34 @@ def test_validate_flow_returns_server_hash_and_runtime_without_mutation(db_sessi
     }
     db_session.refresh(system)
     assert system.flow_definition == before
+
+
+def test_validate_flow_warns_on_a_strict_decision_that_binds_nothing(db_session) -> None:
+    """The same graph minus the binding is a flow that cannot route.
+
+    ``apply_inputs_map`` in strict mode keeps only the declared ports, so the
+    Decision receives ``{}``, both predicates compare against a missing name
+    and the default branch always wins. The run engine reports this as a
+    ``decision_input_unbound`` checkpoint; the analyser has to say so at
+    authoring time, and only as a warning — an unbound name must not block Save.
+    """
+    workspace, user, system = _seed(db_session)
+    flow = _strict_decision_flow(bind_value=False)
+
+    response = _client(db_session, workspace, user).post(
+        f"/systems/{system.id}/validate-flow",
+        json={"flow_definition": flow},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert [(issue["code"], issue["level"]) for issue in payload["issues"]] == [
+        ("decision_condition_unbound", "warn"),
+        ("decision_condition_unbound", "warn"),
+    ]
+    assert all("'value'" in issue["message"] for issue in payload["issues"])
+    assert {issue["node_id"] for issue in payload["issues"]} == {"decision"}
 
 
 def test_validate_flow_binds_invalid_diagnostics_to_submitted_hash(db_session) -> None:
