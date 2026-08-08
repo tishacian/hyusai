@@ -208,6 +208,25 @@ def _trigger_event_kinds(flow: Any) -> Set[str]:
     return {TRIGGER_TYPE_TO_EVENT[str(n.get("type"))] for n in _trigger_nodes(flow)}
 
 
+def dispatch_trigger_ingresses(flow: Any) -> Dict[str, List[str]]:
+    """Map each ``event_kind`` to the active trigger node ids listening for it.
+
+    A trigger node id doubles as the published ingress id a delivery may name,
+    so the dispatch path and the readiness read model resolve one candidate set.
+    """
+    out: Dict[str, List[str]] = defaultdict(list)
+    for node in _trigger_nodes(flow):
+        node_id = str(node.get("id") or "")
+        if node_id:
+            out[TRIGGER_TYPE_TO_EVENT[str(node.get("type"))]].append(node_id)
+    return dict(out)
+
+
+def ingress_kind_for_event(event_kind: str) -> str:
+    """The published-ingress kind an event delivery presents at the boundary."""
+    return "http" if event_kind == EVENT_WEBHOOK_RECEIVED else "event"
+
+
 def _edge_endpoints(edge: Dict[str, Any]) -> Tuple[str, str]:
     src = str(edge.get("from") or edge.get("source") or "")
     dst = str(edge.get("to") or edge.get("target") or "")
@@ -699,12 +718,10 @@ def _create_triggered_run(
                         "PUBLISHED_TRIGGER_EVIDENCE_REQUIRED",
                         "Published trigger evidence must be accepted before Run creation.",
                     )
-                trigger_ids = [
-                    str(node.get("id"))
-                    for node in _trigger_nodes(published_evidence.flow)
-                    if TRIGGER_TYPE_TO_EVENT[str(node.get("type"))] == event_kind and node.get("id")
-                ]
-                ingress_kind = "http" if event_kind == EVENT_WEBHOOK_RECEIVED else "event"
+                trigger_ids = dispatch_trigger_ingresses(published_evidence.flow).get(
+                    event_kind, []
+                )
+                ingress_kind = ingress_kind_for_event(event_kind)
                 run = flow_ingress.create_published_ingress_run(
                     db,
                     system_id=system.id,
@@ -916,6 +933,29 @@ def is_event_triggers_enabled(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+#: Per-target outcomes that took durable custody of the delivery. ``duplicate``
+#: belongs here: the claim it collides with was itself an acceptance.
+ACCEPTED_DELIVERY_STATUSES = frozenset(
+    {"queued", "dispatched", "simulated", "buffered", "duplicate"}
+)
+
+
+def delivery_status(results: List[Dict[str, Any]]) -> str:
+    """Collapse per-target outcomes into one verdict for the inbound caller.
+
+    ``ignored`` when nothing listened (triggers off, or no registered target),
+    ``accepted`` when every target took the delivery, ``rejected`` when none
+    did, ``partial`` in between. ``ignored`` is deliberately distinct from
+    ``rejected``: nothing refused the delivery, nothing was waiting for it.
+    """
+    if not results or all(item.get("status") == "no_target" for item in results):
+        return "ignored"
+    accepted = sum(1 for item in results if item.get("status") in ACCEPTED_DELIVERY_STATUSES)
+    if accepted == len(results):
+        return "accepted"
+    return "partial" if accepted else "rejected"
+
+
 def emit_event(
     event_kind: str,
     workspace_id: Optional[str],

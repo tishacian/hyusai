@@ -120,6 +120,33 @@ def list_published_ingresses(
     }
 
 
+def assert_dispatchable(
+    db: DBSession,
+    *,
+    system_id: str,
+    workspace: Any,
+) -> dict[str, Any]:
+    """Raise :class:`FlowIngressError` unless an adapter would be served a Run.
+
+    The gate :func:`create_published_ingress_run` applies before it builds
+    anything, evaluated on its own so a read model can ask the question without
+    inserting a Run or locking the System row.
+    """
+    _system, version, flow, flow_sha256, contract = _published_evidence(
+        db,
+        system_id=system_id,
+        workspace=workspace,
+        require_active=True,
+        lock_system=False,
+    )
+    return {
+        "published_flow_version_id": getattr(version, "id", None),
+        "flow_sha256": flow_sha256,
+        "flow": flow,
+        "execution_contract": contract,
+    }
+
+
 def resolve_published_ingress_id(
     execution_contract: Mapping[str, Any],
     *,

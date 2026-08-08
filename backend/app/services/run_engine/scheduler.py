@@ -7,6 +7,7 @@ table-driven, not flow-registry-driven.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -96,7 +97,26 @@ def _dispatch_run(run_id: str) -> None:
     schedule_run(run_id)
 
 
-def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optional[str]:
+@dataclass(frozen=True, slots=True)
+class _TickOutcome:
+    """What one due schedule produced: a Run, a refusal, or a plain skip.
+
+    A refusal is a dispatch boundary saying no to a System an operator still
+    believes is live, which is a different event from skipping a schedule whose
+    System was deliberately disabled or retired.
+    """
+
+    run_id: Optional[str] = None
+    refused_reason: Optional[str] = None
+
+
+def _refused(sched: RunSchedule, *, now: datetime, reason: str) -> _TickOutcome:
+    """Advance past a refused tick so a broken System does not hot-loop."""
+    sched.next_fire_at = compute_next_fire_at(sched.cron_expr, sched.timezone, from_dt=now)
+    return _TickOutcome(refused_reason=reason)
+
+
+def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> _TickOutcome:
     system = (
         db.query(System)
         .filter(
@@ -114,7 +134,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
         # Still advance next_fire_at so a retired system does not hot-loop.
         nxt = compute_next_fire_at(sched.cron_expr, sched.timezone, from_dt=now)
         sched.next_fire_at = nxt
-        return None
+        return _TickOutcome()
 
     workspace = (
         db.query(Workspace).filter(Workspace.id == sched.workspace_id).first()
@@ -140,12 +160,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
             system_id=sched.system_id,
             reason=exc.code,
         )
-        sched.next_fire_at = compute_next_fire_at(
-            sched.cron_expr,
-            sched.timezone,
-            from_dt=now,
-        )
-        return None
+        return _refused(sched, now=now, reason=exc.code.lower())
 
     schedule_evidence = {
         "schedule_id": sched.id,
@@ -176,12 +191,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
                 system_id=sched.system_id,
                 reason=exc.code,
             )
-            sched.next_fire_at = compute_next_fire_at(
-                sched.cron_expr,
-                sched.timezone,
-                from_dt=now,
-            )
-            return None
+            return _refused(sched, now=now, reason=exc.code.lower())
         run.input_ref = {**(run.input_ref or {}), "_schedule": schedule_evidence}
         run.checkpoints = [
             *(run.checkpoints or []),
@@ -231,7 +241,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> Optio
             run_id=run.id,
             error=str(exc),
         )
-    return run.id
+    return _TickOutcome(run_id=run.id)
 
 
 def scheduler_tick(*, limit: int = 50) -> Dict[str, Any]:
@@ -242,6 +252,7 @@ def scheduler_tick(*, limit: int = 50) -> Dict[str, Any]:
     """
     now = datetime.utcnow()
     fired: List[Dict[str, str]] = []
+    refused: List[Dict[str, str]] = []
     skipped = 0
 
     db = SessionLocal()
@@ -259,22 +270,40 @@ def scheduler_tick(*, limit: int = 50) -> Dict[str, Any]:
             due = query.all()
 
         for sched in due:
-            run_id = _fire_schedule(db, sched, now=now)
-            if run_id:
-                fired.append({"schedule_id": sched.id, "run_id": run_id})
+            outcome = _fire_schedule(db, sched, now=now)
+            if outcome.run_id:
+                fired.append({"schedule_id": sched.id, "run_id": outcome.run_id})
+                continue
+            if outcome.refused_reason:
+                refused.append(
+                    {
+                        "schedule_id": sched.id,
+                        "system_id": sched.system_id,
+                        "reason": outcome.refused_reason,
+                    }
+                )
             else:
                 skipped += 1
-                db.commit()
+            db.commit()
         schedule_summary = {
             "status": "ok",
             "fired": len(fired),
+            # ``skipped`` stays what it always meant: a schedule nobody expected
+            # to fire. A refusal is counted apart so the two never average out.
             "skipped": skipped,
+            "refused": len(refused),
             "runs": fired,
+            "refusals": refused,
         }
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logger.exception("scheduler: tick failed", error=str(exc))
-        schedule_summary = {"status": "error", "error": str(exc), "fired": len(fired)}
+        schedule_summary = {
+            "status": "error",
+            "error": str(exc),
+            "fired": len(fired),
+            "refused": len(refused),
+        }
     finally:
         db.close()
 

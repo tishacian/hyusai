@@ -442,10 +442,10 @@ def test_scheduler_uses_persisted_authority_for_news_lab_gate_off(
     db_session.commit()
     monkeypatch.setattr(scheduler, "_dispatch_run", lambda _run_id: None)
 
-    run_id = scheduler._fire_schedule(db_session, schedule, now=datetime.utcnow())
+    outcome = scheduler._fire_schedule(db_session, schedule, now=datetime.utcnow())
 
-    assert run_id is not None
-    run = db_session.query(Run).filter(Run.id == run_id).one()
+    assert outcome.refused_reason is None
+    run = db_session.query(Run).filter(Run.id == outcome.run_id).one()
     assert run.system_id == system.id
     assert run.capability_id == capability.id
 

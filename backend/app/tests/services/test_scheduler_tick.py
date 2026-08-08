@@ -22,7 +22,13 @@ def _workspace(db) -> Workspace:
     return ws
 
 
-def _system(db, workspace_id: str, *, status: str = "active") -> System:
+def _system(
+    db,
+    workspace_id: str,
+    *,
+    status: str = "active",
+    published: bool = True,
+) -> System:
     system = System(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
@@ -40,7 +46,7 @@ def _system(db, workspace_id: str, *, status: str = "active") -> System:
     )
     db.add(system)
     db.commit()
-    return baseline_flow_publication(db, system)
+    return baseline_flow_publication(db, system) if published else system
 
 
 def test_compute_next_fire_at_valid():
@@ -137,4 +143,45 @@ def test_scheduler_tick_skips_inactive_system(db_session):
     db_session.refresh(sched)
     # next_fire_at advanced so we do not hot-loop
     assert sched.next_fire_at is not None
+    assert sched.next_fire_at > past
+
+
+def test_scheduler_tick_counts_a_refused_tick_apart_from_a_skip(db_session):
+    """A System the contract backfill missed is refused, not quietly skipped."""
+
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id, published=False)
+    past = datetime.utcnow() - timedelta(minutes=1)
+    sched = RunSchedule(
+        id=str(uuid.uuid4()),
+        workspace_id=ws.id,
+        system_id=system.id,
+        name="Monday report",
+        cron_expr="* * * * *",
+        timezone="UTC",
+        enabled=True,
+        next_fire_at=past,
+    )
+    db_session.add(sched)
+    db_session.commit()
+
+    with patch.object(scheduler, "_dispatch_run") as dispatch:
+        result = scheduler.scheduler_tick()
+
+    assert result["fired"] == 0
+    assert result["skipped"] == 0
+    assert result["refused"] == 1
+    assert result["refusals"] == [
+        {
+            "schedule_id": sched.id,
+            "system_id": system.id,
+            "reason": "published_flow_version_invalid",
+        }
+    ]
+    dispatch.assert_not_called()
+    # A refused tick invents no Run and claims no fire, but still moves on.
+    assert db_session.query(Run).count() == 0
+    db_session.refresh(sched)
+    assert sched.last_run_id is None
+    assert sched.last_fired_at is None
     assert sched.next_fire_at > past

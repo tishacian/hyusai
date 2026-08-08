@@ -76,7 +76,7 @@ from app.services.system_catalog_bindings import (
     resolve_system_catalog_bindings,
 )
 from app.services.system_perspective import build_system_perspective
-from app.services.systems import flow_ingress, flow_publication
+from app.services.systems import dispatch_readiness, flow_ingress, flow_publication
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
@@ -949,6 +949,21 @@ async def list_systems(
         q = q.filter(System.status != "retired")
     rows = q.order_by(System.updated_at.desc()).limit(limit).all()
     return {"systems": [_serialize(s) for s in rows]}
+
+
+@router.get("/dispatch-readiness")
+async def list_dispatch_readiness(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Which Systems would be refused at the published-ingress boundary.
+
+    Declared ahead of ``GET /{system_id}`` so the static path is not captured
+    as a System id.
+    """
+    _enforce_system_collection_read(db, user=user, workspace=workspace)
+    return dispatch_readiness.workspace_dispatch_readiness(db, workspace=workspace)
 
 
 @router.post("")

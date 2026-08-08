@@ -2,6 +2,9 @@
 
 Auth is HMAC (``X-Agentium-Signature``), not the workspace JWT. Management
 CRUD lives under ``/systems/{id}/hooks``.
+
+An authenticated delivery answers 200 whatever the targets decided; the
+top-level ``status`` carries the verdict (see :func:`receive_webhook`).
 """
 from __future__ import annotations
 
@@ -62,8 +65,13 @@ async def receive_webhook(
         # endpoint owns its session, so it explicitly commits the atomic
         # delivery claim, Run/inbox row and durable outbox handoff.
         db.commit()
+        # The HTTP code stays 200 for every authenticated delivery. A refusal
+        # here is a server-side publication defect, so 4xx would blame a sender
+        # whose payload was fine and 5xx would invite a retry storm across every
+        # System the contract backfill has not reached yet. The verdict the
+        # caller must read is the top-level ``status``.
         return {
-            "status": "accepted",
+            "status": triggers.delivery_status(results),
             "hook_id": hook.id,
             "event_type": event_kind,
             "results": results,
