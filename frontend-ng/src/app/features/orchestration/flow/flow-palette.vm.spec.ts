@@ -8,7 +8,7 @@ import {
   mostUsedItems,
   paletteItemDetail,
   searchPaletteItems,
-  summariseFilteredReasons,
+  summariseUnavailable,
 } from './flow-palette.vm';
 import type { PaletteItem, SkillPaletteSection } from './flow.types';
 
@@ -124,18 +124,54 @@ test('the usage shortcut disappears entirely when the workspace has no invocatio
   );
 });
 
-test('an exclusion states the lever, not just the code', () => {
-  const sentence = explainVisibilityReason('no_visible_capability');
-  assert.match(sentence, /no capability enabled here carries it/);
-  assert.match(sentence, /industry/, 'the dominant cause is named, not implied');
+test('an exclusion names one lever, and which one', () => {
+  // The distinction the old single code could not make: an industry nobody
+  // enabled, and a row no tier decision will ever reach.
+  assert.equal(
+    explainVisibilityReason('industry_not_allowed', 'government'),
+    'the Government industry is not enabled in this workspace',
+  );
+  assert.equal(
+    explainVisibilityReason('industry_not_allowed', 'government', true),
+    'this workspace’s catalog settings exclude the Government industry',
+  );
+  assert.equal(
+    explainVisibilityReason('unclaimed'),
+    'no capability claims it — only a per-skill override can surface it',
+  );
+  assert.equal(
+    explainVisibilityReason('capability_not_enabled', 'regulated_translation'),
+    'the Regulated translation capability is not enabled here',
+  );
+  assert.equal(
+    explainVisibilityReason('universal_hidden'),
+    'this workspace hides the universal catalog',
+  );
   assert.equal(explainVisibilityReason('hidden_override'), 'hidden by this workspace’s catalog settings');
   assert.equal(explainVisibilityReason('brand_new_code'), 'brand new code');
+});
+
+test('a filtered set is summarised per lever, not per reason code', () => {
+  const excluded = (reason: string, key?: string) =>
+    item({ label: `${reason} ${key ?? ''}`, unavailableReason: reason, unavailableKey: key });
+
+  // Andritz, in miniature: two industry decisions worth 45 rows between them,
+  // and 12 rows only an override reaches. One reason code, three sentences.
+  const items = [
+    ...Array.from({ length: 3 }, () => excluded('industry_not_allowed', 'government')),
+    ...Array.from({ length: 2 }, () => excluded('industry_not_allowed', 'regulated_translation')),
+    excluded('unclaimed'),
+    excluded('hidden_override'),
+  ];
 
   assert.equal(
-    summariseFilteredReasons({ hidden_override: 2, no_visible_capability: 55 }),
-    '55 because no capability enabled here carries it — usually an industry this workspace has not enabled, sometimes a skill no capability claims at all; 2 because hidden by this workspace’s catalog settings',
+    summariseUnavailable(items),
+    '3 because the Government industry is not enabled in this workspace; '
+      + '2 because the Regulated translation industry is not enabled in this workspace; '
+      + '1 because hidden by this workspace’s catalog settings; '
+      + '1 because no capability claims it — only a per-skill override can surface it',
   );
-  assert.equal(summariseFilteredReasons({}), '');
+  assert.equal(summariseUnavailable([]), '');
 });
 
 test('the hover detail carries what the row no longer spends a line on', () => {
@@ -145,12 +181,13 @@ test('the hover detail carries what the row no longer spends a line on', () => {
       description: 'Read the operator calendar',
       runtimeStatus: 'stub',
       usageCalls: 1,
-      unavailableReason: 'no_visible_capability',
+      unavailableReason: 'industry_not_allowed',
+      unavailableKey: 'government',
     }),
   );
   assert.match(detail, /calendar_read_v1/);
   assert.match(detail, /runtime stub/);
   assert.match(detail, /1 workspace call\b/);
   assert.match(detail, /Read the operator calendar/);
-  assert.match(detail, /unavailable: no capability enabled here carries it/);
+  assert.match(detail, /unavailable: the Government industry is not enabled/);
 });

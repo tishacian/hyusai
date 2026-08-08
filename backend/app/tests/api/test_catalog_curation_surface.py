@@ -96,8 +96,8 @@ def test_the_report_names_the_lever_behind_every_exclusion(db_session):
         "total": 3,
         "visible": 1,
         "filtered": 2,
-        # Both exclusions carry the same reason code and need different fixes.
-        "filtered_reasons": {"no_visible_capability": 2},
+        # The two exclusions need different fixes and now say so.
+        "filtered_reasons": {"industry_not_allowed": 1, "unclaimed": 1},
     }
     assert [(gap["lever"], gap["key"], gap["skills"]) for gap in payload["gaps"]] == [
         ("industry", "government", 1),

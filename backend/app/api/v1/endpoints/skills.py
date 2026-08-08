@@ -24,6 +24,7 @@ from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
     SkillVisibility,
     WorkspaceCatalogPolicy,
+    blocked_skill_levers,
     skill_capability_index,
     skill_visibility,
     visible_capabilities,
@@ -201,6 +202,9 @@ def _catalog_view(db: DBSession, workspace: Workspace) -> _CatalogView:
     visible_caps = visible_capabilities(cap_rows, workspace, policy)
     visible_skill_ids = visible_skill_ids_from_capabilities(visible_caps)
     capability_index = skill_capability_index(visible_caps)
+    # Resolved from the capability rows already in hand: naming the lever
+    # behind an exclusion costs no query beyond the two this pass makes.
+    blocked_levers = blocked_skill_levers(cap_rows, workspace, policy)
     rows = (
         db.query(Skill)
         .filter((Skill.workspace_id == workspace.id) | (Skill.workspace_id.is_(None)))
@@ -216,6 +220,7 @@ def _catalog_view(db: DBSession, workspace: Workspace) -> _CatalogView:
             visible_skill_ids,
             policy,
             capability_index=capability_index,
+            blocked_levers=blocked_levers,
         )
         visibility_by_id[str(row.id)] = decision
         (visible if decision.visible else filtered).append(row)

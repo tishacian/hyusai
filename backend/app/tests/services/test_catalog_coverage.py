@@ -1,12 +1,11 @@
-"""`no_visible_capability` is three problems with three different fixes.
+"""An exclusion is three problems with three different fixes.
 
-Every exclusion on seeded data reports that one reason, which reads as a
-per-skill problem and is not one. Andritz sees 28 of 85 skills: 36 of the
-missing ones are held by government capabilities it does not allow, 9 by
-regulated_translation, and 12 are claimed by no capability at all. Two
-decisions move 45 skills; the per-skill overrides can only ever move the 12.
-This pins that decomposition, because it is the whole argument for ranking
-levers instead of listing toggles.
+Reported as one, it reads as a per-skill problem and is not one. Andritz sees
+28 of 85 skills: 36 of the missing ones are held by government capabilities it
+does not allow, 9 by regulated_translation, and 12 are claimed by no
+capability at all. Two decisions move 45 skills; the per-skill overrides can
+only ever move the 12. This pins that decomposition, because it is the whole
+argument for ranking levers instead of listing toggles.
 """
 from __future__ import annotations
 
@@ -74,8 +73,8 @@ def test_one_reason_code_resolves_into_the_levers_that_close_it():
     )
 
     assert coverage.visible == 1
-    assert coverage.filtered_reasons == {"no_visible_capability": 3}
-    # The reason is identical for all three; the lever is not.
+    # The row states its own lever, so the histogram already decomposes.
+    assert coverage.filtered_reasons == {"industry_not_allowed": 2, "unclaimed": 1}
     assert _gaps(coverage) == {
         ("industry", "government"): ("mission_command_v1",),
         ("industry", "regulated_translation"): ("certified_translation_v1",),
@@ -306,9 +305,9 @@ def _seeded_rows():
 def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
     """The claim the whole surface rests on, checked against what we ship.
 
-    Every exclusion reports ``no_visible_capability``, and the gaps partition
-    those exclusions exactly — no skill in the shipped registry is held by two
-    levers, so the counts can be read as a plan. What an override can reach is
+    The gaps partition the exclusions exactly — no skill in the shipped
+    registry is held by two levers, so the counts can be read as a plan, and
+    the reason each row states agrees with them. What an override can reach is
     a property of the registry rather than of the workspace: the same twelve
     unclaimed skills, whichever family asks. Industry decisions are what scale.
     """
@@ -327,13 +326,16 @@ def test_the_shipped_registry_hides_skills_by_tier_decision_not_by_curation():
 
         filtered = coverage.total - coverage.visible
         gaps = {(gap.lever, gap.key): len(gap.skill_slugs) for gap in coverage.gaps}
-        assert coverage.filtered_reasons == {"no_visible_capability": filtered}
         assert sum(gaps.values()) == filtered
         assert set(gaps) == {
             ("industry", key)
             for key in ("government", "regulated_translation")
             if key not in allowed
         } | {("unclaimed", "")}
+        assert coverage.filtered_reasons == {
+            "industry_not_allowed": filtered - gaps[("unclaimed", "")],
+            "unclaimed": gaps[("unclaimed", "")],
+        }
         unclaimed_per_family.add(gaps[("unclaimed", "")])
 
     assert len(unclaimed_per_family) == 1, (

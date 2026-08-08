@@ -36,6 +36,9 @@ class WorkspaceCatalogPolicy:
             "show_universal": self.show_universal,
             "show_unconfigured_industries": self.show_unconfigured_industries,
             "allowed_industries": sorted(self.allowed_industries),
+            "allowed_industries_source": (
+                "configured" if self.industries_configured else "inferred"
+            ),
             "enabled_capabilities": sorted(self.enabled_capabilities),
             "hidden_capabilities": sorted(self.hidden_capabilities),
             "enabled_skills": sorted(self.enabled_skills),
@@ -191,18 +194,27 @@ class SkillVisibility:
     ``capability``              carried by a capability visible here
     ``hidden_override``         listed in ``settings.catalog.hidden_skills``
     ``other_workspace``         defined by a different workspace
-    ``no_visible_capability``   global, but no visible capability carries it
+    ``industry_not_allowed``    carried by an industry not allowed here
+    ``universal_hidden``        carried by the universal tier, hidden here
+    ``capability_not_enabled``  carried by a capability to enable by name
+    ``unclaimed``               no capability reachable from here claims it
+
+    The last four are the lever that would surface the row, in the ``gaps``
+    vocabulary of :class:`CoverageGap`. ``key`` is that lever's key — the
+    industry slug, the capability slug, or empty when the lever takes none.
     """
 
     visible: bool
     reason: str
     capability_slugs: tuple[str, ...] = ()
+    key: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "visible": self.visible,
             "reason": self.reason,
             "capabilities": list(self.capability_slugs),
+            "key": self.key,
         }
 
 
@@ -213,22 +225,24 @@ def skill_visibility(
     policy: WorkspaceCatalogPolicy | None = None,
     *,
     capability_index: dict[str, tuple[str, ...]] | None = None,
+    blocked_levers: dict[str, tuple[str, str]] | None = None,
 ) -> SkillVisibility:
+    """Resolve one Skill, naming the lever when the carriers are the obstacle.
+
+    ``blocked_levers`` comes from :func:`blocked_skill_levers`. Without it the
+    carriers are unknown, and a row no visible Capability carries can only be
+    reported as ``unclaimed`` — which is why every surface that serialises a
+    reason passes it.
+    """
+
     policy = policy or workspace_catalog_policy(workspace)
-    slug = str(skill.slug or "")
     skill_id = str(skill.id or "")
+    visible, reason = _skill_verdict(skill, workspace, visible_skill_ids, policy)
+    if reason is None:
+        blocked_reason, key = (blocked_levers or {}).get(skill_id, ("unclaimed", ""))
+        return SkillVisibility(False, blocked_reason, key=key)
     carriers = (capability_index or {}).get(skill_id, ())
-    if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
-        return SkillVisibility(False, "hidden_override")
-    if skill.workspace_id == workspace.id:
-        return SkillVisibility(True, "workspace_owned")
-    if skill.workspace_id is not None:
-        return SkillVisibility(False, "other_workspace")
-    if slug in policy.enabled_skills or skill_id in policy.enabled_skills:
-        return SkillVisibility(True, "enabled_override", carriers)
-    if skill_id in visible_skill_ids:
-        return SkillVisibility(True, "capability", carriers)
-    return SkillVisibility(False, "no_visible_capability")
+    return SkillVisibility(visible, reason, carriers if visible else ())
 
 
 def skill_is_visible(
@@ -237,7 +251,32 @@ def skill_is_visible(
     visible_skill_ids: set[str],
     policy: WorkspaceCatalogPolicy | None = None,
 ) -> bool:
-    return skill_visibility(skill, workspace, visible_skill_ids, policy).visible
+    policy = policy or workspace_catalog_policy(workspace)
+    return _skill_verdict(skill, workspace, visible_skill_ids, policy)[0]
+
+
+def _skill_verdict(
+    skill: Skill,
+    workspace: Workspace,
+    visible_skill_ids: set[str],
+    policy: WorkspaceCatalogPolicy,
+) -> tuple[bool, str | None]:
+    """The visibility rule itself. A ``None`` reason means the row is hidden
+    by its carriers, and naming which one needs decisions this level lacks."""
+
+    slug = str(skill.slug or "")
+    skill_id = str(skill.id or "")
+    if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
+        return False, "hidden_override"
+    if skill.workspace_id == workspace.id:
+        return True, "workspace_owned"
+    if skill.workspace_id is not None:
+        return False, "other_workspace"
+    if slug in policy.enabled_skills or skill_id in policy.enabled_skills:
+        return True, "enabled_override"
+    if skill_id in visible_skill_ids:
+        return True, "capability"
+    return False, None
 
 
 # Which lever closes the gap left by an invisible carrier. ``industry`` and
@@ -250,6 +289,52 @@ _LEVER_BY_CAPABILITY_REASON = {
     "client_not_enabled": "capability",
     "unknown_tier": "capability",
 }
+
+# The same levers as a per-Skill reason code, so a row states the decision
+# that would surface it rather than the fact that something did not. Ordered
+# by how much one decision releases: a Skill held by several levers is
+# reported under the broadest, which is the one worth putting to an admin.
+_SKILL_REASON_BY_LEVER = {
+    "industry": "industry_not_allowed",
+    "universal": "universal_hidden",
+    "capability": "capability_not_enabled",
+    "unclaimed": "unclaimed",
+}
+CARRIER_BLOCKED_REASONS = frozenset(_SKILL_REASON_BY_LEVER.values())
+
+
+def blocked_skill_levers(
+    capabilities: Iterable[Capability],
+    workspace: Workspace,
+    policy: WorkspaceCatalogPolicy | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Map each claimed Skill to the reason and key of its broadest lever.
+
+    Built over every candidate Capability, visible or not: a Skill absent from
+    the result is claimed by none of them, which :func:`skill_visibility`
+    reads as ``unclaimed``.
+    """
+
+    policy = policy or workspace_catalog_policy(workspace)
+    rows = list(capabilities)
+    decisions = {
+        str(cap.id): capability_visibility(cap, workspace, policy) for cap in rows
+    }
+    carriers: dict[str, list[Capability]] = {}
+    for cap in rows:
+        for skill_id in cap.skill_ids or []:
+            if skill_id:
+                carriers.setdefault(str(skill_id), []).append(cap)
+
+    order = list(_SKILL_REASON_BY_LEVER)
+    blocked: dict[str, tuple[str, str]] = {}
+    for skill_id, claimed_by in carriers.items():
+        lever, key, _ = min(
+            _levers_for(claimed_by, decisions),
+            key=lambda item: (order.index(item[0]), item[1]),
+        )
+        blocked[skill_id] = (_SKILL_REASON_BY_LEVER[lever], key)
+    return blocked
 
 
 @dataclass(frozen=True)
@@ -347,12 +432,7 @@ class CatalogCoverage:
                 "filtered": self.total - self.visible,
                 "filtered_reasons": dict(sorted(self.filtered_reasons.items())),
             },
-            "policy": {
-                **self.policy.to_dict(),
-                "allowed_industries_source": (
-                    "configured" if self.policy.industries_configured else "inferred"
-                ),
-            },
+            "policy": self.policy.to_dict(),
             "categories": [item.to_dict() for item in self.categories],
             "gaps": [gap.to_dict() for gap in self.gaps],
             "overrides": [override.to_dict() for override in self.overrides],
@@ -381,6 +461,7 @@ def catalog_coverage(
     visible_caps = [cap for cap in cap_rows if cap_decisions[str(cap.id)].visible]
     visible_skill_ids = visible_skill_ids_from_capabilities(visible_caps)
     visible_index = skill_capability_index(visible_caps)
+    blocked_levers = blocked_skill_levers(cap_rows, workspace, policy)
     all_carriers: dict[str, list[Capability]] = {}
     for cap in cap_rows:
         for skill_id in cap.skill_ids or []:
@@ -403,6 +484,7 @@ def catalog_coverage(
             visible_skill_ids,
             policy,
             capability_index=visible_index,
+            blocked_levers=blocked_levers,
         )
         slug = str(skill.slug or "")
         category = str(skill.category or "Other")
@@ -413,7 +495,7 @@ def catalog_coverage(
             category_visible[category] = category_visible.get(category, 0) + 1
         else:
             filtered_reasons[decision.reason] = filtered_reasons.get(decision.reason, 0) + 1
-        if decision.reason == "no_visible_capability":
+        if decision.reason in CARRIER_BLOCKED_REASONS:
             for lever, key, cap_slug in _levers_for(carriers, cap_decisions):
                 gap_skills.setdefault((lever, key), set()).add(slug)
                 if cap_slug:

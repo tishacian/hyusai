@@ -34,7 +34,10 @@ export interface FlowCatalogSummary {
   total: number;
   visible: number;
   filtered: number;
-  filteredReasons: Record<string, number>;
+  /** Whether an admin stated this workspace's industries or the platform
+   * inferred them from the family. The two need different sentences, and no
+   * production workspace has ever stated them. */
+  industriesConfigured: boolean;
 }
 
 interface SkillsResponse {
@@ -43,7 +46,7 @@ interface SkillsResponse {
     total?: number;
     visible?: number;
     filtered?: number;
-    filtered_reasons?: Record<string, number>;
+    policy?: { allowed_industries_source?: string };
   };
 }
 
@@ -51,7 +54,7 @@ const EMPTY_SUMMARY: FlowCatalogSummary = {
   total: 0,
   visible: 0,
   filtered: 0,
-  filteredReasons: {},
+  industriesConfigured: false,
 };
 
 /** Stable projection kept outside the service so ordering/classification can
@@ -166,14 +169,14 @@ export class FlowCatalogService {
         total: rows.length,
         visible: rows.length - filtered,
         filtered,
-        filteredReasons: {},
+        industriesConfigured: false,
       };
     }
     return {
       total: catalog.total ?? rows.length,
       visible: catalog.visible ?? rows.length,
       filtered: catalog.filtered ?? 0,
-      filteredReasons: catalog.filtered_reasons ?? {},
+      industriesConfigured: catalog.policy?.allowed_industries_source === 'configured',
     };
   }
 }

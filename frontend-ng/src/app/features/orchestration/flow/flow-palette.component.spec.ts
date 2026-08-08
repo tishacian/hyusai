@@ -78,7 +78,7 @@ function setup(options: {
   skills?: PaletteItem[];
   filtered?: PaletteItem[];
   capabilities?: Array<{ slug: string; name: string; description?: string }>;
-  filteredReasons?: Record<string, number>;
+  industriesConfigured?: boolean;
   context?: PaletteInsertContext | null;
   items?: PaletteItem[];
   nodeCount?: number;
@@ -94,7 +94,7 @@ function setup(options: {
       total: (options.skills?.length ?? 0) + (options.filtered?.length ?? 0),
       visible: options.skills?.length ?? 0,
       filtered: options.filtered?.length ?? 0,
-      filteredReasons: options.filteredReasons ?? {},
+      industriesConfigured: options.industriesConfigured ?? false,
     }).asReadonly(),
     state: signal<'loading' | 'loaded' | 'error'>('loaded'),
     retry: () => undefined,
@@ -223,28 +223,48 @@ test('extending a node offers only what connects, and says so when nothing does'
   assert.equal(dead.controls.rankedEmptyMessage(), 'No type-compatible node.');
 });
 
-test('a dead end names the rule that produced it, and never offers the row', () => {
+test('a dead end names the lever that would release it, and never offers the row', () => {
   const invoice = skill({
     label: 'Invoice extract',
-    unavailableReason: 'no_visible_capability',
+    unavailableReason: 'industry_not_allowed',
+    unavailableKey: 'energy',
     capabilitySlugs: [],
   });
+  const orphan = skill({ label: 'Causal drill', unavailableReason: 'unclaimed', capabilitySlugs: [] });
   const { controls, added } = setup({
     skills: [skill({ label: 'Answer' })],
-    filtered: [invoice],
-    filteredReasons: { no_visible_capability: 57 },
+    filtered: [invoice, orphan],
   });
 
   type(controls, 'invoice');
   assert.deepEqual(controls.rankedItems(), [], 'nothing available matches');
   assert.match(controls.rankedEmptyMessage(), /Nothing available matches “invoice”/);
   assert.deepEqual(controls.unavailableMatches().map((item) => item.label), ['Invoice extract']);
-  assert.match(controls.intent(invoice), /no capability enabled here carries it/);
+  assert.equal(controls.intent(invoice), 'the Energy industry is not enabled in this workspace');
 
   controls.onPick(invoice);
   assert.deepEqual(added, [], 'an unavailable row cannot enter a Flow');
 
-  assert.match(controls.unavailableExplanation(), /^57 because no capability enabled here carries it/);
+  assert.equal(
+    controls.unavailableExplanation(),
+    '1 because no capability claims it — only a per-skill override can surface it; '
+      + '1 because the Energy industry is not enabled in this workspace.',
+  );
+});
+
+test('an industry an admin actually chose to exclude is not read as an omission', () => {
+  const invoice = skill({
+    label: 'Invoice extract',
+    unavailableReason: 'industry_not_allowed',
+    unavailableKey: 'energy',
+    capabilitySlugs: [],
+  });
+  const { controls } = setup({ filtered: [invoice], industriesConfigured: true });
+
+  assert.equal(
+    controls.intent(invoice),
+    'this workspace’s catalog settings exclude the Energy industry',
+  );
 });
 
 test('the usage signal marks what runs here and what is already in this Flow', () => {

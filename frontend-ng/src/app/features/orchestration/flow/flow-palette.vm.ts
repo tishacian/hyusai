@@ -14,8 +14,8 @@
  *      motif) instead of a column to scroll, with real workspace invocation
  *      counts as the tiebreaker.
  *   3. **Honest exclusion** — `/skills?include_filtered=true` returns the rows
- *      this workspace cannot see with the rule that excluded each one, so an
- *      empty result explains itself instead of rendering nothing.
+ *      this workspace cannot see with the lever that would release each one,
+ *      so an empty result names a decision instead of rendering nothing.
  */
 import {
   SKILL_PALETTE_CATEGORIES,
@@ -219,17 +219,37 @@ export function mostUsedItems(
 }
 
 /**
- * Turn a backend visibility reason into a sentence.
+ * Turn a backend visibility reason into a sentence naming one lever.
  *
- * `no_visible_capability` covers two different situations that the `/skills`
- * payload cannot separate: an industry tier this workspace has not enabled
- * (most of them) and a Skill no Capability claims at all. Saying both is the
- * honest reading; the curation surface decomposes it per lever.
+ * `/skills` states which decision would surface an excluded row rather than
+ * the fact that something is missing, so the sentence can be acted on: the
+ * industry to enable, the Capability to enable, or the absence of any tier
+ * decision that would reach it. `key` is that lever's key.
+ *
+ * `industriesConfigured` distinguishes an admin who excluded an industry from
+ * a workspace whose industries were only ever inferred from its family — the
+ * second is every workspace in production today, and reads as an omission
+ * rather than as a refusal.
  */
-export function explainVisibilityReason(reason: string): string {
+export function explainVisibilityReason(
+  reason: string,
+  key = '',
+  industriesConfigured = false,
+): string {
   switch (reason) {
-    case 'no_visible_capability':
-      return 'no capability enabled here carries it — usually an industry this workspace has not enabled, sometimes a skill no capability claims at all';
+    case 'industry_not_allowed':
+      if (!key) return 'carried by an industry this workspace has not enabled';
+      return industriesConfigured
+        ? `this workspace’s catalog settings exclude the ${humanizeSlug(key)} industry`
+        : `the ${humanizeSlug(key)} industry is not enabled in this workspace`;
+    case 'universal_hidden':
+      return 'this workspace hides the universal catalog';
+    case 'capability_not_enabled':
+      return key
+        ? `the ${humanizeSlug(key)} capability is not enabled here`
+        : 'no capability enabled here carries it';
+    case 'unclaimed':
+      return 'no capability claims it — only a per-skill override can surface it';
     case 'hidden_override':
       return 'hidden by this workspace’s catalog settings';
     case 'other_workspace':
@@ -239,15 +259,30 @@ export function explainVisibilityReason(reason: string): string {
   }
 }
 
-/** One sentence for a whole filtered set, from the `catalog.filtered_reasons`
- * histogram the endpoint already returns. */
-export function summariseFilteredReasons(reasons: Record<string, number>): string {
-  const entries = Object.entries(reasons)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1]);
-  if (entries.length === 0) return '';
-  return entries
-    .map(([reason, count]) => `${count} because ${explainVisibilityReason(reason)}`)
+/**
+ * One sentence for a whole filtered set, grouped by the lever that frees it.
+ *
+ * Counted off the rows rather than the `catalog.filtered_reasons` histogram:
+ * the histogram counts reason codes, and two industries excluded for the same
+ * reason are two decisions. These are the rows the hatch then lists.
+ */
+export function summariseUnavailable(
+  items: readonly PaletteItem[],
+  industriesConfigured = false,
+): string {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    if (!item.unavailableReason) continue;
+    const clause = explainVisibilityReason(
+      item.unavailableReason,
+      item.unavailableKey,
+      industriesConfigured,
+    );
+    counts.set(clause, (counts.get(clause) ?? 0) + 1);
+  }
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([clause, count]) => `${count} because ${clause}`)
     .join('; ');
 }
 
@@ -261,7 +296,9 @@ export function paletteItemDetail(item: PaletteItem): string {
     parts.push(item.description);
   }
   if (item.unavailableReason) {
-    parts.push(`unavailable: ${explainVisibilityReason(item.unavailableReason)}`);
+    parts.push(
+      `unavailable: ${explainVisibilityReason(item.unavailableReason, item.unavailableKey)}`,
+    );
   }
   return parts.join(' · ');
 }

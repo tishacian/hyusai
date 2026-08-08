@@ -103,10 +103,23 @@ test('the visibility verdict and the usage count travel with the palette entry',
 
   const filtered = skillToPaletteItem({
     ...skill({ slug: 'invoice_extract_v1', name: 'Invoice extract' }),
-    visibility: { visible: false, reason: 'no_visible_capability', capabilities: [] },
+    visibility: {
+      visible: false,
+      reason: 'industry_not_allowed',
+      capabilities: [],
+      key: 'government',
+    },
   } as Skill);
-  assert.equal(filtered.unavailableReason, 'no_visible_capability');
+  assert.equal(filtered.unavailableReason, 'industry_not_allowed');
+  assert.equal(filtered.unavailableKey, 'government');
   assert.equal(filtered.usageCalls, 0);
+
+  // A lever that takes no key leaves none on the entry to render.
+  const unclaimed = skillToPaletteItem({
+    ...skill({ slug: 'causal_drill_v1', name: 'Causal drill' }),
+    visibility: { visible: false, reason: 'unclaimed', capabilities: [], key: '' },
+  } as Skill);
+  assert.equal(unclaimed.unavailableKey, undefined);
 
   // An older backend omits the verdict; every returned row is then visible.
   assert.equal(skillVisibilityVerdict(skill()), null);

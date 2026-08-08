@@ -45,7 +45,7 @@ import {
   paletteItemSlug,
   paletteItemUsage,
   searchPaletteItems,
-  summariseFilteredReasons,
+  summariseUnavailable,
   type PaletteCapabilityGroup,
   type PaletteInsertContext,
 } from './flow-palette.vm';
@@ -448,12 +448,11 @@ export class FlowPaletteComponent {
   }
 
   protected unavailableExplanation(): string {
-    const summary = summariseFilteredReasons(this.catalog.summary().filteredReasons);
-    if (summary) return `${summary}.`;
-    const reasons = new Set(
-      this.catalog.filteredItems().map((item) => item.unavailableReason ?? 'unknown'),
+    const summary = summariseUnavailable(
+      this.catalog.filteredItems(),
+      this.catalog.summary().industriesConfigured,
     );
-    return `${[...reasons].map(explainVisibilityReason).join('; ')}.`;
+    return summary ? `${summary}.` : '';
   }
 
   protected onQuery(event: Event): void {
@@ -531,9 +530,15 @@ export class FlowPaletteComponent {
     return paletteItemDetail(item);
   }
 
-  /** One line: name plus intention. An unusable row states its rule instead. */
+  /** One line: name plus intention. An unusable row states its lever instead. */
   protected intent(item: PaletteItem): string {
-    if (item.unavailableReason) return explainVisibilityReason(item.unavailableReason);
+    if (item.unavailableReason) {
+      return explainVisibilityReason(
+        item.unavailableReason,
+        item.unavailableKey,
+        this.catalog.summary().industriesConfigured,
+      );
+    }
     const slug = paletteItemSlug(item);
     return item.description && item.description !== slug ? item.description : '';
   }

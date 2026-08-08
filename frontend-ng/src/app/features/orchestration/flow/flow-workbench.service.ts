@@ -23,6 +23,7 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
+import { ingressInputSchema } from './flow-ingress-prefill';
 import {
   draftTestIngressOptions,
   type DraftTestIngressOption,
@@ -146,25 +147,6 @@ function schemaAcceptsText(value: unknown): boolean {
     || (Array.isArray(type) && type.includes('string'));
 }
 
-function ingressInputSchema(source: CanonicalFlow['nodes'][number]): Record<string, unknown> {
-  const config = isRecord(source.config) ? source.config : {};
-  if (isRecord(config['input_schema'])) return config['input_schema'];
-
-  const properties: Record<string, unknown> = {};
-  const required: string[] = [];
-  for (const port of source.outputs ?? []) {
-    if (!port.name) continue;
-    properties[port.name] = typeof port.schema === 'string' ? { type: port.schema } : {};
-    if (port.required === true) required.push(port.name);
-  }
-  return {
-    type: 'object',
-    properties,
-    additionalProperties: true,
-    ...(required.length > 0 ? { required } : {}),
-  };
-}
-
 /** Shape a chat message against the selected source's authored input schema.
  * Additional JSON is merged at the input_ref root; it is never hidden below a
  * synthetic `context` property. Closed schemas therefore receive no invented
@@ -180,7 +162,9 @@ export function buildFlowWorkbenchChatInput(
   if (!source) {
     return { ok: false, message: 'The selected ingress no longer exists in the current Flow.' };
   }
-  const schema = ingressInputSchema(source);
+  // A port-derived schema states no `additionalProperties`, which every test
+  // below reads as open — the same reading publication gives it.
+  const { schema } = ingressInputSchema(source);
   const properties = isRecord(schema['properties']) ? schema['properties'] : null;
 
   let messageField: string | null = null;

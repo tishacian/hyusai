@@ -83,7 +83,12 @@ const POLICY: CatalogPolicy = {
 
 function report(overrides: Partial<CatalogCurationReport> = {}): CatalogCurationReport {
   return {
-    summary: { total: 85, visible: 28, filtered: 57, filtered_reasons: { no_visible_capability: 57 } },
+    summary: {
+      total: 85,
+      visible: 28,
+      filtered: 57,
+      filtered_reasons: { industry_not_allowed: 45, unclaimed: 12 },
+    },
     policy: POLICY,
     categories: [{ category: 'Analysis', total: 10, visible: 4 }],
     gaps: [
@@ -121,7 +126,7 @@ function report(overrides: Partial<CatalogCurationReport> = {}): CatalogCuration
         name: 'Causal drill',
         category: 'Analysis',
         visible: false,
-        reason: 'no_visible_capability',
+        reason: 'unclaimed',
         capabilities: [],
         carriers: [],
       },

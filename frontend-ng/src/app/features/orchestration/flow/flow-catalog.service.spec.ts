@@ -122,27 +122,33 @@ test('the excluded rows are kept apart from what a Flow may drop', () => {
         slug: 'invoice_extract_v1',
         name: 'Invoice extract',
         category: 'Ingestion',
-        visibility: { visible: false, reason: 'no_visible_capability', capabilities: [] },
+        visibility: {
+          visible: false,
+          reason: 'industry_not_allowed',
+          capabilities: [],
+          key: 'government',
+        },
       },
     ],
     catalog: {
       total: 85,
       visible: 28,
       filtered: 57,
-      filtered_reasons: { no_visible_capability: 57 },
+      policy: { allowed_industries_source: 'inferred' },
     },
   });
 
   assert.equal(service.state(), 'loaded');
   assert.deepEqual(service.skillItems().map((item) => item.label), ['Answer']);
-  assert.deepEqual(service.filteredItems().map((item) => item.unavailableReason), [
-    'no_visible_capability',
-  ]);
+  assert.deepEqual(
+    service.filteredItems().map((item) => [item.unavailableReason, item.unavailableKey]),
+    [['industry_not_allowed', 'government']],
+  );
   assert.deepEqual(service.summary(), {
     total: 85,
     visible: 28,
     filtered: 57,
-    filteredReasons: { no_visible_capability: 57 },
+    industriesConfigured: false,
   });
   assert.deepEqual(service.capabilities(), [
     { slug: 'ticket_triage', name: 'Ticket triage', description: 'Route tickets' },
@@ -176,6 +182,6 @@ test('loaded-empty and load-error are distinct, and Retry starts a fresh request
     total: 1,
     visible: 1,
     filtered: 0,
-    filteredReasons: {},
+    industriesConfigured: false,
   });
 });

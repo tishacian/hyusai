@@ -23,10 +23,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Declared ingress schema, or one derived from the node's output ports.
  *
- * `flow-workbench.service.ts` resolves the same rule privately for the chat
- * input shaping. The two must move together until one of them is exported and
- * the other deleted; a Flow whose preview and whose Run disagree on its own
- * entry contract is worse than either being wrong.
+ * Shared with the workbench chat input shaping: a Flow whose preview and whose
+ * Run disagree on its own entry contract is worse than either being wrong.
  */
 export function ingressInputSchema(
   node: CanonicalFlowNode,

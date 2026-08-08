@@ -46,8 +46,12 @@ interface SkillRow {
   category: string;
   runtime_status: string;
   metrics: { calls?: number };
-  visibility: { visible: boolean; reason: string; capabilities: string[] };
+  visibility: { visible: boolean; reason: string; capabilities: string[]; key: string };
 }
+
+/** The production decomposition in miniature: most exclusions are one
+ * industry the workspace never enabled, a minority is claimed by nothing. */
+const UNCLAIMED_FROM = 75;
 
 function catalog(): { skills: SkillRow[]; filtered: number } {
   const skills: SkillRow[] = [];
@@ -69,8 +73,16 @@ function catalog(): { skills: SkillRow[]; filtered: number } {
             visible: true,
             reason: 'capability',
             capabilities: [CAPABILITY_SLUGS[index % CAPABILITY_SLUGS.length]],
+            key: '',
           }
-        : { visible: false, reason: 'no_visible_capability', capabilities: [] },
+        : index < UNCLAIMED_FROM
+          ? {
+              visible: false,
+              reason: 'industry_not_allowed',
+              capabilities: [],
+              key: 'energy',
+            }
+          : { visible: false, reason: 'unclaimed', capabilities: [], key: '' },
     });
   }
   return { skills, filtered: TOTAL_SKILLS - VISIBLE_SKILLS };
@@ -165,7 +177,13 @@ test('the palette opens on capabilities, one line per entry, and stays inside it
           total: TOTAL_SKILLS,
           visible: VISIBLE_SKILLS,
           filtered: fixture.filtered,
-          filtered_reasons: { no_visible_capability: fixture.filtered },
+          filtered_reasons: {
+            industry_not_allowed: UNCLAIMED_FROM - VISIBLE_SKILLS,
+            unclaimed: TOTAL_SKILLS - UNCLAIMED_FROM,
+          },
+          // Every production workspace is still on the inferred side, which
+          // is what decides the wording of the escape hatch.
+          policy: { allowed_industries_source: 'inferred' },
         },
       });
     }
@@ -294,12 +312,18 @@ test('the palette opens on capabilities, one line per entry, and stays inside it
   const visibleRows = await rows.count();
   expect(visibleRows).toBe(VISIBLE_SKILLS);
 
-  // The escape hatch is one click, and it names the lever.
+  // The escape hatch is one click, and it names one lever per cause rather
+  // than describing the possibilities.
   await palette.locator('.ck-flow-palette__hatch-toggle').click();
-  await expect(palette.locator('.ck-flow-palette__hatch-why')).toContainText(
-    'no capability enabled here carries it',
+  const why = palette.locator('.ck-flow-palette__hatch-why');
+  await expect(why).toContainText(
+    `${UNCLAIMED_FROM - VISIBLE_SKILLS} because the Energy industry is not enabled in this workspace`,
+  );
+  await expect(why).toContainText(
+    `${TOTAL_SKILLS - UNCLAIMED_FROM} because no capability claims it`,
   );
   await expect(palette.locator('.ck-flow-palette__row.is-unavailable').first()).toBeDisabled();
+  await why.scrollIntoViewIfNeeded();
   await palette.screenshot({ path: testInfo.outputPath('palette-escape-hatch.png') });
 
   const geometryReport = JSON.stringify({

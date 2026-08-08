@@ -2,6 +2,7 @@ from app.models.capability import Capability
 from app.models.skill import Skill
 from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
+    blocked_skill_levers,
     capability_is_visible,
     skill_capability_index,
     skill_is_visible,
@@ -145,26 +146,76 @@ def test_every_skill_carries_the_rule_that_kept_or_dropped_it():
         skill_ids=[orphaned.id],
     )
 
+    unclaimed = _skill("causal_drill_v1", id_="skill-unclaimed")
+    caps = [universal_cap, government_cap]
     policy = workspace_catalog_policy(workspace)
-    visible_caps = visible_capabilities([universal_cap, government_cap], workspace, policy)
+    visible_caps = visible_capabilities(caps, workspace, policy)
     visible_ids = visible_skill_ids_from_capabilities(visible_caps)
     index = skill_capability_index(visible_caps)
+    blocked = blocked_skill_levers(caps, workspace, policy)
 
     def _decide(skill):
-        return skill_visibility(skill, workspace, visible_ids, policy, capability_index=index)
+        return skill_visibility(
+            skill,
+            workspace,
+            visible_ids,
+            policy,
+            capability_index=index,
+            blocked_levers=blocked,
+        )
 
     assert _decide(carried).to_dict() == {
         "visible": True,
         "reason": "capability",
         "capabilities": ["expert_knowledge_capture"],
+        "key": "",
     }
     assert _decide(owned).reason == "workspace_owned"
     assert _decide(enabled).reason == "enabled_override"
     assert _decide(hidden).reason == "hidden_override"
     assert _decide(foreign).reason == "other_workspace"
-    assert _decide(orphaned).reason == "no_visible_capability"
+    # The two halves the old single code conflated: an industry decision worth
+    # every skill that tier carries, and a row no tier decision can reach.
+    assert _decide(orphaned).to_dict() == {
+        "visible": False,
+        "reason": "industry_not_allowed",
+        "capabilities": [],
+        "key": "government",
+    }
+    assert _decide(unclaimed).to_dict() == {
+        "visible": False,
+        "reason": "unclaimed",
+        "capabilities": [],
+        "key": "",
+    }
     assert [_decide(s).visible for s in (carried, owned, enabled)] == [True, True, True]
     assert [_decide(s).visible for s in (hidden, foreign, orphaned)] == [False, False, False]
+
+
+def test_a_row_held_by_several_levers_names_the_broadest_one():
+    """Enabling one capability moves one row; allowing an industry moves the
+    tier. A row reachable both ways must put the larger decision first."""
+
+    workspace = _workspace(
+        "andritz",
+        settings={"family": "andritz", "catalog": {"hidden_capabilities": ["aya_console"]}},
+    )
+    shared = _skill("mission_command_v1", id_="skill-shared")
+    caps = [
+        _cap("aya_console", skill_ids=[shared.id]),
+        _cap("aya_voice", tier="industry", industry="government", skill_ids=[shared.id]),
+    ]
+    policy = workspace_catalog_policy(workspace)
+
+    decision = skill_visibility(
+        shared,
+        workspace,
+        set(),
+        policy,
+        blocked_levers=blocked_skill_levers(caps, workspace, policy),
+    )
+
+    assert (decision.reason, decision.key) == ("industry_not_allowed", "government")
 
 
 def test_hidden_override_wins_over_an_owned_workspace_skill():

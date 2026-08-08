@@ -53,6 +53,9 @@ export interface SkillVisibilityVerdict {
   reason: string;
   /** Slugs of the Capabilities that carry this Skill in this workspace. */
   capabilities: string[];
+  /** The excluding lever's key: an industry slug for `industry_not_allowed`,
+   * a Capability slug for `capability_not_enabled`, empty otherwise. */
+  key: string;
 }
 
 /** Read the verdict off a catalog row. Older backends omit it entirely, in
@@ -67,6 +70,7 @@ export function skillVisibilityVerdict(skill: Skill): SkillVisibilityVerdict | n
     capabilities: Array.isArray(record['capabilities'])
       ? record['capabilities'].map((slug) => String(slug)).filter(Boolean)
       : [],
+    key: typeof record['key'] === 'string' ? record['key'] : '',
   };
 }
 
@@ -110,6 +114,9 @@ export interface PaletteItem {
   /** Set only on rows this workspace cannot use, carrying the backend
    * visibility reason. Such an entry explains itself and never drops. */
   unavailableReason?: string;
+  /** The excluding lever's key, when it has one: the industry or Capability
+   * the sentence has to name. */
+  unavailableKey?: string;
 }
 
 /** Convert a palette item into a node payload for the store. */
@@ -448,7 +455,12 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
     runtimeStatus: status,
     usageCalls: typeof calls === 'number' && Number.isFinite(calls) ? calls : 0,
     capabilitySlugs: verdict?.capabilities ?? [],
-    ...(verdict && !verdict.visible ? { unavailableReason: verdict.reason } : {}),
+    ...(verdict && !verdict.visible
+      ? {
+          unavailableReason: verdict.reason,
+          ...(verdict.key ? { unavailableKey: verdict.key } : {}),
+        }
+      : {}),
   };
 }
 

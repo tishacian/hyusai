@@ -69,12 +69,16 @@ def test_catalog_serves_its_taxonomy_and_the_reason_each_row_is_visible(db_sessi
         "visible": True,
         "reason": "capability",
         "capabilities": ["catalog_capability"],
+        "key": "",
     }
     assert payload["catalog"]["total"] == 2
     assert payload["catalog"]["visible"] == 1
     assert payload["catalog"]["filtered"] == 1
-    assert payload["catalog"]["filtered_reasons"] == {"no_visible_capability": 1}
+    assert payload["catalog"]["filtered_reasons"] == {"unclaimed": 1}
     assert payload["catalog"]["policy"]["show_universal"] is True
+    # A client cannot tell a decision from a default without this, and every
+    # production workspace is still on the inferred side of it.
+    assert payload["catalog"]["policy"]["allowed_industries_source"] == "inferred"
 
 
 def test_filtered_rows_are_opt_in_and_carry_the_rule_that_dropped_them(db_session):
@@ -90,11 +94,44 @@ def test_filtered_rows_are_opt_in_and_carry_the_rule_that_dropped_them(db_sessio
     assert set(by_slug) == {"carried_v1", "orphaned_v1"}
     assert by_slug["orphaned_v1"]["visibility"] == {
         "visible": False,
-        "reason": "no_visible_capability",
+        "reason": "unclaimed",
         "capabilities": [],
+        "key": "",
     }
     # The summary describes the catalog, not the requested page.
     assert payload["catalog"]["visible"] == 1
+
+
+def test_an_excluded_row_names_the_industry_that_would_release_it(db_session):
+    """The palette turns this into one sentence, so the row has to carry the
+    lever and not merely the fact that something is missing."""
+
+    workspace, user = _seed(db_session)
+    db_session.add(
+        Capability(
+            id="cap-government",
+            slug="mission_command",
+            name="Mission command",
+            tier="industry",
+            industry="government",
+            skill_ids=["skill-orphaned"],
+        )
+    )
+    db_session.commit()
+
+    payload = (
+        _client(db_session, workspace, user)
+        .get("/skills", params={"include_filtered": True})
+        .json()
+    )
+
+    by_slug = {row["slug"]: row for row in payload["skills"]}
+    assert by_slug["orphaned_v1"]["visibility"] == {
+        "visible": False,
+        "reason": "industry_not_allowed",
+        "capabilities": [],
+        "key": "government",
+    }
 
 
 def test_category_filter_narrows_the_catalog(db_session):
