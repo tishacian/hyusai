@@ -676,7 +676,7 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(versionTwo).toBeVisible();
   await expect(versionTwo).toContainText('PUBLISHED');
   events.push('ui:restore');
-  await versionTwo.getByRole('button', { name: /Roll back/i }).click();
+  await versionTwo.getByRole('button', { name: /Restore this version/i }).click();
   const restoreDialog = page.getByRole('dialog', { name: 'Confirm rollback' });
   await expect(restoreDialog).toContainText('published pointer');
   await expect(restoreDialog).toContainText('Exact preview ready');

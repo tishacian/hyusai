@@ -41,6 +41,35 @@ export type SkillPaletteCategory = (typeof SKILL_PALETTE_CATEGORIES)[number];
 export type SkillPaletteSection = SkillPaletteCategory | 'Other';
 export type SkillRuntimeStatus = NonNullable<Skill['runtime_status']>;
 
+/**
+ * The visibility verdict `/skills` attaches to every catalog row.
+ *
+ * Declared here rather than on the shared `Skill` transport type: the palette
+ * is the only consumer, and `reason` is the backend's machine code (see
+ * `SkillVisibility` in `catalog_visibility.py`), not free text.
+ */
+export interface SkillVisibilityVerdict {
+  visible: boolean;
+  reason: string;
+  /** Slugs of the Capabilities that carry this Skill in this workspace. */
+  capabilities: string[];
+}
+
+/** Read the verdict off a catalog row. Older backends omit it entirely, in
+ * which case every returned row is by definition one the workspace sees. */
+export function skillVisibilityVerdict(skill: Skill): SkillVisibilityVerdict | null {
+  const raw = (skill as { visibility?: unknown }).visibility;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  return {
+    visible: record['visible'] !== false,
+    reason: typeof record['reason'] === 'string' ? record['reason'] : 'unknown',
+    capabilities: Array.isArray(record['capabilities'])
+      ? record['capabilities'].map((slug) => String(slug)).filter(Boolean)
+      : [],
+  };
+}
+
 /** A palette entry. `paletteItemToNode()` yields the node for `store.addNode`. */
 export interface PaletteItem {
   /** Canonical node `type`. */
@@ -72,6 +101,15 @@ export interface PaletteItem {
   skillCategory?: SkillPaletteSection;
   /** Palette-only runtime state rendered as an explicit status badge. */
   runtimeStatus?: SkillRuntimeStatus;
+  /** Workspace invocations aggregated by `/skills` (`metrics.calls`). Absent
+   * for primitives, `0` for a catalog Skill this workspace never ran. */
+  usageCalls?: number;
+  /** Capability slugs carrying this Skill here — the palette's first
+   * disclosure level, straight from the visibility verdict. */
+  capabilitySlugs?: readonly string[];
+  /** Set only on rows this workspace cannot use, carrying the backend
+   * visibility reason. Such an entry explains itself and never drops. */
+  unavailableReason?: string;
 }
 
 /** Convert a palette item into a node payload for the store. */
@@ -126,6 +164,21 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     icon: 'server',
     tone: 'emerald',
     outputs: [{ name: 'file', schema: 'object' }],
+    badge: 'event',
+  },
+  {
+    // `triggers.TRIGGER_TYPE_TO_EVENT` maps this type to `deposit.promoted`,
+    // the one event allowed to feed a side-effecting downstream run.
+    type: 'source.deposit_promoted',
+    kind: 'source',
+    label: 'Deposit promoted',
+    description: 'Trigger when an operator promotes deposit files to a collection',
+    icon: 'file-search',
+    tone: 'emerald',
+    outputs: [
+      { name: 'collection_slug', schema: 'string' },
+      { name: 'file_ids', schema: 'array' },
+    ],
     badge: 'event',
   },
   {
@@ -377,6 +430,8 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   // the dropped node carries a real output signature. Inputs stay
   // implicit — the `input_schema` properties are params, not ports.
   const outputs = portsFromSchema(skill.output_schema);
+  const verdict = skillVisibilityVerdict(skill);
+  const calls = skill.metrics?.calls;
 
   return {
     type: 'skill',
@@ -391,6 +446,9 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
     badge: status.replace(/_/g, ' '),
     skillCategory: category,
     runtimeStatus: status,
+    usageCalls: typeof calls === 'number' && Number.isFinite(calls) ? calls : 0,
+    capabilitySlugs: verdict?.capabilities ?? [],
+    ...(verdict && !verdict.visible ? { unavailableReason: verdict.reason } : {}),
   };
 }
 

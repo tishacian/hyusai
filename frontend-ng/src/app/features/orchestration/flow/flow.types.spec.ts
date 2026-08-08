@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Skill } from '@app/core/canonical-api.service';
 import {
+  DEFAULT_PALETTE,
   SKILL_PALETTE_CATEGORIES,
   paletteItemToNode,
   skillPaletteSection,
   skillToPaletteItem,
+  skillVisibilityVerdict,
 } from './flow.types';
 
 function skill(overrides: Partial<Skill> = {}): Skill {
@@ -70,6 +72,45 @@ test('skill projection exposes category/runtime without leaking palette-only top
   assert.equal('skillCategory' in node, false);
   assert.equal('runtimeStatus' in node, false);
   assert.equal(node.data?.['runtime_status'], 'stub');
+});
+
+test('every trigger type the backend maps to an event is reachable from the palette', () => {
+  // Mirror of `triggers.TRIGGER_TYPE_TO_EVENT`: a type the runtime can fire
+  // but the palette cannot drop is an unreachable feature.
+  const types = new Set(DEFAULT_PALETTE.map((item) => item.type));
+  for (const trigger of [
+    'source.sftp_arrival',
+    'source.deposit_promoted',
+    'source.schedule',
+    'source.webhook',
+  ]) {
+    assert.ok(types.has(trigger), trigger);
+  }
+  const deposit = DEFAULT_PALETTE.find((item) => item.type === 'source.deposit_promoted');
+  assert.equal(deposit?.kind, 'source');
+  assert.deepEqual(deposit?.outputs?.map((port) => port.name), ['collection_slug', 'file_ids']);
+});
+
+test('the visibility verdict and the usage count travel with the palette entry', () => {
+  const visible = skillToPaletteItem({
+    ...skill({ slug: 'answer_v1', name: 'Answer', category: 'LLM' }),
+    metrics: { calls: 6 },
+    visibility: { visible: true, reason: 'capability', capabilities: ['ticket_triage'] },
+  } as Skill);
+  assert.equal(visible.usageCalls, 6);
+  assert.deepEqual(visible.capabilitySlugs, ['ticket_triage']);
+  assert.equal(visible.unavailableReason, undefined);
+
+  const filtered = skillToPaletteItem({
+    ...skill({ slug: 'invoice_extract_v1', name: 'Invoice extract' }),
+    visibility: { visible: false, reason: 'no_visible_capability', capabilities: [] },
+  } as Skill);
+  assert.equal(filtered.unavailableReason, 'no_visible_capability');
+  assert.equal(filtered.usageCalls, 0);
+
+  // An older backend omits the verdict; every returned row is then visible.
+  assert.equal(skillVisibilityVerdict(skill()), null);
+  assert.equal(skillToPaletteItem(skill()).unavailableReason, undefined);
 });
 
 test('Retrieval taxonomy is persisted as a shared canonical config marker', () => {

@@ -292,6 +292,28 @@
   }
 }
 
+.flow-builder__handle-more {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 5px 8px;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: var(--ck-signal-cool, #7dd3fc);
+  font-size: 11px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: -2px;
+  }
+}
+
 .flow-builder__handle-empty {
   margin: 0;
   padding: 6px 8px;

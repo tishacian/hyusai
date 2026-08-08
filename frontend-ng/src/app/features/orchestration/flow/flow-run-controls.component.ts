@@ -16,12 +16,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   output,
+  untracked,
 } from '@angular/core';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowRunService } from './flow-run.service';
+import { FlowStore } from './flow.store';
+import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
 
 @Component({
   selector: 'app-flow-run-controls',
@@ -148,6 +152,11 @@ import { FlowRunService } from './flow-run.service';
             Enter the JSON object exposed to the Flow as <code>input_ref</code>.
             Debug metadata is injected separately by the Builder.
           </p>
+          @if (prefillSource(); as ingress) {
+            <p class="ck-run-input__hint" data-testid="run-input-prefill-source">
+              Prefilled from the entry contract of <code>{{ ingress }}</code>.
+            </p>
+          }
           @if (run.draftTestMode()) {
             <label class="ck-run-input__label" for="ck-run-input-ingress">
               Draft ingress
@@ -223,12 +232,48 @@ import { FlowRunService } from './flow-run.service';
 })
 export class FlowRunControlsComponent {
   protected readonly run = inject(FlowRunService);
+  private readonly store = inject(FlowStore);
   private readonly toastr = inject(ToastrService);
 
   /** Asks the shell to open the Versions drawer (gated on a saved System). */
   readonly openVersions = output<void>();
 
   protected readonly breakpointCount = computed(() => this.run.breakpoints().length);
+
+  /** Label of the ingress whose contract produced the current prefill, when
+   * one did. An auto-filled editor has to say where its content came from. */
+  protected readonly prefillSource = computed<string | null>(() => {
+    if (!this.run.inputEditorOpen()) return null;
+    const node = resolveIngressNode(this.store.snapshot(), this.selectedIngressId());
+    if (!node || !ingressPrefillText(this.store.snapshot(), node.id)) return null;
+    return node.label || node.id;
+  });
+
+  /** Untouched text: the service's own empty default, or the last skeleton
+   * this component wrote. Anything else is operator authorship. */
+  private lastPrefill = '';
+
+  constructor() {
+    effect(() => {
+      if (!this.run.inputEditorOpen()) return;
+      const prefill = ingressPrefillText(this.store.snapshot(), this.selectedIngressId());
+      if (!prefill) return;
+      untracked(() => {
+        const current = this.run.inputText().trim();
+        if (current !== '{}' && current !== this.lastPrefill) return;
+        this.lastPrefill = prefill;
+        this.run.updateInputText(prefill);
+      });
+    });
+  }
+
+  /** In draft test-runs the operator picks the ingress explicitly; a published
+   * run enters through the Flow's only source or through none unambiguously. */
+  private selectedIngressId(): string | null {
+    return this.run.draftTestMode()
+      ? this.run.selectedDraftTestIngress()?.ingress_id ?? null
+      : null;
+  }
 
   protected executeTitle(): string {
     if (!this.run.canExecute()) {

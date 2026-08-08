@@ -55,17 +55,23 @@ import { FlowPublicationPanelComponent } from './flow-publication-panel.componen
 import { FlowWorkbenchPanelComponent } from './flow-workbench-panel.component';
 import { FlowWorkbenchService } from './flow-workbench.service';
 import {
+  toNodeView,
   type ParsedConnector,
 } from './flow-foblex.adapter';
 import {
   buildPreconnectEdge,
   isPaletteItemConnectable,
 } from './flow-preconnect';
+import { paletteItemUsage, type PaletteInsertContext } from './flow-palette.vm';
 import {
   DEFAULT_PALETTE,
   paletteItemToNode,
   type PaletteItem,
 } from './flow.types';
+
+/** How many compatible entries the on-handle menu proposes before deferring
+ * to the palette's search. */
+const HANDLE_MENU_SHORTLIST = 8;
 
 /** Publication preconditions `GET /flow-state` refuses on. Each names a
  * repairable server state, so the message is worth showing verbatim. */
@@ -216,7 +222,11 @@ const PUBLICATION_HYDRATION_CODES = new Set([
             <app-flow-palette
               class="flow-builder__palette"
               [items]="palette"
-              (add)="onAddNode($event)"
+              [context]="paletteContext()"
+              [flowSkillSlugs]="flowSkillSlugs()"
+              [nodeCount]="store.nodeCount()"
+              (add)="onPaletteAdd($event)"
+              (clearContext)="dismissPaletteContext()"
             />
           }
 
@@ -267,7 +277,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           <div class="flow-builder__handle-title">
             Insert {{ menu.connector.direction === 'out' ? 'target' : 'source' }} node
           </div>
-          @for (item of handleMenuItems(); track item.config?.['skill_slug'] ?? item.type) {
+          @for (item of handleMenuShortlist(); track item.config?.['skill_slug'] ?? item.type) {
             <button
               type="button"
               role="menuitem"
@@ -280,6 +290,16 @@ const PUBLICATION_HYDRATION_CODES = new Set([
             </button>
           } @empty {
             <p class="flow-builder__handle-empty">No type-compatible node.</p>
+          }
+          @if (handleMenuItems().length > handleMenuShortlist().length) {
+            <button
+              type="button"
+              role="menuitem"
+              class="flow-builder__handle-more"
+              (click)="promoteHandleMenuToPalette()"
+            >
+              Search all {{ handleMenuItems().length }} compatible…
+            </button>
           }
         </div>
       }
@@ -398,8 +418,63 @@ export class FlowBuilderComponent {
     // an input → the new node produces (its output side).
     const side = menu.connector.direction === 'out' ? 'in' : 'out';
     const all = [...this.palette, ...this.catalog.skillItems()];
-    return all.filter((item) => isPaletteItemConnectable(item, side, menu.schema));
+    return all
+      .filter((item) => isPaletteItemConnectable(item, side, menu.schema))
+      .sort(
+        (a, b) => paletteItemUsage(b) - paletteItemUsage(a) || a.label.localeCompare(b.label),
+      );
   });
+
+  /** The floating menu proposes, it does not enumerate: dozens of compatible
+   *  entries at a drop point is the catalog problem in a smaller window. The
+   *  remainder is reached through the palette, which can search. */
+  protected readonly handleMenuShortlist = computed<PaletteItem[]>(() =>
+    this.handleMenuItems().slice(0, HANDLE_MENU_SHORTLIST),
+  );
+
+  /** Connector an explicit "search all compatible" promotion anchored the
+   *  palette on. Null → the palette follows the current selection instead. */
+  private readonly paletteAnchor = signal<ParsedConnector | null>(null);
+  /** Node id whose contextual filter the operator dismissed. Selecting another
+   *  node re-arms it, so "show all" is an escape hatch, not a mode. */
+  private readonly contextDismissedFor = signal<string | null>(null);
+
+  /**
+   * Where a palette insertion connects, when it connects to something. The
+   * originating connector travels with the context so picking an entry wires
+   * the edge in the same undo frame as the node.
+   */
+  private readonly paletteInsertion = computed<{
+    connector: ParsedConnector;
+    context: PaletteInsertContext;
+  } | null>(() => {
+    const anchor = this.paletteAnchor();
+    if (anchor) return this.describeInsertion(anchor);
+    const selected = this.store.selectedNode();
+    if (!selected || this.contextDismissedFor() === selected.id) return null;
+    // Extending a selection means appending after it: the first output
+    // connector the canvas actually renders (a sink renders none).
+    const connector = toNodeView(selected).outputs[0];
+    if (!connector) return null;
+    return this.describeInsertion({
+      nodeId: selected.id,
+      direction: 'out',
+      port: connector.name || undefined,
+    });
+  });
+
+  protected readonly paletteContext = computed<PaletteInsertContext | null>(
+    () => this.paletteInsertion()?.context ?? null,
+  );
+
+  /** Skill slugs already bound in the open Flow — the "used in this flow"
+   *  half of the palette's usage signal. */
+  protected readonly flowSkillSlugs = computed<string[]>(() =>
+    this.store.nodes().flatMap((node) => {
+      const slug = (node.config as Record<string, unknown> | undefined)?.['skill_slug'];
+      return typeof slug === 'string' && slug ? [slug] : [];
+    }),
+  );
 
   constructor() {
     // Opening follows selection identity, not node object mutations. This
@@ -703,6 +778,51 @@ export class FlowBuilderComponent {
       this.store.nodes().find((node) => node.id === preconnect.nodeId),
     );
     if (edge) this.store.connect(edge);
+  }
+
+  /** Palette pick. It carries the contextual insertion when one is active, so
+   *  "what connects here" and "wire it" are the same gesture. */
+  protected onPaletteAdd(item: PaletteItem): void {
+    const insertion = this.paletteInsertion();
+    this.paletteAnchor.set(null);
+    this.onAddNode(item, insertion?.connector);
+  }
+
+  protected dismissPaletteContext(): void {
+    this.paletteAnchor.set(null);
+    this.contextDismissedFor.set(this.store.selectedNodeId());
+  }
+
+  /** Move an on-handle insertion into the palette, which can search the whole
+   *  compatible set instead of listing it at the drop point. */
+  protected promoteHandleMenuToPalette(): void {
+    const menu = this.handleMenu();
+    if (!menu) return;
+    this.paletteAnchor.set(menu.connector);
+    this.handleMenu.set(null);
+    if (!this.paletteOpen() || this.focusMode()) {
+      this.focusMode.set(false);
+      this.paletteOpen.set(true);
+      this.scheduleCanvasFit();
+    }
+  }
+
+  private describeInsertion(connector: ParsedConnector): {
+    connector: ParsedConnector;
+    context: PaletteInsertContext;
+  } | null {
+    const node = this.store.nodes().find((candidate) => candidate.id === connector.nodeId);
+    if (!node) return null;
+    return {
+      connector,
+      context: {
+        // Dragging FROM an output → the new node consumes on its input side.
+        side: connector.direction === 'out' ? 'in' : 'out',
+        schema: this.originatingSchema(connector),
+        originLabel: node.label || node.id,
+        originPort: connector.port,
+      },
+    };
   }
 
   // ---- on-handle insertion ------------------------------------------------
