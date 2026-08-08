@@ -1324,3 +1324,318 @@ rafraîchissement du checkout revu.
   soit le sens du basculement. Contrairement à la fenêtre du 07/08, où un
   retour d'image aurait laissé un runtime ancien sur un schéma 080, ce rollback
   est intégral et réellement réversible.
+
+## Publication Flow par défaut (081/082) — ordre obligatoire, non déployé
+
+Cette section décrit la **prochaine** fenêtre ; rien n'en a encore été exécuté.
+La production reste sur `5c1f8838ac665706dfeecd79cc35ff63f55bb51a` et
+`080_trigger_event_claims`.
+
+La tranche `714bac2c` fait de `flow_publication_v1` un **défaut de code** et non
+plus un drapeau par workspace : `workspace_features.graduated_feature_enabled`
+renvoie `True` en l'absence de la clé, et seul un `false` explicitement stocké
+dans `settings.features` constitue un opt-out. Aucun workspace n'ayant jamais
+porté cette clé, la bascule est **totale et simultanée sur les 17 workspaces**
+au moment où les images candidates prennent le trafic.
+
+Ce n'est pas un simple changement de posture : cela déplace l'autorité
+d'exécution du miroir `systems.flow_definition` vers le pointeur immuable
+`systems.published_flow_version_id`. Or aucun de ces pointeurs ne porte
+aujourd'hui de contrat d'exécution.
+
+### Pourquoi l'ordre est contraignant
+
+Un contrat d'exécution se compile depuis les Skills du workspace, qui sont des
+données catalogue mutables. Alembic ne doit pas les atteindre : les trois
+migrations qui ont écrit des baselines de publication posent donc
+délibérément `execution_contract = NULL`.
+
+| Migration | Écriture | `execution_contract` |
+|---|---|---|
+| `077_flow_publication_v1` | 104 pointeurs publiés, 104 Drafts, 87 versions insérées, 17 versions historiques réutilisées | `NULL` (insertions) ; colonne créée nullable, donc `NULL` aussi sur les réutilisées |
+| `078_andritz_decision_contract` | 1 version insérée, pointeur Andritz redirigé | `NULL` |
+| `081_flow_publication_default_posture` | baselines des Systems créés après 077 par la voie legacy | `NULL` |
+
+Côté runtime, `flow_publication.published_run_evidence` refuse d'exécuter une
+version publiée sans contrat immuable valide et lève
+`PUBLISHED_EXECUTION_CONTRACT_MISSING`. Elle ne recompile jamais à la volée :
+ce serait faire dépendre un Run de lignes Skill mutables, exactement ce que le
+pointeur immuable existe pour empêcher.
+
+Le seul chemin supporté pour matérialiser un contrat est un Publish explicite,
+qui appende une version portant le contrat figé même à graphe inchangé.
+`backend/scripts/backfill_flow_publication_contracts.py` réalise ce Publish sur
+tout le parc, par `flow_publication.publish_draft` — il n'écrit pas la colonne
+en direct.
+
+L'ordre est donc strictement : **`migrate` (081, 082) → backfill des contrats →
+`up` (bascule des images)**.
+
+Propriété utile : entre `migrate` et `up`, le trafic est encore servi par
+`5c1f8838`, où `flow_publication_v1` est un drapeau opt-in absent partout. La
+voie legacy reste donc active et il n'y a **pas de fenêtre d'indisponibilité**
+entre la migration et le backfill. Cette fenêtre n'exige ni fermeture d'ingress
+ni drainage des writers, à condition de respecter l'ordre ci-dessus.
+
+Corollaire d'outillage : le backfill doit s'exécuter **depuis l'image
+candidate**, en one-off, comme l'`alembic upgrade head` du 07/08. Lancé depuis
+l'image live, `flow_publication_enabled` renvoie `False` partout et le script
+saute les 17 workspaces en les déclarant hors périmètre.
+
+### Périmètre réel
+
+Le périmètre n'est pas un sous-ensemble de workspaces « jamais publiés » : il
+est défini au niveau du System, et il est **exhaustif**. Tout System dont le
+pointeur publié désigne encore une baseline de migration est concerné, quel que
+soit son workspace. Au 07/08, la 077 a couvert **104 Systems sur 104** et la
+078 en a redirigé un ; aucun Publish explicite n'a pu avoir lieu depuis,
+puisque le drapeau était absent de tous les workspaces. Le parc entier est donc
+concerné.
+
+La 081, elle, ne touche que les Systems créés après la 077 par la voie legacy —
+ceux dépourvus de pointeur **ou** de Draft. Elle passe explicitement les autres.
+Son volume en production est donc résiduel, et ce n'est pas elle qui crée le
+risque : c'est la bascule du drapeau.
+
+Ces compteurs datent du 07/08 et ne sont pas une vérité de fenêtre. Ils se
+rétablissent en lecture seule juste avant le GO, sur la base live :
+
+```sql
+-- 1. Opt-out explicites. Attendu : aucune ligne avec une valeur non nulle.
+SELECT id, slug, settings->'features'->>'flow_publication_v1' AS opt_out
+FROM workspaces WHERE deleted_at IS NULL ORDER BY slug;
+
+-- 2. Périmètre : Systems inexécutables une fois le drapeau actif.
+SELECT w.slug, count(*) AS systems
+FROM systems s
+JOIN workspaces w ON w.id = s.workspace_id
+LEFT JOIN system_versions v ON v.id = s.published_flow_version_id
+WHERE s.published_flow_version_id IS NULL OR v.execution_contract IS NULL
+GROUP BY w.slug ORDER BY 2 DESC;
+
+-- 3. Volume propre à la 081 (Systems sans pointeur ou sans Draft).
+SELECT count(*) FROM systems s
+LEFT JOIN system_flow_drafts d ON d.system_id = s.id
+WHERE s.published_flow_version_id IS NULL OR d.system_id IS NULL;
+
+-- 4. Angle mort connu : baselines 077 réutilisées, sans `flow_sha256`.
+SELECT count(*) FROM systems s
+JOIN system_versions v ON v.id = s.published_flow_version_id
+WHERE v.flow_sha256 IS NULL;
+
+-- 5. Dérive du miroir legacy depuis la 077/078 (indicatif, égalité jsonb).
+SELECT count(*) FROM systems s
+JOIN system_versions v ON v.id = s.published_flow_version_id
+WHERE s.flow_definition::jsonb IS DISTINCT FROM v.flow_definition::jsonb;
+```
+
+La requête 2 donne le nombre de Systems qui basculeraient en échec si `up`
+précédait le backfill. Les requêtes 4 et 5 dénombrent les deux catégories que
+le script ne sait pas réparer seul (voir plus bas). La 5 est indicative :
+l'égalité `jsonb` normalise les nombres là où le hachage canonique conserve
+leur représentation ; le dry-run reste l'autorité.
+
+### Jeu de migrations en attente
+
+| Révision | Objet | Nature |
+|---|---|---|
+| `081_flow_publication_default_posture` | baselines de publication manquantes | data-only, idempotente, ne touche jamais `systems.flow_definition` |
+| `082_skill_category` | colonne `category` du catalogue Skill + backfill figé | expand + data |
+
+`083` est **déjà pris** par le travail en cours sur le CRUD Skill scopé
+workspace : ne pas réattribuer ce numéro à un correctif de cette fenêtre.
+
+### Séquence
+
+Les étapes 1 à 3 reprennent la fenêtre du 07/08 : cette tranche embarque des
+migrations, donc dump checksummé et répétition sur copie restaurée sont
+obligatoires.
+
+```bash
+CANDIDATE_TAG='<sha12-candidat>'
+DEPLOY='/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh'
+REPORTS='/srv/agentium-data/flow-publication-deployments/<date>-<sha12>'
+
+# 1. Rebuild des trois services applicatifs, double tag <sha12> + demo-agentic.
+# 2. Triplet dump/checksum/.ready sur /dev/sdb, puis répétition
+#    `alembic upgrade head` sur base jetable restaurée (doit atteindre 082).
+# 3. Gate stockage.
+AGENTIUM_IMAGE_TAG="$CANDIDATE_TAG" "$DEPLOY" storage-check
+
+# 4. Migrations 081 puis 082. Les images applicatives restent en 5c1f8838 :
+#    le trafic continue de passer par la voie legacy.
+AGENTIUM_IMAGE_TAG="$CANDIDATE_TAG" "$DEPLOY" migrate
+
+# 5. Backfill des contrats, one-off sur l'IMAGE CANDIDATE contre la base live.
+#    Dry-run par défaut : aucune écriture, la session est rollbackée.
+#    `--report` écrit dans le conteneur : monter "$REPORTS" en bind.
+python -m scripts.backfill_flow_publication_contracts \
+  --report /report/contracts-dry-run.json
+
+# 6. Après relecture du rapport uniquement.
+python -m scripts.backfill_flow_publication_contracts --apply \
+  --actor 'system:flow-contract-backfill' \
+  --report /report/contracts-apply.json
+
+# 7. Bascule des images, puis canaris.
+AGENTIUM_IMAGE_TAG="$CANDIDATE_TAG" "$DEPLOY" up
+/srv/agentium-data/worktrees/demo-agentic/scripts/run-iteration-canaries.sh
+```
+
+Contrôles entre étapes :
+
+- **après 4** : révision Alembic à `082_skill_category` ; requête 2 ci-dessus
+  rejouée — elle doit être stable ou avoir augmenté du seul volume de la 081 ;
+  backend live toujours en `5c1f8838` et trafic nominal (la 081 est invisible
+  du code legacy) ;
+- **après 5** : dans le rapport, `summary.publish` doit couvrir l'écart mesuré
+  par la requête 2. Lire les `skipped` un par un. Un `reason` valant
+  `no published pointer` ou `no server draft` signifie que la 081 n'a pas été
+  appliquée : **ne pas continuer**. Un `draft differs from the published
+  version` relève de l'angle mort décrit plus bas ou d'un Draft réellement
+  édité ; dans les deux cas ces Systems ne seront pas réparés par l'étape 6 ;
+- **après 6** : code de sortie **0** exigé — le script sort en 1 dès un seul
+  `failed`. `summary.published + summary.skipped + summary.already_pinned`
+  doit égaler `summary.systems`, et la requête 2 doit être retombée au nombre
+  de `skipped`. Chaque publication est committée individuellement : une reprise
+  se fait en relançant simplement le script, les Systems déjà traités
+  ressortant en `already_pinned` ;
+- **après 7** : `/api/v1/build-info` sur le SHA complet avec
+  `revision_verified: true`, canaris 6/6, puis surveillance des Runs rejetés
+  (voir signature ci-dessous) pendant 60 minutes.
+
+Ne jamais exécuter l'étape 7 avant que l'étape 6 soit sortie en 0. C'est le
+seul invariant réellement contraignant de cette fenêtre.
+
+### Signature d'échec si l'ordre est violé
+
+Si `up` précède le backfill, la bascule est immédiate et silencieuse côté
+image : les conteneurs démarrent sainement, `build-info` est vert, les canaris
+d'infrastructure passent. La panne n'apparaît qu'au premier Run.
+
+`published_run_evidence` lève `PUBLISHED_EXECUTION_CONTRACT_MISSING` — « The
+published version has no valid immutable execution contract; publish the server
+draft before running it » — sur **toutes** les surfaces de dispatch, chacune la
+présentant différemment :
+
+| Surface | Chemin | Présentation |
+|---|---|---|
+| Scheduler | `run_engine/scheduler.py` | Run non créé, `FlowIngressError` journalisée |
+| Triggers | `run_engine/triggers.py` | verdict `rejected`, `reason: published_execution_contract_missing`, avant même la gouvernance |
+| Chat Agentic | `chat_agentic_runtime.py` | échec de dispatch sur la voie ingress publiée |
+| Exécution manuelle | `POST` System / `flow_runner` | erreur HTTP 409, code `PUBLISHED_EXECUTION_CONTRACT_MISSING` |
+| Ingress publiés | `api/v1/endpoints/flow_ingresses.py` | idem 409 |
+| Subflows | `run_engine/dag.py` | Run enfant refusé, Run parent en erreur |
+
+Deux traits rendent le diagnostic trompeur : le scheduler et les triggers
+**ne remontent pas d'erreur HTTP**, ils refusent proprement, ce qui produit une
+disparition d'exécutions plutôt qu'un pic de 5xx ; et le test de Draft
+(`create_draft_test_run`) continue de fonctionner, puisqu'il compile son
+contrat à la volée sans passer par le pointeur publié. Un opérateur peut donc
+vérifier un Flow avec succès dans l'éditeur pendant que toutes ses exécutions
+publiées sont refusées, et conclure à tort que le moteur va bien.
+
+Deux codes voisins peuvent apparaître et **ne se traitent pas de la même
+façon** : `PUBLISHED_FLOW_VERSION_HASH_MISSING` (version publiée sans
+`flow_sha256` exact) et `PUBLISHED_FLOW_MIRROR_DRIFT`
+(`systems.flow_definition` ne reflète plus sa version publiée). Le backfill ne
+répare ni l'un ni l'autre.
+
+### Reprise après violation de l'ordre
+
+Aucune restauration de base n'est nécessaire et aucune n'est souhaitable : la
+donnée n'est pas corrompue, il lui manque un contrat.
+
+1. Rejouer immédiatement l'étape 6 depuis l'image candidate — désormais celle
+   qui tourne — en `--apply`. C'est la reprise nominale ; elle est idempotente
+   et rétablit le service au fur et à mesure des commits, System par System.
+2. Si le backfill ne peut pas être lancé tout de suite et que l'indisponibilité
+   n'est pas tenable, revenir aux images précédentes :
+   `AGENTIUM_IMAGE_TAG=5c1f8838ac66` puis `up`. La base reste en 082, ce qui est
+   un runtime dégradé et non un rollback — mais `5c1f8838` ignore les colonnes
+   ajoutées et retrouve la voie legacy, donc le trafic repart. Relancer ensuite
+   la séquence dans l'ordre.
+3. Ne **pas** contourner en posant `flow_publication_v1: false` sur les
+   workspaces. C'est l'opt-out documenté, mais il restaure la posture
+   destructive où une écriture d'éditeur atterrit directement sur le graphe
+   exécutable live, et il faudra de toute façon le retirer.
+4. Ne **pas** tenter un `alembic downgrade`. La 077 refuse déjà de descendre en
+   présence de données produit, et la 081 ne supprime que les lignes qu'elle a
+   elle-même écrites : un downgrade n'enlève pas les contrats manquants, il
+   enlève les baselines.
+
+### Angle mort du backfill — deux catégories non réparées
+
+Le script est conservateur par conception : il ne promeut jamais un Draft qui a
+divergé de sa version publiée, parce que publier du travail d'éditeur non revu
+est exactement ce que la séparation Draft/Publish existe pour empêcher. Cette
+prudence produit deux catégories de Systems qu'il déclare et laisse en l'état.
+
+**Baselines 077 réutilisées.** Quand la 077 a trouvé un snapshot historique
+exactement égal au miroir legacy, elle a réutilisé cette ligne comme pointeur
+publié **sans lui écrire de `flow_sha256`** — la colonne venait d'être créée.
+Le Draft, lui, a bien reçu le digest. Le classement du script compare
+`draft.flow_sha256` à `version.flow_sha256` : `<digest>` contre `NULL`, donc
+« différent », donc `skipped` avec le motif `draft differs from the published
+version; publish it by hand`. Ce motif est trompeur : le Draft est identique,
+c'est l'empreinte de la version qui manque. D'après les compteurs du 07/08
+(104 pointeurs, 87 insertions), **17 Systems** sont dans ce cas, dont
+possiblement celui repointé par la 078 — soit 16 ou 17 après la fenêtre. La
+requête 4 donne le chiffre exact. La 081 sait combler ce `flow_sha256`, mais
+seulement sur les Systems dépourvus de pointeur : elle passe les 104 déjà
+pointés. Ces Systems restent inexécutables après le backfill et exigent un
+Publish explicite par l'API ou l'éditeur.
+
+**Miroir legacy en avance.** Tout System dont le graphe a été édité par la voie
+legacy depuis la 077/078 a un `systems.flow_definition` en avance sur sa version
+publiée. Le dry-run le classe `publish` — il ne regarde que le Draft — mais
+`publish_draft` lèvera `PUBLISHED_FLOW_MIRROR_DRIFT` à l'application, comptera
+`failed` et fera sortir le script en 1. C'est le bon comportement : publier le
+Draft 077 y reviendrait à annuler l'édition. Requête 5 pour le pré-dénombrement.
+Ces Systems se traitent un par un, en connaissance du graphe attendu.
+
+Conséquence pratique : **le dry-run est un plan, pas une garantie**. Il ne
+compile aucun contrat et n'appelle jamais `publish_draft`, donc il ne peut voir
+ni la dérive de miroir, ni un échec de compilation de contrat (Skill retirée du
+catalogue, binding catalogue invalide, diagnostic DAG bloquant). Un dry-run
+entièrement en `publish` n'exclut pas un `--apply` partiellement `failed`.
+
+Le script n'a par ailleurs **aucun test automatisé** dans le dépôt. Prévoir une
+lecture humaine des deux rapports, pas une exécution en tâche de fond.
+
+### Régression opérateur — deux scripts fermés par conception
+
+Deux scripts opérateur refusent d'écrire tant que `flow_publication_v1` est
+actif. C'était une garde correcte sous drapeau opt-in ; sous défaut de code
+elle devient un refus permanent. Leur portage était hors périmètre de la
+tranche `714bac2c`.
+
+| Script | Garde | Portée du refus |
+|---|---|---|
+| `scripts/rollout_system360_canary.py` | `discover_target` / `_discover_bootstrap_candidate`, sous `lock=True` | l'unique workspace marqué `settings.showcase_seed`, et **uniquement en `--apply`** |
+| `scripts/backfill_flow_v3_variables.py` | `require_legacy_flow_authority`, appelée par workspace | tout workspace de la cohorte, et **uniquement en `--apply`** |
+
+Précisions qui changent le diagnostic en incident :
+
+- les deux scripts restent **pleinement utilisables en dry-run**, et
+  `rollout_system360_canary status` reste opérationnel : seules les mutations
+  sont fermées ;
+- la fermeture de `rollout_system360_canary` ne vise pas « tous les
+  workspaces » : la découverte ne retient qu'un seul workspace, celui portant
+  le marqueur showcase. Le rollout canari Lot 6 est donc inexécutable en
+  écriture, mais l'impact est borné à ce workspace ;
+- `version_service.rollback_to_version` porte la même garde et lève
+  `ChainVersionError` : tout appelant legacy de rollback de version est
+  concerné, y compris la sous-commande `rollback` du canari.
+
+**Il n'existe aucune option CLI d'opt-out.** Ni `--force`, ni `--allow-…`. Le
+seul contournement est de stocker `settings.features.flow_publication_v1 =
+false` sur le workspace visé, de dérouler l'opération legacy, puis de retirer la
+clé — en acceptant que, pendant ce laps, une écriture d'éditeur atterrisse
+directement sur le graphe exécutable live de ce workspace. Une telle
+dérogation doit être tracée, bornée dans le temps et refermée dans la même
+fenêtre.
+
+Ne pas découvrir ce point pendant un incident : si le rollout Lot 6 doit
+avancer après cette fenêtre, la décision entre porter les scripts sur la voie
+Publish et poser un opt-out temporaire se prend **avant** le GO.
