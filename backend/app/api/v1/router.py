@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     calendar,
     capabilities,
     catalog,
+    catalog_curation,
     chat,
     client360,
     contexts,
@@ -124,6 +125,7 @@ api_router.include_router(secure_deposit.public_router, prefix="/deposit-links",
 # Public HMAC webhook ingress (no workspace JWT).
 api_router.include_router(hooks.router, prefix="/hooks", tags=["hooks"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
+api_router.include_router(catalog_curation.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])
 api_router.include_router(
     workspace_app_governance.router,

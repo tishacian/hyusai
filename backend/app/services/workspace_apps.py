@@ -129,6 +129,30 @@ def _sync_catalog_skills(
     settings["catalog"] = catalog
 
 
+def app_owned_catalog_skills(workspace: "Workspace") -> dict[str, str]:
+    """Map each ``catalog.enabled_skills`` slug to the app that put it there.
+
+    Enabling a wired app silently writes its skills into the catalog policy, so
+    an admin reading that policy cannot tell an app side effect from deliberate
+    curation. Ownership is derived from the enabled set rather than recorded,
+    which keeps ``enabled_skills`` a plain slug list and makes the attribution
+    true of the rows written before it was asked for.
+    """
+
+    enabled = read_enabled_app_ids(workspace)
+    catalog = _as_dict(_as_dict(workspace.settings).get("catalog"))
+    present = set(_string_list(catalog.get("enabled_skills")))
+    owners: dict[str, str] = {}
+    for app_id in enabled:
+        meta = WIRED_APPS.get(app_id)
+        if not meta:
+            continue
+        for slug in meta.get("skills") or []:
+            if slug in present:
+                owners[slug] = f"app:{app_id}"
+    return owners
+
+
 def describe_app(app_id: str, *, enabled: bool) -> dict[str, Any]:
     wired = WIRED_APPS.get(app_id)
     if wired:

@@ -39,6 +39,16 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
       title="Universal · Industry · Client"
       description="Browse and configure the canonical capabilities your systems can compose. Each capability bundles certified skills, pricing and SLA."
     >
+      <a
+        actions
+        routerLink="/capabilities/curation"
+        class="ck-mono"
+        style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-2); border:1px solid var(--ck-stroke-soft); text-decoration:none;"
+        title="Which skills this workspace sees, and the lever behind every exclusion"
+      >
+        Catalog coverage →
+      </a>
+
       <div class="flex flex-col gap-6">
         <!-- Filter bar -->
         <div class="flex items-center justify-between flex-wrap gap-4">
