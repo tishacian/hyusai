@@ -1340,8 +1340,8 @@ au moment où les images candidates prennent le trafic.
 
 Ce n'est pas un simple changement de posture : cela déplace l'autorité
 d'exécution du miroir `systems.flow_definition` vers le pointeur immuable
-`systems.published_flow_version_id`. Or aucun de ces pointeurs ne porte
-aujourd'hui de contrat d'exécution.
+`systems.published_flow_version_id`. Or 16 de ces pointeurs ne portent
+aujourd'hui aucun contrat d'exécution (mesure du 08/08, voir « Périmètre réel »).
 
 ### Pourquoi l'ordre est contraignant
 
@@ -1382,23 +1382,53 @@ candidate**, en one-off, comme l'`alembic upgrade head` du 07/08. Lancé depuis
 l'image live, `flow_publication_enabled` renvoie `False` partout et le script
 saute les 17 workspaces en les déclarant hors périmètre.
 
-### Périmètre réel
+### Périmètre réel — mesuré le 08/08 sur la base de production
 
-Le périmètre n'est pas un sous-ensemble de workspaces « jamais publiés » : il
-est défini au niveau du System, et il est **exhaustif**. Tout System dont le
-pointeur publié désigne encore une baseline de migration est concerné, quel que
-soit son workspace. Au 07/08, la 077 a couvert **104 Systems sur 104** et la
-078 en a redirigé un ; aucun Publish explicite n'a pu avoir lieu depuis,
-puisque le drapeau était absent de tous les workspaces. Le parc entier est donc
-concerné.
+Cette section affirmait un périmètre **exhaustif** (« le parc entier est
+concerné », 104 Systems sur 104), par déduction des compteurs du 07/08. Les
+requêtes ci-dessous ont été rejouées en lecture seule sur la base live : cette
+déduction est fausse, le périmètre est borné.
 
-La 081, elle, ne touche que les Systems créés après la 077 par la voie legacy —
-ceux dépourvus de pointeur **ou** de Draft. Elle passe explicitement les autres.
-Son volume en production est donc résiduel, et ce n'est pas elle qui crée le
-risque : c'est la bascule du drapeau.
+| Mesure | Requête | Valeur |
+|---|---|---|
+| Systems au total | — | 104 |
+| Inertes une fois le drapeau actif (sans pointeur, ou version publiée à `execution_contract` NULL) | 2 | **16** |
+| Version publiée sans `flow_sha256` | 4 | **16** |
+| Inertes **et** réparables par le backfill tel qu'écrit avant le 08/08 | — | **0** |
+| Volume propre à la 081 | 3 | 0 |
+| Dérive du miroir legacy | 5 | 0 |
+| Opt-out explicite `flow_publication_v1` | 1 | 0 |
 
-Ces compteurs datent du 07/08 et ne sont pas une vérité de fenêtre. Ils se
-rétablissent en lecture seule juste avant le GO, sur la base live :
+Les deux ensembles de 16 sont **le même ensemble**, vérifié par jointure. C'est
+la signature exacte des baselines réutilisées par la 077 : elle a repris un
+snapshot historique comme pointeur publié sans lui écrire de `flow_sha256`, donc
+ces versions n'ont ni contrat ni empreinte. Les 88 autres Systems portent déjà
+un contrat valide sur leur pointeur publié — par quel chemin, cette mesure ne
+l'établit pas, et cela ne change rien à la conduite de la fenêtre. Ce constat
+contredit l'arithmétique du 07/08 (87 insertions à contrat NULL) : ces chiffres
+sont une vérité de mesure, pas un acquis, et se **re-mesurent juste avant le
+GO**.
+
+Les 16 ont tous un Draft présent. Répartition :
+
+| Workspace | Systems | Nature |
+|---|---|---|
+| `agentium-showcase` | 7 | démo interne |
+| `andritz` | 2 | client (Expert Knowledge Capture et sa variante) |
+| `nawa` | 3 | client (Password Reset, Scratchpad flow, Shared mailbox creation) |
+| `personal-253f4c1c` | 4 | débris e2e (`e2e-debug-*`, `e2e-hitl-*`) |
+
+Les quatre Systems `personal-253f4c1c` sont des résidus de tests e2e : le
+périmètre opérationnellement significatif est donc de **12 Systems**, dont 5
+client-facing chez `andritz` et `nawa`. Ce n'est ni le parc entier, ni un risque
+théorique.
+
+La 081 ne touche que les Systems créés après la 077 par la voie legacy — ceux
+dépourvus de pointeur **ou** de Draft. Elle passe explicitement les autres, et
+son volume mesuré est **nul** : ce n'est pas elle qui crée le risque, c'est la
+bascule du drapeau.
+
+Les requêtes se rejouent en lecture seule juste avant le GO, sur la base live :
 
 ```sql
 -- 1. Opt-out explicites. Attendu : aucune ligne avec une valeur non nulle.
@@ -1418,7 +1448,7 @@ SELECT count(*) FROM systems s
 LEFT JOIN system_flow_drafts d ON d.system_id = s.id
 WHERE s.published_flow_version_id IS NULL OR d.system_id IS NULL;
 
--- 4. Angle mort connu : baselines 077 réutilisées, sans `flow_sha256`.
+-- 4. Baselines 077 réutilisées, sans `flow_sha256`. Mesuré : 16.
 SELECT count(*) FROM systems s
 JOIN system_versions v ON v.id = s.published_flow_version_id
 WHERE v.flow_sha256 IS NULL;
@@ -1427,13 +1457,24 @@ WHERE v.flow_sha256 IS NULL;
 SELECT count(*) FROM systems s
 JOIN system_versions v ON v.id = s.published_flow_version_id
 WHERE s.flow_definition::jsonb IS DISTINCT FROM v.flow_definition::jsonb;
+
+-- 6. Les périmètres 2 et 4 doivent coïncider (attendu, et mesuré : 0).
+SELECT count(*) FROM systems s
+LEFT JOIN system_versions v ON v.id = s.published_flow_version_id
+WHERE (s.published_flow_version_id IS NULL OR v.execution_contract IS NULL)
+      IS DISTINCT FROM (v.flow_sha256 IS NULL);
 ```
 
 La requête 2 donne le nombre de Systems qui basculeraient en échec si `up`
-précédait le backfill. Les requêtes 4 et 5 dénombrent les deux catégories que
-le script ne sait pas réparer seul (voir plus bas). La 5 est indicative :
-l'égalité `jsonb` normalise les nombres là où le hachage canonique conserve
-leur représentation ; le dry-run reste l'autorité.
+précédait le backfill. La requête 4 était présentée ici comme un angle mort du
+script ; depuis le correctif décrit plus bas, elle mesure au contraire le cœur du
+périmètre **réparable**. La 5 dénombre la seule catégorie que le script ne répare
+pas, et elle est à 0 aujourd'hui. La 5 est indicative : l'égalité `jsonb`
+normalise les nombres là où le hachage canonique conserve leur représentation ;
+le dry-run reste l'autorité. La 6 est le contrôle qui a permis d'établir que les
+16 inertes et les 16 sans empreinte sont le même ensemble ; si elle cesse d'être
+nulle, les deux catégories ont divergé et le périmètre doit être requalifié avant
+le GO.
 
 ### Jeu de migrations en attente
 
@@ -1488,18 +1529,23 @@ Contrôles entre étapes :
   rejouée — elle doit être stable ou avoir augmenté du seul volume de la 081 ;
   backend live toujours en `5c1f8838` et trafic nominal (la 081 est invisible
   du code legacy) ;
-- **après 5** : dans le rapport, `summary.publish` doit couvrir l'écart mesuré
-  par la requête 2. Lire les `skipped` un par un. Un `reason` valant
-  `no published pointer` ou `no server draft` signifie que la 081 n'a pas été
-  appliquée : **ne pas continuer**. Un `draft differs from the published
-  version` relève de l'angle mort décrit plus bas ou d'un Draft réellement
-  édité ; dans les deux cas ces Systems ne seront pas réparés par l'étape 6 ;
+- **après 5** : code de sortie **0** exigé — le dry-run sort en 1 si le plan
+  contient déjà un `apply_risk` (`summary.at_risk`), justement pour qu'un plan
+  entièrement vert ne se lise pas comme une garantie. `summary.publish` doit
+  égaler l'écart mesuré par la requête 2, soit **16** à la mesure du 08/08 ;
+  `summary.already_pinned` couvre le reste du parc. Lire les `skipped` un par
+  un. Un `reason` valant `no published pointer` ou `no server draft` signifie
+  que la 081 n'a pas été appliquée : **ne pas continuer**. Un `draft differs
+  from the published version` désigne maintenant un Draft réellement édité,
+  jamais une baseline 077 réutilisée. Lire enfin `report["limits"]` : il énumère
+  ce que ce plan n'a pas pu vérifier ;
 - **après 6** : code de sortie **0** exigé — le script sort en 1 dès un seul
-  `failed`. `summary.published + summary.skipped + summary.already_pinned`
-  doit égaler `summary.systems`, et la requête 2 doit être retombée au nombre
-  de `skipped`. Chaque publication est committée individuellement : une reprise
-  se fait en relançant simplement le script, les Systems déjà traités
-  ressortant en `already_pinned` ;
+  `failed`, y compris un `not_repaired` (Publish accepté mais version toujours
+  inexécutable). `summary.published + summary.skipped + summary.already_pinned`
+  doit égaler `summary.systems`, et les requêtes 2 **et** 4 doivent être
+  retombées au nombre de `skipped`. Chaque publication est committée
+  individuellement : une reprise se fait en relançant simplement le script, les
+  Systems déjà traités ressortant en `already_pinned` ;
 - **après 7** : `/api/v1/build-info` sur le SHA complet avec
   `revision_verified: true`, canaris 6/6, puis surveillance des Runs rejetés
   (voir signature ci-dessous) pendant 60 minutes.
@@ -1538,8 +1584,11 @@ publiées sont refusées, et conclure à tort que le moteur va bien.
 Deux codes voisins peuvent apparaître et **ne se traitent pas de la même
 façon** : `PUBLISHED_FLOW_VERSION_HASH_MISSING` (version publiée sans
 `flow_sha256` exact) et `PUBLISHED_FLOW_MIRROR_DRIFT`
-(`systems.flow_definition` ne reflète plus sa version publiée). Le backfill ne
-répare ni l'un ni l'autre.
+(`systems.flow_definition` ne reflète plus sa version publiée). Le backfill
+répare le premier quand le contrat manque aussi — c'est le cas des 16 Systems du
+périmètre, dont le Publish écrit à la fois le contrat et l'empreinte. Il ne
+répare ni le second, ni une empreinte absente sous un contrat déjà valide, cas
+auquel Publish répond par un no-op.
 
 ### Reprise après violation de l'ordre
 
@@ -1564,44 +1613,86 @@ donnée n'est pas corrompue, il lui manque un contrat.
    elle-même écrites : un downgrade n'enlève pas les contrats manquants, il
    enlève les baselines.
 
-### Angle mort du backfill — deux catégories non réparées
+### Classement du backfill — un défaut corrigé, une catégorie toujours non réparée
 
 Le script est conservateur par conception : il ne promeut jamais un Draft qui a
 divergé de sa version publiée, parce que publier du travail d'éditeur non revu
 est exactement ce que la séparation Draft/Publish existe pour empêcher. Cette
-prudence produit deux catégories de Systems qu'il déclare et laisse en l'état.
+prudence était correcte ; sa mise en œuvre ne l'était pas.
 
-**Baselines 077 réutilisées.** Quand la 077 a trouvé un snapshot historique
-exactement égal au miroir legacy, elle a réutilisé cette ligne comme pointeur
-publié **sans lui écrire de `flow_sha256`** — la colonne venait d'être créée.
-Le Draft, lui, a bien reçu le digest. Le classement du script compare
+**Baselines 077 réutilisées — le défaut, corrigé.** Quand la 077 a trouvé un
+snapshot historique exactement égal au miroir legacy, elle a réutilisé cette
+ligne comme pointeur publié **sans lui écrire de `flow_sha256`** — la colonne
+venait d'être créée. Le Draft, lui, a bien reçu le digest. Le script comparait
 `draft.flow_sha256` à `version.flow_sha256` : `<digest>` contre `NULL`, donc
 « différent », donc `skipped` avec le motif `draft differs from the published
-version; publish it by hand`. Ce motif est trompeur : le Draft est identique,
-c'est l'empreinte de la version qui manque. D'après les compteurs du 07/08
-(104 pointeurs, 87 insertions), **17 Systems** sont dans ce cas, dont
-possiblement celui repointé par la 078 — soit 16 ou 17 après la fenêtre. La
-requête 4 donne le chiffre exact. La 081 sait combler ce `flow_sha256`, mais
-seulement sur les Systems dépourvus de pointeur : elle passe les 104 déjà
-pointés. Ces Systems restent inexécutables après le backfill et exigent un
-Publish explicite par l'API ou l'éditeur.
+version; publish it by hand`. Or une empreinte absente signifie *inconnue*, pas
+*différente* : le Draft était identique. **Les 16 Systems du périmètre mesuré
+sont exactement ceux-là**, et le script tel qu'écrit n'en réparait aucun. Un
+dry-run vert aurait été rapporté alors que rien n'aurait été corrigé.
 
-**Miroir legacy en avance.** Tout System dont le graphe a été édité par la voie
-legacy depuis la 077/078 a un `systems.flow_definition` en avance sur sa version
-publiée. Le dry-run le classe `publish` — il ne regarde que le Draft — mais
-`publish_draft` lèvera `PUBLISHED_FLOW_MIRROR_DRIFT` à l'application, comptera
-`failed` et fera sortir le script en 1. C'est le bon comportement : publier le
-Draft 077 y reviendrait à annuler l'édition. Requête 5 pour le pré-dénombrement.
-Ces Systems se traitent un par un, en connaissance du graphe attendu.
+Le classement compare désormais le digest du Draft à l'empreinte **recalculée
+depuis le JSON immuable de la version publiée**, jamais à la colonne nullable.
+C'est la même autorité que le runtime : `published_run_evidence` refuse déjà une
+version dont `flow_sha256` ne vaut pas le hachage canonique de son payload. La
+protection est intacte — un Draft réellement en avance donne un digest différent
+de l'empreinte recalculée et reste `skipped` — et les 16 basculent en `publish`.
+Le service n'a pas été modifié : il avait raison, c'est le script qui lisait le
+mauvais côté de l'égalité. Tests dans
+`backend/app/tests/services/test_backfill_flow_publication_contracts.py`.
 
-Conséquence pratique : **le dry-run est un plan, pas une garantie**. Il ne
-compile aucun contrat et n'appelle jamais `publish_draft`, donc il ne peut voir
-ni la dérive de miroir, ni un échec de compilation de contrat (Skill retirée du
-catalogue, binding catalogue invalide, diagnostic DAG bloquant). Un dry-run
-entièrement en `publish` n'exclut pas un `--apply` partiellement `failed`.
+Deux cas voisins sont désormais classés explicitement plutôt que confondus avec
+un Draft édité : une empreinte stockée qui **contredit** son propre payload
+(`flow_sha256_drift`) est `skipped`, parce que `publish_draft` refuse cette
+version et qu'aucun Publish ne peut la réparer ; une empreinte absente sous un
+contrat déjà valide reçoit un `apply_risk`, parce que Publish y répondrait par un
+no-op qui laisserait l'empreinte manquante en place. Aucun des deux n'existe en
+production au 08/08.
 
-Le script n'a par ailleurs **aucun test automatisé** dans le dépôt. Prévoir une
-lecture humaine des deux rapports, pas une exécution en tâche de fond.
+**Miroir legacy en avance — toujours non réparé.** Tout System dont le graphe a
+été édité par la voie legacy depuis la 077/078 a un `systems.flow_definition` en
+avance sur sa version publiée. `publish_draft` lève
+`PUBLISHED_FLOW_MIRROR_DRIFT` à l'application, compte `failed` et fait sortir le
+script en 1. C'est le bon comportement : publier le Draft 077 y reviendrait à
+annuler l'édition. Le dry-run classait ces Systems `publish` sans réserve ; il
+émet maintenant un `apply_risk` porteur du code exact, compté dans
+`summary.at_risk`, et sort en 1. La requête 5 les pré-dénombre — **0 en
+production au 08/08**, donc ce chemin n'est pas exercé dans cette fenêtre. Ces
+Systems se traitent un par un, en connaissance du graphe attendu.
+
+Conséquence pratique inchangée : **le dry-run est un plan, pas une garantie**. Il
+ne compile aucun contrat et n'appelle jamais `publish_draft`, donc il ne peut pas
+prédire un échec de compilation (Skill retirée du catalogue, binding catalogue
+invalide, diagnostic DAG bloquant), et il décrit l'état de la base à l'instant de
+la lecture. Un dry-run entièrement en `publish` n'exclut pas un `--apply`
+partiellement `failed`. Le rapport porte désormais ces limites dans
+`report["limits"]` au lieu de les laisser implicites, et `--apply` vérifie après
+chaque Publish que la version pointée est réellement exécutable : un Publish
+accepté qui laisse le System inerte ressort en `not_repaired` et compte `failed`.
+
+Le script a maintenant des tests automatisés, ce qui n'était pas le cas quand ce
+runbook a été écrit. Cela ne dispense pas d'une **lecture humaine des deux
+rapports** : les compteurs prouvent le classement, pas la pertinence métier de
+publier ces 16 Systems dans cette fenêtre.
+
+**Ce qui reste non vérifié.** Le correctif a été validé par tests sur les formes
+de lignes exactes relevées en production, jamais contre la base de production :
+personne n'a encore exécuté le dry-run depuis l'image candidate. Restent donc à
+constater dans la fenêtre, avant tout `--apply` : que `summary.publish` vaut bien
+16 et non 0 ; qu'aucun `apply_risk` n'apparaît ; et que la compilation de contrat
+aboutit pour ces 16 Systems, ce qu'aucun test hors production ne peut établir
+puisque le contrat se compile depuis le catalogue Skill live. L'étape 5 est le
+premier moment où ces trois points deviennent observables.
+
+Deux réserves sur les mesures SQL elles-mêmes, qui peuvent faire dépasser 16 :
+la requête 2 ne voit pas une empreinte stockée **non nulle** qui contredirait son
+propre payload, alors que le runtime refuse cette version
+(`PUBLISHED_FLOW_VERSION_HASH_MISSING`) ; et la requête 5 compare en `jsonb`, ce
+qui normalise les nombres là où le hachage canonique conserve leur
+représentation. Le dry-run recalcule le hachage canonique des deux côtés, donc
+lui seul dénombre l'ensemble inerte réel et la dérive réelle. S'il rapporte plus
+de 16 `publish`, c'est la mesure SQL qui était optimiste, pas le script qui
+s'emballe.
 
 ### Régression opérateur — deux scripts fermés par conception
 
