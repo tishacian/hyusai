@@ -4,7 +4,7 @@ import type { Skill } from '@app/core/canonical-api.service';
 import {
   SKILL_PALETTE_CATEGORIES,
   paletteItemToNode,
-  skillPaletteCategory,
+  skillPaletteSection,
   skillToPaletteItem,
 } from './flow.types';
 
@@ -25,43 +25,32 @@ test('the canonical Skill taxonomy has the exact product order', () => {
     'Ingestion',
     'Voice',
     'Governance',
+    'Analysis',
+    'Decision Support',
+    'Automation',
   ]);
 });
 
-test('catalog category and capabilities take precedence over fallback inference', () => {
+test('the palette section is the catalog category, never re-inferred', () => {
+  // `slug`, `type` and `description` all point at Retrieval; only `category`
+  // decides, so a catalog correction takes effect without a frontend release.
   assert.equal(
-    skillPaletteCategory(skill({ category: 'voice', slug: 'semantic_search_v1' })),
+    skillPaletteSection(
+      skill({
+        category: 'Voice',
+        slug: 'semantic_search_v1',
+        type: 'retrieval',
+        description: 'Retrieves and searches the knowledge base',
+      }),
+    ),
     'Voice',
   );
-  assert.equal(
-    skillPaletteCategory(skill({ capabilities: ['governance'], slug: 'calendar_read_v1' })),
-    'Governance',
-  );
-  assert.equal(
-    skillPaletteCategory(skill({ capabilities: { retrieval: true } })),
-    'Retrieval',
-  );
+  assert.equal(skillPaletteSection(skill({ category: ' decision support ' })), 'Decision Support');
 });
 
-test('legacy catalogs use deterministic heuristics and retain unknown skills', () => {
-  const cases: Array<[Partial<Skill>, string]> = [
-    [{ type: 'generation', slug: 'instruction_draft_v1' }, 'LLM'],
-    [{ type: 'retrieval', slug: 'semantic_search_v1' }, 'Retrieval'],
-    [{ type: 'connector', slug: 'calendar_read_v1' }, 'Connections'],
-    [
-      {
-        type: 'ingestion',
-        slug: 'document_ingestion_v1',
-        description: 'Extracts files and generates metadata',
-      },
-      'Ingestion',
-    ],
-    [{ type: 'audio', slug: 'speech_transcription_v1' }, 'Voice'],
-    [{ type: 'policy', slug: 'claim_audit_v1' }, 'Governance'],
-    [{ type: 'visualization', slug: 'territorial_map_v1' }, 'Other'],
-  ];
-  for (const [value, expected] of cases) {
-    assert.equal(skillPaletteCategory(skill(value)), expected, JSON.stringify(value));
+test('uncategorised skills stay visible under Other', () => {
+  for (const value of [{}, { category: null }, { category: '  ' }, { category: 'Bespoke' }]) {
+    assert.equal(skillPaletteSection(skill(value)), 'Other', JSON.stringify(value));
   }
 });
 
@@ -70,6 +59,7 @@ test('skill projection exposes category/runtime without leaking palette-only top
     slug: 'calendar_read_v1',
     name: 'Calendar Read',
     type: 'connector',
+    category: 'Connections',
     runtime_status: 'stub',
   }));
   assert.equal(item.skillCategory, 'Connections');

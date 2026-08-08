@@ -8,7 +8,7 @@ import {
   buildSkillPaletteSections,
   filterPaletteSkills,
 } from './flow-palette.component';
-import type { PaletteItem, SkillPaletteSection } from './flow.types';
+import { SKILL_PALETTE_CATEGORIES, type PaletteItem, type SkillPaletteSection } from './flow.types';
 
 function item(
   label: string,
@@ -28,16 +28,12 @@ function item(
   };
 }
 
-test('palette sections always expose the six canonical groups and append Other only when needed', () => {
+test('palette sections always expose every canonical group and append Other only when needed', () => {
   const canonical = buildSkillPaletteSections([item('Answer', 'LLM')]);
-  assert.deepEqual(canonical.map((section) => section.category), [
-    'LLM',
-    'Retrieval',
-    'Connections',
-    'Ingestion',
-    'Voice',
-    'Governance',
-  ]);
+  assert.deepEqual(
+    canonical.map((section) => section.category),
+    [...SKILL_PALETTE_CATEGORIES],
+  );
   assert.equal(canonical[0].items.length, 1);
 
   const withOther = buildSkillPaletteSections([

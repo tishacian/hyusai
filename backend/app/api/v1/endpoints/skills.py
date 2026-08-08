@@ -4,6 +4,7 @@ Skills are mostly read-only from the UI: the registry is seeded from the
 in-process `app.services.skills_registry` and metrics are aggregated from
 `SkillInvocation` records.
 """
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,7 +19,10 @@ from app.models.skill import Skill
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
-    skill_is_visible,
+    SkillVisibility,
+    WorkspaceCatalogPolicy,
+    skill_capability_index,
+    skill_visibility,
     visible_capabilities,
     visible_skill_ids_from_capabilities,
     workspace_catalog_policy,
@@ -46,14 +50,19 @@ def _runtime_status(slug: str) -> str:
     return entry.get("status", "unbound")
 
 
-def _serialize(s: Skill, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    return {
+def _serialize(
+    s: Skill,
+    metrics: Optional[Dict[str, Any]] = None,
+    visibility: Optional[SkillVisibility] = None,
+) -> Dict[str, Any]:
+    payload = {
         "id": s.id,
         "slug": s.slug,
         "version": s.version,
         "name": s.name,
         "description": s.description,
         "type": s.type,
+        "category": s.category,
         "input_schema": s.input_schema or {},
         "output_schema": s.output_schema or {},
         "execution": s.execution or {},
@@ -65,10 +74,42 @@ def _serialize(s: Skill, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, 
         "runtime_status": _runtime_status(s.slug),
         "workspace_scope": "global" if s.workspace_id is None else "workspace",
     }
+    if visibility is not None:
+        payload["visibility"] = visibility.to_dict()
+    return payload
 
 
-def _visible_skill_rows(db: DBSession, workspace: Workspace) -> list[Skill]:
-    """Return Skill rows visible in the current workspace catalog.
+@dataclass(frozen=True)
+class _CatalogView:
+    """One pass over the workspace catalog, with the filtering rule attached.
+
+    A workspace routinely browses half of the global registry with no stated
+    reason, which reads as arbitrary. Resolving every candidate row once —
+    kept, filtered, and why — costs the same two queries as the old
+    keep-only pass and lets the client explain the number it displays.
+    """
+
+    policy: WorkspaceCatalogPolicy
+    visible: list[Skill]
+    filtered: list[Skill]
+    visibility_by_id: dict[str, SkillVisibility]
+
+    def summary(self) -> Dict[str, Any]:
+        reasons: Dict[str, int] = {}
+        for skill in self.filtered:
+            reason = self.visibility_by_id[str(skill.id)].reason
+            reasons[reason] = reasons.get(reason, 0) + 1
+        return {
+            "total": len(self.visible) + len(self.filtered),
+            "visible": len(self.visible),
+            "filtered": len(self.filtered),
+            "filtered_reasons": dict(sorted(reasons.items())),
+            "policy": self.policy.to_dict(),
+        }
+
+
+def _catalog_view(db: DBSession, workspace: Workspace) -> _CatalogView:
+    """Resolve the workspace catalog surface and the reason behind each row.
 
     The database registry is global, but the product surface is workspace
     filtered through visible capabilities plus explicit workspace overrides.
@@ -82,12 +123,30 @@ def _visible_skill_rows(db: DBSession, workspace: Workspace) -> list[Skill]:
     )
     visible_caps = visible_capabilities(cap_rows, workspace, policy)
     visible_skill_ids = visible_skill_ids_from_capabilities(visible_caps)
+    capability_index = skill_capability_index(visible_caps)
     rows = (
         db.query(Skill)
         .filter((Skill.workspace_id == workspace.id) | (Skill.workspace_id.is_(None)))
         .all()
     )
-    return [s for s in rows if skill_is_visible(s, workspace, visible_skill_ids, policy)]
+    visible: list[Skill] = []
+    filtered: list[Skill] = []
+    visibility_by_id: dict[str, SkillVisibility] = {}
+    for row in rows:
+        decision = skill_visibility(
+            row,
+            workspace,
+            visible_skill_ids,
+            policy,
+            capability_index=capability_index,
+        )
+        visibility_by_id[str(row.id)] = decision
+        (visible if decision.visible else filtered).append(row)
+    return _CatalogView(policy, visible, filtered, visibility_by_id)
+
+
+def _visible_skill_rows(db: DBSession, workspace: Workspace) -> list[Skill]:
+    return _catalog_view(db, workspace).visible
 
 
 @router.get("/runtime-health")
@@ -127,26 +186,50 @@ async def runtime_health(
 @router.get("")
 async def list_skills(
     skill_type: Optional[str] = None,
+    category: Optional[str] = None,
     certification: Optional[str] = None,
+    include_filtered: bool = False,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    rows = _visible_skill_rows(db, workspace)
+    """List the workspace catalog.
+
+    ``include_filtered`` adds the registry rows this workspace does not see,
+    each carrying the rule that excluded it, so a curation surface can offer
+    them instead of pretending they do not exist. It is opt-in: the default
+    payload and its size are unchanged.
+    """
+    view = _catalog_view(db, workspace)
+    rows: list[Skill] = list(view.visible)
+    if include_filtered:
+        rows += view.filtered
     if skill_type:
         rows = [row for row in rows if row.type == skill_type]
+    if category:
+        rows = [row for row in rows if row.category == category]
     if certification:
         rows = [row for row in rows if row.certification_level == certification]
     rows = sorted(rows, key=lambda row: (row.type or "", row.name or ""))
 
-    # Aggregate live metrics per slug.
+    # Metrics only exist for skills this workspace has actually run.
     metrics_by_slug = _aggregate_metrics(
         db,
         workspace=workspace,
         user=user,
-        slugs=[r.slug for r in rows],
+        slugs=[row.slug for row in view.visible],
     )
-    return {"skills": [_serialize(s, metrics_by_slug.get(s.slug)) for s in rows]}
+    return {
+        "skills": [
+            _serialize(
+                s,
+                metrics_by_slug.get(s.slug),
+                view.visibility_by_id.get(str(s.id)),
+            )
+            for s in rows
+        ],
+        "catalog": view.summary(),
+    }
 
 
 @router.get("/{slug}")
@@ -156,13 +239,9 @@ async def get_skill(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    s = db.query(Skill).filter(
-        Skill.slug == slug,
-        ((Skill.workspace_id == workspace.id) | (Skill.workspace_id.is_(None))),
-    ).first()
+    view = _catalog_view(db, workspace)
+    s = next((row for row in view.visible if row.slug == slug), None)
     if not s:
-        raise HTTPException(404, "Skill not found")
-    if s.slug not in {row.slug for row in _visible_skill_rows(db, workspace)}:
         raise HTTPException(404, "Skill not found")
     metrics = _aggregate_metrics(
         db,
@@ -170,7 +249,7 @@ async def get_skill(
         user=user,
         slugs=[s.slug],
     ).get(s.slug)
-    return _serialize(s, metrics)
+    return _serialize(s, metrics, view.visibility_by_id.get(str(s.id)))
 
 
 def _aggregate_metrics(

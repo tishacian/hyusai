@@ -235,6 +235,13 @@ AGENTIUM_OBJECT_ACTIONS_MANIFEST = CapabilityIAMManifest(
         ),
         PermissionRule("skill_invocation", "read", REVIEW_ROLES),
         PermissionRule("skill_invocation", "admin", ADMIN_ROLES),
+        # The Skill catalog itself, distinct from a recorded invocation of it.
+        # ``read`` covers browsing the workspace catalog; ``admin`` is the
+        # single boundary that workspace-scoped Skill authoring will sit
+        # behind, so definition, schema edition and runtime binding cannot
+        # drift onto separate, individually weaker gates.
+        PermissionRule("skill", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("skill", "admin", ADMIN_ROLES),
         PermissionRule("mail_draft", "mail.send", ADMIN_ROLES),
         PermissionRule(
             "decision",

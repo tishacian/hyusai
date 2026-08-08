@@ -61,8 +61,20 @@ function makeService(): { service: FlowCatalogService; canonical: CanonicalStub 
 
 test('catalog projection is stable and enriches every entry', () => {
   const projected = projectSkillCatalog([
-    { id: 'z', slug: 'semantic_search_v1', name: 'Zulu', runtime_status: 'bound' },
-    { id: 'a', slug: 'document_ingestion_v1', name: 'Alpha', runtime_status: 'stub' },
+    {
+      id: 'z',
+      slug: 'semantic_search_v1',
+      name: 'Zulu',
+      category: 'Retrieval',
+      runtime_status: 'bound',
+    },
+    {
+      id: 'a',
+      slug: 'document_ingestion_v1',
+      name: 'Alpha',
+      category: 'Ingestion',
+      runtime_status: 'stub',
+    },
   ]);
   assert.deepEqual(projected.map((item) => item.label), ['Alpha', 'Zulu']);
   assert.deepEqual(projected.map((item) => item.skillCategory), ['Ingestion', 'Retrieval']);
@@ -91,7 +103,7 @@ test('loaded-empty and load-error are distinct, and Retry starts a fresh request
   service.retry();
   assert.equal(canonical.requests.length, 3);
   canonical.requests[2].next([
-    { id: 'skill-1', slug: 'calendar_read_v1', name: 'Calendar Read' },
+    { id: 'skill-1', slug: 'calendar_read_v1', name: 'Calendar Read', category: 'Connections' },
   ]);
   canonical.requests[2].complete();
   assert.equal(service.state(), 'loaded');

@@ -1523,6 +1523,152 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "completion": {"type": "string"},
         }},
     },
+    # ---- Mission Room assistant skills --------------------------------------
+    # These carry a bound wrapper and are invoked by the assistant action pack
+    # (`app/services/actions/executor.py`). They were never declared here, so
+    # `/skills` reported the catalog as smaller than the runtime actually is.
+    {
+        "slug": "briefing_priorities_v1",
+        "version": "1",
+        "name": "Briefing Priorities",
+        "description": "Extracts the top attention-required items of the mission cockpit as a ranked briefing.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {
+            "knowledge_scope": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "priorities": {"type": "array"},
+            "cockpit": {"type": "object"},
+        }},
+    },
+    {
+        "slug": "summarize_long_document_v1",
+        "version": "1",
+        "name": "Summarize Long Document",
+        "description": "Summarizes a long knowledge-base document around focus topics, with citations.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["document_id"], "properties": {
+            "document_id": {"type": "string"},
+            "query": {"type": "string"},
+            "focus_topics": {"type": "array", "items": {"type": "string"}},
+            "length": {"type": "string", "enum": ["short", "medium", "long"], "default": "medium"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "summary_markdown": {"type": "string"},
+            "key_topics": {"type": "array"},
+            "citations": {"type": "array"},
+            "document_id": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "generate_recommendations_v1",
+        "version": "1",
+        "name": "Generate Recommendations",
+        "description": "Produces ranked, optionally costed options on a topic, with sources and a human-validation flag.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["topic"], "properties": {
+            "topic": {"type": "string"},
+            "chiffrage": {"type": "boolean", "default": True},
+            "context_collection": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "topic": {"type": "string"},
+            "options": {"type": "array"},
+            "sources": {"type": "array"},
+            "human_validation_required": {"type": "boolean"},
+        }},
+    },
+    {
+        "slug": "draft_email_v1",
+        "version": "1",
+        "name": "Draft Email",
+        "description": "Drafts an advisory-only outbound message from a template kind and context references.",
+        "type": "generation",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["template_kind"], "properties": {
+            "template_kind": {"type": "string"},
+            "target_id": {"type": "string"},
+            "context_refs": {"type": "array", "items": {"type": "string"}},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "template_kind": {"type": "string"},
+            "subject": {"type": "string"},
+            "recipient": {"type": "string"},
+            "body_markdown": {"type": "string"},
+            "sources": {"type": "array"},
+            "requires_validation": {"type": "boolean"},
+            "advisory_only": {"type": "boolean"},
+            "target_id": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "causal_drill_v1",
+        "version": "1",
+        "name": "Causal Drill",
+        "description": "Walks the evidence graph along a relation from a focus node and returns the cited causal path.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {
+            "from_node": {"type": "string"},
+            "relation": {"type": "string", "default": "caused_by"},
+            "depth": {"type": "integer", "default": 4},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "from_node": {"type": "string"},
+            "relation": {"type": "string"},
+            "path": {"type": "array"},
+            "next_focus": {"type": "string"},
+            "explanation": {"type": "string"},
+            "citations": {"type": "array"},
+        }},
+    },
+    {
+        "slug": "schedule_meeting_v1",
+        "version": "1",
+        "name": "Schedule Meeting",
+        "description": "Proposes a calendar slot from the workspace agenda; the write happens after human confirmation.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "basic",
+        "execution": {"mode": "sync", "timeout_ms": 20_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["topic"], "properties": {
+            "topic": {"type": "string"},
+            "participant_role": {"type": "string"},
+            "urgency": {"type": "string"},
+            "duration_min": {"type": "integer", "default": 45},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "status": {"type": "string"},
+            "applied": {"type": "boolean"},
+            "requires_validation": {"type": "boolean"},
+            "proposed_slot": {"type": "object"},
+            "calendar_event_draft_id": {"type": "string"},
+        }},
+    },
 ]
 
 
@@ -2071,6 +2217,120 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
 ]
 
 
+# Product taxonomy exposed by ``/skills`` and rendered as palette sections.
+# It answers "what does this node do in a flow", which is orthogonal to the
+# Capability (which answers "what business job does this belong to"). Both
+# lenses are needed: a Capability spans several categories, and a category
+# spans several Capabilities.
+#
+#   LLM               generate or reason with a model
+#   Retrieval         ground an answer on the knowledge base
+#   Connections       read or write an external system of record
+#   Ingestion         write into the knowledge base
+#   Voice             speech in, speech out
+#   Governance        policy, audit, compliance and human gates
+#   Analysis          characterise material already in hand
+#   Decision Support  score, rank and compare options to act on
+#   Automation        drive a side effect or orchestrate a pipeline stage
+SKILL_CATEGORIES: Dict[str, str] = {
+    "action_plan_cancel_v1": "Automation",
+    "action_plan_create_v1": "Automation",
+    "action_plan_reschedule_v1": "Automation",
+    "action_plan_status_v1": "Analysis",
+    "audit_log_v1": "Governance",
+    "azure_llm_v1": "LLM",
+    "briefing_priorities_v1": "Analysis",
+    "calendar_cancel_event_v1": "Connections",
+    "calendar_create_event_v1": "Connections",
+    "calendar_daily_summary_v1": "Analysis",
+    "calendar_read_v1": "Connections",
+    "calendar_update_event_v1": "Connections",
+    "capture_structuring_v1": "LLM",
+    "causal_drill_v1": "Analysis",
+    "chain_hybrid_v1": "Retrieval",
+    "chain_mixed_hah_v1": "Retrieval",
+    "chain_naive_v1": "Retrieval",
+    "chat_action_resolver_v1": "Automation",
+    "chat_agentic_plan_v1": "LLM",
+    "chat_grounding_policy_v1": "Governance",
+    "chat_self_correct_v1": "LLM",
+    "chat_trivial_bypass_v1": "Governance",
+    "claim_audit_v1": "Governance",
+    "decision_option_rank_v1": "Decision Support",
+    "document_ingestion_v1": "Ingestion",
+    "draft_email_v1": "LLM",
+    "draft_response_email_v1": "LLM",
+    "eval_radar_v1": "Governance",
+    "evidence_graph_build_v1": "Analysis",
+    "expert_answer_evaluator_v1": "Analysis",
+    "expert_interview_plan_v1": "LLM",
+    "generate_recommendations_v1": "Decision Support",
+    "instruction_draft_v1": "LLM",
+    "intelligence_batch_v1": "Ingestion",
+    "knowledge_gap_analysis_v1": "Analysis",
+    "llm_rag_answer_v1": "Retrieval",
+    "map_command_apply_v1": "Automation",
+    "map_layer_read_v1": "Connections",
+    "map_recommendation_generate_v1": "Decision Support",
+    "map_signal_attach_v1": "Automation",
+    "map_zone_score_v1": "Decision Support",
+    "maritime_snapshot_read_v1": "Connections",
+    "ministerial_briefing_v1": "LLM",
+    "multi_hop_retrieve_v1": "Retrieval",
+    "news_signal_synthesis_v1": "Analysis",
+    "ollama_llm_v1": "LLM",
+    "osint_signal_prioritize_v1": "Analysis",
+    "project_risk_explainer_v1": "Analysis",
+    "response_eval_v1": "Governance",
+    "rpa_dispatch_v1": "Automation",
+    "rumor_origin_trace_v1": "Analysis",
+    "sap_hana_query_v1": "Connections",
+    "scenario_compare_v1": "Decision Support",
+    "scenario_generate_v1": "Decision Support",
+    "scenario_recommend_v1": "Decision Support",
+    "schedule_meeting_v1": "Connections",
+    "semantic_search_v1": "Retrieval",
+    "sharepoint_ingestion_v1": "Ingestion",
+    "situation_posture_score_v1": "Decision Support",
+    "source_registry_refresh_v1": "Ingestion",
+    "summarize_long_document_v1": "LLM",
+    "territorial_action_window_v1": "Decision Support",
+    "territorial_signal_map_v1": "Analysis",
+    "time_context_set_v1": "Governance",
+    "translation_archive_ingest_v1": "Ingestion",
+    "translation_cdt_gate_v1": "Governance",
+    "translation_fanout_v1": "Automation",
+    "translation_j2450_qa_v1": "Analysis",
+    "translation_label_index_resolve_v1": "Automation",
+    "translation_memory_retrieve_v1": "Retrieval",
+    "translation_package_delivery_v1": "Automation",
+    "translation_pivot_normalize_v1": "LLM",
+    "translation_post_guard_v1": "Governance",
+    "visual_observation_sync_knowledge_v1": "Ingestion",
+    "visual_snapshot_analyze_v1": "Analysis",
+    "visual_snapshot_capture_v1": "Ingestion",
+    "visual_source_read_v1": "Connections",
+    "voice_oracle_turn_v1": "Voice",
+    "voice_realtime_session_v1": "Voice",
+    "voice_realtime_speak_v1": "Voice",
+    "voice_realtime_transcribe_v1": "Voice",
+    "voice_realtime_translate_v1": "Voice",
+    "voice_tandem_oracle_v1": "Voice",
+    "voice_transcribe_v1": "Voice",
+    "voice_tts_v1": "Voice",
+}
+
+
+def skill_category(slug: str) -> str | None:
+    """Product category for a catalog slug, or ``None`` when uncategorised.
+
+    Workspace-defined skills (Tranche F) will carry their own column value,
+    so an unknown slug is not an error here.
+    """
+
+    return SKILL_CATEGORIES.get(slug)
+
+
 def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
     """Idempotent upsert of the seed registry. Safe to call on every boot.
 
@@ -2089,6 +2349,7 @@ def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
                         "execution", "pricing", "input_schema", "output_schema", "version"):
                 if entry.get(key) is not None:
                     setattr(existing, key, entry[key])
+            existing.category = skill_category(entry["slug"])
             existing.is_seeded = "Y"
             existing.updated_at = now
             skill_id_by_slug[existing.slug] = existing.id
@@ -2100,6 +2361,7 @@ def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
                 name=entry["name"],
                 description=entry["description"],
                 type=entry["type"],
+                category=skill_category(entry["slug"]),
                 provider=entry["provider"],
                 certification_level=entry["certification_level"],
                 execution=entry["execution"],

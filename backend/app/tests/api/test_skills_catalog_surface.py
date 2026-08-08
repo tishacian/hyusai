@@ -1,0 +1,133 @@
+"""The Skill catalog must state its taxonomy and explain its own filtering.
+
+The palette used to re-derive a product taxonomy from slugs with a frontend
+regex, and a workspace routinely browsed half of the registry with no stated
+reason. Both are catalog responsibilities: `category` is served, and every
+row carries the rule that kept or dropped it.
+"""
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.v1.endpoints import skills
+from app.models.capability import Capability
+from app.models.skill import Skill
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.services.skills_registry.seed import SEED_SKILLS, SKILL_CATEGORIES
+from app.services.skills_registry.wrappers import _REGISTRY
+
+
+def _client(db, workspace, user) -> TestClient:
+    app = FastAPI()
+    app.include_router(skills.router, prefix="/skills")
+    app.dependency_overrides[skills.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[skills.get_current_user] = lambda: user
+    app.dependency_overrides[skills.get_db] = lambda: db
+    return TestClient(app)
+
+
+def _seed(db):
+    workspace = Workspace(id="ws-catalog", slug="catalog", name="Catalog", settings={})
+    user = User(id="catalog-user", username="catalog-user")
+    carried = Skill(
+        id="skill-carried",
+        slug="carried_v1",
+        name="Carried",
+        type="retrieval",
+        category="Retrieval",
+    )
+    orphaned = Skill(
+        id="skill-orphaned",
+        slug="orphaned_v1",
+        name="Orphaned",
+        type="analysis",
+        category="Analysis",
+    )
+    capability = Capability(
+        id="cap-catalog",
+        workspace_id=workspace.id,
+        slug="catalog_capability",
+        name="Catalog capability",
+        skill_ids=[carried.id],
+    )
+    db.add_all([workspace, user, carried, orphaned, capability])
+    db.commit()
+    return workspace, user
+
+
+def test_catalog_serves_its_taxonomy_and_the_reason_each_row_is_visible(db_session):
+    workspace, user = _seed(db_session)
+
+    payload = _client(db_session, workspace, user).get("/skills").json()
+
+    assert [row["slug"] for row in payload["skills"]] == ["carried_v1"]
+    row = payload["skills"][0]
+    assert row["category"] == "Retrieval"
+    assert row["visibility"] == {
+        "visible": True,
+        "reason": "capability",
+        "capabilities": ["catalog_capability"],
+    }
+    assert payload["catalog"]["total"] == 2
+    assert payload["catalog"]["visible"] == 1
+    assert payload["catalog"]["filtered"] == 1
+    assert payload["catalog"]["filtered_reasons"] == {"no_visible_capability": 1}
+    assert payload["catalog"]["policy"]["show_universal"] is True
+
+
+def test_filtered_rows_are_opt_in_and_carry_the_rule_that_dropped_them(db_session):
+    workspace, user = _seed(db_session)
+
+    payload = (
+        _client(db_session, workspace, user)
+        .get("/skills", params={"include_filtered": True})
+        .json()
+    )
+
+    by_slug = {row["slug"]: row for row in payload["skills"]}
+    assert set(by_slug) == {"carried_v1", "orphaned_v1"}
+    assert by_slug["orphaned_v1"]["visibility"] == {
+        "visible": False,
+        "reason": "no_visible_capability",
+        "capabilities": [],
+    }
+    # The summary describes the catalog, not the requested page.
+    assert payload["catalog"]["visible"] == 1
+
+
+def test_category_filter_narrows_the_catalog(db_session):
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+
+    assert [
+        row["slug"]
+        for row in client.get(
+            "/skills", params={"include_filtered": True, "category": "Analysis"}
+        ).json()["skills"]
+    ] == ["orphaned_v1"]
+
+
+def test_every_seeded_slug_has_a_wrapper_and_a_category():
+    """A wrapper without a catalog row is invisible; a row without a category
+    lands in `Other` and the palette stops answering "what goes here"."""
+
+    slugs = {entry["slug"] for entry in SEED_SKILLS}
+    assert slugs - set(_REGISTRY) == set(), "catalog rows with no runtime wrapper"
+    assert set(_REGISTRY) - slugs == set(), "wrappers with no catalog row"
+    assert slugs - set(SKILL_CATEGORIES) == set(), "catalog rows with no category"
+    assert set(SKILL_CATEGORIES) - slugs == set(), "categories for unknown slugs"
+
+
+def test_no_category_absorbs_more_than_a_fifth_of_the_catalog():
+    """The frontend heuristic this replaced put a quarter of the registry in
+    one bucket, which is a list, not a taxonomy."""
+
+    counts: dict[str, int] = {}
+    for category in SKILL_CATEGORIES.values():
+        counts[category] = counts.get(category, 0) + 1
+    largest, size = max(counts.items(), key=lambda item: item[1])
+    assert size <= len(SKILL_CATEGORIES) // 5, (
+        f"{largest} holds {size} of {len(SKILL_CATEGORIES)} skills"
+    )

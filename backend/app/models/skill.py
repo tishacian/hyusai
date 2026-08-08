@@ -24,6 +24,10 @@ class Skill(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, default="")
     type = Column(String(60), default="generic")  # llm_call | retrieval | analysis | generation | …
+    # Product taxonomy for discovery surfaces (palette sections, catalog
+    # filters). ``type`` stays the engine-facing contract shape; a single
+    # ``type`` legitimately spans several categories and vice versa.
+    category = Column(String(40), nullable=True, index=True)
 
     input_schema = Column(JSON, default=dict)
     output_schema = Column(JSON, default=dict)

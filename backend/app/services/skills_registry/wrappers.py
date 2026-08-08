@@ -1949,76 +1949,6 @@ async def _causal_drill_v1(
     }
 
 
-async def _update_meeting_agenda_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
-) -> dict[str, Any]:
-    """Propose adding agenda items to a workspace calendar event.
-
-    Phase H: produces a confirmation-drawer payload first (no DB write).
-    Actual write happens through the calendar PATCH endpoint after the
-    Vice Premier Ministre confirms.
-    """
-    from app.models.workspace import Workspace
-    from app.services.workspace_calendar import list_events, serialize_event
-
-    ctx = ctx or {}
-    db = ctx.get("db")
-    workspace_id = ctx.get("workspace_id")
-    if not db or not workspace_id:
-        return {"status": "error", "reason": "missing_workspace_context"}
-    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not workspace:
-        return {"status": "error", "reason": "workspace_not_found"}
-
-    event_id = payload.get("event_id")
-    agenda_items = list(payload.get("agenda_items") or [])
-    if not agenda_items:
-        agenda_items = [
-            {
-                "id": "agenda-cacao-diversification",
-                "title": "Point cacao - diversification anacarde (proposition AYA)",
-                "order": 99,
-                "priority": "high",
-                "owner_proposer": "AYA",
-                "decision_required": True,
-                "source_refs": [
-                    "report-prefet-nawa-2026-05-10",
-                    "sentinel-ci-anacarde-diversification-v1",
-                ],
-            }
-        ]
-
-    event = None
-    if event_id:
-        event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
-    if event is None:
-        for row in list_events(db, workspace, status="scheduled"):
-            meta = row.meta_data or {}
-            if (
-                meta.get("seed_id") == "evt-prefet-nawa"
-                or meta.get("context_ref") == "report-prefet-nawa-2026-05-10"
-            ):
-                event = row
-                break
-        if event is None:
-            events = list_events(db, workspace, status="scheduled")
-            event = events[0] if events else None
-
-    if event is None:
-        return {"status": "error", "reason": "no_event_found"}
-
-    return {
-        "status": "proposal",
-        "applied": False,
-        "requires_validation": True,
-        "event_id": event.id,
-        "event_title": event.title,
-        "event_summary": serialize_event(event, workspace=workspace),
-        "metadata": {"agenda_items": agenda_items},
-        "audit_event": "calendar.event.agenda_items.proposed",
-    }
-
-
 async def _schedule_meeting_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5085,11 +5015,6 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     ),
     "draft_email_v1": (_draft_email_v1, "app.services.mission_room", "bound"),
     "causal_drill_v1": (_causal_drill_v1, "app.services.mission_room", "bound"),
-    "update_meeting_agenda_v1": (
-        _update_meeting_agenda_v1,
-        "app.services.workspace_calendar",
-        "bound",
-    ),
     "schedule_meeting_v1": (_schedule_meeting_v1, "app.services.workspace_calendar", "bound"),
     "territorial_action_window_v1": (
         _territorial_action_window_v1,

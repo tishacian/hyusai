@@ -25,6 +25,19 @@ class WorkspaceCatalogPolicy:
     enabled_skills: set[str] = field(default_factory=set)
     hidden_skills: set[str] = field(default_factory=set)
 
+    def to_dict(self) -> dict[str, Any]:
+        """The levers a workspace admin can act on, in a stable order."""
+
+        return {
+            "show_universal": self.show_universal,
+            "show_unconfigured_industries": self.show_unconfigured_industries,
+            "allowed_industries": sorted(self.allowed_industries),
+            "enabled_capabilities": sorted(self.enabled_capabilities),
+            "hidden_capabilities": sorted(self.hidden_capabilities),
+            "enabled_skills": sorted(self.enabled_skills),
+            "hidden_skills": sorted(self.hidden_skills),
+        }
+
 
 def workspace_catalog_policy(workspace: Workspace) -> WorkspaceCatalogPolicy:
     """Resolve catalog visibility for one workspace.
@@ -100,24 +113,79 @@ def visible_skill_ids_from_capabilities(capabilities: Iterable[Capability]) -> s
     return skill_ids
 
 
+def skill_capability_index(capabilities: Iterable[Capability]) -> dict[str, tuple[str, ...]]:
+    """Map each skill id to the capability slugs that carry it."""
+
+    index: dict[str, list[str]] = {}
+    for cap in capabilities:
+        cap_slug = str(cap.slug or cap.id or "")
+        for skill_id in cap.skill_ids or []:
+            if skill_id:
+                index.setdefault(str(skill_id), []).append(cap_slug)
+    return {skill_id: tuple(sorted(set(slugs))) for skill_id, slugs in index.items()}
+
+
+@dataclass(frozen=True)
+class SkillVisibility:
+    """Why one Skill is, or is not, part of a workspace catalog surface.
+
+    A workspace routinely sees half of the global registry. The rule that
+    produces that number is stable, but it was invisible to the product, so
+    the missing entries read as arbitrary. ``reason`` is the stable machine
+    code a client surface can turn into a sentence:
+
+    ``workspace_owned``         defined by this workspace
+    ``enabled_override``        listed in ``settings.catalog.enabled_skills``
+    ``capability``              carried by a capability visible here
+    ``hidden_override``         listed in ``settings.catalog.hidden_skills``
+    ``other_workspace``         defined by a different workspace
+    ``no_visible_capability``   global, but no visible capability carries it
+    """
+
+    visible: bool
+    reason: str
+    capability_slugs: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "visible": self.visible,
+            "reason": self.reason,
+            "capabilities": list(self.capability_slugs),
+        }
+
+
+def skill_visibility(
+    skill: Skill,
+    workspace: Workspace,
+    visible_skill_ids: set[str],
+    policy: WorkspaceCatalogPolicy | None = None,
+    *,
+    capability_index: dict[str, tuple[str, ...]] | None = None,
+) -> SkillVisibility:
+    policy = policy or workspace_catalog_policy(workspace)
+    slug = str(skill.slug or "")
+    skill_id = str(skill.id or "")
+    carriers = (capability_index or {}).get(skill_id, ())
+    if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
+        return SkillVisibility(False, "hidden_override")
+    if skill.workspace_id == workspace.id:
+        return SkillVisibility(True, "workspace_owned")
+    if skill.workspace_id is not None:
+        return SkillVisibility(False, "other_workspace")
+    if slug in policy.enabled_skills or skill_id in policy.enabled_skills:
+        return SkillVisibility(True, "enabled_override", carriers)
+    if skill_id in visible_skill_ids:
+        return SkillVisibility(True, "capability", carriers)
+    return SkillVisibility(False, "no_visible_capability")
+
+
 def skill_is_visible(
     skill: Skill,
     workspace: Workspace,
     visible_skill_ids: set[str],
     policy: WorkspaceCatalogPolicy | None = None,
 ) -> bool:
-    policy = policy or workspace_catalog_policy(workspace)
-    slug = str(skill.slug or "")
-    skill_id = str(skill.id or "")
-    if slug in policy.hidden_skills or skill_id in policy.hidden_skills:
-        return False
-    if skill.workspace_id == workspace.id:
-        return True
-    if skill.workspace_id is not None:
-        return False
-    if slug in policy.enabled_skills or skill_id in policy.enabled_skills:
-        return True
-    return str(skill.id) in visible_skill_ids
+    return skill_visibility(skill, workspace, visible_skill_ids, policy).visible
 
 
 def visibility_label(capability: Capability, workspace: Workspace, policy: WorkspaceCatalogPolicy | None = None) -> str:

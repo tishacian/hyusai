@@ -3,7 +3,9 @@ from app.models.skill import Skill
 from app.models.workspace import Workspace
 from app.services.catalog_visibility import (
     capability_is_visible,
+    skill_capability_index,
     skill_is_visible,
+    skill_visibility,
     visible_capabilities,
     visible_skill_ids_from_capabilities,
     workspace_catalog_policy,
@@ -116,3 +118,59 @@ def test_workspace_specific_rows_are_visible_in_that_workspace_only():
     assert capability_is_visible(cap, sentinel) is False
     assert skill_is_visible(skill, andritz, set()) is True
     assert skill_is_visible(skill, sentinel, set()) is False
+
+
+def test_every_skill_carries_the_rule_that_kept_or_dropped_it():
+    """A workspace sees roughly half the registry; the reason must be legible."""
+
+    workspace = _workspace(
+        "andritz",
+        settings={"family": "andritz", "catalog": {
+            "enabled_skills": ["mission_command_v1"],
+            "hidden_skills": ["audit_log_v1"],
+        }},
+    )
+    carried = _skill("expert_answer_evaluator_v1", id_="skill-carried")
+    enabled = _skill("mission_command_v1", id_="skill-enabled")
+    hidden = _skill("audit_log_v1", id_="skill-hidden")
+    orphaned = _skill("territorial_signal_map_v1", id_="skill-orphaned")
+    foreign = _skill("other_workspace_v1", id_="skill-foreign", workspace_id="ws-sentinel-ci")
+    owned = _skill("andritz_custom_v1", id_="skill-owned", workspace_id=workspace.id)
+
+    universal_cap = _cap("expert_knowledge_capture", skill_ids=[carried.id])
+    government_cap = _cap(
+        "aya_voice_command",
+        tier="industry",
+        industry="government",
+        skill_ids=[orphaned.id],
+    )
+
+    policy = workspace_catalog_policy(workspace)
+    visible_caps = visible_capabilities([universal_cap, government_cap], workspace, policy)
+    visible_ids = visible_skill_ids_from_capabilities(visible_caps)
+    index = skill_capability_index(visible_caps)
+
+    def _decide(skill):
+        return skill_visibility(skill, workspace, visible_ids, policy, capability_index=index)
+
+    assert _decide(carried).to_dict() == {
+        "visible": True,
+        "reason": "capability",
+        "capabilities": ["expert_knowledge_capture"],
+    }
+    assert _decide(owned).reason == "workspace_owned"
+    assert _decide(enabled).reason == "enabled_override"
+    assert _decide(hidden).reason == "hidden_override"
+    assert _decide(foreign).reason == "other_workspace"
+    assert _decide(orphaned).reason == "no_visible_capability"
+    assert [_decide(s).visible for s in (carried, owned, enabled)] == [True, True, True]
+    assert [_decide(s).visible for s in (hidden, foreign, orphaned)] == [False, False, False]
+
+
+def test_hidden_override_wins_over_an_owned_workspace_skill():
+    """Curation must be able to retire a workspace's own Skill."""
+
+    workspace = _workspace("andritz", settings={"catalog": {"hidden_skills": ["andritz_custom_v1"]}})
+    owned = _skill("andritz_custom_v1", workspace_id=workspace.id)
+
+    assert skill_visibility(owned, workspace, set()).reason == "hidden_override"
