@@ -49,7 +49,8 @@ MAX_GOLDEN_EXPECTED_BYTES = 64 * 1024
 FEATURE_KEY = "flow_workbench_v1"
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class FlowWorkbenchError(ValueError):
     code: str
     message: str

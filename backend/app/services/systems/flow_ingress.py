@@ -24,7 +24,8 @@ from app.services.run_engine.run_contracts import (
 from app.services.systems import flow_publication
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class FlowIngressError(ValueError):
     code: str
     message: str

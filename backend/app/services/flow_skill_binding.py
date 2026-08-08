@@ -19,7 +19,8 @@ class FlowSkillBinding:
     skill_slug: str | None
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class FlowSkillBindingError(ValueError):
     code: str
     message: str

@@ -18,7 +18,8 @@ _DEBUG_MODES = frozenset({"step", "breakpoints"})
 _DEBUG_KEYS = frozenset({"mode", "breakpoints"})
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class DebugContractError(ValueError):
     code: str
     message: str

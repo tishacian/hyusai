@@ -28,7 +28,8 @@ RUNNER_SESSION_QUERY_LIMIT = 100
 RUNNER_RUN_QUERY_LIMIT = 100
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class FlowRunnerError(ValueError):
     code: str
     message: str

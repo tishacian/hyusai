@@ -23,7 +23,8 @@ from .condition import references as condition_references
 ValidationMode = Literal["enforce", "observe"]
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: exception propagation assigns ``__traceback__``.
+@dataclass(slots=True)
 class RuntimeContractError(ValueError):
     code: str
     message: str
