@@ -375,6 +375,109 @@ def test_canonical_chat_request_source_compiles_as_chat_ingress(db_session) -> N
     assert contract["ingresses"][0]["input_schema"]["required"] == ["query"]
 
 
+def test_seeded_chat_request_port_compiles_as_chat_ingress(db_session) -> None:
+    """The seeded chat System names its port ``chat.request``, not ``source.request``.
+
+    Keying the chat surface on the ``type=input`` role rather than on one node
+    id is what makes the seeded template dispatchable; before this, every
+    workspace's chat System compiled a ``manual`` ingress and the chat adapter
+    was refused with ``FLOW_INGRESS_KIND_UNAVAILABLE``.
+    """
+
+    contract = compile_execution_contract(
+        db_session,
+        flow={
+            "nodes": [
+                {"id": "chat.request", "kind": "source", "type": "input"},
+                {"id": "sink.answer", "kind": "sink"},
+            ],
+            "edges": [{"from": "chat.request", "to": "sink.answer"}],
+        },
+        workspace_id="workspace-contract",
+        runtime_mode="dag_strict",
+    )
+
+    assert [(item["ingress_id"], item["kind"]) for item in contract["ingresses"]] == [
+        ("chat.request", "chat")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("node", "expected_kind"),
+    [
+        # Canonical spelling.
+        ({"id": "root", "kind": "source"}, "manual"),
+        # Legacy spelling: the role is named in ``type`` and ``kind`` is absent.
+        ({"id": "root", "type": "source"}, "manual"),
+        # Both fields, agreeing.
+        ({"id": "root", "kind": "source", "type": "source"}, "manual"),
+    ],
+)
+def test_source_role_is_read_in_both_graph_dialects(
+    db_session, node, expected_kind
+) -> None:
+    contract = compile_execution_contract(
+        db_session,
+        flow={"nodes": [node], "edges": []},
+        workspace_id="workspace-contract",
+        runtime_mode="sequential_legacy",
+    )
+
+    assert [(item["ingress_id"], item["kind"]) for item in contract["ingresses"]] == [
+        ("root", expected_kind)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("node", "expected_ingresses"),
+    [
+        # ``kind`` is canonical, so it decides even when ``type`` contradicts it:
+        # a task stays a task and freezes no ingress.
+        ({"id": "root", "kind": "task", "type": "source"}, []),
+        # ...and a declared source stays a source even when ``type`` says
+        # otherwise. Resolution never depends on mapping order.
+        ({"id": "root", "kind": "source", "type": "task"}, [("root", "manual")]),
+    ],
+)
+def test_conflicting_kind_and_type_resolve_from_kind(
+    db_session, node, expected_ingresses
+) -> None:
+    contract = compile_execution_contract(
+        db_session,
+        flow={"nodes": [node], "edges": []},
+        workspace_id="workspace-contract",
+        runtime_mode="sequential_legacy",
+    )
+
+    assert [
+        (item["ingress_id"], item["kind"]) for item in contract["ingresses"]
+    ] == expected_ingresses
+
+
+def test_legacy_typed_source_asset_is_still_not_an_ingress(db_session) -> None:
+    """The legacy fallback is the bare ``type: "source"`` literal only.
+
+    A dotted ``source.*`` type is a sub-discriminator of an explicit ``kind``;
+    widening the fallback to the prefix would promote declarative assets to
+    externally invokable ingresses.
+    """
+
+    contract = compile_execution_contract(
+        db_session,
+        flow={
+            "nodes": [
+                {"id": "knowledge.asset", "type": "source.collection"},
+                {"id": "feeds", "type": "source"},
+            ],
+            "edges": [],
+        },
+        workspace_id="workspace-contract",
+        runtime_mode="sequential_legacy",
+    )
+
+    assert [item["ingress_id"] for item in contract["ingresses"]] == ["feeds"]
+
+
 @pytest.mark.parametrize(
     ("nodes", "edges", "code"),
     [
@@ -389,6 +492,16 @@ def test_canonical_chat_request_source_compiles_as_chat_ingress(db_session) -> N
             ],
             [],
             "ingress_kind_invalid",
+        ),
+        (
+            # The legacy dialect reaches the same root-only rule as the
+            # canonical one, rather than silently compiling no ingress.
+            [
+                {"id": "upstream", "type": "source"},
+                {"id": "nested", "type": "source"},
+            ],
+            [{"from": "upstream", "to": "nested"}],
+            "ingress_source_not_root",
         ),
         (
             [

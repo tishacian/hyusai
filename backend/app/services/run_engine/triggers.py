@@ -45,6 +45,7 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.workspace import Workspace
+from app.services.flow_node_kind import is_flow_source_node
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_persisted_system_catalog_bindings,
@@ -185,15 +186,15 @@ def _flow_edges(flow: Any) -> List[Dict[str, Any]]:
 def _trigger_nodes(flow: Any) -> List[Dict[str, Any]]:
     """Return the ACTIVE trigger source nodes of a flow.
 
-    A node is an active trigger when ``kind == 'source'``, its ``type`` is a
-    known trigger type, and it is not explicitly disabled
+    A node is an active trigger when it resolves to the ``source`` role, its
+    ``type`` is a known trigger type, and it is not explicitly disabled
     (``config.trigger_enabled == False``). The Phase-1 ``data.declarative``
     marker is UI provenance only and does NOT disable the trigger — execution
     is governed by the master flag + per-System mode, not by that marker.
     """
     out: List[Dict[str, Any]] = []
     for node in _flow_nodes(flow):
-        if node.get("kind") != "source":
+        if not is_flow_source_node(node):
             continue
         if str(node.get("type") or "") not in TRIGGER_TYPE_TO_EVENT:
             continue

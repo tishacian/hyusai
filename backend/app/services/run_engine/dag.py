@@ -46,6 +46,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.context_bindings import ContextBindingError, context_in_workspace
+from app.services.flow_node_kind import flow_node_kind
 from app.services.flow_skill_binding import resolve_flow_skill_binding
 from app.services.membrane.enforcement import (
     EgressDisposition,
@@ -257,7 +258,7 @@ class DagGraph:
             nid = str(n.get("id") or "").strip()
             if not nid:
                 continue
-            kind = n.get("kind") or "task"
+            kind = flow_node_kind(n)
             data = n.get("data") or {}
             config = n.get("config") or {}
             skill_slug = resolve_flow_skill_binding(n).skill_slug

@@ -18,6 +18,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.skill import Skill
+from app.services.flow_node_kind import is_flow_source_node
 from app.services.flow_skill_binding import (
     FlowSkillBinding,
     FlowSkillBindingError,
@@ -609,6 +610,10 @@ def _adapted_skill_output_schema(
 def _ingress_kind(node: Mapping[str, Any]) -> str | None:
     config = node.get("config") if isinstance(node.get("config"), Mapping) else {}
     explicit = config.get("ingress_kind")
+    # Only executable source nodes can be adapter entry points.  Typed
+    # declarative assets such as ``type=source.collection, kind=asset`` are
+    # graph context, not externally invokable ingresses.
+    is_source = is_flow_source_node(node)
     if explicit is not None:
         if not isinstance(explicit, str) or explicit not in _INGRESS_KINDS:
             raise FlowContractError(
@@ -616,34 +621,30 @@ def _ingress_kind(node: Mapping[str, Any]) -> str | None:
                 message="Ingress kind must be manual, chat, http, schedule or event.",
                 path=f"nodes/{node.get('id')}/config/ingress_kind",
             )
-        if str(node.get("kind") or "") != "source":
+        if not is_source:
             raise FlowContractError(
                 code="ingress_node_kind_invalid",
                 message="Only a source node can declare an ingress kind.",
                 path=f"nodes/{node.get('id')}/kind",
             )
         return explicit
-    # Only executable source nodes can be adapter entry points.  Typed
-    # declarative assets such as ``type=source.collection, kind=asset`` are
-    # graph context, not externally invokable ingresses.
-    if str(node.get("kind") or "") != "source":
+    if not is_source:
         return None
     node_type = str(node.get("type") or "")
     if node_type == "source.webhook":
         return "http"
     if node_type == "source.schedule":
         return "schedule"
-    # The canonical governed chat DAG predates explicit ``ingress_kind`` and
-    # models its request port as ``source.request`` with ``type=input``.  Keep
-    # that narrow legacy spelling executable as chat; generic source nodes
-    # remain manual/event adapters and cannot impersonate the chat surface.
-    if node_type == "input" and str(node.get("id") or "") == "source.request":
+    # ``type=input`` is the documented reasoning-plane entry port: the trigger
+    # registry excludes it precisely because it is a chat surface rather than an
+    # event (``run_engine.triggers.TRIGGER_TYPE_TO_EVENT``).  Keying this on the
+    # role rather than on one node id matters because the seeded chat System
+    # names the port ``chat.request``, not ``source.request``.
+    if node_type == "input":
         return "chat"
     if node_type.startswith("source."):
         return "event"
-    if str(node.get("kind") or "") == "source":
-        return "manual"
-    return None
+    return "manual"
 
 
 def _skill_lookup(

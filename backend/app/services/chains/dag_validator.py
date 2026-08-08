@@ -50,6 +50,7 @@ from app.services.chains.variable_contract import (
     dot_path_to_variable_ref,
 )
 from app.services.flow_graph_identity import edge_identity
+from app.services.flow_node_kind import flow_node_kind
 from app.services.flow_skill_binding import (
     FlowSkillBindingError,
     resolve_flow_skill_binding,
@@ -224,11 +225,9 @@ def _node_id(node: Mapping[str, Any]) -> Optional[str]:
 
 
 def _node_kind(node: Mapping[str, Any]) -> str:
-    kind = node.get("kind")
-    if isinstance(kind, str) and kind:
-        return kind
-    # Back-compat: nodes persisted before kind existed default to task.
-    return "task"
+    # Shared with the contract compiler and the DAG walker so acceptance,
+    # publication and execution never disagree on what an entry point is.
+    return flow_node_kind(node)
 
 
 def _is_declarative_source_node(node: Mapping[str, Any]) -> bool:
