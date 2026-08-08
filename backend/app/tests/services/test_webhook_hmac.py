@@ -12,6 +12,7 @@ from app.models.system import System
 from app.models.webhook_hook import WebhookHook
 from app.models.workspace import Workspace
 from app.services.run_engine import triggers, webhooks
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 def _workspace(db, *, features=None) -> Workspace:
@@ -19,7 +20,9 @@ def _workspace(db, *, features=None) -> Workspace:
         id=str(uuid.uuid4()),
         name="Hook WS",
         slug=f"hook-{uuid.uuid4().hex[:6]}",
-        settings={"features": features or {}},
+        settings={
+            "features": {**LEGACY_FLOW_AUTHORITY["features"], **(features or {})},
+        },
     )
     db.add(ws)
     db.commit()

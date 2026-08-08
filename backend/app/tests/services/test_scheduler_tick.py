@@ -12,6 +12,7 @@ from app.models.run_schedule import RunSchedule
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.run_engine import scheduler
+from app.tests.publication_baseline import baseline_flow_publication
 
 
 def _workspace(db) -> Workspace:
@@ -39,7 +40,7 @@ def _system(db, workspace_id: str, *, status: str = "active") -> System:
     )
     db.add(system)
     db.commit()
-    return system
+    return baseline_flow_publication(db, system)
 
 
 def test_compute_next_fire_at_valid():

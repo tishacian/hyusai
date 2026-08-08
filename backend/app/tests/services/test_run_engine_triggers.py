@@ -15,6 +15,7 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.run_engine import triggers
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +94,12 @@ def _make_system(db, *, workspace_id: str, flow: dict, status: str = "active") -
 
 
 def _make_workspace(db) -> Workspace:
-    ws = Workspace(id=str(uuid.uuid4()), name="WS", slug=f"ws-{uuid.uuid4().hex[:6]}", settings={})
+    ws = Workspace(
+        id=str(uuid.uuid4()),
+        name="WS",
+        slug=f"ws-{uuid.uuid4().hex[:6]}",
+        settings=dict(LEGACY_FLOW_AUTHORITY),
+    )
     db.add(ws)
     db.commit()
     return ws

@@ -18,6 +18,7 @@ from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 from scripts import rollout_system360_canary as rollout
 
 
@@ -62,7 +63,12 @@ def _seed_target(db):
         slug=f"structural-{uuid4()}",
         settings={
             "showcase_seed": True,
-            "features": {key: True for key in rollout.ROLLOUT_FEATURES},
+            # The Lot 6 rollout writes the legacy mirror and refuses to run
+            # while publication owns Flow state.
+            "features": {
+                **LEGACY_FLOW_AUTHORITY["features"],
+                **{key: True for key in rollout.ROLLOUT_FEATURES},
+            },
         },
     )
     capability = Capability(

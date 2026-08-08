@@ -4,6 +4,10 @@ These tests exercise the HTTP boundary because ``SystemUpdate`` must preserve
 the important distinction between an omitted PATCH field and an explicit JSON
 ``null``.  They also prove that rejected writes are atomic: no System change,
 version, or mutation audit may survive a failed precondition/intent gate.
+
+The subject is the legacy mirror write path, so the fixture workspace opts out
+of ``flow_publication_v1``: with it on, the PATCH is refused before these gates
+are ever reached and the draft endpoint owns the equivalent contract.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.chains import version_service
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -118,7 +123,12 @@ def _seed(
         id="ws-flow-safety",
         name="Flow safety",
         slug="flow-safety",
-        settings={"features": {"flow_v3_dag_authoritative": False}},
+        settings={
+            "features": {
+                **LEGACY_FLOW_AUTHORITY["features"],
+                "flow_v3_dag_authoritative": False,
+            }
+        },
     )
     user = User(
         id="user-flow-safety",
@@ -294,7 +304,7 @@ def test_create_active_empty_flow_requires_explicit_intent(db_session) -> None:
         id="ws-flow-safety",
         name="Flow safety",
         slug="flow-safety",
-        settings={},
+        settings=dict(LEGACY_FLOW_AUTHORITY),
     )
     user = User(
         id="user-flow-safety",

@@ -19,6 +19,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
@@ -65,6 +66,16 @@ import {
   paletteItemToNode,
   type PaletteItem,
 } from './flow.types';
+
+/** Publication preconditions `GET /flow-state` refuses on. Each names a
+ * repairable server state, so the message is worth showing verbatim. */
+const PUBLICATION_HYDRATION_CODES = new Set([
+  'FLOW_DRAFT_STATE_MISSING',
+  'PUBLISHED_FLOW_VERSION_INVALID',
+  'PUBLISHED_FLOW_SHAPE_INVALID',
+  'PUBLISHED_FLOW_MIRROR_DRIFT',
+  'PUBLISHED_FLOW_VERSION_HASH_DRIFT',
+]);
 
 @Component({
   selector: 'app-flow-builder',
@@ -420,6 +431,16 @@ export class FlowBuilderComponent {
       this.document.removeEventListener('fullscreenchange', onFullscreenChange);
     });
 
+    // Exactly one bottom panel at a time. Opening the workbench already closes
+    // the terminal, but a run reopens the terminal on its own; without the
+    // mirror rule both reservations stack and the canvas loses its floor.
+    effect(() => {
+      if (!this.run.terminalOpen()) return;
+      untracked(() => {
+        if (this.workbenchOpen()) this.closeWorkbench();
+      });
+    });
+
     // Server diagnostics follow the exact live editor revision. The sidecar
     // deduplicates repeated observations and debounces actual HTTP traffic.
     effect(() => {
@@ -513,10 +534,9 @@ export class FlowBuilderComponent {
           this.system.set(sys);
           this.loadState.set('ready');
         },
-        error: () => {
+        error: (error: unknown) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          const message =
-            'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
+          const message = this.hydrationFailureMessage(error);
           this.persistence.markHydrationFailed(message);
           this.loadError.set(message);
           this.loadState.set('error');
@@ -535,6 +555,19 @@ export class FlowBuilderComponent {
       return (detail as { code?: unknown }).code === 'FLOW_PUBLICATION_DISABLED';
     }
     return detail === 'Not Found';
+  }
+
+  /** A publication precondition failure names something an operator can fix,
+   * so its server message replaces the generic refusal instead of hiding it. */
+  private hydrationFailureMessage(error: unknown): string {
+    const generic =
+      'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
+    if (!(error instanceof HttpErrorResponse)) return generic;
+    const detail = error.error?.detail ?? error.error;
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return generic;
+    const { code, message } = detail as { code?: unknown; message?: unknown };
+    if (typeof code !== 'string' || !PUBLICATION_HYDRATION_CODES.has(code)) return generic;
+    return typeof message === 'string' && message.trim() ? message : `${generic} (${code})`;
   }
 
   protected requestClear(): void {

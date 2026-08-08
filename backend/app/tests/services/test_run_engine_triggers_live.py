@@ -22,6 +22,7 @@ from app.models.workspace import Workspace
 from app.services.run_engine import triggers
 from app.services.run_engine.execution_contract import canonical_flow_sha256
 from app.services.systems import flow_publication
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 def _deposit_analysis_flow() -> dict:
@@ -55,7 +56,14 @@ def _sftp_ingestion_flow() -> dict:
 
 
 def _make_workspace(db) -> Workspace:
-    ws = Workspace(id=str(uuid.uuid4()), name="WS", slug=f"ws-{uuid.uuid4().hex[:6]}", settings={})
+    # These fixtures bind Skills they never seed, so a publication contract
+    # cannot compile for them; the published path has its own fixture below.
+    ws = Workspace(
+        id=str(uuid.uuid4()),
+        name="WS",
+        slug=f"ws-{uuid.uuid4().hex[:6]}",
+        settings=dict(LEGACY_FLOW_AUTHORITY),
+    )
     db.add(ws)
     db.commit()
     return ws

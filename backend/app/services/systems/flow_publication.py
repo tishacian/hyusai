@@ -36,11 +36,14 @@ from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_persisted_system_catalog_bindings,
 )
+from app.services.workspace_features import graduated_feature_enabled
 
 FEATURE_KEY = "flow_publication_v1"
 
 
-@dataclass(frozen=True, slots=True)
+# Not frozen: a context manager's ``__exit__`` assigns ``__traceback__`` while
+# the exception propagates, which a frozen dataclass refuses.
+@dataclass
 class FlowPublicationError(Exception):
     code: str
     message: str
@@ -66,9 +69,13 @@ class FlowReconcileResult:
 
 
 def flow_publication_enabled(workspace: Any) -> bool:
-    settings = getattr(workspace, "settings", None)
-    features = settings.get("features") if isinstance(settings, Mapping) else None
-    return bool(isinstance(features, Mapping) and features.get(FEATURE_KEY) is True)
+    """Draft/publish separation, on unless the workspace explicitly opts out.
+
+    Opting out restores the destructive posture where an editor write lands
+    directly on the live executable graph, so it is only reachable by storing
+    ``false``.
+    """
+    return graduated_feature_enabled(workspace, FEATURE_KEY)
 
 
 def require_flow_publication(workspace: Any) -> None:
@@ -427,6 +434,10 @@ def reconcile_system_flow(
     # the caller immediately before reconciliation. Persist them before the
     # populate-existing lock reloads the parent row and compiles a contract.
     db.flush()
+    # A System predating publication authority, or adopted from a workspace that
+    # had it off, carries no draft. Initialize from its current mirror so the
+    # reconciler starts from a coherent baseline instead of refusing.
+    initialize_publication_state(db, system=system, workspace=workspace, actor=actor)
     locked = _lock_system(
         db,
         system_id=system.id,

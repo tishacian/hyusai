@@ -17,10 +17,16 @@ from app.models.workspace import Workspace
 from app.services.run_engine import inbox
 from app.services.run_engine.dag import WalkerState
 from app.services.run_engine.variable_pool import VariablePool
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 def _workspace(db) -> Workspace:
-    ws = Workspace(id=str(uuid.uuid4()), name="Inbox WS", slug=f"inbox-{uuid.uuid4().hex[:6]}")
+    ws = Workspace(
+        id=str(uuid.uuid4()),
+        name="Inbox WS",
+        slug=f"inbox-{uuid.uuid4().hex[:6]}",
+        settings=dict(LEGACY_FLOW_AUTHORITY),
+    )
     db.add(ws)
     db.commit()
     return ws

@@ -77,6 +77,39 @@ export function isFlowVersionRestoreBlocked(
     : index === 0;
 }
 
+export interface FlowVersionRestoreGate extends FlowVersionIdentityContext {
+  historyError: boolean;
+  restorePending: boolean;
+  writeInProgress: boolean;
+  localChanges: boolean;
+}
+
+/** Why this row cannot be restored, or `null` when it can. Every condition the
+ * button disables on must be named here — a disabled control that explains a
+ * different cause than the one blocking it is what made rollback unreadable. */
+export function flowVersionRestoreBlockReason(
+  version: SystemVersionSummary,
+  index: number,
+  gate: FlowVersionRestoreGate,
+): string | null {
+  if (isFlowVersionRestoreBlocked(version, index, gate)) {
+    return gate.publicationMode
+      ? 'The server draft already matches this published version.'
+      : 'This is already the current version.';
+  }
+  if (gate.historyError) {
+    return 'Version history could not be loaded. Refresh before restoring.';
+  }
+  if (gate.localChanges) {
+    return 'Save or discard your local changes before restoring a version.';
+  }
+  if (gate.restorePending) return 'A restore is already running.';
+  if (gate.writeInProgress) {
+    return 'Wait for the Flow to finish loading or saving.';
+  }
+  return null;
+}
+
 export interface ExactFlowVersionPreviewEvidence {
   publicationMode: boolean;
   systemId: string;
@@ -169,7 +202,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
     <app-drawer
       [open]="open()"
       title="Flow history"
-      subtitle="Append-only · roll back to any version"
+      subtitle="Append-only · restore any version"
       icon="history"
       [width]="380"
       (close)="close.emit()"
@@ -243,18 +276,15 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                     type="button"
                     class="ck-vers__btn ck-vers__btn--warn"
                     (click)="beginRollback(v)"
-                    [disabled]="
-                      restoreBlocked(v, i) ||
-                      rollbackPending() ||
-                      persistence.actionsDisabled() ||
-                      store.dirty() ||
-                      !!historyError()
-                    "
+                    [disabled]="!!restoreBlockReason(v, i)"
                     [title]="restoreTitle(v, i)"
                   >
-                    <app-icon name="rotate-ccw" [size]="12" /> Roll back
+                    <app-icon name="rotate-ccw" [size]="12" /> Restore this version
                   </button>
                 </div>
+                @if (restoreBlockReason(v, i); as reason) {
+                  <p class="ck-vers__restore-reason">{{ reason }}</p>
+                }
                 @if (previewError(v); as error) {
                   <p class="ck-vers__preview-error" role="alert">{{ error }}</p>
                 }
@@ -565,15 +595,22 @@ export class FlowVersionsComponent {
     return isFlowVersionRestoreBlocked(v, index, this.versionIdentityContext());
   }
 
+  restoreBlockReason(v: SystemVersionSummary, index: number): string | null {
+    return flowVersionRestoreBlockReason(v, index, {
+      ...this.versionIdentityContext(),
+      historyError: !!this.historyError(),
+      restorePending: this.rollbackPending(),
+      writeInProgress: this.persistence.actionsDisabled(),
+      localChanges: this.store.dirty(),
+    });
+  }
+
   restoreTitle(v: SystemVersionSummary, index: number): string {
-    if (!this.restoreBlocked(v, index)) {
-      return this.persistence.publicationMode()
-        ? 'Restore this immutable version into the server draft'
-        : 'Roll back to this version';
-    }
+    const reason = this.restoreBlockReason(v, index);
+    if (reason) return reason;
     return this.persistence.publicationMode()
-      ? 'The server draft already matches this Published version'
-      : 'Already current';
+      ? 'Restore this immutable version into the server draft; the published pointer stays unchanged'
+      : 'Restore this version by appending a copy of its graph';
   }
 
   previewStatus(v: SystemVersionSummary): FlowVersionPreviewStatus {
@@ -593,13 +630,8 @@ export class FlowVersionsComponent {
   }
 
   beginRollback(v: SystemVersionSummary): void {
-    if (
-      this.persistence.actionsDisabled() ||
-      this.store.dirty() ||
-      !!this.historyError()
-    ) return;
     const index = this.versions().findIndex((version) => version.id === v.id);
-    if (index < 0 || this.restoreBlocked(v, index)) return;
+    if (index < 0 || this.restoreBlockReason(v, index)) return;
     this.rollbackTarget.set(v);
     this.rollbackMessage.set('');
     this.preview(v);

@@ -24,6 +24,7 @@ from app.services.chat_agentic_runtime import (
 from app.services.chat_execution_policy import ChatExecutionDecision
 from app.services.run_engine.events import RunEventBus
 from app.services.systems import flow_ingress, flow_publication
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 def _seed_agentic_system(db_session, *, retrieval_contract: dict[str, Any]) -> System:
@@ -31,6 +32,7 @@ def _seed_agentic_system(db_session, *, retrieval_contract: dict[str, Any]) -> S
         id=str(uuid.uuid4()),
         name="Andritz runtime test",
         slug=f"andritz-runtime-{uuid.uuid4().hex[:8]}",
+        settings=dict(LEGACY_FLOW_AUTHORITY),
     )
     # PostgreSQL enforces the FK immediately; flush the tenant before the
     # System rather than relying on SQLite's permissive insert ordering.

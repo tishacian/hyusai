@@ -19,13 +19,18 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.api.v1.endpoints import chat
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
 def _workspace():
-    return SimpleNamespace(id="ws-1", slug="andritz")
+    return SimpleNamespace(
+        id="ws-1",
+        slug="andritz",
+        settings=dict(LEGACY_FLOW_AUTHORITY),
+    )
 
 
 def _system():

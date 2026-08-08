@@ -68,6 +68,15 @@
   line-height: 1.45;
 }
 
+/* Why the restore control above is disabled, stated in the row rather than
+   hidden in a tooltip. */
+.ck-vers__restore-reason {
+  margin: 5px 0 0;
+  color: var(--ck-fg-3, #8891a0);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .ck-vers__list {
   list-style: none;
   margin: 0;

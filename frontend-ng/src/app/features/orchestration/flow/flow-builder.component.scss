@@ -9,7 +9,9 @@
   flex-direction: column;
   gap: 12px;
   height: 100%;
-  min-height: 600px;
+  /* A floor here cannot create canvas room — it only pushes the builder past
+     the shell scrollport. The canvas floor lives on `__body` instead. */
+  min-height: 0;
   padding: 16px;
   box-sizing: border-box;
 
@@ -99,6 +101,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   gap: 16px;
   padding: 10px 12px;
   border: 1px solid rgba(245, 158, 11, 0.35);
@@ -115,6 +118,7 @@
 .flow-builder__publication-boundary {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 10px;
   padding: 7px 10px;
   border: 1px solid rgba(96, 165, 250, 0.24);
@@ -176,9 +180,12 @@
   }
 }
 
+/* The canvas is the primary surface: the in-layout panels below it may shrink,
+   but they may never take the graph below a workable height. When a viewport
+   cannot hold both, the shell scrollport absorbs the remainder. */
 .flow-builder__body {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 260px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
@@ -214,6 +221,14 @@
   position: relative;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+
+  /* The canvas states its own comfortable floor for standalone use. Inside the
+     builder that floor belongs to the grid cell above, otherwise the canvas
+     paints over whichever panel follows it. */
+  app-flow-canvas {
+    min-height: 0;
+  }
 }
 
 .flow-builder__inspector {
@@ -285,18 +300,19 @@
 }
 
 /* Bottom execution terminal — in-layout (not a fixed overlay) so it resizes
-   the canvas body rather than covering it. Toggled via the run controls. */
+   the canvas body rather than covering it. Toggled via the run controls.
+   Shrinkable: the height below is a preference, `min-height` the real floor. */
 .flow-builder__terminal {
-  flex-shrink: 0;
+  flex: 0 1 auto;
   height: clamp(180px, 32vh, 320px);
-  min-height: 0;
+  min-height: 128px;
   animation: flowTerminalIn 200ms var(--ck-ease-out, ease-out);
 }
 
 .flow-builder__workbench {
-  flex-shrink: 0;
+  flex: 0 1 auto;
   height: clamp(250px, 35vh, 380px);
-  min-height: 0;
+  min-height: 168px;
   animation: flowTerminalIn 180ms var(--ck-ease-out, ease-out);
 }
 
@@ -308,6 +324,42 @@
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+/* Responsive in height. The panel reservations above assume a tall window; on
+   a laptop viewport they alone exceeded the whole scrollport, so every
+   secondary consumer gives ground before the canvas does. */
+@media (max-height: 820px) {
+  .flow-builder {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .flow-builder__title {
+    font-size: 16px;
+  }
+
+  .flow-builder__terminal {
+    height: clamp(128px, 22vh, 220px);
+  }
+
+  .flow-builder__workbench {
+    height: clamp(168px, 26vh, 260px);
+  }
+}
+
+@media (max-height: 700px) {
+  .flow-builder__body {
+    min-height: 220px;
+  }
+
+  .flow-builder__terminal {
+    height: 128px;
+  }
+
+  .flow-builder__workbench {
+    height: 168px;
   }
 }
 

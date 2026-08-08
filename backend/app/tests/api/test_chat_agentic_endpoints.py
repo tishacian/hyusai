@@ -26,6 +26,7 @@ from app.models.user import Message, User
 from app.models.user import Session as ChatSession
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.services.evaluation.canonical_answer_service import create_canonical_answer
+from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 ANDRITZ_NOTICES = "andritz-notices-techniques-spl-pilot"
 AGENTIC_FLOW = json.loads(
@@ -57,6 +58,7 @@ def _seed_agentic_workspace(db_session, *, suffix: str) -> tuple[Workspace, Syst
         slug=f"agentic-api-{suffix}",
         settings={
             "family": "andritz",
+            **LEGACY_FLOW_AUTHORITY,
             "chat_execution": _chat_execution_policy(),
             "_migration_059_andritz_agentic_default_state": {
                 "revision": "059_andritz_agentic_default",
