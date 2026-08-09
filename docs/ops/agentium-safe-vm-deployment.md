@@ -1894,3 +1894,291 @@ fenêtre.
 Ne pas découvrir ce point pendant un incident : si le rollout Lot 6 doit
 avancer après cette fenêtre, la décision entre porter les scripts sur la voie
 Publish et poser un opt-out temporaire se prend **avant** le GO.
+
+## Bascule `flow_publication_v1` — procédure exécutable, mesurée en combiné le 09/08
+
+Cette section remplace la *Séquence* de la section « Publication Flow par défaut
+(081/082) » pour tout ce qui concerne l'ordre, les points de contrôle et le
+retour arrière. Elle est écrite depuis une répétition complète, en une seule
+passe, sur une copie fraîche du dump de production — la mesure combinée qui
+manquait. Chaque nombre ci-dessous a été observé, aucun n'est déduit.
+
+Répétition de référence : base jetable `agentium_reh_f8c0758b`, restaurée depuis
+`…/2026-08-08-108bbfcea7b5/postgres-pre-migration.dump` (sha256 vérifié,
+révision de départ `080_trigger_event_claims`), image candidate
+`agentium-backend:f8c0758bf938`. Rapports sous
+`/srv/agentium-data/candidate-out/taskc/reports/`.
+
+### Accès à la VM — ce que ce document ne disait pas
+
+Ce runbook nomme `carakai` une dizaine de fois sans jamais dire que **ce n'est
+pas la VM applicative**. `carakai` (`79.137.18.231`) est l'hôte du runner
+protégé et des canaris ; il ne porte ni `/srv/agentium-data`, ni checkout
+omnirag. Deux agents y ont cherché la base.
+
+| Rôle | Hôte SSH | Adresse |
+|---|---|---|
+| VM applicative Agentium (PostgreSQL, images, worktrees, `/srv/agentium-data`) | `omnirag-demo` | `217.182.104.99` = `agentium.papai.ai` |
+| Runner protégé, canaris d'itération, attestations | `carakai` | `79.137.18.231` |
+
+Tout ce qui suit s'exécute sur `omnirag-demo`, en `sudo` : les worktrees et le
+répertoire de déploiement appartiennent à `root`.
+
+### Périmètre réel de la fenêtre, mesuré en combiné
+
+Cohorte : 89 Systems, dans les 17 workspaces non supprimés (les 15 Systems
+restants sur 104 vivent dans deux workspaces en suppression douce).
+
+| Observable | Valeur mesurée |
+|---|---|
+| `alembic upgrade head` depuis `080` | atteint `084_decision_condition_repair`, **tête unique**, sortie 0 |
+| Lignes réparées par `084` | 130 (41 `systems`, 41 `system_flow_drafts`, 48 `system_versions`), 41 Systems distincts |
+| Dry run du backfill | `publish 89` (tous `initial`), `already_pinned 0`, `at_risk 3`, sortie **1** |
+| `--apply` | **`published 85`, `failed 4`**, sortie **1** |
+| `--apply` consécutif | `already_pinned 85`, `published 0`, `publish_republication 0` — **idempotent** |
+| Systems dispatchables après backfill | 77 / 89 |
+| Refus restants | `FLOW_INGRESS_SYSTEM_INACTIVE` 8, `PUBLISHED_EXECUTION_CONTRACT_MISSING` 4 |
+| Accepteraient un Run, par adaptateur | `manual 59`, `chat 16`, `event 1` |
+| Contrats publiés mais sans ingress | 2 dispatchables (4 tous statuts confondus) |
+
+**`chat: 20` et `chat: 16` sont tous les deux vrais et ne disent pas la même
+chose.** 20 contrats publiés *contiennent* un ingress `chat` ; 16 seulement
+*accepteraient un Run*. Les 4 manquants sont des Systems `retired`, que
+`assert_dispatchable` refuse en `FLOW_INGRESS_SYSTEM_INACTIVE`. Le chiffre à
+présenter à une fenêtre est **16** : c'est celui qui décrit du trafic possible.
+Compter les ingress compilés est exactement l'erreur de mesure que ce dossier
+enregistre depuis trois nuits — la présence d'une valeur pour la réalité qu'elle
+représente.
+
+Les 4 échecs de publication sont les défauts d'auteur déjà inventoriés
+(`Tender Response Analyst`, `Contract Risk Copilot`, `Shared mailbox creation`,
+`Translation Suite`). Ils ne sont pas mécaniques et ne se réparent pas dans une
+fenêtre de déploiement.
+
+### Le backfill sort en 1 et c'est l'état nominal
+
+La *Séquence* du 08/08 exige « **après 6 : code de sortie 0** » et interdit
+l'étape 7 tant qu'il n'est pas obtenu. **Sur cet estate, ce 0 est
+inatteignable** : le script sort en 1 dès un seul `failed`, et 4 Systems
+échouent à chaque passe, définitivement. Un opérateur qui applique la consigne
+littéralement ne bascule jamais.
+
+La condition d'arrêt correcte n'est pas le code de sortie mais la composition du
+rapport :
+
+- `summary.published + summary.already_pinned + summary.skipped + summary.failed`
+  doit égaler `summary.systems` (89) ;
+- `summary.failed` doit valoir **exactement 4**, et les quatre `system_id`
+  doivent être ceux de la liste ci-dessus. Un cinquième échec, ou un échec sur
+  un autre Système, arrête la fenêtre ;
+- `summary.skipped` doit valoir **0**. Un `skipped` portant
+  `no published pointer` ou `no server draft` signifie que `081` n'a pas été
+  appliquée : ne pas continuer.
+
+### Séquence
+
+```bash
+# Sur omnirag-demo, en sudo.
+CAND=f8c0758bf938                       # <sha12> du candidat, immuable
+DEPLOY=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh
+REPORTS=/srv/agentium-data/flow-publication-deployments/$(date +%F)-$CAND
+WORKTREE=/srv/agentium-data/worktrees/candidate-$CAND
+
+# 1. Construire les trois images au SHA candidat, tag <sha12> UNIQUEMENT.
+#    Ne pas déplacer `demo-agentic` : c'est le point de rollback, et il doit
+#    continuer de désigner 5c1f8838 jusqu'à l'étape 8.
+cd "$WORKTREE"
+for svc in backend worker frontend; do
+  docker build -f docker/Dockerfile.agentium-$svc \
+    --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
+    -t agentium-$svc:$CAND .
+done
+
+# 2. Dump quiescé + checksum + marqueur .ready sur /dev/sdb, puis répétition
+#    complète (étapes 4 à 7) sur une base jetable restaurée. Obligatoire :
+#    cette tranche mute des graphes stockés, pas seulement du schéma.
+sha256sum -c "$REPORTS/postgres-pre-migration.dump.sha256"
+
+# 3. Gate stockage.
+AGENTIUM_IMAGE_TAG="$CAND" "$DEPLOY" storage-check
+
+# 4. Migrations 081 → 084. Les images servies restent en 5c1f8838 ; le trafic
+#    continue de passer par la voie legacy, qui lit le drapeau par son absence.
+AGENTIUM_IMAGE_TAG="$CAND" "$DEPLOY" migrate
+
+# 5. Backfill, dry run. Sortie 1 attendue si at_risk > 0 : lire le rapport.
+python -m scripts.backfill_flow_publication_contracts \
+  --report /report/contracts-dry-run.json
+
+# 6. Backfill, apply. Après relecture du rapport de l'étape 5 uniquement.
+python -m scripts.backfill_flow_publication_contracts --apply \
+  --actor 'system:flow-contract-backfill' \
+  --report /report/contracts-apply.json
+
+# 7. Vérification d'exécution, avant toute bascule d'image.
+python -m scripts.measure_flow_dispatch_readiness \
+  --report /report/readiness-post-apply.json
+
+# 8. Bascule des images, puis canaris.
+AGENTIUM_IMAGE_TAG="$CAND" "$DEPLOY" up
+/srv/agentium-data/worktrees/demo-agentic/scripts/run-iteration-canaries.sh
+```
+
+Les étapes 5 à 7 tournent en one-off sur l'**image candidate**, contre la base
+live, avec `"$REPORTS"` monté en bind sur `/report`.
+
+### Point de contrôle après chaque étape
+
+| Étape | Observable qui autorise la suite | Ce qui arrête la fenêtre |
+|---|---|---|
+| 3 | `storage-check` sort en 0 | tout écart de montage |
+| 4 | `alembic current` = `084_decision_condition_repair`, **une seule ligne** dans `alembic_version` ; `flow_decision_condition_repairs` existe et compte **130 lignes / 41 Systems** ; le backend live répond toujours en `5c1f8838` et le trafic est nominal | ledger vide ou partiel : `084` n'a pas vu les graphes attendus |
+| 5 | `summary.systems` = 89 ; `summary.skipped` = 0 ; `summary.at_risk` = 3 et les trois codes sont `SKILL_NOT_BOUND_TO_SYSTEM`, `ADAPTIVE_POLICY_SCOPE_MISMATCH`, `FLOW_OUTPUT_SINK_REQUIRED` ; lire `report["limits"]` | un `skipped` en `no published pointer` (081 absente) ; un `at_risk` inattendu |
+| 6 | `published` = 85, `failed` = 4 et **les quatre identifiants attendus** ; la somme des catégories vaut 89 | un cinquième échec, ou un échec sur un autre System |
+| 7 | `dispatchable` = 77 ; `would_accept_a_run_by_kind` = `manual 59, chat 16, event 1` ; `blocked_by_code` ne contient que `FLOW_INGRESS_SYSTEM_INACTIVE: 8` et `PUBLISHED_EXECUTION_CONTRACT_MISSING: 4` | toute occurrence de `PUBLISHED_FLOW_MIRROR_DRIFT` : voir *Downgrade de 084* |
+| 8 | `/api/v1/build-info` sur le SHA complet, `revision_verified: true`, canaris 6/6, puis 60 minutes de surveillance des Runs rejetés | — |
+
+L'étape 7 est le seul contrôle qui distingue « publié » de « exécutable ». Ne
+pas la sauter : le 08/08, une publication réussie masquait 43 contrats vides.
+
+### Où est le point de non-retour, et où il n'est pas
+
+**Le retour arrière par les images reste disponible du début à la fin, et la
+base n'a pas besoin d'être restaurée.** Vérifié, pas supposé, avec `084`
+appliquée — c'était le doute ouvert, puisque `084` réécrit du contenu de graphe
+et pas seulement du schéma.
+
+Mesuré en exécutant l'image `5c1f8838` contre la base migrée en `084` et déjà
+backfillée :
+
+- les 41 Systems réparés, **170 conditions Decision** : `condition.validate`
+  et `condition.evaluate` de l'ancienne image les acceptent toutes.
+  **0 échec de parsing, 0 échec d'évaluation** (63 `True`, 107 `False`) ;
+- l'ancien `dag_validator.validate_flow` ne produit **aucun diagnostic
+  bloquant** sur les 41 graphes réparés ;
+- deux Runs legacy réels (`Agentium Workspace Chat` / Showcase,
+  `NAWA Workspace Chat` / Nawa), créés et exécutés par la branche drapeau-éteint
+  de `POST /systems/{id}/run`, terminent en **`completed`**, les deux Decisions
+  réparées résolvant `matched` ;
+- l'ORM de l'ancienne image lit sans erreur le schéma `082`/`083`/`084`, y
+  compris la table ledger qu'elle ne connaît pas.
+
+La raison est structurelle et vaut mieux que la mesure seule :
+`run_engine/condition.py` est **identique** entre `5c1f8838` et `f8c0758b` à une
+addition près (`references()`, un helper non appelé par l'évaluateur). La
+grammaire qui lit les conditions réparées est la même des deux côtés. Et le
+drapeau `flow_publication_v1` est **absent** des 17 workspaces, donc l'ancienne
+image repart intégralement sur la voie legacy.
+
+**Une réserve, sans impact sur le service.** Depuis l'ancienne image, toute
+invocation Alembic échoue contre une base en `084` :
+`Can't locate revision identified by '084_decision_condition_repair'`, sortie
+255. Le point d'entrée du backend n'appelle pas Alembic, donc le service
+démarre et sert normalement ; mais après un rollback d'images, **ne pas lancer
+`agentium-vm-deploy.sh migrate`** — il échouera. C'est bénin tant que personne
+ne le tente.
+
+**Le vrai point de non-retour est le downgrade de `084` après le backfill, pas
+la bascule d'image.** Voir ci-dessous.
+
+### Downgrade de `084` : ce qu'il restaure, et pourquoi il ne faut pas le jouer après le backfill
+
+`084.downgrade()` recopie les octets d'origine de `flow_definition` et de
+`flow_sha256` depuis le ledger vers `systems`, `system_flow_drafts` et
+`system_versions`, puis supprime la table ledger. Il **ne touche jamais
+`execution_contract`**.
+
+Conséquence, mesurée en jouant réellement le downgrade sur la copie après un
+`--apply` complet :
+
+| | avant downgrade | après downgrade |
+|---|---|---|
+| contrats publiés (objets) | 85 | **85, inchangés** |
+| dérive miroir | 0 | **36** |
+| Systems dispatchables | 77 | **47** |
+| accepteraient un Run `chat` | 16 | **1** |
+| accepteraient un Run `manual` | 59 | 44 |
+| nouveau code de refus | — | **`PUBLISHED_FLOW_MIRROR_DRIFT` : 30** |
+
+Le mécanisme : le backfill écrit des versions publiées portant le graphe
+*réparé*, versions que le ledger de `084` ne connaît pas puisqu'elles n'existaient
+pas au moment de l'upgrade. Le downgrade ramène le miroir `systems.flow_definition`
+à la prose, la version publiée reste réparée, et les deux ne concordent plus.
+Le backfill **ne répare pas** `PUBLISHED_FLOW_MIRROR_DRIFT` : c'est écrit plus
+haut dans ce document, et cela reste vrai ici.
+
+Donc :
+
+- **avant** tout `--apply`, le downgrade de `084` est propre et réversible ;
+- **après** un `--apply`, il est destructeur et laisse l'estate plus abîmé
+  qu'avant la fenêtre. Ne pas le jouer.
+
+**Récupération si le downgrade a été joué par erreur** — mesurée, elle est
+simple : rejouer `alembic upgrade head`. Réappliquer `084` réécrit le miroir
+dans sa forme réparée, qui reconcorde avec les contrats déjà publiés, et
+l'estate revient à 77 dispatchables / `chat 16` / `manual 59` **sans backfill**.
+Un `--apply` lancé ensuite rapporte `already_pinned 85`, `published 0` : il n'y
+a rien à republier.
+
+### Si le backfill est interrompu en cours d'`--apply`
+
+Mesuré en tuant le conteneur en plein vol :
+
+- **les publications déjà faites sont conservées.** Chaque System est committé
+  individuellement ; la coupure a laissé 28 contrats écrits et valides ;
+- **aucun rapport n'est écrit.** Le fichier `--report` n'est produit qu'à la
+  toute fin. Une exécution interrompue ne laisse donc *aucun* artefact : tous
+  les points de contrôle de l'étape 6 sont indisponibles, et l'état ne peut se
+  lire que dans la base ou au rapport de la passe suivante ;
+- **la reprise est le simple relancement de la même commande.** Aucune option,
+  aucun nettoyage. La passe suivante a rapporté `already_pinned 28`,
+  `published 57` — soit les 85 attendus — et l'état final est identique à celui
+  d'une passe non interrompue : 77 dispatchables, `chat 16`, `manual 59`.
+
+Ne pas restaurer la base : la donnée n'est pas corrompue, il lui manque des
+contrats. Ne pas non plus downgrader `084` (section précédente).
+
+### Preuve d'exécution bout-en-bout
+
+Cinq Runs réels depuis l'image candidate sur la copie, créés par
+`flow_ingress.create_published_ingress_run` puis exécutés par
+`run_engine.schedule_run` — les deux appels exacts du dispatch manuel.
+
+| System | Mode | Ingress | Statut terminal |
+|---|---|---|---|
+| `Evidence Graph` (sentinel-ci) | `sequential_legacy` | `manual` | **completed** |
+| `Password Reset` (nawa) | `dag_overlay` | `manual` | **completed** |
+| `News Lab` (Default) | `sequential_legacy` | `manual` | **completed** |
+| `Agentium Workspace Chat` (showcase) — **réparé par `084`** | `dag_overlay` | `chat` | **completed** |
+| `Andritz Chat Agentic` (andritz) | `dag_overlay` | `chat` | échec puis **completed** |
+
+Le Run du chat Andritz a échoué une fois en
+`membrane_valve_breach:max_latency_ms` avant d'aboutir au second essai. Ce n'est
+pas une régression de la publication : environ un Run de chat sur quatre
+franchit déjà cette valve, sur le même code, depuis longtemps. Le compter comme
+tel.
+
+Le quatrième est le plus informatif : ce System n'était **pas publiable avant
+`084`**, et son Run traverse les deux Decisions réparées (`router.fast_exit`,
+`runtime.deep_router`), toutes deux résolues en `matched`.
+
+**Précision sur la branche choisie.** Le handoff annonçait que chaque Decision
+réparée retomberait sur son `default_branch`. L'observable dit autre chose de la
+même chose : la réparation écrit `True` sur la branche de repli, donc le moteur
+la voit *matcher* et journalise `decision_resolution: matched`, pas un repli.
+Le résultat fonctionnel est bien celui attendu, mais un opérateur qui cherche
+`default` dans les checkpoints ne trouvera rien.
+
+### Bornes de cette répétition
+
+- Les Runs ont tourné avec la clé Qdrant en lecture seule et un object store
+  local jetable, pour qu'aucune écriture de répétition n'atteigne la production.
+  La mesure prouve la traversée et le statut terminal, **pas** la qualité des
+  effets de bord : plusieurs invocations échouent en interne
+  (`audit_log_v1 requires an event_type`, `'answer'`) sans faire échouer le Run,
+  comportement du marcheur antérieur et indépendant de la publication.
+- `dispatch-readiness` lit vert-et-vide pour un workspace sans surface déclarée.
+  Le chiffre qui fait foi reste celui de `measure_flow_dispatch_readiness`, qui
+  rejoue la barrière d'ingress System par System.
+- Les 59 ingress `manual` gagnés sont majoritairement du contenu de
+  démonstration, pas du trafic.
