@@ -1537,14 +1537,18 @@ Contrôles entre étapes :
   du code legacy) ;
 - **après 5** : code de sortie **0** exigé — le dry-run sort en 1 si le plan
   contient déjà un `apply_risk` (`summary.at_risk`), justement pour qu'un plan
-  entièrement vert ne se lise pas comme une garantie. `summary.publish` doit
-  égaler l'écart mesuré par la requête 2, soit **16** à la mesure du 08/08 ;
-  `summary.already_pinned` couvre le reste du parc. Lire les `skipped` un par
-  un. Un `reason` valant `no published pointer` ou `no server draft` signifie
-  que la 081 n'a pas été appliquée : **ne pas continuer**. Un `draft differs
-  from the published version` désigne maintenant un Draft réellement édité,
-  jamais une baseline 077 réutilisée. Lire enfin `report["limits"]` : il énumère
-  ce que ce plan n'a pas pu vérifier ;
+  entièrement vert ne se lise pas comme une garantie. Lire la partition de
+  `summary.publish` : `publish_initial` sont les versions sans contrat,
+  `publish_republication` celles dont le contrat gelé n'est plus celui que
+  produit le compilateur courant — c'est le volume qu'une passe précédente
+  déclarait `already_pinned`, et il doit être attendu, pas découvert ici.
+  `summary.already_pinned` couvre le reste du parc ; y relire les
+  `contract_freshness: unverified`. Lire les `skipped` un par un. Un `reason`
+  valant `no published pointer` ou `no server draft` signifie que la 081 n'a pas
+  été appliquée : **ne pas continuer**. Un `draft differs from the published
+  version` désigne maintenant un Draft réellement édité, jamais une baseline 077
+  réutilisée. Lire enfin `report["limits"]` : il énumère ce que ce plan n'a pas
+  pu vérifier ;
 - **après 6** : code de sortie **0** exigé — le script sort en 1 dès un seul
   `failed`, y compris un `not_repaired` (Publish accepté mais version toujours
   inexécutable). `summary.published + summary.skipped + summary.already_pinned`
@@ -1655,6 +1659,48 @@ contrat déjà valide reçoit un `apply_risk`, parce que Publish y répondrait p
 no-op qui laisserait l'empreinte manquante en place. Aucun des deux n'existe en
 production au 08/08.
 
+**Contrat gelé mais périmé — le même défaut une troisième fois, corrigé le
+09/08.** Le classement reposait encore sur une présence : une colonne
+`execution_contract` non nulle et structurellement valide valait `already_pinned`.
+Or le contrat vacant du témoin du 08/08 (`{"nodes": {}, "outputs": [],
+"ingresses": []}`) satisfait les deux barrières runtime et refuse pourtant les
+cinq adaptateurs. Le gel étant le principe même de la publication, le
+compilateur corrigé n'atteint jamais ces lignes : « basculer l'image » ne suffit
+pas, il faut une **re-publication**.
+
+Le classement recompile donc le payload publié avec le compilateur courant et
+compare le `contract_sha256` obtenu à celui gelé. C'est exactement le test que
+`publish_draft` applique déjà pour décider s'il est un no-op, ce qui rend la
+passe idempotente par construction : une seconde exécution recompile le même
+digest et ne publie rien. Nouveau défaut `execution_contract_stale`, nouveau
+champ `publication_kind` par System (`initial` / `republication`) et deux
+compteurs qui partitionnent `publish` : `summary.publish_initial` et
+`summary.publish_republication`. Un opérateur doit voir que cette passe touche
+des lignes que la précédente déclarait saines.
+
+Conséquence sur le dry-run : il **compile** désormais, donc il n'est plus aveugle
+aux échecs de compilation — ils ressortent en `apply_risk` portant le code exact
+du compilateur. Un System dont le contrat ne recompile pas reste `already_pinned`
+mais porte `contract_freshness: unverified` : sa péremption est inconnue, pas
+absente. Ce que le dry-run ne voit toujours pas, c'est un diagnostic DAG bloquant
+(`publish_draft` valide le graphe avant de compiler) ; `report["limits"]` le dit.
+
+Mesuré le 09/08 sur `agentium_reh_108bbfce`, contrats d'avant correctif restaurés
+depuis `estate-and-contracts-BEFORE-fix.json` (état identique, deux scripts) :
+
+| Script | `already_pinned` | `publish` | dont `republication` | `at_risk` | sortie |
+|---|---|---|---|---|---|
+| avant (`61eab738`) | 49 | 40 | — | 0 | 0 |
+| après | 10 | 79 | **39** | 3 | 1 |
+
+`--apply` publie les 39 ; la seconde exécution consécutive rapporte
+`publish_republication: 0`, `published: 0`, et `system_versions` reste à 314
+lignes. Les 40 `initial` échouent comme avant (conditions Decision invalides) :
+c'est le défaut voisin, non traité ici. Les 3 `at_risk` sont
+`SKILL_NOT_BOUND_TO_SYSTEM`, `ADAPTIVE_POLICY_SCOPE_MISMATCH` et
+`FLOW_OUTPUT_SINK_REQUIRED` — trois refus d'`--apply` que l'ancien dry-run ne
+pouvait pas annoncer.
+
 **Miroir legacy en avance — toujours non réparé.** Tout System dont le graphe a
 été édité par la voie legacy depuis la 077/078 a un `systems.flow_definition` en
 avance sur sa version publiée. `publish_draft` lève
@@ -1682,13 +1728,15 @@ rapports** : les compteurs prouvent le classement, pas la pertinence métier de
 publier ces 16 Systems dans cette fenêtre.
 
 **Ce qui reste non vérifié.** Le correctif a été validé par tests sur les formes
-de lignes exactes relevées en production, jamais contre la base de production :
-personne n'a encore exécuté le dry-run depuis l'image candidate. Restent donc à
-constater dans la fenêtre, avant tout `--apply` : que `summary.publish` vaut bien
-16 et non 0 ; qu'aucun `apply_risk` n'apparaît ; et que la compilation de contrat
-aboutit pour ces 16 Systems, ce qu'aucun test hors production ne peut établir
-puisque le contrat se compile depuis le catalogue Skill live. L'étape 5 est le
-premier moment où ces trois points deviennent observables.
+de lignes exactes relevées en production, et depuis le 09/08 sur la copie de
+répétition, jamais contre la base de production : personne n'a encore exécuté le
+dry-run depuis l'image candidate contre la base live. Restent donc à constater
+dans la fenêtre, avant tout `--apply` : la partition exacte de `summary.publish`
+entre `publish_initial` et `publish_republication` ; les `apply_risk` qui
+apparaissent ; et que la compilation de contrat aboutit, ce qu'aucun test hors
+production ne peut établir puisque le contrat se compile depuis le catalogue
+Skill live. L'étape 5 est le premier moment où ces trois points deviennent
+observables sur les lignes réelles.
 
 Deux réserves sur les mesures SQL elles-mêmes, qui peuvent faire dépasser 16 :
 la requête 2 ne voit pas une empreinte stockée **non nulle** qui contredirait son
@@ -1699,6 +1747,68 @@ représentation. Le dry-run recalcule le hachage canonique des deux côtés, don
 lui seul dénombre l'ensemble inerte réel et la dérive réelle. S'il rapporte plus
 de 16 `publish`, c'est la mesure SQL qui était optimiste, pas le script qui
 s'emballe.
+
+### Un Run accepté aboutit — mesuré le 09/08, pas déduit
+
+Le correctif d'ingress du 08/08 faisait *accepter* un Run par 45 Systems ; que
+ce Run *aboutisse* restait le risque ouvert, parce que les graphes legacy le
+sont bien au-delà de leur entrée : ils écrivent `skill_slug` à plat au lieu du
+binding imbriqué, et orthographient les puits `type: "sink"`, non reconnu comme
+sortie. `backend/scripts/rehearse_published_ingress_run.py` crée un vrai Run par
+`flow_ingress.create_published_ingress_run` puis l'exécute par
+`run_engine.schedule_run` — les deux appels exacts que fait la surface de
+dispatch manuel — et rapporte le statut terminal, les invocations et tous les
+checkpoints. Il exécute les Skills pour de bon : copie de répétition uniquement.
+
+Quatre Runs sur `agentium_reh_108bbfce`, depuis l'image candidate :
+
+| System | Mode | Ingress | Statut terminal |
+|---|---|---|---|
+| `News Lab` (`smoke-dfbfc7`) | `sequential_legacy` | `manual` | **completed** |
+| `Evidence Graph` (`sentinel-ci`) | `sequential_legacy` | `manual` | **completed** |
+| `Password Reset` (`nawa`) | `dag_overlay` | `manual` | **completed** |
+| `Andritz Chat Agentic` (`andritz`) | `dag_overlay` | `chat` | **completed** |
+
+Le dialecte ne mord pas une seconde fois, et la raison est structurelle : un
+graphe purement legacy n'a pas de `schema_version >= 2` ni de nœud de contrôle
+portant un `kind`, donc `resolve_flow_execution` le route toujours vers le
+marcheur **séquentiel**, qui exécute `system.skill_ids` et ne lit pas le graphe.
+Vérifié sur les 104 graphes publiés de l'export d'évidence : **zéro** System
+combine un marcheur DAG et une source orthographiée à l'ancienne ; les 42
+`type: "sink"` et les 20 `skill_slug` à plat vivent tous dans des graphes
+séquentiels. La tolérance étroite de `flow_node_kind` n'a donc pas à être
+élargie, et l'élargir aux puits changerait les contrats gelés de ces 42 Systems.
+
+Ce que cela coûte, en revanche, doit être dit : pour ces graphes le contrat
+compile `nodes: {}` et `outputs: []`, et `run_contracts.validate_node_output` /
+`validate_sink_output` retournent `None` quand le nœud est absent du contrat. La
+publication n'y ajoute donc **aucune** validation d'exécution au-delà du payload
+d'ingress — le Run est identique à ce que produit la voie legacy. Le bénéfice de
+la publication pour ces Systems est la barrière d'ingress, pas le contrat.
+
+Deux réserves honnêtes sur ces mesures :
+
+- le `chat` a échoué deux fois avant d'aboutir, sur
+  `membrane_valve_breach:max_latency_ms` (valve à 45 000 ms, `semantic_search_v1`
+  à 27–35 s). Ce n'est pas une régression de la publication : l'historique du
+  même System dans la copie de répétition compte **253 `completed` et 90
+  `failed`, dont 90 sur exactement ce code**. Un Run de chat sur quatre franchit
+  déjà cette valve aujourd'hui ;
+- `News Lab` et `Evidence Graph` n'ont **aucun Run historique** : ce sont des
+  Systems de démonstration semés. Les « 44 ingress manuels » gagnés par le
+  correctif sont donc en majorité du contenu de démonstration, pas du trafic.
+  Sur `Evidence Graph`, trois invocations sur quatre échouent en interne
+  (`'query'` absent, `audit_log_v1 requires an event_type`) sans faire échouer le
+  Run : c'est le comportement du marcheur séquentiel, antérieur et indépendant
+  de la publication, mais un `completed` de ce System ne prouve rien de plus que
+  la traversée.
+
+Le harnais a tourné avec `docker/env/agentium.env`, qui porte la clé Qdrant en
+lecture seule et non celle du conteneur backend : les écritures Qdrant du
+Skill d'ingestion de `News Lab` sont sorties en `403 Forbidden`. Volontaire — un
+Run de répétition ne doit pas écrire dans le Qdrant de production — mais cela
+borne la mesure : elle prouve la traversée et le statut terminal, pas la qualité
+des effets de bord.
 
 ### Régression opérateur — deux scripts fermés par conception
 

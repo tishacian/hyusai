@@ -2,7 +2,8 @@
 
 The window this script serves has no room for a green report that repaired
 nothing, so the cases pinned here are the ones production actually exhibits:
-a migration baseline reused without its ``flow_sha256``, and a draft that has
+a migration baseline reused without its ``flow_sha256``, a published contract
+frozen by an older compiler that names no ingress at all, and a draft that has
 genuinely moved ahead and must never be published on an operator's behalf.
 """
 
@@ -18,6 +19,7 @@ import pytest
 from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
+from app.services import flow_contracts
 from app.services.run_engine.execution_contract import canonical_flow_sha256
 from app.services.systems import flow_publication
 from scripts import backfill_flow_publication_contracts as backfill
@@ -82,6 +84,30 @@ def _published_system(db, workspace: Workspace, *, label: str = "baseline") -> S
     return system
 
 
+def _as_vacuous_published_contract(db, system: System) -> SystemVersion:
+    """Freeze the contract an older compiler produced for a legacy graph.
+
+    Structurally valid, self-consistent digest, and it names nothing: this is
+    the shape the 8 August canary published, and every dispatch adapter refuses
+    it with ``FLOW_INGRESS_KIND_UNAVAILABLE``. Freezing is the point of a
+    published version, so no compiler fix reaches this row on its own.
+    """
+
+    version = db.get(SystemVersion, system.published_flow_version_id)
+    contract = {
+        "schema_version": flow_contracts.EXECUTION_CONTRACT_VERSION,
+        "runtime_mode": version.execution_contract["runtime_mode"],
+        "validation_mode": version.execution_contract["validation_mode"],
+        "ingresses": [],
+        "nodes": {},
+        "outputs": [],
+    }
+    contract["contract_sha256"] = flow_contracts.canonical_sha256(contract)
+    version.execution_contract = contract
+    db.commit()
+    return version
+
+
 def _as_reused_077_baseline(db, system: System) -> SystemVersion:
     """Reshape the pointer into what migration 077 left on 16 production rows.
 
@@ -102,9 +128,10 @@ def test_reused_baseline_without_a_digest_is_planned_for_publish(db_session) -> 
     system = _published_system(db_session, workspace)
     _as_reused_077_baseline(db_session, system)
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "publish"
+    assert item["publication_kind"] == "initial"
     assert item["defects"] == ["execution_contract_missing", "flow_sha256_missing"]
     # The defect that used to hide these rows: a NULL digest read as "the draft
     # moved ahead", so the whole repairable set was reported as skipped.
@@ -126,7 +153,7 @@ def test_draft_moved_ahead_is_skipped_even_without_a_stored_digest(db_session) -
     )
     db_session.commit()
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "skipped"
     assert item["reason"] == "draft differs from the published version; publish it by hand"
@@ -137,7 +164,7 @@ def test_executable_pointer_is_already_pinned(db_session) -> None:
     workspace = _workspace(db_session)
     system = _published_system(db_session, workspace)
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item == {"system_id": system.id, "status": "active", "action": "already_pinned"}
 
@@ -148,7 +175,7 @@ def test_missing_pointer_is_skipped_for_the_migration(db_session) -> None:
     system.published_flow_version_id = None
     db_session.commit()
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "skipped"
     assert item["reason"] == "no published pointer; run migration 081 first"
@@ -164,7 +191,7 @@ def test_publishing_the_planned_baseline_makes_it_executable(db_session) -> None
         )
     assert inert.value.code == "PUBLISHED_EXECUTION_CONTRACT_MISSING"
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
     version, _draft, no_op = flow_publication.publish_draft(
         db_session,
         system_id=system.id,
@@ -201,7 +228,7 @@ def test_legacy_mirror_drift_is_reported_as_an_apply_risk(db_session) -> None:
     system.flow_definition = _flow("legacy-edit")
     db_session.commit()
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "publish"
     assert item["apply_risk"]["code"] == "PUBLISHED_FLOW_MIRROR_DRIFT"
@@ -228,7 +255,7 @@ def test_digest_contradicting_its_payload_is_never_planned_for_publish(db_sessio
     version.flow_sha256 = "0" * 64
     db_session.commit()
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "skipped"
     assert item["defects"] == ["execution_contract_missing", "flow_sha256_drift"]
@@ -255,9 +282,10 @@ def test_absent_digest_under_a_valid_contract_is_flagged_as_a_possible_no_op(
     version.flow_sha256 = None
     db_session.commit()
 
-    item = backfill._plan(db_session, system)
+    item = backfill._plan(db_session, system, workspace)
 
     assert item["action"] == "publish"
+    assert item["publication_kind"] == "republication"
     assert item["defects"] == ["flow_sha256_missing"]
     assert item["apply_risk"]["code"] == "PUBLISHED_FLOW_VERSION_HASH_MISSING"
     # Publish is a no-op when the frozen contract still matches, so the absent
@@ -315,6 +343,8 @@ def test_dry_run_declares_its_limits_and_plans_the_repairable_set(
         "systems": 3,
         "already_pinned": 1,
         "publish": 1,
+        "publish_initial": 1,
+        "publish_republication": 0,
         "published": 0,
         "skipped": 1,
         "failed": 0,
@@ -322,7 +352,7 @@ def test_dry_run_declares_its_limits_and_plans_the_repairable_set(
     }
     # The dry run must not read as a promise it cannot keep.
     assert any("never calls publish_draft" in limit for limit in report["limits"])
-    assert any("no execution contract is compiled" in limit.lower() for limit in report["limits"])
+    assert any("blocking DAG diagnostic" in limit for limit in report["limits"])
 
 
 def test_dry_run_refuses_to_look_green_when_apply_will_be_refused(
@@ -359,6 +389,119 @@ def test_apply_publishes_the_repairable_set_and_reports_zero_failures(
     assert item["action"] == "published"
     assert item["no_op"] is False
     assert item["new_published_version_id"] != baseline
+
+
+def test_a_vacuous_frozen_contract_is_republished_not_reported_as_pinned(
+    db_session,
+) -> None:
+    """The defect that made "switch the image" insufficient.
+
+    The pointer is executable by both runtime gates, so classifying on whether
+    the column is populated calls it done. It names no ingress, so every
+    adapter refuses it, and freezing means the fixed compiler never reaches it.
+    """
+
+    workspace = _workspace(db_session)
+    system = _published_system(db_session, workspace)
+    stale = _as_vacuous_published_contract(db_session, system)
+    assert flow_publication.published_run_evidence(
+        db_session, system=system, workspace=workspace
+    )[3]["ingresses"] == []
+
+    item = backfill._plan(db_session, system, workspace)
+
+    assert item["action"] == "publish"
+    assert item["publication_kind"] == "republication"
+    assert item["defects"] == ["execution_contract_stale"]
+    assert item["expected_contract_sha256"] != stale.execution_contract["contract_sha256"]
+
+
+def test_a_second_consecutive_apply_publishes_nothing(
+    db_session, monkeypatch, tmp_path
+) -> None:
+    """Without this the estate gains a version row on every operator run."""
+
+    workspace = _workspace(db_session)
+    system = _published_system(db_session, workspace)
+    _as_vacuous_published_contract(db_session, system)
+
+    first_code, first = _run_main(monkeypatch, db_session, tmp_path, "--apply")
+    versions_after_first = (
+        db_session.query(SystemVersion).filter(SystemVersion.system_id == system.id).count()
+    )
+    second_code, second = _run_main(monkeypatch, db_session, tmp_path, "--apply")
+
+    assert first_code == 0
+    assert first["summary"]["published"] == 1
+    assert first["summary"]["publish_republication"] == 1
+    assert second_code == 0
+    assert second["summary"] == {
+        "systems": 1,
+        "already_pinned": 1,
+        "publish": 0,
+        "publish_initial": 0,
+        "publish_republication": 0,
+        "published": 0,
+        "skipped": 0,
+        "failed": 0,
+        "at_risk": 0,
+    }
+    assert (
+        db_session.query(SystemVersion).filter(SystemVersion.system_id == system.id).count()
+        == versions_after_first
+    )
+
+
+def test_the_dry_run_separates_a_first_publication_from_a_republication(
+    db_session, monkeypatch, tmp_path
+) -> None:
+    """A run that now touches rows an earlier run skipped must say so."""
+
+    workspace = _workspace(db_session)
+    _as_reused_077_baseline(
+        db_session, _published_system(db_session, workspace, label="never-published")
+    )
+    _as_vacuous_published_contract(
+        db_session, _published_system(db_session, workspace, label="frozen-vacuous")
+    )
+    _published_system(db_session, workspace, label="current")
+
+    code, report = _run_main(monkeypatch, db_session, tmp_path)
+
+    assert code == 0
+    assert report["summary"]["publish"] == 2
+    assert report["summary"]["publish_initial"] == 1
+    assert report["summary"]["publish_republication"] == 1
+    assert report["summary"]["already_pinned"] == 1
+    kinds = {
+        item["system_id"]: item.get("publication_kind")
+        for item in report["workspaces"][0]["systems"]
+    }
+    assert sorted(filter(None, kinds.values())) == ["initial", "republication"]
+
+
+def test_a_contract_that_no_longer_compiles_is_never_reported_as_verified(
+    db_session,
+) -> None:
+    """Staleness is unknown, not absent, when the compiler refuses the payload."""
+
+    workspace = _workspace(db_session)
+    system = _published_system(db_session, workspace)
+    # A Skill bound by a node that the catalog no longer serves: the frozen
+    # contract stays valid, but nothing can be recompiled to compare it against.
+    flow = _flow("uncompilable")
+    flow["nodes"][0]["config"]["skill_slug"] = "skill-that-was-deleted"
+    system.flow_definition = flow
+    version = db_session.get(SystemVersion, system.published_flow_version_id)
+    version.flow_definition = flow
+    version.flow_sha256 = canonical_flow_sha256(flow)
+    db_session.commit()
+
+    item = backfill._plan(db_session, system, workspace)
+
+    assert item["action"] == "already_pinned"
+    assert item["contract_freshness"] == "unverified"
+    assert item["recompile_error"]["code"] == "SKILL_CONTRACT_MISSING"
 
 
 def test_apply_reports_a_publish_that_repaired_nothing_as_a_failure(

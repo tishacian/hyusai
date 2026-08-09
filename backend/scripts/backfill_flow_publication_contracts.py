@@ -29,7 +29,23 @@ edited-by-hand and skipped them. A missing digest means the published identity
 is unknown, not that the draft moved: the payload is the authority, and it is
 always hashable.
 
-The dry run is a plan, not a guarantee. It compiles no contract and never calls
+For the same reason a populated ``execution_contract`` is not evidence that the
+contract is usable. A structurally valid contract compiled by an older compiler
+can name no ingress at all, and freezing means no later compiler fix reaches it;
+the System keeps refusing every dispatch adapter until a new version is
+published. So the contract, like the digest, is classified by recomputing it:
+the published payload is recompiled with today's compiler and the resulting
+``contract_sha256`` compared to the frozen one. This is the same test
+``publish_draft`` already applies to decide whether a Publish is a no-op, which
+is what makes the pass idempotent — a second consecutive run recompiles to the
+same digest and publishes nothing.
+
+Re-publishing a stale contract is reported apart from giving an unpublished
+version its first one (``publication_kind``, and the two summary counters that
+partition ``publish``): an operator must be able to see that this run touches
+rows an earlier run left alone.
+
+The dry run is a plan, not a guarantee. It compiles contracts but never calls
 ``publish_draft``, so ``report["limits"]`` states what it could not check and
 ``apply_risk`` names the apply-time refusals it can already see.
 """
@@ -58,9 +74,13 @@ MESSAGE = "Pin execution contract for the migration publication baseline"
 
 DRY_RUN_LIMITS = (
     "A `publish` action is a plan: the dry run never calls publish_draft.",
-    "No execution contract is compiled here, so a compilation failure (Skill "
-    "removed from the catalog, invalid catalog binding, blocking DAG diagnostic) "
-    "cannot be predicted and appears only under --apply.",
+    "The contract is compiled here only to classify staleness. publish_draft "
+    "validates the draft graph first, so a blocking DAG diagnostic (an invalid "
+    "Decision condition, an unwired branch) still refuses a System this plan "
+    "shows as publishable.",
+    "A System whose contract cannot be recompiled carries `contract_freshness` "
+    "= unverified: its frozen contract may already be stale and this run will "
+    "not repair it.",
     "The plan reflects the rows read at this instant. A draft saved between this "
     "report and --apply moves that System to skipped or failed.",
     "`apply_risk` names the apply-time refusals this plan can see structurally. "
@@ -78,20 +98,63 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _publication_defects(version: SystemVersion, *, published_digest: str) -> list[str]:
-    """What stops ``published_run_evidence`` from serving this version.
+def _recompiled_contract_sha256(
+    db: Any,
+    *,
+    system: System,
+    version: SystemVersion,
+    workspace: Any,
+) -> tuple[str | None, dict[str, str] | None]:
+    """The contract digest today's compiler produces for the published payload.
 
-    The same two conditions the runtime enforces: a structurally valid frozen
-    contract, and a stored digest equal to the immutable payload it names.
+    ``publish_draft`` compiles the very same payload and appends a version
+    unless the digest it obtains equals the frozen one, so recompiling here
+    predicts that decision exactly instead of guessing at it.
+    """
+
+    try:
+        contract = flow_publication.compile_execution_contract(
+            db,
+            version.flow_definition,
+            workspace,
+            system=system,
+        )
+    except flow_publication.FlowPublicationError as exc:
+        return None, {"code": exc.code, "message": exc.message}
+    digest = contract.get("contract_sha256")
+    return (digest if isinstance(digest, str) else None), None
+
+
+def _publication_defects(
+    version: SystemVersion,
+    *,
+    published_digest: str,
+    recompiled_contract_sha256: str | None = None,
+) -> list[str]:
+    """What stops this version from serving a Run the estate would recognise.
+
+    The two conditions ``published_run_evidence`` enforces — a structurally
+    valid frozen contract and a stored digest equal to the payload it names —
+    plus the one it cannot see: a contract that is valid but no longer what the
+    current compiler produces. A vacuous contract satisfies both runtime gates
+    and still refuses every dispatch adapter, so presence is not health here
+    any more than a populated ``flow_sha256`` column was.
     """
 
     defects: list[str] = []
+    contract: dict[str, Any] | None = None
     try:
-        flow_contracts.validate_execution_contract(version.execution_contract)
+        contract = flow_contracts.validate_execution_contract(version.execution_contract)
     except flow_contracts.FlowContractError:
         defects.append("execution_contract_missing")
     if version.flow_sha256 != published_digest:
         defects.append("flow_sha256_drift" if version.flow_sha256 else "flow_sha256_missing")
+    if (
+        contract is not None
+        and recompiled_contract_sha256 is not None
+        and contract.get("contract_sha256") != recompiled_contract_sha256
+    ):
+        defects.append("execution_contract_stale")
     return defects
 
 
@@ -100,8 +163,9 @@ def _apply_risk(
     *,
     mirror_digest: str,
     published_digest: str,
+    compile_error: dict[str, str] | None,
 ) -> dict[str, str] | None:
-    """Apply-time refusals already visible without compiling anything."""
+    """Apply-time refusals already visible before publish_draft is called."""
 
     if mirror_digest != published_digest:
         return {
@@ -112,19 +176,26 @@ def _apply_risk(
                 "would discard that legacy edit."
             ),
         }
+    if compile_error is not None:
+        return {
+            "code": compile_error["code"],
+            "message": (
+                "the execution contract does not compile from the published payload, "
+                f"so publish_draft will refuse this System: {compile_error['message']}"
+            ),
+        }
     if defects == ["flow_sha256_missing"]:
         return {
             "code": "PUBLISHED_FLOW_VERSION_HASH_MISSING",
             "message": (
-                "the published contract is already valid, so Publish appends a version "
-                "only if the recompiled contract differs; otherwise it returns a no-op "
-                "and the absent digest survives."
+                "the published contract is already valid and still current, so Publish "
+                "returns a no-op and the absent digest survives."
             ),
         }
     return None
 
 
-def _plan(db: Any, system: System) -> dict[str, Any]:
+def _plan(db: Any, system: System, workspace: Any) -> dict[str, Any]:
     """Classify a System without mutating it. ``action`` drives the apply pass."""
 
     item: dict[str, Any] = {"system_id": system.id, "status": system.status}
@@ -156,9 +227,24 @@ def _plan(db: Any, system: System) -> dict[str, Any]:
         item["reason"] = "flow_definition is not a JSON object; qualify this System by hand"
         return item
 
-    defects = _publication_defects(version, published_digest=published_digest)
+    recompiled_sha256, compile_error = _recompiled_contract_sha256(
+        db,
+        system=system,
+        version=version,
+        workspace=workspace,
+    )
+    defects = _publication_defects(
+        version,
+        published_digest=published_digest,
+        recompiled_contract_sha256=recompiled_sha256,
+    )
     if not defects:
         item["action"] = "already_pinned"
+        if compile_error is not None:
+            # Staleness could not be tested, so "nothing to do" is a reading of
+            # the rows rather than a verified fact.
+            item["contract_freshness"] = "unverified"
+            item["recompile_error"] = compile_error
         return item
     item["defects"] = defects
     if "flow_sha256_drift" in defects:
@@ -183,12 +269,21 @@ def _plan(db: Any, system: System) -> dict[str, Any]:
         return item
 
     item["action"] = "publish"
+    # `republication` means the pointer already carries a valid frozen contract
+    # and this run appends another one anyway. An operator must see that apart
+    # from a first publication: it is the bucket an earlier run of this script
+    # reported as already_pinned and left alone.
+    item["publication_kind"] = (
+        "initial" if "execution_contract_missing" in defects else "republication"
+    )
     item["draft_revision"] = draft.revision
     item["published_flow_version_id"] = system.published_flow_version_id
+    item["expected_contract_sha256"] = recompiled_sha256
     risk = _apply_risk(
         defects,
         mirror_digest=mirror_digest,
         published_digest=published_digest,
+        compile_error=compile_error,
     )
     if risk is not None:
         item["apply_risk"] = risk
@@ -209,8 +304,12 @@ def main() -> int:
             "published": 0,
             "skipped": 0,
             "failed": 0,
-            # Annotation over the `publish` bucket, not a bucket of its own.
+            # Annotations over the `publish` bucket, not buckets of their own.
+            # `publish_initial` and `publish_republication` partition it: the
+            # second names Systems an earlier run reported as already_pinned.
             "at_risk": 0,
+            "publish_initial": 0,
+            "publish_republication": 0,
         },
     }
     if not args.apply:
@@ -237,7 +336,7 @@ def main() -> int:
             if args.system_id:
                 systems_query = systems_query.filter(System.id.in_(sorted(set(args.system_id))))
             for system in systems_query.order_by(System.id.asc()).all():
-                item = _plan(db, system)
+                item = _plan(db, system, workspace)
                 summary["systems"] += 1
                 if item["action"] != "publish":
                     summary["already_pinned" if item["action"] == "already_pinned" else "skipped"] += 1
@@ -245,6 +344,7 @@ def main() -> int:
                     continue
 
                 summary["publish"] += 1
+                summary[f"publish_{item['publication_kind']}"] += 1
                 if "apply_risk" in item:
                     summary["at_risk"] += 1
                 if args.apply:
@@ -273,10 +373,14 @@ def main() -> int:
                     item["no_op"] = no_op
                     # Assert the post-condition the window needs rather than
                     # inferring it: publish_draft can legitimately return a
-                    # no-op that leaves the version unexecutable.
+                    # no-op that leaves the version unexecutable. Carrying the
+                    # planned contract digest in makes the same check prove
+                    # idempotency — a version still classified stale here is one
+                    # the next run would publish all over again.
                     remaining = _publication_defects(
                         version,
                         published_digest=canonical_flow_sha256(version.flow_definition),
+                        recompiled_contract_sha256=item["expected_contract_sha256"],
                     )
                     if remaining:
                         item["action"] = "not_repaired"
