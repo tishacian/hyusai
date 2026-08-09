@@ -1748,6 +1748,51 @@ lui seul dénombre l'ensemble inerte réel et la dérive réelle. S'il rapporte 
 de 16 `publish`, c'est la mesure SQL qui était optimiste, pas le script qui
 s'emballe.
 
+### Le backfill est bloqué par les conditions Decision, pas par le compilateur
+
+Mesuré le 09/08 sur `agentium_reh_108bbfce`, 89 Systems dans la cohorte. Après
+avoir remis les 39 contrats publiés dans leur forme pré-correctif :
+
+| | ancien script | script corrigé |
+|---|---|---|
+| `already_pinned` | 49 | 10 |
+| `publish` | 40 | 79 |
+| dont `publish_initial` | — | 40 |
+| dont `publish_republication` | — | **39** |
+| `at_risk` | 0 | **3** |
+
+Les 39 contrats vides que l'ancien script déclarait `already_pinned` sont bien
+republiés, et un second `--apply` consécutif retombe à `already_pinned: 49`,
+`publish_republication: 0`, `published: 0` — idempotent.
+
+**Mais 40 des 89 Systems ne se publient pas du tout**, et cela n'a rien à voir
+avec le correctif d'ingress ni avec le classement : ce sont les 40
+`publish_initial`, qui échouent identiquement sous l'ancien script. La
+répartition des diagnostics bloquants, relevée sur la copie de répétition :
+
+| Diagnostic | Systems |
+|---|---|
+| `decision_condition_invalid` | 36 |
+| `decision_branch_unwired` | 2 |
+| `flow_output_sink_required` | 1 |
+| `ADAPTIVE_POLICY_SCOPE_MISMATCH` (au compile, pas au validate) | 1 |
+
+`decision_condition_invalid` est exactement le défaut que la migration
+`084_decision_condition_repair` répare — de la prose laissée par les seeds dans
+les conditions stockées. **La fenêtre de déploiement ne peut donc pas se
+terminer sur le seul correctif d'ingress : sans `084`, 36 Systems restent
+non publiables et donc non dispatchables.** Les trois autres sont des défauts
+d'auteur réels, pas de dialecte : `Contract Risk Copilot` n'a aucun nœud puits
+(ses nœuds sont tous `task`, il ne s'agit pas d'un `type: "sink"` mal lu), et
+`Shared mailbox creation` déclare `config.skill_slug` correctement mais son
+`system.skill_ids` est **vide** — le compilateur lit le binding, c'est le
+System qui ne possède pas la Skill.
+
+Les 3 `at_risk` du dry-run corrigé ont prédit exactement trois de ces échecs,
+avec le même code qu'à l'`--apply` : le dry-run compile désormais le contrat,
+là où l'ancien annonçait `at_risk: 0` et laissait l'opérateur les découvrir en
+cours d'écriture.
+
 ### Un Run accepté aboutit — mesuré le 09/08, pas déduit
 
 Le correctif d'ingress du 08/08 faisait *accepter* un Run par 45 Systems ; que
@@ -1769,15 +1814,18 @@ Quatre Runs sur `agentium_reh_108bbfce`, depuis l'image candidate :
 | `Password Reset` (`nawa`) | `dag_overlay` | `manual` | **completed** |
 | `Andritz Chat Agentic` (`andritz`) | `dag_overlay` | `chat` | **completed** |
 
-Le dialecte ne mord pas une seconde fois, et la raison est structurelle : un
-graphe purement legacy n'a pas de `schema_version >= 2` ni de nœud de contrôle
-portant un `kind`, donc `resolve_flow_execution` le route toujours vers le
-marcheur **séquentiel**, qui exécute `system.skill_ids` et ne lit pas le graphe.
-Vérifié sur les 104 graphes publiés de l'export d'évidence : **zéro** System
-combine un marcheur DAG et une source orthographiée à l'ancienne ; les 42
-`type: "sink"` et les 20 `skill_slug` à plat vivent tous dans des graphes
-séquentiels. La tolérance étroite de `flow_node_kind` n'a donc pas à être
-élargie, et l'élargir aux puits changerait les contrats gelés de ces 42 Systems.
+Le dialecte ne mord pas une seconde fois, et la raison est structurelle.
+`resolve_flow_execution` n'envoie un Flow au marcheur DAG que si
+`schema_version >= 2` **et** qu'au moins un nœud porte un `kind` de contrôle ;
+un `type: "source"` sans `kind` ne compte pas. Un graphe purement legacy tombe
+donc toujours sur le marcheur **séquentiel**, qui exécute `system.skill_ids` et
+ne lit pas le graphe. Rejoué avec cette règle exacte sur les 99 graphes non
+vides des 104 Systems de l'export d'évidence : 56 en marcheur DAG, 43 en
+séquentiel, et **zéro intersection** entre les deux — les 42 graphes à
+`type: "sink"` legacy, les 42 à `type: "source"` legacy et les 20 à
+`skill_slug` à plat sont tous séquentiels. La tolérance étroite de
+`flow_node_kind` n'a donc pas à être élargie, et l'élargir aux puits changerait
+les contrats gelés de ces 42 Systems sans qu'aucun marcheur les lise.
 
 Ce que cela coûte, en revanche, doit être dit : pour ces graphes le contrat
 compile `nodes: {}` et `outputs: []`, et `run_contracts.validate_node_output` /
