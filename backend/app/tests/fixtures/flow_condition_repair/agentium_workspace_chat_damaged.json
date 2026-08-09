@@ -1,0 +1,1032 @@
+{
+  "canonical_rag_mode": "chah",
+  "chat": {
+    "actions": {
+      "confirmation_policy": "confirm_side_effects",
+      "enabled_packs": [
+        "global_voice_v1",
+        "sentinel_ci_aya_v1",
+        "sentinel_ci_aya_security_v1"
+      ],
+      "legacy_adapters": [
+        "aya_action_plans"
+      ]
+    },
+    "always_on": true,
+    "assistant_label": "AYA",
+    "assistant_profile": "vigie_executive",
+    "collection_slugs": [
+      "sentinel-ci-open-intelligence",
+      "sentinel-ci-projects",
+      "sentinel-ci-ministerial-briefs",
+      "sentinel-ci-territorial-map",
+      "sentinel-ci-territorial-intelligence",
+      "sentinel-ci-visual-intelligence",
+      "sentinel-ci-maritime-intelligence",
+      "sentinel-ci-evidence-graph",
+      "sentinel-ci-security-briefs"
+    ],
+    "family": "sentinel_ci",
+    "grounding": {
+      "allowed_modes": [
+        "strict",
+        "balanced"
+      ],
+      "default_mode": "balanced",
+      "fallback_disclaimer": "Je n'ai pas de source workspace sur ce point ; analyse g\u00e9n\u00e9rale \u00e0 valider :",
+      "strict_guard": "default"
+    },
+    "knowledge_scope": "vigie",
+    "quick_mode_uses_system": true,
+    "retrieval_defaults": {
+      "candidate_pool_k": 48,
+      "deep_search_enabled": true,
+      "latency_profile": "balanced",
+      "mode": "chah",
+      "retrieval_profile": "chat",
+      "source_display_k": 8,
+      "synthesis_k": 16,
+      "top_k": 8
+    },
+    "source_policy": {
+      "advisory_actions_require_confirmation": true,
+      "mode": "executive_mission_grounding",
+      "prefer_qualified_sources": true,
+      "preserve_user_terms": true,
+      "require_citations": true
+    },
+    "surface": "chat",
+    "surface_routes": [
+      "/chat"
+    ]
+  },
+  "collections": [
+    "sentinel-ci-open-intelligence",
+    "sentinel-ci-projects",
+    "sentinel-ci-ministerial-briefs",
+    "sentinel-ci-territorial-map",
+    "sentinel-ci-territorial-intelligence",
+    "sentinel-ci-visual-intelligence",
+    "sentinel-ci-maritime-intelligence",
+    "sentinel-ci-evidence-graph",
+    "sentinel-ci-security-briefs"
+  ],
+  "edges": [
+    {
+      "from": "chat.request",
+      "kind": "data",
+      "label": "request",
+      "to": "runtime.session_system_context"
+    },
+    {
+      "from": "runtime.session_system_context",
+      "kind": "data",
+      "to": "runtime.query_validation"
+    },
+    {
+      "from": "runtime.query_validation",
+      "kind": "data",
+      "to": "router.fast_exit"
+    },
+    {
+      "branch_label": "trivial_bypass",
+      "from": "router.fast_exit",
+      "kind": "branch",
+      "to": "skill.trivial_bypass"
+    },
+    {
+      "branch_label": "canonical_answer",
+      "from": "router.fast_exit",
+      "kind": "branch",
+      "to": "runtime.canonical_answer"
+    },
+    {
+      "branch_label": "workspace_action",
+      "from": "router.fast_exit",
+      "kind": "branch",
+      "to": "skill.action_resolver"
+    },
+    {
+      "from": "skill.trivial_bypass",
+      "kind": "data",
+      "to": "runtime.shortcut_persist"
+    },
+    {
+      "from": "runtime.canonical_answer",
+      "kind": "data",
+      "to": "runtime.shortcut_persist"
+    },
+    {
+      "from": "skill.action_resolver",
+      "kind": "data",
+      "to": "runtime.shortcut_persist"
+    },
+    {
+      "branch_label": "rag_orchestrator",
+      "from": "router.fast_exit",
+      "kind": "branch",
+      "to": "skill.grounding_policy"
+    },
+    {
+      "from": "skill.grounding_policy",
+      "kind": "data",
+      "to": "runtime.settings_budget"
+    },
+    {
+      "from": "runtime.settings_budget",
+      "kind": "data",
+      "to": "runtime.orchestrator"
+    },
+    {
+      "from": "runtime.orchestrator",
+      "kind": "data",
+      "label": "retrieval chunk",
+      "to": "skill.fast_retrieval"
+    },
+    {
+      "from": "skill.fast_retrieval",
+      "kind": "data",
+      "to": "runtime.prompt_assembly"
+    },
+    {
+      "from": "runtime.prompt_assembly",
+      "kind": "data",
+      "to": "skill.fast_answer"
+    },
+    {
+      "from": "skill.fast_answer",
+      "kind": "data",
+      "to": "runtime.deep_router"
+    },
+    {
+      "branch_label": "fast_finalize",
+      "from": "runtime.deep_router",
+      "kind": "branch",
+      "to": "runtime.response_validation"
+    },
+    {
+      "branch_label": "queue_deep_search",
+      "from": "runtime.deep_router",
+      "kind": "branch",
+      "to": "skill.deep_search"
+    },
+    {
+      "from": "skill.deep_search",
+      "kind": "data",
+      "to": "skill.answer_audit"
+    },
+    {
+      "from": "runtime.response_validation",
+      "kind": "data",
+      "to": "skill.answer_audit"
+    },
+    {
+      "from": "runtime.shortcut_persist",
+      "kind": "data",
+      "to": "chat.response"
+    },
+    {
+      "from": "skill.answer_audit",
+      "kind": "control",
+      "label": "async eval",
+      "to": "skill.claim_audit"
+    },
+    {
+      "from": "skill.answer_audit",
+      "kind": "data",
+      "to": "chat.response"
+    }
+  ],
+  "nodes": [
+    {
+      "config": {},
+      "data": {
+        "description": "Streaming and non-streaming chat entrypoint.",
+        "input_contract": {
+          "agent_id": "optional System id; falls back to workspace chat System",
+          "assistant_profile": "vigie_executive",
+          "grounding_mode": "strict | balanced",
+          "knowledge_scope": "vigie",
+          "latency_profile": "fast | balanced | deep",
+          "query": "string"
+        },
+        "quick_mode": true,
+        "routes": [
+          "/api/v1/chat/stream",
+          "/api/v1/chat/completion"
+        ],
+        "surface": "/chat"
+      },
+      "id": "chat.request",
+      "inputs": [],
+      "kind": "source",
+      "label": "/chat request",
+      "outputs": [
+        {
+          "name": "request",
+          "schema": "ref:chat.request"
+        }
+      ],
+      "position": {
+        "x": 40,
+        "y": 280
+      },
+      "type": "input"
+    },
+    {
+      "config": {
+        "runtime_ref": "chat._ensure_chat_session + chat._resolve_system_id + chat._resolve_chat_context + chat._apply_context_to_chat_request"
+      },
+      "data": {
+        "assistant_profile": "vigie_executive",
+        "context_mode": "replace | combine",
+        "description": "Bind the turn to the chat session, workspace chat System and selected Context.",
+        "knowledge_scope": "vigie",
+        "runtime_ref": "chat._ensure_chat_session + chat._resolve_system_id + chat._resolve_chat_context + chat._apply_context_to_chat_request",
+        "system_fallback": "workspace_chat_system_id"
+      },
+      "id": "runtime.session_system_context",
+      "inputs": [
+        {
+          "name": "request",
+          "schema": "ref:chat.request"
+        }
+      ],
+      "kind": "task",
+      "label": "Resolve session, System & Context",
+      "outputs": [
+        {
+          "name": "scoped_request",
+          "schema": "ref:chat.request.scoped"
+        }
+      ],
+      "position": {
+        "x": 300,
+        "y": 280
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "QueryValidator.validate"
+      },
+      "data": {
+        "description": "Normalize and validate the user query before routing.",
+        "empty_query_path": "safe local trivial bypass",
+        "runtime_ref": "QueryValidator.validate"
+      },
+      "id": "runtime.query_validation",
+      "inputs": [
+        {
+          "name": "scoped_request",
+          "schema": "ref:chat.request.scoped"
+        }
+      ],
+      "kind": "task",
+      "label": "Validate query",
+      "outputs": [
+        {
+          "name": "validated_query",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 560,
+        "y": 280
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "branches": [
+          {
+            "condition": "maybe_trivial_bypass(query) && no pending action",
+            "label": "trivial_bypass"
+          },
+          {
+            "condition": "no context_id and no knowledge_scope and canonical answer match",
+            "label": "canonical_answer"
+          },
+          {
+            "condition": "registry/calendar/action-plan/visual/map/vigie handler matches",
+            "label": "workspace_action"
+          },
+          {
+            "condition": "default route",
+            "label": "rag_orchestrator"
+          }
+        ],
+        "default_branch": "rag_orchestrator",
+        "runtime_ref": "chat.maybe_trivial_bypass + chat._canonical_answer_hit + action handlers"
+      },
+      "data": {
+        "description": "Exact runtime order before full RAG orchestration.",
+        "routing_order": [
+          "trivial_bypass",
+          "canonical_answer_cache",
+          "workspace_action_router",
+          "rag_orchestrator"
+        ],
+        "runtime_ref": "chat.chat_stream / chat.chat_completion pre-orchestrator routing"
+      },
+      "id": "router.fast_exit",
+      "inputs": [
+        {
+          "name": "validated_query",
+          "schema": "string"
+        }
+      ],
+      "kind": "decision",
+      "label": "Fast-exit router",
+      "outputs": [
+        {
+          "name": "route",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 820,
+        "y": 280
+      },
+      "type": "router"
+    },
+    {
+      "config": {
+        "runtime_ref": "app.services.chat_trivial_bypass.maybe_trivial_bypass",
+        "skill_id": "7e1bf898-bf07-40d3-b36c-663460751bf4",
+        "skill_slug": "chat_trivial_bypass_v1"
+      },
+      "data": {
+        "description": "Handle greetings/thanks/acks locally without provider or retrieval.",
+        "guardrails": [
+          "refuses question-like text",
+          "refuses domain/document/reference terms",
+          "refuses long messages"
+        ],
+        "runtime_ref": "app.services.chat_trivial_bypass.maybe_trivial_bypass",
+        "stage": "latency_guard"
+      },
+      "id": "skill.trivial_bypass",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Trivial bypass",
+      "outputs": [
+        {
+          "name": "bypass",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1080,
+        "y": 60
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "runtime_ref": "chat._canonical_answer_hit"
+      },
+      "data": {
+        "description": "Return a curated answer hit only when no Context/Knowledge Scope override is selected.",
+        "runtime_ref": "chat._canonical_answer_hit",
+        "side_effect": "record canonical answer hit"
+      },
+      "id": "runtime.canonical_answer",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Canonical answer cache",
+      "outputs": [
+        {
+          "name": "canonical_answer",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1080,
+        "y": 180
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "handle_registry_chat_action -> handle_calendar_chat_action -> handle_transverse_chat_action -> handle_visual_chat_query -> handle_map_chat_query -> _vigie_executive_quick_reply",
+        "skill_id": "09f85a05-9abd-4efb-9725-d21bca5aed59",
+        "skill_slug": "chat_action_resolver_v1"
+      },
+      "data": {
+        "actions": {
+          "confirmation_policy": "confirm_side_effects",
+          "enabled_packs": [
+            "global_voice_v1",
+            "sentinel_ci_aya_v1",
+            "sentinel_ci_aya_security_v1"
+          ],
+          "legacy_adapters": [
+            "aya_action_plans"
+          ]
+        },
+        "description": "Sequentially probes action manifests and workspace-specific handlers; side effects still require their own policy.",
+        "handlers": [
+          "app.services.actions.handle_registry_chat_action",
+          "app.services.workspace_calendar.handle_calendar_chat_action",
+          "app.services.actions.handle_transverse_chat_action",
+          "app.services.visual_intelligence.handle_visual_chat_query",
+          "app.services.workspace_maps.handle_map_chat_query",
+          "chat._vigie_executive_quick_reply"
+        ],
+        "runtime_ref": "handle_registry_chat_action -> handle_calendar_chat_action -> handle_transverse_chat_action -> handle_visual_chat_query -> handle_map_chat_query -> _vigie_executive_quick_reply",
+        "stage": "actions"
+      },
+      "id": "skill.action_resolver",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Workspace action router",
+      "outputs": [
+        {
+          "name": "action",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1080,
+        "y": 350
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "app.services.chat_grounding.resolve_grounding_policy",
+        "skill_id": "6184e063-c613-4a42-9dc9-63198172f124",
+        "skill_slug": "chat_grounding_policy_v1"
+      },
+      "data": {
+        "assistant_profile": "vigie_executive",
+        "description": "Resolve effective strict/balanced grounding from platform, workspace, assistant profile and request.",
+        "grounding": {
+          "allowed_modes": [
+            "strict",
+            "balanced"
+          ],
+          "default_mode": "balanced",
+          "fallback_disclaimer": "Je n'ai pas de source workspace sur ce point ; analyse g\u00e9n\u00e9rale \u00e0 valider :",
+          "strict_guard": "default"
+        },
+        "knowledge_scope": "vigie",
+        "runtime_ref": "app.services.chat_grounding.resolve_grounding_policy",
+        "source_policy": {
+          "advisory_actions_require_confirmation": true,
+          "mode": "executive_mission_grounding",
+          "prefer_qualified_sources": true,
+          "preserve_user_terms": true,
+          "require_citations": true
+        },
+        "stage": "grounding"
+      },
+      "id": "skill.grounding_policy",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Grounding policy",
+      "outputs": [
+        {
+          "name": "policy",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1080,
+        "y": 520
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "runtime_ref": "get_resolved_settings + chat._apply_retrieval_budget_policy"
+      },
+      "data": {
+        "budget_policy": {
+          "balanced": {
+            "candidate_pool_k_max": 80,
+            "source_display_k_max": 24,
+            "top_k_max": 12
+          },
+          "deep": {
+            "candidate_pool_k_max": 200,
+            "source_display_k_max": 24,
+            "top_k_max": 24
+          },
+          "fast": {
+            "candidate_pool_k_max": 20,
+            "source_display_k_max": 8,
+            "top_k_max": 8
+          }
+        },
+        "description": "Apply workspace provider/model defaults and clamp retrieval fan-out for the selected latency profile.",
+        "provider_defaults": "workspace settings defaultProvider/defaultModel, then global settings",
+        "retrieval_defaults": {
+          "candidate_pool_k": 48,
+          "deep_search_enabled": true,
+          "latency_profile": "balanced",
+          "mode": "chah",
+          "retrieval_profile": "chat",
+          "source_display_k": 8,
+          "synthesis_k": 16,
+          "top_k": 8
+        },
+        "runtime_ref": "get_resolved_settings + chat._apply_retrieval_budget_policy"
+      },
+      "id": "runtime.settings_budget",
+      "inputs": [
+        {
+          "name": "policy",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Settings & latency budget",
+      "outputs": [
+        {
+          "name": "budgeted_request",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1340,
+        "y": 520
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "runtime_ref": "get_orchestrator().process_request(request_dict)"
+      },
+      "data": {
+        "chunk_types": [
+          "decision_step",
+          "retrieval",
+          "text",
+          "error"
+        ],
+        "description": "Delegates the turn to the existing orchestrator; streams decision_step, retrieval and text chunks.",
+        "runtime_ref": "get_orchestrator().process_request(request_dict)"
+      },
+      "id": "runtime.orchestrator",
+      "inputs": [
+        {
+          "name": "budgeted_request",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Chat orchestrator",
+      "outputs": [
+        {
+          "name": "orchestrator_chunks",
+          "schema": "array"
+        }
+      ],
+      "position": {
+        "x": 1600,
+        "y": 520
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "app.services.rag.context.retrieve_rag_context",
+        "skill_id": "c13071be-0ae9-4c63-be55-b4cb8169bc35",
+        "skill_slug": "semantic_search_v1"
+      },
+      "data": {
+        "candidate_pool_k": 48,
+        "deep_search_enabled": true,
+        "description": "Runtime retrieval performed inside the RAG agent; surfaced here as the searchable context step.",
+        "latency_profile": "balanced",
+        "mode": "chah",
+        "retrieval_profile": "chat",
+        "runtime_ref": "app.services.rag.context.retrieve_rag_context",
+        "source_display_k": 8,
+        "stage": "fast_retrieval",
+        "synthesis_k": 16,
+        "top_k": 8
+      },
+      "id": "skill.fast_retrieval",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Fast retrieval",
+      "outputs": [
+        {
+          "name": "sources",
+          "schema": "array"
+        }
+      ],
+      "position": {
+        "x": 1860,
+        "y": 430
+      },
+      "type": "retrieve"
+    },
+    {
+      "config": {
+        "runtime_ref": "procurement_agent._system_prompt_with_grounding + procurement_agent._build_rag_user_prompt"
+      },
+      "data": {
+        "description": "Build the exact system/user prompt envelope used by RAG answer generation.",
+        "prompt_contract": {
+          "answer_shaping_instructions": [
+            "Start with a concise synthesis of what the retrieved content says.",
+            "Use numeric source ids when workspace sources exist; do not emit raw filename references as citations.",
+            "For broad questions, give 3 to 5 key points.",
+            "If retrieved content is thin or contradictory, name the gap explicitly.",
+            "Do not end with generic Andritz contact boilerplate unless the user asked for contacts."
+          ],
+          "balanced_grounding_appendix": "Grounding policy for this turn:\n- Use retrieved workspace context first whenever it exists.\n- If no relevant workspace context is available and the user asks for advice, explanation, drafting, planning, or general reasoning, answer from general knowledge.\n- For unsourced general answers, briefly mark the status in French: \"Je n'ai pas de source workspace sur ce point ; analyse generale a valider :\".\n- Do not cite sources unless they are present in the provided context.\n- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, or operational claims, do not invent. Say that the workspace source is missing and offer a safe next step or a draft framework.\n- Keep a concise advisory tone.",
+          "base_system_prompt": "You are an intelligent assistant with access to a curated knowledge base.\n\nAnswer questions accurately and concisely using the retrieved context.\nWhen the context contains relevant information, cite it specifically.\nIf no relevant context is available, say so clearly rather than guessing.\nDo not reproduce generic supplier-document footers such as \"contact Andritz for more information\" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\nBe professional, precise, and helpful.",
+          "default_prompt_type": "factual",
+          "rag_user_prompt_builder": "app.agents.procurement_agent._build_rag_user_prompt",
+          "reasoning_template_factual": "You are an AI assistant specialized in providing precise and factual information.\n\nContext: {context}\n\nQuestion: {question}\n\nProvide a clear factual response based on the context. Focus on accuracy and completeness.",
+          "system_prompt_builder": "app.agents.procurement_agent._system_prompt_with_grounding"
+        },
+        "runtime_ref": "procurement_agent._system_prompt_with_grounding + procurement_agent._build_rag_user_prompt"
+      },
+      "id": "runtime.prompt_assembly",
+      "inputs": [
+        {
+          "name": "sources",
+          "schema": "array"
+        }
+      ],
+      "kind": "task",
+      "label": "Prompt assembly",
+      "outputs": [
+        {
+          "name": "prompt",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1860,
+        "y": 600
+      },
+      "type": "llm"
+    },
+    {
+      "config": {
+        "runtime_ref": "app.agents.procurement_agent.RAGAgent.process",
+        "skill_id": "e2339094-4c59-43b3-a5d0-334263663d30",
+        "skill_slug": "llm_rag_answer_v1"
+      },
+      "data": {
+        "description": "Generate the direct chat answer with markdown and citations when sources exist.",
+        "latency_profile": "fast",
+        "prompt_contract": {
+          "answer_shaping_instructions": [
+            "Start with a concise synthesis of what the retrieved content says.",
+            "Use numeric source ids when workspace sources exist; do not emit raw filename references as citations.",
+            "For broad questions, give 3 to 5 key points.",
+            "If retrieved content is thin or contradictory, name the gap explicitly.",
+            "Do not end with generic Andritz contact boilerplate unless the user asked for contacts."
+          ],
+          "balanced_appendix": "Grounding policy for this turn:\n- Use retrieved workspace context first whenever it exists.\n- If no relevant workspace context is available and the user asks for advice, explanation, drafting, planning, or general reasoning, answer from general knowledge.\n- For unsourced general answers, briefly mark the status in French: \"Je n'ai pas de source workspace sur ce point ; analyse generale a valider :\".\n- Do not cite sources unless they are present in the provided context.\n- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, or operational claims, do not invent. Say that the workspace source is missing and offer a safe next step or a draft framework.\n- Keep a concise advisory tone.",
+          "system_prompt": "You are an intelligent assistant with access to a curated knowledge base.\n\nAnswer questions accurately and concisely using the retrieved context.\nWhen the context contains relevant information, cite it specifically.\nIf no relevant context is available, say so clearly rather than guessing.\nDo not reproduce generic supplier-document footers such as \"contact Andritz for more information\" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\nBe professional, precise, and helpful."
+        },
+        "require_sources": true,
+        "runtime_ref": "app.agents.procurement_agent.RAGAgent.process",
+        "stage": "direct_answer"
+      },
+      "id": "skill.fast_answer",
+      "inputs": [
+        {
+          "name": "prompt",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Fast sourced answer",
+      "outputs": [
+        {
+          "name": "answer",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 2120,
+        "y": 520
+      },
+      "type": "llm"
+    },
+    {
+      "config": {
+        "branches": [
+          {
+            "condition": "no deep recommendation or direct answer sufficient",
+            "label": "fast_finalize"
+          },
+          {
+            "condition": "retrieval degraded or Deep Search requested",
+            "label": "queue_deep_search"
+          }
+        ],
+        "default_branch": "fast_finalize",
+        "runtime_ref": "chat._queue_auto_deep_retrieval_job"
+      },
+      "data": {
+        "description": "Decide whether the fast answer is enough or should queue/manual-route to Deep Search.",
+        "runtime_ref": "chat._should_queue_auto_deep_retrieval + Deep Search button payload"
+      },
+      "id": "runtime.deep_router",
+      "inputs": [
+        {
+          "name": "answer",
+          "schema": "string"
+        }
+      ],
+      "kind": "decision",
+      "label": "Deep Search router",
+      "outputs": [
+        {
+          "name": "route",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 2380,
+        "y": 520
+      },
+      "type": "router"
+    },
+    {
+      "config": {
+        "runtime_ref": "chat._queue_auto_deep_retrieval_job + app.services.worker_deep_retrieval",
+        "skill_id": "e724893e-0272-4511-9cfb-ee2c893ca675",
+        "skill_slug": "chain_mixed_hah_v1"
+      },
+      "data": {
+        "auto_trigger": "only when retrieval policy recommends it",
+        "description": "Async deep retrieval/synthesis job; the direct answer remains fast while the user can push harder.",
+        "latency_profile": "deep",
+        "manual_trigger": true,
+        "runtime_ref": "chat._queue_auto_deep_retrieval_job + app.services.worker_deep_retrieval",
+        "stage": "deep_search"
+      },
+      "id": "skill.deep_search",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Deep Search job",
+      "outputs": [
+        {
+          "name": "deep_answer",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 2640,
+        "y": 660
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "ResponseValidator.validate + chat._collect_chat_chunk"
+      },
+      "data": {
+        "description": "Validate non-empty response and preserve markdown/source metadata for the chat renderer.",
+        "render_contract": "markdown_with_numeric_sources",
+        "runtime_ref": "ResponseValidator.validate + chat._collect_chat_chunk"
+      },
+      "id": "runtime.response_validation",
+      "inputs": [
+        {
+          "name": "answer",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Validate response",
+      "outputs": [
+        {
+          "name": "validated_answer",
+          "schema": "string"
+        }
+      ],
+      "position": {
+        "x": 2640,
+        "y": 400
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "runtime_ref": "chat._persist_chat_run + schedule_eval",
+        "skill_id": "5f75443c-fb50-4a4c-bb4f-7831c86101c8",
+        "skill_slug": "audit_log_v1"
+      },
+      "data": {
+        "description": "Persist messages, Run output_ref, retrieval metrics, selected sources and eval scheduling.",
+        "record_grounding_policy": true,
+        "record_retrieval_metrics": true,
+        "record_run": true,
+        "record_sources": true,
+        "runtime_ref": "chat._persist_chat_run + schedule_eval",
+        "stage": "audit"
+      },
+      "id": "skill.answer_audit",
+      "inputs": [
+        {
+          "name": "answer",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Run ledger and audit",
+      "outputs": [
+        {
+          "name": "run",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 2900,
+        "y": 520
+      },
+      "type": "tool"
+    },
+    {
+      "config": {
+        "runtime_ref": "app.services.evaluation.auto_eval.schedule_eval",
+        "skill_id": "ab1ce49b-4551-44f1-9529-1faebe07311c",
+        "skill_slug": "claim_audit_v1"
+      },
+      "data": {
+        "async": true,
+        "description": "Best-effort quality loop attached to the persisted Run.",
+        "runtime_ref": "app.services.evaluation.auto_eval.schedule_eval"
+      },
+      "id": "skill.claim_audit",
+      "inputs": [
+        {
+          "name": "run",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Async evaluation",
+      "outputs": [
+        {
+          "name": "evaluation",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 3160,
+        "y": 660
+      },
+      "type": "guardrail"
+    },
+    {
+      "config": {
+        "runtime_ref": "chat._persist_trivial_bypass_turn + chat._persist_chat_run"
+      },
+      "data": {
+        "description": "Persist trivial, canonical or action responses with the same Run ledger contract.",
+        "runtime_ref": "chat._persist_trivial_bypass_turn + chat._persist_chat_run",
+        "triggers": [
+          "trivial_bypass",
+          "canonical_answer",
+          "action_registry",
+          "calendar_action",
+          "action_plan",
+          "visual_observation",
+          "map_command",
+          "vigie_quick_brief"
+        ]
+      },
+      "id": "runtime.shortcut_persist",
+      "inputs": [
+        {
+          "name": "shortcut_response",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Persist shortcut response",
+      "outputs": [
+        {
+          "name": "run",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 1340,
+        "y": 180
+      },
+      "type": "tool"
+    },
+    {
+      "config": {},
+      "data": {
+        "description": "Return text/SSE chunks to the chat bubble and source chips.",
+        "render": "markdown_with_sources",
+        "response_contract": {
+          "content": "markdown",
+          "deep_job": "optional async refinement job",
+          "run_id": "Run ledger id",
+          "sources": "source chips and numeric citations"
+        },
+        "surface": "/chat"
+      },
+      "id": "chat.response",
+      "inputs": [
+        {
+          "name": "run",
+          "schema": "object"
+        }
+      ],
+      "kind": "sink",
+      "label": "Chat response",
+      "outputs": [],
+      "position": {
+        "x": 3420,
+        "y": 520
+      },
+      "type": "output"
+    }
+  ],
+  "policy": {
+    "confidence_threshold": 0.65,
+    "enable_audit": true,
+    "max_latency_ms": 8000,
+    "require_citations": true
+  },
+  "prompt_contract": {
+    "answer_shaping_instructions": [
+      "Start with a concise synthesis of what the retrieved content says.",
+      "Use numeric source ids when workspace sources exist; do not emit raw filename references as citations.",
+      "For broad questions, give 3 to 5 key points.",
+      "If retrieved content is thin or contradictory, name the gap explicitly.",
+      "Do not end with generic Andritz contact boilerplate unless the user asked for contacts."
+    ],
+    "balanced_grounding_appendix": "Grounding policy for this turn:\n- Use retrieved workspace context first whenever it exists.\n- If no relevant workspace context is available and the user asks for advice, explanation, drafting, planning, or general reasoning, answer from general knowledge.\n- For unsourced general answers, briefly mark the status in French: \"Je n'ai pas de source workspace sur ce point ; analyse generale a valider :\".\n- Do not cite sources unless they are present in the provided context.\n- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, or operational claims, do not invent. Say that the workspace source is missing and offer a safe next step or a draft framework.\n- Keep a concise advisory tone.",
+    "base_system_prompt": "You are an intelligent assistant with access to a curated knowledge base.\n\nAnswer questions accurately and concisely using the retrieved context.\nWhen the context contains relevant information, cite it specifically.\nIf no relevant context is available, say so clearly rather than guessing.\nDo not reproduce generic supplier-document footers such as \"contact Andritz for more information\" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\nBe professional, precise, and helpful.",
+    "default_prompt_type": "factual",
+    "rag_user_prompt_builder": "app.agents.procurement_agent._build_rag_user_prompt",
+    "reasoning_template_factual": "You are an AI assistant specialized in providing precise and factual information.\n\nContext: {context}\n\nQuestion: {question}\n\nProvide a clear factual response based on the context. Focus on accuracy and completeness.",
+    "system_prompt_builder": "app.agents.procurement_agent._system_prompt_with_grounding"
+  },
+  "rag_mode": "chah",
+  "runtime_contract": {
+    "answer_agent": "app.agents.procurement_agent.RAGAgent",
+    "deep_search_worker": "app.services.worker_deep_retrieval",
+    "entrypoints": [
+      "POST /api/v1/chat/stream",
+      "POST /api/v1/chat/completion"
+    ],
+    "orchestrator": "app.api.v1.endpoints.agents.get_orchestrator().process_request",
+    "routes_are_runtime": true,
+    "source_of_truth": "backend/app/api/v1/endpoints/chat.py",
+    "surface": "/chat"
+  },
+  "schema_version": 2,
+  "source": "system_seed",
+  "template_id": "chat_transverse_v1",
+  "template_name": "Workspace Chat Transverse",
+  "ui": {
+    "entry_route": "chat",
+    "flow_builder_enabled": true,
+    "primary_action": "Open chat",
+    "surface_routes": [
+      "/chat"
+    ],
+    "type": "workspace_chat"
+  },
+  "variant": "chat_transverse_v1"
+}

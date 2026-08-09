@@ -1,0 +1,528 @@
+{
+  "canonical_rag_mode": "chah",
+  "collections": [],
+  "conversation": {
+    "mode": "conversation_only",
+    "requires_confirmation": [
+      "proposal",
+      "acceptance"
+    ],
+    "supports_multiple_proposals": true
+  },
+  "edges": [
+    {
+      "from": "capture.session_request",
+      "kind": "data",
+      "to": "skill.knowledge_gap_analysis"
+    },
+    {
+      "from": "skill.knowledge_gap_analysis",
+      "kind": "data",
+      "to": "skill.expert_interview_plan"
+    },
+    {
+      "from": "skill.expert_interview_plan",
+      "kind": "control",
+      "to": "skill.voice_realtime_session"
+    },
+    {
+      "from": "skill.voice_realtime_session",
+      "kind": "control",
+      "to": "skill.voice_transcribe"
+    },
+    {
+      "from": "skill.voice_transcribe",
+      "kind": "data",
+      "to": "skill.semantic_search_prefetch"
+    },
+    {
+      "from": "skill.semantic_search_prefetch",
+      "kind": "data",
+      "to": "skill.expert_answer_evaluator"
+    },
+    {
+      "from": "skill.expert_answer_evaluator",
+      "kind": "data",
+      "to": "skill.voice_tandem_oracle"
+    },
+    {
+      "from": "skill.voice_tandem_oracle",
+      "kind": "data",
+      "to": "skill.voice_oracle_turn"
+    },
+    {
+      "from": "skill.voice_oracle_turn",
+      "kind": "data",
+      "to": "decision.answer_route"
+    },
+    {
+      "branch_label": "follow_up_required",
+      "from": "decision.answer_route",
+      "kind": "branch",
+      "to": "skill.voice_tts_followup"
+    },
+    {
+      "from": "skill.voice_tts_followup",
+      "kind": "control",
+      "to": "skill.audit_log"
+    },
+    {
+      "branch_label": "proposal_requested",
+      "from": "decision.answer_route",
+      "kind": "branch",
+      "to": "skill.capture_structuring"
+    },
+    {
+      "from": "skill.capture_structuring",
+      "kind": "control",
+      "to": "hitl.proposal_review"
+    },
+    {
+      "from": "hitl.proposal_review",
+      "kind": "control",
+      "to": "skill.audit_log"
+    },
+    {
+      "from": "skill.audit_log",
+      "kind": "control",
+      "to": "sink.knowledge_update"
+    }
+  ],
+  "extended": true,
+  "nodes": [
+    {
+      "data": {
+        "description": "Objective, expert profile, duration and Knowledge Context selected from /knowledge/capture.",
+        "menu": "Objective"
+      },
+      "id": "capture.session_request",
+      "kind": "source",
+      "label": "Capture session request",
+      "outputs": [
+        {
+          "name": "objective",
+          "required": true,
+          "schema": "string"
+        },
+        {
+          "name": "context",
+          "schema": "object"
+        }
+      ],
+      "position": {
+        "x": 40,
+        "y": 220
+      },
+      "type": "source"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "context": "session.context",
+          "objective": "session.objective"
+        },
+        "outputs_map": {
+          "gaps": "capture.gaps"
+        },
+        "skill_id": "aaca4ae5-200a-49f1-aa4e-22740236f925",
+        "skill_slug": "knowledge_gap_analysis_v1"
+      },
+      "data": {
+        "menu": "Plan",
+        "phase": "preflight"
+      },
+      "id": "skill.knowledge_gap_analysis",
+      "kind": "task",
+      "label": "Identify tacit knowledge gaps",
+      "position": {
+        "x": 340,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "gaps": "capture.gaps",
+          "objective": "session.objective"
+        },
+        "outputs_map": {
+          "plan": "capture.plan"
+        },
+        "skill_id": "4802318a-c4cf-4d75-9715-f17c7b26db10",
+        "skill_slug": "expert_interview_plan_v1"
+      },
+      "data": {
+        "menu": "Plan",
+        "phase": "preflight"
+      },
+      "id": "skill.expert_interview_plan",
+      "kind": "task",
+      "label": "Build interview plan",
+      "position": {
+        "x": 640,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "provider": "system.voice_runtime.provider"
+        },
+        "outputs_map": {
+          "events": "turn.voice_events",
+          "provider": "turn.voice_provider"
+        },
+        "skill_id": "1d89eac4-1149-4641-98a7-5f9260ac9220",
+        "skill_slug": "voice_realtime_session_v1"
+      },
+      "data": {
+        "capability": "voice2voice_interaction",
+        "menu": "Voice",
+        "runtime": "cascade_openai"
+      },
+      "id": "skill.voice_realtime_session",
+      "kind": "task",
+      "label": "Resolve voice runtime",
+      "position": {
+        "x": 940,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "audio_ref": "turn.audio_ref"
+        },
+        "outputs_map": {
+          "transcript": "turn.transcript"
+        },
+        "skill_id": "4b067bcd-9491-4c4f-a2b9-b24cd735c95a",
+        "skill_slug": "voice_realtime_transcribe_v1"
+      },
+      "data": {
+        "menu": "Voice",
+        "runtime": "cascade_openai",
+        "supports": [
+          "text.partial",
+          "text.final",
+          "barge_in"
+        ]
+      },
+      "id": "skill.voice_transcribe",
+      "kind": "task",
+      "label": "Realtime / cascade transcript",
+      "position": {
+        "x": 1240,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "collection": "context.environment_state.collection",
+          "query": "turn.partial_transcript"
+        },
+        "outputs_map": {
+          "results": "turn.retrieval_refs"
+        },
+        "skill_id": "c13071be-0ae9-4c63-be55-b4cb8169bc35",
+        "skill_slug": "semantic_search_v1"
+      },
+      "data": {
+        "menu": "Knowledge",
+        "mode": "chah",
+        "timeout_ms": 2500,
+        "top_k": 4
+      },
+      "id": "skill.semantic_search_prefetch",
+      "kind": "task",
+      "label": "Pseudo realtime retrieval prefetch",
+      "position": {
+        "x": 1540,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "answer": "turn.final_transcript",
+          "gap": "capture.current_gap",
+          "question": "capture.current_question"
+        },
+        "outputs_map": {
+          "evaluation": "turn.evaluation"
+        },
+        "skill_id": "13ffb2a5-2fdf-45a1-b2ac-5f6736c6a969",
+        "skill_slug": "expert_answer_evaluator_v1"
+      },
+      "data": {
+        "menu": "Evaluation",
+        "phase": "turn"
+      },
+      "id": "skill.expert_answer_evaluator",
+      "kind": "task",
+      "label": "Evaluate answer / correction",
+      "position": {
+        "x": 1840,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "evaluation": "turn.evaluation",
+          "final_text": "turn.final_transcript",
+          "partial_text": "turn.partial_transcript",
+          "sources": "turn.retrieval_refs"
+        },
+        "outputs_map": {
+          "committed": "turn.oracle_committed",
+          "events": "turn.oracle_events"
+        },
+        "skill_id": "6c476916-d6f2-42a2-8aaa-eb40ffd2caef",
+        "skill_slug": "voice_tandem_oracle_v1"
+      },
+      "data": {
+        "events": [
+          "oracle.delta",
+          "oracle.superseded",
+          "oracle.action",
+          "oracle.commit"
+        ],
+        "menu": "Voice",
+        "pattern": "Realtime loop + Background oracle"
+      },
+      "id": "skill.voice_tandem_oracle",
+      "kind": "task",
+      "label": "Tandem oracle loop",
+      "position": {
+        "x": 2140,
+        "y": 20
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "answer": "turn.final_transcript",
+          "gap": "capture.current_gap",
+          "question": "capture.current_question"
+        },
+        "outputs_map": {
+          "action": "turn.voice_action"
+        },
+        "skill_id": "f8f3e82f-97a3-4d11-93c6-5386e13a67ad",
+        "skill_slug": "voice_oracle_turn_v1"
+      },
+      "data": {
+        "events": [
+          "oracle.action",
+          "runtime.metric"
+        ],
+        "menu": "Voice"
+      },
+      "id": "skill.voice_oracle_turn",
+      "kind": "task",
+      "label": "Commit voice action",
+      "position": {
+        "x": 2440,
+        "y": 100
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "branches": [
+          {
+            "condition": "evaluation.verdict != 'sufficient'",
+            "label": "follow_up_required"
+          },
+          {
+            "condition": "intent in ['proposal_requested', 'accept_confirmed']",
+            "label": "proposal_requested"
+          }
+        ],
+        "default_branch": "follow_up_required"
+      },
+      "data": {
+        "description": "Intent + sufficiency gate.",
+        "menu": "Conversation-only"
+      },
+      "id": "decision.answer_route",
+      "kind": "decision",
+      "label": "Route next action",
+      "position": {
+        "x": 2740,
+        "y": 100
+      },
+      "type": "custom"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "text": "turn.next_prompt"
+        },
+        "outputs_map": {
+          "audio_url": "turn.prompt_audio"
+        },
+        "skill_id": "f418ab48-b109-4931-a26b-307e828d2062",
+        "skill_slug": "voice_realtime_speak_v1"
+      },
+      "data": {
+        "menu": "Voice",
+        "phase": "barge_in"
+      },
+      "id": "skill.voice_tts_followup",
+      "kind": "task",
+      "label": "Speak follow-up / next question",
+      "position": {
+        "x": 3040,
+        "y": 20
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "events": "capture.audit_events",
+          "session": "capture.session"
+        },
+        "outputs_map": {
+          "proposal": "capture.proposal"
+        },
+        "skill_id": "8f662bac-8f5f-4db6-8ce7-ced8073281c4",
+        "skill_slug": "capture_structuring_v1"
+      },
+      "data": {
+        "menu": "Proposal",
+        "phase": "synthesis"
+      },
+      "id": "skill.capture_structuring",
+      "kind": "task",
+      "label": "Create knowledge proposal",
+      "position": {
+        "x": 3040,
+        "y": 210
+      },
+      "type": "skill"
+    },
+    {
+      "config": {
+        "approvers": [
+          "expert",
+          "operator"
+        ],
+        "prompt": "Validate, amend, reject, or request another capture turn before ingestion.",
+        "timeout_ms": 86400000
+      },
+      "data": {
+        "description": "Voice confirmation, amendment, then final accept/reject.",
+        "menu": "Governance"
+      },
+      "id": "hitl.proposal_review",
+      "kind": "hitl",
+      "label": "HITL proposal confirmation",
+      "position": {
+        "x": 3340,
+        "y": 210
+      },
+      "type": "policy"
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "event": "capture.event"
+        },
+        "outputs_map": {
+          "event_id": "capture.audit_event_id"
+        },
+        "skill_id": "5f75443c-fb50-4a4c-bb4f-7831c86101c8",
+        "skill_slug": "audit_log_v1"
+      },
+      "data": {
+        "events": [
+          "stt_partial",
+          "stt_final",
+          "retrieval_prefetch_completed",
+          "conversation_intent_detected",
+          "proposal_generated",
+          "proposal_reviewed"
+        ],
+        "menu": "Traceability"
+      },
+      "id": "skill.audit_log",
+      "kind": "task",
+      "label": "Persist audit trail",
+      "position": {
+        "x": 3640,
+        "y": 160
+      },
+      "type": "skill"
+    },
+    {
+      "data": {
+        "description": "Accepted proposal ready for ingestion into the selected Knowledge collection.",
+        "menu": "Knowledge"
+      },
+      "id": "sink.knowledge_update",
+      "inputs": [
+        {
+          "name": "proposal",
+          "required": true,
+          "schema": "object"
+        }
+      ],
+      "kind": "sink",
+      "label": "Reviewed knowledge update",
+      "position": {
+        "x": 3640,
+        "y": 160
+      },
+      "type": "sink"
+    }
+  ],
+  "policy": {
+    "confidence_threshold": 0.7,
+    "enable_audit": true,
+    "max_latency_ms": 4000,
+    "require_citations": true
+  },
+  "rag_mode": "C-HAH",
+  "retrieval": {
+    "mode": "chah",
+    "non_blocking": true,
+    "timeout_ms": 2500,
+    "top_k": 4
+  },
+  "schema_version": 3,
+  "source": "flow",
+  "template_id": "expert-knowledge-capture-v2v",
+  "template_name": "Knowledge Capture Voice2Voice",
+  "ui": {
+    "entry_route": "capture",
+    "label": "Capture console",
+    "legacy_route": "/knowledge/capture",
+    "primary_action": "Start session",
+    "type": "knowledge_capture"
+  },
+  "variant": "expert_knowledge_capture",
+  "voice_runtime": {
+    "capability": "voice2voice_interaction",
+    "events": [
+      "text.partial",
+      "text.final",
+      "audio.out",
+      "barge_in",
+      "oracle.action",
+      "runtime.metric"
+    ],
+    "provider": "cascade_openai",
+    "transport": "backend_ws"
+  }
+}

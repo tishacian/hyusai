@@ -1,0 +1,202 @@
+{
+  "edges": [
+    {
+      "from": "retrieve",
+      "from_port": "results",
+      "kind": "data",
+      "to": "answer",
+      "to_port": "context"
+    },
+    {
+      "from": "answer",
+      "from_port": "answer",
+      "kind": "data",
+      "to": "claim_audit",
+      "to_port": "answer"
+    },
+    {
+      "from": "claim_audit",
+      "kind": "data",
+      "to": "audit_log",
+      "to_port": "details"
+    }
+  ],
+  "io_mode": "strict",
+  "nodes": [
+    {
+      "config": {
+        "inputs_map": {
+          "query": {
+            "node_id": "run",
+            "path": [
+              "query"
+            ]
+          }
+        },
+        "outputs_map": {
+          "results": "contract.evidence"
+        },
+        "skill_slug": "semantic_search_v1"
+      },
+      "id": "retrieve",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        }
+      ],
+      "kind": "task",
+      "label": "Retrieve governed evidence",
+      "outputs": [
+        {
+          "name": "results",
+          "schema": "array"
+        }
+      ]
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "context": {
+            "node_id": "contract",
+            "path": [
+              "evidence"
+            ]
+          },
+          "query": {
+            "node_id": "run",
+            "path": [
+              "query"
+            ]
+          }
+        },
+        "outputs_map": {
+          "answer": "contract.answer",
+          "citations": "contract.citations"
+        },
+        "skill_slug": "llm_rag_answer_v1"
+      },
+      "id": "answer",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        },
+        {
+          "name": "context",
+          "schema": "array"
+        }
+      ],
+      "kind": "task",
+      "label": "Generate grounded risk answer",
+      "outputs": [
+        {
+          "name": "answer",
+          "schema": "string"
+        },
+        {
+          "name": "citations",
+          "schema": "array"
+        }
+      ]
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "answer": {
+            "node_id": "contract",
+            "path": [
+              "answer"
+            ]
+          },
+          "citations": {
+            "node_id": "contract",
+            "path": [
+              "citations"
+            ]
+          },
+          "query": {
+            "node_id": "run",
+            "path": [
+              "query"
+            ]
+          }
+        },
+        "outputs_map": {
+          "claims": "contract.claims",
+          "verdict": "contract.verdict"
+        },
+        "skill_slug": "claim_audit_v1"
+      },
+      "id": "claim_audit",
+      "inputs": [
+        {
+          "name": "query",
+          "schema": "string"
+        },
+        {
+          "name": "answer",
+          "schema": "string"
+        },
+        {
+          "name": "citations",
+          "schema": "array"
+        }
+      ],
+      "kind": "task",
+      "label": "Audit claims against citations",
+      "outputs": [
+        {
+          "name": "claims",
+          "schema": "array"
+        },
+        {
+          "name": "verdict",
+          "schema": "string"
+        }
+      ]
+    },
+    {
+      "config": {
+        "inputs_map": {
+          "details": {
+            "node_id": "claim_audit",
+            "path": []
+          },
+          "event_type": {
+            "node_id": "context",
+            "path": [
+              "environment_state",
+              "audit_event_type"
+            ]
+          }
+        },
+        "skill_slug": "audit_log_v1"
+      },
+      "id": "audit_log",
+      "inputs": [
+        {
+          "name": "event_type",
+          "schema": "string"
+        },
+        {
+          "name": "details",
+          "schema": "object"
+        }
+      ],
+      "kind": "task",
+      "label": "Persist audit trace",
+      "outputs": [
+        {
+          "name": "id",
+          "schema": "string"
+        }
+      ]
+    }
+  ],
+  "schema_version": 3,
+  "variable_namespaces": [
+    "contract"
+  ],
+  "variant": "system_360_contract_risk_v1"
+}
