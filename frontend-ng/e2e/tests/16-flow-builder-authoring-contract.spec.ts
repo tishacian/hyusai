@@ -608,6 +608,14 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect.poll(() => events.includes('api:validate:initial')).toBe(true);
 
+  // Authoring is the default surface; running, debugging and previewing live
+  // one disclosure away. Everything below stays reachable in two clicks.
+  const operate = page.getByRole('button', { name: 'Operate', exact: true });
+  await expect(operate).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: 'Execute on backend' })).toBeHidden();
+  await operate.click();
+  await expect(operate).toHaveAttribute('aria-expanded', 'true');
+
   // The autosave hold spans the Workbench panel's lifetime only, so the panel
   // must be open before the edit. Editing first lets the 1.2s autosave debounce
   // persist the draft while no hold exists yet, which the panel cannot undo and
@@ -615,6 +623,15 @@ test('clone → edit → validate → save → input → execute → result → 
   await page.getByRole('button', { name: 'Toggle local Flow workbench' }).click();
   const workbench = page.getByRole('region', { name: 'Local Flow workbench', exact: true });
   await expect(workbench).toBeVisible();
+
+  // One status line carries the three warnings; the operator detail is one
+  // click away and must never be the thing the reader has to decode first.
+  await expect(workbench).toContainText('Nothing is saved or published');
+  const detail = workbench.getByRole('button', { name: 'What this run touches' });
+  await expect(workbench.getByText('Autosave stays paused')).toBeHidden();
+  await detail.click();
+  await expect(workbench.getByText('Autosave stays paused')).toBeVisible();
+  await detail.click();
 
   await page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL }).click();
   const inspector = page.locator('app-flow-inspector');
