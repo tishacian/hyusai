@@ -2348,3 +2348,82 @@ d'aboutissement reste celle des cinq Runs de la répétition combinée, sur une
 copie du même code et des mêmes données. La surveillance de 60 minutes des Runs
 rejetés prévue au point de contrôle 8 n'a rien à observer sur une fenêtre sans
 trafic : **elle reste due au premier usage réel.**
+
+## Itération du 10/08 — déployée sur `78f56ed4`, isolation client360
+
+Itération courte, frontend seul, sans migration : boucle en six pas, pas de
+fenêtre lourde.
+
+### Ce qu'un contrôle d'intégration a trouvé
+
+Question posée : les lots 7-9 et les tranches Flow Builder sont-ils bien tous
+sur `demo/agentic` ? Un test d'ascendance dit oui pour toutes les branches sauf
+quelques-unes ; il ment, parce que **l'intégration s'est faite par cherry-pick
+et que les SHA changent**. Le contrôle qui répond vraiment est
+`git cherry -v origin/demo/agentic <branche>`, qui compare les patches, doublé
+d'un `comm` sur les listes de fichiers.
+
+Résultat sur `codex/demo-agentic-release-a-integration` : sept des neuf commits
+atterris sous d'autres SHA, et **un absent** —
+`38c3fd81 fix(client360): preserve IAM and workspace isolation`. Son mécanisme
+d'époque était bien passé, mais pas ses points d'appel : `fetchCustomerFiche` et
+`loadCustomerSummary` écrivaient leur réponse sans vérifier l'époque, et
+`resetWorkspaceActions` laissait affichées les données du tenant précédent.
+Changer de workspace pendant le chargement d'une fiche affichait le client de A
+dans B.
+
+**Règle à retenir : après une intégration par cherry-pick, vérifier par
+`git cherry` et par diff de contenu, jamais par `merge-base --is-ancestor`.**
+
+### Périmètre réparé, plus large que le commit manquant
+
+L'audit du composant entier a trouvé la même faille dans onze autres méthodes,
+antérieures à ce correctif : chat, réglages SMTP, prompt mail, brouillons,
+envois, impact et campagnes écrivaient tous des données de tenant sans contrôle
+d'époque ni en-tête de scope. **25 appels réseau, 13 méthodes** désormais
+épinglés, et `resetWorkspaceActions` purge l'état tenant à la bascule.
+
+Un test de contrat (`client360-page.component.spec.ts`) parcourt la source du
+composant et échoue si un futur appel réseau arrive sans garde ou sans son
+en-tête de scope. Le test de comportement a été **prouvé rouge sans le
+correctif** avant d'être accepté vert.
+
+Les trois tests backend du commit manquant n'ont **délibérément pas** été
+portés : ils attendaient `read` / `customer_detail` sur `/customers/{id}`, alors
+que la route exige aujourd'hui `engine.run`. Les porter les aurait fait échouer,
+ou aurait poussé à affaiblir l'endpoint.
+`test_client360_authorization_inventory.py` couvre déjà la propriété par AST sur
+**toutes** les routes et épingle le couple `system` / `engine.run`.
+
+### Observables
+
+| Pas | Observé |
+|---|---|
+| Gates locaux | 702 tests unitaires frontend, `tsc -p tsconfig.app.json` propre, inventaire backend 2/2 |
+| Push | `demo/agentic` en fast-forward `d5d11c6b` → `78f56ed4` |
+| Ancre + worktree | avancés sur `78f56ed4` ; inodes `faiss_db` (2049:2665446) et `secure_deposit` (2080:2) inchangés |
+| Diff des trois chemins suivis | **vide**, `mtime` d'origine, livekit et keycloak jamais redémarrés |
+| Build | trois images au tag `78f56ed46084` (backend et worker inchangés en source, rebuildés pour que `AGENTIUM_IMAGE_REVISION` reste vrai) |
+| `storage-check` | sortie 0 |
+| `up` | trois conteneurs recréés, `build-info` sur le SHA complet, `revision_verified: true` |
+| Canaris | **6/6** en 56 s, premier passage |
+
+Rollback disponible : `AGENTIUM_IMAGE_TAG=f8c0758bf938` puis `up`. Aucune
+migration dans cette itération, donc le retour arrière est symétrique — c'est la
+différence avec la fenêtre du matin.
+
+### Le piège du re-tag, à ne pas prendre
+
+Seul le frontend avait changé. Re-taguer `agentium-backend:f8c0758bf938` en
+`78f56ed46084` aurait économisé un build, mais `AGENTIUM_IMAGE_REVISION` est
+cuit dans l'image : `/api/v1/build-info` aurait annoncé `f8c0758b` sous un tag
+`78f56ed4`, et `revision_verified` serait tombé, avec lui le gate canari.
+**Rebuilder les trois, même quand un seul service change.**
+
+### Ce que cette itération ne prouve pas
+
+La fuite corrigée est une course : elle demande de changer de workspace pendant
+un appel en vol. Aucun test ne la reproduit contre la production — le test de
+comportement la simule avec un `HttpClient` factice, et le test de contrat est
+statique. Rien n'a été observé sur du trafic réel, pour la même raison qu'au
+matin : il n'y en avait pas.
