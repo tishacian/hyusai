@@ -2613,3 +2613,48 @@ est celle des tests à fixtures (extraction exacte des deux fichiers d'exemple,
 les 2 écarts attendus trouvés, rapport stable). L'exposition catalogue par
 workspace (`enabled_skills`), la configuration NAWA et le System de démo
 restent à faire — c'est l'étape suivante du plan, hors fenêtre.
+
+## Répétition du 10/08 (midi) — System NAWA publié, deux boucles opérationnelles manquantes
+
+La configuration NAWA, le System « PO vs Invoice Reconciliation » (v3 publiée,
+sha `d3b03ec6…`) et les trois chemins d'ingress (manuel, `deposit.promoted`,
+cron) ont été répétés de bout en bout — détails, chiffres et check-list dans
+`docs/demo-runs/2026-08-10-nawa-po-invoice-recon/DEMO-SCRIPT.md`. Deux pièges
+d'infrastructure découverts en chemin, à connaître au-delà de cette démo.
+
+### Le conteneur `agentium-p4-maintenance` sert une image ancienne — et son rôle est OFF par défaut
+
+Les runs déclenchés par événement ne s'exécutent pas tout seuls : le trigger
+écrit un Run `pending` plus une ligne `run_dispatch_outbox`, et c'est la boucle
+P4 (`app.workers.p4_maintenance`) qui publie vers Celery. Sur cette VM,
+`ENABLE_P4_MAINTENANCE` n'est posé nulle part → la boucle idle (« P4
+maintenance disabled ») et tout run événementiel reste `pending` pour toujours.
+
+Pire : le conteneur dédié est resté épinglé sur une image du 27/07 (révision
+`07f54a68`, antérieure au type d'événement `trigger_run`). Y lancer la boucle
+marque les dispatches `dead` avec « invalid dispatch envelope ». Une ligne
+outbox (`b64ae1ff…`) a été repassée `dead` → `pending` en SQL direct (écriture
+documentée), puis publiée proprement une fois la boucle relancée **dans
+`agentium-worker-cpu`** (image `7619f0be`, alignée backend) :
+
+```bash
+sudo docker exec -d -e ENABLE_P4_MAINTENANCE=true agentium-worker-cpu \
+  python -m app.workers.p4_maintenance
+```
+
+### Aucun processus Celery beat — le cron `scheduler_tick` ne tire jamais
+
+`celery_app.conf.beat_schedule` déclare `agentium.scheduler_tick` toutes les
+60 s, mais seul un *worker* tourne : personne n'émet les ticks, donc les
+`run_schedules` n'ont jamais tiré sur cette VM. Lancé pareil, dans le worker :
+
+```bash
+sudo docker exec -d agentium-worker-cpu python -m celery \
+  -A app.workers.celery_app:celery_app beat --loglevel info \
+  --schedule /tmp/celerybeat-schedule
+```
+
+**Les deux boucles sont des `docker exec` : un restart du conteneur worker les
+tue.** À relancer avant toute démo (check-list du script), et à intégrer à la
+prochaine fenêtre de déploiement comme services compose durables (env
+`ENABLE_P4_MAINTENANCE=true` + image du conteneur p4 réalignée, service beat).
