@@ -2800,3 +2800,154 @@ images ; pour la topologie, un `git revert 23a8528f` + avance du worktree +
 `up` suffit (compose-only). Le commit documentaire qui porte cette section
 avance ensuite tête de branche, ancre et worktree ; les images servies restent
 en `59723514`.
+
+## Itération du 10/08 (soir) — déployée sur `8fc41597`, QA Flow Builder et capacité `document_reconciliation`
+
+Boucle courte, sans migration, quatre commits par tranche au-dessus de
+`7b7d69a2` : la fiche System dit ce que le run engine exécute et la navigation
+garde le graphe (`67f7c22a`), la création de Skill depuis l'UI sur les
+exécuteurs que le serveur vérifie (`f673e428`), la séparation auteur/opérateur
+du Flow Builder avec les deux correctifs d'intégrité backend — plancher de coût
+et plafond d'affichage du ROI, capacité `document_reconciliation` au seed
+(`05deb3ef`) — puis la mise à jour du contrat d'authoring e2e (`8fc41597`).
+Le delta ne touche que `backend/app/{api,services,tests}`, `frontend-ng/src`,
+`frontend-ng/scripts` et `frontend-ng/e2e` ; aucun fichier bind-monté, inodes
+des chemins montés inchangés.
+
+### Portails locaux
+
+| Portail | Commande | Observé |
+|---|---|---|
+| Types | `npx tsc -p tsconfig.app.json --noEmit` | sortie 0 |
+| Unitaires | `node scripts/run-unit.mjs` | **743/743** en 4,7 s (3 specs ajoutées) |
+| AOT | `npx ng build --configuration development` | bundle complet en 17,0 s, un seul `NG8107` préexistant dans `vp-map-preview.component.ts` (fichier non touché) |
+| Backend ciblé | `pytest` sur systems/flow (publication, ingress, workbench, safety, validate, perspective), hypervisor, authoring de Skills, surface catalogue, visibilité/couverture, seed, réconciliation, exécuteurs vérifiés | **180 passed** |
+| Backend infra | `pytest app/tests/infra` | **863 passed** (contrat de conformité inclus) |
+| Ruff | fichiers backend touchés | jeu de violations **identique** à `HEAD` (dette `UP006`/`UP007`/`I001` préexistante, rien de neuf) |
+
+### Compatibilité des canaris — une seule spec réellement périmée
+
+Quatorze contrôles de la barre d'outils passent derrière deux disclosures
+(`Operate`, `More actions`) : ils sortent du DOM et de l'arbre d'accessibilité
+au chargement. Cinq vignettes majuscules du workbench disparaissent au profit
+d'une ligne d'état et d'une disclosure « What this run touches ».
+
+- `e2e/tests/16-flow-builder-authoring-contract.spec.ts` (**+17**, seule spec
+  éditée) : la spec vérifie d'abord qu'« Execute on backend » est **absent** de
+  l'arbre et qu'« Operate » s'annonce `aria-expanded="false"`, puis ouvre la
+  disclosure et poursuit le parcours. L'intention préservée est
+  « le contrôle reste atteignable » — la présence par défaut est remplacée par
+  une assertion de portée, pas assouplie. Côté workbench, la garantie de
+  sécurité est ré-pointée sur les phrases qui la portent désormais : la ligne
+  d'état est exigée sur « Nothing is saved or published », et « Autosave stays
+  paused » est attesté **caché** puis **visible** après clic sur « What this
+  run touches ». Aucune assertion de sécurité supprimée, aucune transformée en
+  contrôle souple.
+- `09-live-workspace-contract`, `11-system360-canary`,
+  `12-protected-runner-canaries`, `scripts/playwright/**` : **aucune édition
+  nécessaire** après relecture des chaînes et des sélecteurs. Le canari de
+  termes interdits (`findSentinelForbiddenPresentationTerms`) est intact.
+- Une adaptation a été faite **côté produit plutôt que côté canari** : la
+  signature de chrome invariant de `11` tolère mal un eyebrow qui changerait de
+  façon asynchrone. `system-view.component.ts` porte donc `flowChromeActive`,
+  qui n'expose « Systems · Flow » que lorsque la projection `system_360_canary`
+  est inactive — le canari garde son assertion, la fiche garde sa vérité.
+- `core/zoom-context.service.ts` : le typeguard lit `candidate['workspace_slug']`
+  en notation crochets, comme le reste du dépôt, sinon l'inventaire
+  `WorkspaceSlugBranch` de `agentium_compliance` déclare une branche non
+  inventoriée. Le contrat de conformité redevient vert sans toucher à
+  l'inventaire.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `7b7d69a2` → `8fc41597`, accès direct depuis le poste (pas de bundle vers l'origine) |
+| Ancre + worktree | `sudo -u ubuntu git fetch` puis checkout sur `8fc41597`, arbre propre hors résidus connus |
+| Build | **trois** images au tag `8fc41597486d` (backend, worker, frontend), label `org.opencontainers.image.revision` 40-hex vérifié sur les trois |
+| Dump | `postgres-pre-switch.dump`, **449485592** o, sha256 `a11f96865552…`, **1204** entrées TOC, triplet `.sha256`/`.ready` sous `/srv/agentium-data/qa-flow-deployments/2026-08-10-8fc41597486d` en `0600` |
+| `up` | cinq services recréés (backend, worker-cpu, frontend, p4-maintenance, beat) à 16:01:52Z, `RestartCount=0` sur les trois principaux |
+| `build-info` | `revision: 8fc41597486dc78d52b1d79dd3ff0e5d8ff02530`, `revision_verified: true` (HTTPS seulement) |
+| Alembic | `084_decision_condition_repair` avant **et** après — aucune migration dans ce programme |
+| Conteneurs | **13**, `--filter health=healthy` = **9** (les quatre sans healthcheck sont sains en « Up ») |
+| Logs | **0** réponse 5xx, **0** ligne `ERROR`, **0** `Traceback` sur toute la vie du conteneur backend ; histogramme `200`×404, `404`×7, `401`×2 |
+| Snapshot post-bascule | `postgres-post-switch.dump`, 449501891 o, sha256 `d0a0244e00aa…`, rangé à côté du dump pré-bascule |
+| Canaris carakai | **6/6** en 57,1 s, premier passage, sur les specs **telles que mises à jour** |
+
+Rollback disponible : `AGENTIUM_IMAGE_TAG=59723514e0d3` puis `up`. La base ne
+porte qu'un ajout de ligne de catalogue (ci-dessous), retour symétrique.
+
+### Re-seed en production — une capacité ajoutée, rien de dupliqué
+
+`startup_reconciliation` reste `disabled` : le one-off est obligatoire, comme
+consigné l'après-midi. `seed_skills_and_capabilities(db)` joué dans le
+conteneur backend servi.
+
+| Table | Avant | Après |
+|---|---|---|
+| `capabilities` | **36** | **37** (`document_reconciliation`, `tier=universal`, `workspace_id NULL`, `is_seeded='Y'`, créée à 16:03:40Z) |
+| `skills` | **89** | **89** — `skills_added 0` |
+
+Les dix lignes `skills` créées le 10/08 datent de **09:46**, fenêtre du matin :
+cette tranche n'en ajoute aucune. Les cinq `skill_ids` de la capacité résolvent
+exactement `spreadsheet_table_extract_v1`, `invoice_document_extract_v1`,
+`line_items_reconcile_v1`, `reconciliation_report_v1`, `audit_log_v1`.
+Idempotence prouvée par un second passage : `skills_added 0, skills_updated 89,
+capabilities_added 0, capabilities_updated 26`, compteurs inchangés,
+**zéro slug en double** dans `capabilities` comme dans `skills`.
+
+Effet catalogue mesuré : dans NAWA le bloc `visibility` des cinq skills nomme
+`document_reconciliation` dans `capabilities` tout en gardant
+`reason: enabled_override` — l'override du workspace précède la capacité, c'est
+la précédence attendue. Dans `andritz`, `test` et `agentium-showcase`, qui n'ont
+pas d'override, la raison devient `reason: capability` : le portage par capacité
+est bien la voie qui les rend visibles, plus un patch NAWA.
+
+### Vérification API post-bascule
+
+| Contrôle | Observé |
+|---|---|
+| `GET /systems` (NAWA) | **7** Systems, **7/7** porteurs des trois clés `published_*` |
+| `GET /systems/fe4ab7e5…` | `published_flow_version_id: 9fc3cd0e-2e9a-427b-ae44-4bf301d924e5`, `published_at: 2026-08-10T12:36:19`, `published_by: thibaud.ishacian@datategy.net` |
+| `GET /skills/executors` | `200`, `editable: true`, deux kinds (`prompt_template`, `registry_call`) |
+| `GET /hypervisor/balance-sheet` | **13** libellés `High-yield outcome · ROI > 1000%`, **0** pourcentage à quatre chiffres ; le champ machine `roi` garde son ratio brut (max 63,0 sur 3 signaux, 2 au-dessus de 10) — le plafond est **d'affichage**, pas de donnée |
+| `GET /systems/dispatch-readiness` | Système de réconciliation `ready: true`, deux surfaces prêtes (planification quotidienne `next_fire_at 2026-08-11T07:00`, événement `deposit.promoted`) |
+
+### Pièges rencontrés, et leur résolution
+
+- **Checkout du runner périmé.** `/opt/agentium-protected-runner/repos/omnirag`
+  était resté en `59723514`. Bundle incrémental `59723514..demo/agentic`
+  (96132 o, sha256 `fc23da62fb94…` identique des deux côtés), `fetch` du
+  bundle, `cat-file -e 8fc41597…` **avant** de lancer les canaris, checkout
+  détaché. `node` toujours hors du `PATH` de root : préambule
+  `/opt/agentium-protected-runner/node-current/bin`.
+- **Le dump pré-bascule est à quatre niveaux de profondeur.** Un
+  `find /srv/agentium-data -maxdepth 3 -name '*.dump'` ne le voit pas et
+  « prouve » son absence : il vit sous
+  `/srv/agentium-data/<programme>-deployments/<date>-<tag>/`. Contrôler le
+  répertoire de fenêtre, pas la racine.
+- **`POST /auth/login` renvoie `token`, pas `access_token`.** Un script de
+  vérification qui lit `.access_token` obtient une chaîne vide et enchaîne des
+  401 muets.
+- **`GET /systems` renvoie `{"systems": [...]}`.** Lire `.items` ou traiter la
+  réponse comme un tableau donne « 0 System » sur un workspace qui en a sept.
+- **`capabilities.skill_ids` stocke des ids, pas des slugs.** Chercher le
+  porteur d'un slug par `like '%slug%'` sur cette colonne rend systématiquement
+  vide ; passer par `skills.id`, ou lire le bloc `visibility.capabilities` de
+  l'API qui fait déjà la résolution.
+
+### Ce que cette fenêtre prouve, et ce qu'elle ne prouve pas
+
+Elle prouve le contrat serveur : les champs de publication sortent de l'API, le
+catalogue d'exécuteurs répond avec son drapeau `editable`, les libellés de ROI
+sont bornés, la capacité de réconciliation porte ses cinq skills sans doublon,
+le System de démo reste dispatchable, et les canaris protégés passent sur les
+specs mises à jour au SHA déployé.
+
+Elle ne prouve rien de l'UI : les portails locaux et les canaris couvrent le
+contrat d'authoring et le chrome invariant, pas les quatre tranches de surface
+(fiche System pilotée par le Flow, dialogue de création de Skill, barre
+d'outils dédoublée, ligne d'état du workbench) — la relecture navigateur est
+faite hors fenêtre par le coordinateur. Aucun Run réel n'a été lancé sur le
+System de réconciliation : la preuve est la **disponibilité de dispatch**, pas
+une exécution de bout en bout de plus.
