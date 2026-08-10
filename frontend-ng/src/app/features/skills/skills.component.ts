@@ -1,7 +1,11 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Subscription, distinctUntilChanged, forkJoin, map, of } from 'rxjs';
-import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
+import { Subscription, catchError, distinctUntilChanged, forkJoin, map, of } from 'rxjs';
+import {
+  CanonicalApiService,
+  type Skill,
+  type SkillExecutorCatalog,
+} from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
   KbdComponent,
@@ -13,6 +17,7 @@ import {
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { NewSkillDialogComponent } from './new-skill-dialog.component';
 
 type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
 
@@ -26,7 +31,16 @@ interface SkillsScope {
   selector: 'app-skills',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageFrameComponent, GlyphComponent, KbdComponent, StatReadoutComponent, MicroBarComponent, TagComponent, RouterLink],
+  imports: [
+    PageFrameComponent,
+    GlyphComponent,
+    KbdComponent,
+    StatReadoutComponent,
+    MicroBarComponent,
+    TagComponent,
+    RouterLink,
+    NewSkillDialogComponent,
+  ],
   template: `
     <ck-page-frame
       eyebrow="Build · Skills"
@@ -66,8 +80,25 @@ interface SkillsScope {
               class="ck-mono"
               style="padding:6px 12px; font-size:11px; border-radius:4px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); width:220px;"
             />
+            @if (canAuthor()) {
+              <button
+                type="button"
+                (click)="openAuthoring()"
+                class="ck-mono"
+                style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-strong);"
+                title="Define a Skill owned by this workspace"
+              >
+                + NEW SKILL
+              </button>
+            }
           </div>
         </div>
+
+        @if (authoredNotice(); as notice) {
+          <div class="ck-mono" style="font-size:10px; color:var(--ck-pos); letter-spacing:0.08em;">
+            {{ notice }}
+          </div>
+        }
 
         <!-- Portfolio summary -->
         <section class="ck-surface rounded-md ck-hero-ambient relative overflow-hidden" style="padding:20px 24px;">
@@ -256,6 +287,15 @@ interface SkillsScope {
             </div>
           </section>
         }
+
+        @if (authoringCatalog(); as catalog) {
+          <app-new-skill-dialog
+            [catalog]="catalog"
+            [registryTargets]="registryTargets()"
+            (created)="onAuthored($event)"
+            (dismissed)="authoring.set(false)"
+          />
+        }
       </div>
     </ck-page-frame>
   `,
@@ -287,6 +327,30 @@ export class SkillsComponent implements OnInit, OnDestroy {
   readonly cert = signal<CertFilter>('all');
   readonly query = signal('');
   readonly selected = signal<Skill | null>(null);
+  /**
+   * The authoring descriptor, or `null` while it is unknown. The endpoint that
+   * serves it also serves the server's verdict on `skill.admin`, so a workspace
+   * that cannot author, a stale session and an unreachable backend all land on
+   * the same state: no affordance.
+   */
+  readonly executors = signal<SkillExecutorCatalog | null>(null);
+  readonly authoring = signal(false);
+  readonly authoredNotice = signal<string | null>(null);
+  /** The workspace catalog before the route scope narrows it: a `registry_call`
+   * may target any visible seeded row, not only the ones this view lists. */
+  private readonly catalogRows = signal<Skill[]>([]);
+  private pendingSelection: string | null = null;
+
+  readonly canAuthor = computed(() => this.executors()?.editable === true);
+
+  /** The descriptor the dialog is opened with, or `null` when it is closed. */
+  readonly authoringCatalog = computed(() => (this.authoring() ? this.executors() : null));
+
+  readonly registryTargets = computed(() => this.catalogRows().filter((skill) => (
+    !skill.slug.startsWith('ws.')
+    && skill.runtime_status !== 'unbound'
+    && skill.runtime_status !== 'catalog_only'
+  )));
 
   readonly filtered = computed(() => {
     const c = this.cert();
@@ -376,12 +440,17 @@ export class SkillsComponent implements OnInit, OnDestroy {
     this.loading.set(true);
     const subscription = forkJoin({
       skills: this.canonical.listSkills(),
+      // Fails closed: an unreachable descriptor leaves authoring unavailable
+      // rather than assuming the caller holds `skill.admin`.
+      executors: this.canonical.getSkillExecutors().pipe(catchError(() => of(null))),
       capability: scope.capabilityId ? this.canonical.getCapability(scope.capabilityId) : of(null),
       system: scope.systemId ? this.canonical.getSystem(scope.systemId) : of(null),
       run: scope.runId ? this.canonical.getRun(scope.runId) : of(null),
     }).subscribe({
-      next: ({ skills, capability, system, run }) => {
+      next: ({ skills, executors, capability, system, run }) => {
       if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
+      this.executors.set(executors);
+      this.catalogRows.set(skills);
       let scoped = skills;
       if (scope.runId) {
         const slugs = new Set((run?.skill_invocations ?? []).map((item) => item.skill_slug).filter(Boolean));
@@ -397,13 +466,19 @@ export class SkillsComponent implements OnInit, OnDestroy {
         scoped = capability ? skills.filter((skill) => ids.has(skill.id)) : [];
       }
       this.skills.set(scoped);
-      this.selected.set(null);
+      this.selected.set(this.pendingSelection
+        ? scoped.find((skill) => skill.slug === this.pendingSelection) ?? null
+        : null);
+      this.pendingSelection = null;
       this.loading.set(false);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
         this.skills.set([]);
+        this.catalogRows.set([]);
+        this.executors.set(null);
         this.selected.set(null);
+        this.pendingSelection = null;
         this.loading.set(false);
       },
     });
@@ -435,17 +510,41 @@ export class SkillsComponent implements OnInit, OnDestroy {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.workspaceView.invalidate();
-    this.skills.set([]);
-    this.selected.set(null);
-    this.loading.set(false);
+    this.clearCatalog();
   }
 
   private resetWorkspaceState(): void {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
+    this.clearCatalog();
+  }
+
+  /** Drops the catalog and the authoring right together: the next workspace
+   * must earn the affordance from its own descriptor. */
+  private clearCatalog(): void {
     this.skills.set([]);
+    this.catalogRows.set([]);
+    this.executors.set(null);
+    this.authoring.set(false);
+    this.authoredNotice.set(null);
     this.selected.set(null);
+    this.pendingSelection = null;
     this.loading.set(false);
+  }
+
+  openAuthoring(): void {
+    if (!this.canAuthor()) return;
+    this.authoredNotice.set(null);
+    this.authoring.set(true);
+  }
+
+  onAuthored(skill: Skill): void {
+    this.authoring.set(false);
+    this.authoredNotice.set(`${skill.slug} created — bound to ${skill.executor?.kind ?? 'its runtime'}.`);
+    // The registry and the palette both read `GET /skills`, so re-reading the
+    // scope is what makes the new row appear on either surface.
+    this.pendingSelection = skill.slug;
+    this.reloadCurrentScope();
   }
 
   private sameScope(a: SkillsScope, b: SkillsScope): boolean {

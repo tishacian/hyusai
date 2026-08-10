@@ -57,6 +57,11 @@ export interface Skill {
   };
   is_seeded?: 'Y' | 'N';
   runtime_status?: 'bound' | 'stub' | 'unbound' | 'catalog_only';
+  /** Verified runtime binding of a workspace-authored row; absent on seeded
+   * rows, whose runtime is the registry wrapper itself. */
+  executor?: { kind: string; params?: Record<string, unknown> } | null;
+  /** `global` for the seeded registry, `workspace` for an authored row. */
+  workspace_scope?: 'global' | 'workspace';
 }
 
 export interface ListSkillsOptions {
@@ -64,6 +69,53 @@ export interface ListSkillsOptions {
    * distinguish an unavailable catalog from an authoritative empty catalog
    * opt into the original transport error. */
   propagateErrors?: boolean;
+}
+
+/** One parameter of a verified executor, as the backend describes it. */
+export interface SkillExecutorParamSchema {
+  type?: string;
+  enum?: string[];
+  minLength?: number;
+  maxLength?: number;
+}
+
+/**
+ * A runtime an authored Skill may bind to. `params_schema` is the contract the
+ * server validates, so an authoring surface builds its controls from it rather
+ * than from a copy of the kinds it happens to know about.
+ */
+export interface SkillExecutorDescriptor {
+  kind: string;
+  summary: string;
+  params_schema: {
+    type?: string;
+    required?: string[];
+    additionalProperties?: boolean;
+    properties?: Record<string, SkillExecutorParamSchema>;
+  };
+}
+
+export interface SkillExecutorCatalog {
+  executors: SkillExecutorDescriptor[];
+  /** The taxonomy authoring may pick from; a private section is refused. */
+  categories: string[];
+  /** The server's verdict on `skill.admin` for this caller. Anything other
+   * than `true` — including an unreachable endpoint — means "no". */
+  editable: boolean;
+}
+
+/** Body of `POST /skills`. The slug is derived server-side from `local_name`. */
+export interface SkillDraft {
+  local_name: string;
+  name: string;
+  description?: string;
+  type?: string;
+  category?: string | null;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  executor: { kind: string; params: Record<string, unknown> };
+  execution?: Record<string, unknown>;
+  pricing?: Record<string, unknown>;
 }
 
 export interface Outcome {
@@ -1276,6 +1328,28 @@ export class CanonicalApiService {
 
   getSkill(slug: string): Observable<Skill | null> {
     return this.api.get<Skill>(`/skills/${encodeURIComponent(slug)}`).pipe(catchError(() => of(null)));
+  }
+
+  /** The verified runtimes, the authorable taxonomy and the caller's right to
+   * author. Errors propagate: an authoring surface must fail closed rather than
+   * infer a permission from an empty fallback. */
+  getSkillExecutors(): Observable<SkillExecutorCatalog> {
+    return this.api.get<SkillExecutorCatalog>('/skills/executors');
+  }
+
+  /** Authoring mutations never swallow their error: the backend's refusal names
+   * the schema, the binding or the permission at fault, and the author needs
+   * that sentence rather than a generic failure. */
+  createSkill(body: SkillDraft): Observable<Skill> {
+    return this.api.post<Skill>('/skills', body);
+  }
+
+  updateSkill(slug: string, patch: Partial<Omit<SkillDraft, 'local_name'>>): Observable<Skill> {
+    return this.api.patch<Skill>(`/skills/${encodeURIComponent(slug)}`, patch);
+  }
+
+  deleteSkill(slug: string): Observable<{ deleted: string }> {
+    return this.api.delete<{ deleted: string }>(`/skills/${encodeURIComponent(slug)}`);
   }
 
   // ---- Systems -------------------------------------------------------------

@@ -97,6 +97,7 @@ const storeSpecs = [
   'src/app/features/capabilities/capability-view.component.spec.ts',
   'src/app/features/capabilities/catalog-curation.component.spec.ts',
   'src/app/features/skills/skill-view.component.spec.ts',
+  'src/app/features/skills/skill-authoring.component.spec.ts',
   'src/app/features/layout/command-palette.component.spec.ts',
   'src/app/features/layout/side-rail.component.spec.ts',
   'src/app/features/layout/mini-rail.component.spec.ts',
