@@ -2721,3 +2721,82 @@ Le commit qui porte cette section avance la tête de branche, l'ancre et le
 worktree d'un commit documentaire au-dessus de `59723514` : les images servies
 restent en `59723514` et c'est l'état attendu, le delta ne touchant que
 `docs/`.
+
+## Durcissement du 10/08 (après-midi) — boucles P4 et beat durables, déployé compose-only sur `23a8528f`
+
+Fenêtre sans rebuild d'image : les deux boucles opérationnelles lancées en
+`docker exec` le matin (draineur d'outbox P4 + Celery beat, tuées par tout
+restart du worker) deviennent des services compose durables. Images servies
+inchangées en `59723514`, `revision_verified: true` avant et après.
+
+### Le piège du draineur à image ancienne, consigné
+
+`agentium-p4-maintenance` datait du déploiement Release A du 28/07 : image du
+27/07 (révision `07f54a68`, **antérieure au type d'outbox `trigger_run`**),
+`restart: no` (posture opened jamais corrigée puisque jamais recréé), et
+`ENABLE_P4_MAINTENANCE` posé nulle part — sa boucle principale idlait
+(« P4 maintenance disabled »). Y lancer une boucle activée marque les
+dispatches des types récents `dead` (« invalid dispatch envelope »,
+`PermanentDispatchError` sur type inconnu) : c'est l'incident `b64ae1ff…` du
+matin. **Règle : le draineur doit toujours servir l'image alignée sur le
+backend.** L'épinglage de digest du vm-runtime, pensé « ne jamais recréer »,
+était précisément ce qui figeait le conteneur sur l'image piégée. Le worktree
+`release-a` reste par ailleurs de l'infrastructure vivante (administration du
+worktree de déploiement) : ne pas le supprimer.
+
+### Nouvelle topologie durable
+
+- `agentium-p4-maintenance` : dé-épinglé dans
+  `docker/compose.agentium.vm-runtime.yml`, suit `AGENTIUM_IMAGE_TAG` comme
+  backend/worker, `ENABLE_P4_MAINTENANCE: "true"` posé par l'overlay (littéral,
+  l'overlay reste sans interpolation), `restart: unless-stopped`. Montages
+  inchangés (les binds applicatifs du compose de base ; les « montages
+  release-a » du conteneur historique étaient en réalité l'association aux
+  fichiers compose du projet, pas des binds).
+- `agentium-beat` : nouveau service du compose de base, image worker, commande
+  `celery … beat`, `restart: unless-stopped`, derrière un **profil `beat`** —
+  un `up` local nu ne le démarre pas (le worker local garde son beat embarqué
+  `CELERY_BEAT=1`), le lanceur VM le nomme explicitement (ce qui active le
+  profil) tandis que le worker VM reste `AGENTIUM_CELERY_BEAT=0` : exactement
+  **un beat par environnement, jamais deux**.
+- `scripts/agentium-vm-deploy.sh up` recrée désormais cinq services :
+  backend, worker-cpu, frontend, p4-maintenance, beat. Le contrat
+  `test_safe_vm_deploy_contract.py` (compte des `AGENTIUM_DISABLE_DOTENV`)
+  passe de 5 à 6 services Python ; les 162 tests infra sont verts.
+
+### Bascule et preuves
+
+- `up --dry-run` d'abord : backend/worker/frontend `Running` (non recréés),
+  beat `Created`, p4 `Recreated` — aucun autre conteneur touché ; contrôle des
+  chemins montés avant l'avance de l'ancre (delta `1bf45513..23a8528f` :
+  compose, lanceur, un test — aucun fichier bind-monté), inodes
+  `faiss_db`/`secure_deposit` inchangés.
+- Ordre de bascule dicté par la sémantique des claims : beat exec tué **avant**
+  le `up` (un tick raté se rattrape, `next_fire_at` reste dû ; jamais deux
+  beats), draineur exec laissé vivant **pendant** la recréation et tué après
+  (claims `FOR UPDATE SKIP LOCKED` + jetons de lease + task ids déterministes :
+  un double-drain bref est sans effet).
+- Durabilité : `docker restart` des trois conteneurs → les trois reviennent
+  seuls (p4 « started » après SIGTERM propre, beat repart, worker `ready`).
+- Bout en bout : `next_fire_at` de la planification NAWA reculé d'une minute
+  en SQL, le tick beat suivant tire le run `0efe69b3-6dc3-4448-819a-e38a80113474`
+  — completed en 0,9 s, verdict **Needs Review**, 2 flags, `PO-2026-0451` —
+  et `next_fire_at` **revient tout seul** sur `2026-08-11 07:00` (croniter) :
+  la cadence quotidienne n'a pas eu à être restaurée à la main.
+- Outbox : 2 `published`, **0** `pending`/`leased`/`dead` avant et après.
+- Canaris : **6/6** en 56,9 s, premier passage (le SHA `59723514` était déjà
+  dans le checkout du runner, `cat-file -e` vérifié en root — le contrôle en
+  `ubuntu` échoue sur « dubious ownership », c'est attendu).
+
+### Nouveau compte nominal : **13 conteneurs**
+
+12 + `agentium-beat`. Quatre sans healthcheck (« Up » est leur état sain) :
+`agentium-worker-cpu`, `agentium-p4-maintenance`, `agentium-livekit` et
+désormais `agentium-beat`. `--filter health=healthy` renvoie 9 sur 13 à l'état
+normal.
+
+Rollback : `AGENTIUM_IMAGE_TAG` précédent puis `up` reste valable pour les
+images ; pour la topologie, un `git revert 23a8528f` + avance du worktree +
+`up` suffit (compose-only). Le commit documentaire qui porte cette section
+avance ensuite tête de branche, ancre et worktree ; les images servies restent
+en `59723514`.

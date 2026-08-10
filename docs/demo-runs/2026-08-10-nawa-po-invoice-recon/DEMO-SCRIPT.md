@@ -22,7 +22,7 @@ sur la page Run. Zéro LLM dans le chemin de données : mêmes octets en entrée
 | Flow SHA-256 | `1ab057037dade60b27790494d1c384109952d57bd8b996f8c01a3208e93938b1` |
 | Mode d'exécution | `dag_overlay`, validation `observe` |
 | Collection | `po-invoice-recon-demo` (id `2b5c49fc-3002-4d34-9881-1e53ce78fefe`) |
-| Lien de dépôt | id `66126488-2ff1-461b-a9da-9f739b671ea8`, access_id `BGBP0F7H4iGC0NQPCzM` (mot de passe : à faire tourner via la page Secure Deposit avant la démo) |
+| Lien de dépôt | id `66126488-2ff1-461b-a9da-9f739b671ea8`, access_id `BGBP0F7H4iGC0NQPCzM` (mot de passe tourné le 10/08, secret sur la VM : `/srv/agentium-data/demo-secrets/deposit-link-BGBP0F7H4iGC0NQPCzM.password`, 0600 root) |
 | Planification | `Recon PO/Facture — quotidien`, cron `0 7 * * *` UTC, activée (id `bc1ebae1-ad31-4d80-869d-b21b69fbf6b1`) |
 | Fichiers d'exemple | `Invoice_INV-8834_Sample.pdf` + `PO_Register_Sample.xlsx` (fixtures : `backend/app/tests/fixtures/po_invoice_recon/`, worktree VM : `/srv/agentium-data/worktrees/demo-agentic/...`) |
 
@@ -54,19 +54,19 @@ Runs de répétition (tous vérifiés ce matin) :
 
 ## Check-list pré-démo (15 min avant)
 
-1. **Conteneurs** : `ssh omnirag-demo "sudo docker ps"` — backend, frontend, worker-cpu, pg, rabbitmq, minio healthy.
+1. **Conteneurs** : `ssh omnirag-demo "sudo docker ps"` — **13 conteneurs Up**, dont backend, frontend, pg, rabbitmq, minio healthy. `agentium-worker-cpu`, `agentium-p4-maintenance` et `agentium-beat` n'ont pas de healthcheck : « Up » suffit.
 2. **Build-info** : `ssh omnirag-demo "curl -sk https://localhost/api/v1/build-info"` → `revision 59723514…`, `revision_verified: true`.
-3. **⚠️ Boucles opérationnelles (non durables — à relancer après tout restart du worker)** :
-   - Draineur d'outbox (exécute les runs déclenchés par événement) :
-     `ssh omnirag-demo "sudo docker exec -d -e ENABLE_P4_MAINTENANCE=true agentium-worker-cpu python -m app.workers.p4_maintenance"`
-   - Celery beat (fait vivre le cron `scheduler_tick`) :
-     `ssh omnirag-demo "sudo docker exec -d agentium-worker-cpu python -m celery -A app.workers.celery_app:celery_app beat --loglevel info --schedule /tmp/celerybeat-schedule"`
-   - Vérifier : `sudo docker exec agentium-worker-cpu ps aux | grep -E 'p4_maintenance|beat'` → une ligne chacun.
-   - (Le conteneur `agentium-p4-maintenance` dédié tourne une image ancienne `07f54a68` qui ne connaît pas
-     `trigger_run` : ne PAS s'en servir, il marquerait les dispatches `dead`.)
+3. **Boucles opérationnelles (durables depuis le 10/08 après-midi, commit `23a8528f`)** : le draineur d'outbox
+   (`agentium-p4-maintenance`, image alignée `59723514`, `ENABLE_P4_MAINTENANCE=true`) et Celery beat
+   (`agentium-beat`) sont des services compose `restart: unless-stopped` — ils survivent aux restarts et au reboot.
+   Vérifier simplement qu'ils sont Up au point 1 ; en cas de doute :
+   `docker logs --since 5m agentium-p4-maintenance` (« P4 maintenance started ») et
+   `docker logs --since 5m agentium-beat` (ticks `scheduler-tick-60s`). Plus AUCUN `docker exec` à relancer.
 4. **Skills activés** : page Skills du workspace nawa — `invoice_document_extract_v1`, `spreadsheet_table_extract_v1`, `line_items_reconcile_v1`, `reconciliation_report_v1`, `audit_log_v1` visibles.
 5. **System publié** : `/systems` → « PO vs Invoice Reconciliation » actif, v4 ; readiness OK (manuel + événement + cron).
-6. **Lien de dépôt prêt** : page Secure Deposit → lien `BGBP0F7H4iGC0NQPCzM` actif ; faire tourner le mot de passe et le noter.
+6. **Lien de dépôt prêt** : page Secure Deposit → lien `BGBP0F7H4iGC0NQPCzM` actif. Mot de passe déjà tourné le 10/08
+   (voie produit, événement d'audit `deposit.link.password_rotated`, acteur faycal.benaissa@datategy.net) ; le secret est
+   sur la VM : `/srv/agentium-data/demo-secrets/deposit-link-BGBP0F7H4iGC0NQPCzM.password` (0600 root, `sudo cat`).
 7. **Fichiers sous la main** : les deux fichiers d'exemple sur le poste du présentateur (`~/Downloads/`).
 8. Ouvrir en onglets : `/systems/<id>/flow`, `/runs`, `/governance/audit`, `/governance/access`, la page Secure Deposit, le portail public du lien.
 
@@ -157,9 +157,11 @@ Répétition : run `907e27cc…` (v3) ; re-répétition v4 : run `3184a53c…`.
    du PDF pilote le filtre Excel** (namespace `po_filter`), `invoice_meta` réalimente le rapport,
    le contournement `settings.recon.po_filters` est retiré et le checkpoint
    `execution_contract_violation` (`/due_date`) a disparu — vérifié sur le run `3184a53c…` : 0 violation.
-4. **Boucles opérationnelles non durables** : draineur P4 et celery beat sont lancés en `docker exec`
-   (voir check-list) ; un restart du conteneur worker les tue. Sans draineur : les runs événementiels
-   restent `pending`. Sans beat : le cron ne tire pas. Les runs manuels, eux, marchent toujours.
+4. **Boucles opérationnelles — durcies le 10/08 après-midi** : draineur P4 et celery beat sont désormais
+   des services compose durables (`agentium-p4-maintenance` réaligné + `agentium-beat`, restart
+   `unless-stopped`), prouvés par restart et par un run cron réel (`0efe69b3…`, Needs Review). Symptômes
+   si l'un tombait quand même : runs événementiels bloqués `pending` (draineur), cron qui ne tire pas (beat) ;
+   les runs manuels marchent toujours.
 5. **Dédoublonnage** : re-promouvoir exactement les mêmes fichiers déjà promus ne re-déclenche pas
    (claim d'événement) ; pour rejouer la démo, re-téléverser les fichiers (nouveaux file_ids) puis promouvoir.
 
@@ -175,5 +177,10 @@ Répétition : run `907e27cc…` (v3) ; re-répétition v4 : run `3184a53c…`.
   `features.secure_deposit` ∅ → true. System : `settings.event_trigger` ∅ → `{"mode": "live"}`.
 - Une écriture SQL directe (documentée) : ligne `run_dispatch_outbox` `b64ae1ff…` repassée
   `dead` → `pending` après l'incident du draineur à image ancienne (cause corrigée en déplaçant
-  le draineur dans `agentium-worker-cpu`).
-- Boucles lancées en `docker exec` dans `agentium-worker-cpu` : draineur P4 (intervalle 5 s) + celery beat.
+  le draineur dans `agentium-worker-cpu`, puis définitivement le 10/08 après-midi en réalignant
+  le conteneur dédié).
+- Boucles durables depuis le 10/08 après-midi (commit `23a8528f`) : draineur P4 dans
+  `agentium-p4-maintenance` (image `59723514`, intervalle 5 s) + `agentium-beat`, services compose
+  `restart: unless-stopped` — les `docker exec` provisoires ont été retirés. Preuve cron : run
+  `0efe69b3-6dc3-4448-819a-e38a80113474` (completed, Needs Review, 2 flags), `next_fire_at`
+  revenu tout seul sur le quotidien 07:00 UTC.
