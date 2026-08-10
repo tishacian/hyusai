@@ -116,10 +116,15 @@ test('workbench panel exposes the three preview modes and the unsaved boundary',
     "tab() === 'chat'",
     "tab() === 'node'",
     "tab() === 'golden'",
-    'Unsaved snapshot',
-    'autosave held while open',
-    'never published',
-    'Real Skill side effects',
+    // The badge wall became one status line plus an on-demand detail list.
+    // Every warning the badges shouted is still stated, in full sentences.
+    'your unsaved canvas',
+    'Nothing is saved or published',
+    'so are their side effects',
+    'What this run touches',
+    'Autosave stays paused for as long as this panel is open.',
+    'Never published. The published version and the ingress serving it do',
+    'Real Skills run. Whatever they write, send or call outside Agentium',
     'I understand this preview invokes real Skills and may cause external side effects.',
     'Confirmation is valid only for the current Flow revision.',
     'Additional input_ref (JSON)',
@@ -148,5 +153,14 @@ test('workbench panel exposes the three preview modes and the unsaved boundary',
     PANEL_SOURCE,
     /runChat\([\s\S]*additionalInputRef\.value,[\s\S]*true/,
     'the UI only dispatches chat after explicit acknowledgement',
+  );
+  const styles = readFileSync(
+    join(process.cwd(), 'src/app/features/orchestration/flow/flow-workbench-panel.component.scss'),
+    'utf8',
+  );
+  assert.match(
+    styles.match(/\.ck-workbench__detail \{([\s\S]*?)\n\}/)?.[1] ?? '',
+    /&\[hidden\] \{\s*display: none;/,
+    'a grid display would otherwise beat the hidden attribute',
   );
 });

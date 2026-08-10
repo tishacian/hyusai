@@ -124,16 +124,21 @@ const DEFAULT_GOLDEN_SET = `[
       <section class="ck-workbench" aria-label="Local Flow workbench">
         <header class="ck-workbench__header">
           <div class="ck-workbench__identity">
-            <span class="ck-workbench__eyebrow">Unsaved workbench</span>
-            <strong>Real backend preview</strong>
-            <span class="ck-workbench__boundary">
-              {{ store.dirty() ? 'Unsaved snapshot' : 'Current local snapshot' }}
-              · autosave held while open · never published
+            <strong>Try this Flow before saving it</strong>
+            <span class="ck-workbench__status">
+              Runs {{ store.dirty() ? 'your unsaved canvas' : 'the current canvas' }}
+              exactly as it is. Nothing is saved or published — but the Skills are
+              real and so are their side effects.
             </span>
-            <span class="ck-workbench__effects">Real Skill side effects</span>
-            <span class="ck-workbench__runtime" [attr.data-mode]="workbench.runtimeMode() ?? 'unknown'">
-              {{ runtimeLabel() }}
-            </span>
+            <button
+              type="button"
+              class="ck-workbench__detail-toggle"
+              [attr.aria-expanded]="detailOpen()"
+              aria-controls="ck-workbench-detail"
+              (click)="detailOpen.set(!detailOpen())"
+            >
+              What this run touches
+            </button>
           </div>
 
           <div class="ck-workbench__tabs" role="tablist" aria-label="Workbench mode">
@@ -152,6 +157,28 @@ const DEFAULT_GOLDEN_SET = `[
             <app-icon name="x" [size]="15" />
           </button>
         </header>
+
+        <dl id="ck-workbench-detail" class="ck-workbench__detail" [hidden]="!detailOpen()">
+          <dt>Graph</dt>
+          <dd>
+            {{ store.dirty() ? 'The unsaved canvas' : 'The current canvas' }}, sent
+            hash-bound so the server refuses anything that drifted since dispatch.
+          </dd>
+          <dt>Saving</dt>
+          <dd>Autosave stays paused for as long as this panel is open.</dd>
+          <dt>Publishing</dt>
+          <dd>
+            Never published. The published version and the ingress serving it do
+            not move.
+          </dd>
+          <dt>Side effects</dt>
+          <dd>
+            Real Skills run. Whatever they write, send or call outside Agentium
+            happens for real.
+          </dd>
+          <dt>Runtime</dt>
+          <dd [attr.data-mode]="workbench.runtimeMode() ?? 'unknown'">{{ runtimeLabel() }}</dd>
+        </dl>
 
         <label class="ck-workbench__consent">
           <input
@@ -323,6 +350,9 @@ export class FlowWorkbenchPanelComponent {
   protected readonly goldenText = signal(DEFAULT_GOLDEN_SET);
   protected readonly localError = signal<string | null>(null);
   protected readonly realSideEffectsAcknowledged = signal(false);
+  /** The badge wall became one status line; the facts it used to shout are
+   *  here, in full sentences, for whoever wants them. */
+  protected readonly detailOpen = signal(false);
 
   protected readonly selectedRunnableNode = computed<CanonicalFlowNode | null>(() => {
     const node = this.store.selectedNode();

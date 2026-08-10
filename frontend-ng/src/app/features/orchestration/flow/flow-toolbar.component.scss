@@ -21,6 +21,23 @@
   flex-wrap: wrap;
 }
 
+/* Disclosure rows. `flex-basis: 100%` makes them wrap under the author row
+   instead of floating over the canvas, so a short viewport reflows rather
+   than overlaps. Closed panels leave the a11y tree and the tab order. */
+.ck-flow-toolbar__panel {
+  display: none;
+  flex: 1 0 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+
+  &.is-open {
+    display: flex;
+  }
+}
+
 .ck-flow-toolbar__meta {
   font: 10px / 1 var(--ck-font-mono, monospace);
   letter-spacing: 0.1em;

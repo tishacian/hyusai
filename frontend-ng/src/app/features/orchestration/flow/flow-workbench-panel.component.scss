@@ -28,37 +28,63 @@
 .ck-workbench__identity {
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
 
   strong { color: var(--ck-fg-1, #f2f5f8); font-size: 12px; }
 }
 
-.ck-workbench__eyebrow,
-.ck-workbench__runtime,
-.ck-workbench__boundary,
-.ck-workbench__effects {
-  font: 600 9px / 1 var(--ck-font-mono, monospace);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* One honest line replacing the five uppercase badges. Same three warnings —
+   unsaved, never published, real side effects — in a sentence. */
+.ck-workbench__status {
+  font: 11px / 1.4 var(--ck-font-sans, sans-serif);
+  color: #d7c797;
 }
 
-.ck-workbench__eyebrow { color: var(--ck-signal-cool, #7dd3fc); }
-.ck-workbench__boundary { color: var(--ck-fg-4, #6f7886); }
-.ck-workbench__effects {
-  padding: 4px 6px;
-  border-radius: 999px;
-  background: rgba(251, 191, 36, 0.09);
-  color: #fbbf24;
+.ck-workbench__detail-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ck-signal-cool, #7dd3fc);
+  font: 600 10px / 1.4 var(--ck-font-sans, sans-serif);
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
 }
-.ck-workbench__runtime {
-  padding: 4px 6px;
-  border-radius: 999px;
-  background: rgba(125, 211, 252, 0.08);
-  color: #a5e2fa;
+
+.ck-workbench__detail {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  background: rgba(255, 255, 255, 0.015);
+
+  dt {
+    font: 600 9px / 1.5 var(--ck-font-mono, monospace);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ck-fg-4, #6f7886);
+  }
+  dd {
+    margin: 0;
+    font: 11px / 1.5 var(--ck-font-sans, sans-serif);
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+  dd[data-mode='sequential_legacy'] { color: #fbbf24; }
+  dd[data-mode='unknown'] { color: var(--ck-fg-4, #6f7886); }
+
+  &[hidden] {
+    display: none;
+  }
 }
-.ck-workbench__runtime[data-mode='sequential_legacy'] { color: #fbbf24; background: rgba(251, 191, 36, 0.09); }
-.ck-workbench__runtime[data-mode='unknown'] { color: var(--ck-fg-4, #6f7886); }
 
 .ck-workbench__tabs {
   display: flex;

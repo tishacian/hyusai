@@ -166,18 +166,22 @@
   flex: 1 1 auto;
 }
 
+/* 24px hit area that no head-row crowding can shrink, with a resting frame so
+   the control is findable before hover instead of reading as node decoration. */
 .ck-flow-node__delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   flex: 0 0 24px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.1));
   border-radius: var(--ck-radius-sm, 4px);
-  background: transparent;
-  color: var(--ck-fg-3, #8891a0);
+  background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+  color: var(--ck-fg-2, #c8cdd4);
   cursor: pointer;
   transition:
     color var(--ck-dur-fast, 120ms) var(--ck-ease-out),

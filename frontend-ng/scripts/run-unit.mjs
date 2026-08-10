@@ -130,6 +130,7 @@ const storeSpecs = [
   'src/app/features/orchestration/flow/flow-catalog.service.spec.ts',
   'src/app/features/orchestration/flow/flow-collections.service.spec.ts',
   'src/app/features/orchestration/flow/flow-inspector-retrieval.spec.ts',
+  'src/app/features/orchestration/flow/manifest-fields.component.spec.ts',
   'src/app/features/orchestration/flow/flow-palette.component.spec.ts',
 ];
 

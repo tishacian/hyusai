@@ -492,11 +492,12 @@ def _signals(recent_runs: List[Run]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in recent_runs:
         tone = "neutral"
+        roi = _signal_roi(r)
         if r.status == "failed":
             tone = "neg"
         elif r.confidence is not None and r.confidence < 0.6:
             tone = "warn"
-        elif r.value_estimated and r.cost_internal and r.value_estimated > 2 * r.cost_internal:
+        elif roi is not None and roi > 1.0:
             tone = "pos"
         out.append({
             "id": r.id,
@@ -561,14 +562,46 @@ def _aggregate_visible_runs(runs: List[Run]) -> Dict[str, Any]:
     }
 
 
+# A ratio is only a claim about yield when its denominator is a real cost.
+# Several seeded skills are priced at 0.0, so a run that cost a fraction of a
+# cent turned any value at all into a four-digit percentage ("ROI 1462400.0%").
+# Below this floor the run is reported as completed, without a yield claim.
+MIN_SIGNAL_COST = 0.01
+# Past this ratio the exact figure tells an operator nothing more than "much
+# more than it cost", and printing it in full reads as a defect.
+MAX_SIGNAL_ROI_RATIO = 10.0
+
+
+def _signal_roi(r: Run) -> float | None:
+    """The ROI ratio of one run, or ``None`` when no real cost backs it.
+
+    Same convention as ``_aggregate_visible_runs``: a ratio, not percent
+    points, so ``0.5`` means the run returned 1.5x what it cost.
+    """
+
+    if r.value_estimated is None or r.cost_internal is None:
+        return None
+    cost = float(r.cost_internal)
+    if cost < MIN_SIGNAL_COST:
+        return None
+    return (float(r.value_estimated) - cost) / cost
+
+
+def _format_roi(ratio: float) -> str:
+    """Render a ROI ratio as percent, converting exactly once and capping."""
+
+    if ratio > MAX_SIGNAL_ROI_RATIO:
+        return f"> {MAX_SIGNAL_ROI_RATIO * 100:.0f}%"
+    return f"{ratio * 100:.1f}%"
+
+
 def _signal_label(r: Run) -> str:
     if r.status == "failed":
         return f"Run failed · {r.error or 'unknown error'}"
     if r.status == "completed":
-        if r.value_estimated and r.cost_internal:
-            roi = (r.value_estimated - r.cost_internal) / r.cost_internal if r.cost_internal else None
-            if roi is not None and roi > 1.5:
-                return f"High-yield outcome · ROI {roi:.1%}"
+        roi = _signal_roi(r)
+        if roi is not None and roi > 1.5:
+            return f"High-yield outcome · ROI {_format_roi(roi)}"
         return f"Run completed · decision {r.decision or '—'}"
     return f"Run {r.status}"
 

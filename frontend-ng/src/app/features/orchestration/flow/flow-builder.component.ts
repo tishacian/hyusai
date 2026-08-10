@@ -32,6 +32,7 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import {
@@ -98,6 +99,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
   ],
   imports: [
     RouterLink,
+    IconComponent,
     FlowCanvasComponent,
     FlowInspectorComponent,
     FlowPaletteComponent,
@@ -183,8 +185,28 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               </strong>
             }
           </div>
-        } @else {
-          <app-flow-manifest-strip />
+        } @else if (systemId()) {
+          <!-- Per-System sidecar, exactly like the strip it wraps: the
+               scratchpad has no runtime contract, so it gets no disclosure
+               promising one. -->
+          <div class="flow-builder__runtime">
+            <button
+              type="button"
+              class="flow-builder__runtime-toggle"
+              [attr.aria-expanded]="manifestStripOpen()"
+              aria-controls="flow-builder-runtime-manifest"
+              (click)="manifestStripOpen.set(!manifestStripOpen())"
+            >
+              <app-icon
+                [name]="manifestStripOpen() ? 'chevron-down' : 'chevron-right'"
+                [size]="12"
+              />
+              <span>Runtime details</span>
+            </button>
+            <div id="flow-builder-runtime-manifest" [hidden]="!manifestStripOpen()">
+              <app-flow-manifest-strip />
+            </div>
+          </div>
         }
 
         <app-flow-validation-strip
@@ -232,6 +254,23 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
           <div class="flow-builder__canvas">
             <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
+            @if (store.nodeCount() === 0) {
+              <div class="flow-builder__canvas-empty">
+                <p class="flow-builder__canvas-empty-title">Nothing on the canvas yet</p>
+                <p class="flow-builder__canvas-empty-hint">
+                  Start with a structure from the palette — a trigger, a skill or an
+                  output — and it lands here.
+                </p>
+                <button
+                  type="button"
+                  class="flow-builder__canvas-empty-cta"
+                  (click)="startFromPalette()"
+                >
+                  <app-icon name="plus" [size]="14" />
+                  <span>Add the first node</span>
+                </button>
+              </div>
+            }
           </div>
 
           @if (inspectorOpen() && !focusMode()) {
@@ -387,6 +426,9 @@ export class FlowBuilderComponent {
   protected readonly toolbarCompact = signal(false);
   protected readonly workbenchOpen = signal(false);
   protected readonly versionsOpen = signal(false);
+  /** Runtime manifest is operator context, not authoring context: collapsed
+   *  until asked for, expanded state kept for the rest of the session. */
+  protected readonly manifestStripOpen = signal(false);
   protected readonly routingLabel = signal('segment');
   protected readonly loadState = signal<'loading' | 'ready' | 'error'>('loading');
   protected readonly loadError = signal('');
@@ -658,6 +700,14 @@ export class FlowBuilderComponent {
   protected togglePalette(): void {
     if (this.focusMode()) return;
     this.paletteOpen.update((open) => !open);
+    this.scheduleCanvasFit();
+  }
+
+  /** Empty-canvas call to action: bring the author back to the one surface
+   *  that can put a node down, whatever state the shell was left in. */
+  protected startFromPalette(): void {
+    if (this.focusMode()) void this.toggleCanvasFocus();
+    this.paletteOpen.set(true);
     this.scheduleCanvasFit();
   }
 

@@ -349,6 +349,41 @@
   }
 }
 
+/* Destructive node action — last section of the body so it is deliberate,
+   labelled and impossible to hit while editing fields above it. */
+.ck-flow-danger {
+  padding-top: 14px;
+  border-top: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+.ck-flow-danger__btn {
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 42%, transparent);
+  border-radius: var(--ck-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 10%, transparent);
+  color: var(--ck-signal-neg, #ef5a6f);
+  font: 600 12px / 1 var(--ck-font-sans, sans-serif);
+  cursor: pointer;
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover:not(:disabled) {
+    border-color: var(--ck-signal-neg, #ef5a6f);
+    background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 20%, transparent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
 .ck-flow-ports {
   display: flex;
   flex-wrap: wrap;

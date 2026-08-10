@@ -36,6 +36,7 @@ import type {
   DecisionNodeConfig,
 } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
+import { FlowPersistenceService } from './flow-persistence.service';
 import { ManifestFieldsComponent } from './manifest-fields.component';
 import {
   FlowCollectionsService,
@@ -518,6 +519,26 @@ export function buildRetrievalDocumentOptions(
 
           <!-- Kept seam for any further inspector extensions. -->
           <ng-content select="[flowInspectorFields]" />
+
+          <section class="ck-flow-section ck-flow-danger">
+            <span class="ck-flow-section__label">Remove this node</span>
+            <button
+              type="button"
+              class="ck-flow-danger__btn"
+              [disabled]="editingLocked()"
+              (click)="deleteNode()"
+              aria-label="Delete node"
+              aria-keyshortcuts="Delete Backspace"
+              title="Delete this node and its connections (Delete/Backspace)"
+            >
+              Delete node
+            </button>
+            <p class="ck-flow-hint">
+              Deletes “{{ n.label || n.id }}” and every connection attached to it.
+              The Delete or Backspace key does the same on the selected node, and
+              Ctrl/Cmd+Z brings it back.
+            </p>
+          </section>
         } @else {
           <div class="ck-flow-empty">
             <ck-glyph name="crosshair" [size]="18" color="currentColor" />
@@ -531,6 +552,8 @@ export function buildRetrievalDocumentOptions(
 export class FlowInspectorComponent {
   private readonly store = inject(FlowStore);
   private readonly collectionsSvc = inject(FlowCollectionsService);
+  /** Optional: present whenever the inspector renders inside the builder shell. */
+  private readonly persistence = inject(FlowPersistenceService, { optional: true });
 
   /** Active trigger source node types (mirror of the backend
    *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
@@ -551,6 +574,9 @@ export class FlowInspectorComponent {
   /** Surfaced so the inspector shows the unsaved/dirty state (Save lives in
    *  the toolbar, owned elsewhere — this is a read-only indicator). */
   readonly dirty = this.store.dirty;
+
+  /** Same gate the node card and the keyboard shortcut use. */
+  readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
 
   /** Live collections catalogue for the asset picker (cached, shared). */
   readonly collectionsState = this.collectionsSvc.state;
@@ -915,6 +941,14 @@ export class FlowInspectorComponent {
       'workspace_scoped',
       (event.target as HTMLInputElement).checked,
     );
+  }
+
+  /** Same store mutation as the node card's trash and the Delete/Backspace
+   *  shortcut, so all three share one undo frame semantics. */
+  deleteNode(): void {
+    const id = this.node()?.id;
+    if (!id || this.editingLocked()) return;
+    this.store.removeNode(id);
   }
 
   onLabel(event: Event): void {

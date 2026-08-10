@@ -97,7 +97,7 @@ interface RuntimeBadge {
           aria-keyshortcuts="Delete Backspace"
           [title]="'Delete node ' + label() + ' (Delete/Backspace)'"
         >
-          <app-icon name="trash-2" [size]="12" />
+          <app-icon name="trash-2" [size]="14" />
         </button>
       </header>
 

@@ -94,6 +94,36 @@ function isVariableRef(value: unknown): value is VariableRef {
   return isValidVariableRef(value);
 }
 
+/** `config.inputs_map.<port>` holds a binding: a typed VariableRef (v3) or a
+ *  legacy non-empty dot-path string. Anything else is unbound. */
+export function isBoundInput(value: unknown): boolean {
+  if (isVariableRef(value)) return true;
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * A required Skill parameter is genuinely missing only when NOTHING supplies
+ * it. The run engine merges `config.params` as defaults underneath the values
+ * bound through `config.inputs_map`, so a required array/object input such as
+ * `po_lines` is satisfied by its upstream binding even though `params.po_lines`
+ * is empty — the inspector used to read `params.<key>` alone and flagged a
+ * correctly bound node as invalid.
+ *
+ * Only `skill.input_schema` fields have that second source: an input port of
+ * the same name. `node.config` / `node.data` fields are read at their own path
+ * and keep the plain emptiness test.
+ */
+export function requiredParamUnsatisfied(
+  field: Pick<FlowManifestField, 'key' | 'source' | 'required'>,
+  value: unknown,
+  inputsMap: Record<string, unknown>,
+): boolean {
+  if (!field.required) return false;
+  if (!(value === undefined || value === null || value === '')) return false;
+  if (field.source !== 'skill.input_schema') return true;
+  return !isBoundInput(inputsMap[field.key]);
+}
+
 function getPath(root: Record<string, unknown> | undefined, path: string): unknown {
   if (!root) return undefined;
   let cursor: unknown = root;
@@ -308,8 +338,9 @@ export class ManifestFieldsComponent {
     const errs = this.errors();
     const dataBag = node.data ?? {};
     const configBag = (node.config ?? {}) as Record<string, unknown>;
+    const inputsMap = this.inputsMap(configBag);
     return (unit.editable_fields ?? []).map((field) =>
-      this.toVm(field, dataBag, configBag, errs[this.errorKey(field)] ?? null),
+      this.toVm(field, dataBag, configBag, inputsMap, errs[this.errorKey(field)] ?? null),
     );
   });
 
@@ -500,31 +531,43 @@ export class ManifestFieldsComponent {
     };
   }
 
+  private inputsMap(configBag: Record<string, unknown>): Record<string, unknown> {
+    const value = configBag['inputs_map'];
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
   private toVm(
     field: FlowManifestField,
     dataBag: Record<string, unknown>,
     configBag: Record<string, unknown>,
+    inputsMap: Record<string, unknown>,
     error: string | null,
   ): FieldVM {
     const options = Array.isArray(field.enum) ? field.enum.map(String) : [];
     const control = this.controlFor(field, options);
     const value = this.liveValue(field, dataBag, configBag);
     const required = Boolean(field.required);
-    const missing = value === undefined || value === null || value === '';
+    const unsatisfied = requiredParamUnsatisfied(field, value, inputsMap);
+    const empty = value === undefined || value === null || value === '';
+    const boundNote = required && empty && !unsatisfied
+      ? `Supplied at runtime by the upstream binding on “${field.key}”.`
+      : null;
     return {
       key: field.key,
       label: humanize(field.key),
       control,
       type: String(field.type ?? 'string'),
       required,
-      description: field.description ?? null,
+      description: [boundNote, field.description].filter(Boolean).join(' ') || null,
       options,
       source: field.source,
       runtimeReadPath: this.runtimeReadPath(field),
       stringValue: this.asString(value),
       boolValue: value === true,
       jsonValue: this.asJson(value),
-      invalid: Boolean(error) || (required && missing),
+      invalid: Boolean(error) || unsatisfied,
       error,
     };
   }

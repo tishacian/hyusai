@@ -16,6 +16,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowPersistenceService, type SaveState } from './flow-persistence.service';
@@ -36,12 +37,6 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
       role="toolbar"
       aria-label="Flow canvas tools"
     >
-      <!-- Execution actions are projected here by the shell (run controls)
-           so this toolbar stays a thin view-controls component. -->
-      <div class="ck-flow-toolbar__group ck-flow-toolbar__group--actions">
-        <ng-content select="[flowToolbarActions]" />
-      </div>
-
       <div class="ck-flow-toolbar__group">
         <span class="ck-flow-toolbar__meta">{{ nodeCount() }} nodes</span>
         @let state = persistence.saveState();
@@ -80,7 +75,10 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         }
       </div>
 
-      <div class="ck-flow-toolbar__group">
+      <!-- Author surface: everything the person building the graph reaches for
+           without opening anything. Operating the graph lives one click away in
+           the Operate group; the rarely-used file / view actions in More. -->
+      <div class="ck-flow-toolbar__group ck-flow-toolbar__group--author">
         <button
           type="button"
           class="ck-flow-toolbar__btn"
@@ -104,47 +102,6 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           aria-label="Toggle node inspector"
         >
           <app-icon name="panel-right" [size]="14" />
-        </button>
-        <button
-          type="button"
-          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
-          [class.is-active]="focusMode()"
-          [disabled]="!hydrationReady()"
-          (click)="toggleFocus.emit()"
-          [attr.aria-pressed]="focusMode()"
-          [title]="focusMode() ? 'Exit canvas focus / fullscreen' : 'Focus canvas in fullscreen'"
-          aria-label="Toggle canvas focus mode"
-        >
-          <app-icon [name]="focusMode() ? 'x' : 'maximize'" [size]="14" />
-          <span>{{ focusMode() ? 'Exit focus' : 'Focus' }}</span>
-        </button>
-        <button
-          type="button"
-          class="ck-flow-toolbar__btn"
-          [class.is-active]="compact()"
-          (click)="toggleCompact.emit()"
-          [attr.aria-pressed]="compact()"
-          [title]="compact() ? 'Expand toolbar labels' : 'Compact toolbar'"
-          aria-label="Toggle compact toolbar"
-        >
-          <app-icon [name]="compact() ? 'chevron-down' : 'chevron-up'" [size]="14" />
-        </button>
-        <button
-          type="button"
-          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
-          [class.is-active]="workbenchOpen()"
-          [disabled]="!hydrationReady() || !workbenchAvailable()"
-          (click)="toggleWorkbench.emit()"
-          [attr.aria-pressed]="workbenchOpen()"
-          [title]="
-            workbenchAvailable()
-              ? 'Test the exact local Flow without saving or publishing it'
-              : 'Promote this scratchpad to a System before running previews'
-          "
-          aria-label="Toggle local Flow workbench"
-        >
-          <app-icon name="message-square" [size]="14" />
-          <span>Workbench</span>
         </button>
 
         <span class="ck-flow-toolbar__sep"></span>
@@ -183,9 +140,6 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         </button>
         <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" [disabled]="controlsDisabled()" title="Auto-arrange — repositions all nodes (Ctrl/Cmd+Z to undo)" aria-label="Auto-arrange all nodes">
           <app-icon name="layout-grid" [size]="14" /><span>Arrange</span>
-        </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [disabled]="controlsDisabled()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
-          <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
         </button>
 
         <span class="ck-flow-toolbar__sep"></span>
@@ -249,6 +203,116 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             <span>Publish</span>
           </button>
         }
+        @if (!persistence.systemId()) {
+          <button
+            type="button"
+            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
+            (click)="persistence.promoteToSystem()"
+            [disabled]="controlsDisabled() || persistence.promoting()"
+            title="Save this scratchpad draft as a real System"
+            aria-label="Save as System"
+          >
+            <app-icon name="rocket" [size]="14" />
+            <span>{{ persistence.promoting() ? 'Saving…' : 'To System' }}</span>
+          </button>
+        }
+
+        <span class="ck-flow-toolbar__sep"></span>
+
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="operateOpen()"
+          [disabled]="!hydrationReady()"
+          (click)="operateOpen.set(!operateOpen())"
+          [attr.aria-expanded]="operateOpen()"
+          aria-controls="ck-flow-toolbar-operate"
+          aria-label="Operate"
+          title="Run, debug, replay and test this Flow"
+        >
+          <app-icon name="play-circle" [size]="14" /><span>Operate</span>
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="moreOpen()"
+          (click)="moreOpen.set(!moreOpen())"
+          [attr.aria-expanded]="moreOpen()"
+          aria-controls="ck-flow-toolbar-more"
+          aria-label="More actions"
+          title="View options, import / export, share and clear"
+        >
+          <app-icon name="more-horizontal" [size]="14" /><span>More</span>
+        </button>
+      </div>
+
+      <!-- Operate group: running the Flow, not authoring it. The shell projects
+           the run controls here; they stay in the DOM order the toolbar declares
+           so keyboard order matches what the eye reads. -->
+      <div
+        id="ck-flow-toolbar-operate"
+        class="ck-flow-toolbar__panel"
+        [class.is-open]="operateOpen()"
+        role="group"
+        aria-label="Operate"
+      >
+        <ng-content select="[flowToolbarActions]" />
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="workbenchOpen()"
+          [disabled]="!hydrationReady() || !workbenchAvailable()"
+          (click)="toggleWorkbench.emit()"
+          [attr.aria-pressed]="workbenchOpen()"
+          [title]="
+            workbenchAvailable()
+              ? 'Test the exact local Flow without saving or publishing it'
+              : 'Promote this scratchpad to a System before running previews'
+          "
+          aria-label="Toggle local Flow workbench"
+        >
+          <app-icon name="message-square" [size]="14" />
+          <span>Workbench</span>
+        </button>
+      </div>
+
+      <div
+        id="ck-flow-toolbar-more"
+        class="ck-flow-toolbar__panel"
+        [class.is-open]="moreOpen()"
+        role="group"
+        aria-label="More actions"
+      >
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          [class.is-active]="focusMode()"
+          [disabled]="!hydrationReady()"
+          (click)="toggleFocus.emit()"
+          [attr.aria-pressed]="focusMode()"
+          [title]="focusMode() ? 'Exit canvas focus / fullscreen' : 'Focus canvas in fullscreen'"
+          aria-label="Toggle canvas focus mode"
+        >
+          <app-icon [name]="focusMode() ? 'x' : 'maximize'" [size]="14" />
+          <span>{{ focusMode() ? 'Exit focus' : 'Focus' }}</span>
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          [class.is-active]="compact()"
+          (click)="toggleCompact.emit()"
+          [attr.aria-pressed]="compact()"
+          [title]="compact() ? 'Expand toolbar labels' : 'Compact toolbar'"
+          aria-label="Toggle compact toolbar"
+        >
+          <app-icon [name]="compact() ? 'chevron-down' : 'chevron-up'" [size]="14" />
+        </button>
+        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [disabled]="controlsDisabled()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
+          <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
+        </button>
+
+        <span class="ck-flow-toolbar__sep"></span>
+
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
@@ -279,19 +343,6 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         >
           <app-icon name="link-2" [size]="14" /><span>Share</span>
         </button>
-        @if (!persistence.systemId()) {
-          <button
-            type="button"
-            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
-            (click)="persistence.promoteToSystem()"
-            [disabled]="controlsDisabled() || persistence.promoting()"
-            title="Save this scratchpad draft as a real System"
-            aria-label="Save as System"
-          >
-            <app-icon name="rocket" [size]="14" />
-            <span>{{ persistence.promoting() ? 'Saving…' : 'To System' }}</span>
-          </button>
-        }
 
         <span class="ck-flow-toolbar__sep"></span>
 
@@ -336,6 +387,12 @@ export class FlowToolbarComponent {
   /** The bound System must be authoritatively hydrated before controls can
    * read or mutate its graph. Scratchpad routes explicitly bind this to true. */
   readonly hydrationReady = input(false);
+
+  /** Operate / More are inline disclosures, not overlays: they wrap onto their
+   *  own toolbar row so nothing is ever painted over the canvas, and every
+   *  control inside stays exactly one click from the closed state. */
+  protected readonly operateOpen = signal(false);
+  protected readonly moreOpen = signal(false);
 
   protected readonly controlsDisabled = computed(
     () => this.persistence.actionsDisabled() || !this.hydrationReady(),
