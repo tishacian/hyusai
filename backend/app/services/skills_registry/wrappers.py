@@ -4931,6 +4931,142 @@ async def _response_eval_v1(
 
 
 # ---------------------------------------------------------------------------
+# Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
+# ---------------------------------------------------------------------------
+def _file_reference_payload(
+    payload: dict[str, Any], ctx: dict[str, Any]
+) -> dict[str, Any]:
+    """Backfill file references from the run input when the node has no binding.
+
+    The ingress payload (``deposit.promoted`` event, manual run, cron) carries
+    ``file_ids`` / ``collection_slug``; letting the extractors read them from
+    ``ctx["input"]`` means the same graph serves all three ingress without an
+    explicit ``inputs_map`` on every node. Explicit payload keys always win.
+    """
+    merged: dict[str, Any] = {}
+    run_input = ctx.get("input")
+    if isinstance(run_input, dict):
+        for key in ("file_ids", "file_id", "collection_slug", "filename_pattern"):
+            if run_input.get(key) not in (None, "", []):
+                merged[key] = run_input[key]
+    for key, value in payload.items():
+        if value not in (None, "", []):
+            merged[key] = value
+    return merged
+
+
+async def _spreadsheet_table_extract_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.db.base import SessionLocal
+    from app.services.reconciliation import extract_spreadsheet_table
+    from app.services.skills_registry.file_resolution import resolve_skill_file
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        db = SessionLocal()
+    try:
+        resolved = resolve_skill_file(
+            db,
+            workspace_id=str(ctx.get("workspace_id") or payload.get("workspace_id") or ""),
+            payload=_file_reference_payload(payload, ctx),
+            extensions=(".xlsx", ".xlsm"),
+        )
+    finally:
+        if owns_db:
+            db.close()
+    result = extract_spreadsheet_table(
+        resolved.data,
+        sheet=payload.get("sheet"),
+        header_row=payload.get("header_row"),
+        filters=payload.get("filters") if isinstance(payload.get("filters"), dict) else None,
+    )
+    result["source_file"] = resolved.filename
+    return result
+
+
+async def _invoice_document_extract_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.db.base import SessionLocal
+    from app.services.reconciliation import extract_invoice_fields, extract_pdf_text
+    from app.services.skills_registry.file_resolution import resolve_skill_file
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        db = SessionLocal()
+    try:
+        resolved = resolve_skill_file(
+            db,
+            workspace_id=str(ctx.get("workspace_id") or payload.get("workspace_id") or ""),
+            payload=_file_reference_payload(payload, ctx),
+            extensions=(".pdf",),
+        )
+    finally:
+        if owns_db:
+            db.close()
+    result = extract_invoice_fields(extract_pdf_text(resolved.data))
+    result["source_file"] = resolved.filename
+    return result
+
+
+async def _line_items_reconcile_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.services.reconciliation import reconcile_line_items
+
+    po_lines = payload.get("po_lines")
+    invoice_lines = payload.get("invoice_lines")
+    if not isinstance(po_lines, list) or not isinstance(invoice_lines, list):
+        raise ValueError(
+            "line_items_reconcile_v1: 'po_lines' and 'invoice_lines' arrays are required"
+        )
+    try:
+        tolerance_pct = float(payload.get("tolerance_pct") or 2.0)
+    except (TypeError, ValueError):
+        tolerance_pct = 2.0
+    return reconcile_line_items(
+        po_lines,
+        invoice_lines,
+        po_reference=payload.get("po_reference"),
+        tolerance_pct=tolerance_pct,
+        po_field_map=payload.get("po_field_map")
+        if isinstance(payload.get("po_field_map"), dict)
+        else None,
+        invoice_field_map=payload.get("invoice_field_map")
+        if isinstance(payload.get("invoice_field_map"), dict)
+        else None,
+    )
+
+
+async def _reconciliation_report_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    from app.services.reconciliation import render_reconciliation_report
+
+    reconciliation = payload.get("reconciliation")
+    if not isinstance(reconciliation, dict):
+        raise ValueError("reconciliation_report_v1: 'reconciliation' object is required")
+    verdict = str(payload.get("verdict") or "").strip()
+    if verdict not in ("Approved", "Needs Review"):
+        verdict = "Approved" if not reconciliation.get("flagged_count") else "Needs Review"
+    report_text = render_reconciliation_report(
+        reconciliation,
+        verdict,
+        payload.get("invoice_meta") if isinstance(payload.get("invoice_meta"), dict) else None,
+    )
+    return {
+        "report_text": report_text,
+        "verdict": verdict,
+        "flagged_count": int(reconciliation.get("flagged_count") or 0),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 # (slug -> (callable, expected_module_path|None, status_hint))
@@ -5123,6 +5259,26 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "chat_agentic_plan_v1": (_chat_agentic_plan_v1, "app.services.model_router", "bound"),
     "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
     "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
+    "spreadsheet_table_extract_v1": (
+        _spreadsheet_table_extract_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "invoice_document_extract_v1": (
+        _invoice_document_extract_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "line_items_reconcile_v1": (
+        _line_items_reconcile_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
+    "reconciliation_report_v1": (
+        _reconciliation_report_v1,
+        "app.services.reconciliation",
+        "bound",
+    ),
 }
 
 _RESOLVED_STATUS: dict[str, str] = {}
