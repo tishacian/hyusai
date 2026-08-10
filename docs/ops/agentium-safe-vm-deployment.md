@@ -2500,3 +2500,35 @@ Les quinze branches distantes réellement non fusionnées — `feat/qdrant`,
 `feat/keycloak`, `feat/metadata-indexing`, `Justicia/multi-modal--pipeline`,
 `llmaas` et les autres — sont toutes antérieures à mai et sans rapport avec
 Agentium. Ne pas les prendre pour du résidu.
+
+### Quatre pièges en avançant l'ancre d'un commit documentaire
+
+**Le worktree de déploiement n'est pas un clone indépendant.**
+`/srv/agentium-data/worktrees/demo-agentic` est un worktree *lié* du clone
+`release-a`, enregistré sous le nom hérité `release-b`, et son répertoire
+d'administration appartient à `root`. Une raison de plus de ne jamais supprimer
+`release-a` : cela emporterait aussi l'administration du worktree de
+déploiement.
+
+**`sudo -u ubuntu` échoue dessus**, sur `cannot lock ref 'ORIG_HEAD'`. L'ancre
+se manipule en `ubuntu`, ce worktree en `root` — les deux commandes ne sont pas
+interchangeables.
+
+**Son `origin/*` lui est propre.** Un `merge --ff-only origin/demo/agentic`
+répond « Already up to date » alors que le worktree est en retard, parce que la
+référence de suivi du clone `release-a` n'a pas bougé. Toujours `fetch` puis
+fusionner `FETCH_HEAD` :
+
+```bash
+sudo git -C /srv/agentium-data/worktrees/demo-agentic fetch origin demo/agentic
+sudo git -C /srv/agentium-data/worktrees/demo-agentic merge --ff-only FETCH_HEAD
+```
+
+**`build-info` ne répond qu'en HTTPS.** Le backend n'est pas publié sur le
+`:8000` de l'hôte et nginx en clair renvoie 404 sur ce chemin. La sonde correcte
+est `curl -sk https://localhost/api/v1/build-info`.
+
+**`--filter health=healthy` renvoie 9 sur 12 à l'état normal.** Trois conteneurs
+n'ont pas de healthcheck déclaré — `agentium-livekit`,
+`agentium-p4-maintenance`, `agentium-worker-cpu`. Ils sont debout, pas malades.
+Le « douze conteneurs sains » écrit plus haut était une formulation relâchée.
