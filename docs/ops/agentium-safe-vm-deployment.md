@@ -2427,3 +2427,52 @@ un appel en vol. Aucun test ne la reproduit contre la production — le test de
 comportement la simule avec un `HttpClient` factice, et le test de contrat est
 statique. Rien n'a été observé sur du trafic réel, pour la même raison qu'au
 matin : il n'y en avait pas.
+
+## Ménage du 10/08 — et le worktree qu'il ne fallait pas prendre pour un résidu
+
+### `/srv/agentium-data/worktrees/release-a` n'est pas un reliquat
+
+Il porte le nom d'une release close et ressemble à s'y méprendre à un candidat
+oublié. **Deux conteneurs vivants montent depuis ce chemin :**
+`agentium-p4-maintenance` et `qdrant`. Le supprimer aurait cassé la maintenance
+P4 et le store vectoriel, trois jours d'uptime chacun.
+
+Contrôle obligatoire avant de retirer un worktree de la VM :
+
+```bash
+for c in $(docker ps --format '{{.Names}}'); do
+  docker inspect "$c" | grep -q "/srv/agentium-data/worktrees/<nom>" && echo "$c MONTE"
+done
+```
+
+Seuls `candidate-dcc36f97899f`, `candidate-f8c0758b` et
+`candidate-ingress-6604d957` étaient réellement sans montage : 1,7 Gio retirés.
+Restent `demo-agentic` (déploiement) et `release-a` (**infrastructure vivante,
+ne pas supprimer**).
+
+### Cache builder, et rien d'autre
+
+`docker builder prune --filter 'until=24h'` : **6,27 Gio** récupérés, cache
+ramené de 42,8 à 36,5 Gio. Ni image ni volume touchés, conformément à la règle
+posée en tête de ce document. Les « 49 Gio réclamables » annoncés sur les
+volumes locaux restent le piège à ne pas prendre. Après ménage :
+`storage-check` en 0, douze conteneurs sains, `build-info` inchangé, frontend en
+200.
+
+### Le poste est enfin *sur* `demo/agentic`
+
+Il poussait dessus depuis `codex/flow-builder-p0-integration`, sans upstream,
+avec un refspec explicite à chaque fois — et la branche locale `demo/agentic`
+traînait **33 commits en arrière**. Un `git checkout demo/agentic` y aurait
+ramené l'état du 6 août. Worktree principal basculé, upstream configuré.
+
+Vingt-deux branches locales retirées : dix-sept joignables depuis
+`demo/agentic`, cinq reprises par cherry-pick. Les deux qui n'existaient **que**
+sur ce poste ont été archivées en tags poussés avant suppression —
+`archive/release-a-hardening-2026-07-23` et
+`archive/demo-agentic-release-a-integration-2026-07-27`. Le handoff Lots 7-9,
+seule copie sur la branche supprimée, a été remis dans `docs/ops/`.
+
+Quatre branches anciennes et réellement non fusionnées ont été conservées :
+`feat/create-vector-store-api`, `Omnirag-react-reasoning-trace`, `doc/cir`,
+`backup/capture-pre-rebase-20260624`.
