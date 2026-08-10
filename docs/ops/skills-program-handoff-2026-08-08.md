@@ -64,6 +64,7 @@ Artefacts laissés par la fenêtre du 8 au soir :
 | `69b42432` | Migration `084_decision_condition_repair` — les 7 conditions Decision endommagées réécrites dans les graphes stockés, ledger de retour arrière, 17 tests sur graphes réels |
 | `1808196f` | Backfill : classement par recompilation et comparaison de `contract_sha256`, republication des contrats périmés, `apply_risk` qui prédit les refus de compilation ; harnais `rehearse_published_ingress_run.py` |
 | `f8c0758b` | Runbook — pourquoi 40 Systems refusaient encore de publier, et correction de la règle du marcheur |
+| `dcc36f97` | Répétition combinée sur copie fraîche + runbook exécutable de la fenêtre ; retour arrière prouvé, vrai point de non-retour identifié |
 
 ## Les deux blocages de la fenêtre
 

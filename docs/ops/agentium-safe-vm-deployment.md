@@ -1933,8 +1933,8 @@ restants sur 104 vivent dans deux workspaces en suppression douce).
 |---|---|
 | `alembic upgrade head` depuis `080` | atteint `084_decision_condition_repair`, **tête unique**, sortie 0 |
 | Lignes réparées par `084` | 130 (41 `systems`, 41 `system_flow_drafts`, 48 `system_versions`), 41 Systems distincts |
-| Dry run du backfill | `publish 89` (tous `initial`), `already_pinned 0`, `at_risk 3`, sortie **1** |
-| `--apply` | **`published 85`, `failed 4`**, sortie **1** |
+| Dry run du backfill | `publish 89` (tous `initial`), `already_pinned 0`, `at_risk 3`, sortie **1** — voir le décalage post-remédiation ci-dessous |
+| `--apply` | **`published 85`, `failed 4`**, sortie **1** — voir le décalage post-remédiation ci-dessous |
 | `--apply` consécutif | `already_pinned 85`, `published 0`, `publish_republication 0` — **idempotent** |
 | Systems dispatchables après backfill | 77 / 89 |
 | Refus restants | `FLOW_INGRESS_SYSTEM_INACTIVE` 8, `PUBLISHED_EXECUTION_CONTRACT_MISSING` 4 |
@@ -1954,6 +1954,56 @@ Les 4 échecs de publication sont les défauts d'auteur déjà inventoriés
 (`Tender Response Analyst`, `Contract Risk Copilot`, `Shared mailbox creation`,
 `Translation Suite`). Ils ne sont pas mécaniques et ne se réparent pas dans une
 fenêtre de déploiement.
+
+### Décalage post-remédiation — les chiffres attendus ont bougé de un
+
+La fenêtre du 10/08 s'est arrêtée en étape 2 sur un cinquième échec non
+sanctionné : `SAP HANA Maintenance Copilot` (`b4e4cc03`, `agentium-showcase`),
+refusé en `PUBLISHED_FLOW_MIRROR_DRIFT`. Cause : une édition d'auteur du 09/08
+08h27 (faycal.benaissa@datategy.net) déplaçant un nœud sur le canevas. La voie
+legacy a empilé les versions #15 et #16 sans jamais déplacer le pointeur publié.
+`canonical_flow_sha256` hachant `position`, le graphe hache différemment et
+`publish_draft` refuse.
+
+**Remédié en production le 10/08 06h32 UTC**, version #17,
+`created_by=operator:flow-mirror-drift-remediation`, `flow_sha256 cf2b2e99…`,
+`contract_sha256 5ceebd1b…`. Les coordonnées de l'auteur sont préservées, la
+dérive est levée, et le compte de dérive sur tout l'estate est **0**. Un Run
+legacy réel a été joué avant et après l'écriture, tous deux `completed` avec un
+`flow_sha256` identique.
+
+**Conséquence sur les chiffres attendus : ce System est déjà publié, donc les
+étapes 5 et 6 décalent de un.** Ce n'est pas une divergence.
+
+| Étape | Documenté ci-dessus | Attendu après remédiation |
+|---|---|---|
+| 5 dry run | `publish 89` (tous `initial`), `already_pinned 0` | `publish 88` (`publish_initial 87`, `publish_republication 1`), `already_pinned 1` |
+| 6 apply | `published 85`, `failed 4` | **`published 84`, `already_pinned 1`, `failed 4`** — somme 89 |
+| 7 | `dispatchable 77`, `manual 59, chat 16, event 1` | **inchangé** |
+
+#### Deux pièges que cette remédiation a mis au jour
+
+**Le chemin produit ne peut pas réparer une dérive.** `publish_draft` et
+`reconcile_system_flow` passent tous deux par `_assert_published_mirror`, et
+aucune fonction exposée ne réconcilie un miroir dérivé : on ne peut pas publier
+tant qu'il y a dérive, et publier est ce qui la lèverait. La remédiation a donc
+exigé une écriture du miroir en transaction, entre un `restore_draft` et un
+`publish_draft`, jamais observable comme état committé.
+
+**« Publier » sur un brouillon en retard détruit l'édition du miroir.** Le
+brouillon de ce System portait encore les anciennes coordonnées. `publish_draft`
+publie le brouillon *puis* écrase le miroir avec : une publication naïve aurait
+effacé le déplacement en rapportant un succès. D'où le `restore_draft(#16)`
+préalable, qui charge l'instantané enregistré de l'auteur.
+
+**Le contrôle de dérive ne se périme pas moins vite qu'une journée.** Le rejouer
+sur la copie restaurée à l'ouverture de chaque fenêtre. Le compte à reproduire
+est **0**. Au-dessus de zéro, examiner *en quoi consiste* la dérive avant toute
+décision : celle du 10/08 était cosmétique, c'est un fait sur ce jour-là et non
+une règle. Une dérive portant sur autre chose que `position` arrête la fenêtre.
+Le comparateur est dans
+`/srv/agentium-data/window-2026-08-10/remedy_live.py` et se pointe sur n'importe
+quel System.
 
 ### Le backfill sort en 1 et c'est l'état nominal
 
@@ -1987,10 +2037,15 @@ WORKTREE=/srv/agentium-data/worktrees/candidate-$CAND
 # 1. Construire les trois images au SHA candidat, tag <sha12> UNIQUEMENT.
 #    Ne pas déplacer `demo-agentic` : c'est le point de rollback, et il doit
 #    continuer de désigner 5c1f8838 jusqu'à l'étape 8.
+#    Les quatre build-args sont tous obligatoires : sans PIP_INDEX_URL le build
+#    meurt à l'étape 4 du Dockerfile sur « PIP_INDEX_URL is required ».
 cd "$WORKTREE"
 for svc in backend worker frontend; do
   docker build -f docker/Dockerfile.agentium-$svc \
     --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
+    --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+    --build-arg USER_UID=1000 \
+    --build-arg USER_GID=1000 \
     -t agentium-$svc:$CAND .
 done
 
@@ -2033,8 +2088,8 @@ live, avec `"$REPORTS"` monté en bind sur `/report`.
 |---|---|---|
 | 3 | `storage-check` sort en 0 | tout écart de montage |
 | 4 | `alembic current` = `084_decision_condition_repair`, **une seule ligne** dans `alembic_version` ; `flow_decision_condition_repairs` existe et compte **130 lignes / 41 Systems** ; le backend live répond toujours en `5c1f8838` et le trafic est nominal | ledger vide ou partiel : `084` n'a pas vu les graphes attendus |
-| 5 | `summary.systems` = 89 ; `summary.skipped` = 0 ; `summary.at_risk` = 3 et les trois codes sont `SKILL_NOT_BOUND_TO_SYSTEM`, `ADAPTIVE_POLICY_SCOPE_MISMATCH`, `FLOW_OUTPUT_SINK_REQUIRED` ; lire `report["limits"]` | un `skipped` en `no published pointer` (081 absente) ; un `at_risk` inattendu |
-| 6 | `published` = 85, `failed` = 4 et **les quatre identifiants attendus** ; la somme des catégories vaut 89 | un cinquième échec, ou un échec sur un autre System |
+| 5 | `summary.systems` = 89 ; `summary.skipped` = 0 ; `summary.already_pinned` = 1 (SAP HANA, remédié le 10/08) ; `summary.at_risk` = 3 et les trois codes sont `SKILL_NOT_BOUND_TO_SYSTEM`, `ADAPTIVE_POLICY_SCOPE_MISMATCH`, `FLOW_OUTPUT_SINK_REQUIRED` ; lire `report["limits"]` | un `skipped` en `no published pointer` (081 absente) ; un `at_risk` inattendu ; tout `PUBLISHED_FLOW_MIRROR_DRIFT`, qui signale une **nouvelle** dérive apparue depuis la remédiation |
+| 6 | `published` = 84, `already_pinned` = 1, `failed` = 4 et **les quatre identifiants attendus** ; la somme des catégories vaut 89 (85 / 0 / 4 avant la remédiation du 10/08) | un cinquième échec, ou un échec sur un autre System |
 | 7 | `dispatchable` = 77 ; `would_accept_a_run_by_kind` = `manual 59, chat 16, event 1` ; `blocked_by_code` ne contient que `FLOW_INGRESS_SYSTEM_INACTIVE: 8` et `PUBLISHED_EXECUTION_CONTRACT_MISSING: 4` | toute occurrence de `PUBLISHED_FLOW_MIRROR_DRIFT` : voir *Downgrade de 084* |
 | 8 | `/api/v1/build-info` sur le SHA complet, `revision_verified: true`, canaris 6/6, puis 60 minutes de surveillance des Runs rejetés | — |
 
