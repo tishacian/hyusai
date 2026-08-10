@@ -1325,11 +1325,15 @@ rafraîchissement du checkout revu.
   retour d'image aurait laissé un runtime ancien sur un schéma 080, ce rollback
   est intégral et réellement réversible.
 
-## Publication Flow par défaut (081/082) — ordre obligatoire, non déployé
+## Publication Flow par défaut (081/082) — ordre obligatoire, déployé le 10/08
 
-Cette section décrit la **prochaine** fenêtre ; rien n'en a encore été exécuté.
-La production reste sur `5c1f8838ac665706dfeecd79cc35ff63f55bb51a` et
-`080_trigger_event_claims`.
+> **Historique.** Cette section a été écrite avant exécution et décrivait alors
+> la prochaine fenêtre. Elle a été jouée le 10/08 : voir *Fenêtre exécutée le
+> 10/08* en fin de document pour les observables réels. La production sert
+> `f8c0758bf938414f1be2da4874eb0fdda00edd2c` et la base est en
+> `084_decision_condition_repair`. Ce qui suit reste utile pour le raisonnement
+> — pourquoi l'ordre est contraignant, où sont les signatures d'échec — mais ses
+> chiffres sont ceux d'une prévision, pas d'une mesure.
 
 La tranche `714bac2c` fait de `flow_publication_v1` un **défaut de code** et non
 plus un drapeau par workspace : `workspace_features.graduated_feature_enabled`
@@ -2237,3 +2241,110 @@ Le résultat fonctionnel est bien celui attendu, mais un opérateur qui cherche
   rejoue la barrière d'ingress System par System.
 - Les 59 ingress `manual` gagnés sont majoritairement du contenu de
   démonstration, pas du trafic.
+
+## Fenêtre exécutée le 10/08 — déployé sur `f8c0758b`, estate publié
+
+Fenêtre ouverte sans trafic, à la demande, et menée d'un trait de 06h44 à 07h15
+UTC. Les huit étapes ont été jouées dans l'ordre et **chaque point de contrôle a
+rendu le chiffre attendu**, y compris le décalage de un dû à la remédiation SAP
+HANA. Aucune étape n'a demandé d'arbitrage.
+
+### Ce qui est servi, et ce qui ne l'est pas
+
+| | Valeur |
+|---|---|
+| Images servies | `agentium-{backend,worker,frontend}:f8c0758bf938` |
+| Révision bakée, `revision_verified` | `f8c0758bf938414f1be2da4874eb0fdda00edd2c`, `true` |
+| Tête de `demo/agentic` | `5ca80901e48f` |
+| Base | `084_decision_condition_repair`, ligne unique |
+| Point de rollback images | `agentium-*:5c1f8838ac66`, conservés |
+| Point de rollback base | dump du 10/08 ci-dessous |
+
+**La tête de branche est deux commits devant l'image, et c'est voulu.**
+`f8c0758b..5ca80901` ne touche que `docs/ops/` — vérifié par
+`git diff --name-only | grep -v '^docs/'`, qui rend le vide. L'image répétée en
+combiné la veille a été conservée plutôt que reconstruite au head : rebâtir
+aurait échangé un artefact éprouvé contre une résolution de dépendances neuve,
+sans rien gagner. L'alias `agentium-*:demo-agentic` a été déplacé sur la ligne
+déployée après les canaris.
+
+### Deux choses que le runbook ne disait pas, et qui ont coûté du temps
+
+**Seul le backend avait été construit au SHA candidat.** La répétition combinée
+du 09/08 n'avait besoin que de lui. `worker` et `frontend` manquaient à
+l'ouverture de la fenêtre : sans eux, l'étape 8 aurait basculé un backend neuf
+contre un frontend de trois jours. Construire les deux prend six minutes avec le
+cache chaud. **Contrôler la présence des trois tags avant l'étape 2.**
+
+**`node` n'est pas sur le `PATH` de root sur `carakai`.** Le binaire vit sous
+`/opt/agentium-protected-runner/node-current/bin` ; sans lui, le shim Playwright
+meurt en `/usr/bin/env: 'node': No such file or directory`, code 127, en deux
+secondes. Et le checkout du runner pointait sur `/tmp/omnirag-attestation.bundle`,
+disparu depuis : il a fallu lui réexpédier un bundle incrémental depuis le poste
+de développement pour qu'il connaisse le SHA déployé. Préambule correct :
+
+```bash
+export PATH=/opt/agentium-protected-runner/node-current/bin:$PATH
+git -C /opt/agentium-protected-runner/repos/omnirag fetch <bundle> \
+    'refs/heads/<branche>:refs/remotes/bundle/head'
+git -C /opt/agentium-protected-runner/repos/omnirag checkout --detach <sha40>
+```
+
+### Observables, étape par étape
+
+| Étape | Observé | Attendu |
+|---|---|---|
+| 2 dump | `448723924` o, sha256 `6585433a22ae…`, 1201 entrées TOC, triplet `.sha256`/`.ready` en `0600` | triplet complet |
+| 2 dérive | **0** sur tout l'estate | 0 |
+| 3 stockage | sortie 0 | 0 |
+| 4 migration | `083` → `084`, ligne unique ; ledger **130** lignes (`systems` 41, `system_flow_drafts` 41, `system_versions` 48), **41** Systems, **465** conditions réécrites | 130 / 41 |
+| 5 dry run | `systems` 89, `publish` 88 (`initial` 87, `republication` 1), `already_pinned` **1**, `at_risk` 3, `skipped` 0 | conforme au décalage post-remédiation |
+| 6 apply | `published` **84**, `already_pinned` **1**, `failed` **4**, `skipped` 0, somme **89** | 84 / 1 / 4 |
+| 7 readiness | `dispatchable` **77**, `manual 59 / chat 16 / event 1`, blocages `FLOW_INGRESS_SYSTEM_INACTIVE` 8 et `PUBLISHED_EXECUTION_CONTRACT_MISSING` 4 | identique |
+| 8 bascule | `build-info` sur le SHA complet, `revision_verified: true`, frontend en 200, **canaris 6/6** en 1,0 min | 6/6 |
+
+Les quatre échecs sont nominativement ceux inventoriés :
+`Tender Response Analyst`, `Contract Risk Copilot`, `Translation Suite`
+(showcase) et `Shared mailbox creation` (nawa).
+
+La base était déjà en `083` depuis la fenêtre du 08/08, donc l'étape 4 n'a
+appliqué que `084`. L'état d'arrivée est celui de la répétition, qui partait de
+`080`.
+
+### Après bascule
+
+- Dérive miroir re-mesurée : **0**. Le nouveau chemin n'en a pas créé.
+- `measure_flow_dispatch_readiness` rejouée sous l'image servie : chiffres
+  identiques à l'étape 7.
+- **0 opt-out et 0 opt-in explicites** sur les 15 workspaces actifs : tous
+  tournent sur le défaut publié, aucun n'a été épinglé à la main.
+- **104 Systems sur 104** portent un pointeur publié.
+- Aucun `traceback`, `error` ni `exception` dans les journaux backend et worker.
+
+### L'ancre et le worktree de déploiement ont été avancés
+
+`/home/ubuntu/omnirag` était détachée sur `522632e0` ; elle suit désormais
+`demo/agentic` et pointe sur `5ca80901`. Le worktree
+`/srv/agentium-data/worktrees/demo-agentic` a suivi.
+
+**Ce contrôle est obligatoire avant de la déplacer.** L'ancre ne monte pas que
+des répertoires de données : trois chemins **suivis par git** sont montés dans
+des conteneurs vivants —
+`docker/livekit/agentium-livekit.yaml` (livekit),
+`backend/keycloak/realm-export.json` et `backend/keycloak/themes/agentium` (kc).
+Un `checkout` qui les modifierait changerait la configuration sous des
+conteneurs qui ne redémarrent pas. Ici le diff sur ces trois chemins est vide,
+et leurs `mtime` sont restés à leurs dates d'origine après la bascule : le
+checkout ne les a pas réécrits. **Rejouer ce diff avant chaque déplacement de
+l'ancre.**
+
+### Ce que cette fenêtre ne prouve pas
+
+Aucun Run n'a été exécuté en production. `rehearse_published_ingress_run.py`
+s'interdit lui-même la production — il exécute les Skills pour de vrai — et la
+fenêtre a respecté cette borne. La preuve d'acceptation du dispatch est le
+replay read-only de la barrière par `measure_flow_dispatch_readiness` ; la preuve
+d'aboutissement reste celle des cinq Runs de la répétition combinée, sur une
+copie du même code et des mêmes données. La surveillance de 60 minutes des Runs
+rejetés prévue au point de contrôle 8 n'a rien à observer sur une fenêtre sans
+trafic : **elle reste due au premier usage réel.**

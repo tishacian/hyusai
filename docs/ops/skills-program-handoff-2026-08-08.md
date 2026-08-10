@@ -12,6 +12,24 @@ Branche `codex/flow-builder-p0-integration`. Plan de référence :
 
 ## Où en est la production
 
+> **Mise à jour du 10 août, 07h15 UTC — c'est déployé.** Tout ce qui suit dans cette
+> section décrivait l'état d'avant la bascule et n'est plus vrai. La fenêtre a été jouée
+> d'un trait, sans trafic, et chaque point de contrôle a rendu le chiffre attendu.
+>
+> | | Valeur |
+> |---|---|
+> | Images servies | `f8c0758bf938`, `revision_verified: true` |
+> | Base | `084_decision_condition_repair`, tête unique |
+> | `demo/agentic` | `5ca80901`, local, remote et VM alignés |
+> | Publication | `published 84`, `already_pinned 1`, `failed 4` (les quatre défauts d'auteur) |
+> | Dispatch | 77 Systems, `manual 59 / chat 16 / event 1` |
+> | Canaris | 6/6 |
+> | Rollback | images `5c1f8838ac66` conservées, dump du 10/08 vérifié |
+>
+> Les observables complets, les deux pièges rencontrés et ce que la fenêtre **ne**
+> prouve pas sont dans [`agentium-safe-vm-deployment.md`](./agentium-safe-vm-deployment.md),
+> section *Fenêtre exécutée le 10/08*.
+
 La VM sert toujours `5c1f8838ac665706dfeecd79cc35ff63f55bb51a` sur les trois images
 (backend, frontend, worker), conteneurs debout, `demo-agentic` non déplacé — vérifié le 9 août
 au matin : sur chaque image, `demo-agentic` et `:5c1f8838ac66` sont le même identifiant d'image,
