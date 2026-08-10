@@ -6,11 +6,13 @@
 #     (post-release-b decision: the platform survives a VM reboot; the opened
 #     overlay's restart: "no" was a Release A attestation posture, not a
 #     runtime target).
-#   * digest pins for agentium-sftp and agentium-p4-maintenance, the two
-#     services that must never be recreated.  AGENTIUM_IMAGE_TAG pilots seven
-#     services including these two; without the pins any `up -d` without
-#     --no-deps would recreate them and break the attested SFTP posture
-#     (sftp_release_sha ea80e656) and the P4 maintenance sidecar.
+#   * digest pin for agentium-sftp, the one service that must never be
+#     recreated (attested SFTP posture, sftp_release_sha ea80e656).
+#     agentium-p4-maintenance lost its pin on 10/08: the frozen 27/07 image
+#     (revision 07f54a68) predates the `trigger_run` outbox kind and marked
+#     such dispatches dead. The service now follows AGENTIUM_IMAGE_TAG like
+#     backend/worker and runs the outbox drainer for real
+#     (ENABLE_P4_MAINTENANCE below — the flag defaults to false in code).
 #   * literal VM storage identities. They intentionally contain no Compose
 #     interpolation, so ambient shell variables cannot redirect MinIO or
 #     Qdrant back onto the root filesystem.
@@ -23,7 +25,8 @@ services:
     restart: unless-stopped
   agentium-p4-maintenance:
     restart: unless-stopped
-    image: sha256:54d942c3c97d6e8c6ed8dd45bb431a1ce5a2e62443bd981a1395acb3ecdafb75
+    environment:
+      ENABLE_P4_MAINTENANCE: "true"
   agentium-sftp:
     image: sha256:af7ef7a728e8785775fb523a6219f9ba8eb136c43bf1bcfaf27b947d2b785f5c
   agentium-minio:

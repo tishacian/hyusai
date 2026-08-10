@@ -4,9 +4,12 @@
 #
 # Same invocation shape as the 30/07 release-b landing: Release A base compose
 # from the build worktree, frozen env, opened overlay — plus the single
-# versioned runtime overlay (restart policies + digest pins for the services
-# that must never be recreated).  Image tags and worker count now flow through
-# the environment instead of a hardcoded overlay:
+# versioned runtime overlay (restart policies + the agentium-sftp digest pin).
+# Since 10/08, `up` also recreates agentium-p4-maintenance (outbox drainer,
+# rides AGENTIUM_IMAGE_TAG) and agentium-beat (scheduler_tick source; naming
+# the service activates its `beat` profile — the worker itself keeps
+# AGENTIUM_CELERY_BEAT=0 below so exactly one beat runs).  Image tags and
+# worker count flow through the environment instead of a hardcoded overlay:
 #
 #   export AGENTIUM_IMAGE_TAG="${SHA:0:12}"   # immutable <sha12>, or demo-agentic
 #   export AGENTIUM_BACKEND_WORKERS=8         # default below
@@ -182,7 +185,7 @@ case "${1:-}" in
   images)        compose config --images ;;
   storage-check) storage_check ;;
   migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-backend agentium-worker-cpu agentium-frontend ;;
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat ;;
   ps)            compose ps ;;
   *)             echo "usage: $0 {images|storage-check|migrate|up|ps}" >&2; exit 2 ;;
 esac

@@ -246,6 +246,32 @@ services:
       agentium-rabbitmq:
         condition: service_healthy
 
+  agentium-beat:
+    image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
+    container_name: agentium-beat
+    restart: unless-stopped
+    # Never started by a bare `up`: local/dev keeps the worker's embedded beat
+    # (CELERY_BEAT default 1 above). Deployments that pin the worker to
+    # AGENTIUM_CELERY_BEAT=0 name this service explicitly, which activates the
+    # profile — exactly one beat per environment, never two.
+    profiles: ["beat"]
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      AGENTIUM_DISABLE_DOTENV: "1"
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+    command:
+      [
+        "python", "-m", "celery",
+        "-A", "app.workers.celery_app:celery_app",
+        "beat", "--loglevel", "info",
+        "--schedule", "/tmp/celerybeat-schedule",
+      ]
+
   agentium-p4-maintenance:
     image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
     container_name: agentium-p4-maintenance

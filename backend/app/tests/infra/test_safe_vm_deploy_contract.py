@@ -2899,8 +2899,8 @@ def test_python_runtime_cannot_fall_back_to_a_live_dotenv_after_capture() -> Non
     assert 'os.environ.get("AGENTIUM_DISABLE_DOTENV", "0")' in config
     assert "Settings(_env_file=_settings_env_file())" in config
     assert 'return None if mode == "1" else ".env"' in config
-    # migrate, backend, worker, P4 and SFTP are the five Python services.
-    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 5
+    # migrate, backend, worker, beat, P4 and SFTP are the six Python services.
+    assert compose.count('AGENTIUM_DISABLE_DOTENV: "1"') == 6
     assert "Environment=AGENTIUM_DISABLE_DOTENV=1" in unit
 
 
