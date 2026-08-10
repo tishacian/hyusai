@@ -1,7 +1,7 @@
 # Démo NAWA — Réconciliation PO / Facture (Secure Deposit → System → Audit)
 
-Date de répétition : 10/08/2026 (matin, UTC) · VM : `omnirag-demo` (`https://agentium.papai.ai`) ·
-Images backend/worker : commit `7619f0be` (`revision_verified: true` sur `/api/v1/build-info`).
+Date de répétition : 10/08/2026 (matin, UTC ; re-répétée l'après-midi sur v4) · VM : `omnirag-demo` (`https://agentium.papai.ai`) ·
+Images backend/worker : commit `59723514` (`revision_verified: true` sur `/api/v1/build-info`).
 
 Le scénario : un fournisseur dépose une facture PDF et le registre des bons de commande (xlsx)
 dans le Secure Deposit ; l'opérateur promeut les deux fichiers vers une collection ; le System
@@ -18,8 +18,8 @@ sur la page Run. Zéro LLM dans le chemin de données : mêmes octets en entrée
 |---|---|
 | Workspace | `nawa` (id `b337fdbf-2689-436e-a287-2fe903ca47cf`) |
 | System | `PO vs Invoice Reconciliation` — id `fe4ab7e5-d472-43b2-8bdb-465d0d51aec8`, status `active` |
-| Version publiée | v3 — `6c1b7de9-026f-431e-8a79-aac9c5a254d9` |
-| Flow SHA-256 | `d3b03ec6020c965581ab63e921cce25c0a5791e6d98e2d4f5caff8da8108815d` |
+| Version publiée | v4 — `9fc3cd0e-2e9a-427b-ae44-4bf301d924e5` |
+| Flow SHA-256 | `1ab057037dade60b27790494d1c384109952d57bd8b996f8c01a3208e93938b1` |
 | Mode d'exécution | `dag_overlay`, validation `observe` |
 | Collection | `po-invoice-recon-demo` (id `2b5c49fc-3002-4d34-9881-1e53ce78fefe`) |
 | Lien de dépôt | id `66126488-2ff1-461b-a9da-9f739b671ea8`, access_id `BGBP0F7H4iGC0NQPCzM` (mot de passe : à faire tourner via la page Secure Deposit avant la démo) |
@@ -34,13 +34,16 @@ Runs de répétition (tous vérifiés ce matin) :
 | Manuel (ingress `source.manual`) | `907e27cc-b57a-4f13-beac-29f5c987485b` | completed — Needs Review, 2 flags (v3) |
 | Cron (`scheduler_tick`) | `dc1e92a9-921b-4b39-a874-8664a9c58511` | completed — Needs Review, 2 flags (v3) |
 | Contre-essai négatif (1 seul fichier promu) | `c767a05d-6958-4aef-986f-761eef1afd50` | failed proprement — `file_resolution_no_match`, aucun crash-loop |
+| Manuel, re-répétition v4 (parseur d'en-tête corrigé) | `3184a53c-0d63-49f1-a280-22aa9247eac8` | completed — Needs Review, 2 flags, en-tête facture complet, **0** `execution_contract_violation` |
 
-Événements d'audit `nawa.po_invoice_recon.completed` : `af758b52…` (événement), `7b3051b9…` (manuel), `ae024145…` (cron).
+Événements d'audit `nawa.po_invoice_recon.completed` : `af758b52…` (événement), `7b3051b9…` (manuel), `ae024145…` (cron), `a6fa50b7…` (manuel, v4).
 
 ## Les chiffres attendus à l'écran (les connaître par cœur)
 
-- PO `PO-2026-0451` : 4 lignes, total **9 950,00** QAR.
-- Facture `INV-8834` : 4 lignes, total dû **9 860,00** QAR.
+- PO `PO-2026-0451` : 4 lignes, total **9 950,00** QAR — le filtre du registre est composé
+  depuis la **référence PO extraite de la facture**, pas d'une configuration statique.
+- Facture `INV-8834` : 4 lignes, total dû **9 860,00** QAR ; en-tête complet extrait du PDF
+  (n° facture, date, référence PO, échéance, fournisseur `Al Fanar Industrial Supplies W.L.L.`).
 - Rapprochement : **2 lignes conformes, 2 signalées** (`flagged_count = 2`) :
   - `Hydraulic Hose 3/4"` — quantité facturée 18 vs 20 commandées → **-10.00 %** (qty_mismatch) ;
   - `Safety Valves DN50` — prix unitaire 365,00 vs 350,00 → **+4.29 %** (price_mismatch).
@@ -52,7 +55,7 @@ Runs de répétition (tous vérifiés ce matin) :
 ## Check-list pré-démo (15 min avant)
 
 1. **Conteneurs** : `ssh omnirag-demo "sudo docker ps"` — backend, frontend, worker-cpu, pg, rabbitmq, minio healthy.
-2. **Build-info** : `ssh omnirag-demo "curl -sk https://localhost/api/v1/build-info"` → `revision 7619f0be…`, `revision_verified: true`.
+2. **Build-info** : `ssh omnirag-demo "curl -sk https://localhost/api/v1/build-info"` → `revision 59723514…`, `revision_verified: true`.
 3. **⚠️ Boucles opérationnelles (non durables — à relancer après tout restart du worker)** :
    - Draineur d'outbox (exécute les runs déclenchés par événement) :
      `ssh omnirag-demo "sudo docker exec -d -e ENABLE_P4_MAINTENANCE=true agentium-worker-cpu python -m app.workers.p4_maintenance"`
@@ -62,7 +65,7 @@ Runs de répétition (tous vérifiés ce matin) :
    - (Le conteneur `agentium-p4-maintenance` dédié tourne une image ancienne `07f54a68` qui ne connaît pas
      `trigger_run` : ne PAS s'en servir, il marquerait les dispatches `dead`.)
 4. **Skills activés** : page Skills du workspace nawa — `invoice_document_extract_v1`, `spreadsheet_table_extract_v1`, `line_items_reconcile_v1`, `reconciliation_report_v1`, `audit_log_v1` visibles.
-5. **System publié** : `/systems` → « PO vs Invoice Reconciliation » actif, v3 ; readiness OK (manuel + événement + cron).
+5. **System publié** : `/systems` → « PO vs Invoice Reconciliation » actif, v4 ; readiness OK (manuel + événement + cron).
 6. **Lien de dépôt prêt** : page Secure Deposit → lien `BGBP0F7H4iGC0NQPCzM` actif ; faire tourner le mot de passe et le noter.
 7. **Fichiers sous la main** : les deux fichiers d'exemple sur le poste du présentateur (`~/Downloads/`).
 8. Ouvrir en onglets : `/systems/<id>/flow`, `/runs`, `/governance/audit`, `/governance/access`, la page Secure Deposit, le portail public du lien.
@@ -76,9 +79,9 @@ Runs de répétition (tous vérifiés ce matin) :
 À montrer, dans l'ordre du graphe (gauche → droite) :
 1. **Trois entrées** : `Déclenchement manuel`, `Dépôt promu (Secure Deposit)`, `Planification (cron)` — un seul graphe sert les trois chemins ; les extracteurs lisent les références de fichiers directement dans l'input du run.
 2. **Palette Capabilities** : les 5 skills de la tranche réconciliation, versionnés et liés au catalogue du workspace (binding vérifié à chaque dispatch).
-3. **Inspecteur / bindings** : cliquer `3 · Rapprocher les lignes` — `po_lines ← task.extract_po.rows`, `invoice_lines ← task.extract_invoice.line_items`, `tolerance_pct ← system.recon.tolerance_pct` (configuration statique portée par le System, pas par le graphe).
+3. **Inspecteur / bindings** : cliquer `3 · Rapprocher les lignes` — `po_lines ← task.extract_po.rows`, `invoice_lines ← task.extract_invoice.line_items`, `po_reference ← task.extract_invoice.po_reference`, `tolerance_pct ← system.recon.tolerance_pct`. Point fort à montrer : le nœud facture publie `po_reference` dans le namespace `po_filter` (outputs_map), et `2 · Extraire le registre PO` lie son `filters` à ce namespace — **c'est le PDF qui pilote le filtre Excel**, aucune référence PO codée en dur.
 4. **Nœud de décision** `4 · Écarts hors tolérance ?` — branche `approved` si `flagged_count == 0`, branche par défaut `needs_review` : fail-safe, un comptage illisible ne peut jamais approuver.
-5. **Publication** : bandeau version v3 + SHA du flow — un run n'exécute jamais autre chose que la version publiée épinglée (version_id + sha vérifiés au dispatch).
+5. **Publication** : bandeau version v4 + SHA du flow — un run n'exécute jamais autre chose que la version publiée épinglée (version_id + sha vérifiés au dispatch).
 
 ## Moment 2 — Lancer (run manuel)
 
@@ -89,7 +92,7 @@ Runs de répétition (tous vérifiés ce matin) :
 ```
 
 Attendu : run `completed` en ~1 s (aucun LLM). Verdict **Needs Review**, `flagged_count 2`.
-Répétition : run `907e27cc…`.
+Répétition : run `907e27cc…` (v3) ; re-répétition v4 : run `3184a53c…`.
 
 ## Moment 3 — Automatiser (Secure Deposit + cron)
 
@@ -129,9 +132,10 @@ Répétition : run `907e27cc…`.
 
 **Click-path** : `/runs/:id` → onglet Payloads (Run.output_ref) + carte outcome.
 
-- `report_text` : rapport à largeur fixe — verdict, référence PO, tableau des 4 lignes avec
-  `<-- FLAG` sur les 2 écarts, totaux `PO 9,950.00 | Invoice 9,860.00 | Variance -0.90%`,
-  2 recommandations actionnables.
+- `report_text` : rapport à largeur fixe — verdict, ligne d'identité facture
+  (`Invoice: INV-8834 | Vendor: Al Fanar Industrial Supplies W.L.L. | Invoice date: 14 July 2026 | Total due: 9,860.00`),
+  référence PO, tableau des 4 lignes avec `<-- FLAG` sur les 2 écarts, totaux
+  `PO 9,950.00 | Invoice 9,860.00 | Variance -0.90%`, 2 recommandations actionnables.
 - `verdict`, `flagged_count`, `po_reference`, `audit_event_id`, l'objet `reconciliation` complet :
   tout est structuré, consommable par un humain comme par un système aval.
 
@@ -146,12 +150,13 @@ Répétition : run `907e27cc…`.
 2. **Latence** : run ~1 s une fois dispatché ; le dispatch événementiel passe par l'outbox durable,
    compter 5–10 s entre la promotion et l'apparition du run (intervalle du draineur). Meubler avec
    le récit gouvernance de la promotion.
-3. **En-tête PDF** : l'extraction pdfplumber de l'image live fusionne les colonnes d'en-tête du PDF
-   d'exemple ; les champs `invoice_number`/`vendor`/`due_date` ressortent vides (les **nombres**, eux,
-   sont extraits exactement). Choix documenté : la référence PO du rapport est portée par la
-   configuration du System (`settings.recon.po_filters`), et le rapport n'affiche pas de ligne fournisseur.
-   Un checkpoint `execution_contract_violation` (`/due_date`, mode observe) reste visible — c'est
-   l'observabilité des contrats en action, pas un incident.
+3. **En-tête PDF — résolu en v4 (10/08 après-midi, image `59723514`)** : l'extraction pdfplumber
+   de l'image live fusionne les colonnes d'en-tête du PDF ; le parseur tolère désormais les deux
+   mises en page (libellés reconnus n'importe où sur la ligne, valeur bornée par le libellé connu
+   suivant). Tous les champs d'en-tête sortent remplis en production, **la référence PO extraite
+   du PDF pilote le filtre Excel** (namespace `po_filter`), `invoice_meta` réalimente le rapport,
+   le contournement `settings.recon.po_filters` est retiré et le checkpoint
+   `execution_contract_violation` (`/due_date`) a disparu — vérifié sur le run `3184a53c…` : 0 violation.
 4. **Boucles opérationnelles non durables** : draineur P4 et celery beat sont lancés en `docker exec`
    (voir check-list) ; un restart du conteneur worker les tue. Sans draineur : les runs événementiels
    restent `pending`. Sans beat : le cron ne tire pas. Les runs manuels, eux, marchent toujours.
@@ -160,10 +165,11 @@ Répétition : run `907e27cc…`.
 
 ## État laissé après la répétition
 
-- System actif, v3 publiée ; mode event trigger `live` ; readiness OK (manuel + événement + cron).
+- System actif, v4 publiée (filtre PO composé depuis la facture, invoice_meta restauré,
+  `settings.recon.po_filters` retiré) ; mode event trigger `live` ; readiness OK (manuel + événement + cron).
 - Planification : quotidienne `0 7 * * *` UTC, **activée** (elle produira un run « Needs Review » par jour tant que la collection existe ; désactiver après la démo si indésirable).
 - Collection `po-invoice-recon-demo` : 3 fichiers promus (xlsx, pdf, + 1 pdf du contre-essai négatif — la résolution prend le plus récent, sans incidence).
-- 4 runs (3 réussis, 1 échec volontaire) + 3 événements d'audit.
+- 5 runs (4 réussis dont la re-répétition v4 `3184a53c…`, 1 échec volontaire) + 4 événements d'audit.
 - Réglages workspace nawa modifiés (avant → après) : `enabled_skills` + 4 slugs réconciliation ;
   `features.flow_workbench_v1` ∅ → true ; `features.enable_event_triggers` ∅ → true ;
   `features.secure_deposit` ∅ → true. System : `settings.event_trigger` ∅ → `{"mode": "live"}`.

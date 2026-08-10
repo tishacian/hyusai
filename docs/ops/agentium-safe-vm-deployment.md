@@ -2658,3 +2658,66 @@ sudo docker exec -d agentium-worker-cpu python -m celery \
 tue.** À relancer avant toute démo (check-list du script), et à intégrer à la
 prochaine fenêtre de déploiement comme services compose durables (env
 `ENABLE_P4_MAINTENANCE=true` + image du conteneur p4 réalignée, service beat).
+
+## Itération du 10/08 (fin d'après-midi) — déployée sur `59723514`, parseur d'en-tête de facture
+
+Boucle courte, sans migration, un seul commit de code
+(`c56a352d..59723514`, 2 fichiers, +165/−8, `backend/app/services` +
+`backend/app/tests` uniquement) : le parseur d'en-tête de
+`invoice_document_extract_v1` tolère désormais la mise en page fusionnée de
+pdfplumber. Le texte pdfplumber réel a été capturé **avant** le correctif via
+`docker exec` sur l'image servie (pdfplumber 0.11.10) et committé en fixture de
+test paramétrée à côté du texte PyPDF2 — le comportement colonnes-fusionnées
+est épinglé localement sans ajouter pdfplumber aux dépendances. 41 tests
+verts (réconciliation + gardes skills-registry), ruff propre sur les fichiers
+touchés.
+
+### Observables
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `c56a352d` → `59723514` |
+| Worktree | `fetch origin demo/agentic` + `merge --ff-only FETCH_HEAD` en root, les trois chemins montés suivis intouchés |
+| Build | trois images au tag `59723514e0d3`, label 40-hex vérifié sur les trois, ~8 min cache chaud |
+| Dump | `postgres-pre-switch.dump`, **449429808** o, sha256 `b3b8dcf4a2c8…`, **1204** entrées TOC, triplet `.sha256`/`.ready` en `0600` sous `/srv/agentium-data/recon-skills-deployments/2026-08-10-59723514e0d3` (`0700`) |
+| `storage-check` | sortie 0 |
+| `up` | backend, worker-cpu, frontend recréés ; `build-info` sur le SHA complet, `revision_verified: true` ; alembic `084` avant et après |
+| Logs | aucun `traceback`/`error`/`exception` backend ni worker après bascule |
+| Boucles | draineur P4 + celery beat morts avec le restart du worker (attendu), relancés à l'identique (`docker exec -d`, env `ENABLE_P4_MAINTENANCE=true`), `ps aux` de contrôle avant/après |
+| Canaris | **6/6** en 54,7 s, premier passage — bundle incrémental `7619f0be..demo/agentic` requis sur carakai (sha256 identique des deux côtés), `cat-file -e` vérifié avant les canaris |
+| Ancre + worktree | avancés sur `59723514` puis sur le commit documentaire ; inodes `faiss_db` (2049:2665446) et `secure_deposit` (2080:2) inchangés |
+| Seed | aucun changement de seed dans la tranche ; les 4 slugs réconciliation toujours `is_seeded='Y'` (vérifié, pas supposé) |
+
+Rollback disponible : `AGENTIUM_IMAGE_TAG=7619f0be51f5` puis `up`. Base
+intouchée, retour symétrique.
+
+### System NAWA republié en v4, hors fenêtre — le PDF pilote le filtre Excel
+
+Dans la foulée, le System « PO vs Invoice Reconciliation » a été republié v4
+par la voie produit en conteneur (`save_draft` → `validate_flow` →
+`publish_draft`, acteur `thibaud.ishacian@datategy.net`) : le nœud facture
+publie `po_reference` dans le namespace déclaré `po_filter` via `outputs_map`
+(`{"po_reference": "po_filter.PO Number"}`) et le nœud registre lie `filters`
+à ce namespace entier — le mécanisme de composition d'objet est celui que
+`recon_report` utilisait déjà. `invoice_meta` réalimente les deux nœuds de
+rapport, le rapprochement lit `po_reference` depuis la facture, et le
+contournement `settings.recon.po_filters` est retiré des settings.
+
+Validateur : **zéro issue**. La publication a exigé
+`breaking_change_intent="acknowledged"` (ajouts de contrat sur trois nœuds +
+`variable_namespaces`) — attendu pour un System actif. Version v4
+`9fc3cd0e-2e9a-427b-ae44-4bf301d924e5`, flow sha `1ab05703…`.
+
+Re-répétition : un dispatch manuel réel (`POST
+/systems/{id}/ingresses/source.manual/runs`, identifiants e2e de carakai), run
+`3184a53c-0d63-49f1-a280-22aa9247eac8` **completed** en 0,7 s. Les cinq champs
+d'en-tête sortent remplis en production (INV-8834, 14 July 2026, PO-2026-0451,
+13 August 2026, Al Fanar Industrial Supplies W.L.L.), mêmes chiffres (2 flags,
+−10.00 %, +4.29 %, 9 950 vs 9 860, Needs Review), la ligne d'identité facture
+est revenue dans le rapport, et **0** `execution_contract_violation` — le run
+v3 équivalent en portait exactement 1 (`/due_date`, observe).
+
+Le commit qui porte cette section avance la tête de branche, l'ancre et le
+worktree d'un commit documentaire au-dessus de `59723514` : les images servies
+restent en `59723514` et c'est l'état attendu, le delta ne touchant que
+`docs/`.
