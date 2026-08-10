@@ -1,5 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { HttpClient } from '@angular/common/http';
 import { Injector } from '@angular/core';
@@ -318,6 +320,54 @@ test('Client360 fiche loads in two phases: payload without AI summary, then asyn
   }
 });
 
+test('Client360 pins fiche and summary to one workspace epoch and purges them on switch', () => {
+  const harness = createHarness();
+  const { component, workspace, getCalls } = harness;
+
+  try {
+    component.selectDirectoryCustomer({ customer_key: 'septona', customer_name: 'Septona S.A.' } as never);
+    const detailCall = getCalls.find((call) => call.url === '/api/v1/client360/customers/septona');
+    assert.ok(detailCall, 'fiche payload requested');
+    assert.equal(workspaceHeader(detailCall), 'andritz', 'fiche read is pinned to A');
+
+    detailCall.response.next({
+      customer: { id: 'septona', name: 'Septona S.A.', countries: [], hubs: [], technologies: [] },
+      ai_summary: null,
+      opportunities: [],
+      mail_drafts: [],
+      impact_events: [],
+      market_signals: [],
+      data_gaps: [],
+    });
+    const summaryCall = getCalls.find(
+      (call) => call.url === '/api/v1/client360/customers/septona/summary',
+    );
+    assert.ok(summaryCall, 'summary requested asynchronously');
+    assert.equal(workspaceHeader(summaryCall), 'andritz', 'summary read is pinned to A');
+    assert.ok(component.selectedCustomer());
+
+    workspace.switchWorkspace();
+
+    assert.equal(detailCall.response.observed, false, 'the fiche read is cancelled on A -> B');
+    assert.equal(summaryCall.response.observed, false, 'the summary read is cancelled on A -> B');
+    assert.equal(component.selectedCustomer(), null, 'A customer data is purged from the view');
+    assert.equal(component.selectedDirectoryCustomerKey(), null);
+    assert.equal(component.customerDetailLoading(), false);
+    assert.equal(component.customerSummaryLoading(), false);
+
+    summaryCall.response.next({
+      ai_summary: {
+        text: 'Late response from the previous workspace.',
+        generation_mode: 'ai_assisted',
+        highlights: [],
+      },
+    });
+    assert.equal(component.selectedCustomer(), null, 'a late A response cannot render inside B');
+  } finally {
+    component.ngOnDestroy();
+  }
+});
+
 test('Client360 fiche pages long lists client-side with show-more increments', () => {
   const harness = createHarness();
   const { component, getCalls } = harness;
@@ -430,4 +480,37 @@ test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () 
   } finally {
     component.ngOnDestroy();
   }
+});
+
+test('every Client360 network call is pinned to a workspace epoch and scoped by header', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/client360/client360-page.component.ts'),
+    'utf8',
+  );
+  const lines = source.split('\n');
+  const isMemberStart = (line: string) =>
+    /^ {2}(?:private |protected |readonly )?[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(line);
+  const starts = lines.reduce<number[]>((acc, line, index) => {
+    if (isMemberStart(line)) acc.push(index);
+    return acc;
+  }, []);
+  starts.push(lines.length);
+
+  const unguarded: string[] = [];
+  let calls = 0;
+  let scoped = 0;
+  for (let i = 0; i < starts.length - 1; i += 1) {
+    const body = lines.slice(starts[i], starts[i + 1]).join('\n');
+    const bodyCalls = body.match(/this\.http\b/g)?.length ?? 0;
+    if (!bodyCalls) continue;
+    calls += bodyCalls;
+    scoped += body.match(/workspaceHttpOptions/g)?.length ?? 0;
+    if (!/workspaceActionContextIsCurrent|workspaceActionIsCurrent/.test(body)) {
+      unguarded.push(lines[starts[i]].trim());
+    }
+  }
+
+  assert.ok(calls > 0, 'the audit found the network calls it is meant to police');
+  assert.deepEqual(unguarded, [], 'a late response from workspace A must never render inside B');
+  assert.equal(scoped, calls, 'every call carries the workspace scope it was issued under');
 });

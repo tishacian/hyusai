@@ -2304,7 +2304,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
           return;
         }
         if (!selectedKey && payload.items.length && this.view() === 'customer' && !this.selectedCustomer()) {
-          this.selectDirectoryCustomer(payload.items[0]);
+          this.selectDirectoryCustomer(payload.items[0], actionContext);
         }
       },
       error: () => {
@@ -2361,17 +2361,25 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.campaignDueWithinWeeks = null;
   }
 
-  selectDirectoryCustomer(customer: Client360DirectoryCustomer): void {
+  selectDirectoryCustomer(
+    customer: Client360DirectoryCustomer,
+    actionContext?: WorkspaceActionContext,
+  ): void {
     this.selectedDirectoryCustomerKey.set(customer.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
-    this.fetchCustomerFiche(customer.customer_key);
+    this.fetchCustomerFiche(customer.customer_key, {}, actionContext);
   }
 
   private fetchCustomerFiche(
     customerKey: string,
     options: { keepSelectedOpportunity?: boolean } = {},
+    actionContext: WorkspaceActionContext = {
+      scope: this.workspace.captureRequestScope(),
+      generation: this.workspaceActionGeneration,
+    },
   ): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     this.customerDetailRequest?.unsubscribe();
     this.customerSummaryRequest?.unsubscribe();
     this.customerDetailLoading.set(true);
@@ -2384,18 +2392,23 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.customerDetailRequest = this.http
       .get<Client360CustomerResponse>(
         `/api/v1/client360/customers/${encodeURIComponent(customerKey)}`,
-        { params: new HttpParams().set('include_ai_summary', 'false') },
+        {
+          params: new HttpParams().set('include_ai_summary', 'false'),
+          ...this.workspaceHttpOptions(actionContext.scope),
+        },
       )
       .subscribe({
         next: (payload) => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.selectedCustomer.set(payload);
           if (!options.keepSelectedOpportunity) {
             this.selectedOpportunity.set(payload.opportunities[0] ?? null);
           }
           this.customerDetailLoading.set(false);
-          this.loadCustomerSummary(customerKey);
+          this.loadCustomerSummary(customerKey, actionContext);
         },
         error: () => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.selectedCustomer.set(null);
           if (!options.keepSelectedOpportunity) {
             this.selectedOpportunity.set(null);
@@ -2406,14 +2419,20 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       });
   }
 
-  private loadCustomerSummary(customerKey: string): void {
+  private loadCustomerSummary(
+    customerKey: string,
+    actionContext: WorkspaceActionContext,
+  ): void {
+    if (!this.workspaceActionContextIsCurrent(actionContext)) return;
     this.customerSummaryLoading.set(true);
     this.customerSummaryRequest = this.http
       .get<{ ai_summary: Client360AiSummary | null }>(
         `/api/v1/client360/customers/${encodeURIComponent(customerKey)}/summary`,
+        this.workspaceHttpOptions(actionContext.scope),
       )
       .subscribe({
         next: (payload) => {
+          if (!this.workspaceActionContextIsCurrent(actionContext)) return;
           this.customerSummaryLoading.set(false);
           if (this.selectedDirectoryCustomerKey() !== customerKey) return;
           const current = this.selectedCustomer();
@@ -2422,7 +2441,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
           }
         },
         error: () => {
-          this.customerSummaryLoading.set(false);
+          if (this.workspaceActionContextIsCurrent(actionContext)) {
+            this.customerSummaryLoading.set(false);
+          }
         },
       });
   }
@@ -2468,8 +2489,15 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.chatMessages.update((msgs) => [...msgs, { role: 'user', content: query }]);
     this.chatInput = '';
     this.chatBusy.set(true);
-    this.http.post<Client360ChatResponse>('/api/v1/client360/chat', { query }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<Client360ChatResponse>(
+      '/api/v1/client360/chat',
+      { query },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         const sources = (payload.sources ?? [])
           .map((src) => src?.source_label || src?.title)
           .filter((label): label is string => !!label);
@@ -2480,6 +2508,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.chatBusy.set(false);
       },
       error: (err) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         const detail = err?.error?.detail;
         this.chatError.set(typeof detail === 'string' ? detail : 'Assistant Client360 indisponible.');
         this.chatBusy.set(false);
@@ -2589,14 +2618,22 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       starttls: this.smtpStarttls,
     };
     if (this.smtpPassword.trim()) payload['password'] = this.smtpPassword;
-    this.http.patch<MailSettingsResponse>('/api/v1/client360/mail-settings', payload).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.patch<MailSettingsResponse>(
+      '/api/v1/client360/mail-settings',
+      payload,
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (response) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.mailSettings.set(response.mail_settings);
         this.applyMailSettings(response.mail_settings);
         this.savingMailSettings.set(false);
         this.mailStatus.set(response.mail_settings.configured ? 'SMTP workspace pret' : 'SMTP workspace incomplet');
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.savingMailSettings.set(false);
         this.mailStatus.set("Impossible d'enregistrer le SMTP");
       },
@@ -2611,10 +2648,17 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     }
     this.savingMailPrompt.set(true);
     this.mailStatus.set(null);
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
     this.http
-      .patch<MailSettingsResponse>('/api/v1/client360/mail-settings', { system_prompt: prompt })
+      .patch<MailSettingsResponse>(
+        '/api/v1/client360/mail-settings',
+        { system_prompt: prompt },
+        this.workspaceHttpOptions(scope),
+      )
       .subscribe({
         next: (response) => {
+          if (!this.workspaceActionIsCurrent(scope, generation)) return;
           this.mailSettings.set(response.mail_settings);
           this.applyMailSettings(response.mail_settings);
           this.savingMailPrompt.set(false);
@@ -2625,6 +2669,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
           );
         },
         error: () => {
+          if (!this.workspaceActionIsCurrent(scope, generation)) return;
           this.savingMailPrompt.set(false);
           this.mailStatus.set("Impossible d'enregistrer le prompt");
         },
@@ -2634,16 +2679,24 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   resetMailPrompt(): void {
     this.resettingMailPrompt.set(true);
     this.mailStatus.set(null);
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
     this.http
-      .patch<MailSettingsResponse>('/api/v1/client360/mail-settings', { reset_system_prompt: true })
+      .patch<MailSettingsResponse>(
+        '/api/v1/client360/mail-settings',
+        { reset_system_prompt: true },
+        this.workspaceHttpOptions(scope),
+      )
       .subscribe({
         next: (response) => {
+          if (!this.workspaceActionIsCurrent(scope, generation)) return;
           this.mailSettings.set(response.mail_settings);
           this.applyMailSettings(response.mail_settings);
           this.resettingMailPrompt.set(false);
           this.mailStatus.set('Prompt reinitialise au defaut');
         },
         error: () => {
+          if (!this.workspaceActionIsCurrent(scope, generation)) return;
           this.resettingMailPrompt.set(false);
           this.mailStatus.set('Impossible de reinitialiser le prompt');
         },
@@ -2851,6 +2904,10 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   private resetWorkspaceActions(): void {
     this.workspaceActionGeneration += 1;
     this.cancelActionRefreshRequests();
+    this.customerDetailRequest?.unsubscribe();
+    this.customerDetailRequest = null;
+    this.customerSummaryRequest?.unsubscribe();
+    this.customerSummaryRequest = null;
     this.mappingValidationRequest?.unsubscribe();
     this.mappingValidationRequest = null;
     this.mappingReloadRequest?.unsubscribe();
@@ -2865,19 +2922,52 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.engineResult.set(null);
     this.syncResult.set(null);
     this.syncStatus.set(null);
+    // Everything below is tenant data. Leaving it rendered while the next
+    // workspace loads is the same cross-tenant leak as a late response.
+    this.summary.set(null);
+    this.opportunitiesResponse.set(null);
+    this.selectedOpportunity.set(null);
+    this.selectedCustomer.set(null);
+    this.customersResponse.set(null);
+    this.selectedDirectoryCustomerKey.set(null);
+    this.focusedProjectCode.set(null);
+    this.currentDraft.set(null);
+    this.alertsResponse.set(null);
+    this.mappingsResponse.set(null);
+    this.mailSettings.set(null);
+    this.campaignsResponse.set(null);
+    this.selectedCampaign.set(null);
+    this.campaignStats.set(null);
+    this.directorySelection.set([]);
+    this.campaignTargetCustomerKeys.set([]);
+    this.customerDetailLoading.set(false);
+    this.customerSummaryLoading.set(false);
+    this.chatMessages.set([]);
+    this.chatBusy.set(false);
+    this.chatError.set(null);
   }
 
   updateOpportunityStatus(opp: Client360Opportunity, status: 'validated' | 'dismissed'): void {
-    this.http.patch<{ opportunity: Client360Opportunity }>(`/api/v1/client360/opportunities/${encodeURIComponent(opp.id)}`, {
-      status,
-      validation_reason: status === 'validated' ? 'sales_review' : undefined,
-      rejection_reason: status === 'dismissed' ? 'sales_rejected' : undefined,
-    }).subscribe({
-      next: (payload) => {
-        this.selectedOpportunity.set(payload.opportunity);
-        this.loadOpportunities(false);
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.patch<{ opportunity: Client360Opportunity }>(
+      `/api/v1/client360/opportunities/${encodeURIComponent(opp.id)}`,
+      {
+        status,
+        validation_reason: status === 'validated' ? 'sales_review' : undefined,
+        rejection_reason: status === 'dismissed' ? 'sales_rejected' : undefined,
       },
-      error: () => this.error.set('Impossible de qualifier opportunite'),
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
+      next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.selectedOpportunity.set(payload.opportunity);
+        this.loadOpportunities(false, { scope, generation });
+      },
+      error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.error.set('Impossible de qualifier opportunite');
+      },
     });
   }
 
@@ -2911,14 +3001,22 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   }
 
   selectOpportunity(opp: Client360Opportunity): void {
+    const actionContext: WorkspaceActionContext = {
+      scope: this.workspace.captureRequestScope(),
+      generation: this.workspaceActionGeneration,
+    };
     this.selectedOpportunity.set(opp);
     this.selectedDirectoryCustomerKey.set(opp.customer_key);
     this.focusedProjectCode.set(null);
     this.view.set('customer');
     if (!this.customersResponse()) {
-      this.loadCustomers();
+      this.loadCustomers(actionContext);
     }
-    this.fetchCustomerFiche(opp.customer_key, { keepSelectedOpportunity: true });
+    this.fetchCustomerFiche(
+      opp.customer_key,
+      { keepSelectedOpportunity: true },
+      actionContext,
+    );
   }
 
   generateDraft(opp: Client360Opportunity): void {
@@ -2926,12 +3024,19 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.loading.set(true);
     this.error.set(null);
     this.generatingDraftOpportunityId.set(opp.id);
-    this.http.post<MailDraftResponse>('/api/v1/client360/mail-drafts', {
-      opportunity_id: opp.id,
-      language: 'fr',
-      include_prices: false,
-    }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<MailDraftResponse>(
+      '/api/v1/client360/mail-drafts',
+      {
+        opportunity_id: opp.id,
+        language: 'fr',
+        include_prices: false,
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.currentDraft.set(payload.mail_draft);
         this.draftSubject.set(payload.mail_draft.subject);
         this.draftBody.set(payload.mail_draft.generated_body);
@@ -2939,9 +3044,10 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.view.set('mail');
         this.loading.set(false);
         this.generatingDraftOpportunityId.set(null);
-        this.loadOpportunities(false);
+        this.loadOpportunities(false, { scope, generation });
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.loading.set(false);
         this.generatingDraftOpportunityId.set(null);
         this.error.set('Impossible de generer le brouillon');
@@ -2956,19 +3062,29 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   markSent(): void {
     const draft = this.currentDraft();
     if (!draft?.action_item_id) return;
-    this.http.patch<ActionResponse>(`/api/v1/client360/actions/${encodeURIComponent(draft.action_item_id)}`, {
-      mail_draft_id: draft.id,
-      mail_status: 'sent',
-      status: 'in_progress',
-      sent_body: this.draftBody(),
-      sent_at: new Date().toISOString(),
-    }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.patch<ActionResponse>(
+      `/api/v1/client360/actions/${encodeURIComponent(draft.action_item_id)}`,
+      {
+        mail_draft_id: draft.id,
+        mail_status: 'sent',
+        status: 'in_progress',
+        sent_body: this.draftBody(),
+        sent_at: new Date().toISOString(),
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.currentDraft.set({ ...draft, subject: this.draftSubject(), status: 'sent', sent_body: this.draftBody(), sent_at: new Date().toISOString() });
         this.mailStatus.set('Envoi manuel trace');
-        this.loadOpportunities(false);
+        this.loadOpportunities(false, { scope, generation });
       },
-      error: () => this.error.set('Impossible de mettre a jour le suivi mail'),
+      error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.error.set('Impossible de mettre a jour le suivi mail');
+      },
     });
   }
 
@@ -2987,20 +3103,28 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (!draft || !this.canSendMail()) return;
     this.sendingMailDraftId.set(draft.id);
     this.mailStatus.set('Envoi SMTP en cours');
-    this.http.post<MailSendResponse>(`/api/v1/client360/mail-drafts/${encodeURIComponent(draft.id)}/send`, {
-      to_email: this.recipientEmail.trim(),
-      subject: this.draftSubject(),
-      body: this.draftBody(),
-    }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<MailSendResponse>(
+      `/api/v1/client360/mail-drafts/${encodeURIComponent(draft.id)}/send`,
+      {
+        to_email: this.recipientEmail.trim(),
+        subject: this.draftSubject(),
+        body: this.draftBody(),
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.currentDraft.set(payload.mail_draft);
         this.draftSubject.set(payload.mail_draft.subject);
         this.draftBody.set(payload.mail_draft.sent_body || payload.mail_draft.generated_body);
         this.sendingMailDraftId.set(null);
         this.mailStatus.set('Mail envoye via SMTP');
-        this.loadOpportunities(false);
+        this.loadOpportunities(false, { scope, generation });
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.sendingMailDraftId.set(null);
         this.mailStatus.set('Echec envoi SMTP');
       },
@@ -3010,29 +3134,46 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   recordImpact(type: string): void {
     const draft = this.currentDraft();
     if (!draft?.action_item_id) return;
-    this.http.post<ImpactResponse>(`/api/v1/client360/actions/${encodeURIComponent(draft.action_item_id)}/impact`, {
-      impact_type: type,
-      attribution: this.impactAttribution,
-      reason: this.impactReason,
-      summary: this.impactSummary,
-      opportunity_id: draft.opportunity_id,
-      mail_draft_id: draft.id,
-    }).subscribe({
-      next: () => {
-        this.refresh();
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<ImpactResponse>(
+      `/api/v1/client360/actions/${encodeURIComponent(draft.action_item_id)}/impact`,
+      {
+        impact_type: type,
+        attribution: this.impactAttribution,
+        reason: this.impactReason,
+        summary: this.impactSummary,
+        opportunity_id: draft.opportunity_id,
+        mail_draft_id: draft.id,
       },
-      error: () => this.error.set('Impossible de qualifier impact'),
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
+      next: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.refresh({ scope, generation });
+      },
+      error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.error.set('Impossible de qualifier impact');
+      },
     });
   }
 
   loadCampaigns(showLoading = false): void {
     if (showLoading) this.loading.set(true);
-    this.http.get<Client360CampaignsResponse>('/api/v1/client360/campaigns').subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.get<Client360CampaignsResponse>(
+      '/api/v1/client360/campaigns',
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignsResponse.set(payload);
         if (showLoading) this.loading.set(false);
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         if (showLoading) this.loading.set(false);
         this.error.set('Impossible de charger les campagnes Client360 PDR');
       },
@@ -3060,12 +3201,19 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     }
     this.campaignBusy.set(true);
     this.campaignStatus.set('Creation de la campagne...');
-    this.http.post<Client360CampaignResponse>('/api/v1/client360/campaigns', {
-      name,
-      campaign_type: this.campaignType,
-      selection_criteria,
-    }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<Client360CampaignResponse>(
+      '/api/v1/client360/campaigns',
+      {
+        name,
+        campaign_type: this.campaignType,
+        selection_criteria,
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
         this.campaignName = '';
         this.campaignStatus.set(
@@ -3079,6 +3227,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.selectCampaign(payload.campaign);
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
         this.campaignStatus.set('Impossible de creer la campagne');
       },
@@ -3092,12 +3241,21 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   }
 
   loadCampaignStats(campaign: Client360Campaign): void {
-    this.http.get<Client360CampaignStatsResponse>(`/api/v1/client360/campaigns/${encodeURIComponent(campaign.id)}/stats`).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.get<Client360CampaignStatsResponse>(
+      `/api/v1/client360/campaigns/${encodeURIComponent(campaign.id)}/stats`,
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignStats.set(payload.stats);
         this.selectedCampaign.set(payload.campaign);
       },
-      error: () => this.campaignStats.set(null),
+      error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        this.campaignStats.set(null);
+      },
     });
   }
 
@@ -3106,12 +3264,19 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (!campaign || this.campaignBusy()) return;
     this.campaignBusy.set(true);
     this.campaignStatus.set(followUp ? 'Preparation des relances...' : 'Generation des brouillons...');
-    this.http.post<Client360CampaignDraftsResult>(`/api/v1/client360/campaigns/${encodeURIComponent(campaign.id)}/drafts`, {
-      language: 'fr',
-      include_prices: false,
-      follow_up: followUp,
-    }).subscribe({
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.post<Client360CampaignDraftsResult>(
+      `/api/v1/client360/campaigns/${encodeURIComponent(campaign.id)}/drafts`,
+      {
+        language: 'fr',
+        include_prices: false,
+        follow_up: followUp,
+      },
+      this.workspaceHttpOptions(scope),
+    ).subscribe({
       next: (payload) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
         const created = payload.created ?? 0;
         const prepared = payload.prepared ?? 0;
@@ -3135,6 +3300,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.loadCampaignStats(payload.campaign);
       },
       error: () => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
         this.campaignStatus.set('Impossible de generer les brouillons');
       },
