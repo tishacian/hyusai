@@ -870,6 +870,16 @@ def _serialize(s: System) -> dict[str, Any]:
         "flow_definition": flow,
         "flow_sha256": _flow_sha256(flow),
         "settings": getattr(s, "settings", None) or {},
+        # Publication authority pointer. Optional and additive: rows created
+        # before migration 077, and workspaces without flow publication, keep
+        # answering ``None`` here rather than changing shape.
+        "published_flow_version_id": getattr(s, "published_flow_version_id", None),
+        "published_at": (
+            s.published_at.isoformat()
+            if getattr(s, "published_at", None)
+            else None
+        ),
+        "published_by": getattr(s, "published_by", None),
         "execution_mode": s.execution_mode,
         "execution_profile": getattr(s, "execution_profile", None) or {},
         "coordination_pattern": s.coordination_pattern,

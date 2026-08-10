@@ -969,6 +969,9 @@ export class FlowPersistenceService {
         name: resolved,
         objective: 'Promoted from scratchpad flow',
         flow_definition: flow as unknown as Record<string, unknown>,
+        // Durable provenance: the catalog can label these Systems without
+        // pattern-matching a name an operator is free to change.
+        settings: { origin: 'scratchpad_promote' },
       })
       .subscribe({
         next: (system) => {

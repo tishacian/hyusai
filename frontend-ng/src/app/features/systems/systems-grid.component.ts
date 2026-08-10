@@ -13,6 +13,7 @@ import {
   TagComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
+import { isPromotedFromScratchpad, systemCatalogBadge } from './system-flow-profile';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
@@ -299,9 +300,14 @@ interface Template {
               </div>
 
               <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
-                <ck-tag tone="cool" variant="soft">
-                  {{ agent.rag_mode || 'OmniRAG' }}
-                </ck-tag>
+                <span [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+                  <ck-tag tone="cool" variant="soft">
+                    {{ badgeFor(agent) }}
+                  </ck-tag>
+                  @if (isPromotedScratchpad(agent)) {
+                    <ck-tag tone="neutral" variant="outline">SCRATCHPAD</ck-tag>
+                  }
+                </span>
                 <span [style.color]="'var(--ck-fg-4)'">
                   <ck-glyph name="arrow-right" [size]="12" />
                 </span>
@@ -439,6 +445,14 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     // Legacy helper, retained for back-compat with any remaining callers; the
     // grid now renders a single canonical glyph.
     return 'cube';
+  }
+
+  badgeFor(agent: SystemAgent): string {
+    return systemCatalogBadge(agent, agent.rag_mode);
+  }
+
+  isPromotedScratchpad(agent: SystemAgent): boolean {
+    return isPromotedFromScratchpad(agent);
   }
 
   private loadScope(capabilityId: string | null): void {

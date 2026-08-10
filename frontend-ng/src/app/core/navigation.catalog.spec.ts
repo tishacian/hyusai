@@ -11,9 +11,68 @@ import {
   navigationPortfolioUrl,
   navigationRouteContext,
   navigationScopeUrl,
+  navigationSectionNaming,
   pathAllowedBySurfaceIds,
   isObjectLens,
 } from './navigation.catalog';
+
+const EMPTY_ANCESTRY = {
+  capabilityId: null,
+  systemId: null,
+  runId: null,
+  skillInvocationId: null,
+  skillRef: null,
+};
+
+function flowSection(legacy = false) {
+  const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
+  return (legacy ? build.legacySections! : build.sections!)
+    .find((section) => section.key === 'flows')!;
+}
+
+test('the Flow entry is named after the destination it resolves to', () => {
+  for (const legacy of [false, true]) {
+    const section = flowSection(legacy);
+
+    const scratchpad = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build');
+    assert.equal(navigationSectionNaming(section, scratchpad).label, 'Scratchpad');
+
+    const systemFlow = navigationScopeUrl(
+      section,
+      { ...EMPTY_ANCESTRY, systemId: 'sys-42' },
+      'build',
+    );
+    assert.equal(navigationSectionNaming(section, systemFlow).label, 'Flow builder');
+
+    // The remembered System reached through a flat list names it too.
+    const remembered = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build', 'sys-42');
+    assert.equal(navigationSectionNaming(section, remembered).label, 'Flow builder');
+  }
+});
+
+test('destination naming exposes a dedicated key so a locale can override it', () => {
+  const section = flowSection();
+
+  assert.equal(
+    navigationSectionNaming(section, navigationScopeUrl(section, EMPTY_ANCESTRY, 'build')).i18nKey,
+    'nav.flows.scratchpad',
+  );
+  assert.equal(
+    navigationSectionNaming(section, '/systems/sys-42/flow').i18nKey,
+    'nav.flows',
+  );
+});
+
+test('sections without a dynamic destination keep their catalog naming', () => {
+  for (const verb of COCKPIT_VERBS) {
+    for (const section of [...(verb.sections ?? []), ...(verb.legacySections ?? [])]) {
+      if (section.key === 'flows') continue;
+      const naming = navigationSectionNaming(section, section.route);
+      assert.equal(naming.label, section.label, section.key);
+      assert.equal(naming.i18nKey, `nav.${section.key}`, section.key);
+    }
+  }
+});
 
 test('Client360 stays classified under Operate in the standard admin cockpit', () => {
   const surface = AGENTIUM_SURFACE_ROUTES.find((item) => item.id === 'client360-pdr');

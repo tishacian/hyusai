@@ -25,9 +25,11 @@ import {
   type WorkspaceViewRequest,
 } from '@app/core/workspace-view-context';
 import { ToastrService } from 'ngx-toastr';
+import { FlowManifestService } from '@app/features/orchestration/flow/flow-manifest.service';
 import { SystemsStore } from './systems.store';
 import { SystemPerspectiveComponent } from './system-perspective.component';
 import { SystemValueLoopComponent } from './system-value-loop.component';
+import { isFlowBackedSystem, systemFlowProfile } from './system-flow-profile';
 import {
   SYSTEM_OBJECT_LENSES,
   systemPerspectiveAuthorizesValueLoop,
@@ -265,6 +267,132 @@ interface ContextConfigRow {
               </div>
             </section>
           </div>
+        } @else if (flowProfile(); as flow) {
+          <div class="space-y-6">
+            <section
+              class="relative overflow-hidden ck-surface rounded-md p-5"
+              style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
+              data-testid="system-flow-overview"
+            >
+              <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
+              <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <app-icon name="workflow" set="phosphor" [size]="18" class="text-cyan-400" />
+                    <span class="text-xs uppercase tracking-wider font-semibold text-cyan-300">Executable flow</span>
+                    <span
+                      class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ring-1"
+                      [ngClass]="flow.publishedVersionId
+                        ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
+                        : 'bg-amber-500/10 text-amber-300 ring-amber-500/25'"
+                    >
+                      {{ flowPublicationLabel() }}
+                    </span>
+                    @if (flow.promotedFromScratchpad) {
+                      <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                        From scratchpad
+                      </span>
+                    }
+                  </div>
+                  <p class="mt-3 text-sm leading-relaxed text-gray-400 max-w-2xl">
+                    {{ flowSummaryLine() }}
+                  </p>
+                </div>
+                <a
+                  [routerLink]="['/systems', systemId, 'flow']"
+                  class="inline-flex shrink-0 items-center gap-2 rounded bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-cyan-400"
+                  data-testid="system-flow-open-builder"
+                >
+                  <app-icon name="workflow" [size]="14" /> Open in flow builder
+                </a>
+              </div>
+            </section>
+
+            <section class="ck-surface t-elevated rounded-md p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <app-icon name="play-circle" set="phosphor" [size]="16" class="text-cyan-400" />
+                <h3 class="text-sm font-semibold text-white">Triggers</h3>
+                <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }} declared</span>
+              </div>
+              @if (flow.triggers.length === 0) {
+                <p class="text-xs text-gray-400 leading-relaxed">
+                  No ingress is declared on this graph. It runs only when triggered manually from
+                  this page or the flow builder.
+                </p>
+              } @else {
+                <ul class="grid gap-2 md:grid-cols-2">
+                  @for (trigger of flow.triggers; track trigger.nodeId) {
+                    <li class="flex items-center gap-3 rounded border border-white/5 bg-black/20 px-3 py-2.5">
+                      <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25 shrink-0">
+                        {{ trigger.kind }}
+                      </span>
+                      <span class="text-sm text-white truncate">{{ trigger.label }}</span>
+                      <span class="ml-auto font-mono text-[10px] text-gray-500 truncate">{{ trigger.nodeId }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </section>
+
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <ck-stat-readout variant="tile" label="Steps" [value]="flow.nodeCount" icon="layers" />
+              <ck-stat-readout variant="tile" label="Connections" [value]="flow.edgeCount" icon="git-commit" />
+              <ck-stat-readout variant="tile" label="Bound skills" [value]="flow.skillSlugs.length" icon="zap" />
+              <ck-stat-readout variant="tile"
+                label="Runs"
+                [value]="kpiTraces()"
+                icon="git-commit"
+                [interactive]="true"
+                (click)="goto('/runs')"
+              />
+              <ck-stat-readout variant="tile"
+                label="Errors"
+                [value]="kpiErrors()"
+                [trend]="errorsTrend()"
+                icon="alert-triangle"
+                [interactive]="true"
+                (click)="goto('/observability/performance')"
+              />
+              <ck-stat-readout variant="tile"
+                label="Avg latency"
+                [value]="kpiLatency()"
+                unit="ms"
+                icon="gauge"
+                [interactive]="true"
+                (click)="goto('/runs')"
+              />
+            </div>
+            @if (kpisLoading()) {
+              <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
+            }
+
+            <section class="ck-surface t-elevated rounded-md p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <app-icon name="git-commit" [size]="16" class="text-cyan-400" />
+                <h3 class="text-sm font-semibold text-white">Latest runs</h3>
+                <button
+                  type="button"
+                  (click)="onTabChange('runs')"
+                  class="ml-auto text-[11px] text-cyan-400 hover:text-cyan-300"
+                >
+                  See all
+                </button>
+              </div>
+              @if (runsLoading()) {
+                <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</p>
+              } @else if (recentRuns().length === 0) {
+                <p class="text-xs text-gray-400">
+                  This flow has not produced any run yet.
+                </p>
+              } @else {
+                <div class="space-y-3">
+                  @for (run of recentRuns(); track run.id) {
+                    <ck-run-outcome-card [run]="run" />
+                  }
+                </div>
+              }
+            </section>
+          </div>
         } @else {
         <div class="space-y-6">
         <!-- OmniRAG banner: each stage links to the matching configuration -->
@@ -469,6 +597,109 @@ interface ContextConfigRow {
             [loading]="perspectivesLoading()"
             [error]="perspectivesError()"
           />
+        } @else if (flowProfile(); as flow) {
+          <div class="space-y-4" data-testid="system-flow-design">
+            <div
+              class="ck-surface rounded-md p-4 flex items-start gap-3"
+              style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
+            >
+              <div class="w-10 h-10 rounded-md flex items-center justify-center bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30 shrink-0">
+                <app-icon name="workflow" set="phosphor" [size]="18" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-white">Executable graph</div>
+                <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
+                  {{ flowSummaryLine() }} {{ flowPublicationDetail() }}
+                </p>
+              </div>
+              <a
+                [routerLink]="['/systems', systemId, 'flow']"
+                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition shrink-0"
+              >
+                <app-icon name="workflow" [size]="14" /> Open in flow builder
+              </a>
+            </div>
+
+            @if (flow.triggers.length > 0) {
+              <section class="ck-surface t-elevated rounded-md p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <app-icon name="play-circle" [size]="16" class="text-cyan-400" />
+                  <h3 class="text-sm font-semibold text-white">Triggers</h3>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  @for (trigger of flow.triggers; track trigger.nodeId) {
+                    <span class="inline-flex items-center gap-2 rounded bg-black/20 ring-1 ring-white/10 px-2.5 py-1.5">
+                      <span class="text-[10px] uppercase tracking-wider text-cyan-300">{{ trigger.kind }}</span>
+                      <span class="text-xs text-gray-200">{{ trigger.label }}</span>
+                    </span>
+                  }
+                </div>
+              </section>
+            }
+
+            <section class="ck-surface t-elevated rounded-md overflow-hidden">
+              <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+                  <app-icon name="layers" set="phosphor" [size]="16" class="text-cyan-400" />
+                  Steps
+                </h3>
+                <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                  {{ flow.nodeCount }} nodes · {{ flow.edgeCount }} connections
+                </span>
+              </div>
+              <ul>
+                @for (step of flow.steps; track step.nodeId; let i = $index; let last = $last) {
+                  <li
+                    class="px-5 py-3 flex items-center gap-4"
+                    [class.border-b]="!last"
+                    [class.border-white\\/5]="!last"
+                  >
+                    <span class="ck-mono text-[10px] text-gray-500 w-6 shrink-0">{{ i + 1 }}</span>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-medium text-white truncate">{{ step.label }}</span>
+                        <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                          {{ step.kind }}
+                        </span>
+                        @if (step.runtimeStatus) {
+                          <span
+                            class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ring-1"
+                            [ngClass]="step.operational
+                              ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
+                              : 'bg-amber-500/10 text-amber-300 ring-amber-500/25'"
+                          >
+                            {{ step.runtimeStatus }}
+                          </span>
+                        }
+                      </div>
+                      <p class="font-mono text-[11px] text-gray-500 mt-0.5 truncate">
+                        {{ step.skillSlug || step.nodeId }}
+                      </p>
+                    </div>
+                  </li>
+                }
+              </ul>
+            </section>
+
+            @if (flow.skillSlugs.length > 0) {
+              <section class="ck-surface t-elevated rounded-md p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <app-icon name="zap" [size]="16" class="text-cyan-400" />
+                  <h3 class="text-sm font-semibold text-white">Bound skills</h3>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  @for (slug of flow.skillSlugs; track slug) {
+                    <a
+                      [routerLink]="['/skills', slug]"
+                      class="font-mono text-[11px] px-2 py-1 rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-500/25 hover:bg-cyan-500/20 transition"
+                    >
+                      {{ slug }}
+                    </a>
+                  }
+                </div>
+              </section>
+            }
+          </div>
         } @else {
         <div class="space-y-4">
         <!-- Orientation banner -->
@@ -860,6 +1091,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly flowManifest = inject(FlowManifestService);
   readonly settings = inject(SettingsService);
   readonly lensService = inject(LensService);
   private systemRouteSubscription: Subscription | null = null;
@@ -899,7 +1131,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         ? 'Capture de connaissances'
         : this.isTranslationSuite()
           ? 'PMI Sovereign Stack'
-          : 'Systems · System',
+          : this.flowChromeActive()
+            ? 'Systems · Flow'
+            : 'Systems · System',
   );
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
@@ -908,7 +1142,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         ? 'Préparer l’échange, capturer les réponses, relire puis publier.'
         : this.isTranslationSuite()
           ? 'Sovereign DITA translation, replay, agent QA, RBAC and audit-ready delivery.'
-          : 'Configure, run and refine this AI system.',
+          : this.flowChromeActive()
+            ? 'A graph the run engine executes, step by step.'
+            : 'Configure, run and refine this AI system.',
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
@@ -964,6 +1200,56 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   });
 
   readonly systemSnapshot = signal<System | null>(null);
+
+  /**
+   * Non-null only when the persisted graph proves the run engine walks it.
+   * Every facet that would otherwise describe an OmniRAG pipeline reads this
+   * first, so a System without that proof keeps its historical rendering.
+   */
+  readonly flowProfile = computed(() => {
+    const system = this.systemSnapshot();
+    if (!system) return null;
+    const manifest = this.flowManifest.manifest();
+    return systemFlowProfile(
+      system,
+      manifest?.system_id === system.id ? manifest : null,
+    );
+  });
+  /**
+   * The System 360 projection owns every facet when it is enabled, so the
+   * header must keep naming what the body renders. Naming the graph while the
+   * projection is on screen would also make the eyebrow flip once the async
+   * manifest lands, and the 360 canary asserts that chrome is invariant.
+   */
+  readonly flowChromeActive = computed(
+    () => !this.system360Enabled() && this.flowProfile() !== null,
+  );
+  readonly flowPublicationLabel = computed(() =>
+    this.flowProfile()?.publishedVersionId ? 'Published' : 'Draft only',
+  );
+  readonly flowPublicationDetail = computed(() => {
+    const flow = this.flowProfile();
+    if (!flow) return '';
+    if (!flow.publishedVersionId) {
+      return 'No published version yet — runs execute the saved draft.';
+    }
+    const by = flow.publishedBy ? ` by ${flow.publishedBy}` : '';
+    const at = flow.publishedAt ? ` on ${flow.publishedAt.slice(0, 10)}` : '';
+    return `Published${at}${by}.`;
+  });
+  readonly flowSummaryLine = computed(() => {
+    const flow = this.flowProfile();
+    if (!flow) return '';
+    const parts = [
+      `${flow.nodeCount} ${flow.nodeCount === 1 ? 'step' : 'steps'}`,
+      `${flow.edgeCount} ${flow.edgeCount === 1 ? 'connection' : 'connections'}`,
+      `${flow.triggers.length} ${flow.triggers.length === 1 ? 'trigger' : 'triggers'}`,
+      `${flow.skillSlugs.length} bound ${flow.skillSlugs.length === 1 ? 'skill' : 'skills'}`,
+    ];
+    return `${parts.join(' · ')}.`;
+  });
+  readonly recentRuns = computed(() => this.runs().slice(0, 3));
+
   readonly perspectives = signal<Partial<Record<ObjectLens, SystemPerspectiveResponse>>>({});
   readonly perspectivesLoading = signal(false);
   readonly perspectivesError = signal(false);
@@ -1345,6 +1631,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         } else {
           this.variant.set('standard');
         }
+        // The runtime sidecar is fetched only once the persisted graph already
+        // proves a run-engine flow: it refines that verdict, it never opens it.
+        if (isFlowBackedSystem(sys)) this.flowManifest.ensureLoaded(systemId);
         if (this.system360Enabled()) {
           this.loadPerspectives(request, systemId);
         } else {

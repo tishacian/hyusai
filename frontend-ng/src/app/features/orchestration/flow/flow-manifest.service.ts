@@ -74,13 +74,15 @@ export class FlowManifestService {
   readonly runtimeModeLabel = computed(() => runtimeModeLabel(this.runtimeMode()));
 
   constructor() {
-    this.workspace.registerContextReset(() => {
-      this.request?.unsubscribe();
-      this.request = null;
-      this.requestedSystemId = null;
-      this._systemId.set(null);
-      this._manifest.set(null);
-    });
+    this.workspace.registerContextReset(() => this.clear());
+  }
+
+  private clear(): void {
+    this.request?.unsubscribe();
+    this.request = null;
+    this.requestedSystemId = null;
+    this._systemId.set(null);
+    this._manifest.set(null);
   }
 
   private readonly unitsById = computed<Map<string, FlowManifestUnit>>(() => {
@@ -92,12 +94,19 @@ export class FlowManifestService {
   });
 
   /**
-   * Fetch the manifest for `systemId` exactly once. No-op for the scratchpad
-   * (null id) or when the same system is already loaded / in-flight. Safe to
-   * call from every node + the inspector — only the first call hits the wire.
+   * Fetch the manifest for `systemId` exactly once. Safe to call from every
+   * node + the inspector — only the first call hits the wire.
+   *
+   * Any change of requested system, including to the scratchpad's `null`,
+   * first drops the state this singleton holds. The manifest is a
+   * system-scoped sidecar: surfacing the previous System's runtime contract
+   * next to another graph — or next to the scratchpad, which has none — would
+   * be a lie the user has no way to detect.
    */
   ensureLoaded(systemId: string | null): void {
-    if (!systemId || this.requestedSystemId === systemId) return;
+    if (this.requestedSystemId === systemId) return;
+    this.clear();
+    if (!systemId) return;
     this.requestedSystemId = systemId;
     this._systemId.set(systemId);
     this.fetch(systemId);

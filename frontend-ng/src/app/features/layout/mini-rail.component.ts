@@ -5,6 +5,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { I18nService } from '@app/core/i18n.service';
 import {
   COCKPIT_VERBS,
+  navigationSectionNaming,
   type CockpitScopeType,
   type CockpitSection,
   type CockpitVerb,
@@ -289,12 +290,14 @@ export class MiniRailComponent {
    * `Systems · of cap:3a4f9c` when a capability is focused.
    */
   sectionLabel(s: CockpitSection): string {
-    // Translate first, fall back to the hard-coded label when the dict
-    // has no entry for this section key (long-tail verbs like "flows",
-    // "missions", etc. are defined in the nav.* surface).
-    const key = `nav.${s.key}`;
-    const translated = this.i18n.t(key);
-    const base = translated === key ? s.label : translated;
+    // Name the destination this item actually links to, not the section in
+    // the abstract: the Flow entry reads "Scratchpad" while it opens one.
+    const naming = navigationSectionNaming(s, this.routeFor(s));
+    // Translate first, fall back to the resolved label when the dict has no
+    // entry for this key (long-tail verbs like "flows", "missions", etc. are
+    // defined in the nav.* surface).
+    const translated = this.i18n.t(naming.i18nKey);
+    const base = translated === naming.i18nKey ? naming.label : translated;
     return base;
   }
 

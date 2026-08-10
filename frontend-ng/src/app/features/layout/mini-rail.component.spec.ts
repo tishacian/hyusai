@@ -148,6 +148,76 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
   );
 });
 
+/** Both rails branches (axes-v3 `sections` and the legacy set NAWA runs) must
+ *  name the Flow entry after whatever `urlForScope` resolved. */
+function railWithFlowScope(axesV3: boolean, systemId: string | null): MiniRailComponent {
+  const ancestry = {
+    capabilityId: null,
+    systemId,
+    runId: null,
+    skillInvocationId: null,
+    skillRef: null,
+  };
+  const injector = Injector.create({
+    providers: [
+      MiniRailComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'build',
+          axesV3Enabled: () => axesV3,
+          axesV4Enabled: () => false,
+          loading: () => false,
+          route: () => navigationRouteContext('/skills', axesV3),
+          scope: () => null,
+          capabilityId: () => ancestry.capabilityId,
+          systemId: () => ancestry.systemId,
+          runId: () => ancestry.runId,
+          skillInvocationId: () => ancestry.skillInvocationId,
+          skillRef: () => ancestry.skillRef,
+          capabilityLabel: () => null,
+          systemLabel: () => null,
+          runLabel: () => null,
+          skillInvocationLabel: () => null,
+          skillLabel: () => null,
+          urlForScope: (section: CockpitSection) => (
+            section.key === 'flows' && systemId
+              ? `/systems/${systemId}/flow`
+              : section.route
+          ),
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  return injector.get(MiniRailComponent);
+}
+
+test('the Flow entry reads Scratchpad only while it opens the scratchpad', () => {
+  for (const axesV3 of [true, false]) {
+    const scratchpad = railWithFlowScope(axesV3, null);
+    const flows = scratchpad.visibleSections().find((section) => section.key === 'flows')!;
+    assert.equal(scratchpad.sectionLabel(flows), 'Scratchpad', `axesV3=${axesV3}`);
+
+    const opened = railWithFlowScope(axesV3, 'sys-42');
+    const openedFlows = opened.visibleSections().find((section) => section.key === 'flows')!;
+    assert.equal(opened.sectionLabel(openedFlows), 'Flow builder', `axesV3=${axesV3}`);
+
+    // The section key and glyph are the rail's identity — naming must not move them.
+    assert.equal(openedFlows.key, 'flows');
+    assert.equal(openedFlows.glyph, flows.glyph);
+  }
+});
+
+test('sections other than Flow are named from the catalog whatever the URL', () => {
+  const rail = railWithFlowScope(true, null);
+  const systems = rail.visibleSections().find((section) => section.key === 'systems')!;
+  const skills = rail.visibleSections().find((section) => section.key === 'skills')!;
+
+  assert.equal(rail.sectionLabel(systems), 'Systems');
+  assert.equal(rail.sectionLabel(skills), 'Skills');
+});
+
 test('axes v4 exposes no object index under the Portfolio-only Hypervisor destination', () => {
   const injector = Injector.create({
     providers: [

@@ -16,6 +16,37 @@ import { WorkspaceService, type WorkspaceContextTransition } from './workspace.s
 import { COCKPIT_VERBS } from './navigation.catalog';
 import { ZoomContextService } from './zoom-context.service';
 
+/** `sessionStorage` is a browser global; the last-System memory degrades to a
+ *  no-op without it, so install one before exercising that behaviour. */
+class MemorySessionStorage {
+  private readonly entries = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.entries.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.entries.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.entries.delete(key);
+  }
+}
+
+function withSessionStorage<T>(run: (storage: MemorySessionStorage) => T): T {
+  const globals = globalThis as { sessionStorage?: unknown };
+  const previous = globals.sessionStorage;
+  const storage = new MemorySessionStorage();
+  globals.sessionStorage = storage;
+  try {
+    return run(storage);
+  } finally {
+    if (previous === undefined) delete globals.sessionStorage;
+    else globals.sessionStorage = previous;
+  }
+}
+
 class RouterStub {
   readonly events = new Subject<unknown>();
   readonly parsedUrls: string[] = [];
@@ -366,6 +397,93 @@ test('an unflagged workspace ignores routed axes and emits legacy object links',
     }),
     '/skills/skill-a',
   );
+});
+
+const flowsSection = () => COCKPIT_VERBS
+  .find((verb) => verb.key === 'build')!
+  .sections!
+  .find((section) => section.key === 'flows')!;
+
+test('leaving a System for a flat list keeps Flow builder pointing at that System', () => {
+  withSessionStorage(() => {
+    const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
+    const flows = flowsSection();
+
+    assert.equal(navigation.systemId(), 'sys-real');
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
+
+    router.navigate('/skills');
+    assert.equal(navigation.systemId(), null, 'the list route proves no System');
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
+  });
+});
+
+test('the legacy rail also returns to the last System opened', () => {
+  withSessionStorage(() => {
+    const router = new RouterStub('/systems/sys-real');
+    const workspace = new WorkspaceStub();
+    workspace.setAxesEnabled(false);
+    const canonical = {
+      getRun: () => of(null),
+      getSkill: () => of(null),
+      getSystem: (id: string) => of(
+        id === 'sys-real' ? ({ id, name: 'System', capability_id: null } satisfies System) : null,
+      ),
+      getCapability: () => of(null),
+    };
+    const injector = Injector.create({
+      providers: [
+        ZoomContextService,
+        { provide: Router, useValue: router },
+        { provide: WorkspaceService, useValue: workspace },
+        { provide: CanonicalApiService, useValue: canonical },
+      ],
+    });
+    const navigation = injector.get(ZoomContextService);
+    const flows = flowsSection();
+
+    assert.equal(navigation.urlForScope(flows), '/systems/sys-real/flow');
+
+    router.navigate('/skills');
+    assert.equal(navigation.systemId(), null);
+    assert.equal(navigation.urlForScope(flows), '/systems/sys-real/flow');
+  });
+});
+
+test('opening the scratchpad releases the remembered System', () => {
+  withSessionStorage(() => {
+    const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
+    const flows = flowsSection();
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
+
+    router.navigate('/orchestration');
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
+  });
+});
+
+test('a System id never survives a workspace switch', () => {
+  withSessionStorage((storage) => {
+    const { workspace, navigation } = graphHarness('/systems/sys-real?lens=build');
+    const flows = flowsSection();
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
+    assert.ok(storage.getItem('agentium_last_flow_system:workspace-a'));
+
+    workspace.switchWorkspace();
+    assert.equal(storage.getItem('agentium_last_flow_system:workspace-a'), null);
+    assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
+  });
+});
+
+test('a System id forged under another workspace slug is rejected', () => {
+  withSessionStorage((storage) => {
+    storage.setItem(
+      'agentium_last_flow_system:workspace-a',
+      JSON.stringify({ workspace_slug: 'workspace-b', system_id: 'sys-from-b' }),
+    );
+    const { navigation } = graphHarness('/skills?lens=build');
+
+    assert.equal(navigation.urlForScope(flowsSection()).split('?')[0], '/orchestration');
+  });
 });
 
 test('workspace reset clears synchronously and ignores the late graph from the old epoch', async () => {

@@ -1031,13 +1031,53 @@ export function navigationLensUrl(
   });
 }
 
+/** What the Flow entry opens when no System is in scope: an unattached graph
+ *  that belongs to nobody until it is promoted. */
+export const SCRATCHPAD_SECTION_LABEL = 'Scratchpad';
+
+export interface NavigationSectionNaming {
+  /** Dictionary key, so a locale can still override the resolved wording. */
+  i18nKey: string;
+  /** Wording to use when the dictionary has no entry for `i18nKey`. */
+  label: string;
+}
+
+/**
+ * How a section should be named once its destination is known.
+ *
+ * Only the Flow entry is destination-dependent: it resolves either to a
+ * System's graph or, with no System in scope, to the scratchpad. Naming it
+ * from the catalog alone would promise a builder for a specific System and
+ * then open an empty canvas, so the wording follows `resolvedUrl` — the exact
+ * URL the rail is about to link to — rather than the static label.
+ */
+export function navigationSectionNaming(
+  section: CockpitSection,
+  resolvedUrl: string,
+): NavigationSectionNaming {
+  if (section.key === 'flows' && pathOnly(resolvedUrl) === section.route) {
+    return { i18nKey: 'nav.flows.scratchpad', label: SCRATCHPAD_SECTION_LABEL };
+  }
+  return { i18nKey: `nav.${section.key}`, label: section.label };
+}
+
+/**
+ * `flowSystemId` lets the caller carry a System the current URL no longer
+ * proves — the last one the user actually opened — so leaving the hierarchy
+ * for a flat list does not silently downgrade "Flow builder" to the
+ * scratchpad. It is only consulted when the verified ancestry is empty.
+ */
 export function navigationScopeUrl(
   section: CockpitSection,
   ancestry: NavigationAncestry,
   lens: CockpitLens,
+  flowSystemId: string | null = null,
 ): string {
-  const path = section.key === 'flows' && ancestry.systemId
-    ? `/systems/${encodeURIComponent(ancestry.systemId)}/flow`
+  const flowTarget = section.key === 'flows'
+    ? ancestry.systemId ?? flowSystemId
+    : null;
+  const path = flowTarget
+    ? `/systems/${encodeURIComponent(flowTarget)}/flow`
     : section.route;
   return appendNavigationQuery(path, {
     lens: lensQueryForPath(path, lens),

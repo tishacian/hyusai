@@ -52,6 +52,7 @@ const pureSpecs = [
   'src/app/features/auth/signin-experience.spec.ts',
   'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
+  'src/app/features/systems/system-flow-profile.spec.ts',
   'src/app/features/hypervisor/hypervisor-impact.spec.ts',
   'src/app/features/hypervisor/hypervisor-value-loop.spec.ts',
   'src/app/features/nawa/nawa-run-projection.spec.ts',

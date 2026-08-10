@@ -10,6 +10,7 @@ import {
   type System,
 } from './canonical-api.service';
 import {
+  agentiumSurfaceRoute,
   navigationLensUrl,
   navigationObjectUrl,
   navigationPortfolioUrl,
@@ -24,6 +25,12 @@ import {
   type NavigationObjectUrlOptions,
 } from './navigation.catalog';
 import { WorkspaceService, type WorkspaceRequestScope } from './workspace.service';
+import {
+  readWorkspaceLocalJson,
+  removeWorkspaceLocalValue,
+  writeWorkspaceLocalJson,
+  type WorkspaceLocalStorage,
+} from './workspace-local-storage';
 
 export type ZoomHierarchyKey = 'portfolio' | HierarchyObjectType;
 
@@ -57,6 +64,44 @@ const EMPTY_ANCESTRY: NavigationAncestry = {
   skillInvocationId: null,
   skillRef: null,
 };
+
+/**
+ * Session-scoped memory of the last Flow surface the user opened. It exists
+ * so a detour through a flat list (Skills, Runs…) does not silently reset
+ * "Flow builder" to the scratchpad — the QA loop System → Skills → Flow
+ * builder must come back to the same graph.
+ *
+ * Written only for a System the canonical, workspace-scoped API has already
+ * proven, keyed AND tagged by workspace slug, and dropped on every workspace
+ * transition: a System id from another tenant can never be resurrected here.
+ */
+const LAST_FLOW_SYSTEM_KEY = 'agentium_last_flow_system';
+
+/** The scratchpad is a destination in its own right — landing on it means the
+ *  user chose it, so the remembered System is released. */
+const SCRATCHPAD_PATH = agentiumSurfaceRoute('orchestration');
+
+interface LastFlowSystem {
+  readonly workspace_slug: string;
+  readonly system_id: string;
+}
+
+function isLastFlowSystem(value: unknown): value is LastFlowSystem {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['workspace_slug'] === 'string'
+    && typeof candidate['system_id'] === 'string'
+    && candidate['system_id'].length > 0;
+}
+
+/** `sessionStorage` is absent from SSR and from the unit-test runtime. */
+function sessionStore(): WorkspaceLocalStorage | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read-only semantic navigation projection.
@@ -96,6 +141,7 @@ export class ZoomContextService implements OnDestroy {
   });
 
   private generation = 0;
+  private rememberedFlowSystem: { slug: string; systemId: string | null } | null = null;
   private graphSubscription = new Subscription();
   private readonly subscriptions = new Subscription();
   private readonly unregisterContextReset: () => void;
@@ -148,6 +194,7 @@ export class ZoomContextService implements OnDestroy {
 
     this.unregisterContextReset = this.workspace.registerContextReset((transition) => {
       this.cancelGraphResolution();
+      this.forgetFlowSystem(transition.previousSlug);
       const route = this.routeContext(this.router.url || '/');
       this.state.set(this.provisional(route, true));
       queueMicrotask(() => {
@@ -190,15 +237,26 @@ export class ZoomContextService implements OnDestroy {
   }
 
   urlForScope(section: CockpitSection): string {
+    const rememberedSystemId = section.key === 'flows'
+      ? this.rememberedFlowSystemId()
+      : null;
     if (!this.axesV3Enabled()) {
-      return section.key === 'flows' && this.systemId()
-        ? `/systems/${encodeURIComponent(this.systemId()!)}/flow`
+      const systemId = section.key === 'flows'
+        ? this.systemId() ?? rememberedSystemId
+        : null;
+      return systemId
+        ? `/systems/${encodeURIComponent(systemId)}/flow`
         : section.route;
     }
     // Scope destinations are list routes, so every hierarchy id would be
     // lost if a user clicked before canonical graph hydration completed.
     if (this.loading()) return this.route().url;
-    return navigationScopeUrl(section, this.projection().ancestry, this.lens());
+    return navigationScopeUrl(
+      section,
+      this.projection().ancestry,
+      this.lens(),
+      rememberedSystemId,
+    );
   }
 
   urlTreeForScope(section: CockpitSection): UrlTree {
@@ -245,6 +303,9 @@ export class ZoomContextService implements OnDestroy {
     const generation = ++this.generation;
     const requestScope = this.workspace.captureRequestScope();
     const route = this.routeContext(url);
+    if (route.path === SCRATCHPAD_PATH) {
+      this.forgetFlowSystem(this.workspace.currentSlug());
+    }
     const needsGraph = Boolean(
       route.capabilityId
       || route.systemId
@@ -313,7 +374,62 @@ export class ZoomContextService implements OnDestroy {
     ).subscribe((graph) => {
       if (!this.isCurrent(generation, requestScope, url)) return;
       this.state.set(this.resolvedProjection(route, graph));
+      this.rememberFlowSystem(this.systemId());
     });
+  }
+
+  /**
+   * The last System proven inside the CURRENT workspace, or null.
+   *
+   * Cached per slug because the rail asks for it on every change-detection
+   * pass, while the read itself is a one-shot migration read that retires the
+   * pre-workspace slot as a side effect.
+   */
+  private rememberedFlowSystemId(): string | null {
+    const workspaceSlug = this.workspace.currentSlug();
+    if (!workspaceSlug) return null;
+    if (this.rememberedFlowSystem?.slug !== workspaceSlug) {
+      this.rememberedFlowSystem = {
+        slug: workspaceSlug,
+        systemId: this.readFlowSystem(workspaceSlug),
+      };
+    }
+    return this.rememberedFlowSystem.systemId;
+  }
+
+  private readFlowSystem(workspaceSlug: string): string | null {
+    const storage = sessionStore();
+    if (!storage) return null;
+    return readWorkspaceLocalJson<LastFlowSystem>({
+      storage,
+      baseKey: LAST_FLOW_SYSTEM_KEY,
+      workspaceSlug,
+      knownWorkspaceSlugs: [],
+      isValue: isLastFlowSystem,
+      valueWorkspaceSlug: (value) => value.workspace_slug,
+    })?.system_id ?? null;
+  }
+
+  private rememberFlowSystem(systemId: string | null): void {
+    const workspaceSlug = this.workspace.currentSlug();
+    if (!workspaceSlug || !systemId) return;
+    this.rememberedFlowSystem = { slug: workspaceSlug, systemId };
+    const storage = sessionStore();
+    if (!storage) return;
+    writeWorkspaceLocalJson<LastFlowSystem>(
+      storage,
+      LAST_FLOW_SYSTEM_KEY,
+      workspaceSlug,
+      { workspace_slug: workspaceSlug, system_id: systemId },
+    );
+  }
+
+  private forgetFlowSystem(workspaceSlug: string | null): void {
+    this.rememberedFlowSystem = workspaceSlug
+      ? { slug: workspaceSlug, systemId: null }
+      : null;
+    const storage = sessionStore();
+    if (storage) removeWorkspaceLocalValue(storage, LAST_FLOW_SYSTEM_KEY, workspaceSlug);
   }
 
   private routeContext(url: string): CockpitRouteContext {

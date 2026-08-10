@@ -32,6 +32,10 @@ export interface SystemAgent {
   collections?: string[];
   draft?: boolean;
   created_at?: string;
+  // Persisted shape carried by `_serialize`; read to tell an executable Flow
+  // apart from a RAG pipeline without a second round-trip.
+  flow_definition?: Record<string, unknown> | null;
+  settings?: Record<string, unknown> | null;
   // Canonical per-System defaults exposed by the backend (migration 005).
   default_prompt_type?: string | null;
   default_model?: string | null;
