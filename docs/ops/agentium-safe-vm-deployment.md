@@ -2532,3 +2532,84 @@ est `curl -sk https://localhost/api/v1/build-info`.
 n'ont pas de healthcheck déclaré — `agentium-livekit`,
 `agentium-p4-maintenance`, `agentium-worker-cpu`. Ils sont debout, pas malades.
 Le « douze conteneurs sains » écrit plus haut était une formulation relâchée.
+
+## Itération du 10/08 (après-midi) — déployée sur `7619f0be`, skills de réconciliation PO/facture
+
+Boucle courte, sans migration : quatre skills cœur déterministes pour la démo
+NAWA de réconciliation PO/facture — `spreadsheet_table_extract_v1`,
+`invoice_document_extract_v1`, `line_items_reconcile_v1`,
+`reconciliation_report_v1` — plus un helper de résolution de fichiers et leurs
+tests à fixtures. Le diff (`1807bf1e..7619f0be`, 7 fichiers, +1380) ne touche
+que `backend/app/services` et `backend/app/tests` ; le contrôle des trois
+chemins montés rend le vide, `mtime` d'origine conservés après l'avance de
+l'ancre, inodes `faiss_db` (2049:2665446) et `secure_deposit` (2080:2)
+inchangés.
+
+### Observables
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `1807bf1e` → `7619f0be`, accès Bitbucket local direct (pas de bundle côté poste) |
+| Build | trois images au tag `7619f0be51f5`, label 40-hex vérifié sur les trois ; ~7,7 min cache chaud |
+| Dump | `postgres-pre-switch.dump`, **449349951** o, sha256 `91702ae9e799…`, **1204** entrées TOC, triplet `.sha256`/`.ready` en `0600` sous `/srv/agentium-data/recon-skills-deployments/2026-08-10-7619f0be51f5` (`0700`) |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | seuls backend, worker-cpu et frontend recréés ; `build-info` sur le SHA complet, `revision_verified: true` |
+| Alembic | `084_decision_condition_repair` avant **et** après — aucune migration dans cette tranche |
+| Logs | aucun `traceback`/`error`/`exception` backend au démarrage |
+| Skills | les 4 slugs présents dans `skills` avec leurs catégories (`Analysis` ×2, `Decision Support`, `Governance`), `is_seeded='Y'` — via le seed one-off ci-dessous |
+| Canaris | **6/6** en 57,4 s, premier passage |
+| Ancre + worktree | avancés sur `7619f0be`, alias `demo-agentic` déplacé sur la ligne déployée après les canaris |
+
+Rollback disponible : `AGENTIUM_IMAGE_TAG=78f56ed46084` puis `up`. Base
+intouchée par la tranche, retour symétrique.
+
+Le commit qui porte cette section avance ensuite la tête de branche, l'ancre
+et le worktree d'un commit documentaire au-dessus de `7619f0be` : les images
+servies restent en `7619f0be` et c'est l'état attendu, le delta ne touchant
+que `docs/ops/`.
+
+### Le seed de démarrage ne tourne pas en production — le plan supposait le contraire
+
+Cette tranche partait de « le seed se réconcilie au démarrage du backend,
+aucune migration ». C'est vrai du code, faux de la configuration servie :
+`startup_reconciliation = "disabled"` est épinglé par le manifeste Release A,
+et `app/main.py` garde **tous** ses seeds derrière ce drapeau. Après la
+bascule, le backend a démarré proprement en journalisant
+`Database startup reconciliation disabled`, et la table `skills` ne portait
+aucun des quatre slugs.
+
+Remède joué, conforme au précédent des one-off sur image candidate :
+`seed_skills_and_capabilities(db)` exécuté une fois dans le conteneur backend
+servi (fonction idempotente, upsert par `slug`, commit interne). Rapport :
+`skills_added 10, skills_updated 79, capabilities_added 0,
+capabilities_updated 25`.
+
+**Dix ajoutés, pas quatre.** Le seed n'avait tourné dans aucune fenêtre depuis
+que le drapeau est posé : six entrées de `SEED_SKILLS` de tranches antérieures
+(`briefing_priorities_v1`, `causal_drill_v1`, `draft_email_v1`,
+`generate_recommendations_v1`, `schedule_meeting_v1`,
+`summarize_long_document_v1`) attendaient en silence. Ce sont des lignes de
+catalogue globales (`workspace_id NULL`), inertes tant qu'aucun workspace ne
+les active — l'arriéré est soldé, pas un incident.
+
+**Règle à retenir : toute tranche qui s'appuie sur « seedé au démarrage » doit
+prévoir le one-off en production.** Le démarrage ne seede rien tant que
+`startup_reconciliation` reste `disabled`, ce qui est son état nominal.
+
+### Le bundle du runner, encore
+
+Même piège qu'au matin, variante : `/tmp/omnirag-attestation.bundle` existait
+cette fois sur carakai, mais périmé — le fetch « réussit » sans apprendre le
+SHA candidat. Bundle incrémental `78f56ed4..demo/agentic` réexpédié depuis le
+poste (sha256 `cb31e328…` identique des deux côtés), fetch, checkout détaché
+sur `7619f0be`, préambule `PATH` node inchangé. Un `fetch origin` qui sort en 0
+sur ce dépôt ne prouve rien : vérifier `cat-file -e <sha40>` avant de lancer
+les canaris.
+
+### Ce que cette itération ne prouve pas
+
+Aucun Run n'a exercé les quatre skills en production : la preuve fonctionnelle
+est celle des tests à fixtures (extraction exacte des deux fichiers d'exemple,
+les 2 écarts attendus trouvés, rapport stable). L'exposition catalogue par
+workspace (`enabled_skills`), la configuration NAWA et le System de démo
+restent à faire — c'est l'étape suivante du plan, hors fenêtre.
