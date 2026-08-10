@@ -2951,3 +2951,116 @@ d'outils dédoublée, ligne d'état du workbench) — la relecture navigateur es
 faite hors fenêtre par le coordinateur. Aucun Run réel n'a été lancé sur le
 System de réconciliation : la preuve est la **disponibilité de dispatch**, pas
 une exécution de bout en bout de plus.
+
+## Itération du 10/08 (nuit) — déployée sur `8fbf440b`, plafond de rendement sur les trois surfaces restantes
+
+Le plafond posé le soir même ne couvrait que les **libellés du fil de signaux**,
+côté backend. Trois surfaces continuaient d'imprimer les ratios en toutes
+lettres : le bandeau du bilan (`ROI 6277%`, `EFFICIENCY 992.40`), la ligne
+`Workspace Assistant` du tableau CAPABILITIES (`ROI 6382%`,
+`EFFICIENCY 1001.18`) et la carte Outcome des runs (`EFFICIENCY 1303293%` sur
+des runs à 1,50 $ pour un coût de 0,0001 $). Itération courte, frontend seul,
+sans migration : le seuil et les deux formes de rendu passent dans
+`frontend-ng/src/app/shared/cockpit/yield-format.ts`, consommé par
+`hypervisor.component.ts` et `run-outcome-card.component.ts`, avec le miroir de
+`MAX_SIGNAL_ROI_RATIO` écrit dans le module pour que backend et frontend ne
+divergent pas en silence.
+
+**Correctif d'affichage seulement, par décision.** `_compute_efficiency`
+(`backend/app/services/outcome/derive.py`) et la colonne `efficiency` sont
+intouchées : y poser un plancher de coût changerait la sémantique des runs déjà
+enregistrés et de toute agrégation en aval. Le delta ne touche que
+`frontend-ng/{src,scripts}` ; aucun fichier bind-monté, diff vide sur les trois
+chemins suivis montés dans des conteneurs vivants, inodes `faiss_db`
+(2049:2665446) et `secure_deposit` (2080:2) inchangés après l'avance de l'ancre.
+
+### Portails locaux
+
+| Portail | Commande | Observé |
+|---|---|---|
+| Types | `npx tsc -p tsconfig.app.json --noEmit` | sortie 0 |
+| Unitaires | `node scripts/run-unit.mjs` | **747/747** en 51,0 s (743 avant, 4 tests ajoutés par `yield-format.spec.ts`) |
+| AOT | `npx ng build --configuration development` | bundle complet en 61,9 s, un seul `NG8107` préexistant dans `vp-map-preview.component.ts` (fichier non touché) |
+| Backend | aucun — **aucun fichier backend touché** |
+
+Aucun canari n'a été édité : la recherche de `EFFICIENCY`, `ROI` et d'un
+pourcentage attendu dans `e2e/tests/**` et `scripts/playwright/**` ne rend
+aucune assertion sur ces chaînes. `12-protected-runner-canaries` visite bien
+`/hypervisor`, mais n'y assert que la présence de l'extension Mission Room et
+son profil.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `59b0c8f3` → `8fbf440b`, accès Bitbucket direct depuis le poste |
+| Ancre + worktree | `/home/ubuntu/omnirag` en `merge --ff-only` sur `8fbf440b`, worktree de build détaché sur le même SHA ; `mtime` d'origine conservés sur `agentium-livekit.yaml` (02/06) et `realm-export.json` (23/04) |
+| Build | **trois** images au tag `8fbf440b827b`, label `org.opencontainers.image.revision` 40-hex vérifié sur les trois (~8 min cache chaud) |
+| Dump | `postgres-pre-switch.dump`, **449618012** o, sha256 `5c39966041805b55…`, **1204** entrées TOC, triplet `.sha256`/`.ready` en `0600` sous `/srv/agentium-data/yield-cap-deployments/2026-08-10-8fbf440b827b` (`0700`), `sha256sum -c` **OK** |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services recréés (backend, worker-cpu, frontend, p4-maintenance, beat), `RestartCount=0` sur les trois principaux |
+| `build-info` | `revision: 8fbf440b827b50359279f129ca3f0c448f917671`, `revision_verified: true` (HTTPS) |
+| Alembic | `084_decision_condition_repair` avant **et** après — aucune migration dans cette itération |
+| Conteneurs | **13**, `--filter health=healthy` = **9** (les quatre sans healthcheck sont sains en « Up ») |
+| Logs | **0** `ERROR`, **0** `Traceback`, **0** réponse 5xx côté backend ; histogramme `200`×325, `404`×1 |
+| Canaris carakai | **6/6** en 57,3 s, premier passage, contre le SHA déployé |
+| Alias | `demo-agentic` déplacé sur la ligne déployée après les canaris ; images `8fc41597486d` conservées |
+
+Rollback disponible : `AGENTIUM_IMAGE_TAG=8fc41597486d` puis `up`. Base
+intouchée, retour symétrique.
+
+### Vérification API post-bascule — le fil garde ses ratios bruts
+
+C'est la preuve que le correctif est bien d'affichage et pas de donnée.
+
+| Contrôle | Observé |
+|---|---|
+| `GET /hypervisor/balance-sheet` (NAWA) | `portfolio.roi` **62.772004…**, `portfolio.avg_efficiency` **992.4015…** — ratios bruts intacts, pour 165,195 $ de valeur et 2,5904 $ de coût |
+| Même appel, ligne `Workspace Assistant` | `roi` **63.0191…**, `avg_efficiency` **1001.1838…** — bruts eux aussi |
+| Libellés de signaux | 13 `High-yield outcome · ROI > 1000%`, déjà bornés par le backend depuis `05deb3ef` |
+| `GET /runs?system_id=fe4ab7e5…` | 6 runs, `efficiency` brut **13032.927**, **13394.329**, **13983.431**, **12008.121**, **13741.933** sur `value 1.5` / `cost 0.0001` ; un run `failed` sans outcome |
+
+Rendu correspondant après bascule : `> 1000%` partout où un ratio dépasse 10 en
+pourcentage, `> 10.00` pour l'index d'efficacité du hypervisor, `—` pour le run
+en échec. En deçà du plafond, rien ne change.
+
+### Trois pièges, tous dans l'outillage de fenêtre
+
+- **Compter les entrées TOC demande le client de la même famille.**
+  `docker run --rm postgres:16 pg_restore --list` sur le dump rend **0** entrée
+  sans échouer bruyamment, et `docker exec -i agentium-pg pg_restore --list
+  /dev/stdin` en rend 0 aussi (le flux n'est pas seekable). Le contrôle qui
+  répond : monter le répertoire de fenêtre dans un conteneur jetable bâti sur
+  **l'image de `agentium-pg` elle-même**
+  (`docker run --rm --entrypoint pg_restore -v "$D":/d:ro "$(docker inspect -f
+  '{{.Image}}' agentium-pg)" --list /d/<dump>`). 1204 entrées, comme les
+  fenêtres précédentes.
+- **Un glob sur le répertoire de dump échoue silencieusement.** Le répertoire
+  est en `0700 root` : `sudo chmod 0600 "$D"/*.dump.*` est expansé par le shell
+  **non privilégié** avant `sudo`, ne matche rien, et `chmod` se plaint d'un
+  chemin littéral inexistant alors que les fichiers sont bien là. Passer par
+  `sudo sh -c '…'` pour que l'expansion se fasse en root.
+- **`POST /auth/login` attend `email`, pas `username`.** Le champ `username`
+  sort en `422 {"loc":["body","email"],"type":"missing"}`. À rapprocher du piège
+  déjà consigné sur la clé de réponse (`token`, pas `access_token`) : les deux
+  bouts du contrat de login sont contre-intuitifs.
+
+### Ce que cette fenêtre prouve, et ce qu'elle ne prouve pas
+
+Elle prouve que le fil n'a pas bougé : les quatre champs machine relus après
+bascule portent exactement les ratios bruts d'avant, et les libellés backend
+restent bornés. Elle prouve que le SHA déployé passe les canaris protégés.
+
+Elle ne prouve rien du rendu : aucun canari n'assert sur `ROI` ni `EFFICIENCY`,
+et le portail qui couvre le changement est un test unitaire sur le module de
+formatage, pas une lecture de page. La relecture navigateur des trois surfaces
+est faite hors fenêtre par le coordinateur.
+
+### Dette relevée, non traitée
+
+`_compute_efficiency` n'a d'autre garde-fou que `cost <= 0`. Les runs futurs
+continueront donc d'écrire des ratios à cinq chiffres en base dès qu'une skill
+est tarifée sous le centime. Le backend a choisi le plancher `MIN_SIGNAL_COST`
+pour ses signaux ; poser le même plancher dans le calcul stocké est un
+arbitrage ouvert, **volontairement non pris ici** parce qu'il changerait la
+sémantique des runs déjà enregistrés et de toute agrégation en aval.
