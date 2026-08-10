@@ -2476,3 +2476,27 @@ seule copie sur la branche supprimée, a été remis dans `docs/ops/`.
 Quatre branches anciennes et réellement non fusionnées ont été conservées :
 `feat/create-vector-store-api`, `Omnirag-react-reasoning-trace`, `doc/cir`,
 `backup/capture-pre-rebase-20260624`.
+
+### Supprimer une branche locale ne la fait pas disparaître du sélecteur
+
+Cursor liste les branches distantes à côté des locales. `codex/release-a-from-hotfix`
+a continué de s'afficher après le ménage local parce qu'elle vivait toujours sur
+`origin` — ni cache périmé ni référence de suivi obsolète, la branche était bien
+sur le serveur. Le ménage local et le ménage distant sont deux gestes séparés, et
+le second est visible par toute l'équipe.
+
+Neuf branches `codex/*` retirées d'`origin` le 10/08, toutes vérifiées
+entièrement joignables depuis `demo/agentic` juste avant suppression, et toutes
+archivées en tags poussés d'abord (`archive/codex-<nom>-<date>`), présence sur le
+serveur contrôlée avant le `--delete`. Le distant passe de 33 à 24 branches.
+
+Trois exclusions délibérées. `main` et `develop` sont techniquement redondantes
+mais conventionnelles et de longue vie — `main` est probablement la branche par
+défaut du dépôt. `codex/flow-builder-p0-safety` porte un patch sans équivalent
+exact au sens de `git cherry` (son contenu a atterri sous un autre SHA), gardée
+par prudence.
+
+Les quinze branches distantes réellement non fusionnées — `feat/qdrant`,
+`feat/keycloak`, `feat/metadata-indexing`, `Justicia/multi-modal--pipeline`,
+`llmaas` et les autres — sont toutes antérieures à mai et sans rapport avec
+Agentium. Ne pas les prendre pour du résidu.
