@@ -44,6 +44,7 @@ const pureSpecs = [
   'src/app/core/navigation.catalog.spec.ts',
   'src/app/core/platform-brand.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
+  'src/app/shared/cockpit/yield-format.spec.ts',
   'src/app/shared/ui/icon-registry.spec.ts',
   'src/app/core/workspace-experience.spec.ts',
   'src/app/core/workspace-app-canary.spec.ts',

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, Input, computed, signal } from '@an
 import { MicroBarComponent } from './micro-bar.component';
 import { StatReadoutComponent } from './stat-readout.component';
 import { TagComponent } from './tag.component';
+import { formatYieldPercent } from './yield-format';
 import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.service';
 
 /**
@@ -64,7 +65,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
         />
         <ck-stat-readout
           label="EFFICIENCY"
-          [value]="percentage(outcome.efficiency)"
+          [value]="efficiencyLabel(outcome.efficiency)"
           [tone]="efficiencyTone()"
           [size]="18"
         />
@@ -207,6 +208,10 @@ export class RunOutcomeCardComponent {
   protected percentage(value: number | null | undefined): string {
     if (value == null) return '—';
     return `${Math.round(value * 100)}%`;
+  }
+
+  protected efficiencyLabel(value: number | null | undefined): string {
+    return formatYieldPercent(value);
   }
 
   protected currency(value: number | null | undefined): string {

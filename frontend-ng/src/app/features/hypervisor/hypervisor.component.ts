@@ -24,6 +24,7 @@ import {
   TagComponent,
   HelpTooltipComponent,
 } from '@app/shared/cockpit';
+import { formatYieldIndex, formatYieldPercent } from '@app/shared/cockpit/yield-format';
 import {
   formatHypervisorImpact,
   measuredCapabilityCount,
@@ -1002,13 +1003,11 @@ export class HypervisorComponent implements OnInit {
   }
 
   protected formatRoi(v: number | null | undefined): string {
-    if (v == null) return '—';
-    return `${(v * 100).toFixed(0)}%`;
+    return formatYieldPercent(v);
   }
 
   protected formatIndex(v: number | null | undefined): string {
-    if (v == null) return '—';
-    return v.toFixed(2);
+    return formatYieldIndex(v);
   }
 
   protected formatImpact(value: unknown): string {
