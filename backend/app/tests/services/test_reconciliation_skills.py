@@ -23,6 +23,97 @@ FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "po_invoice_rec
 XLSX_NAME = "PO_Register_Sample.xlsx"
 PDF_NAME = "Invoice_INV-8834_Sample.pdf"
 
+# Raw text of the fixture invoice as extracted by the two PDF backends the
+# platform may run on. PyPDF2 (local venv) emits the two header columns as
+# separate line blocks; pdfplumber (production image, captured verbatim from
+# pdfplumber 0.11.10 on the live backend) merges the side-by-side columns
+# onto shared physical lines. Header parsing must succeed on BOTH.
+PYPDF2_TEXT = (
+    "INVOICE\n"
+    " Sample document — created for Agentium Flow Builder demo only\n"
+    "From:\n"
+    "Al Fanar Industrial Supplies W.L.L.\n"
+    "Industrial Area, Street 42\n"
+    "Doha, Qatar\n"
+    "Tax ID: QA-TX-119284\n"
+    "Invoice No: INV-8834\n"
+    "Invoice Date: 14 July 2026\n"
+    "PO Reference: PO-2026-0451\n"
+    "Due Date: 13 August 2026\n"
+    "Bill To:\n"
+    "PowerMinds Inc. — PIH Qatar Operations\n"
+    "Procurement Department\n"
+    "Doha, Qatar\n"
+    "#\n"
+    "Description\n"
+    "Qty\n"
+    "Unit Price\n"
+    "(QAR)\n"
+    "Line Total\n"
+    "(QAR)\n"
+    "1\n"
+    "Industrial Bearings SKF-6205\n"
+    "50\n"
+    "45.00\n"
+    "2,250.00\n"
+    "2\n"
+    'Hydraulic Hose 3/4"\n'
+    "18\n"
+    "120.00\n"
+    "2,160.00\n"
+    "3\n"
+    "Safety Valves DN50\n"
+    "10\n"
+    "365.00\n"
+    "3,650.00\n"
+    "4\n"
+    "Lubricant Grease 5kg Tub\n"
+    "30\n"
+    "60.00\n"
+    "1,800.00\n"
+    "Subtotal (QAR)\n"
+    "9,860.00\n"
+    "VAT (0% — free zone)\n"
+    "0.00\n"
+    "Total Due (QAR)\n"
+    "9,860.00\n"
+    "Payment Terms: Net 30 days from invoice date. Bank transfer to Al Fanar"
+    " Industrial Supplies, Qatar National\n"
+    "Bank, IBAN QA00 QNBA 0000 0000 0000 0000 0000.\n"
+    "This is a synthetic sample invoice generated for a product demonstration."
+    " It does not represent a real transaction, vendor, or financial\n"
+    "obligation.\n"
+)
+PDFPLUMBER_TEXT = (
+    "INVOICE\n"
+    "Sample document — created for Agentium Flow Builder demo only\n"
+    "From: Invoice No: INV-8834\n"
+    "Al Fanar Industrial Supplies W.L.L. Invoice Date: 14 July 2026\n"
+    "Industrial Area, Street 42 PO Reference: PO-2026-0451\n"
+    "Doha, Qatar Due Date: 13 August 2026\n"
+    "Tax ID: QA-TX-119284\n"
+    "Bill To:\n"
+    "PowerMinds Inc. — PIH Qatar Operations\n"
+    "Procurement Department\n"
+    "Doha, Qatar\n"
+    "Unit Price Line Total\n"
+    "# Description Qty\n"
+    "(QAR) (QAR)\n"
+    "1 Industrial Bearings SKF-6205 50 45.00 2,250.00\n"
+    '2 Hydraulic Hose 3/4" 18 120.00 2,160.00\n'
+    "3 Safety Valves DN50 10 365.00 3,650.00\n"
+    "4 Lubricant Grease 5kg Tub 30 60.00 1,800.00\n"
+    "Subtotal (QAR) 9,860.00\n"
+    "VAT (0% — free zone) 0.00\n"
+    "Total Due (QAR) 9,860.00\n"
+    "Payment Terms: Net 30 days from invoice date. Bank transfer to Al Fanar"
+    " Industrial Supplies, Qatar National\n"
+    "Bank, IBAN QA00 QNBA 0000 0000 0000 0000 0000.\n"
+    "This is a synthetic sample invoice generated for a product demonstration."
+    " It does not represent a real transaction, vendor, or financial\n"
+    "obligation."
+)
+
 
 def _stage_deposit(db_session, tmp_path, monkeypatch):
     """Two staged Secure Deposit files (xlsx + pdf) promoted to one collection."""
@@ -139,6 +230,32 @@ def test_spreadsheet_extract_computes_uncached_formula_cells():
     result = extract_spreadsheet_table(buffer.getvalue())
 
     assert [row["Total"] for row in result["rows"]] == [100, 30]
+
+
+@pytest.mark.parametrize(
+    "raw_text",
+    [PYPDF2_TEXT, PDFPLUMBER_TEXT],
+    ids=["pypdf2-token-per-line", "pdfplumber-merged-columns"],
+)
+def test_invoice_header_fields_parse_on_both_text_layouts(raw_text):
+    """The five header fields must parse exactly whichever PDF text backend
+    produced the text — including pdfplumber's column-merged layout where
+    ``From:`` and the label block share physical lines."""
+    from app.services.reconciliation import extract_invoice_fields
+
+    result = extract_invoice_fields(raw_text)
+
+    assert result["invoice_number"] == "INV-8834"
+    assert result["invoice_date"] == "14 July 2026"
+    assert result["po_reference"] == "PO-2026-0451"
+    assert result["due_date"] == "13 August 2026"
+    assert result["vendor"] == "Al Fanar Industrial Supplies W.L.L."
+    # Line items and totals were already layout-proof; keep them pinned.
+    assert len(result["line_items"]) == 4
+    assert result["subtotal"] == 9860.0
+    assert result["vat"] == 0.0
+    assert result["total_due"] == 9860.0
+    assert result["currency"] == "QAR"
 
 
 async def test_invoice_extract_returns_every_field_exactly(

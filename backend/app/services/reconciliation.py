@@ -199,8 +199,33 @@ def _number(text: str) -> float:
     return float(text.replace(",", ""))
 
 
+# Known header labels: they anchor value extraction and delimit each other
+# when a column-merging text extractor (e.g. pdfplumber) flattens the
+# invoice's side-by-side header blocks onto shared physical lines.
+_HEADER_LABELS = (
+    "Invoice No",
+    "Invoice Date",
+    "PO Reference",
+    "Due Date",
+    "Tax ID",
+    "Bill To",
+    "From",
+)
+_ANY_LABEL = rf"(?:{'|'.join(re.escape(label) for label in _HEADER_LABELS)})\s*\.?\s*:"
+_ANY_LABEL_RE = re.compile(_ANY_LABEL)
+
+
 def _labeled(text: str, label: str) -> str | None:
-    match = re.search(rf"^{label}\s*:\s*(.+)$", text, re.MULTILINE)
+    """Value after ``label:`` anywhere on a line.
+
+    The value stops at the next known label or at end-of-line, so both text
+    layouts parse: one ``label: value`` per line (PyPDF2) and several pairs
+    merged onto one physical line (pdfplumber flattening a two-column
+    header).
+    """
+    match = re.search(
+        rf"{label}\s*:\s*(.+?)(?=\s+{_ANY_LABEL}|$)", text, re.MULTILINE
+    )
     return match.group(1).strip() if match else None
 
 
@@ -209,15 +234,30 @@ def _total(text: str, label: str) -> float | None:
     return _number(match.group(1)) if match else None
 
 
+def _without_merged_labels(line: str) -> str:
+    """Drop any ``Label: value`` tail a column-merging extractor appended."""
+    match = _ANY_LABEL_RE.search(line)
+    return line[: match.start()].strip() if match else line.strip()
+
+
 def _vendor(lines: list[str]) -> str | None:
+    """First plausible company line after ``From:``.
+
+    A candidate is plausible once merged right-column ``Label: value`` text
+    is stripped away and something non-empty remains — this covers both the
+    dedicated-line layout and the flattened two-column layout where the
+    vendor line carries e.g. ``Invoice Date: …`` on its right.
+    """
     for index, line in enumerate(lines):
-        if line.strip().lower().startswith("from:"):
-            inline = line.split(":", 1)[1].strip()
-            if inline:
-                return inline
-            for candidate in lines[index + 1 :]:
-                if candidate.strip():
-                    return candidate.strip()
+        if not line.strip().lower().startswith("from:"):
+            continue
+        inline = _without_merged_labels(line.split(":", 1)[1])
+        if inline:
+            return inline
+        for candidate in lines[index + 1 :]:
+            cleaned = _without_merged_labels(candidate)
+            if cleaned:
+                return cleaned
     return None
 
 
