@@ -1,14 +1,14 @@
 /**
- * The assistant's screen must not flatter the answer.
+ * A citation must show the sentence the answer rests on, and it must be
+ * findable, verbatim, in the document it names. That is the whole job of this
+ * module, and everything below is a way of failing it: quoting the document's
+ * masthead, quoting the chunk's opening when the rule is four sentences down,
+ * rewriting the evidence to fit, or cutting it mid-word.
  *
- * Two properties carry the whole credibility of the surface, and both are
- * exercised against payloads captured off the live workspace on 28/07:
- *
- * - the citation numbering the screen prints has to be the numbering the model
- *   wrote into its own sentence, so a `[2]` under the answer opens the passage
- *   the model actually leaned on;
- * - an answer the library does not support has to be visibly unsupported, not
- *   an answer with a quiet, empty source list.
+ * How the citations of one turn are assembled — the numbering, what counts as
+ * unsupported, which retrieval a passage came out of — belongs to the engine
+ * contract and is exercised in `nawa-engine.spec.ts`, against the payload that
+ * contract describes.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,87 +18,8 @@ import {
   documentTitle,
   elapsedLabel,
   excerptFromDocument,
-  projectTurn,
   SUGGESTED_QUESTIONS,
-  type AssistantAnswerPayload,
 } from './nawa-assistant';
-
-/** Captured verbatim from `POST /chat/completion` on the nawa workspace. */
-const GROUNDED: AssistantAnswerPayload = {
-  content:
-    'Non. Le mot de passe temporaire est communiqué uniquement au titulaire du compte [1]. ' +
-    'Un reset avec les preuves au dossier est traité en priorité 3 [2].',
-  duration_ms: 4332,
-  sources: [
-    {
-      filename: 'password-and-account-policy.md',
-      title: 'password-and-account-policy.md',
-      snippet:
-        'Parent context:\nWhat the service desk never does\n\nA temporary password is issued to the requester and to nobody else.',
-      relevance_score: 0.35,
-      collection: 'itsd-knowledge',
-    },
-    {
-      filename: 'service-desk-priorities-and-targets.md',
-      snippet: 'A password reset with the identity evidence on file is handled at priority 3.',
-      relevance_score: 0.31,
-    },
-  ],
-};
-
-const UNSUPPORTED: AssistantAnswerPayload = {
-  content:
-    'No relevant policy is available in the provided context to state the mileage reimbursement rate.',
-  duration_ms: 4735,
-  sources: [],
-};
-
-test('citation numbers follow the source order the model was given', () => {
-  const turn = projectTurn('Can my line manager collect it?', GROUNDED);
-
-  assert.deepEqual(
-    turn.citations.map((citation) => [citation.index, citation.document]),
-    [
-      [1, 'Password and Account Policy'],
-      [2, 'Service Desk Priorities and Targets'],
-    ],
-  );
-  // The markers in the sentence and the list under it agree.
-  for (const citation of turn.citations) {
-    assert.ok(
-      turn.answer.includes(`[${citation.index}]`),
-      `answer has no marker [${citation.index}]`,
-    );
-  }
-});
-
-test('a source is never dropped for repeating a document', () => {
-  const twice = projectTurn('…', {
-    ...GROUNDED,
-    sources: [GROUNDED.sources![0], GROUNDED.sources![0]],
-  });
-
-  assert.equal(twice.citations.length, 2, 'collapsing them would renumber [2] onto nothing');
-  assert.deepEqual(twice.citations.map((c) => c.index), [1, 2]);
-});
-
-test('an answer with no source is marked unsupported', () => {
-  const turn = projectTurn('What is the mileage rate?', UNSUPPORTED);
-
-  assert.equal(turn.unsupported, true);
-  assert.deepEqual(turn.citations, []);
-  assert.ok(turn.answer.length > 0, 'the refusal is still shown — it is the answer');
-});
-
-test('a source with no readable passage is not offered as a citation', () => {
-  const turn = projectTurn('…', {
-    ...GROUNDED,
-    sources: [{ filename: 'password-and-account-policy.md', snippet: '   ' }],
-  });
-
-  assert.deepEqual(turn.citations, [], 'an unopenable citation is worse than none');
-  assert.equal(turn.unsupported, true);
-});
 
 test('the retrieval prefix is stripped, the section heading is kept', () => {
   assert.equal(
@@ -196,17 +117,6 @@ test('the excerpt obeys the same length budget as the prefix it replaces', () =>
   }
 });
 
-test('the citation under an answer is windowed on that answer', () => {
-  const turn = projectTurn('Can my line manager collect my temporary password?', {
-    content: 'No. The service desk never hands a temporary password to a line manager [1].',
-    sources: [{ filename: 'password-and-account-policy.md', snippet: PASSWORD_CHUNK }],
-    duration_ms: 946,
-  });
-
-  assert.equal(turn.citations.length, 1);
-  assert.ok(turn.citations[0].passage.includes('never hands a temporary password'), turn.citations[0].passage);
-});
-
 // The published policy, read from the very file the ingestion sent to the index.
 // If the corpus moves or is reworded, this test is where it is felt.
 //
@@ -247,29 +157,6 @@ test('a policy that says nothing the answer echoes yields no excerpt', () => {
   assert.equal(excerptFromDocument(null, 'anything'), '');
 });
 
-test('the published policy wins over the retrieval snippet, which stays the fallback', () => {
-  const answer = 'A temporary password is never handed to a line manager.';
-  const withDocument = projectTurn('…', {
-    content: answer,
-    sources: [
-      {
-        filename: 'password-and-account-policy.md',
-        snippet: PASSWORD_CHUNK,
-        document_text: POLICY,
-      },
-    ],
-  });
-  assert.ok(/line manager/i.test(withDocument.citations[0].passage));
-
-  // Asset unavailable — offline, renamed, 404: the citation still shows what the
-  // retrieval returned rather than disappearing.
-  const withoutDocument = projectTurn('…', {
-    content: answer,
-    sources: [{ filename: 'password-and-account-policy.md', snippet: PASSWORD_CHUNK, document_text: null }],
-  });
-  assert.ok(withoutDocument.citations[0].passage.length > 40, withoutDocument.citations[0].passage);
-});
-
 test('file names are read as document titles', () => {
   assert.equal(documentTitle('joiners-movers-leavers.md'), 'Joiners Movers Leavers');
   assert.equal(documentTitle('remote-access-and-vpn.md'), 'Remote Access and Vpn');
@@ -281,11 +168,6 @@ test('elapsed time reads as a duration, never as a raw float', () => {
   assert.equal(elapsedLabel(840.6), '841 ms');
   assert.equal(elapsedLabel(0), '');
   assert.equal(elapsedLabel(null), '');
-});
-
-test('the elapsed time falls back to the client clock when the body omits it', () => {
-  const turn = projectTurn('…', { ...GROUNDED, duration_ms: null }, 2500);
-  assert.equal(turn.elapsed, '2.5 s');
 });
 
 test('every suggested question is a question a desk receives', () => {

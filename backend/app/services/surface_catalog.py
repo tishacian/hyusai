@@ -418,6 +418,19 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         ("/chat",),
     ),
     SurfaceMetadata(
+        "/api/v1/assistant",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Runtime",
+        ("/chat", "/nawa/itsd/assistant"),
+        notes=(
+            "Tool-calling assistant engine shared by the text surface and the LiveKit "
+            "voice surface; configured per workspace by settings.assistant."
+        ),
+    ),
+    SurfaceMetadata(
         "/api/v1/sessions",
         "Operate",
         "Run",

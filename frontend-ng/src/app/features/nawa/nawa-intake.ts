@@ -351,26 +351,21 @@ export const REQUEST_EXAMPLES: readonly string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// The live service: what the assistant needs before it may act
+// The live service: what the run needs before a password may change
 //
 // A password reset is a privileged write, and the desk's own procedure puts
 // identity verification at step 2. In a self-service conversation there is no
-// agent to collect proofs, so the assistant asks for the two the platform can
+// agent to collect proofs, so the requester supplies the two the platform can
 // check by itself: the staff number, against the HR record, and the current
-// code from the requester's registered authenticator, which is what the
-// workspace's own MFA policy relies on.
+// code from their registered authenticator, which is what the workspace's own
+// MFA policy relies on. They are typed in the box attached to the offer, and
+// read here when the requester presses it.
 //
 // What it must NOT do is treat an assertion as a proof. A named line manager is
 // not a confirmation from that manager, and evidence composed here says which of
 // the two it is — because the count of filed proofs is what the grounding check
 // downstream reads before allowing an unattended reset.
 // ---------------------------------------------------------------------------
-
-/** What the assistant says once it has recognised a reset request. */
-export const IDENTITY_REQUEST =
-  'I can process this now. Before any password is changed I have to verify your identity — that is ' +
-  'step 2 of the service desk procedure, and it applies to every reset. Please reply with your staff ' +
-  'number and the current 6-digit code from your authenticator app.';
 
 export interface NawaIdentityClaim {
   staffId: string | null;

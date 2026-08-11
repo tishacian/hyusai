@@ -1,16 +1,34 @@
 /**
- * The front door has exactly two ways to fail in front of an audience, and both
- * are tested here against the customer's own catalogue rather than a fixture:
+ * The front door used to be a gate. It is now an opinion, and this file is how
+ * the opinion is scored.
  *
- * - a service request answered with a policy quotation. "My account is locked"
- *   must reach Unlock AD Account, not a paragraph about lockout durations.
- * - a question about the rules turned into a service. "What identity evidence
- *   do you need before you reset a password?" must stay with the library, or the
- *   assistant offers to reset the password of someone who asked how resets work.
+ * `routeIntake` no longer decides anything: the utterance goes to the
+ * conversational engine, and the router's verdict travels beside it as
+ * `session_context.route_hint`, one advisory line in the system prompt. The
+ * model may follow it, ignore it, or ask a question instead.
  *
- * The routing table below is the calibration, kept as a test so a change to the
- * floor, the margin or the alias list is felt on all of it at once and not just
- * on the utterance that motivated the change.
+ * That changes what these tables are for, not whether they are worth keeping.
+ * Every utterance-to-service mapping below was written because a real request
+ * had been answered with a policy quotation, or a real question had been turned
+ * into a service — and each one still describes the tool the engine ought to
+ * reach for:
+ *
+ * | hint            | what the turn should do      |
+ * | --------------- | ---------------------------- |
+ * | a live service  | offer the audited launch      |
+ * | a planned one   | `preview_service`            |
+ * | no opinion      | `search_knowledge`           |
+ *
+ * So the tables became an evaluation harness. `evaluate` scores the whole set
+ * and reports every miss at once, instead of dying on the first row: a hint is
+ * allowed to be wrong occasionally in a way a gate was not, and what matters is
+ * whether the score moved. The baselines below are the scores as they stand.
+ *
+ * Two properties are asserted absolutely, because they are what makes a hint a
+ * hint: the catalogue always travels, and no hint is sent when the router has
+ * no opinion. A router that stays silent must not push the model anywhere —
+ * silence used to mean "go to the library", and that is exactly the gate this
+ * work removed.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +36,6 @@ import { readFileSync } from 'node:fs';
 import {
   composeIdentity,
   composeTypedCase,
-  IDENTITY_REQUEST,
   procedureSteps,
   readIdentity,
   REQUEST_EXAMPLES,
@@ -26,6 +43,7 @@ import {
   routeIntake,
   type NawaFreeTextSettings,
 } from './nawa-intake';
+import { buildSessionContext, routeHint, SERVICE_CATALOG_LIMIT } from './nawa-engine';
 import type { NawaUseCase } from './nawa-itsd.model';
 
 /** The catalogue extracted from the customer's automation workbook, as shipped. */
@@ -33,143 +51,290 @@ const CATALOGUE: NawaUseCase[] = JSON.parse(
   readFileSync('src/assets/nawa/itsd-use-cases.json', 'utf8'),
 ).use_cases;
 
-test('the catalogue the router reads is the shipped one', () => {
+// ---------------------------------------------------------------------------
+// The harness
+// ---------------------------------------------------------------------------
+
+/**
+ * Two of the three are tools. The third is not, and that is the point: the model
+ * is read-only — `start_system_run` is off its allowlist — so a live service is
+ * not something it executes, it is a launch the screen offers and a person
+ * presses.
+ */
+type ToolChoice = 'offer_the_launch' | 'preview_service' | 'search_knowledge';
+
+interface EvalCase {
+  utterance: string;
+  tool: ToolChoice;
+  /** The service the tool should be pointed at, or null for a library answer. */
+  slug: string | null;
+}
+
+interface EvalReport {
+  total: number;
+  hits: number;
+  score: number;
+  misses: string[];
+}
+
+/**
+ * What the hint points the turn at.
+ *
+ * `route_hint` names a service and says whether it executes here, and those two
+ * facts are what separate a launch to offer from a procedure to play from a
+ * library to search.
+ */
+function hintedTool(utterance: string): { tool: ToolChoice; slug: string | null } {
+  const hint = routeHint(utterance, CATALOGUE);
+  if (!hint) return { tool: 'search_knowledge', slug: null };
+  return { tool: hint.live ? 'offer_the_launch' : 'preview_service', slug: hint.slug };
+}
+
+function evaluate(cases: readonly EvalCase[]): EvalReport {
+  const misses: string[] = [];
+  for (const expected of cases) {
+    const got = hintedTool(expected.utterance);
+    if (got.tool === expected.tool && got.slug === expected.slug) continue;
+    misses.push(
+      `"${expected.utterance}" → ${got.tool}${got.slug ? `(${got.slug})` : ''}, `
+      + `expected ${expected.tool}${expected.slug ? `(${expected.slug})` : ''}`,
+    );
+  }
+  const hits = cases.length - misses.length;
+  return { total: cases.length, hits, score: cases.length ? hits / cases.length : 1, misses };
+}
+
+/** Assert a set scores at least as well as it did when the set was written. */
+function scores(name: string, cases: readonly EvalCase[], baseline: number): void {
+  const report = evaluate(cases);
+  assert.ok(
+    report.score >= baseline,
+    `${name}: ${report.hits}/${report.total} (${report.score.toFixed(2)} < ${baseline})\n  `
+    + report.misses.join('\n  '),
+  );
+}
+
+/** A planned service: the engine should read the catalogue entry and play it. */
+function preview(utterance: string, slug: string): EvalCase {
+  return { utterance, tool: 'preview_service', slug };
+}
+
+/** The service that executes here: the screen should offer the run. */
+function live(utterance: string, slug: string): EvalCase {
+  return { utterance, tool: 'offer_the_launch', slug };
+}
+
+/** No opinion. The engine hears the utterance with no service attached to it. */
+function library(utterance: string): EvalCase {
+  return { utterance, tool: 'search_knowledge', slug: null };
+}
+
+test('the catalogue the harness reads is the shipped one', () => {
   assert.ok(CATALOGUE.length >= 39, `${CATALOGUE.length}`);
   assert.equal(CATALOGUE.filter((entry) => entry.status === 'live').length, 2);
+  // The engine keeps 40 entries. The workbook must stay inside that, or a
+  // service would silently stop being reachable through `list_services`.
+  assert.ok(CATALOGUE.length <= SERVICE_CATALOG_LIMIT, `${CATALOGUE.length}`);
 });
 
-test('requests reach the service they belong to', () => {
-  const table: ReadonlyArray<readonly [string, string]> = [
-    ['I forgot my password', 'password-reset'],
-    ['I forgot my password and I cannot sign in this morning', 'password-reset'],
-    ['I want to create an email for a newcomer', 'email-creation'],
-    ['I need an email account for a new joiner starting Sunday', 'email-creation'],
-    ['My account is locked after too many attempts', 'unlock-ad-account'],
-    ['I cannot log in, my account seems locked out', 'unlock-ad-account'],
-    ['Please add three members to the finance distribution group', 'email-group-members-addition'],
-    ['I want to remove a colleague from an email group', 'email-group-members-deletion'],
-    ['I need access to the shared mailbox for the projects team', 'shared-mailbox-user-addition'],
-    ['Please create a shared mailbox for the tender team', 'shared-mailbox-creation'],
-    ['I need Power BI installed on my laptop', 'software-installation'],
-    ['We need a mailbox blocked, the person is leaving on Thursday', 'email-block-hr-it'],
-    ['I need my email signature updated', 'user-signature-update'],
-    ['I need VPN access, I am working from home tomorrow', 'providing-vpn-avd-access-for-users'],
-    ['Please reactivate the mailbox of a colleague who came back', 'email-reactivation'],
-  ];
-  for (const [utterance, slug] of table) {
-    const match = routeIntake(utterance, CATALOGUE);
-    assert.equal(match?.useCase.slug ?? null, slug, utterance);
+// ---------------------------------------------------------------------------
+// What makes a hint a hint
+// ---------------------------------------------------------------------------
+
+test('the catalogue travels on every turn, hint or no hint', () => {
+  const asked = buildSessionContext(CATALOGUE, routeHint('I forgot my password', CATALOGUE));
+  const unopinionated = buildSessionContext(CATALOGUE, routeHint('Good morning', CATALOGUE));
+
+  for (const context of [asked, unopinionated]) {
+    const catalog = context['service_catalog'] as { slug: string }[];
+    assert.equal(catalog.length, CATALOGUE.length);
+    // The engine drops an entry without a slug, so every one must carry it.
+    for (const entry of catalog) assert.ok(entry.slug, JSON.stringify(entry));
   }
 });
 
-test('what a microphone actually returns still reaches the right service', () => {
-  // These are verbatim transcriptions, not typed sentences: the speech engine
-  // contracts "I am" to "I'm", ends on a full stop, and keeps the spoken padding
-  // ("actually", "this morning") a person drops when typing. The router scores
-  // on stems, so the padding dilutes the match — this is where a voice front end
-  // quietly starts answering from the library instead of acting.
-  const table: ReadonlyArray<readonly [string, string]> = [
-    ["I forgot my password and I'm locked out of my account.", 'password-reset'],
-    ["Hi, I need an email account created for a new joiner please.", 'email-creation'],
-    ["I'd like to get Power BI installed on my laptop if that's possible.", 'software-installation'],
-    ["Could you give me VPN access? I'm working from home tomorrow.", 'providing-vpn-avd-access-for-users'],
-  ];
-  for (const [utterance, slug] of table) {
-    const match = routeIntake(utterance, CATALOGUE);
-    assert.equal(match?.useCase.slug ?? null, slug, utterance);
+test('a router with no opinion sends no hint at all', () => {
+  // Silence used to mean "answer from the library". Sent as a hint it would be
+  // the same gate wearing a different name, so it is simply not sent.
+  const context = buildSessionContext(CATALOGUE, routeHint('Good morning', CATALOGUE));
+  assert.ok(!('route_hint' in context));
+  assert.ok(!('route_hint_service' in context));
+  assert.ok(!('route_hint_live' in context));
+});
+
+test('a hint names a service and says whether it executes here', () => {
+  const context = buildSessionContext(CATALOGUE, routeHint('I forgot my password', CATALOGUE));
+  assert.equal(context['route_hint'], 'password-reset');
+  assert.equal(context['route_hint_service'], 'Password Reset');
+  assert.equal(context['route_hint_live'], true);
+  // Scalars only: the engine renders those into the prompt and ignores the rest.
+  for (const key of ['route_hint', 'route_hint_service', 'route_hint_live']) {
+    assert.ok(['string', 'boolean'].includes(typeof context[key]), key);
+  }
+
+  const planned = buildSessionContext(
+    CATALOGUE,
+    routeHint('I want to create an email for a newcomer', CATALOGUE),
+  );
+  assert.equal(planned['route_hint'], 'email-creation');
+  assert.equal(planned['route_hint_live'], false);
+});
+
+test('the hint never names a tool', () => {
+  // The mapping from a service to a tool belongs to the model. Naming a tool in
+  // the context would be the front deciding again, one indirection further out.
+  const context = buildSessionContext(CATALOGUE, routeHint('I forgot my password', CATALOGUE));
+  const rendered = JSON.stringify(
+    Object.fromEntries(Object.entries(context).filter(([key]) => key !== 'service_catalog')),
+  );
+  for (const tool of ['start_system_run', 'preview_service', 'search_knowledge', 'list_services']) {
+    assert.ok(!rendered.includes(tool), tool);
   }
 });
 
-test('the phrasings the table above did not think of also reach the service', () => {
-  // Written after "I lost my password." was answered with a policy quotation in
-  // front of a reviewer: every utterance above says "forgot", so the router had
-  // never been asked the same thing in another word. Widening the table found
-  // four more classes of the same defect, and each line here is one of them:
-  // the verb of loss, the bare imperative, the request made for someone else,
-  // and the service whose name is a synonym of a sibling's.
-  const table: ReadonlyArray<readonly [string, string]> = [
-    ['I lost my password.', 'password-reset'],
-    ['I have lost my password', 'password-reset'],
-    ['My password is lost', 'password-reset'],
-    ['I need to change my password.', 'password-reset'],
-    ['My password expired and I cannot log in.', 'password-reset'],
-    ['I am locked out of my account.', 'unlock-ad-account'],
-    ['Too many wrong attempts, my account got locked.', 'unlock-ad-account'],
-    ['Remove a colleague from the sales distribution list.', 'email-group-members-deletion'],
-    ['A colleague is leaving on Friday, block his account.', 'email-block-hr-it'],
-    ['We have a new hire on Monday, he needs an email.', 'email-creation'],
-    ['Please install Adobe Acrobat on my machine.', 'software-installation'],
-  ];
-  for (const [utterance, slug] of table) {
-    const match = routeIntake(utterance, CATALOGUE);
-    assert.equal(match?.useCase.slug ?? null, slug, utterance);
-  }
-});
+// ---------------------------------------------------------------------------
+// The evaluation sets
+// ---------------------------------------------------------------------------
 
-test('the verb of loss does not turn every lost thing into a reset', () => {
-  // "lost" earns Password Reset its vocabulary hit, and the desk also holds a
-  // policy on a lost authenticator phone. That question shares the verb and
-  // nothing else, so the score floor is what keeps it with the library — this
-  // test fails the day the floor is lowered.
-  assert.equal(
-    routeIntake('I lost the phone with my authenticator app on it. What happens now?', CATALOGUE),
-    null,
+test('requests point at the service they belong to', () => {
+  scores(
+    'typed requests',
+    [
+      live('I forgot my password', 'password-reset'),
+      live('I forgot my password and I cannot sign in this morning', 'password-reset'),
+      preview('I want to create an email for a newcomer', 'email-creation'),
+      preview('I need an email account for a new joiner starting Sunday', 'email-creation'),
+      preview('My account is locked after too many attempts', 'unlock-ad-account'),
+      preview('I cannot log in, my account seems locked out', 'unlock-ad-account'),
+      preview(
+        'Please add three members to the finance distribution group',
+        'email-group-members-addition',
+      ),
+      preview('I want to remove a colleague from an email group', 'email-group-members-deletion'),
+      preview(
+        'I need access to the shared mailbox for the projects team',
+        'shared-mailbox-user-addition',
+      ),
+      preview('Please create a shared mailbox for the tender team', 'shared-mailbox-creation'),
+      preview('I need Power BI installed on my laptop', 'software-installation'),
+      preview('We need a mailbox blocked, the person is leaving on Thursday', 'email-block-hr-it'),
+      preview('I need my email signature updated', 'user-signature-update'),
+      preview(
+        'I need VPN access, I am working from home tomorrow',
+        'providing-vpn-avd-access-for-users',
+      ),
+      preview('Please reactivate the mailbox of a colleague who came back', 'email-reactivation'),
+    ],
+    1,
   );
 });
 
-test('questions about the rules stay with the library', () => {
-  const questions = [
-    'How many failed sign-ins lock an account, and how long does it stay locked?',
-    'What identity evidence do you need before you reset a password?',
-    'Can my line manager collect my temporary password for me?',
-    'What is the response target for a priority 2 ticket?',
-    'I am travelling to a restricted country next week. What do I need from IT?',
-    'How long is a leaver mailbox kept?',
-    'What software am I allowed to install myself?',
-    'Who approves a shared mailbox request?',
-    // Politeness is not a request. These read exactly like the spoken requests
-    // above — "could you", "can you" — and differ only in the verb: they ask to
-    // be told something, not to have something done.
-    'Could you tell me what the policy is for password resets?',
-    'Can you explain how long a leaver mailbox is kept?',
-    'Would you clarify who signs off on VPN access?',
-  ];
-  for (const question of questions) {
-    assert.equal(routeIntake(question, CATALOGUE), null, question);
-  }
+test('what a microphone actually returns still points at the right service', () => {
+  // Verbatim transcriptions, not typed sentences: the speech engine contracts
+  // "I am" to "I'm", ends on a full stop, and keeps the spoken padding a person
+  // drops when typing. The hint scores on stems, so the padding dilutes it —
+  // and the voice surface sends the same hint the typed one does.
+  scores(
+    'spoken requests',
+    [
+      live("I forgot my password and I'm locked out of my account.", 'password-reset'),
+      preview('Hi, I need an email account created for a new joiner please.', 'email-creation'),
+      preview(
+        "I'd like to get Power BI installed on my laptop if that's possible.",
+        'software-installation',
+      ),
+      preview(
+        "Could you give me VPN access? I'm working from home tomorrow.",
+        'providing-vpn-avd-access-for-users',
+      ),
+    ],
+    1,
+  );
 });
 
-test('every suggested request routes somewhere', () => {
-  // These are buttons on the screen. One that routes to nothing would open the
-  // library on a request, in front of the audience the surface exists for.
+test('the phrasings the tables above did not think of also point somewhere', () => {
+  // Written after "I lost my password." was answered with a policy quotation in
+  // front of a reviewer: every utterance above says "forgot", so the router had
+  // never been asked the same thing in another word. Widening the set found
+  // four more classes of the same defect, and each line here is one of them:
+  // the verb of loss, the bare imperative, the request made for someone else,
+  // and the service whose name is a synonym of a sibling's.
+  scores(
+    'unrehearsed phrasings',
+    [
+      live('I lost my password.', 'password-reset'),
+      live('I have lost my password', 'password-reset'),
+      live('My password is lost', 'password-reset'),
+      live('I need to change my password.', 'password-reset'),
+      live('My password expired and I cannot log in.', 'password-reset'),
+      preview('I am locked out of my account.', 'unlock-ad-account'),
+      preview('Too many wrong attempts, my account got locked.', 'unlock-ad-account'),
+      preview(
+        'Remove a colleague from the sales distribution list.',
+        'email-group-members-deletion',
+      ),
+      preview('A colleague is leaving on Friday, block his account.', 'email-block-hr-it'),
+      preview('We have a new hire on Monday, he needs an email.', 'email-creation'),
+      preview('Please install Adobe Acrobat on my machine.', 'software-installation'),
+    ],
+    1,
+  );
+});
+
+test('questions about the rules carry no service hint', () => {
+  // A hint here is worse than no hint: it tells the model a question about how
+  // resets work is a request to reset something.
+  scores(
+    'policy questions',
+    [
+      library('How many failed sign-ins lock an account, and how long does it stay locked?'),
+      library('What identity evidence do you need before you reset a password?'),
+      library('Can my line manager collect my temporary password for me?'),
+      library('What is the response target for a priority 2 ticket?'),
+      library('I am travelling to a restricted country next week. What do I need from IT?'),
+      library('How long is a leaver mailbox kept?'),
+      library('What software am I allowed to install myself?'),
+      library('Who approves a shared mailbox request?'),
+      // Politeness is not a request. These read exactly like the spoken requests
+      // above — "could you", "can you" — and differ only in the verb: they ask
+      // to be told something, not to have something done.
+      library('Could you tell me what the policy is for password resets?'),
+      library('Can you explain how long a leaver mailbox is kept?'),
+      library('Would you clarify who signs off on VPN access?'),
+      // "lost" earns Password Reset its vocabulary hit, and the desk also holds
+      // a policy on a lost authenticator phone. That question shares the verb
+      // and nothing else, so the score floor is what keeps it unhinted.
+      library('I lost the phone with my authenticator app on it. What happens now?'),
+      // Three printer services fit equally well and the catalogue gives nothing
+      // to choose between them. No opinion is the honest opinion.
+      library('I need a print code for the colour printer'),
+    ],
+    1,
+  );
+});
+
+test('every suggested request carries a hint', () => {
+  // These are buttons on the screen. One that produces no hint still reaches
+  // the engine — that is the point of the change — but a demonstration button
+  // whose service the router cannot name is a button worth rewriting.
   for (const example of REQUEST_EXAMPLES) {
-    const match = routeIntake(example, CATALOGUE);
-    assert.ok(match, example);
+    assert.ok(routeHint(example, CATALOGUE), example);
   }
-  // The first is the service that actually runs here.
-  assert.equal(routeIntake(REQUEST_EXAMPLES[0], CATALOGUE)?.live, true);
+  assert.equal(routeHint(REQUEST_EXAMPLES[0], CATALOGUE)?.live, true);
 });
 
-test('an utterance that fits several services routes to none of them', () => {
-  // Print code creation, print code queries and colour printer access all fit,
-  // and the catalogue gives nothing to choose between them. Answering from the
-  // library is the graceful outcome; a confident hand-off to one in three would
-  // be wrong twice as often as it is right.
-  assert.equal(routeIntake('I need a print code for the colour printer', CATALOGUE), null);
-});
-
-test('nothing routes when the utterance states no need', () => {
+test('nothing is hinted when the utterance states no need', () => {
   assert.equal(readsAsRequest('Good morning'), false);
   assert.equal(readsAsRequest('Thanks, that answers it'), false);
-  assert.equal(routeIntake('password', CATALOGUE), null);
-  assert.equal(routeIntake('I forgot my password', []), null);
+  assert.equal(routeHint('password', CATALOGUE), null);
+  assert.equal(routeHint('I forgot my password', []), null);
 });
 
 test('the live service is the one that runs here', () => {
-  const match = routeIntake('I forgot my password', CATALOGUE);
-  assert.equal(match?.live, true);
-  assert.equal(match?.useCase.route, '/nawa/itsd/password-reset');
-  assert.equal(routeIntake('I want to create an email for a newcomer', CATALOGUE)?.live, false);
+  const hint = routeHint('I forgot my password', CATALOGUE);
+  assert.equal(hint?.live, true);
+  assert.equal(routeIntake('I forgot my password', CATALOGUE)?.useCase.route, '/nawa/itsd/password-reset');
+  assert.equal(routeHint('I want to create an email for a newcomer', CATALOGUE)?.live, false);
 });
 
 test('a planned service carries their procedure, verbatim', () => {
@@ -192,14 +357,15 @@ test('a service of the shared pattern reports how many move with it', () => {
 
 // ---------------------------------------------------------------------------
 // The live lane: identity before a privileged write
+//
+// The model asks for the proofs and the model may not act on them: it is
+// read-only, so the run is started by the requester pressing the offer. These
+// three are what that press runs on — the reply is read, written into an
+// evidence record, and composed into the case the run reads. The shape of that
+// case is the customer's policy, not an implementation detail of whichever
+// surface assembles it, which is why it is pinned here rather than in a
+// component test.
 // ---------------------------------------------------------------------------
-
-test('the assistant asks for identity before acting, citing the procedure', () => {
-  assert.match(IDENTITY_REQUEST, /verify your identity/i);
-  assert.match(IDENTITY_REQUEST, /step 2/);
-  assert.match(IDENTITY_REQUEST, /staff number/i);
-  assert.match(IDENTITY_REQUEST, /6-digit code/i);
-});
 
 test('the two proofs are read out of a reply typed any way round', () => {
   assert.deepEqual(readIdentity('Staff ID 40219, code 553017'), {
@@ -235,7 +401,7 @@ test('a proof that was not given is written as missing, not omitted', () => {
   assert.equal(neither.items.length, 0);
   assert.match(neither.evidence, /No staff number given/);
   // Raising the request is never itself a proof.
-  assert.ok(!neither.items.some((item) => /self-service/i.test(item)), neither.items);
+  assert.ok(!neither.items.some((item) => /self-service/i.test(item)), neither.items.join(' · '));
 });
 
 const FREE_TEXT: NawaFreeTextSettings = {

@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { spokenAnswer, spokenOutcome, spokenService } from './nawa-speech';
+import { spokenAction, spokenAnswer, spokenOutcome, spokenService } from './nawa-speech';
 
 test('a short answer is spoken as written', () => {
   const answer = 'Passwords must be at least 12 characters and are reset every 90 days.';
@@ -57,6 +57,22 @@ test('a single step is announced in the singular', () => {
 test('a service with no documented procedure says nothing extra', () => {
   const reply = 'This is a known service request: Printer Access.';
   assert.equal(spokenService(reply, 0), reply);
+});
+
+test('an offer names the button, and says nothing has started', () => {
+  // A listener is not looking at the screen. Said badly, this is the worst line
+  // of the demonstration: either it sounds as though the reset is under way, or
+  // it sounds as though nothing can be done and the requester leaves.
+  const spoken = spokenAction(
+    'I can process a password reset here. Before anything is changed I have to verify your '
+    + 'identity, which is step 2 of the service desk procedure.',
+    'Password Reset',
+  );
+  assert.match(spoken, /Nothing has started yet/);
+  assert.match(spoken, /button to run Password Reset/);
+  assert.match(spoken, /it starts when you press it/);
+  // And the reason it is being asked for is still spoken first.
+  assert.match(spoken, /^I can process a password reset here\./);
 });
 
 test('an empty answer is admitted rather than mumbled', () => {

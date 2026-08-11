@@ -1,105 +1,104 @@
 /**
- * NAWA WE — the knowledge assistant's data access.
+ * NAWA WE — the assistant's data access.
  *
- * No new endpoint: the workspace already owns an always-on chat System (created
- * by the platform when the knowledge scope was declared) and the assistant is
- * that System asked through `POST /chat/completion`. The panel resolves it by
- * type rather than by a pinned id, so the surface survives a reseed.
+ * One endpoint, `POST /api/v1/assistant/turns`. The screen no longer resolves a
+ * chat System, no longer picks a knowledge scope and no longer decides what
+ * kind of question it is holding: the engine reads all of that from the
+ * workspace configuration and answers one turn, calling whatever tools it needs
+ * on the way.
  *
- * `response_language` is set explicitly. Left unset, the backend infers the
- * language from the question and falls back to French when it cannot tell — the
- * WE surface is English, so it says so rather than hoping the guess lands.
+ * What stays here is the one thing the server cannot do: the published policies
+ * are served from this app's own assets, so a citation can quote the sentence
+ * the answer rests on instead of the 1200-character window retrieval returned.
+ * The files fetched are the files that were indexed, so nothing is quoted that
+ * the customer cannot open.
  */
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, forkJoin, map, of, shareReplay, switchMap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
-import type { AssistantAnswerPayload } from './nawa-assistant';
+import type { NawaUseCase } from './nawa-itsd.model';
+import {
+  ASSISTANT_TURNS_URL,
+  citedDocuments,
+  projectEngineTurn,
+  type AssistantTurnPayload,
+  type AssistantTurnRequest,
+  type EngineTurn,
+} from './nawa-engine';
 
-/** What the panel needs to ask a question: the System, and what it may read. */
-export interface AssistantBinding {
-  systemId: string;
-  knowledgeScope: string | null;
+/** A turn as the screen consumes it: what to render, and the thread it belongs to. */
+export interface NawaAnsweredTurn {
+  /** Null when the engine could not be reached. `turn` then says so. */
+  payload: AssistantTurnPayload | null;
+  turn: EngineTurn;
+}
+
+export interface NawaRenderOptions {
+  catalogue: readonly NawaUseCase[];
+  elapsedMs?: number;
 }
 
 @Injectable({ providedIn: 'root' })
 export class NawaAssistantService {
   private readonly http = inject(HttpClient);
-  private readonly canonical = inject(CanonicalApiService);
 
-  private binding$: Observable<AssistantBinding | null> | null = null;
   private readonly documents = new Map<string, Observable<string | null>>();
 
-  /** The workspace's always-on chat System, resolved once per app load. */
-  binding(): Observable<AssistantBinding | null> {
-    this.binding$ ??= this.canonical.listSystems().pipe(
-      map((systems) => {
-        const chat = systems.find((system) => settingsOf(system)['system_type'] === 'workspace_chat');
-        if (!chat) return null;
-        const scope = settingsOf(chat)['knowledge_scope'];
-        return {
-          systemId: chat.id,
-          knowledgeScope: typeof scope === 'string' && scope ? scope : null,
-        };
-      }),
-      catchError(() => of(null)),
-      shareReplay({ bufferSize: 1, refCount: false }),
-    );
-    return this.binding$;
-  }
-
   /**
-   * One question, one grounded answer. Non-streaming on purpose: the surface
-   * shows the retrieval as a step rather than as a typewriter, and a single
-   * response is what makes the citation list arrive with the sentence that
-   * refers to it.
-   */
-  ask(query: string): Observable<AssistantAnswerPayload | null> {
-    return this.binding().pipe(
-      switchMap((binding) => {
-        if (!binding) return of(null);
-        return this.http
-          .post<AssistantAnswerPayload>('/api/v1/chat/completion', {
-            query,
-            agent_id: binding.systemId,
-            knowledge_scope: binding.knowledgeScope,
-            stream: false,
-            include_sources: true,
-            include_reasoning: false,
-            response_language: 'en',
-            ui_locale: 'en',
-          })
-          .pipe(catchError(() => of(null)));
-      }),
-      switchMap((payload) => this.withDocuments(payload)),
-    );
-  }
-
-  /**
-   * Attach each cited policy's full text, so the citation can show the sentence
-   * the answer rests on rather than the document's opening (see
-   * `excerptFromDocument`). The files served here are the ones that were
-   * indexed, so nothing is quoted that the customer cannot open.
+   * One utterance, one turn.
    *
-   * A file that fails to load is not an error: the citation falls back to the
-   * retrieval's own snippet, which is what shipped before this existed.
+   * An engine error is not thrown at the screen: the surface has a transcript
+   * to keep and a thread to hold, so a failure comes back as a null payload and
+   * a turn that states plainly that nothing was searched.
    */
-  private withDocuments(
-    payload: AssistantAnswerPayload | null,
-  ): Observable<AssistantAnswerPayload | null> {
-    const sources = payload?.sources ?? [];
-    if (!payload || !sources.length) return of(payload);
-    return forkJoin(
-      sources.map((source) => this.document(source?.filename ?? source?.title)),
-    ).pipe(
-      map((texts) => ({
-        ...payload,
-        sources: sources.map((source, position) => ({
-          ...source,
-          document_text: texts[position],
-        })),
-      })),
+  ask(request: AssistantTurnRequest, options: NawaRenderOptions): Observable<NawaAnsweredTurn> {
+    const started = Date.now();
+    return this.http
+      .post<AssistantTurnPayload>(ASSISTANT_TURNS_URL, {
+        text: request.text,
+        session_id: request.session_id ?? null,
+        surface: request.surface ?? 'text',
+        session_context: request.session_context ?? {},
+      })
+      .pipe(
+        catchError(() => of(null)),
+        switchMap((payload) =>
+          this.render(request.text, payload, {
+            ...options,
+            elapsedMs: options.elapsedMs ?? Date.now() - started,
+          }).pipe(map((turn) => ({ payload, turn }))),
+        ),
+      );
+  }
+
+  /**
+   * Render a turn payload, whichever surface it arrived on.
+   *
+   * The voice gateway emits the body of `POST /assistant/turns` verbatim in its
+   * `assistant.answer` event, so a spoken turn and a typed turn are rendered by
+   * the same call — that identity is the contract, and it is what stops the two
+   * surfaces from becoming two assistants.
+   */
+  render(
+    question: string,
+    payload: AssistantTurnPayload | null,
+    options: NawaRenderOptions,
+  ): Observable<EngineTurn> {
+    const names = citedDocuments(payload);
+    if (!names.length) {
+      return of(projectEngineTurn(question, payload, { catalogue: options.catalogue, elapsedMs: options.elapsedMs }));
+    }
+    return forkJoin(names.map((name) => this.document(name))).pipe(
+      map((texts) => {
+        const documents: Record<string, string | null> = {};
+        names.forEach((name, position) => (documents[name] = texts[position]));
+        return projectEngineTurn(question, payload, {
+          catalogue: options.catalogue,
+          documents,
+          elapsedMs: options.elapsedMs,
+        });
+      }),
     );
   }
 
@@ -121,8 +120,4 @@ export class NawaAssistantService {
     );
     return this.documents.get(name)!;
   }
-}
-
-function settingsOf(system: System): Record<string, unknown> {
-  return (system.settings ?? {}) as Record<string, unknown>;
 }

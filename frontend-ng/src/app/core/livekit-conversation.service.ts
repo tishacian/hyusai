@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import type { Room as LiveKitRoom } from 'livekit-client';
 import { Observable, Subject, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import { VoiceEventReassembler } from './voice-frame-reassembly';
 import { VoiceSessionEvent, VoiceSessionEventType, VoiceSessionStartOptions, VoiceFrameMeta } from './voice-session.service';
 import { WorkspaceService, type WorkspaceRequestScope } from './workspace.service';
 
@@ -64,6 +65,8 @@ export class LiveKitConversationConnection {
   private readonly eventsSubject = new Subject<VoiceSessionEvent>();
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
+  /** Rejoins the events the gateway had to cut up to fit a data packet. */
+  private readonly frames = new VoiceEventReassembler();
   readonly events$: Observable<VoiceSessionEvent> = this.eventsSubject.asObservable();
   private closed = false;
   private invalidated = false;
@@ -300,7 +303,10 @@ export class LiveKitConversationConnection {
     }
     try {
       const decoded = JSON.parse(this.decoder.decode(payload)) as VoiceSessionEvent;
-      this.eventsSubject.next(decoded);
+      // A framed answer or audio payload is rejoined here, so a subscriber never
+      // sees a slice of one. Null means the payload is still incomplete.
+      const whole = this.frames.accept(decoded);
+      if (whole) this.eventsSubject.next(whole);
     } catch {
       this.emit('session.error', {
         code: 'invalid_livekit_event',
@@ -332,6 +338,7 @@ export class LiveKitConversationConnection {
   private markInvalidated(): boolean {
     if (this.invalidated) return false;
     this.invalidated = true;
+    this.frames.reset();
     this.eventsSubject.complete();
     this.notifyClosed();
     return true;

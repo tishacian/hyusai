@@ -513,6 +513,72 @@ test('sidecar does not forward empty audio endpoints to the voice gateway', asyn
   assert.deepEqual(published[1].options.destination_identities, ['expert-1']);
 });
 
+test('sidecar relays a control event it knows nothing about, payload untouched', async () => {
+  // How the session context reaches the gateway. `session.start` is rebuilt
+  // here from a fixed whitelist, so a field added to it would be dropped; the
+  // generic relay below is not filtered, which is why the context travels as
+  // its own event instead. Asserted on both lanes: the realtime one returns
+  // early, and forgetting the relay there would break voice on exactly the
+  // deployment that runs it.
+  for (const realtimeSttConfig of [null, { model: 'gpt-realtime-whisper' }]) {
+    const published = [];
+    const gatewayMessages = [];
+    const topics = {
+      events: 'agentium.voice.event',
+      control: 'agentium.voice.control',
+      metrics: 'agentium.voice.metric',
+      chat: 'agentium.chat.event',
+    };
+    const frame = { seq: 1, total: 2, context_json: '{"service_catalog":[{"slug":"vpn-access"}]}' };
+    const session = {
+      info: { session_id: 'session-assistant-context' },
+      topics,
+      destinationIdentity: 'expert-1',
+      realtimeSttConfig,
+      voiceGateway: {
+        open: true,
+        queue: [],
+        socket: {
+          readyState: WebSocket.OPEN,
+          send(message) {
+            gatewayMessages.push(JSON.parse(message));
+          },
+        },
+      },
+      room: {
+        localParticipant: {
+          async publishData(payload, options) {
+            published.push({ event: JSON.parse(new TextDecoder().decode(payload)), options });
+          },
+        },
+      },
+      audio: {
+        chunks: [],
+        bytes: 0,
+        frameCount: 0,
+        browserFrameCount: 0,
+        sampleRate: 48000,
+        channels: 1,
+        startedAt: null,
+        overflow: false,
+      },
+    };
+
+    await handleControlEvent(
+      session,
+      { type: 'assistant.context', payload: frame },
+      { identity: 'expert-1' },
+      0,
+    );
+
+    assert.equal(gatewayMessages.length, 1);
+    assert.equal(gatewayMessages[0].type, 'assistant.context');
+    assert.deepEqual(gatewayMessages[0].payload, frame);
+    assert.equal(published[0].event.payload.metric, 'livekit_control_event_received');
+    assert.equal(published[0].event.payload.control_type, 'assistant.context');
+  }
+});
+
 test('sidecar forwards browser MediaRecorder frames through the voice gateway', async () => {
   const published = [];
   const gatewayMessages = [];
@@ -782,4 +848,172 @@ test('sidecar forwards session close then disconnects room', async () => {
   assert.equal(gatewayMessages[0].type, 'session.close');
   assert.equal(gatewayMessages[0].payload.reason, 'user_stop');
   assert.deepEqual(disconnects, [[]]);
+});
+
+/**
+ * The ceiling the whole framing exists for. A LiveKit reliable data packet is
+ * capped at 15 KiB, and this sidecar republishes every gateway event as exactly
+ * one packet — it never splits or repackages anything.
+ *
+ * Which is why the two large outbound events are cut up on the gateway side, and
+ * why this is the test that matters: everything else about the assistant lane is
+ * verified against a fake WebSocket, and framing that is never weighed at the
+ * real transport would be framing on trust. Here the bytes measured are the
+ * bytes `publishData` is handed.
+ */
+const LIVEKIT_DATA_PACKET_MAX_BYTES = 15 * 1024;
+
+test('the sidecar publishes each assistant frame inside the LiveKit packet ceiling', async () => {
+  const published = [];
+  const topics = {
+    events: 'agentium.voice.event',
+    control: 'agentium.voice.control',
+    metrics: 'agentium.voice.metric',
+    chat: 'agentium.chat.event',
+  };
+  let gateway = null;
+
+  class FakeWebSocket {
+    static OPEN = 1;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = FakeWebSocket.OPEN;
+      this.listeners = new Map();
+      gateway = this;
+      setTimeout(() => this.dispatch('open', {}), 0);
+    }
+
+    addEventListener(type, callback) {
+      const listeners = this.listeners.get(type) || [];
+      listeners.push(callback);
+      this.listeners.set(type, listeners);
+    }
+
+    dispatch(type, event) {
+      for (const callback of [...(this.listeners.get(type) || [])]) callback(event);
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      this.dispatch('close', {});
+    }
+
+    /** One gateway event, as the backend's `_send` puts it on the wire. */
+    async emit(type, payload) {
+      const listeners = [...(this.listeners.get('message') || [])];
+      for (const callback of listeners) {
+        await callback({
+          data: JSON.stringify({
+            id: `gw-${type}-${payload.seq ?? 0}`,
+            session_id: 'session-frames',
+            type,
+            ts_ms: Date.now(),
+            sequence: 1,
+            payload,
+          }),
+        });
+      }
+    }
+  }
+
+  class FakeRoom {
+    constructor() {
+      this.handlers = new Map();
+      this.localParticipant = {
+        async publishData(bytes, options) {
+          published.push({ bytes, options, event: JSON.parse(new TextDecoder().decode(bytes)) });
+        },
+      };
+    }
+
+    on(event, handler) {
+      this.handlers.set(event, handler);
+      return this;
+    }
+
+    async connect() {}
+
+    async disconnect() {
+      this.handlers.get('disconnected')?.();
+    }
+  }
+
+  await startSession(
+    {
+      session_id: 'session-frames',
+      room_name: 'agentium-room-frames',
+      token: 'token',
+      livekit_url: 'ws://agentium-livekit:7880',
+      topics,
+      destination_identity: 'requester-1',
+      voice_gateway: {
+        url: 'ws://agentium-backend:8000/api/v1/voice/sessions',
+        token: 'bridge-token',
+        session_start: { runtime: 'cascade_openai', mode: 'assistant' },
+      },
+    },
+    {
+      WebSocketClass: FakeWebSocket,
+      livekitModule: {
+        Room: FakeRoom,
+        RoomEvent: { DataReceived: 'data', TrackSubscribed: 'track', Disconnected: 'disconnected' },
+      },
+      connectRetry: { attempts: 1, retryMs: 0, maxRetryMs: 0 },
+    },
+  );
+
+  // What the audio half of an answer weighs: ~45 s of speech, which is what the
+  // gateway's 600-character cap synthesizes to, base64-encoded.
+  const audio = Buffer.alloc(180_000, 0x64).toString('base64');
+  const whole = { turn_id: 'turn-1', content_type: 'audio/mpeg', audio_base64: audio };
+
+  // Act one — why the frames exist. Published whole, this is one packet, and it
+  // is far past the ceiling. The sidecar does not save anyone here: it relays
+  // what it is given.
+  await gateway.emit('audio.out', whole);
+  const unframed = published.at(-1);
+  assert.equal(unframed.event.type, 'audio.out');
+  assert.ok(
+    unframed.bytes.byteLength > LIVEKIT_DATA_PACKET_MAX_BYTES,
+    `a whole audio.out is ${unframed.bytes.byteLength} bytes`,
+  );
+
+  // Act two — the frames the gateway sends instead. Six kilobytes of payload
+  // each, which is what `_OUTBOUND_FRAME_BYTES` cuts on.
+  const raw = JSON.stringify(whole);
+  const slices = [];
+  for (let at = 0; at < raw.length; at += 6 * 1024) slices.push(raw.slice(at, at + 6 * 1024));
+  const before = published.length;
+  for (const [seq, payload_json] of slices.entries()) {
+    await gateway.emit('audio.out', { seq, total: slices.length, payload_json });
+  }
+
+  const frames = published.slice(before);
+  assert.equal(frames.length, slices.length);
+  assert.ok(frames.length > 1, 'the payload under test fits in one frame');
+  for (const frame of frames) {
+    assert.ok(
+      frame.bytes.byteLength <= LIVEKIT_DATA_PACKET_MAX_BYTES,
+      `frame ${frame.event.payload.seq} is ${frame.bytes.byteLength} bytes`,
+    );
+    // Relayed on the event topic, to the participant that asked for the room,
+    // and reliably — ordered delivery is what makes a plain append safe.
+    assert.equal(frame.options.topic, topics.events);
+    assert.deepEqual(frame.options.destination_identities, ['requester-1']);
+    assert.equal(frame.options.reliable, true);
+  }
+  // And the frames the browser receives rejoin into the payload the gateway
+  // sent, byte for byte — the sidecar neither re-encodes nor re-cuts them.
+  assert.deepEqual(
+    JSON.parse(frames.map((frame) => frame.event.payload.payload_json).join('')),
+    whole,
+  );
+
+  await gateway.emit('session.close', { reason: 'test_done' });
+  const server = createAgentiumLiveKitAgentServer();
+  const health = await request(server, 'POST', '/shutdown-session', { session_id: 'session-frames' });
+  assert.equal(health.status, 200);
 });

@@ -75,6 +75,22 @@ export function spokenService(reply: string, steps: number): string {
 }
 
 /**
+ * A service that runs here, waiting on the person who asked for it.
+ *
+ * The assistant does not start it, so what is spoken must not sound as though
+ * something is under way — and must not sound as though nothing can be done
+ * either. It names the button, because a listener who is not looking at the
+ * screen has no other way of knowing there is one.
+ */
+export function spokenAction(reply: string, service: string): string {
+  const body = leadingSentences(stripMarks(reply), 260);
+  return (
+    `${body} Nothing has started yet. On screen there is a button to run ${service}, `
+    + 'with a box for your staff number and authenticator code — it starts when you press it.'
+  );
+}
+
+/**
  * The outcome of a real run. These are already written for a requester to read,
  * so they are spoken nearly whole — only shortened when a diagnostic tail makes
  * them long.

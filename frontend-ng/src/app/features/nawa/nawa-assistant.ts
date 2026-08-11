@@ -1,46 +1,16 @@
 /**
- * NAWA WE — projection of one assistant turn.
+ * NAWA WE — what a citation shows, and how long the answer took.
  *
- * The chat endpoint answers with a body built for the cockpit: reasoning trace,
- * retrieval plan, latency budgets, and a `sources` array whose order is what the
- * `[n]` markers inside the answer refer to. A service desk screen shows almost
- * none of that. This module keeps the arithmetic and the naming out of the
- * component so both can be tested without a browser.
+ * A retrieval hands back a window of the chunk it matched, framed with its own
+ * parent context and cut server side. A service desk screen shows the sentence
+ * the answer rests on, verbatim, with an ellipsis at whichever end was cut —
+ * because the one objection this surface exists to prevent is "your citation
+ * does not say that".
  *
- * Two decisions are worth stating because they are not obvious:
- *
- * - Sources are NOT deduplicated by document. Two passages of the same policy
- *   are two citations, and collapsing them would renumber the list out of step
- *   with the `[n]` markers the model wrote into its own sentence.
- * - An answer with zero sources is a first-class outcome, not an error. It is
- *   what the assistant is supposed to produce for a question the service desk
- *   library does not cover, and the screen says so plainly rather than showing
- *   an empty list.
+ * The arithmetic and the naming live here rather than in the component so both
+ * can be tested without a browser. `nawa-engine.ts` is what calls them, once
+ * per citation of a turn.
  */
-
-/** One entry of the chat endpoint's `sources` array, narrowed to what we show. */
-export interface AssistantSourcePayload {
-  filename?: string | null;
-  title?: string | null;
-  snippet?: string | null;
-  relevance_score?: number | null;
-  collection?: string | null;
-  /**
-   * The published policy this source names, as served from the app's own assets.
-   * Filled in by the service after the answer arrives — the chat endpoint sends
-   * only a 200-character snippet of the document's opening.
-   */
-  document_text?: string | null;
-}
-
-/** The subset of `POST /chat/completion` this screen reads. */
-export interface AssistantAnswerPayload {
-  content?: string | null;
-  answer?: string | null;
-  sources?: AssistantSourcePayload[] | null;
-  duration_ms?: number | null;
-  retrieval_elapsed_ms?: number | null;
-}
 
 export interface AssistantCitation {
   /** 1-based, matching the `[n]` marker in the answer text. */
@@ -52,16 +22,6 @@ export interface AssistantCitation {
    * verbatim, with an ellipsis at whichever end was cut.
    */
   passage: string;
-}
-
-export interface AssistantTurn {
-  question: string;
-  answer: string;
-  citations: AssistantCitation[];
-  /** Wall-clock of the exchange, as the screen phrases it (`3.1 s`, `840 ms`). */
-  elapsed: string;
-  /** True when nothing in the library supported an answer. */
-  unsupported: boolean;
 }
 
 /**
@@ -280,29 +240,4 @@ export function elapsedLabel(ms: number | null | undefined): string {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '';
   return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
-}
-
-export function projectTurn(
-  question: string,
-  payload: AssistantAnswerPayload | null,
-  fallbackElapsedMs?: number,
-): AssistantTurn {
-  const answer = String(payload?.content ?? payload?.answer ?? '').trim();
-  const citations = (payload?.sources ?? [])
-    .filter((source): source is AssistantSourcePayload => !!source)
-    .map((source, position) => ({
-      index: position + 1,
-      document: documentTitle(source.filename ?? source.title),
-      passage:
-        excerptFromDocument(source.document_text, answer) || cleanPassage(source.snippet, answer),
-    }))
-    .filter((citation) => !!citation.passage);
-
-  return {
-    question,
-    answer,
-    citations,
-    elapsed: elapsedLabel(payload?.duration_ms ?? fallbackElapsedMs),
-    unsupported: citations.length === 0,
-  };
 }

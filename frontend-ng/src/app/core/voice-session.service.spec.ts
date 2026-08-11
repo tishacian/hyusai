@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Injector } from '@angular/core';
 import { TokenStorageService } from './token-storage.service';
-import { VoiceSessionService } from './voice-session.service';
+import { VoiceSessionConnection, VoiceSessionService } from './voice-session.service';
 import { WorkspaceService, type WorkspaceContextTransition } from './workspace.service';
 
 class WorkspaceStub {
@@ -37,6 +37,7 @@ class FakeWebSocket {
   static readonly CLOSED = 3;
 
   readonly url: string;
+  readonly frames: any[] = [];
   readyState = FakeWebSocket.CONNECTING;
   closeCalls = 0;
   onopen: (() => void) | null = null;
@@ -48,7 +49,9 @@ class FakeWebSocket {
     this.url = url;
   }
 
-  send(): void {}
+  send(frame: string): void {
+    this.frames.push(JSON.parse(frame));
+  }
 
   close(): void {
     this.closeCalls += 1;
@@ -56,6 +59,69 @@ class FakeWebSocket {
     this.onclose?.();
   }
 }
+
+test('the direct WebSocket lane carries the assistant mode and its session context', () => {
+  // The fallback lane talks to the same gateway with no sidecar in between, so
+  // it has to be able to say the same two things: which loop to run, and what
+  // context the surface owns. `WebSocket` is read for its readyState constants.
+  const previousWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: FakeWebSocket });
+  try {
+    const socket = new FakeWebSocket('wss://agentium.test/api/v1/voice/sessions/session-a');
+    socket.readyState = FakeWebSocket.OPEN;
+    const connection = new VoiceSessionConnection(socket as unknown as WebSocket);
+
+    connection.start({ mode: 'assistant', language: 'en' });
+    connection.sendControl('assistant.context', { seq: 0, total: 1, context_json: '{}' });
+
+    assert.equal(socket.frames[0].type, 'session.start');
+    assert.equal(socket.frames[0].payload.mode, 'assistant');
+    assert.equal(socket.frames[1].type, 'assistant.context');
+    assert.deepEqual(socket.frames[1].payload, { seq: 0, total: 1, context_json: '{}' });
+  } finally {
+    if (previousWebSocket) {
+      Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: previousWebSocket });
+    } else {
+      Reflect.deleteProperty(globalThis, 'WebSocket');
+    }
+  }
+});
+
+test('the direct lane rejoins a framed answer exactly as the LiveKit lane does', () => {
+  // The gateway frames `assistant.answer` and `audio.out` on every lane, not only
+  // the one with a 15 KiB packet limit — one shape, so the code that rejoins them
+  // is exercised by every answer instead of only by a large one. A surface that
+  // falls back to this transport must therefore see the identical whole event.
+  const previousWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: FakeWebSocket });
+  try {
+    const socket = new FakeWebSocket('wss://agentium.test/api/v1/voice/sessions/session-a');
+    socket.readyState = FakeWebSocket.OPEN;
+    const connection = new VoiceSessionConnection(socket as unknown as WebSocket);
+    const events: any[] = [];
+    connection.events$.subscribe((event) => events.push(event));
+
+    const whole = { turn_id: 'turn-1', content_type: 'audio/mpeg', audio_base64: 'bXAz' };
+    const raw = JSON.stringify(whole);
+    const cut = Math.ceil(raw.length / 2);
+    const receive = (payload: Record<string, unknown>) =>
+      socket.onmessage?.({ data: JSON.stringify({ id: 'gw', type: 'audio.out', payload }) });
+
+    receive({ seq: 0, total: 2, payload_json: raw.slice(0, cut) });
+    assert.deepEqual(events, []);
+    receive({ seq: 1, total: 2, payload_json: raw.slice(cut) });
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'audio.out');
+    assert.deepEqual(events[0].payload, whole);
+  } finally {
+    if (previousWebSocket) {
+      Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: previousWebSocket });
+    } else {
+      Reflect.deleteProperty(globalThis, 'WebSocket');
+    }
+  }
+});
 
 test('voice WebSocket pins the captured workspace query and closes on switch', () => {
   const previousWindow = globalThis.window;

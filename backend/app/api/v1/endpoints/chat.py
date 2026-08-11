@@ -11,11 +11,12 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Mapping, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.agents import get_orchestrator
@@ -567,6 +568,34 @@ def _chat_context_signature(payload: Dict[str, Any]) -> str:
     )[:512]
 
 
+# Bounds on the context-signature fallback below. That fallback exists so a
+# client which sends no ``session_id`` still gets some continuity — it is a
+# convenience, not a durable conversation, and until now it had no end: in
+# production one thread had glued 72 messages together over two weeks with no
+# way to open a fresh one. Past either bound a NEW thread is opened; the old one
+# stays active and readable in the history UI, it just stops being extended.
+#
+# * Idle age: a thread nobody has touched for half a day is a new conversation,
+#   not a continuation. 12 h keeps a whole working day on one thread while
+#   guaranteeing that the next morning starts clean.
+# * Length: 40 messages is 20 exchanges, far past the history actually replayed
+#   to the model (``chat_history_token_budget``), so the surplus is carried as
+#   weight and cost without ever being read.
+CHAT_SESSION_REUSE_MAX_IDLE = timedelta(hours=12)
+CHAT_SESSION_REUSE_MAX_MESSAGES = 40
+
+
+def _is_chat_session_reusable(db: Session, session: ChatSession, *, now: datetime) -> bool:
+    """Whether an existing thread is still a plausible continuation."""
+    last_activity = session.last_activity or session.created_at
+    if last_activity is None or now - last_activity > CHAT_SESSION_REUSE_MAX_IDLE:
+        return False
+    message_count = (
+        db.query(func.count(Message.id)).filter(Message.session_id == session.id).scalar() or 0
+    )
+    return message_count < CHAT_SESSION_REUSE_MAX_MESSAGES
+
+
 def _chat_title_from_query(query: str) -> str:
     title = " ".join(str(query or "").split())
     if not title:
@@ -612,7 +641,11 @@ def _ensure_chat_session(
         else latest_query.filter(ChatSession.user_id.is_(None))
     )
     latest = latest_query.order_by(ChatSession.last_activity.desc()).first()
-    if latest and (request_payload.get("reuse_latest_session") is not False):
+    if (
+        latest
+        and (request_payload.get("reuse_latest_session") is not False)
+        and _is_chat_session_reusable(db, latest, now=now)
+    ):
         request_payload["session_id"] = latest.id
         return latest
     context = {

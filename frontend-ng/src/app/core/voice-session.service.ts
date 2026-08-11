@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import { TokenStorageService } from './token-storage.service';
 import { VoiceCaptureMode } from './voice-capture-config';
+import { VoiceEventReassembler } from './voice-frame-reassembly';
 import { WorkspaceService } from './workspace.service';
 
 export type VoiceSessionEventType =
@@ -41,6 +42,11 @@ export type VoiceSessionEventType =
   | 'oracle.commit'
   | 'oracle.superseded'
   | 'runtime.metric'
+  // Assistant surface: the gateway answers a spoken turn with the body of
+  // `POST /api/v1/assistant/turns`, and reads the context the surface owns off
+  // `assistant.context` (docs/ops/assistant-engine-contract.md).
+  | 'assistant.answer'
+  | 'assistant.context'
   | 'session.error'
   | 'session.close';
 
@@ -72,7 +78,12 @@ export interface VoiceSessionStartOptions {
   capability?: string;
   context_id?: string | null;
   system_id?: string | null;
-  mode?: 'manual' | 'conversation_only';
+  /**
+   * Which loop the gateway runs. `assistant` is the switch — and the only
+   * switch — that routes committed turns to the assistant engine; `surface`
+   * isolates the room and its metadata but is never read as a mode.
+   */
+  mode?: 'manual' | 'conversation_only' | 'assistant';
   codec?: {
     input: string;
     sample_rate?: number;
@@ -100,6 +111,8 @@ export interface VoiceFrameMeta {
 export class VoiceSessionConnection {
   private readonly eventsSubject = new Subject<VoiceSessionEvent>();
   private readonly pending: string[] = [];
+  /** Rejoins the events the gateway had to cut up to fit a data packet. */
+  private readonly frames = new VoiceEventReassembler();
   readonly events$: Observable<VoiceSessionEvent> = this.eventsSubject.asObservable();
   private invalidated = false;
   private closedNotified = false;
@@ -117,7 +130,11 @@ export class VoiceSessionConnection {
     this.socket.onmessage = (message) => {
       if (this.invalidated) return;
       try {
-        this.eventsSubject.next(JSON.parse(String(message.data)) as VoiceSessionEvent);
+        // Framed answer/audio payloads are rejoined before anyone sees them, so
+        // this lane and the LiveKit one deliver the identical event. Null means
+        // the payload is still incomplete.
+        const whole = this.frames.accept(JSON.parse(String(message.data)) as VoiceSessionEvent);
+        if (whole) this.eventsSubject.next(whole);
       } catch {
         this.eventsSubject.next({
           id: crypto.randomUUID?.() || String(Date.now()),
@@ -285,6 +302,15 @@ export class VoiceSessionConnection {
     this.send('tts.interrupted', payload);
   }
 
+  /**
+   * Any control frame that has no dedicated helper — the twin of
+   * `LiveKitConversationConnection.sendControl`, so a caller pushes the same
+   * event on either lane.
+   */
+  sendControl(type: VoiceSessionEventType | string, payload: Record<string, any> = {}): void {
+    this.send(type, payload);
+  }
+
   close(): void {
     if (this.invalidated) return;
     if (this.socket.readyState === WebSocket.OPEN) {
@@ -303,7 +329,7 @@ export class VoiceSessionConnection {
     this.terminate(true);
   }
 
-  private send(type: VoiceSessionEventType, payload: Record<string, any>): boolean {
+  private send(type: VoiceSessionEventType | string, payload: Record<string, any>): boolean {
     if (this.invalidated) return false;
     const frame = JSON.stringify({
       id: crypto.randomUUID?.() || String(Date.now()),
@@ -324,6 +350,7 @@ export class VoiceSessionConnection {
   private terminate(closeSocket: boolean): void {
     if (this.invalidated) return;
     this.invalidated = true;
+    this.frames.reset();
     this.pending.length = 0;
     this.socket.onopen = null;
     this.socket.onmessage = null;

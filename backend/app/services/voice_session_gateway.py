@@ -26,6 +26,12 @@ from app.core.iam.dependencies import enforce_permission
 from app.models.expert_capture import ExpertCaptureSession
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.assistant import (
+    MAX_SESSION_CONTEXT_CHARS,
+    SURFACE_VOICE,
+    AssistantEngineError,
+    answer_assistant_turn,
+)
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_capture import (
     _load_context,
@@ -68,6 +74,61 @@ _STT_SEGMENT_FAILED_MESSAGE = (
     "La transcription a échoué sur ce segment audio. Reprenez la parole, la capture continue."
 )
 
+# ``session.start`` mode that turns this gateway into a client of the
+# conversational assistant engine instead of a knowledge-capture recorder: the
+# committed text goes to answer_assistant_turn() and comes back as
+# ``assistant.answer`` + spoken ``audio.out``, and NO ExpertCaptureSession is
+# ever resolved. A surface opts in per session, never per deployment.
+ASSISTANT_MODE = "assistant"
+
+# Control event through which a surface hands the gateway the session context
+# it owns — the catalogue a front asset holds and the server cannot see. It is
+# kept on the connection and passed VERBATIM as ``session_context`` to every
+# assistant turn of the session (docs/ops/assistant-engine-contract.md §3).
+#
+# It is framed rather than sent whole because a LiveKit data packet is capped
+# at 15 KiB and the NAWA catalogue is twice that: the payload carries
+# ``seq``/``total``/``context_json`` and the frames are reassembled here, in
+# order. The direct backend-WS lane sends the very same frames.
+ASSISTANT_CONTEXT_EVENT = "assistant.context"
+# Bounds on what one connection may accumulate before the JSON is parsed. The
+# engine caps the catalogue at 40 entries; these cap bytes, not semantics. The
+# character ceiling is the engine's, shared with the HTTP lane so a context that
+# is accepted typed is accepted spoken.
+_ASSISTANT_CONTEXT_MAX_FRAMES = 16
+_ASSISTANT_CONTEXT_MAX_CHARS = MAX_SESSION_CONTEXT_CHARS
+
+# The outbound half of the very same problem, and the reason the inbound context
+# is framed at all: the LiveKit sidecar republishes every gateway event on a
+# reliable data packet, which is capped at 15 KiB. Two events cross that ceiling
+# on their own — a turn payload whose single ``list_services`` result serializes
+# to 13 098 bytes on the shipped catalogue, and a spoken answer that is tens of
+# kilobytes of base64 MP3 — so they leave framed, in the same shape the inbound
+# context arrives in. The frontend reassembles them at the transport boundary,
+# so no surface reads a frame.
+#
+# (The lasting fix for the audio half is a LiveKit *audio track* instead of the
+# data channel; it would replace this event, not this framing. Deliberately a
+# separate piece of work: it needs a publisher in the sidecar container.)
+LIVEKIT_DATA_PACKET_MAX_BYTES = 15 * 1024
+OUTBOUND_FRAMED_EVENTS = frozenset({"assistant.answer", "audio.out"})
+OUTBOUND_FRAME_FIELD = "payload_json"
+# Payload bytes per frame, well under the ceiling on purpose: the slice is
+# re-escaped as a JSON string inside its frame (every quote and backslash of the
+# payload doubles) and the envelope adds ~200 bytes, so the packet is larger than
+# the slice it carries. 6 KiB cannot produce a packet above the cap even when the
+# payload is nothing but quotes. ``test_voice_outbound_frames.py`` measures the
+# real bytes rather than trusting this arithmetic.
+_OUTBOUND_FRAME_BYTES = 6 * 1024
+
+# User-facing message for every assistant engine failure. The stable
+# ``AssistantEngineError.code`` carries the machine meaning on the same event;
+# the raw provider/exception text is logged server-side and never forwarded
+# (same rationale as _STT_SEGMENT_FAILED_MESSAGE).
+_ASSISTANT_TURN_FAILED_MESSAGE = (
+    "L'assistant n'a pas pu répondre. Reprenez la parole, la session vocale reste ouverte."
+)
+
 
 def _resolve_rewrite_context(workspace: Workspace) -> str:
     """Static FINAL-reformulation framing, workspace-overridable."""
@@ -102,6 +163,29 @@ _EBML_MAGIC = b"\x1a\x45\xdf\xa3"
 def _is_webm_header(chunk: bytes) -> bool:
     """True when the chunk starts a valid WebM stream (EBML magic at offset 0)."""
     return chunk[:4] == _EBML_MAGIC
+
+
+def frame_payload_json(raw: str, *, budget: int = _OUTBOUND_FRAME_BYTES) -> list[str]:
+    """Cut a serialized payload into slices of at most ``budget`` UTF-8 bytes.
+
+    Cutting on bytes rather than characters is what makes the budget mean
+    anything: an accented character is two bytes and a smiley is four, so a
+    character count bounds nothing on the wire. A cut never lands inside a
+    multi-byte character — each slice is encoded on its own, and half a
+    character comes back as U+FFFD.
+    """
+    encoded = raw.encode("utf-8")
+    if len(encoded) <= budget:
+        return [raw]
+    slices: list[str] = []
+    at = 0
+    while at < len(encoded):
+        end = min(at + budget, len(encoded))
+        while at < end < len(encoded) and encoded[end] & 0xC0 == 0x80:
+            end -= 1
+        slices.append(encoded[at:end].decode("utf-8"))
+        at = end
+    return slices
 
 
 def _merge_document_refs(
@@ -275,6 +359,18 @@ class VoiceSessionState:
     # questions are triggered by NEW-word accumulation (decoupled from the short
     # realtime STT turns), reset when the active section changes.
     last_questions_word_count: int = 0
+    # Assistant mode: strong references to the in-flight engine turn (an LLM
+    # round-trip that must not run on the receive loop) and a generation counter
+    # bumped by every interrupt. A task that wins the cancellation race compares
+    # its captured generation against this one and drops its answer instead of
+    # speaking over the user who just barged in.
+    assistant_tasks: set[asyncio.Task] = field(default_factory=set)
+    assistant_generation: int = 0
+    # Session context owned by the calling surface (``assistant.context``),
+    # passed verbatim to every assistant turn. ``None`` until a surface pushes
+    # one — a turn spoken before then is answered without it, never refused.
+    assistant_context: dict[str, Any] | None = None
+    assistant_context_frames: list[str] = field(default_factory=list)
 
 
 # Cadence of the server-side incremental transcription. The live preview
@@ -493,6 +589,10 @@ class VoiceSessionGateway:
                 await self._handle_event(websocket, db, user=user, workspace=workspace, state=state, event=event)
         except WebSocketDisconnect:
             return
+        finally:
+            # The connection is gone: an assistant turn still running would keep
+            # using a DB session about to be closed, then emit into a dead socket.
+            self._interrupt_assistant(state)
 
     async def _handle_event(
         self,
@@ -564,6 +664,9 @@ class VoiceSessionGateway:
                     "provider": state.runtime,
                     "model": state.model,
                     "transport": state.transport,
+                    # Echoed so a surface can verify which loop it actually got:
+                    # "assistant" means answers come from the assistant engine.
+                    "mode": state.mode,
                     "capability": state.capability,
                     "fallback_policy": state.fallback_policy,
                     "tandem_oracle": state.tandem_oracle_enabled,
@@ -587,6 +690,7 @@ class VoiceSessionGateway:
                 # Hard stop / barge-in: cancel any pending incremental partials so the
                 # next utterance starts clean.
                 self._reset_partial_stt_state(state)
+                self._interrupt_assistant(state)
             emit_audit_event(
                 workspace_id=workspace.id,
                 event_type=f"voice.{event_type}",
@@ -636,6 +740,9 @@ class VoiceSessionGateway:
                 },
             )
             return
+        if event_type == ASSISTANT_CONTEXT_EVENT:
+            await self._handle_assistant_context(websocket, state=state, payload=payload)
+            return
         if event_type == "section.finish":
             # FINAL-phase work (chat-grade retrieval + LLM reformulation + grounded
             # questions) must NEVER run inline on the receive loop: the loop awaits
@@ -660,6 +767,7 @@ class VoiceSessionGateway:
             return
         if event_type == "barge_in":
             self._reset_partial_stt_state(state)
+            self._interrupt_assistant(state)
             metric_payload = {
                 "metric": "barge_in",
                 "value_ms": 0,
@@ -788,6 +896,98 @@ class VoiceSessionGateway:
         )
         await self._send(websocket, state, "runtime.metric", forwarded)
 
+    async def _handle_assistant_context(
+        self,
+        websocket: WebSocket,
+        *,
+        state: VoiceSessionState,
+        payload: dict[str, Any],
+    ) -> None:
+        """Reassemble the session context a surface owns, and keep it for the session.
+
+        A surface pushes this once, right after the room opens: the catalogue
+        it hands over lives in a front asset the server cannot see, and the
+        ``list_services`` / ``preview_service`` tools have nothing to read
+        without it. Everything accepted here is passed VERBATIM to
+        ``answer_assistant_turn()``; this gateway reads none of it, and the
+        engine keeps its own 40-entry cap on the catalogue.
+
+        The frames are ordered and reliable on both lanes (LiveKit's reliable
+        data channel, and the direct WebSocket), so reassembly is a plain
+        append: a gap means the push was interrupted, and half a context is
+        worse than none. A rejection is answered on this same event and never
+        as ``session.error`` — a malformed context must not take a live voice
+        session down with it.
+        """
+        frame = payload.get("context_json")
+        try:
+            seq = int(payload.get("seq") or 0)
+            total = int(payload.get("total") or 1)
+        except (TypeError, ValueError):
+            seq, total = -1, -1
+        if (
+            not isinstance(frame, str)
+            or not 1 <= total <= _ASSISTANT_CONTEXT_MAX_FRAMES
+            or not 0 <= seq < total
+        ):
+            await self._refuse_assistant_context(websocket, state, "context_frame_invalid")
+            return
+        if seq == 0:
+            state.assistant_context_frames = []
+        if seq != len(state.assistant_context_frames):
+            await self._refuse_assistant_context(websocket, state, "context_frame_out_of_order")
+            return
+        state.assistant_context_frames.append(frame)
+        if sum(len(part) for part in state.assistant_context_frames) > _ASSISTANT_CONTEXT_MAX_CHARS:
+            await self._refuse_assistant_context(websocket, state, "context_too_large")
+            return
+        if len(state.assistant_context_frames) < total:
+            await self._send(
+                websocket,
+                state,
+                ASSISTANT_CONTEXT_EVENT,
+                {"status": "pending", "received": len(state.assistant_context_frames), "total": total},
+            )
+            return
+        joined = "".join(state.assistant_context_frames)
+        state.assistant_context_frames = []
+        try:
+            context = json.loads(joined)
+        except ValueError:
+            context = None
+        if not isinstance(context, dict):
+            await self._refuse_assistant_context(websocket, state, "context_unparseable")
+            return
+        state.assistant_context = context
+        catalog = context.get("service_catalog")
+        await self._send(
+            websocket,
+            state,
+            ASSISTANT_CONTEXT_EVENT,
+            {
+                "status": "ok",
+                "received": total,
+                "total": total,
+                "keys": sorted(str(key) for key in context),
+                "service_catalog": len(catalog) if isinstance(catalog, list) else 0,
+            },
+        )
+
+    async def _refuse_assistant_context(
+        self,
+        websocket: WebSocket,
+        state: VoiceSessionState,
+        reason: str,
+    ) -> None:
+        """Drop a partial push and say why, without disturbing the session."""
+        state.assistant_context_frames = []
+        await self._send(
+            websocket,
+            state,
+            ASSISTANT_CONTEXT_EVENT,
+            {"status": "invalid", "reason": reason, "has_context": state.assistant_context is not None},
+        )
+
     @staticmethod
     def _reset_partial_stt_state(state: VoiceSessionState) -> None:
         state.last_partial_stt_at = None
@@ -800,6 +1000,39 @@ class VoiceSessionGateway:
         # completes it compares its captured generation against this counter and
         # drops its (now stale) result.
         state.partial_stt_generation += 1
+
+    @staticmethod
+    def _is_assistant_mode(state: VoiceSessionState) -> bool:
+        """Whether this connection answers with the assistant engine.
+
+        Set by ``session.start`` (``mode: "assistant"``), which reaches the
+        gateway identically on both lanes: the LiveKit sidecar replays the room
+        metadata mode into its own ``session.start``, and the direct backend-WS
+        client sends it itself.
+        """
+        return state.mode == ASSISTANT_MODE
+
+    @staticmethod
+    def _interrupt_assistant(state: VoiceSessionState) -> None:
+        """Drop the in-flight assistant turn: nothing is spoken after a barge-in."""
+        state.assistant_generation += 1
+        for task in list(state.assistant_tasks):
+            if not task.done():
+                task.cancel()
+
+    def _reset_turn_state(self, state: VoiceSessionState) -> None:
+        """Clear per-turn bookkeeping so the next utterance starts clean."""
+        state.turn_started_at = None
+        state.endpoint_at = None
+        state.text_partials = []
+        state.client_turn_id = None
+        state.retrieval_event_id = None
+        state.interruption_of_event_id = None
+        state.last_contradiction_candidates = []
+        state.last_retrieval_chunks = []
+        state.last_retrieval_metadatas = []
+        state.last_retrieval_scores = []
+        self._reset_partial_stt_state(state)
 
     def _reset_turn_after_stt_failure(self, state: VoiceSessionState) -> None:
         """Leave the session clean after a failed endpoint/pause STT.
@@ -1406,6 +1639,9 @@ class VoiceSessionGateway:
         )
         if text:
             state.text_partials.append(text)
+        if self._is_assistant_mode(state):
+            self._start_assistant_turn(websocket, db, user=user, workspace=workspace, state=state, text=text)
+            return
         self._ensure_capture_plan(db, workspace.id, state)
         latency = {
             "first_text": duration_ms,
@@ -1609,13 +1845,15 @@ class VoiceSessionGateway:
         # finalize_capture), so the live transcript is direct and never rewritten by
         # a correction pass mid-capture.
         segment_id = state.client_turn_id or str(uuid.uuid4())
-        # Shared DB session: wait for any offloaded incremental-STT hint pass
-        # still holding the lock before touching the session here.
-        async with state.db_lock:
-            capture_session = self._capture_session(db, workspace.id, state.session_id)
-        if capture_session is not None and not state.capture_session_resolved:
-            state.capture_plan = dict(capture_session.plan or {})
-            state.capture_session_resolved = True
+        capture_session = None
+        if not self._is_assistant_mode(state):
+            # Shared DB session: wait for any offloaded incremental-STT hint pass
+            # still holding the lock before touching the session here.
+            async with state.db_lock:
+                capture_session = self._capture_session(db, workspace.id, state.session_id)
+            if capture_session is not None and not state.capture_session_resolved:
+                state.capture_plan = dict(capture_session.plan or {})
+                state.capture_session_resolved = True
         corrected_text = text
         if text:
             # The raw STT text is both the live partial and the committed final. No
@@ -1704,6 +1942,10 @@ class VoiceSessionGateway:
                 events=endpoint_oracle_events,
             )
 
+        if self._is_assistant_mode(state):
+            self._start_assistant_turn(websocket, db, user=user, workspace=workspace, state=state, text=text)
+            return
+
         await self._persist_capture_turn(
             websocket,
             db,
@@ -1717,6 +1959,125 @@ class VoiceSessionGateway:
             document_refs=endpoint_document_refs,
             visual_context=endpoint_visual_context,
         )
+
+    def _start_assistant_turn(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        text: str,
+    ) -> None:
+        """Answer one committed utterance with the assistant engine, off-loop.
+
+        Assistant counterpart of ``_persist_capture_turn``: the two capture
+        lanes (realtime ``text.final`` and batch ``audio.endpoint``) converge
+        here instead when the session runs in assistant mode.
+
+        The engine turn is a multi-second model round-trip, so it must never run
+        inline on the receive loop: the loop awaits one handler at a time, so
+        every queued event — ``barge_in`` first among them, the one event whose
+        whole job is to interrupt this answer — would stall behind it (same
+        rationale as section.finish).
+        """
+        if not text:
+            self._reset_turn_state(state)
+            return
+        state.assistant_generation += 1
+        task = asyncio.create_task(
+            self._run_assistant_turn(
+                websocket,
+                db,
+                user=user,
+                workspace=workspace,
+                state=state,
+                text=text,
+                generation=state.assistant_generation,
+            )
+        )
+        state.assistant_tasks.add(task)
+        task.add_done_callback(state.assistant_tasks.discard)
+
+    async def _run_assistant_turn(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        text: str,
+        generation: int,
+    ) -> None:
+        """One assistant turn: engine answer, ``assistant.answer``, then audio.
+
+        The engine is called IN-PROCESS (never over HTTP) and the event carries
+        ``result.as_payload()`` verbatim — byte-for-byte the body served by
+        ``POST /api/v1/assistant/turns`` — so the frontend renders text and voice
+        answers through a single renderer. Verbatim, but framed: the payload is
+        larger than one LiveKit data packet, so it leaves in ordered slices that
+        the frontend rejoins before any surface sees them. The session context pushed on
+        ``assistant.context`` travels with it, which is what gives a spoken turn
+        the same catalogue a typed one sends in its request body. See
+        ``docs/ops/assistant-engine-contract.md``.
+        """
+        started = time.perf_counter()
+        result = None
+        failure = None
+        failure_code = "assistant_error"
+        # The engine writes the transcript on the shared per-connection DB
+        # session and commits; serialize it with every other user of that
+        # session exactly like the capture lane does. A barge-in cancellation is
+        # a BaseException and deliberately escapes this handler.
+        async with state.db_lock:
+            try:
+                result = await answer_assistant_turn(
+                    db,
+                    user=user,
+                    workspace=workspace,
+                    text=text,
+                    # The voice session id keeps the spoken conversation on one
+                    # continuous thread; the engine owns that resolution, so the
+                    # gateway stores no chat session id of its own.
+                    external_session_ref=state.session_id,
+                    surface=SURFACE_VOICE,
+                    # Verbatim, as the surface pushed it. None until it does —
+                    # a turn spoken before the context lands is answered
+                    # without a catalogue rather than refused.
+                    session_context=state.assistant_context,
+                )
+            except AssistantEngineError as exc:
+                db.rollback()
+                failure, failure_code = exc, exc.code
+            except Exception as exc:  # noqa: BLE001 - an engine bug must not drop the session.
+                db.rollback()
+                failure = exc
+        if failure is not None:
+            logger.warning(
+                "voice_assistant_turn_failed",
+                error=str(failure),
+                code=failure_code,
+                session_id=state.session_id,
+                turn_id=state.client_turn_id,
+            )
+            await self._send_error(websocket, failure_code, _ASSISTANT_TURN_FAILED_MESSAGE, state=state)
+            return
+        if generation != state.assistant_generation:
+            # Barged in while the engine was thinking: the answer is stale.
+            return
+        await self._send_framed(websocket, state, "assistant.answer", result.as_payload())
+        answer = (result.answer or "").strip()
+        if answer and generation == state.assistant_generation:
+            try:
+                provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+            except VoiceProviderError as exc:
+                await self._send_error(websocket, exc.code, str(exc), state=state)
+            else:
+                await self._send_prompt_audio(websocket, state, provider, answer, started)
+        if generation == state.assistant_generation:
+            self._reset_turn_state(state)
 
     async def _persist_capture_turn(
         self,
@@ -1916,17 +2277,7 @@ class VoiceSessionGateway:
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
 
-        state.turn_started_at = None
-        state.endpoint_at = None
-        state.text_partials = []
-        state.client_turn_id = None
-        state.retrieval_event_id = None
-        state.interruption_of_event_id = None
-        state.last_contradiction_candidates = []
-        state.last_retrieval_chunks = []
-        state.last_retrieval_metadatas = []
-        state.last_retrieval_scores = []
-        self._reset_partial_stt_state(state)
+        self._reset_turn_state(state)
 
     def _schedule_live_open_questions(
         self,
@@ -2375,7 +2726,7 @@ class VoiceSessionGateway:
                 "fallback_used": bool(speech.get("fallback")),
             },
         )
-        await self._send(
+        await self._send_framed(
             websocket,
             state,
             "audio.out",
@@ -2623,10 +2974,17 @@ class VoiceSessionGateway:
         in the rare case the row is created after the WS handshake. After
         resolution ``state.capture_plan is not None`` means a capture session
         exists for this connection.
+
+        Assistant mode is not a capture and must never REQUIRE — nor even look
+        up — an ExpertCaptureSession: resolution is marked done with a null plan,
+        which leaves every capture-only branch downstream (live hints, section
+        detection, append_turn) inert without a guard of its own.
         """
         if state.capture_session_resolved:
             return
         state.capture_session_resolved = True
+        if self._is_assistant_mode(state):
+            return
         capture_session = self._capture_session(db, workspace_id, state.session_id)
         if capture_session is not None:
             state.capture_plan = dict(capture_session.plan or {})
@@ -2645,6 +3003,33 @@ class VoiceSessionGateway:
             "session.error",
             {"code": code, "message": message},
         )
+
+    async def _send_framed(
+        self,
+        websocket: WebSocket,
+        state: VoiceSessionState,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> int:
+        """Emit one oversized payload as ordered frames, and say how many.
+
+        The mirror image of ``_handle_assistant_context``: ``seq`` / ``total`` /
+        a JSON slice, in order, on the event's own name. A payload that would fit
+        in one packet is framed too (``seq: 0, total: 1``) — one shape means the
+        reassembly the frontend runs is the code path every answer takes, not a
+        rare branch exercised only by the catalogue that happens to be large.
+        """
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        slices = frame_payload_json(raw)
+        total = len(slices)
+        for seq, part in enumerate(slices):
+            await self._send(
+                websocket,
+                state,
+                event_type,
+                {"seq": seq, "total": total, OUTBOUND_FRAME_FIELD: part},
+            )
+        return total
 
     async def _send(
         self,

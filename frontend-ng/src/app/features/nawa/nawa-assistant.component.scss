@@ -44,6 +44,40 @@
   gap: 14px;
 }
 
+// The thread the assistant is remembering, and the way out of it. A requester
+// who cannot see which conversation they are in cannot tell an answer that
+// follows from one that merely came next.
+.as-thread {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 9px;
+  background: var(--nawa-surface-2);
+  color: var(--nawa-fg-faint);
+  font-size: 11.5px;
+}
+
+.as-thread ck-glyph { flex: 0 0 auto; }
+
+.as-thread-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nawa-mono);
+  letter-spacing: 0.02em;
+}
+
+.as-thread-new {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
 .as-transcript {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -177,6 +211,44 @@
   color: var(--nawa-fg-dim);
 }
 
+// Services the assistant looked up, as names rather than as a second catalogue:
+// the catalogue has its own screen, and this is only the shortlist it read.
+.as-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.as-service {
+  padding: 3px 9px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 999px;
+  background: var(--nawa-surface-2);
+  font-size: 11.5px;
+  color: var(--nawa-fg-dim);
+}
+
+// A tool that declined. Shown rather than swallowed: a screen that hides a
+// refusal is a screen that will eventually claim the action happened.
+.as-refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--nawa-warn-line, var(--nawa-accent-line));
+  border-radius: 9px;
+  background: var(--nawa-surface-2);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--nawa-fg-dim);
+}
+
+.as-refusal app-icon { margin-top: 2px; }
+
 // ---- composer ------------------------------------------------------------
 
 .as-composer {
@@ -300,6 +372,51 @@
   line-height: 1.6;
   color: var(--nawa-fg-dim);
 }
+
+// ---- the offer: a service that runs here, waiting on a press -------------
+// Set apart from the answer above it, because pressing it changes an account.
+// The gate inside reuses .as-gate: this is the same kind of moment as the
+// supervisor decision, a person taking responsibility for what happens next.
+.as-action {
+  margin-top: 11px;
+  padding: 12px;
+  border: 1px solid var(--nawa-accent-line);
+  border-radius: 10px;
+  background: var(--nawa-surface-2);
+}
+
+.as-action-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nawa-fg-dim);
+}
+
+.as-action-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--nawa-fg-dim);
+}
+
+.as-action-field input {
+  border: 1px solid var(--nawa-line-strong);
+  border-radius: 8px;
+  background: var(--nawa-surface);
+  color: var(--nawa-fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+}
+
+.as-action-field input:focus {
+  outline: none;
+  border-color: var(--nawa-accent-line);
+}
+
+.as-action .as-gate { margin-top: 11px; }
 
 // ---- a processed request: the run, as the exchange it was ----------------
 // Same geometry as the desk surface's thread, so a requester and a supervisor
