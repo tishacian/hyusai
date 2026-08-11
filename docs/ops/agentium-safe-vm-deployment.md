@@ -3064,3 +3064,219 @@ est tarifée sous le centime. Le backend a choisi le plancher `MIN_SIGNAL_COST`
 pour ses signaux ; poser le même plancher dans le calcul stocké est un
 arbitrage ouvert, **volontairement non pris ici** parce qu'il changerait la
 sémantique des runs déjà enregistrés et de toute agrégation en aval.
+
+## Itération du 11/08 (matin) — déployée sur `6b65eaf1`, moteur d'assistant conversationnel NAWA
+
+L'assistant NAWA était un script : intentions codées en dur, une phrase par
+branche, rien à répondre hors du chemin prévu. Le moteur qui le remplace
+(`backend/app/services/assistant/`, endpoint `POST /api/v1/assistant/turns`,
+mode assistant dans la passerelle vocale, front NAWA rebranché, tramage sortant
+LiveKit) ne sait rien du tenant : persona, scope de connaissance, allowlist
+d'outils et modèle sont résolus depuis `workspace.settings.assistant`.
+
+**Ni migration Alembic ni dépendance nouvelle.** `alembic current` rend
+`084_decision_condition_repair` avant **et** après la bascule. Le schéma ne
+bouge pas, donc le retour arrière est symétrique : redéployer les images
+précédentes suffit, sans restauration de base.
+
+### Portails locaux
+
+| Portail | Commande | Observé |
+|---|---|---|
+| Backend | `backend/.venv/bin/python -m pytest app/tests --ignore=app/tests/integration` | **4957/4957** en 376,5 s, 0 échec |
+| Types | `npx tsc -p tsconfig.app.json --noEmit` | sortie 0 |
+| Unitaires front | `node scripts/run-unit.mjs` | **817/817** en 9,5 s |
+| Sidecar | `npm test` dans `livekit-agent/` | **29/29** en 0,8 s |
+
+`app/tests/integration/` est exclu : ses 18 échecs viennent d'un Qdrant absent
+en local et préexistent à cette fenêtre.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `eb2b77f3` → `6b65eaf1`, accès Bitbucket direct depuis le poste (pas de bundle) |
+| Ancre + worktree | `/home/ubuntu/omnirag` en `merge --ff-only` sur `6b65eaf1`, worktree de build détaché sur le même SHA, `git status` vierge des deux côtés |
+| Build | **trois** images au tag `6b65eaf1ba23`, label `org.opencontainers.image.revision` 40-hex vérifié sur les trois (~7,7 min) |
+| Dump | `postgres-pre-switch.dump`, **449847639** o, sha256 `43b26efd3a0497e2…`, **1204** entrées TOC, triplet `.sha256`/`.ready` en `0600` sous `/srv/agentium-data/assistant-engine-deployments/2026-08-11-6b65eaf1ba23` (`0700`), `sha256sum -c` **OK** |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services recréés (backend, worker-cpu, frontend, p4-maintenance, beat), `RestartCount=0` sur tous |
+| `build-info` | `revision: 6b65eaf1ba234d7f793086e2ed7386d63a3d1c4c`, `revision_verified: true` (HTTPS) |
+| Alembic | `084_decision_condition_repair` avant **et** après |
+| Conteneurs | **13**, `--filter health=healthy` = **9** — compte nominal inchangé |
+| Sidecar | `agentium-livekit-agent` **non reconstruit et non recréé** : `Up 4 days`, `healthy`, `RestartCount=0`, 0 erreur sur 30 min. Le tramage est émis par la passerelle backend ; le sidecar relaie ce qu'on lui donne |
+| Logs | **0** `ERROR`, **0** `Traceback`, **0** réponse 5xx ; histogramme `200`×132, `401`×1 (la sonde non authentifiée de la fenêtre) |
+| Canaris carakai | **non joués** — voir ci-dessous |
+| Alias | `demo-agentic` **non déplacé**, laissé sur `8fbf440b827b` |
+
+### Les canaris n'ont pas pu tourner, et l'alias n'a pas bougé
+
+`carakai` (`79.137.18.231`) est injoignable **au niveau TCP** sur le port 22,
+depuis le poste comme depuis `omnirag-demo` : `nc -vz -w 8` expire des deux
+côtés. Ce n'est pas un refus d'authentification, donc ni `id_rsa_safe` ni un
+`ssh-agent` n'y changent quoi que ce soit. Le gate léger de l'itération n'a donc
+pas été joué contre `6b65eaf1`.
+
+Conséquence prise volontairement : **l'alias `demo-agentic` n'est pas déplacé.**
+Le runbook le déplace *après* les canaris ; le déplacer sans eux reviendrait à
+signer un gate qui n'a pas eu lieu. Rien ne dépend de l'alias pour servir — les
+cinq conteneurs applicatifs sont épinglés sur le tag `6b65eaf1ba23` — et le
+laisser sur `8fbf440b827b` garde un point de rollback dont l'identité est
+prouvée par une fenêtre antérieure.
+
+### Configuration du workspace `nawa` — la clé de scope du contrat est fausse
+
+`docs/ops/assistant-engine-contract.md` §4 et §4.1 écrivent tous deux
+`"knowledge_scope": "itsd"`. **La clé réelle en production est
+`itsd-knowledge`**, relue dans `settings.knowledge_scopes` avant écriture :
+
+```json
+{ "key": "itsd-knowledge", "label": "IT Service Desk knowledge",
+  "is_default": true, "collection_slugs": ["itsd-knowledge"] }
+```
+
+`"itsd"` n'aurait pas échoué : `select_scope` serait retombé sur le scope par
+défaut, qui *est* celui-là. Ça aurait donc marché — par accident. La
+configuration aurait affirmé un scope inexistant et le contrôle de scope
+n'aurait rien prouvé. C'est le piège de cette famille de réglages : **une clé
+inexistante est silencieuse quand le défaut est le bon.** Le contrôle qui répond
+est un prédicat sur la base, pas une relecture du bloc écrit :
+
+```sql
+SELECT settings::jsonb -> 'knowledge_scopes'
+    @> jsonb_build_array(jsonb_build_object('key', settings::jsonb#>>'{assistant,knowledge_scope}'))
+  FROM workspaces WHERE slug='nawa';   -- doit rendre t
+```
+
+Bloc posé, idempotent (`jsonb_set`, rejeu à `md5(settings)` identique :
+`d3c606fe86cf90c4a3e2b3feec2ef478` avant et après) :
+
+| Clé | Valeur | Pourquoi |
+|---|---|---|
+| `knowledge_scope` | `itsd-knowledge` | la clé réelle, pas celle du contrat |
+| `locale` | `en` | la bibliothèque, le catalogue et la surface sont en anglais ; une locale que la bibliothèque ne parle pas produit des réponses que leurs propres citations contredisent |
+| `allowed_tools` | les **cinq** en lecture seule | `start_system_run` et `answer_hitl_gate` restent hors allowlist |
+| `persona` | §4.1 du contrat, **recopiée**, 1307 caractères | extraite du fichier par script, pas retapée |
+| `provider` / `model` | `openai` / `gpt-5` | `azure_openai` est refusé par nom |
+| `max_tool_turns` / `history_turns` / `top_k` / `latency_profile` | 4 / 12 / 8 / `balanced` | valeurs de référence du contrat |
+
+L'IAM de ce déploiement tourne en mode observation : l'autorisation de run répond
+« autorisé » quoi qu'on lui demande. L'allowlist est donc la seule chose entre
+une phrase et une exécution, et une phrase est une entrée contrôlée par
+l'attaquant. `nawa` n'opte pas. L'exécution passe par le bouton à l'écran,
+chemin `NawaItsdService.launchTyped`.
+
+Les neuf autres clés de `settings` sont intactes (`demo_safe`, `catalog`,
+`family`, `features`, `knowledge_scopes`, `navigation_profile`,
+`platform_brand`, `presentation`, `_migration_065_nawa_itsd_state`).
+
+**État antérieur sauvegardé** dans `nawa-settings-before.json` (1144 o, sha256
+`fd9a3fc192f7a9ab…`, `0600`), à côté du dump, dans le répertoire de fenêtre.
+
+### Validation texte — quatre tours réels contre la production
+
+Jouée par le contrat interne §2 (`answer_assistant_turn`) dans le conteneur
+`agentium-backend` déployé, contre la base et le Qdrant live. **Pourquoi pas la
+voie HTTP :** les deux membres de `nawa` s'authentifient par Keycloak et n'ont
+pas de `password_hash` local ; obtenir un jeton aurait demandé de créer ou de
+muter un identifiant sur le workspace client le plus sensible, ce qui n'était
+pas dans le mandat. La voie HTTP est vérifiée séparément — la route existe et
+rend **401** sans jeton — et le corps servi est exactement `result.as_payload()`,
+dont les onze clés sont assertées à chaque tour.
+
+| Contrôle | Preuve |
+|---|---|
+| Politique citée, bon scope | T1 « What does the service desk policy say about MFA for remote access? » → `search_knowledge` en 11 837 ms, `knowledge_scope: "itsd-knowledge"`, `collections: ["itsd-knowledge"]`, 8 passages, **4 citations** (`multi-factor-authentication.md`, `remote-access-and-vpn.md`, `password-and-account-policy.md`, `service-desk-priorities-and-targets.md`) ; la réponse cite le texte entre guillemets |
+| Service nommé, lancement proposé, rien déclenché | T2 « I lost my password » → « This is handled by the **Password Reset** service… **I can't start it for you** ». Outils appelés : `list_services`, `preview_service` (`status: live`) — **jamais** `start_system_run`. `count(runs)` du workspace : **125 avant, 125 après**, delta **0** |
+| Aucun nom de fournisseur à l'écran | 13 motifs cherchés (`openai`, `gpt`, `chatgpt`, `anthropic`, `claude`, `azure`, `mistral`, `gemini`, `llama`, `o3`, `o4`, `language model`, `llm`) sur les quatre réponses : **0 occurrence**. Le champ `model` du payload vaut bien `gpt-5`, mais aucune surface NAWA ne le lit — vérifié par recherche : `AUCUNE LECTURE DU CHAMP model`. `_demo_safe(workspace)` est vrai par `settings.demo_safe` **et** `presentation.hide_provider_details` |
+| Fil continu, nouvelle conversation distincte | T1/T2/T3 partagent `a388a6cd-68f6-4361-b865-306a5b40efb5` ; T4 sans `session_id` ouvre `9483b9ab-b43e-4634-9255-c97773aff5b3`. T3 « What do I need to have ready **before I press it**? » n'a pas d'antécédent dans son propre tour et résout pourtant Password Reset : la continuité est référentielle, pas seulement un identifiant reconduit |
+| Rien au-delà de la persona | Anglais sur les quatre tours ; identité annoncée comme vérifiée contre le dossier RH et l'authentificateur enregistré ; bouton et champ décrits ; aucun code répété ; jamais « envoyé », « démarré » ou « terminé » |
+
+Les deux fils créés par la validation ont été **archivés et effacés en doux**
+(`status='archived'`, `archived_at`, `deleted_at`) : aucun fil actif du jour ne
+subsiste dans `nawa`.
+
+### Voix — configurée, cohérente, volontairement fermée
+
+**Rien n'a été ouvert, et rien n'était à fermer.** Le défaut de `mode` est
+`conversation_only`, qui « transcrit et ne répond rien » (§3.1), et la recherche
+`mode: 'assistant'` dans `frontend-ng/src` hors specs ne rend **aucune**
+occurrence : aucune surface ne demande le mode assistant. La lane est construite
+de bout en bout côté serveur et transport — passerelle, moteur, tramage,
+`VoiceEventReassembler` sur `LiveKitConversationConnection` *et*
+`VoiceSessionConnection` — mais aucun écran ne l'appelle.
+
+Reste à faire pour un essai en salle réelle :
+
+1. **La capability** : passer `mode: "assistant"` et `surface: "nawa_assistant"`
+   au `session.start`. Le mode traverse `POST /livekit/token`,
+   `POST /livekit/sessions/{id}/agent/dispatch` et le sidecar ; la passerelle le
+   renvoie en écho sur `runtime.metric` / `metric: "session_started"`. **Lire
+   l'écho**, ne pas supposer que la salle obtenue est celle demandée.
+2. **L'écran** : `nawa-assistant.component.ts` (route `/nawa/itsd`). Il n'utilise
+   aujourd'hui que `VoiceTtsPlaybackService` pour la restitution locale ; il
+   n'ouvre pas de salle en mode assistant.
+3. **Le réglage** : pousser `assistant.context` une fois la salle ouverte, tramé
+   (`seq`/`total`/`context_json`), avec les 39 entrées du catalogue plafonnées à
+   40. Un tour parlé avant l'arrivée du contexte est répondu quand même, en moins
+   bien — jamais refusé.
+4. **Le tri des erreurs** : distinguer récupérable et terminal **par le code**,
+   jamais par le message — qui est de la prose française côté serveur et qui,
+   pour une panne fournisseur, nommerait un fournisseur. Traiter un récupérable
+   comme terminal ouvre une *seconde* salle à côté de la première, micro ouvert.
+
+### L'asymétrie du code à usage unique — à connaître avant une démo parlée
+
+En **texte**, les deux preuves d'identité sont tapées dans le champ attaché au
+bouton : le code ne quitte jamais le navigateur, il n'est pas envoyé au moteur.
+
+À la **voix**, il ne peut pas en être ainsi : la passerelle a entendu et
+transcrit l'énoncé, et a répondu au tour, **avant** que la surface puisse agir.
+Sur cette lane les preuves transitent donc par le moteur. `redactSecrets` garde
+le code hors de l'écran, et la pression sur le bouton est identique des deux
+côtés — mais l'affichage masque, il n'empêche pas le transit. C'est un fait
+assumé, pas un défaut à corriger dans la fenêtre, et il doit être connu avant
+de montrer la voix.
+
+### Rollback
+
+```bash
+# 1. Images précédentes. Base intouchée : le schéma n'a pas bougé.
+DEPLOY=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh
+sudo env AGENTIUM_IMAGE_TAG=8fbf440b827b "$DEPLOY" up
+
+# 2. Settings du workspace, depuis la sauvegarde de fenêtre.
+D=/srv/agentium-data/assistant-engine-deployments/2026-08-11-6b65eaf1ba23
+sudo docker cp "$D/nawa-settings-before.json" agentium-pg:/tmp/nawa-before.json
+sudo docker exec -i agentium-pg psql -U agentium -d agentium -v ON_ERROR_STOP=1 <<'SQL'
+\set before `cat /tmp/nawa-before.json`
+UPDATE workspaces SET settings = :'before'::json WHERE slug = 'nawa';
+SQL
+sudo docker exec agentium-pg rm -f /tmp/nawa-before.json
+```
+
+**Pas de restauration de base.** Le dump de fenêtre est une assurance, pas une
+étape du retour arrière : aucune migration n'a tourné. Retirer le seul bloc
+`assistant` suffit d'ailleurs à rendre l'assistant neutre — son absence est une
+configuration valide (persona neutre, scope par défaut, allowlist en lecture
+seule), ce qui fait du réglage lui-même un point de retour indépendant des
+images.
+
+### Ce que cette fenêtre prouve, et ce qu'elle ne prouve pas
+
+Elle prouve que le SHA déployé sert, que la configuration écrite désigne un
+scope qui existe, et que quatre tours réels contre la production tiennent les
+cinq contrôles texte — dont le seul qui compte vraiment pour la sûreté : le
+modèle nomme le service, prépare le lancement, et **n'a créé aucun Run**.
+
+Elle ne prouve rien de la voix : aucune salle n'a été ouverte en mode assistant.
+Elle ne prouve rien du rendu navigateur : les tours sont passés par le contrat
+interne, pas par un écran. Et elle ne porte pas le gate des canaris, `carakai`
+étant injoignable.
+
+### Dette relevée, non traitée
+
+Le contrat `docs/ops/assistant-engine-contract.md` continue d'écrire
+`"knowledge_scope": "itsd"` en §4 et en §4.1, alors que la production porte
+`itsd-knowledge`. Le corriger touche un document gelé comme contrat ; l'écart
+est consigné ici plutôt que patché en fenêtre.
