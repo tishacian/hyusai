@@ -107,7 +107,7 @@ The body has **exactly** these eleven keys.
 {
   "session_id": "3f6b1c22-9d1e-4b3f-9a41-6c2f0b7a1d55",
   "message_id": "b0a4e1de-6c8f-4a2b-9d0e-53f1c9a7b234",
-  "answer": "Je peux lancer la réinitialisation de votre mot de passe. Confirmez-vous ?",
+  "answer": "Password Reset handles this. I do not start it myself — a button on this screen starts it when you press it, and it asks for your staff number and the code from your authenticator.",
   "citations": [
     {
       "index": 1,
@@ -123,18 +123,18 @@ The body has **exactly** these eleven keys.
     {
       "id": "call_a1",
       "name": "search_knowledge",
-      "arguments": { "query": "réinitialisation mot de passe" },
+      "arguments": { "query": "password reset procedure" },
       "ok": true,
       "error": null,
       "result": {
         "ok": true,
-        "query": "réinitialisation mot de passe",
-        "knowledge_scope": "itsd",
+        "query": "password reset procedure",
+        "knowledge_scope": "itsd-knowledge",
         "collections": ["itsd-knowledge"],
         "passages": [
           {
             "index": 1,
-            "snippet": "Pour réinitialiser un mot de passe, ouvrez un ticket ITSD…",
+            "snippet": "To reset a password, the requester confirms their staff number and a one-time code…",
             "score": 0.81,
             "citation": { "index": 1, "id": "chunk-9", "title": "itsd-password-reset.md", "filename": "itsd-password-reset.md", "document_id": "doc-9", "collection": "itsd-knowledge", "page": 2 }
           }
@@ -151,7 +151,7 @@ The body has **exactly** these eleven keys.
   "usage": { "prompt_tokens": 1841, "completion_tokens": 96, "total_tokens": 1937 },
   "config": {
     "configured": true,
-    "knowledge_scope": "itsd",
+    "knowledge_scope": "itsd-knowledge",
     "allowed_tools": ["get_run_status", "list_services", "list_systems", "preview_service", "search_knowledge"]
   }
 }
@@ -436,7 +436,7 @@ are dropped rather than failing the turn; out-of-range numbers are clamped.
 {
   "assistant": {
     "persona": "You are the NAWA IT service desk assistant…",
-    "knowledge_scope": "itsd",
+    "knowledge_scope": "itsd-knowledge",
     "allowed_tools": [
       "search_knowledge",
       "list_systems",
@@ -506,10 +506,19 @@ one step out, onto the person:
    heard, so the press is the same, and `redactSecrets` keeps the code off the screen.
 
 The persona has to describe exactly that, or the answer and the screen contradict each
-other. The reference NAWA configuration is `knowledge_scope: "itsd"` over the
-`itsd-knowledge` collection, `locale: "en"` — the library, the catalogue and the surface
-are all English, and a locale the library does not speak produces answers whose own
-citations disagree with them — the five read-only tools above, and this persona:
+other. The reference NAWA configuration is `knowledge_scope: "itsd-knowledge"`,
+`locale: "en"` — the library, the catalogue and the surface are all English, and a locale
+the library does not speak produces answers whose own citations disagree with them — and
+the five read-only tools above.
+
+`knowledge_scope` is the key of an entry in `settings.knowledge_scopes`, not a collection
+slug, even though this workspace happens to name both the same. A key matching no entry
+does not fail the turn: `select_scope` falls back to the default scope. A typo is
+therefore silent, and most silent of all when the default is the scope you meant. Read
+the key off the workspace before writing it, and check the scope the engine reports back
+rather than the block you wrote.
+
+The persona itself:
 
 > You are the NAWA IT service desk assistant. You serve the person who is asking, in
 > English, in plain words, and you never name the software you run on.
