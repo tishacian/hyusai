@@ -3106,23 +3106,51 @@ en local et préexistent à cette fenêtre.
 | Conteneurs | **13**, `--filter health=healthy` = **9** — compte nominal inchangé |
 | Sidecar | `agentium-livekit-agent` **non reconstruit et non recréé** : `Up 4 days`, `healthy`, `RestartCount=0`, 0 erreur sur 30 min. Le tramage est émis par la passerelle backend ; le sidecar relaie ce qu'on lui donne |
 | Logs | **0** `ERROR`, **0** `Traceback`, **0** réponse 5xx ; histogramme `200`×132, `401`×1 (la sonde non authentifiée de la fenêtre) |
-| Canaris carakai | **non joués** — voir ci-dessous |
-| Alias | `demo-agentic` **non déplacé**, laissé sur `8fbf440b827b` |
+| Canaris carakai | **6/6 vertes** au premier passage, en reprise le 11/08 à 08h04 UTC |
+| Alias | `demo-agentic` déplacé sur `6b65eaf1ba23` après les canaris |
 
-### Les canaris n'ont pas pu tourner, et l'alias n'a pas bougé
+### Les canaris, joués en reprise
 
-`carakai` (`79.137.18.231`) est injoignable **au niveau TCP** sur le port 22,
-depuis le poste comme depuis `omnirag-demo` : `nc -vz -w 8` expire des deux
-côtés. Ce n'est pas un refus d'authentification, donc ni `id_rsa_safe` ni un
-`ssh-agent` n'y changent quoi que ce soit. Le gate léger de l'itération n'a donc
-pas été joué contre `6b65eaf1`.
+Le premier essai de la fenêtre a conclu que `carakai` (`79.137.18.231`) était
+injoignable **au niveau TCP** sur le port 22, depuis le poste comme depuis
+`omnirag-demo`. La panne était transitoire : deux heures plus tard `nc -vz`
+aboutit et `ssh carakai` ouvre une session sans rien changer à la
+configuration. Retenir de cet épisode qu'un `nc` qui expire ne prouve rien de
+durable, et qu'il vaut de réessayer avant de conclure — pas d'écarter le gate.
 
-Conséquence prise volontairement : **l'alias `demo-agentic` n'est pas déplacé.**
-Le runbook le déplace *après* les canaris ; le déplacer sans eux reviendrait à
-signer un gate qui n'a pas eu lieu. Rien ne dépend de l'alias pour servir — les
-cinq conteneurs applicatifs sont épinglés sur le tag `6b65eaf1ba23` — et le
-laisser sur `8fbf440b827b` garde un point de rollback dont l'identité est
-prouvée par une fenêtre antérieure.
+Reprise contre le SHA effectivement servi (`build-info` relu en HTTPS,
+`revision_verified: true` avant lancement) :
+
+```bash
+ssh carakai
+sudo -n env PATH=/opt/agentium-protected-runner/node-v22.23.1-linux-x64/bin:$PATH \
+  /opt/agentium-protected-runner/repos/omnirag/scripts/run-iteration-canaries.sh \
+  6b65eaf1ba234d7f793086e2ed7386d63a3d1c4c
+```
+
+`node` n'est **pas** dans le `PATH` de root sur carakai et ne vit pas à un
+chemin standard : il est sous `/opt/agentium-protected-runner/node-v22.23.1-linux-x64/bin`.
+Le `PATH` doit être épinglé explicitement, comme pour les autres exécutants.
+
+**6/6 vertes en 57,1 s**, pas de reprise : projections System 360, routes
+applicatives et Client360 à blanc, isolation de marque Sentinel et Octocity,
+configuration LiveKit sans jeton, micro non accordé alors que Capture reste
+accessible.
+
+Le checkout source revu du runner est resté à `8fbf440b` — l'état où la fenêtre
+précédente l'avait laissé. C'est ici une propriété utile plutôt qu'un retard :
+les assertions sont antérieures au moteur d'assistant, donc le vert atteste
+d'une non-régression des surfaces existantes et non d'un test écrit avec le
+code qu'il contrôle.
+
+### L'alias, déplacé après le gate
+
+Les trois `demo-agentic` pointaient sur `8fbf440b827b` ; ils pointent désormais
+sur les images `6b65eaf1ba23` (`docker tag` des trois dépôts applicatifs).
+L'opération ne redémarre rien : les cinq conteneurs applicatifs sont épinglés
+sur le tag immuable, et leur `Status` est inchangé après coup. Le point de
+rollback reste `AGENTIUM_IMAGE_TAG=8fbf440b827b`, adressable par son tag
+immuable indépendamment de l'alias.
 
 ### Configuration du workspace `nawa` — la clé de scope du contrat est fausse
 
@@ -3153,7 +3181,7 @@ Bloc posé, idempotent (`jsonb_set`, rejeu à `md5(settings)` identique :
 
 | Clé | Valeur | Pourquoi |
 |---|---|---|
-| `knowledge_scope` | `itsd-knowledge` | la clé réelle, pas celle du contrat |
+| `knowledge_scope` | `itsd-knowledge` | la clé réelle ; le contrat, qui écrivait `itsd`, a depuis été corrigé en `5db3038f` |
 | `locale` | `en` | la bibliothèque, le catalogue et la surface sont en anglais ; une locale que la bibliothèque ne parle pas produit des réponses que leurs propres citations contredisent |
 | `allowed_tools` | les **cinq** en lecture seule | `start_system_run` et `answer_hitl_gate` restent hors allowlist |
 | `persona` | §4.1 du contrat, **recopiée**, 1307 caractères | extraite du fichier par script, pas retapée |
