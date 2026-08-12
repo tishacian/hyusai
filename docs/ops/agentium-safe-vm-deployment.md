@@ -3486,3 +3486,88 @@ la vraie chrome. Relever la chrome ligne à ligne laisserait ses voisines sans
 accent (`Reputation`, `Presse`, `Explorer`) en dur juste à côté, invisibles aux
 sondes. Le ratchet reste donc à sa valeur mesurée plutôt que déclaré DATA en
 bloc : ce qu'il faut ici est un découpage fixture/chrome, pas un relevé.
+
+## Itération du 12/08 (soir) — déployée sur `5facb2a7`, emblème de marque pour le thème clair
+
+Première fenêtre depuis le 10/08 à embarquer une migration : **085
+`nawa_brand_light_emblem`**, sur `084_decision_condition_repair`. Dump
+checksummé pris avant, pas de répétition sur copie restaurée — la migration
+n'ajoute qu'une clé au JSON `settings` d'un seul workspace, elle ne touche ni le
+schéma ni des graphes stockés.
+
+### Le défaut, et pourquoi il n'est pas une régression du thème
+
+En mode clair, la barre de titre affichait le logo NAWA sur une plaque noire
+arrondie. `nawa-logo.png` est en réalité un **JPEG sans canal alpha** : le noir
+est dans les pixels, aucune règle CSS ne peut l'enlever. Un commentaire du code
+l'avouait déjà — le rayon d'arrondi servait à « adoucir les coins opaques d'un
+logo livré sans canal alpha ».
+
+Les écrans métier `features/nawa/` géraient déjà les deux cas via
+`NAWA_LOGO = { dark, light }`. La barre de titre, elle, ne lit qu'une URL unique
+depuis `workspace.settings.platform_brand` et n'a jamais su choisir. Le défaut
+était donc **latent depuis l'origine** ; le mode clair, déployé le 12/08 au
+matin, l'a simplement rendu visible. Tant que le cockpit était toujours sombre,
+la plaque noire se fondait dans le fond.
+
+Un seul fichier ne peut pas servir les deux thèmes : la copie détourée porte une
+encre gris-anthracite, illisible sur le fond sombre. Teinter par filtre CSS
+abîmerait le W orange de la marque.
+
+### Le correctif, générique et non spécifique à NAWA
+
+`platform_brand` accepte désormais un `emblem_light` **optionnel**, que la barre
+de titre utilise quand `ThemeService.resolved()` vaut `light`. Le champ ne
+participe pas au contrôle de complétude : `label` et `emblem` restent seuls
+obligatoires, et deux tests pinnent qu'`emblem_light` seul ne valide jamais une
+marque. **Un tenant qui ne déclare pas de variante ne voit rien changer** — une
+cellule de QA rejoue volontairement le défaut d'origine pour l'attester.
+
+Le rayon d'arrondi est conditionné plutôt que supprimé : il ne disparaît que
+pendant que la variante détourée est à l'écran, puisque c'est là qu'il n'y a
+plus de coin opaque à adoucir et qu'arrondir rognerait le wordmark. En sombre,
+NAWA garde le JPEG et son rayon.
+
+Le **favicon n'est délibérément pas câblé**. L'onglet du navigateur suit le
+thème de l'OS, pas la préférence tri-state de l'application : le brancher sur
+`ThemeService` donnerait le mauvais résultat aussi souvent que le bon. À faire
+un jour, ce serait sur `prefers-color-scheme`, et il faudrait rendre
+`FaviconService` réactif — il ne se réveille aujourd'hui que sur la navigation.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `538a1f57` → `5facb2a7` |
+| Build | trois images au tag `5facb2a7ef67`, revision 40-hex (~8 min) |
+| Dump | `postgres-pre-085.dump`, **450466467** o, **1219** entrées TOC, triplet `.sha256`/`.ready` en `0600` sous `/srv/agentium-data/brand-emblem-deployments/2026-08-12-5facb2a7ef67` (`0700`), `sha256sum -c` **OK** |
+| `storage-check` | sortie 0, rejoué dans `migrate` puis dans `up` |
+| `migrate` | `084` → `085_nawa_brand_light_emblem` |
+| Marque après migration | `emblem_light: /assets/nawa/nawa-logo-transparent.png` ajouté, les trois champs d'origine intacts |
+| `up` | cinq services recréés, `RestartCount=0` sur tous |
+| `build-info` | `revision: 5facb2a7ef67013e667e0bc39d5b49401ae9d146`, `revision_verified: true` |
+| Alembic après bascule | `085_nawa_brand_light_emblem (head)` |
+| Asset | `/assets/nawa/nawa-logo-transparent.png` servi en **200** |
+| Conteneurs | **13**, sains **9** |
+| Logs | **0** `ERROR`, **0** `Traceback` |
+| Canaris carakai | **6/6 vertes** au premier passage, artefacts `/tmp/iteration-canaries-20260812T163225Z.m3qpHI` |
+| Alias | `demo-agentic` déplacé sur `5facb2a7ef67` après les canaris |
+
+### Deux pièges rencontrés, à retenir
+
+**Les identifiants de workspace en production sont des UUID**, pas les
+`workspace-nawa` des jeux d'essai. Une migration qui désignerait le workspace
+par cet identifiant serait silencieusement sans effet. La 085 sélectionne par
+`slug == "nawa"`, comme la 065 — vérifié avant de migrer, et la marque en base
+correspondait exactement au littéral `PLATFORM_BRAND` de la 065, condition pour
+qu'elle soit complétée.
+
+**Entre `migrate` et `up`, `alembic current` échoue dans le conteneur backend
+encore en vol** : il tourne sur l'image précédente, qui ne contient pas le
+fichier de la 085, et ne sait donc pas résoudre la révision que la table de
+version porte désormais. C'est attendu et bénin ; la révision se lit
+normalement après la bascule. Ne pas le lire comme une migration ratée.
+
+**`/tmp` n'est pas inscriptible sur la VM**, même via `sudo sh -c`. Un dump doit
+être écrit directement dans son répertoire de fenêtre sous `/srv/agentium-data`.
+Le rôle PostgreSQL est `agentium`, pas `postgres`.
