@@ -102,10 +102,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
         @if (businessSurface()) {
           <div class="t-header-left">
             <ck-tag tone="pos" variant="solid">Recherche</ck-tag>
-            <span class="t-header-hint">Questions et recherche sur les connaissances du workspace.</span>
+            <span class="t-header-hint">{{ i18n.t('chat.context.workspace_search_hint') }}</span>
           </div>
           <div class="t-header-right">
-            <span class="t-source-pill">Sources du workspace</span>
+            <span class="t-source-pill">{{ i18n.t('chat.context.workspace_sources_pill') }}</span>
           </div>
         } @else if (executiveAssistant()) {
           <div class="t-header-left">
@@ -816,7 +816,7 @@ export class ChatWorkspaceComponent implements OnInit {
   /** Screen copy names the product by its brand in this workspace. */
   protected readonly brand = inject(WorkspaceService).brandName;
   private readonly canonical = inject(CanonicalApiService);
-  private readonly i18n = inject(I18nService);
+  readonly i18n = inject(I18nService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
@@ -889,7 +889,7 @@ export class ChatWorkspaceComponent implements OnInit {
 
   readonly assistantSubtitle = computed(() => {
     const profile = this.activeAssistantProfile();
-    return String(profile?.['subtitle'] || 'Sources du workspace');
+    return String(profile?.['subtitle'] || this.i18n.t('chat.context.workspace_sources_pill'));
   });
 
   readonly assistantScopeLabel = computed(() => {
@@ -898,9 +898,9 @@ export class ChatWorkspaceComponent implements OnInit {
     const scopes = this.workspace.current()?.settings?.['knowledge_scopes'];
     if (Array.isArray(scopes)) {
       const scope = (scopes as Record<string, unknown>[]).find((item) => item['key'] === scopeKey);
-      if (scope?.['label']) return `Sources : ${scope['label']}`;
+      if (scope?.['label']) return this.i18n.t('chat.context.sources_scope', { label: String(scope['label']) });
     }
-    return 'Sources du workspace';
+    return this.i18n.t('chat.context.workspace_sources_pill');
   });
 
   readonly workspaceChatSystem = computed<System | null>(() => {

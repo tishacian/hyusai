@@ -1,46 +1,14 @@
 {
   "$note": "Exceptions for scripts/check-i18n.mjs. Every entry carries a reason. \"hardcodedText.max\" is a ratchet: the guard tells you when a sweep lets you lower it, and fails if it grows. Deleting an entry is the definition of done for that file.",
-  "$backlog": "12 entries were opened in one go when the hard-coded-text detector stopped relying on accents alone, for 108 lines in total. They are not new French — they are French the accent probe could never see, on screens the FR sweeps reported as done. Each is a ratchet at its measured value and the number can only go down; the three capture-fil entries (report-provenance, finalize, publish) reached zero and were deleted.",
+  "$backlog": "Opened in one go when the hard-coded-text detector stopped relying on accents alone. Since then the capture cockpit (282 code literals + 19 template lines), chat-panel (28), chat-workspace, client360 (12 template lines), knowledge-view, knowledge-base, sse.service, vp-meeting, vp-agenda-timeline, vp-press-article-drawer, workspace/general and the mission-room template half reached zero and their entries were deleted. What remains under DEBT is the mission-room pair (mission-room.component.ts, mission-control-monitor.component.ts): seeded scenario content and real chrome interleaved in the same class bodies, which needs a fixture/chrome split before the numbers can move.",
   "hardcodedText": {
-    "src/app/features/chat/chat-workspace.component.ts": {
-      "max": 2,
-      "reason": "Straggler from the FR chat sweep, revealed by the function-word probe. chat.dict.ts owns the surface."
-    },
-    "src/app/features/client360/client360-page.component.ts": {
-      "max": 12,
-      "reason": "Was 44. The class body is now fully swept — every status, error, skip reason, SMTP label and campaign chip renders from client360.dict.ts, which already held the keys but was never wired to the call sites. The 12 remaining template lines are filter options and campaign copy typed directly in the markup. Owner: the verticals sweep. Do not claim FR/EN parity on Client360 until this is 0."
-    },
-    "src/app/features/knowledge/knowledge-base.component.ts": {
-      "max": 1,
-      "reason": "Straggler from the capture sweep: one button title. capture.dict.ts owns the surface."
-    },
-    "src/app/features/knowledge/knowledge-capture.component.ts": {
-      "max": 19,
-      "reason": "The capture sweep converted the accented copy on this screen and left the accent-free half: collection pickers, loading states, tree editing. Owner: the capture sweep."
-    },
     "src/app/features/mission-room/mission-control-monitor.component.html": {
       "max": 4,
       "reason": "Seeded French demo content (\"Sentence du jour\") and a French proper noun (Côte d'Ivoire) in the mission-room scenario. The plan classes seeded scenario content as data, not chrome; the proper noun stays French in both locales."
     },
-    "src/app/features/mission-room/mission-room.component.ts": {
-      "max": 15,
-      "reason": "Accent-free French left by the mission-room sweep, mixed with seeded scenario prose. Owner: the mission-room sweep, which has to split the two before it can lower this."
-    },
-    "src/app/features/mission-room/vp-agenda-timeline.component.ts": {
-      "max": 2,
-      "reason": "Stragglers from the mission-room sweep: the agenda panel title and its subtitle. mission.dict.ts owns the surface."
-    },
-    "src/app/features/mission-room/vp-press-article-drawer.component.ts": {
-      "max": 2,
-      "reason": "Stragglers from the mission-room sweep: two drawer actions. mission.dict.ts owns the surface."
-    },
     "src/app/features/workspace/chat-knowledge-settings.component.ts": {
       "max": 7,
       "reason": "Mostly permanent. The accented lines are `placeholder` examples of the French values an admin types into this form — stop phrases (\"on peut s'arrêter là\") and synonym lists for the French voice gateway. The sample must be in the language of the data, not of the chrome; translating it would show the admin an example they cannot use. The function-word probe added 3 more lines on the same form, of the same nature."
-    },
-    "src/app/features/workspace/general.component.ts": {
-      "max": 1,
-      "reason": "The accented line is an English help sentence quoting the French label of the chat action it governs (\"Corriger / Compléter\"). It resolves itself when workspace settings are swept — the whole screen is still hard-coded English, so this one line is not the interesting part of that file."
     }
   },
   "$hardcodedCodeNote": "Two kinds of entry live below, and the difference matters. A DATA entry is permanent: the literal is scenario content, a backend contract value or a sample in the language of the data, and translating it would be wrong. A DEBT entry is a ratchet at its measured value: it is real French chrome that nobody has moved to a key yet, the number may only go down, and the entry is deleted when it reaches zero. Never turn a DEBT entry into a DATA entry to make the guard green.",
@@ -89,25 +57,9 @@
       "max": 2,
       "reason": "DATA — not a leak: `ck-help` keeps its own language preference, separate from the UI locale (CONVENTION.md §5 forbids routing its labels through i18n.t, or content and chrome would disagree). Both locales are already present in the same switch; the guard only sees the French branch."
     },
-    "src/app/core/sse.service.ts": {
-      "max": 1,
-      "reason": "DEBT — one stream-timeout message shown to the user. Needs a `common.` key; no dictionary owns the SSE layer yet."
-    },
-    "src/app/features/chat/chat-panel.component.ts": {
-      "max": 28,
-      "reason": "DEBT — was 69. The prompt packs, the empty state and the live progress labels are keyed; what remains is the voice/dictation cluster, the expert-correction toasts and the Deep Search notices. chat.dict.ts owns the surface."
-    },
-    "src/app/features/chat/chat-workspace.component.ts": {
-      "max": 2,
-      "reason": "DEBT — was 4. The two workspace-context hints now render from chat.dict.ts; two source labels and one aria-label remain. chat.dict.ts owns the surface."
-    },
     "src/app/features/knowledge/knowledge-capture.component.ts": {
-      "max": 282,
-      "reason": "DEBT — the largest single block of un-keyed French in the app, and the honest number: it was reported as 261 until the guard stopped mis-reading a regex literal as a template literal, which had been hiding 21 more. This is a 12k-line screen whose entire conversational capture loop (voice states, role refusals, plan validation, report review, synthesis progress) is hard-coded French. It needs its own pass, not a corner of one. capture.dict.ts owns the surface. Do not claim FR/EN parity on Knowledge capture until this is 0."
-    },
-    "src/app/features/knowledge/knowledge-view.component.ts": {
-      "max": 3,
-      "reason": "DEBT — three self-reference audit labels ('Valeur auto-référente', 'En-tête auto-référent', 'À relire'). capture.dict.ts owns the surface."
+      "max": 2,
+      "reason": "DATA — was 282 DEBT literals, now fully swept to capture.dict.ts (FR/EN). The 2 remaining literals are runtime detection needles in isRuntimeCapturePrompt(): French phrases matched against backend-generated prompts. Translating a needle stops it matching, exactly like the anonymisation table."
     },
     "src/app/features/mission-room/mission-control-monitor.component.ts": {
       "max": 31,
@@ -115,15 +67,11 @@
     },
     "src/app/features/mission-room/mission-room.component.ts": {
       "max": 73,
-      "reason": "DEBT, mixed with data — same split problem as mission-control-monitor, at four times the size: seeded press/agenda scenario content and Sentinel proper nouns sit next to real chrome ('Sécurité', 'Arbitrer les options', 'Voir tous les articles'). Owner: the mission-room sweep. This file also carries 15 lines of hardcodedText debt for the same reason."
+      "reason": "DEBT, mixed with data — the template half of this file is now fully keyed (mission.dict.ts) and its hardcodedText entry is gone. What is left is the class body: seeded Abidjan/Sahel scenario content (security documents, press articles, AYA prompt verbatims, zone and persona proper nouns) with genuine chrome interleaved ('Sécurité' rail label, 'Voir tous les articles ({count})', 'Arbitrer les options', 'Ouvrir avec {name}'). The chrome cannot be lifted line by line without leaving accent-free siblings ('Reputation', 'Presse', 'Explorer') literal beside it, so it needs the fixture/chrome split the mission-room sweep owns. Ratcheted whole rather than declared data, so the chrome half is not lost."
     },
     "src/app/features/mission-room/vp-cockpit.component.ts": {
-      "max": 6,
-      "reason": "DEBT — press-filter labels ('Intérieur', 'Extérieur', 'RSS sécurité') and demo-source badges. mission.dict.ts owns the surface."
-    },
-    "src/app/features/mission-room/vp-meeting.component.ts": {
-      "max": 7,
-      "reason": "DEBT — the arbitration options and the advisory decision wording. mission.dict.ts owns the surface."
+      "max": 1,
+      "reason": "DATA — the seeded Abidjan scenario's fallback status chip detail ('tension projet · cargo bloqué'), used when the snapshot carries no prominent status item. Scenario content like the other mission-room fixtures; the press filters, posture axes and source badges it used to share this entry with now render from mission.dict.ts."
     },
     "src/app/features/nawa/nawa-run-fixtures.ts": {
       "max": 1,

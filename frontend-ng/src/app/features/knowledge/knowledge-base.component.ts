@@ -101,7 +101,7 @@ interface SearchResult {
         actions
         routerLink="/knowledge/capture"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-        title="Lancer une capture de connaissances"
+        [title]="i18n.t('capture.kb.start_capture_title')"
       >
         <app-icon name="mic" [size]="14" /> Capture
       </a>

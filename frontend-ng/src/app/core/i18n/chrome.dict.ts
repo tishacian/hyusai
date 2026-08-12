@@ -148,6 +148,9 @@ export const CHROME_FR = {
   'workspace.general': 'Général',
   'workspace.members': 'Membres',
   'workspace.danger': 'Zone de danger',
+  'workspace.expert_correction.title': 'Correction experte dans le chat',
+  'workspace.expert_correction.description':
+    'Affiche l’action « Corriger / Compléter » dans le chat pour les relecteurs et les administrateurs, et active la validation puis la publication côté serveur. Désactivez-la pour masquer le bouton partout.',
   'workspace.invite': 'Inviter un collègue',
   'workspace.invite.placeholder': 'email@exemple.com',
   // --- Business shell header ---------------------------------------
@@ -310,6 +313,9 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'workspace.general': 'General',
   'workspace.members': 'Members',
   'workspace.danger': 'Danger zone',
+  'workspace.expert_correction.title': 'Inline chat correction',
+  'workspace.expert_correction.description':
+    'Shows the “Correct / Complete” action in chat for reviewers and admins, and enables the server-side accept then publish path. Turn it off to hide the button everywhere.',
   'workspace.invite': 'Invite a teammate',
   'workspace.invite.placeholder': 'email@example.com',
   // --- Business shell header ---------------------------------------

@@ -596,7 +596,7 @@ export class VpCockpitComponent {
     if (interior) {
       axes.push({
         key: 'interior',
-        label: interior.label || 'Intérieur',
+        label: interior.label || this.i18n.t('mission.posture.interior'),
         level: interior.level || 'monitoring',
         tone: interior.tone || 'monitoring',
         headline: interior.headline,
@@ -607,7 +607,7 @@ export class VpCockpitComponent {
     if (exterior) {
       axes.push({
         key: 'exterior',
-        label: exterior.label || 'Extérieur',
+        label: exterior.label || this.i18n.t('mission.posture.exterior'),
         level: exterior.level || 'monitoring',
         tone: exterior.tone || 'monitoring',
         headline: exterior.headline,
@@ -621,7 +621,7 @@ export class VpCockpitComponent {
     const council = posture?.['next_council'];
     if (!council) return null;
     const time = council.time || '';
-    const label = council.label || 'Prochain Conseil';
+    const label = council.label || this.i18n.t('mission.posture.next_council_default');
     return time ? `${time} — ${label}` : label;
   }
 
@@ -635,7 +635,7 @@ export class VpCockpitComponent {
     if (rss?.source_badge) {
       badges.push({
         key: 'rss',
-        label: 'RSS sécurité',
+        label: this.i18n.t('mission.posture.rss_security'),
         source_badge: this.sourceBadgeLabel(rss.source_badge),
         live: Boolean(rss.live),
       });
@@ -655,8 +655,8 @@ export class VpCockpitComponent {
   sourceBadgeLabel(value: unknown): string {
     const raw = String(value || '').trim();
     const normalized = raw.toLowerCase();
-    if (!raw) return 'Source démo';
-    if (normalized.includes('cache') || normalized.includes('baseline')) return 'Baseline démo';
+    if (!raw) return this.i18n.t('mission.source.demo');
+    if (normalized.includes('cache') || normalized.includes('baseline')) return this.i18n.t('mission.source.demo_reference');
     if (normalized.includes('live')) return 'Live';
     return raw;
   }

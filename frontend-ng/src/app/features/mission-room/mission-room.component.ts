@@ -1752,9 +1752,9 @@ export class MissionRailComponent {
     <ng-template #briefingView>
       <section class="two-column">
         <article class="content-panel span-2">
-          <span class="eyebrow">Briefing quotidien</span>
+          <span class="eyebrow">{{ i18n.t('mission.briefing.eyebrow') }}</span>
           <h2>{{ briefing()?.title }}</h2>
-          <p>Synthese du jour, sources visibles et decisions preparees pour validation.</p>
+          <p>{{ i18n.t('mission.briefing.subtitle') }}</p>
         </article>
         @for (section of briefing()?.sections || []; track section.id) {
           <article class="content-panel">
@@ -1806,8 +1806,8 @@ export class MissionRailComponent {
         <article class="content-panel span-2 project-risk-brief">
           <div class="panel-heading-row">
             <div>
-              <span class="eyebrow">Risques projets</span>
-              <h3>Impact direct sur les decisions du jour</h3>
+              <span class="eyebrow">{{ i18n.t('mission.project.risks_eyebrow') }}</span>
+              <h3>{{ i18n.t('mission.project.risks_title') }}</h3>
             </div>
             <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
               <ck-glyph name="check" [size]="14" />
@@ -1872,7 +1872,7 @@ export class MissionRailComponent {
               }
             </div>
             @if (project.scenario_options?.length) {
-              <h3>Scenarios d'arbitrage</h3>
+              <h3>{{ i18n.t('mission.project.scenarios_title') }}</h3>
               <div class="scenario-grid">
                 @for (option of project.scenario_options || []; track option.id) {
                   <article [class.recommended]="option.recommended">
@@ -1924,7 +1924,7 @@ export class MissionRailComponent {
               <small>{{ timeline()?.calendar?.connector?.mode || 'internal_shared' }}</small>
             </article>
             <article>
-              <span>Rendez-vous</span>
+              <span>{{ i18n.t('mission.agenda.appointments') }}</span>
               <strong>{{ timeline()?.calendar?.count || (timeline()?.agenda?.length || 0) }}</strong>
               <small>{{ agendaDayLabel() }}</small>
             </article>
@@ -1936,7 +1936,7 @@ export class MissionRailComponent {
             <article>
               <span>Disponible</span>
               <strong>{{ timeline()?.calendar?.free_slots?.[0]?.start || '—' }}</strong>
-              <small>{{ timeline()?.calendar?.free_slots?.[0]?.end || 'aucun creneau' }}</small>
+              <small>{{ timeline()?.calendar?.free_slots?.[0]?.end || i18n.t('mission.agenda.no_slot') }}</small>
             </article>
           </div>
           <div class="linked-action-strip">
@@ -2006,9 +2006,9 @@ export class MissionRailComponent {
 
         <aside class="content-panel agenda-detail-panel">
           @if (selectedAgendaEvent(); as event) {
-            <span class="eyebrow">Detail evenement</span>
+            <span class="eyebrow">{{ i18n.t('mission.agenda.event_detail') }}</span>
             <h2>{{ event.title }}</h2>
-            <p>{{ event.description || 'Evenement consolide depuis le canal agenda institutionnel habilite.' }}</p>
+            <p>{{ event.description || i18n.t('mission.agenda.event_default_description') }}</p>
 
             @if (agendaPendingPatch(); as pending) {
               <div class="agenda-pending-banner" role="status" aria-live="polite">
@@ -2047,7 +2047,7 @@ export class MissionRailComponent {
 
             <section class="agenda-odj">
               <div class="agenda-odj-head">
-                <span class="eyebrow">Ordre du jour</span>
+                <span class="eyebrow">{{ i18n.t('mission.meeting.agenda') }}</span>
                 <button type="button" class="ghost-link" (click)="addAgendaSubItem()">+ Point</button>
               </div>
               @if (agendaSubItems(event).length) {
@@ -2117,7 +2117,7 @@ export class MissionRailComponent {
             <input [(ngModel)]="newAgendaLocation" type="text" placeholder="Lieu" />
             <button type="button" class="action-button wide primary" (click)="createAgendaEvent()">
               <ck-glyph name="crosshair" [size]="14" />
-              <span>Ajouter a l'agenda</span>
+              <span>{{ i18n.t('mission.agenda.add_event') }}</span>
             </button>
           </div>
         </aside>
@@ -2199,7 +2199,7 @@ export class MissionRailComponent {
         </div>
 
         @if (pressArticleListOpen()) {
-          <div class="press-full-list span-2" role="region" aria-label="Liste complete des articles">
+          <div class="press-full-list span-2" role="region" [attr.aria-label]="i18n.t('mission.press.full_list_aria')">
             @for (signal of displayedPressArticles(); track signal.id) {
               <button
                 type="button"
@@ -2405,7 +2405,7 @@ export class MissionRailComponent {
         <article class="content-panel">
           <span class="eyebrow">Lecture cabinet</span>
           <h2>Reputation institutionnelle</h2>
-          <p>{{ cockpit()?.reputation?.summary || "La dynamique positive reste fragile. Les signaux critiques viennent surtout des retards territoriaux et d'une perception de coordination insuffisante." }}</p>
+          <p>{{ cockpit()?.reputation?.summary || i18n.t('mission.reputation.summary_default') }}</p>
           <div class="keyword-grid compact">
             @for (kw of cockpit()?.keywords || []; track kw.label) {
               <article>
@@ -2422,7 +2422,7 @@ export class MissionRailComponent {
         <section class="content-panel span-2 reputation-drill-panel" id="reputation-drill">
           <div class="panel-heading-row">
             <div>
-              <span class="eyebrow">Drill du sentiment · {{ cockpit()?.reputation?.period_label || 'Cette semaine' }}</span>
+              <span class="eyebrow">{{ i18n.t('mission.reputation.drill_eyebrow') }} · {{ cockpit()?.reputation?.period_label || i18n.t('mission.reputation.this_week') }}</span>
               <h2>{{ i18n.t('mission.reputation.drill_title') }}</h2>
               @if (cockpit()?.reputation?.aya_sentence; as sentence) {
                 <p>{{ sentence }}</p>
@@ -2590,7 +2590,7 @@ export class MissionRailComponent {
 
         <article class="content-panel selected-detail">
           @if (selectedArbitrationCard(); as card) {
-            <span class="eyebrow">Detail arbitrage</span>
+            <span class="eyebrow">{{ i18n.t('mission.arbitration.detail_eyebrow') }}</span>
             <h2>{{ card.title }}</h2>
             <p>{{ card.summary }}</p>
             <dl class="arbitration-meta">
@@ -2610,9 +2610,9 @@ export class MissionRailComponent {
               </button>
             </div>
           } @else {
-            <span class="eyebrow">Detail arbitrage</span>
-            <h2>Selectionnez un sujet</h2>
-            <p>Choisissez une carte ci-dessus pour afficher le detail, l echeance et les options d arbitrage.</p>
+            <span class="eyebrow">{{ i18n.t('mission.arbitration.detail_eyebrow') }}</span>
+            <h2>{{ i18n.t('mission.arbitration.select_topic') }}</h2>
+            <p>{{ i18n.t('mission.arbitration.select_hint') }}</p>
           }
         </article>
 
@@ -2655,7 +2655,7 @@ export class MissionRailComponent {
 
         <aside class="content-panel draft-sidebar">
           @if (draft(); as draftValue) {
-            <span class="eyebrow">Brouillon de recommandation</span>
+            <span class="eyebrow">{{ i18n.t('mission.draft.eyebrow') }}</span>
             <h2>{{ draftValue.title }}</h2>
             <p>{{ draftValue.body }}</p>
             <dl>
@@ -2663,9 +2663,9 @@ export class MissionRailComponent {
               <div><dt>Statut</dt><dd>{{ draftValue.status }}</dd></div>
             </dl>
           } @else {
-            <span class="eyebrow">Brouillon de recommandation</span>
-            <h2>Aucun brouillon ouvert</h2>
-            <p>Generez un brouillon depuis une carte ou la comparaison Zone Nord.</p>
+            <span class="eyebrow">{{ i18n.t('mission.draft.eyebrow') }}</span>
+            <h2>{{ i18n.t('mission.draft.empty_title') }}</h2>
+            <p>{{ i18n.t('mission.draft.empty_hint') }}</p>
           }
         </aside>
 
@@ -2820,8 +2820,8 @@ export class MissionRailComponent {
       <section class="two-column">
         <article class="content-panel">
           <span class="eyebrow">{{ assistantName() }}</span>
-          <h2>Assistant transversal Chat / V2V</h2>
-          <p>L'assistant combine conversation, recherche sourcee et oracle de contexte pour preparer l'action.</p>
+          <h2>{{ i18n.t('mission.assistant.cross_title') }}</h2>
+          <p>{{ i18n.t('mission.assistant.cross_subtitle') }}</p>
           <button type="button" class="action-button wide" (click)="openAssistant()">
             <ck-glyph name="crosshair" [size]="15" />
             <span>Ouvrir {{ assistantName() }}</span>

@@ -910,9 +910,14 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
   itemOptions(item: MeetingAgendaItem): MeetingDecisionOption[] {
     if (item.options?.length) return item.options;
     return [
-      { id: 'A', label: 'Option A · statu quo', summary: 'Ne pas trancher maintenant, ré-arbitrer après collecte d\'éléments.' },
-      { id: 'B', label: 'Option B · arbitrage cabinet', summary: 'Décision cabinet avec recommandations et calendrier de mise en œuvre.', recommended: true },
-      { id: 'C', label: 'Option C · délégation', summary: 'Déléguer la décision opérationnelle au cabinet sectoriel.' },
+      { id: 'A', label: this.i18n.t('mission.meeting.option_a'), summary: this.i18n.t('mission.meeting.option_a_summary') },
+      {
+        id: 'B',
+        label: this.i18n.t('mission.meeting.option_b'),
+        summary: this.i18n.t('mission.meeting.option_b_summary'),
+        recommended: true,
+      },
+      { id: 'C', label: this.i18n.t('mission.meeting.option_c'), summary: this.i18n.t('mission.meeting.option_c_summary') },
     ];
   }
 
@@ -952,7 +957,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       agenda_item_ref: item.id || item.title,
       chosen_option: optionId,
       options_offered: options,
-      rationale: this.rationaleText.trim() || `Décision consultative option ${optionId}.`,
+      rationale: this.rationaleText.trim() || this.i18n.t('mission.meeting.rationale_default', { option: optionId }),
     };
     this.api
       .post<MeetingDecision>(`/meetings/${event.id}/decisions`, payload)
@@ -996,7 +1001,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
     if (!payload || !payload.event) {
       this.event.set({
         id: eventId,
-        title: 'Réunion (fallback)',
+        title: this.i18n.t('mission.meeting.fallback_title'),
         start_at: new Date().toISOString(),
         participants: ['Cabinet'],
         metadata: { agenda_items: [] },
@@ -1051,7 +1056,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       owner_proposer: 'Vice Premier Ministre',
       decision_required: true,
       source: 'vp',
-      source_label: 'Ajouté par Vice Premier Ministre (clic)',
+      source_label: this.i18n.t('mission.meeting.added_by_vp'),
     };
     this.api
       .post<{ pending_agenda_patch?: PendingAgendaPatch | null }>(

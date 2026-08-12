@@ -5,6 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
   WorkspaceDetail,
@@ -220,9 +221,9 @@ const FIELD =
                 <app-icon name="message-square" [size]="16" />
               </div>
               <div>
-                <h3 class="text-sm font-semibold text-white">Inline chat correction</h3>
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('workspace.expert_correction.title') }}</h3>
                 <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                  Shows the "Corriger / Compléter" action in chat for reviewers and admins, and enables the backend accept/publish path. Turn off to hide the CTA everywhere.
+                  {{ i18n.t('workspace.expert_correction.description') }}
                 </p>
               </div>
             </div>
@@ -392,6 +393,7 @@ const FIELD =
 })
 export class WorkspaceGeneralComponent {
   /** Screen copy names the product by its brand in this workspace. */
+  protected readonly i18n = inject(I18nService);
   protected readonly brand = inject(WorkspaceService).brandName;
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);

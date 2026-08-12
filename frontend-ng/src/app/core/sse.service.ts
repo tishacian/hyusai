@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { I18nService } from './i18n.service';
 import { WorkspaceService } from './workspace.service';
 import { WorkspaceFetchService } from './workspace-fetch.service';
 
@@ -28,6 +29,9 @@ export interface SseChunk {
 
 @Injectable({ providedIn: 'root' })
 export class SseService {
+  // Optional so the transport stays constructible in the isolated injectors
+  // the stream specs build; in the app the root provider is always there.
+  private readonly i18n = inject(I18nService, { optional: true });
   private readonly workspaceService = inject(WorkspaceService);
   private readonly workspaceFetch = inject(WorkspaceFetchService);
 
@@ -74,7 +78,7 @@ export class SseService {
         if (!subscriber.closed && !invalidated) {
           subscriber.next({
             chunk_type: 'error',
-            content: 'La réponse prend trop de temps. La session a été arrêtée proprement.',
+            content: this.i18n?.t('state.error.stream_timeout') ?? 'state.error.stream_timeout',
             is_final: true,
           });
         }

@@ -1036,7 +1036,7 @@ interface ProposalFact {
             <div>
               <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.prep.domain') }}</label>
               <div class="grid md:grid-cols-3 gap-3">
-                @for (domain of captureDomains; track domain.id) {
+                @for (domain of captureDomains(); track domain.id) {
                   <button
                     type="button"
                     [class]="selectedDomain === domain.id
@@ -1110,31 +1110,31 @@ interface ProposalFact {
                     </p>
                   </div>
                   @if (loadingKnowledgeCollections()) {
-                    <span class="text-[11px] text-gray-500">Chargement des collections...</span>
+                    <span class="text-[11px] text-gray-500">{{ i18n.t('capture.prep.collections_loading') }}</span>
                   }
                 </div>
 
                 <div class="grid md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] gap-3">
                   <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Collection</label>
+                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">{{ i18n.t('capture.prep.collection_label') }}</label>
                     <select
                       class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white disabled:opacity-50"
                       [disabled]="loadingKnowledgeCollections() || knowledgeCollections().length === 0"
                       [(ngModel)]="selectedKnowledgeCollection"
                       (ngModelChange)="onKnowledgeCollectionChange($event)"
                     >
-                      <option value="">Choisir une collection</option>
+                      <option value="">{{ i18n.t('capture.prep.collection_choose') }}</option>
                       @for (collection of knowledgeCollections(); track collection) {
                         <option [value]="collection">{{ collection }}</option>
                       }
                     </select>
                   </div>
                   <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Nom du contexte</label>
+                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">{{ i18n.t('capture.prep.context_name_label') }}</label>
                     <input
                       class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white"
                       [(ngModel)]="newContextName"
-                      placeholder="Contexte notices techniques"
+                      [placeholder]="i18n.t('capture.prep.context_name_placeholder')"
                     />
                   </div>
                 </div>
@@ -1159,7 +1159,7 @@ interface ProposalFact {
                 }
                 @if (!loadingKnowledgeCollections() && knowledgeCollections().length === 0) {
                   <p class="text-xs rounded border border-white/10 bg-white/5 px-3 py-2 text-gray-400">
-                    Aucune collection documentaire n’est disponible dans ce workspace pour l’instant.
+                    {{ i18n.t('capture.prep.no_collection') }}
                   </p>
                 }
               </div>
@@ -1466,7 +1466,7 @@ interface ProposalFact {
                 (ngModelChange)="refreshDashboard()"
               >
                 <option value="">{{ i18n.t('capture.dashboard.all_domains') }}</option>
-                @for (domain of captureDomains; track domain.id) {
+                @for (domain of captureDomains(); track domain.id) {
                   <option [value]="domain.id">{{ domain.label }}</option>
                 }
               </select>
@@ -1662,7 +1662,7 @@ interface ProposalFact {
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center text-gray-500">
-                  Aucun rapport en attente de relecture.
+                  {{ i18n.t('capture.dashboard.no_report_to_review') }}
                 </div>
               }
             </div>
@@ -1724,15 +1724,15 @@ interface ProposalFact {
             @if (showClosurePanel(s)) {
               <section class="t-card rounded-lg border border-amber-400/30 bg-amber-500/10 p-5 space-y-4">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Fin de session</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">{{ i18n.t('capture.session.end_eyebrow') }}</p>
                   <h3 class="text-lg font-semibold text-white mt-1">{{ i18n.t('capture.session.planned_duration_reached') }}</h3>
                   <p class="text-sm text-gray-300 mt-1">
-                    Continuez vers le rapport, prolongez de 15 minutes ou replanifiez une session — sans interruption vocale.
+                    {{ i18n.t('capture.session.end_hint') }}
                   </p>
                 </div>
                 @if (closureSheetMarkdown(); as sheet) {
                   <details class="rounded border border-white/10 bg-black/20 p-3" open>
-                    <summary class="cursor-pointer text-sm text-gray-200">Fiche fin de session</summary>
+                    <summary class="cursor-pointer text-sm text-gray-200">{{ i18n.t('capture.review.end_sheet') }}</summary>
                     <pre class="mt-3 whitespace-pre-wrap text-xs text-gray-400 max-h-56 overflow-auto">{{ sheet }}</pre>
                   </details>
                 }
@@ -2020,7 +2020,7 @@ interface ProposalFact {
                         <button
                           type="button"
                           class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-gray-200 hover:bg-white/5"
-                          title="Ignorer cette suggestion (elle n’interrompt jamais)."
+                          [title]="i18n.t('capture.suggestion.dismiss_title')"
                           (click)="dismissSuggestion(sug.id)"
                         >
                           <app-icon name="x" [size]="12" />
@@ -2425,7 +2425,7 @@ interface ProposalFact {
                     </span>
                   </div>
                   <div class="mt-3 flex gap-1">
-                    @for (tab of qualityTabs; track tab.id) {
+                    @for (tab of qualityTabs(); track tab.id) {
                       <button
                         type="button"
                         [class]="qualityTab() === tab.id
@@ -2637,7 +2637,7 @@ interface ProposalFact {
               <div class="grid md:grid-cols-3 gap-3 text-sm">
                 @if (isTopicOnlyPlan(s)) {
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Sous-sujets</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.subtopics') }}</div>
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -2652,7 +2652,7 @@ interface ProposalFact {
                   </div>
                 } @else {
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Sous-sujets</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.subtopics') }}</div>
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -2738,14 +2738,14 @@ interface ProposalFact {
                         <p class="mt-2 text-xs text-gray-500">{{ outlineItemPrompt(topic) || topic.objective || i18n.t('capture.plan.topic_placeholder') }}</p>
                       </div>
                       <span class="rounded bg-brand-500/10 text-brand-100 border border-brand-300/20 px-2 py-1 text-xs">
-                        {{ (topic.subtopics || []).length }} sous-sujets
+                        {{ i18n.t('capture.plan.subtopics_count', { count: (topic.subtopics || []).length }) }}
                       </span>
                     </div>
 
                     @for (subtopic of topic.subtopics || []; track subtopic.id) {
                       <div class="rounded border border-white/10 bg-black/15 p-3 space-y-3">
                         <div>
-                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Sous-sujet</p>
+                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.subtopic_label') }}</p>
                           <input
                             class="mt-1 w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-sm font-semibold text-gray-100 disabled:opacity-70"
                             [(ngModel)]="subtopic.title"
@@ -2857,7 +2857,7 @@ interface ProposalFact {
                             [disabled]="!canEditPlan(s)"
                             (click)="addQuestion(s, topic, subtopic)"
                           >
-                            <app-icon name="plus" [size]="13" /> Ajouter une question
+                            <app-icon name="plus" [size]="13" /> {{ i18n.t('capture.plan.add_question') }}
                           </button>
                         }
                       </div>
@@ -2980,8 +2980,8 @@ interface ProposalFact {
           @if (planSourceStep()) {
             <section class="max-w-5xl mx-auto py-8 space-y-7">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Source du plan</p>
-                <h2 class="mt-2 text-3xl text-white font-semibold">Donner le texte source</h2>
+                <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">{{ i18n.t('capture.plan.source_title') }}</p>
+                <h2 class="mt-2 text-3xl text-white font-semibold">{{ i18n.t('capture.plan.source_heading') }}</h2>
                 <p class="mt-2 text-sm text-gray-400 max-w-3xl">
                   {{ i18n.t('capture.plan.source_text_hint') }}
                 </p>
@@ -3072,7 +3072,7 @@ interface ProposalFact {
                 ></textarea>
                 </div>
                 @if (!providedPlanText.trim()) {
-                  <p class="text-xs text-amber-200/90">Ajoutez un texte source pour construire le plan.</p>
+                  <p class="text-xs text-amber-200/90">{{ i18n.t('capture.plan.source_add_hint') }}</p>
                 }
               </section>
 
@@ -3127,7 +3127,7 @@ interface ProposalFact {
                   @if (isProvidedPlanSession(s)) {
                     {{ i18n.t('capture.plan.adjust_imported') }}
                   } @else {
-                    Modifiez l’arborescence, puis continuez vers la capture.
+                    {{ i18n.t('capture.plan.edit_outline_hint') }}
                   }
                 </p>
               </div>
@@ -3140,7 +3140,7 @@ interface ProposalFact {
                 <section class="rounded border border-brand-300/25 bg-brand-500/10 p-4 space-y-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div class="min-w-0">
-                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">Source du plan · {{ source.kindLabel }}</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">{{ i18n.t('capture.plan.source_title') }} · {{ source.kindLabel }}</p>
                       <h3 class="mt-1 truncate text-sm font-semibold text-white">{{ source.title }}</h3>
                       <p class="mt-1 text-xs text-gray-400">{{ source.stats }}</p>
                     </div>
@@ -3233,7 +3233,7 @@ interface ProposalFact {
                     [ngModel]="planDialogueAnswer()"
                     (ngModelChange)="planDialogueAnswer.set($event)"
                     [disabled]="planDialogueLoading()"
-                    placeholder="Ajoutez un point, fusionnez deux sections, simplifiez les titres..."
+                    [placeholder]="i18n.t('capture.plan.dialogue_placeholder')"
                   ></textarea>
                   <button
                     type="button"
@@ -3278,7 +3278,7 @@ interface ProposalFact {
                 <button
                   type="button"
                   class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
-                  title="Applique votre instruction au plan courant."
+                  [title]="i18n.t('capture.plan.dialogue_apply_title')"
                   [disabled]="planDialogueLoading()"
                   (click)="submitPlanDialogueTurn(s)"
                 >
@@ -3911,7 +3911,7 @@ interface ProposalFact {
                       class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                       [(ngModel)]="publicationCategory"
                     >
-                      @for (option of publicationCategoryOptions; track option.id) {
+                      @for (option of publicationCategoryOptions(); track option.id) {
                         <option [value]="option.id">{{ option.label }}</option>
                       }
                     </select>
@@ -4159,8 +4159,8 @@ interface ProposalFact {
       <div class="fixed inset-0 z-[75] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
         <section class="w-full max-w-lg rounded-lg bg-gray-950 ring-1 ring-white/10 shadow-2xl p-6 space-y-5">
           <div>
-            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Terminer la capture</p>
-            <h2 class="mt-0.5 text-base font-semibold text-white">Que partager en entier dans la base ?</h2>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">{{ i18n.t('capture.fil.finish') }}</p>
+            <h2 class="mt-0.5 text-base font-semibold text-white">{{ i18n.t('capture.triage.share_question') }}</h2>
             <p class="mt-1 text-xs text-gray-500">{{ i18n.t('capture.triage.views_logged') }}</p>
           </div>
           <div class="space-y-2 max-h-72 overflow-auto">
@@ -4422,7 +4422,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   objective = '';
   sessionTitle = '';
-  expertProfile = 'Expert métier';
+  expertProfile = this.i18n.t('capture.prep.expert_default');
   durationMinutes = 20;
   contextId = '';
   systemId = '';
@@ -4465,23 +4465,35 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private readonly liveSectionDetectMinConfidence = 0.42;
   private readonly manualSectionOverrideCooldownMs = 60_000;
   readonly questionBankStatus = signal<string>('idle');
-  readonly qualityTabs = [
-    { id: 'imprecisions' as QualityTab, label: 'Imprécisions' },
-    { id: 'open_questions' as QualityTab, label: 'Questions' },
-  ];
-  readonly captureDomains = [
-    { id: 'technical', label: 'Technique', description: 'Ingénierie, procédés, machines' },
-    { id: 'commercial', label: 'Commercial', description: 'Marchés, comptes, affaires' },
-    { id: 'innovation', label: 'Innovation', description: 'R&D, prototypes, exploration' },
-  ];
-  readonly publicationCategoryOptions = [
-    { id: 'technical', label: 'Technique' },
-    { id: 'commercial', label: 'Commercial' },
-    { id: 'innovation', label: 'Innovation' },
-    { id: 'maintenance', label: 'Maintenance' },
-    { id: 'operation', label: 'Opération' },
-    { id: 'other', label: 'Autre' },
-  ];
+  readonly qualityTabs = computed(() => [
+    { id: 'imprecisions' as QualityTab, label: this.i18n.t('capture.quality.tab_imprecisions') },
+    { id: 'open_questions' as QualityTab, label: this.i18n.t('capture.quality.tab_questions') },
+  ]);
+  readonly captureDomains = computed(() => [
+    {
+      id: 'technical',
+      label: this.i18n.t('capture.domain.technical'),
+      description: this.i18n.t('capture.domain.technical_hint'),
+    },
+    {
+      id: 'commercial',
+      label: this.i18n.t('capture.domain.commercial'),
+      description: this.i18n.t('capture.domain.commercial_hint'),
+    },
+    {
+      id: 'innovation',
+      label: this.i18n.t('capture.domain.innovation'),
+      description: this.i18n.t('capture.domain.innovation_hint'),
+    },
+  ]);
+  readonly publicationCategoryOptions = computed(() => [
+    { id: 'technical', label: this.i18n.t('capture.category.technical') },
+    { id: 'commercial', label: this.i18n.t('capture.category.commercial') },
+    { id: 'innovation', label: this.i18n.t('capture.category.innovation') },
+    { id: 'maintenance', label: this.i18n.t('capture.category.maintenance') },
+    { id: 'operation', label: this.i18n.t('capture.category.operation') },
+    { id: 'other', label: this.i18n.t('capture.category.other') },
+  ]);
   readonly visiblePlanModes = computed(() => {
     const modes: Array<{
       id: CapturePlanMode;
@@ -4513,29 +4525,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const hidePlan = session ? this.isFreeConversationSession(session) : false;
     return this.surfaceNav.filter((item) => item.id !== 'plan' || !hidePlan);
   });
-  readonly modelSteps = [
-    {
-      eyebrow: 'Capacité',
-      label: 'Capture de connaissances',
-      description: 'La fonction métier : préserver le raisonnement expert et la connaissance tacite.',
-    },
-    {
-      eyebrow: 'Échange',
-      label: 'Session guidée',
-      description: 'Exécute un plan avec voix, évaluation et structuration.',
-    },
-    {
-      eyebrow: 'Contexte',
-      label: 'Périmètre documentaire',
-      description: 'Sélectionne collections, accès et contraintes pour l’entretien.',
-    },
-    {
-      eyebrow: 'Publication',
-      label: 'Rapport relu',
-      description: 'Reçoit les rapports validés après relecture.',
-    },
-  ];
-
   readonly loading = signal(false);
   readonly savingPlan = signal(false);
   readonly planNotice = signal<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -4891,14 +4880,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   startNewSessionDraft(): void {
     if (!this.canCaptureCreate()) {
-      this.setVoiceNotice('Votre rôle ne permet pas de créer une session de capture dans ce workspace.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_create'), 'error');
       return;
     }
     this.resetCurrentCaptureSessionState();
     this.sessionTitle = '';
     this.objective = '';
     this.answer = '';
-    this.expertProfile = 'Expert métier';
+    this.expertProfile = this.i18n.t('capture.prep.expert_default');
     this.durationMinutes = 20;
     this.durationUnlimited.set(false);
     this.selectedDomain = 'technical';
@@ -4923,7 +4912,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   continueFromPreparation(): void {
     if (this.loading()) return;
     if (!this.canCaptureCreate()) {
-      this.setVoiceNotice('Votre rôle ne permet pas de créer une session de capture dans ce workspace.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_create'), 'error');
       return;
     }
     if (!this.sessionTitle.trim()) {
@@ -4941,8 +4930,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   preparationBlockingHint(): string | null {
-    if (!this.sessionTitle.trim()) return 'Renseignez un titre de session pour continuer.';
-    if (!this.canCaptureCreate()) return 'Votre rôle ne permet pas de créer une session de capture dans ce workspace.';
+    if (!this.sessionTitle.trim()) return this.i18n.t('capture.prep.title_required');
+    if (!this.canCaptureCreate()) return this.i18n.t('capture.role.cannot_create');
     return null;
   }
 
@@ -5004,16 +4993,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   createPlan(): void {
     if (!this.canCaptureCreate()) {
-      this.voiceNotice.set('Votre rôle ne permet pas de créer une session de capture dans ce workspace.');
+      this.voiceNotice.set(this.i18n.t('capture.role.cannot_create'));
       return;
     }
     const title = this.sessionTitle.trim();
     if (!title) {
-      this.setVoiceNotice('Renseignez un titre de session avant de continuer.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.prep.title_required'), 'warning');
       return;
     }
     if (this.selectedPlanMode === 'provided_plan' && !this.canSubmitProvidedPlanSource()) {
-      this.setVoiceNotice('Ajoutez un texte source pour construire le plan.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.plan.source_required'), 'warning');
       this.planSourceStep.set(true);
       return;
     }
@@ -5063,7 +5052,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.loading.set(false);
-          this.setVoiceNotice('Préparation de session impossible. Vérifiez le backend, puis réessayez.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.prep.failed'), 'error');
         },
       });
   }
@@ -5124,34 +5113,35 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   providedPlanSourceLabel(): string {
     if (this.providedPlanFileName) return this.providedPlanFileName;
     if (this.providedPlanText.trim()) {
-      return 'Texte source';
+      return this.i18n.t('capture.plan.source_text');
     }
-    return 'Aucune source active';
+    return this.i18n.t('capture.plan.source_none');
   }
 
   providedPlanSourceKindLabel(kind: CapturePlanSourceKind = this.providedPlanSourceKind): string {
-    switch (kind) {
-      case 'uploaded_file':
-        return 'Fichier source';
-      case 'conversation':
-        return 'Texte source';
-      case 'pasted_text':
-        return 'Texte source';
-      default:
-        return 'Texte source';
-    }
+    return this.i18n.t(kind === 'uploaded_file' ? 'capture.plan.source_file' : 'capture.plan.source_text');
   }
 
   providedPlanSourceStats(): string {
     const text = this.providedPlanText.trim();
-    if (!text) return this.providedPlanFileName ? 'Extraction en attente' : 'Aucun contenu';
+    if (!text) {
+      return this.i18n.t(this.providedPlanFileName ? 'capture.plan.source_pending' : 'capture.plan.source_empty');
+    }
     const lines = text.split(/\r?\n/).filter((line) => line.trim()).length;
-    return `${text.length.toLocaleString('fr-FR')} caractères · ${lines.toLocaleString('fr-FR')} ligne(s)`;
+    return this.i18n.t('capture.plan.source_stats', {
+      chars: this.formatCount(text.length),
+      lines: this.formatCount(lines),
+    });
+  }
+
+  /** Group-separated count in the active locale, for inline stats. */
+  private formatCount(value: number): string {
+    return value.toLocaleString(this.i18n.locale());
   }
 
   providedPlanSourcePreview(): string {
     const text = this.providedPlanText.replace(/\s+/g, ' ').trim();
-    if (!text) return 'L’interprétation extraite apparaîtra ici avant création du plan.';
+    if (!text) return this.i18n.t('capture.plan.source_preview_empty');
     return text.length > 260 ? `${text.slice(0, 260)}…` : text;
   }
 
@@ -5164,14 +5154,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const lineCount = Number(source['line_count'] || 0);
     const outline = this.planSourceExtractedOutline(source['extracted_outline']);
     const stats = [
-      chars > 0 ? `${chars.toLocaleString('fr-FR')} caractères` : null,
-      lineCount > 0 ? `${lineCount.toLocaleString('fr-FR')} ligne(s)` : null,
-      outline.length ? `${outline.length.toLocaleString('fr-FR')} rubrique(s)` : null,
+      chars > 0 ? this.i18n.t('capture.plan.source_chars', { count: this.formatCount(chars) }) : null,
+      lineCount > 0 ? this.i18n.t('capture.plan.source_lines', { count: this.formatCount(lineCount) }) : null,
+      outline.length
+        ? this.i18n.t('capture.plan.source_topics', { count: this.formatCount(outline.length) })
+        : null,
     ].filter(Boolean).join(' · ');
     return {
       kindLabel: this.providedPlanSourceKindLabel(kind),
       title: filename || this.providedPlanSourceKindLabel(kind),
-      stats: stats || 'Source enregistrée',
+      stats: stats || this.i18n.t('capture.plan.source_saved'),
       extractedOutline: outline.slice(0, 8),
       replacedExistingPlan: source['replaces_existing_plan'] === true,
     };
@@ -5302,20 +5294,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   knowledgeScopeLabel(): string {
     if (this.isPilotMode()) {
-      return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Base workspace';
+      return (
+        this.selectedContext()?.environment_state?.collection ||
+        this.selectedContext()?.name ||
+        this.i18n.t('capture.prep.scope_workspace_base')
+      );
     }
-    return this.selectedContext()?.name || 'Sources workspace';
+    return this.selectedContext()?.name || this.i18n.t('capture.prep.workspace_default_sources');
   }
 
   async startGuidedSession(session: CaptureSession): Promise<void> {
     if (this.loading()) return;
     this.clearCaptureTranscriptState();
     if (!this.canCaptureExecute(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas de démarrer cette session de capture.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_start'), 'error');
       return;
     }
     if (!this.canStartSessionPlan(session)) {
-      this.planNotice.set({ tone: 'error', text: 'Ajoutez au moins une question ou passez en capture libre avant de démarrer.' });
+      this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.question_required') });
       this.activeSurface.set('plan');
       return;
     }
@@ -5339,7 +5335,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     let armed = true;
     if (conversationOnly) {
       this.conversationSessionActive.set(true);
-      this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.mic_preparing'), 'info');
       armed = await this.ensureAudioStream();
       if (!armed) {
         this.conversationSessionActive.set(false);
@@ -5347,7 +5343,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.conversationMode.set('manual');
         this.textFallbackActive.set(true);
         conversationOnly = false;
-        this.setVoiceNotice('Micro indisponible : la session démarre en saisie guidée, sans bloquer le parcours.', 'warning');
+        this.setVoiceNotice(this.i18n.t('capture.voice.mic_unavailable_start'), 'warning');
       } else {
         this.textFallbackActive.set(false);
       }
@@ -5385,7 +5381,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               })
               .catch((error: unknown) => {
                 if (!(error instanceof WorkspaceChangedDuringTransportError)) {
-                  this.setVoiceNotice('Connexion vocale impossible.', 'error');
+                  this.setVoiceNotice(this.i18n.t('capture.voice.connection_failed'), 'error');
                 }
               });
           }
@@ -5394,7 +5390,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           if (conversationOnly) {
             this.stopConversationSession();
           }
-          this.setVoiceNotice('Démarrage de session impossible. Vérifiez le backend, puis réessayez.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.session.start_failed'), 'error');
           this.loading.set(false);
         },
       });
@@ -5437,8 +5433,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .join('\n');
     this.session.set(null);
     this.proposal.set(null);
-    this.providedPlanText = seed ? `# Points à clarifier\n${seed}` : '';
-    this.sessionTitle = current?.title ? `${current.title} — clarification` : 'Clarification expert';
+    this.providedPlanText = seed ? this.i18n.t('capture.clarify.plan_seed', { items: seed }) : '';
+    this.sessionTitle = current?.title
+      ? this.i18n.t('capture.clarify.session_title_from', { title: current.title })
+      : this.i18n.t('capture.clarify.session_title');
     this.objective = current?.objective || this.objective;
     this.selectedPlanMode = seed ? 'provided_plan' : 'free_conversation';
     this.activeSurface.set('prep');
@@ -5569,7 +5567,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           const match = sessions.find((session) => session.id === row.capture_session_id);
           this.loading.set(false);
           if (!match) {
-            this.setVoiceNotice('Session source introuvable ou non accessible.', 'warning');
+            this.setVoiceNotice(this.i18n.t('capture.dashboard.source_session_missing'), 'warning');
             return;
           }
           this.dashboardTab.set('sessions');
@@ -5577,7 +5575,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.loading.set(false);
-          this.setVoiceNotice('Impossible d’ouvrir la session source.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.source_session_failed'), 'error');
         },
       });
   }
@@ -5643,7 +5641,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       metadata['publication_category_suggested'] ||
       'technical',
     );
-    this.publicationCategory = this.publicationCategoryOptions.some((option) => option.id === category)
+    this.publicationCategory = this.publicationCategoryOptions().some((option) => option.id === category)
       ? category
       : 'other';
     this.publicationDestination = String(
@@ -5721,12 +5719,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           if (this.session()?.id === row.id) {
             this.session.set(null);
           }
-          this.setVoiceNotice(`Session « ${row.title} » archivée.`, 'info');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.archived_ok', { title: row.title }), 'info');
           this.refreshDashboard();
         },
         error: () => {
           this.sessionActionLoading.set(null);
-          this.setVoiceNotice('Archivage impossible pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.archive_error'), 'error');
         },
       });
   }
@@ -5741,12 +5739,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .subscribe({
         next: () => {
           this.sessionActionLoading.set(null);
-          this.setVoiceNotice(`Session « ${row.title} » restaurée.`, 'info');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.restored_ok', { title: row.title }), 'info');
           this.refreshDashboard();
         },
         error: () => {
           this.sessionActionLoading.set(null);
-          this.setVoiceNotice('Restauration impossible pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.unarchive_error'), 'error');
         },
       });
   }
@@ -5776,12 +5774,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.session.set(null);
             this.setProposal(null);
           }
-          this.setVoiceNotice(`Session « ${row.title} » supprimée.`, 'info');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.deleted_ok', { title: row.title }), 'info');
           this.refreshDashboard();
         },
         error: () => {
           this.sessionActionLoading.set(null);
-          this.setVoiceNotice('Suppression impossible pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.dashboard.delete_failed'), 'error');
         },
       });
   }
@@ -5943,11 +5941,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   proposalReviewHint(proposal?: CaptureProposal | null): string | null {
-    if (!this.proposalReportText()) return 'Ajoutez ou générez un rapport avant validation.';
+    if (!this.proposalReportText()) return this.i18n.t('capture.review.report_required');
     if (proposal?.status === 'accepted') return null;
-    if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer le rapport, mais pas le valider.';
+    if (!this.canProposalReview(proposal)) return this.i18n.t('capture.role.can_prepare_not_validate');
     if (this.proposalEvidenceCount() === 0) {
-      return 'Aucune preuve documentaire attachée : validation possible, mais à traiter comme connaissance expert non sourcée.';
+      return this.i18n.t('capture.review.no_evidence_hint');
     }
     return null;
   }
@@ -5992,11 +5990,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   publicationCategoryLabel(): string {
-    return this.publicationCategoryOptions.find((option) => option.id === this.publicationCategory)?.label || 'Autre';
+    return (
+      this.publicationCategoryOptions().find((option) => option.id === this.publicationCategory)?.label ||
+      this.i18n.t('capture.category.other')
+    );
   }
 
   publicationDestinationLabel(): string {
-    return this.publicationDestinationSuggestion() || 'Destination à renseigner';
+    return this.publicationDestinationSuggestion() || this.i18n.t('capture.publish.destination_todo');
   }
 
   effectivePublicationDestination(): string {
@@ -6101,9 +6102,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   iamRoleBanner(): string | null {
     if (!this.permissions.matrix()) return null;
-    if (this.permissions.isReviewerOrAdmin()) return `IAM : ${this.permissions.roleLabel()} peut relire les rapports du workspace.`;
-    if (this.canCaptureCreate()) return `IAM : ${this.permissions.roleLabel()} peut capturer ses propres sessions.`;
-    return `IAM : ${this.permissions.roleLabel()} dispose d’un accès limité à la capture.`;
+    const role = this.permissions.roleLabel();
+    if (this.permissions.isReviewerOrAdmin()) return this.i18n.t('capture.access.reviewer', { role });
+    if (this.canCaptureCreate()) return this.i18n.t('capture.access.author', { role });
+    return this.i18n.t('capture.access.limited', { role });
   }
 
   selectedContext(): ContextOption | null {
@@ -6154,7 +6156,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.newContextId.set(ctx.id);
           this.contextCreationNotice.set({
             tone: 'success',
-            text: `Le contexte "${ctx.name}" est maintenant rattaché à ${collection}.`,
+            text: this.i18n.t('capture.prep.context_created', { name: ctx.name, collection }),
           });
           this.lastSuggestedContextName = ctx.name;
           this.creatingContext.set(false);
@@ -6162,7 +6164,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         error: () => {
           this.contextCreationNotice.set({
             tone: 'error',
-            text: 'Création du contexte impossible. Vérifiez l’accès workspace, puis réessayez.',
+            text: this.i18n.t('capture.prep.context_failed'),
           });
           this.creatingContext.set(false);
         },
@@ -6197,7 +6199,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.knowledgeCollections.set([]);
           this.contextCreationNotice.set({
             tone: 'error',
-            text: 'Les collections documentaires n’ont pas pu être chargées.',
+            text: this.i18n.t('capture.prep.collections_failed'),
           });
           this.loadingKnowledgeCollections.set(false);
         },
@@ -6274,24 +6276,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     const title = this.sessionTitle.trim();
     if (title) {
-      return `Capturer les savoirs métier et retours d’expérience liés à : ${title}.`;
+      return this.i18n.t('capture.prep.objective', { title });
     }
     return this.defaultBusinessObjective();
   }
 
   private defaultBusinessObjective(): string {
-    const expert = this.expertProfile.trim() || 'expert métier';
-    return (
-      `Capturer les décisions métier, exceptions terrain et critères de validation ` +
-      `de l’expert (${expert}) au regard de ${this.knowledgeTargetPhrase()}.`
-    );
+    return this.i18n.t('capture.prep.objective_default', {
+      expert: this.expertProfile.trim() || this.i18n.t('capture.prep.expert_default_lower'),
+      target: this.knowledgeTargetPhrase(),
+    });
   }
 
   private businessDecisionQuestion(): string {
-    return (
-      `Au regard de ${this.knowledgeTargetPhrase()}, quelle décision métier ou terrain ` +
-      'reste difficile à retrouver dans la documentation, et comment l’expert la prend-il en pratique ?'
-    );
+    return this.i18n.t('capture.prep.decision_question', { target: this.knowledgeTargetPhrase() });
   }
 
   private knowledgeTargetPhrase(): string {
@@ -6301,9 +6299,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.contexts().find((item) => item.id === sessionContextId) ||
       null;
     const target = ctx?.environment_state?.collection || ctx?.name || '';
-    return target ? `la base de connaissances « ${target} »` : 'la base de connaissances connectée';
+    return target
+      ? this.i18n.t('capture.prep.target_named', { target })
+      : this.i18n.t('capture.prep.target_connected');
   }
 
+  /**
+   * The two French fragments below are needles matched against a prompt the
+   * backend generated, never strings this screen renders. They stay literal
+   * for the same reason an anonymisation table does: translating a needle
+   * stops it matching.
+   */
   private isRuntimeCapturePrompt(text: string): boolean {
     const lower = text.toLowerCase();
     return (
@@ -6361,7 +6367,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const text = this.answer.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_update'), 'error');
       return;
     }
     const documentFields = this.activeCaptureDocumentFields();
@@ -6413,7 +6419,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const text = this.answer.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_update'), 'error');
       return;
     }
     if (this.conversationMode() === 'manual' || this.textFallbackActive()) {
@@ -6446,7 +6452,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.refreshEvents(typed.session.id);
         },
         error: () => {
-          this.setVoiceNotice('Impossible d’enregistrer cette expression écrite.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.composer.save_failed'), 'error');
         },
       });
   }
@@ -6460,15 +6466,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   captureComposerPlaceholder(_session: CaptureSession): string {
     if (this.conversationMode() === 'manual' || this.textFallbackActive()) {
-      return 'Saisir ou corriger la réponse expert avant évaluation…';
+      return this.i18n.t('capture.composer.placeholder_manual');
     }
-    return 'Écrire ou parler… (Entrée pour envoyer, Maj+Entrée pour un retour à la ligne)';
+    return this.i18n.t('capture.composer.placeholder_voice');
   }
 
   captureComposerSendHint(_session: CaptureSession): string {
     return this.conversationMode() === 'manual' || this.textFallbackActive()
-      ? 'Envoyer la réponse pour évaluation.'
-      : 'Enregistrer cette expression écrite comme un tour de capture.';
+      ? this.i18n.t('capture.composer.send_hint_manual')
+      : this.i18n.t('capture.composer.send_hint_voice');
   }
 
   textEvents(): CaptureEvent[] {
@@ -6906,15 +6912,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   suggestionKindLabel(kind: string): string {
     switch (kind) {
       case 'topic_close':
-        return 'Sujet bientôt couvert';
+        return this.i18n.t('capture.suggestion.topic_close');
       case 'gap_question':
-        return 'Angle peu abordé';
+        return this.i18n.t('capture.suggestion.gap_question');
       case 'contradiction':
-        return 'Possible contradiction';
+        return this.i18n.t('capture.suggestion.contradiction');
       case 'relance':
-        return 'Relance';
+        return this.i18n.t('capture.suggestion.relance');
       default:
-        return 'Suggestion';
+        return this.i18n.t('capture.suggestion.other');
     }
   }
 
@@ -6935,9 +6941,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   oracleQuestionPriorityLabel(question: OracleOpenQuestion): string | null {
     const priority = question.priority;
     if (priority == null || Number.isNaN(priority)) return null;
-    if (priority >= 0.66 || priority >= 3) return 'Priorité haute';
-    if (priority >= 0.33 || priority >= 2) return 'Priorité moyenne';
-    return 'Priorité basse';
+    if (priority >= 0.66 || priority >= 3) return this.i18n.t('capture.priority.high');
+    if (priority >= 0.33 || priority >= 2) return this.i18n.t('capture.priority.medium');
+    return this.i18n.t('capture.priority.low');
   }
 
   oracleQuestionPriorityClass(question: OracleOpenQuestion): string {
@@ -7068,10 +7074,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   relanceAnnotationLabel(kind: RelanceKind): string {
-    if (kind === 'topic_close') return 'IA · transition';
-    if (kind === 'gap_question') return 'IA · précision';
-    if (kind === 'contradiction') return 'IA · à vérifier';
-    return 'IA';
+    if (kind === 'topic_close') return this.i18n.t('capture.relance.transition');
+    if (kind === 'gap_question') return this.i18n.t('capture.relance.precision');
+    if (kind === 'contradiction') return this.i18n.t('capture.relance.to_verify');
+    return this.i18n.t('capture.relance.ai');
   }
 
   refreshEvents(sessionId: string): void {
@@ -7149,7 +7155,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       for (const topic of plan.topics) {
         const subtopics = topic.subtopics || [];
         if (!subtopics.length) {
-          const prompt = this.outlineItemPrompt(topic) || `Présentez ce que vous savez sur ${topic.title}.`;
+          const prompt = this.outlineItemPrompt(topic) || this.i18n.t('capture.plan.present_prompt', { title: topic.title });
           questions.push({
             id: `${topic.id}-present`,
             question: prompt,
@@ -7163,7 +7169,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         }
         const topicIsOutline = !subtopics.some((subtopic) => (subtopic.questions || []).length);
         if (topicIsOutline) {
-          const prompt = this.outlineItemPrompt(topic) || `Présentez ce que vous savez sur ${topic.title}.`;
+          const prompt = this.outlineItemPrompt(topic) || this.i18n.t('capture.plan.present_prompt', { title: topic.title });
           questions.push({
             id: `${topic.id}-overview`,
             question: prompt,
@@ -7187,7 +7193,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               })),
             );
           } else if (topicIsOutline) {
-            const prompt = this.outlineItemPrompt(subtopic) || `Présentez ce que vous savez sur ${subtopic.title}.`;
+            const prompt = this.outlineItemPrompt(subtopic) || this.i18n.t('capture.plan.present_prompt', { title: subtopic.title });
             questions.push({
               id: `${subtopic.id}-present`,
               question: prompt,
@@ -7438,7 +7444,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       previousLevel = level;
       const marker = this.planOutlineMarker(line);
       const strippedBody = this.stripPlanOutlineMarker(line.trim());
-      const body = strippedBody || (marker ? '' : 'Point à préciser');
+      const body = strippedBody || (marker ? '' : this.i18n.t('capture.plan.point_to_clarify'));
       return `${'   '.repeat(level)}${counters.slice(0, level + 1).join('.')}. ${body}`;
     });
   }
@@ -7504,7 +7510,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const fallback = fallbackTopics[index];
       const topic: CaptureTopic = {
         id: fallback?.id || `t-${String(index + 1).padStart(2, '0')}`,
-        title: title.trim() || `Sujet ${index + 1}`,
+        title: title.trim() || this.i18n.t('capture.plan.topic_default', { index: index + 1 }),
         objective: '',
         status: fallback?.status,
         knowledge_refs: fallback?.knowledge_refs || [],
@@ -7520,7 +7526,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const fallback = fallbackTopics[topics.length - 1]?.subtopics?.[subtopics.length];
       subtopics.push({
         id: fallback?.id || `${topic.id}-sub-${String(subtopics.length + 1).padStart(2, '0')}`,
-        title: title.trim() || `Sous-sujet ${subtopics.length + 1}`,
+        title: title.trim() || this.i18n.t('capture.plan.subtopic_default', { index: subtopics.length + 1 }),
         objective: '',
         status: fallback?.status || 'pending',
       });
@@ -7611,15 +7617,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         !this.sessionHasStarted(session) &&
         (session.plan.question_bank_status || this.questionBankStatus()) === 'generating'
       ) {
-        return 'Préparation des angles d’exploration en arrière-plan — vous pouvez démarrer dès maintenant.';
+        return this.i18n.t('capture.plan.angles_preparing');
       }
       return null;
     }
-    if (!this.canCaptureExecute(session)) return 'Votre rôle ne permet pas de démarrer cette session.';
+    if (!this.canCaptureExecute(session)) return this.i18n.t('capture.role.cannot_start_short');
     if (this.isTopicOnlyPlan(session)) {
-      return 'Ajoutez au moins une rubrique au plan avant de démarrer.';
+      return this.i18n.t('capture.plan.topic_required');
     }
-    return 'Ajoutez au moins un point exploitable avant de démarrer.';
+    return this.i18n.t('capture.plan.point_required');
   }
 
   isTopicPlan(session: CaptureSession): boolean {
@@ -7735,10 +7741,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   questionBankStatusLabel(session: CaptureSession): string {
     const status = String(session.plan.question_bank_status || this.questionBankStatus());
-    if (status === 'generating') return 'Angles de relance en préparation';
-    if (status === 'ready') return 'Banque prête';
-    if ((session.plan.review?.status || '') === 'topics_validated') return 'Prêt pour l’échange';
-    return 'En attente de validation du plan';
+    if (status === 'generating') return this.i18n.t('capture.plan.bank_generating');
+    if (status === 'ready') return this.i18n.t('capture.plan.bank_ready');
+    if ((session.plan.review?.status || '') === 'topics_validated') {
+      return this.i18n.t('capture.plan.ready_exchange');
+    }
+    return this.i18n.t('capture.plan.awaiting_validation');
   }
 
   topHint(): CaptureHint | null {
@@ -7836,12 +7844,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const dialogue = (session.plan['dialogue'] as { turns?: unknown[]; ready_to_finalize?: boolean }) || {};
     const turns = dialogue.turns?.length || 0;
     const prompts = [
-      'Collez ou dictez le plan exact à respecter, avec vos numéros et indentations si vous en avez.',
-      'Modifiez directement les rubriques à garder, ajouter ou retirer. Je conserve vos intitulés.',
-      'Ajoutez seulement les sous-parties ou exceptions que vous voulez voir dans le plan.',
-      'Dernière vérification : le bloc texte ci-contre est le plan qui sera utilisé.',
+      this.i18n.t('capture.plan.dialogue_prompt_1'),
+      this.i18n.t('capture.plan.dialogue_prompt_2'),
+      this.i18n.t('capture.plan.dialogue_prompt_3'),
+      this.i18n.t('capture.plan.dialogue_prompt_4'),
     ];
-    if (dialogue.ready_to_finalize) return 'Vous pouvez valider le plan quand il vous convient.';
+    if (dialogue.ready_to_finalize) return this.i18n.t('capture.plan.dialogue_prompt_ready');
     return prompts[Math.min(turns, prompts.length - 1)] || null;
   }
 
@@ -7933,7 +7941,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (!text) {
       this.planDialogueNotice.set({
         tone: 'info',
-        text: 'Saisissez ou dictez une description du sujet avant d’envoyer.',
+        text: this.i18n.t('capture.plan.dialogue_input_required'),
       });
       return;
     }
@@ -7972,14 +7980,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.planDialogueLoading.set(false);
       this.planDialogueNotice.set({
         tone: 'error',
-        text: this.apiErrorMessage(err, 'Impossible d’envoyer ce tour de cadrage. Réessayez.'),
+        text: this.apiErrorMessage(err, this.i18n.t('capture.plan.dialogue_failed')),
       });
     }
   }
 
   planDialogueReadyHint(session: CaptureSession): string | null {
     if (this.planDialogueReady(session)) return null;
-    return 'Ajoutez une instruction ou complétez le plan : « Valider le plan » s’active dès qu’un sujet existe.';
+    return this.i18n.t('capture.plan.validate_hint');
   }
 
   private apiErrorMessage(err: unknown, fallback: string): string {
@@ -7993,7 +8001,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   validatePlanTopics(session: CaptureSession): void {
     const topics = this.planTopics(session);
     if (!topics.length) {
-      this.planNotice.set({ tone: 'error', text: 'Aucun sujet à valider. Ajoutez au moins un sujet au plan.' });
+      this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.no_topic_to_validate') });
       return;
     }
     this.planDialogueLoading.set(true);
@@ -8022,13 +8030,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               },
               error: (err) => {
                 this.planDialogueLoading.set(false);
-                this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'La validation des sujets a échoué. Réessayez.') });
+                this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, this.i18n.t('capture.plan.topics_validation_failed')) });
               },
             });
         },
         error: (err) => {
           this.planDialogueLoading.set(false);
-          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'Enregistrement des sujets impossible. Réessayez.') });
+          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, this.i18n.t('capture.plan.topics_save_failed')) });
         },
       });
   }
@@ -8051,7 +8059,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               const current = sessions.find((row) => row.id === sessionId);
               if (current) this.session.set(current);
             });
-            this.planNotice.set({ tone: 'success', text: 'Banque de questions prête — vous pouvez démarrer la capture.' });
+            this.planNotice.set({ tone: 'success', text: this.i18n.t('capture.plan.bank_ready_notice') });
           }
         });
     }, 1500);
@@ -8068,7 +8076,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.hintStack.set([]);
-          this.setVoiceNotice('Relances indisponibles pour le moment. La capture continue.', 'warning');
+          this.setVoiceNotice(this.i18n.t('capture.prompts.unavailable'), 'warning');
         },
       });
   }
@@ -8095,7 +8103,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: (err) => {
           this.planDialogueLoading.set(false);
-          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'La préparation du plan a échoué. Réessayez.') });
+          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, this.i18n.t('capture.plan.prep_failed')) });
         },
       });
   }
@@ -8174,10 +8182,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.planDialogueNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_empty') });
       return;
     }
-    const instruction =
-      `Contenu importé depuis « ${filename} ». Intègre ces éléments dans le plan actuel : ` +
-      `fusionne avec les sujets existants sans les perdre, ajoute les nouveaux sujets/sous-sujets pertinents, ` +
-      `et restructure si nécessaire. Le contenu peut être un plan, des notes libres ou une transcription.\n\n${text}`;
+    const instruction = this.i18n.t('capture.plan.import_instruction_prompt', { filename, text });
     this.planDialogueNotice.set({ tone: 'info', text: this.i18n.t('capture.plan.import_applying', { filename }) });
     void this.persistPlanTopicsAndSubmitDialogue(session, instruction);
   }
@@ -8204,7 +8209,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.extractingPlanSource.set(false);
           this.planNotice.set({
             tone: 'error',
-            text: this.apiErrorMessage(err, "Impossible d'importer ce fichier de plan."),
+            text: this.apiErrorMessage(err, this.i18n.t('capture.plan.import_error')),
           });
         },
       });
@@ -8229,7 +8234,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
           this.extractingPlanSource.set(false);
           this.setVoiceNotice(
-            this.apiErrorMessage(err, "Impossible d'extraire le texte du fichier sélectionné."),
+            this.apiErrorMessage(err, this.i18n.t('capture.plan.import_failed')),
             'error',
           );
         },
@@ -8253,7 +8258,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     };
     reader.onerror = () => {
       this.extractingPlanSource.set(false);
-      this.setVoiceNotice("Impossible d'extraire le texte du fichier sélectionné.", 'error');
+      this.setVoiceNotice(this.i18n.t('capture.plan.import_failed'), 'error');
     };
     reader.readAsText(file);
   }
@@ -8266,7 +8271,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     };
     reader.onerror = () => {
       this.extractingPlanSource.set(false);
-      this.planNotice.set({ tone: 'error', text: "Impossible d'importer ce fichier de plan." });
+      this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_error') });
     };
     reader.readAsText(file);
   }
@@ -8276,13 +8281,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const lines = this.renumberPlanOutlineLines(text.split('\n'));
     const outline = lines.join('\n').trim();
     if (!outline) {
-      this.planNotice.set({ tone: 'error', text: 'Le fichier importé ne contient pas de plan exploitable.' });
+      this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_no_outline') });
       return;
     }
     this.updatePlanOutlineText(session, outline);
     this.planNotice.set({
       tone: 'info',
-      text: `Plan importé depuis ${filename}. Vous pouvez le modifier avant de lancer la capture.`,
+      text: this.i18n.t('capture.plan.import_outline_ok', { filename }),
     });
     requestAnimationFrame(() => {
       const textarea = this.planBuildOutlineEditor?.nativeElement || this.planOutlineEditor?.nativeElement;
@@ -8343,8 +8348,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       if (clean) write(clean);
       this.recordingPartialCallback = null;
     };
-    this.setVoiceNotice('Dictée en cours : le texte s’affiche en direct, puis se finalise à l’arrêt.', 'info');
-    if (!this.startAudioRecorder('Dictée en cours. Appuyez sur le carré pour arrêter et finaliser.')) {
+    this.setVoiceNotice(this.i18n.t('capture.dictation.live_notice'), 'info');
+    if (!this.startAudioRecorder(this.i18n.t('capture.dictation.live_hint'))) {
       this.recordingPartialCallback = null;
       this.recordingStopCallback = null;
       this.clearDictationSurface();
@@ -8372,7 +8377,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .subscribe((payload) => {
         const typed = payload as CaptureSession;
         this.session.set(typed);
-        const summary = (typed.metrics?.['resume_summary'] as string) || 'Session en pause.';
+        const summary = (typed.metrics?.['resume_summary'] as string) || this.i18n.t('capture.session.paused');
         this.setVoiceNotice(summary, 'info');
         this.speak(summary);
       });
@@ -8441,7 +8446,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.setVoiceNotice(this.i18n.t('capture.publish.success_title'), 'info');
           },
           error: () => {
-            this.setVoiceNotice('Publication impossible pour le moment.', 'error');
+            this.setVoiceNotice(this.i18n.t('capture.publish.failed'), 'error');
           },
           complete: () => this.publicationPublishing.set(false),
         });
@@ -8487,13 +8492,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   planReviewLabel(session: CaptureSession): string {
-    if (this.isFreeConversationSession(session)) return 'capture libre';
+    if (this.isFreeConversationSession(session)) return this.i18n.t('capture.progress.free_lower');
     const status = this.planReviewStatus(session);
-    if (status === 'approved') return 'plan enregistré';
-    if (status === 'edited') return 'changements enregistrés';
-    if (status === 'draft') return 'plan prêt';
-    if (status === 'topics_validated') return 'sujets validés';
-    return 'session prête';
+    if (status === 'approved') return this.i18n.t('capture.plan.review.approved');
+    if (status === 'edited') return this.i18n.t('capture.plan.review.edited');
+    if (status === 'draft') return this.i18n.t('capture.plan.review.draft');
+    if (status === 'topics_validated') return this.i18n.t('capture.plan.review.topics_validated');
+    return this.i18n.t('capture.plan.review.ready');
   }
 
   planNoticeClass(tone: 'success' | 'error' | 'info'): string {
@@ -8506,7 +8511,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   touchPlanDraft(): void {
     const session = this.session();
     if (!session || !this.canEditPlan(session)) return;
-    this.planNotice.set({ tone: 'info', text: 'Modifications non enregistrées. Enregistrez le plan avant de démarrer.' });
+    this.planNotice.set({ tone: 'info', text: this.i18n.t('capture.plan.unsaved_notice') });
     this.session.set({ ...session, plan: { ...session.plan, topics: [...(session.plan.topics || [])] } });
   }
 
@@ -8519,7 +8524,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       subtopic_id: subtopic.id,
       path_label: `${topic.title} / ${subtopic.title}`,
       title: subtopic.title,
-      question: 'Nouvelle question à valider avec l’expert.',
+      question: this.i18n.t('capture.plan.new_question'),
       estimated_minutes: 3,
       follow_ups: [],
       completion_criteria: [],
@@ -8562,11 +8567,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           const updated = payload as CaptureSession;
           this.session.set(updated);
           this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
-          this.planNotice.set({ tone: 'success', text: 'Plan enregistré. Vous pouvez démarrer la capture.' });
+          this.planNotice.set({ tone: 'success', text: this.i18n.t('capture.plan.saved_ok') });
           this.savingPlan.set(false);
         },
         error: () => {
-          this.planNotice.set({ tone: 'error', text: 'Enregistrement du plan impossible. Vérifiez que chaque sujet contient au moins une question.' });
+          this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.save_failed') });
           this.savingPlan.set(false);
         },
       });
@@ -8583,11 +8588,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           const updated = payload as CaptureSession;
           this.session.set(updated);
           this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
-          this.planNotice.set({ tone: 'success', text: 'Plan validé. Continuez vers l’échange.' });
+          this.planNotice.set({ tone: 'success', text: this.i18n.t('capture.plan.approved_ok') });
           this.savingPlan.set(false);
         },
         error: () => {
-          this.planNotice.set({ tone: 'error', text: 'Validation du plan impossible. Enregistrez le plan puis réessayez.' });
+          this.planNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.approve_failed') });
           this.savingPlan.set(false);
         },
       });
@@ -8671,7 +8676,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const seconds = Math.floor(display % 60);
     const clock = `${minutes}:${String(seconds).padStart(2, '0')}`;
     return {
-      label: overtime ? `+${clock} dépassées` : ended ? '0:00 · fin' : `${clock} restantes`,
+      label: overtime
+        ? this.i18n.t('capture.timer.overtime', { clock })
+        : ended
+          ? this.i18n.t('capture.timer.ended')
+          : this.i18n.t('capture.timer.remaining', { clock }),
       blink: !ended && remainingSeconds <= 5 * 60,
       ended,
       overtime,
@@ -8685,7 +8694,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (!timer || timer.ended || !timer.blink) return;
     if (this.lastFiveMinutesNoticeSessionId === session.id) return;
     this.lastFiveMinutesNoticeSessionId = session.id;
-    this.setVoiceNotice('Il reste moins de 5 minutes planifiées — la capture continue sans interruption.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.session.five_minutes_left'), 'info');
   }
 
   showClosurePanel(session: CaptureSession): boolean {
@@ -8746,11 +8755,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
           if (action === 'extend') {
             this.closurePanelDismissed.set(false);
-            this.setVoiceNotice('Session prolongée de 15 minutes.', 'info');
+            this.setVoiceNotice(this.i18n.t('capture.session.extended'), 'info');
           } else if (action === 'schedule') {
             this.closurePanelDismissed.set(true);
             this.activeSurface.set('prep');
-            this.setVoiceNotice('Session mise en pause pour replanification.', 'info');
+            this.setVoiceNotice(this.i18n.t('capture.session.rescheduled'), 'info');
           } else {
             this.closurePanelDismissed.set(true);
             if (body.proposal) {
@@ -8763,7 +8772,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               }
             } else if (!this.captureFinalizing()) {
               this.activeSurface.set('session');
-              this.setVoiceNotice('Aucun rapport exploitable n’a encore été produit. Reprenez la capture ou régénérez après ajout de matière.', 'warning');
+              this.setVoiceNotice(this.i18n.t('capture.session.no_report_yet'), 'warning');
             }
           }
           this.closureActionLoading.set(false);
@@ -8771,33 +8780,38 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.closureActionLoading.set(false);
-          this.setVoiceNotice('Action de fin de session impossible.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.session.closure_failed'), 'error');
         },
       });
   }
 
   answerQualityHeadline(): string {
     const evaluation = this.lastEvaluation();
-    if (!evaluation) return 'En attente d’une première réponse';
-    return `Réponse ${this.evaluationVerdictLabel(evaluation.verdict)}`;
+    if (!evaluation) return this.i18n.t('capture.answer.awaiting_first');
+    return this.i18n.t('capture.answer.headline', {
+      verdict: this.evaluationVerdictLabel(evaluation.verdict),
+    });
   }
 
   private evaluationVerdictLabel(verdict?: string | null): string {
     const normalized = String(verdict || '').toLowerCase();
-    if (normalized === 'accepted' || normalized === 'valid') return 'validée';
-    if (normalized === 'running' || normalized === 'pending') return 'en analyse';
-    if (normalized === 'needs_detail' || normalized === 'partial') return 'à préciser';
-    if (normalized === 'rejected' || normalized === 'invalid') return 'à reprendre';
-    return normalized || 'analysée';
+    if (normalized === 'accepted' || normalized === 'valid') return this.i18n.t('capture.verdict.accepted');
+    if (normalized === 'running' || normalized === 'pending') return this.i18n.t('capture.verdict.running');
+    if (normalized === 'needs_detail' || normalized === 'partial') {
+      return this.i18n.t('capture.verdict.needs_detail');
+    }
+    if (normalized === 'rejected' || normalized === 'invalid') return this.i18n.t('capture.verdict.rejected');
+    return normalized || this.i18n.t('capture.verdict.analysed');
   }
 
   conversationEventLabel(event: CaptureEvent): string {
     const speaker = (event.speaker || '').toLowerCase();
-    if (speaker === 'expert') return `Expert · ${this.transcriptEventShortLabel(event)}`;
-    if (speaker === 'system') return `IA · ${this.transcriptEventShortLabel(event)}`;
-    if (event.event_type === 'proposal_generated') return 'Rapport · généré';
-    if (event.event_type === 'proposal_reviewed') return 'Revue · terminée';
-    return `Note · ${this.transcriptEventShortLabel(event)}`;
+    const detail = this.transcriptEventShortLabel(event);
+    if (speaker === 'expert') return this.i18n.t('capture.event.expert', { detail });
+    if (speaker === 'system') return this.i18n.t('capture.event.ai', { detail });
+    if (event.event_type === 'proposal_generated') return this.i18n.t('capture.event.report_generated');
+    if (event.event_type === 'proposal_reviewed') return this.i18n.t('capture.event.review_done');
+    return this.i18n.t('capture.event.note', { detail });
   }
 
   conversationStateHeadline(session: CaptureSession): string {
@@ -8829,22 +8843,28 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     return [
       {
         id: 'ready',
-        label: 'Démarrage',
-        detail: started ? this.sessionStartStateLabel(session) : 'en attente',
+        label: this.i18n.t('capture.stage.start'),
+        detail: started ? this.sessionStartStateLabel(session) : this.i18n.t('capture.stage.waiting'),
         icon: 'play',
         state: started ? 'done' : 'active',
       },
       {
         id: 'prompt',
-        label: 'Relance',
-        detail: this.speaking() ? 'restitution' : this.currentQuestion()?.id || 'sujet sélectionné',
+        label: this.i18n.t('capture.suggestion.relance'),
+        detail: this.speaking()
+          ? this.i18n.t('capture.voice.playing')
+          : this.currentQuestion()?.id || this.i18n.t('capture.stage.topic_selected'),
         icon: 'volume-2',
         state: !started ? 'pending' : this.speaking() ? 'active' : 'done',
       },
       {
         id: 'answer',
-        label: 'Réponse',
-        detail: this.recording() ? 'écoute expert' : this.transcribing() ? 'finalisation transcript' : this.voiceStateLabel(),
+        label: this.i18n.t('capture.stage.answer'),
+        detail: this.recording()
+          ? this.i18n.t('capture.stage.listening_expert')
+          : this.transcribing()
+            ? this.i18n.t('capture.stage.finalizing_transcript')
+            : this.voiceStateLabel(),
         icon: 'mic',
         state: !started
           ? 'pending'
@@ -8854,8 +8874,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       },
       {
         id: 'proposal',
-        label: 'Rapport',
-        detail: this.proposal() ? `${this.proposalFacts().length} fait(s)` : this.lastConversationLabel(),
+        label: this.i18n.t('capture.review.report'),
+        detail: this.proposal()
+          ? this.i18n.t('capture.stage.facts', { count: this.proposalFacts().length })
+          : this.lastConversationLabel(),
         icon: 'check-circle-2',
         state: this.proposal() ? 'done' : proposalActive ? 'active' : 'pending',
       },
@@ -8899,7 +8921,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   captureAnswerActionLabel(session: CaptureSession): string {
     return this.isFreeConversationSession(session)
-      ? 'Enregistrer la réponse'
+      ? this.i18n.t('capture.action.save_answer')
       : this.i18n.t('capture.action.evaluate_answer');
   }
 
@@ -8916,7 +8938,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   planStartLabel(_session?: CaptureSession): string {
-    return 'Parler';
+    return this.i18n.t('capture.action.speak');
   }
 
   conversationPrimaryIcon(): string {
@@ -8932,40 +8954,38 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   conversationPrimaryLabel(): string {
     if (this.conversationMode() !== 'conversation_only') {
-      return this.recording()
-        ? 'Pause'
-        : this.speaking()
-          ? 'Pause'
-          : this.transcribing()
-            ? 'Transcription'
-            : 'Démarrer';
+      return this.recording() || this.speaking()
+        ? this.i18n.t('capture.action.pause')
+        : this.transcribing()
+          ? this.i18n.t('capture.voice.transcription')
+          : this.i18n.t('capture.action.start');
     }
-    if (this.transcribing()) return 'Transcription';
-    if (this.recording()) return 'Pause micro';
-    if (this.speaking()) return 'Pause';
-    return 'Parler';
+    if (this.transcribing()) return this.i18n.t('capture.voice.transcription');
+    if (this.recording()) return this.i18n.t('capture.action.pause_mic');
+    if (this.speaking()) return this.i18n.t('capture.action.pause');
+    return this.i18n.t('capture.action.speak');
   }
 
   emptyConversationHint(): string {
     if (this.conversationMode() === 'conversation_only') {
-      return 'Démarrez la conversation. Si le micro est refusé, l’IA basculera en saisie guidée.';
+      return this.i18n.t('capture.conversation.start_hint_voice');
     }
-    return 'Démarrez la session, puis dictez ou saisissez la réponse expert.';
+    return this.i18n.t('capture.conversation.start_hint_guided');
   }
 
   lastConversationLabel(): string {
     const step = this.lastConversationStep();
-    if (!step) return 'Les actions seront déduites de la prochaine transcription finale.';
+    if (!step) return this.i18n.t('capture.intent.pending');
     const labels: Record<string, string> = {
-      answer_ready: 'Réponse capturée et évaluée',
-      correction: 'Correction capturée',
-      more_detail: 'Complément capturé',
-      proposal_requested: 'Rapport préparé, en attente de confirmation',
-      proposal_deferred_insufficient_facts: 'Détail expert nécessaire avant rapport',
-      proposal_confirmed: 'Rapport confirmé, validation finale attendue',
-      proposal_rejected: 'Rapport rejeté, correction attendue',
-      accept_confirmed: 'Rapport accepté',
-      accept_rejected: 'Validation suspendue',
+      answer_ready: this.i18n.t('capture.intent.answer_ready'),
+      correction: this.i18n.t('capture.intent.correction'),
+      more_detail: this.i18n.t('capture.intent.more_detail'),
+      proposal_requested: this.i18n.t('capture.intent.proposal_requested'),
+      proposal_deferred_insufficient_facts: this.i18n.t('capture.intent.proposal_deferred'),
+      proposal_confirmed: this.i18n.t('capture.intent.proposal_confirmed'),
+      proposal_rejected: this.i18n.t('capture.intent.proposal_rejected'),
+      accept_confirmed: this.i18n.t('capture.intent.accept_confirmed'),
+      accept_rejected: this.i18n.t('capture.intent.accept_rejected'),
     };
     if (step.action_taken === 'proposal_deferred_insufficient_facts') {
       return labels['proposal_deferred_insufficient_facts'];
@@ -8975,22 +8995,27 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   transcriptEventLabel(event: CaptureEvent): string {
     if (event.event_type === 'conversation_intent_detected') {
-      return `intention : ${(event.metadata || {})['intent'] || 'détectée'}`;
+      const intent = String((event.metadata || {})['intent'] || '') || this.i18n.t('capture.trace.intent_detected');
+      return this.i18n.t('capture.trace.intent', { intent });
     }
-    if (event.event_type === 'proposal_generated') return 'rapport généré';
-    if (event.event_type === 'proposal_reviewed') return 'rapport relu';
-    if (event.event_type === 'transcript_amended' || event.text_amended) return 'transcription amendée';
-    if (event.event_type === 'expert_turn_finalized') return 'réponse finale';
-    if (event.event_type === 'stt_final') return 'transcription finale';
-    return 'transcription';
+    if (event.event_type === 'proposal_generated') return this.i18n.t('capture.trace.report_generated');
+    if (event.event_type === 'proposal_reviewed') return this.i18n.t('capture.trace.report_reviewed');
+    if (event.event_type === 'transcript_amended' || event.text_amended) {
+      return this.i18n.t('capture.trace.amended');
+    }
+    if (event.event_type === 'expert_turn_finalized') return this.i18n.t('capture.trace.final_answer');
+    if (event.event_type === 'stt_final') return this.i18n.t('capture.trace.final_transcript');
+    return this.i18n.t('capture.trace.transcript');
   }
 
   private transcriptEventShortLabel(event: CaptureEvent): string {
-    if (event.event_type === 'conversation_intent_detected') return 'intention';
-    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amendé';
-    if (event.event_type === 'expert_turn_finalized') return 'réponse finale';
-    if (event.event_type === 'stt_final') return 'transcription';
-    return 'capturé';
+    if (event.event_type === 'conversation_intent_detected') return this.i18n.t('capture.trace.short_intent');
+    if (event.event_type === 'transcript_amended' || event.text_amended) {
+      return this.i18n.t('capture.trace.short_amended');
+    }
+    if (event.event_type === 'expert_turn_finalized') return this.i18n.t('capture.trace.final_answer');
+    if (event.event_type === 'stt_final') return this.i18n.t('capture.trace.transcript');
+    return this.i18n.t('capture.trace.short_captured');
   }
 
   eventDisplayText(event: CaptureEvent): string {
@@ -9023,12 +9048,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private conversationDecisionText(event: CaptureEvent): string {
     const intent = String((event.metadata || {})['intent'] || '');
     const labels: Record<string, string> = {
-      proposal_requested: 'Demande vocale de rapport',
-      proposal_confirmed: 'Rapport confirmé à la voix',
-      proposal_rejected: 'Rapport rejeté à la voix',
-      accept_confirmed: 'Validation finale confirmée à la voix',
-      accept_rejected: 'Validation finale suspendue à la voix',
-      session_complete: 'Clôture de session demandée à la voix',
+      proposal_requested: this.i18n.t('capture.voice_command.report_requested'),
+      proposal_confirmed: this.i18n.t('capture.voice_command.report_confirmed'),
+      proposal_rejected: this.i18n.t('capture.voice_command.report_rejected'),
+      accept_confirmed: this.i18n.t('capture.voice_command.accept_confirmed'),
+      accept_rejected: this.i18n.t('capture.voice_command.accept_suspended'),
+      session_complete: this.i18n.t('capture.voice_command.session_closed'),
     };
     return labels[intent] || '';
   }
@@ -9042,14 +9067,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const text = this.editingText.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(this.session())) {
-      this.setVoiceNotice('Votre rôle ne permet pas d’amender cette session de capture.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_amend'), 'error');
       return;
     }
     this.api
       .amendCaptureEvent(sessionId, eventId, {
         text_amended: text,
         actor: 'demo-operator',
-        reason: 'Correction HITL depuis le cockpit de capture.',
+        reason: 'Expert correction from the capture cockpit (HITL).',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
@@ -9075,7 +9100,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   createProposal(session: CaptureSession): void {
     if (!this.canProposalSubmit(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas de préparer le rapport pour cette session.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_prepare_report'), 'error');
       return;
     }
     if (this.isFreeConversationSession(session) && session.status === 'active' && !this.textFallbackActive()) {
@@ -9137,11 +9162,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const clean = text.trim();
     if (!clean) return;
     if (!this.canCaptureExecute(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas d’exécuter la boucle conversationnelle de cette session.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_run_conversation'), 'error');
       return;
     }
     this.voiceState.set('thinking');
-    this.setVoiceNotice('Traitement de la transcription finale et détection de la prochaine action.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.conversation.processing_notice'), 'info');
     this.armConversationProcessingWatchdog();
     this.api
       .runConversationStep(session.id, {
@@ -9187,14 +9212,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.speak(this.promptText(step.next_prompt));
           } else {
             this.voiceState.set('idle');
-            this.setVoiceNotice('Prêt pour la prochaine réponse expert.', 'info');
+            this.setVoiceNotice(this.i18n.t('capture.conversation.ready_next'), 'info');
             this.scheduleConversationResume();
           }
         },
         error: () => {
           this.clearConversationProcessingWatchdog();
           this.voiceState.set('idle');
-          this.setVoiceNotice('Traitement conversationnel impossible. La transcription n’a pas été exploitée.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.conversation.processing_failed'), 'error');
         },
       });
   }
@@ -9249,7 +9274,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   acceptProposal(proposalId: string): void {
     if (!this.canProposalReview(this.proposal())) {
-      this.setVoiceNotice('Votre rôle ne permet pas de valider ce rapport.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.role.cannot_validate_report'), 'error');
       return;
     }
     this.persistProposalReport(proposalId, () => {
@@ -9257,7 +9282,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         .reviewCaptureProposal(proposalId, {
           status: 'accepted',
           reviewer: 'demo-operator',
-          review_notes: 'Validé depuis la démo Capture de connaissances.',
+          review_notes: this.i18n.t('capture.review.auto_notes_accepted'),
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((proposal) => {
@@ -9269,7 +9294,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   continueFromReview(proposal: CaptureProposal): void {
     if (!this.canContinueFromReview(proposal)) {
-      this.setVoiceNotice('Relisez le rapport avant de continuer.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.review.read_before_continue'), 'warning');
       return;
     }
     if (proposal.status === 'accepted') {
@@ -9281,7 +9306,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         .reviewCaptureProposal(proposal.id, {
           status: 'accepted',
           reviewer: 'demo-operator',
-          review_notes: 'Rapport validé avant publication.',
+          review_notes: this.i18n.t('capture.review.auto_notes_before_publish'),
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((updated) => {
@@ -9307,18 +9332,18 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   saveProposalReport(proposalId: string): void {
-    this.persistProposalReport(proposalId, () => this.setVoiceNotice('Rapport enregistré.', 'info'));
+    this.persistProposalReport(proposalId, () => this.setVoiceNotice(this.i18n.t('capture.review.report_saved'), 'info'));
   }
 
   applyProposalInstruction(proposal: CaptureProposal): void {
     const instruction = this.proposalInstructionText.trim();
     const content = this.proposalReportText();
     if (!instruction) {
-      this.setVoiceNotice('Ajoutez une consigne de correction avant de l’appliquer.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.review.instruction_required'), 'warning');
       return;
     }
     if (!content) {
-      this.setVoiceNotice('Le rapport est vide.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.review.report_empty'), 'error');
       return;
     }
     this.proposalInstructionLoading.set(true);
@@ -9337,11 +9362,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.proposalInstructionText = '';
           this.proposalInstructionLoading.set(false);
           this.refreshDashboard();
-          this.setVoiceNotice('Rapport mis à jour.', 'info');
+          this.setVoiceNotice(this.i18n.t('capture.review.report_updated'), 'info');
         },
         error: () => {
           this.proposalInstructionLoading.set(false);
-          this.setVoiceNotice('Impossible d’appliquer cette consigne pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.review.instruction_failed'), 'error');
         },
       });
   }
@@ -9349,7 +9374,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private persistProposalReport(proposalId: string, afterSave?: () => void): void {
     const content = this.proposalReportText();
     if (!content) {
-      this.setVoiceNotice('Le rapport est vide.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.review.report_empty'), 'error');
       return;
     }
     if (!this.proposalReportDirty()) {
@@ -9371,7 +9396,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.proposalReportSaving.set(false);
-          this.setVoiceNotice('Impossible d’enregistrer le rapport pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.review.report_save_failed'), 'error');
         },
       });
   }
@@ -9474,9 +9499,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   proposalQuestionPriorityLabel(priority: number): string {
-    if (priority >= 3) return 'Priorité haute';
-    if (priority >= 2) return 'Priorité moyenne';
-    return 'Priorité basse';
+    if (priority >= 3) return this.i18n.t('capture.priority.high');
+    if (priority >= 2) return this.i18n.t('capture.priority.medium');
+    return this.i18n.t('capture.priority.low');
   }
 
   proposalQuestionPriorityClass(priority: number): string {
@@ -9492,11 +9517,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   useProposalQuestionAsInstruction(question: ProposalOpenQuestion): void {
     const text = this.proposalQuestionText(question);
     if (!text) return;
-    const instruction = `Traite cette question ouverte dans le rapport : ${text}`;
+    const instruction = this.i18n.t('capture.review.question_instruction', { text });
     this.proposalInstructionText = this.proposalInstructionText.trim()
       ? `${this.proposalInstructionText.trim()}\n${instruction}`
       : instruction;
-    this.setVoiceNotice('Question ajoutée à la consigne de modification.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.review.question_added'), 'info');
   }
 
   /** "Laisser ouverte" — keep the question for later / another expert (publishable). */
@@ -9559,11 +9584,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.proposalQuestionStatuses.update((current) => ({ ...current, [row.key]: 'answered' }));
           this.setProposal(updated as CaptureProposal);
           this.syncLocalSessionOpenQuestionCount();
-          this.setVoiceNotice('Réponse enregistrée. La section concernée a été re-synthétisée.', 'info');
+          this.setVoiceNotice(this.i18n.t('capture.review.answer_saved'), 'info');
         },
         error: () => {
           this.questionAnswerLoading.set(false);
-          this.setVoiceNotice('Réponse non enregistrée pour le moment. Réessayez.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.review.answer_failed'), 'error');
         },
       });
   }
@@ -9594,7 +9619,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         },
         error: () => {
           this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: previousStatus }));
-          this.setVoiceNotice('Statut de question non enregistré pour le moment.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.review.question_status_failed'), 'error');
         },
       });
   }
@@ -9660,9 +9685,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   proposalFactDecisionLabel(index: number, fact: ProposalFact): string {
     const decision = this.proposalFactDecision(index, fact);
-    if (decision === 'accept') return 'accepté';
-    if (decision === 'reject') return 'rejeté';
-    return 'à relire';
+    if (decision === 'accept') return this.i18n.t('capture.fact.decision.accept');
+    if (decision === 'reject') return this.i18n.t('capture.fact.decision.reject');
+    return this.i18n.t('capture.fact.decision.pending');
   }
 
   proposalFactCardClass(index: number, fact: ProposalFact): string {
@@ -9713,25 +9738,25 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   proposalFactType(fact: ProposalFact): string {
     if (fact.type) return this.proposalFactTypeLabel(fact.type);
-    if (fact.turn_kind === 'correction') return 'CORRECTION';
-    if (fact.turn_kind === 'complement') return 'DÉTAIL';
-    if (fact.amended) return 'AMENDÉ';
-    return 'NOUVEAU';
+    if (fact.turn_kind === 'correction') return this.i18n.t('capture.fact.type.correction');
+    if (fact.turn_kind === 'complement') return this.i18n.t('capture.fact.type.detail');
+    if (fact.amended) return this.i18n.t('capture.fact.type.amended');
+    return this.i18n.t('capture.fact.type.new');
   }
 
   proposalFactConfidence(fact: ProposalFact): string {
     const value = typeof fact.confidence === 'number' ? fact.confidence : 0.5;
-    return `${Math.round(value * 100)}% confiance`;
+    return this.i18n.t('capture.fact.confidence', { percent: Math.round(value * 100) });
   }
 
   private proposalFactTypeLabel(type: string): string {
     const normalized = type.toLowerCase();
-    if (normalized === 'update') return 'MISE À JOUR';
-    if (normalized === 'detail') return 'DÉTAIL';
-    if (normalized === 'correction') return 'CORRECTION';
-    if (normalized === 'exception') return 'EXCEPTION';
-    if (normalized === 'open') return 'À CLARIFIER';
-    if (normalized === 'new') return 'NOUVEAU';
+    if (normalized === 'update') return this.i18n.t('capture.fact.type.update');
+    if (normalized === 'detail') return this.i18n.t('capture.fact.type.detail');
+    if (normalized === 'correction') return this.i18n.t('capture.fact.type.correction');
+    if (normalized === 'exception') return this.i18n.t('capture.fact.type.exception');
+    if (normalized === 'open') return this.i18n.t('capture.fact.type.open');
+    if (normalized === 'new') return this.i18n.t('capture.fact.type.new');
     return type.toUpperCase();
   }
 
@@ -9772,7 +9797,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.voiceConnection.events$
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe((event) => this.handleVoiceSessionEvent(event));
-        this.setVoiceNotice(`Session LiveKit prête. Connexion du pont vocal ${this.brand()} en cours.`, 'info');
+        this.setVoiceNotice(this.i18n.t('capture.voice.livekit_ready'), 'info');
         return this.voiceConnection;
       } catch (error) {
         if (openedConnection) {
@@ -9789,7 +9814,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             : new WorkspaceChangedDuringTransportError();
         }
         this.voiceConnection = null;
-        this.setVoiceNotice('LiveKit indisponible ; bascule sur la session vocale WebSocket.', 'warning');
+        this.setVoiceNotice(this.i18n.t('capture.voice.livekit_unavailable'), 'warning');
       }
     }
     if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) {
@@ -9842,7 +9867,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           ? error
           : new WorkspaceChangedDuringTransportError();
       }
-      this.setVoiceNotice('WebSocket vocal indisponible ; bascule sur les tours vocaux HTTP.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.voice.ws_unavailable'), 'warning');
       return null;
     }
   }
@@ -9909,7 +9934,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.voiceConnection.captureFinish({ surface: 'knowledge_capture' });
       this.voiceState.set('thinking');
       this.armConversationProcessingWatchdog();
-      this.setVoiceNotice('Dernier tour capturé. Préparation de la synthèse finale…', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.last_turn_captured'), 'info');
       return;
     }
     if (loopStopPayload && this.voiceConnection) {
@@ -9927,14 +9952,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   runtimeLabel(runtime?: string | null): string {
     const value = runtime || 'cascade_openai';
     if (this.isPilotMode()) {
-      return 'Assistant vocal';
+      return this.i18n.t('capture.voice.assistant');
     }
     if (this.isDemoMode()) {
       if (value === 'cascade' || value === 'cascade_openai') return 'Cascade';
       if (value === 'openai_realtime' || value === 'local_realtime' || value === 'realtime_gpu') return 'Realtime';
-      if (value === 'local_stt') return 'Transcription';
-      if (value === 'local_tts') return 'Synthèse vocale';
-      return 'Voix';
+      if (value === 'local_stt') return this.i18n.t('capture.voice.transcription');
+      if (value === 'local_tts') return this.i18n.t('capture.voice.tts');
+      return this.i18n.t('capture.voice.label');
     }
     if (value === 'cascade' || value === 'cascade_openai') return 'cascade_openai · batch STT · segmented TTS';
     if (value === 'openai_realtime') return 'openai_realtime · speech-to-speech';
@@ -9945,9 +9970,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   voiceRuntimeArchitecture(runtime?: string | null): string {
-    if (this.isPilotMode()) return 'Assistant vocal actif';
+    if (this.isPilotMode()) return this.i18n.t('capture.voice.assistant_active');
     const label = this.runtimeLabel(runtime);
-    return this.isDemoMode() ? `${label} · conversation assistée` : `${label} · priorité au dernier tour`;
+    return this.i18n.t(this.isDemoMode() ? 'capture.voice.arch_demo' : 'capture.voice.arch_full', { label });
   }
 
   private voiceSegmentId(payload: Record<string, any>): string {
@@ -9985,8 +10010,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.realtimeSttActive = payload['stt_mode'] === 'realtime' || payload['realtime_stt'] === true;
       this.setVoiceNotice(
         this.realtimeSttActive
-          ? 'Session vocale realtime prête (transcription gpt-realtime-whisper en direct).'
-          : 'Session vocale streaming prête.',
+          ? this.i18n.t('capture.voice.session_ready_realtime')
+          : this.i18n.t('capture.voice.session_ready_streaming'),
         'info',
       );
       return;
@@ -10054,7 +10079,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           return;
         }
         this.voiceState.set('idle');
-        this.setVoiceNotice('Aucune parole exploitable détectée. Le micro va se rouvrir.', 'warning');
+        this.setVoiceNotice(this.i18n.t('capture.voice.no_speech_reopen'), 'warning');
         this.scheduleConversationResume(this.voiceLoopCooldownMs());
         return;
       }
@@ -10096,7 +10121,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         return;
       }
       this.voiceState.set('listening');
-      this.setVoiceNotice('Tour capturé. Le micro reste ouvert.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.turn_captured'), 'info');
       // Refresh the event ledger on turn commit (incremental delta) instead of
       // on every retrieval prefetch, which reloaded the full list per partial.
       const committedSession = this.session();
@@ -10115,7 +10140,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const stage = String(payload['stage'] || 'start');
       this.captureFinalizeStage.set({
         stage,
-        label: String(payload['label'] || 'Synthèse finale en cours…'),
+        label: String(payload['label'] || this.i18n.t('capture.finalize.in_progress')),
         section_label: payload['section_label'] ? String(payload['section_label']) : null,
         current: typeof payload['current'] === 'number' ? payload['current'] : null,
         total: typeof payload['total'] === 'number' ? payload['total'] : null,
@@ -10208,7 +10233,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.nextPrompt.set(prompt || null);
       const promptEventId = payload['system_prompt_event_id'];
       this.lastSystemPromptEventId.set(typeof promptEventId === 'string' ? promptEventId : null);
-      this.setVoiceNotice('Prochaine relance préparée par l’orchestrateur de capture.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.next_prompt_ready'), 'info');
       return;
     }
     if (event.type === 'oracle.delta' || event.type === 'oracle.superseded') {
@@ -10237,7 +10262,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         return;
       }
       this.voiceState.set('thinking');
-      this.setVoiceNotice(`Action vocale prête : ${action}.`, 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.action_ready', { action }), 'info');
       return;
     }
     if (event.type === 'capture.hint_pushed') {
@@ -10254,7 +10279,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (event.type === 'oracle.commit') {
       this.voiceState.set('thinking');
-      this.setVoiceNotice('Dernier tour validé dans la trace de capture.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.turn_committed'), 'info');
       return;
     }
     if (event.type === 'audio.out') {
@@ -10266,11 +10291,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const value = payload['value_ms'];
       if (metric === 'livekit_agent_dispatched') {
         if (payload['audio_bridge'] === 'voice_gateway_ready') {
-          this.setVoiceNotice('Audio prêt pour la capture.', 'info');
+          this.setVoiceNotice(this.i18n.t('capture.voice.audio_ready'), 'info');
         } else if (payload['audio_bridge'] === 'media_observer_ready') {
-          this.setVoiceNotice('Audio reçu, bascule en mode secours si nécessaire.', 'warning');
+          this.setVoiceNotice(this.i18n.t('capture.voice.audio_observer'), 'warning');
         } else if (payload['audio_bridge'] === 'pending') {
-          this.setVoiceNotice('Connexion audio en cours, mode secours disponible.', 'warning');
+          this.setVoiceNotice(this.i18n.t('capture.voice.audio_pending'), 'warning');
         }
       }
       if (metric === 'micro_turn' && !this.recording()) {
@@ -10334,13 +10359,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.scheduleConversationResume();
     };
     audio.onerror = () => {
-      this.setVoiceNotice('Lecture audio streaming impossible ; ouverture du micro à la place.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.voice.playback_failed'), 'warning');
       this.speaking.set(false);
       this.voiceState.set('idle');
       this.scheduleConversationResume();
     };
     void audio.play().catch(() => {
-      this.setVoiceNotice('Le navigateur bloque la lecture audio ; ouverture du micro à la place.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.voice.playback_blocked'), 'warning');
       this.speaking.set(false);
       this.voiceState.set('idle');
       this.scheduleConversationResume();
@@ -10401,7 +10426,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.commandHandledForTurn = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.startAudioRecorder('Micro ouvert. Arrêtez l’écoute quand la réponse expert est complète.');
+    this.startAudioRecorder(this.i18n.t('capture.voice.mic_open_stop_listening'));
   }
 
   async toggleConversationSession(): Promise<void> {
@@ -10455,7 +10480,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       endpoint_grace_ms: captureConfig.endpoint_grace_ms,
       max_turn_ms: captureConfig.max_turn_ms,
     });
-    this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.voice.mic_preparing'), 'info');
     const armed = await this.ensureAudioStream();
     if (!this.isVoiceConnectionAttemptCurrent(scope, generation)) return;
     if (!armed) {
@@ -10463,7 +10488,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.voiceState.set('idle');
       this.conversationMode.set('manual');
       this.textFallbackActive.set(true);
-      this.setVoiceNotice('Micro indisponible : bascule en saisie guidée pour continuer la session.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.voice.mic_unavailable_fallback'), 'warning');
       return;
     }
     this.textFallbackActive.set(false);
@@ -10577,16 +10602,18 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   voiceInputStatusLabel(): string {
-    if (this.recording()) return 'Écoute de la réponse expert';
-    if (this.transcribing()) return 'Finalisation de la transcription';
-    if (this.speaking()) return 'L’IA parle';
-    if (this.voiceState() === 'retrieving') return 'Préparation de repères';
-    if (this.voiceState() === 'oracle_updating') return 'Questions IA mises à jour';
-    if (this.voiceState() === 'thinking') return 'Organisation des notes';
+    if (this.recording()) return this.i18n.t('capture.voice.listening_answer');
+    if (this.transcribing()) return this.i18n.t('capture.voice.finalizing_transcription');
+    if (this.speaking()) return this.i18n.t('capture.voice.ai_speaking');
+    if (this.voiceState() === 'retrieving') return this.i18n.t('capture.voice.preparing_cues');
+    if (this.voiceState() === 'oracle_updating') return this.i18n.t('capture.conversation.questions_updated');
+    if (this.voiceState() === 'thinking') return this.i18n.t('capture.conversation.organizing');
     if (this.conversationMode() === 'conversation_only' && this.conversationSessionActive()) {
-      return 'Conversation prête';
+      return this.i18n.t('capture.conversation.ready');
     }
-    return this.conversationMode() === 'conversation_only' ? 'Prêt à écouter' : 'Prêt pour la capture';
+    return this.i18n.t(
+      this.conversationMode() === 'conversation_only' ? 'capture.voice.ready_to_listen' : 'capture.plan.ready_capture',
+    );
   }
 
   voiceNoticeClass(): string {
@@ -10694,9 +10721,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   voiceCaptureModeHint(): string {
     const config = this.resolvedVoiceCaptureConfig();
-    if (config.capture_mode === 'manual_safe') return 'Mode manuel: le micro ne coupe pas automatiquement sur silence.';
-    if (config.capture_mode === 'robust') return `Mode robuste: silence ${config.silence_ms} ms, parole min ${config.min_speech_ms} ms.`;
-    return 'Mode normal: utilise les réglages voix du workspace.';
+    if (config.capture_mode === 'manual_safe') return this.i18n.t('capture.voice.mode_manual_hint');
+    if (config.capture_mode === 'robust') {
+      return this.i18n.t('capture.voice.mode_robust_hint', {
+        silence: config.silence_ms,
+        speech: config.min_speech_ms,
+      });
+    }
+    return this.i18n.t('capture.voice.mode_normal_hint');
   }
 
   setVoiceCaptureMode(mode: VoiceCaptureMode | string): void {
@@ -10714,9 +10746,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (next === 'manual_safe') {
       this.stopCaptureEndpointMonitor();
       this.stopDictationAudioMonitor();
-      this.setVoiceNotice('Mode capture manuel activé : terminez les tours au bouton micro.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.mode_manual_notice'), 'info');
     } else if (next === 'robust') {
-      this.setVoiceNotice('Mode capture robuste activé pour ce workspace.', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.mode_robust_notice'), 'info');
     }
   }
 
@@ -10733,7 +10765,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (!clean) {
       return;
     }
-    this.setVoiceNotice('Préparation de la lecture. Vous pouvez interrompre et répondre à tout moment.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.voice.playback_preparing'), 'info');
     this.stopSpeech(false);
     this.ttsPlayback.playText(clean, {
       surface: 'knowledge_capture',
@@ -10746,7 +10778,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           latency_profile: metric.latency_profile,
           time_to_first_audio_ms: metric.time_to_first_audio_ms,
         });
-        this.setVoiceNotice('L’IA lit la relance. Vous pouvez interrompre et répondre à tout moment.', 'info');
+        this.setVoiceNotice(this.i18n.t('capture.voice.playback_started'), 'info');
       },
       onEnded: (metric) => {
         this.voiceConnection?.ttsEnded({
@@ -10793,7 +10825,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       if (!this.deferredLoopStopAfterStreamingTurn) {
         this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
       }
-      this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.stopped_finalizing'), 'info');
       return;
     }
     this.captureEndpointReason = 'stop';
@@ -10834,7 +10866,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
       this.releaseAudioStream();
       void this.finishStreamingVoiceTurn('stop');
-      this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
+      this.setVoiceNotice(this.i18n.t('capture.voice.stopped_finalizing'), 'info');
       return;
     }
     this.recording.set(false);
@@ -10845,7 +10877,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.releaseAudioStream();
     this.closeVoiceConnection();
     this.voiceState.set('idle');
-    this.setVoiceNotice('Conversation arrêtée. La lecture vocale a été coupée.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.voice.stopped_playback_cut'), 'info');
   }
 
   /** Primary capture control: open the mic when idle, pause it (no relance) while
@@ -10923,7 +10955,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.conversationSessionActive.set(false);
     this.releaseAudioStream();
     this.voiceState.set('idle');
-    this.setVoiceNotice('Micro en pause. Aucune relance déclenchée — reprenez quand vous voulez.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.voice.mic_paused_notice'), 'info');
   }
 
   /** When no subtopic is selected yet, default to the first subtopic of the first topic. */
@@ -10989,10 +11021,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (this.isFreeConversationSession(session)) return [];
     const options: Array<{ value: string; label: string }> = [];
     for (const topic of this.planTopics(session)) {
-      const topicTitle = (topic.title || 'Sujet').trim();
+      const topicTitle = (topic.title || this.i18n.t('capture.plan.topic_label')).trim();
       options.push({ value: topic.id, label: topicTitle });
       for (const subtopic of topic.subtopics || []) {
-        const subTitle = (subtopic.title || 'Sous-sujet').trim();
+        const subTitle = (subtopic.title || this.i18n.t('capture.plan.subtopic_label')).trim();
         options.push({ value: `${topic.id}|${subtopic.id}`, label: `   ↳ ${subTitle}` });
       }
     }
@@ -11037,9 +11069,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   captureBreadcrumb(session: CaptureSession): string | null {
     const { topic, topicIndex, subtopic, subtopicIndex } = this.currentPlanPosition(session);
     if (!topic) return null;
-    let label = `${topicIndex + 1}. ${(topic.title || 'Sujet').trim()}`;
+    let label = `${topicIndex + 1}. ${(topic.title || this.i18n.t('capture.plan.topic_label')).trim()}`;
     if (subtopic) {
-      label += ` › ${topicIndex + 1}.${subtopicIndex + 1} ${(subtopic.title || 'Sous-sujet').trim()}`;
+      label += ` › ${topicIndex + 1}.${subtopicIndex + 1} ${(subtopic.title || this.i18n.t('capture.plan.subtopic_label')).trim()}`;
     }
     return label;
   }
@@ -11095,7 +11127,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.navigateCaptureSection(firstSubtopic.id, { manual: true, topicId: topicId || null });
       }
     }
-    this.setVoiceNotice('Section sélectionnée. Le micro reste ouvert sur cette section.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.section.selected_notice'), 'info');
   }
 
   /**
@@ -11117,7 +11149,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     // watchdog are expected (the watchdog is cleared when conversation.step lands).
     this.voiceState.set('thinking');
     this.armConversationProcessingWatchdog();
-    this.setVoiceNotice('Section terminée. L’IA va vous demander si vous souhaitez continuer.', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.section.finished_notice'), 'info');
   }
 
   /**
@@ -11156,7 +11188,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         void this.finishStreamingVoiceTurn('stop');
       } else {
         this.conversationSessionActive.set(false);
-        this.setVoiceNotice('Finalisation du dernier tour avant synthèse…', 'info');
+        this.setVoiceNotice(this.i18n.t('capture.finalize.last_turn'), 'info');
       }
       return;
     }
@@ -11191,7 +11223,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     // (it is a no-op once voiceState moves off `thinking` as the closure lands).
     this.voiceState.set('thinking');
     this.armConversationProcessingWatchdog();
-    this.setVoiceNotice('Capture terminée. Préparation de la synthèse finale…', 'info');
+    this.setVoiceNotice(this.i18n.t('capture.finalize.capture_done'), 'info');
     if (session.status === 'active' && !hasStreamingConnection) {
       this.applySessionClosure(session, 'finish');
     }
@@ -11233,7 +11265,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.recordingPartialCallback = null;
             finalize(text);
             this.clearDictationSurface();
-            this.setVoiceNotice('Transcription enregistrée.', 'info');
+            this.setVoiceNotice(this.i18n.t('capture.transcript.saved'), 'info');
             return;
           }
           this.answer = text;
@@ -11250,8 +11282,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             } else {
               this.setVoiceNotice(
                 session && this.isFreeConversationSession(session)
-                  ? 'Transcription prête. Relisez puis enregistrez la réponse pour l’ajouter à la session.'
-                  : 'Transcription prête pour évaluation.',
+                  ? this.i18n.t('capture.transcript.ready_free')
+                  : this.i18n.t('capture.transcript.ready_eval'),
                 'info',
               );
             }
@@ -11267,7 +11299,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.recordingPartialCallback = null;
             this.clearDictationSurface();
           }
-          this.setVoiceNotice('Transcription impossible. Réessayez un tour vocal ou utilisez la saisie guidée.', 'error');
+          this.setVoiceNotice(this.i18n.t('capture.transcript.failed'), 'error');
         },
       });
   }
@@ -11324,7 +11356,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (!this.partialTranscriptionLimitNoticeShown && this.recording() && !this.recordingPartialCallback) {
       this.partialTranscriptionLimitNoticeShown = true;
       this.setVoiceNotice(
-        'Transcription live allégée sur ce tour ; la transcription complète sera finalisée à l’arrêt.',
+        this.i18n.t('capture.transcript.partial_limited'),
         'info',
       );
     }
@@ -11434,8 +11466,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.voiceState.set('partial_transcribing');
     this.setVoiceNotice(
       reason === 'no_speech'
-        ? 'Aucune parole détectée. Le tour vocal est fermé sans analyse.'
-        : 'Finalisation de la transcription via la session vocale streaming.',
+        ? this.i18n.t('capture.transcript.no_speech_closed')
+        : this.i18n.t('capture.transcript.finalizing_stream'),
       reason === 'no_speech' ? 'warning' : 'info',
     );
     const pending = [...this.pendingVoiceFrameSends];
@@ -11611,7 +11643,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
       `?collection_name=${encodeURIComponent(collection)}`;
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
-    this.sourcePreviewTitle.set(this.retrievalChunkTitle(index) || 'Source retrouvée');
+    this.sourcePreviewTitle.set(this.retrievalChunkTitle(index) || this.i18n.t('capture.source.found'));
     this.sourcePreviewUrl.set(url);
     this.sourcePreviewPage.set(this.coercePage(meta['page'] ?? meta['page_number']));
     const chunkText = String(this.retrieval().chunks?.[index] || '').trim();
@@ -11681,7 +11713,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         error: (err) => {
           this.captureDocumentsUploading.set(false);
           input.value = '';
-          this.setVoiceNotice(this.apiErrorMessage(err, 'Chargement document impossible pour cette capture.'), 'error');
+          this.setVoiceNotice(this.apiErrorMessage(err, this.i18n.t('capture.document.upload_failed')), 'error');
         },
       });
   }
@@ -11706,7 +11738,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const documentId = String(doc.document_id || '').trim();
     const collection = String(doc.collection || doc.collection_name || this.captureDocumentsCollection() || '').trim();
     if (!documentId || !collection) {
-      this.setVoiceNotice('Ce document est encore en indexation; la preview sera disponible ensuite.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.document.indexing_pending'), 'warning');
       return;
     }
     let url =
@@ -11894,15 +11926,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   captureDocumentIndexLabel(doc: CaptureSessionDocument): string {
     switch (this.captureDocumentIndexStatus(doc)) {
       case 'referenced':
-        return 'référencé';
+        return this.i18n.t('capture.document.status_referenced');
       case 'queued':
-        return 'en file';
+        return this.i18n.t('capture.document.status_queued');
       case 'indexed':
-        return 'indexé';
+        return this.i18n.t('capture.document.status_indexed');
       case 'failed':
-        return 'échec';
+        return this.i18n.t('capture.document.status_failed');
       default:
-        return 'non indexé';
+        return this.i18n.t('capture.document.status_not_indexed');
     }
   }
 
@@ -12138,7 +12170,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
    * end-of-capture pass persists the restructured report. */
   private beginCaptureFinalizing(): void {
     this.captureFinalizing.set(true);
-    this.captureFinalizeStage.set({ stage: 'start', label: 'Préparation de la synthèse finale…' });
+    this.captureFinalizeStage.set({ stage: 'start', label: this.i18n.t('capture.finalize.preparing') });
     if (this.captureFinalizeDoneTimeout) {
       clearTimeout(this.captureFinalizeDoneTimeout);
       this.captureFinalizeDoneTimeout = null;
@@ -12149,7 +12181,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.captureFinalizeTimeout = setTimeout(() => {
       if (!this.captureFinalizing()) return;
       this.setVoiceNotice(
-        'La synthèse finale prend plus de temps que prévu. Le rapport affiché peut être incomplet.',
+        this.i18n.t('capture.finalize.too_long'),
         'warning',
       );
       this.endCaptureFinalizing(true);
@@ -12208,13 +12240,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   captureFinalizeStageLabel(): string {
-    return this.captureFinalizeStage()?.label || 'Préparation de la synthèse finale…';
+    return this.captureFinalizeStage()?.label || this.i18n.t('capture.finalize.preparing');
   }
 
   captureFinalizeSectionProgress(): string | null {
     const stage = this.captureFinalizeStage();
     if (!stage?.current || !stage?.total) return null;
-    return `Section ${stage.current} / ${stage.total}`;
+    return this.i18n.t('capture.finalize.section_progress', { current: stage.current, total: stage.total });
   }
 
   captureFinalizeProgressPct(): number | null {
@@ -12227,11 +12259,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   captureFinalizeSteps(): Array<{ label: string; state: 'done' | 'active' | 'pending' }> {
     const order = ['start', 'restructure', 'dedupe', 'vocabulary', 'reformulate', 'questions', 'section', 'report', 'done'];
     const grouping: Array<{ label: string; stages: string[] }> = [
-      { label: 'Restructuration selon le plan', stages: ['start', 'restructure'] },
-      { label: 'Nettoyage des doublons', stages: ['dedupe'] },
-      { label: 'Alignement vocabulaire métier', stages: ['vocabulary'] },
-      { label: 'Reformulation des sections', stages: ['reformulate', 'questions', 'section'] },
-      { label: 'Assemblage du rapport', stages: ['report', 'done'] },
+      { label: this.i18n.t('capture.finalize.step_restructure'), stages: ['start', 'restructure'] },
+      { label: this.i18n.t('capture.finalize.step_dedupe'), stages: ['dedupe'] },
+      { label: this.i18n.t('capture.finalize.step_vocabulary'), stages: ['vocabulary'] },
+      { label: this.i18n.t('capture.finalize.step_reformulate'), stages: ['reformulate', 'questions', 'section'] },
+      { label: this.i18n.t('capture.finalize.step_report'), stages: ['report', 'done'] },
     ];
     const current = this.captureFinalizeStage()?.stage || 'start';
     // Terminal stage: every group is complete. Without this the last group
@@ -12340,7 +12372,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   scrollToReviewQuestion(key: string): void {
     const target = document.getElementById(this.reviewQuestionDomId(key));
     if (!target) {
-      this.setVoiceNotice('Question introuvable dans le panneau de revue.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.review.question_not_found'), 'warning');
       return;
     }
     target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -12514,7 +12546,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (state === 'error') {
       this.voiceState.set('idle');
-      this.setVoiceNotice('Synthèse vocale indisponible ; ouverture du micro à la place.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.voice.tts_unavailable'), 'warning');
     }
   }
 
@@ -12530,7 +12562,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.recorder.stop();
     } catch {
       this.captureEndpointReason = 'error';
-      this.setVoiceNotice('Fermeture du tour vocal impossible. Relancez le micro.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.voice.turn_close_failed'), 'error');
     }
     this.recording.set(false);
     this.stopDictationAudioMonitor();
@@ -12653,19 +12685,19 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private captureEndpointNotice(reason: CaptureEndpointReason): string {
-    if (reason === 'silence') return 'Silence détecté : finalisation du tour vocal.';
-    if (reason === 'max_turn') return 'Durée maximale atteinte : finalisation du tour vocal.';
-    if (reason === 'no_speech') return 'Aucune parole détectée : le tour vocal est ignoré.';
-    if (reason === 'stop') return 'Conversation arrêtée.';
-    if (reason === 'error') return 'Erreur pendant la capture vocale.';
-    return 'Finalisation du tour vocal.';
+    if (reason === 'silence') return this.i18n.t('capture.endpoint.silence');
+    if (reason === 'max_turn') return this.i18n.t('capture.endpoint.max_turn');
+    if (reason === 'no_speech') return this.i18n.t('capture.endpoint.no_speech');
+    if (reason === 'stop') return this.i18n.t('capture.endpoint.stop');
+    if (reason === 'error') return this.i18n.t('capture.endpoint.error');
+    return this.i18n.t('capture.endpoint.finalizing');
   }
 
   private dictationEndpointNotice(reason: CaptureEndpointReason): string {
     if (reason === 'silence') return this.i18n.t('capture.plan.dictation.silence_stop');
-    if (reason === 'no_speech') return 'Aucune parole détectée : dictée annulée.';
-    if (reason === 'error') return 'Erreur pendant la dictée.';
-    return 'Finalisation de la dictée…';
+    if (reason === 'no_speech') return this.i18n.t('capture.dictation.no_speech');
+    if (reason === 'error') return this.i18n.t('capture.dictation.error');
+    return this.i18n.t('capture.dictation.finalizing');
   }
 
   private clearDictationSurface(): void {
@@ -12811,7 +12843,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       window.AudioContext ||
       (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextCtor) {
-      this.setVoiceNotice('Détection automatique du silence indisponible dans ce navigateur.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.endpoint.vad_unsupported'), 'warning');
       return;
     }
     try {
@@ -12921,7 +12953,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.captureEndpointRaf = requestAnimationFrame(tick);
     } catch {
       this.stopCaptureEndpointMonitor();
-      this.setVoiceNotice('Détection automatique du silence indisponible. Arrêtez le tour manuellement.', 'warning');
+      this.setVoiceNotice(this.i18n.t('capture.endpoint.vad_failed'), 'warning');
     }
   }
 
@@ -12974,7 +13006,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (command === 'end_section') {
       const session = this.session();
       if (session && this.isFreeConversationSession(session)) {
-        this.setVoiceNotice('Commande de section ignorée en capture libre. La capture continue.', 'info');
+        this.setVoiceNotice(this.i18n.t('capture.section.command_ignored_free'), 'info');
         return true;
       }
       if (session) this.finishCurrentSection(session);
@@ -12987,7 +13019,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (typeof MediaRecorder === 'undefined') {
       this.recorder = null;
       this.releaseAudioStream();
-      this.setVoiceNotice('L’enregistrement audio est indisponible dans ce navigateur. Essayez un autre navigateur ou utilisez la saisie guidée.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.recorder.unsupported'), 'error');
       return false;
     }
     try {
@@ -13038,7 +13070,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             })
             .catch(() => {
               if (generation !== this.voiceCaptureGeneration) return;
-              this.setVoiceNotice('Une trame vocale n’a pas pu être envoyée ; le fallback HTTP peut être nécessaire.', 'warning');
+              this.setVoiceNotice(this.i18n.t('capture.recorder.frame_send_failed'), 'warning');
             });
           this.pendingVoiceFrameSends.push(send);
           void send.finally(() => {
@@ -13061,7 +13093,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.recorder = null;
       this.stopCaptureEndpointMonitor();
       this.releaseAudioStream();
-      this.setVoiceNotice('Démarrage de l’enregistrement impossible. Vérifiez le micro puis réessayez.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.recorder.start_failed'), 'error');
       return false;
     }
     this.transcriptAtBottom.set(true);
@@ -13140,7 +13172,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         max_turn_ms: captureConfig.max_turn_ms,
       });
     }
-    if (!this.startAudioRecorder('Micro ouvert. Terminez le tour quand la réponse expert est complète.')) {
+    if (!this.startAudioRecorder(this.i18n.t('capture.voice.mic_open_finish_turn'))) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
     }
@@ -13178,7 +13210,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (!navigator.mediaDevices?.getUserMedia) {
       this.stream = null;
-      this.setVoiceNotice('La capture micro est indisponible dans ce contexte navigateur.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.recorder.mic_unsupported'), 'error');
       return false;
     }
     const generation = ++this.voiceCaptureGeneration;
@@ -13196,8 +13228,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.stream = null;
       this.setVoiceNotice(
         name === 'NotAllowedError'
-          ? 'L’autorisation micro est bloquée. Autorisez le micro ou poursuivez en saisie guidée.'
-          : 'La capture micro a échoué. Vérifiez le périphérique puis réessayez.',
+          ? this.i18n.t('capture.recorder.mic_blocked')
+          : this.i18n.t('capture.recorder.mic_failed'),
         'error',
       );
       return false;
@@ -13327,7 +13359,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.voiceState.set('idle');
       this.releaseAudioStream();
       this.finalizeDeferredStreamingStop();
-      this.setVoiceNotice('La transcription prend trop de temps. Le micro est libéré, relancez un tour ou utilisez le texte.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.transcript.watchdog'), 'error');
     }, 45000);
   }
 
@@ -13343,7 +13375,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.conversationProcessingWatchdog = window.setTimeout(() => {
       if (this.voiceState() !== 'thinking') return;
       this.voiceState.set('idle');
-      this.setVoiceNotice('L’analyse prend trop de temps. Vous pouvez continuer la capture ou terminer la session.', 'error');
+      this.setVoiceNotice(this.i18n.t('capture.conversation.watchdog'), 'error');
     }, 60000);
   }
 

@@ -2414,14 +2414,14 @@ export class KnowledgeViewComponent implements OnInit {
     const warnings: string[] = [];
     const content = String(fact.content || fact.value_raw || '');
     if (content.includes('#DIV/0!') || content.includes('#VALUE!') || content.includes('#REF!')) {
-      warnings.push('Erreur formule');
+      warnings.push(this.i18n.t('capture.table.warning_formula'));
     }
     const row = String(fact.row_label || '').trim().toLowerCase();
     const column = String(fact.column_header || '').trim().toLowerCase();
     const value = String(fact.value_raw || fact.value_numeric || '').trim().toLowerCase();
-    if (row && value && row === value) warnings.push('Valeur auto-référente');
-    if (column && value && column === value) warnings.push('En-tête auto-référent');
-    if (fact.interpretation_note) warnings.push('À relire');
+    if (row && value && row === value) warnings.push(this.i18n.t('capture.table.warning_self_value'));
+    if (column && value && column === value) warnings.push(this.i18n.t('capture.table.warning_self_header'));
+    if (fact.interpretation_note) warnings.push(this.i18n.t('capture.table.warning_review'));
     return warnings;
   }
 

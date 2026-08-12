@@ -5,9 +5,11 @@ import {
   HostListener,
   Input,
   Output,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { I18nService } from '@app/core/i18n.service';
 
 export interface PressArticleDetail {
   id: string;
@@ -215,17 +217,17 @@ interface EntityBar {
           <footer class="press-drawer-foot">
             @if (article.url) {
               <a class="action-link external" [href]="article.url" target="_blank" rel="noopener noreferrer">
-                Ouvrir la source
+                {{ i18n.t('mission.press.open_source') }}
               </a>
             }
             @if (newsLabRoute) {
               <a class="action-link" [routerLink]="newsLabRoute" target="_blank" rel="noopener">
-                Voir dans News Lab
+                {{ i18n.t('mission.press.view_in_news_lab') }}
               </a>
             }
             @if (configRoute) {
               <a class="action-link muted" [routerLink]="configRoute" target="_blank" rel="noopener">
-                Configurer les sources
+                {{ i18n.t('mission.press.configure_sources') }}
               </a>
             }
           </footer>
@@ -656,6 +658,7 @@ interface EntityBar {
   ],
 })
 export class VpPressArticleDrawerComponent {
+  readonly i18n = inject(I18nService);
   @Input() open = false;
   @Input() article: PressArticleDetail | null = null;
   @Input() newsLabRoute: string | null = null;

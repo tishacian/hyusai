@@ -4176,7 +4176,10 @@ export class ChatPanelComponent implements AfterViewInit {
     const query = typeof request['query'] === 'string' ? (request['query'] as string) : 'Deep Search';
     const answer = typeof result['answer'] === 'string' && result['answer'].trim()
       ? (result['answer'] as string).trim()
-      : `Deep Search ${raw['status'] === 'completed' ? 'terminé' : 'en cours'} pour "${query}".`;
+      : this.i18n.t(
+          raw['status'] === 'completed' ? 'chat.deep_search.done_for' : 'chat.deep_search.running_for',
+          { query },
+        );
     const pollUrl = typeof raw['poll_url'] === 'string' ? (raw['poll_url'] as string) : `/workspace-jobs/${jobId}`;
     return {
       id: typeof raw['message_id'] === 'string' && raw['message_id'] ? (raw['message_id'] as string) : `job:${jobId}`,
@@ -4287,17 +4290,17 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   executiveVoiceCtaLabel(): string {
-    if (!this.canUseVoiceSession()) return 'Voix indisponible';
-    if (this.voiceConversationPaused()) return 'Reprendre AYA';
-    if (this.voiceConversationActive()) return 'AYA écoute';
-    return 'Parler à AYA';
+    if (!this.canUseVoiceSession()) return this.i18n.t('chat.voice.unavailable');
+    if (this.voiceConversationPaused()) return this.i18n.t('chat.voice.resume_aya');
+    if (this.voiceConversationActive()) return this.i18n.t('chat.voice.aya_listening');
+    return this.i18n.t('chat.voice.talk_to_aya');
   }
 
   executiveVoiceCtaTitle(): string {
     if (!this.canUseVoiceSession()) return this.voiceSessionButtonTitle();
-    if (this.voiceConversationPaused()) return 'Relancer la boucle vocale AYA.';
-    if (this.voiceConversationActive()) return 'La session vocale AYA est active. Les commandes stop, pause et annule restent disponibles.';
-    return 'Démarrer une conversation vocale persistante avec AYA.';
+    if (this.voiceConversationPaused()) return this.i18n.t('chat.voice.resume_aya_title');
+    if (this.voiceConversationActive()) return this.i18n.t('chat.voice.aya_active_title');
+    return this.i18n.t('chat.voice.talk_to_aya_title');
   }
 
   startExecutiveVoiceLoop(): void {
@@ -4409,12 +4412,12 @@ export class ChatPanelComponent implements AfterViewInit {
 
   voiceMicTitle(): string {
     if (this.voiceConversationActive()) {
-      if (this.voiceConversationPaused()) return 'Conversation loop paused. Press Resume to reopen the microphone.';
-      return 'Arrêter la voix : couper la lecture et la boucle d’écoute (sans relance).';
+      if (this.voiceConversationPaused()) return this.i18n.t('chat.voice.loop_paused_title');
+      return this.i18n.t('chat.voice.stop_no_rearm_title');
     }
     if (!this.canTranscribeVoice() && !this.voiceStopAvailable())
       return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
-    if (this.ttsSpeaking()) return 'Couper la lecture vocale en cours.';
+    if (this.ttsSpeaking()) return this.i18n.t('chat.voice.cut_playback_title');
     if (this.transcribing()) return this.isDemoMode() ? 'Transcribing…' : `Transcribing with ${this.voiceInputProvider()}…`;
     if (this.recording()) {
       return this.voiceAutoEndpoint() && this.voiceTransport() === 'backend_ws'
@@ -5276,7 +5279,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   useSuggestion(s: SuggestionCard): void {
     this.userInput = s.prompt;
-    this.voiceOracleMessage.set('Question prête. Complétez si besoin, puis envoyez.');
+    this.voiceOracleMessage.set(this.i18n.t('chat.suggestion.question_ready'));
     this.cdr.markForCheck();
     this.focusComposer();
   }
@@ -5592,7 +5595,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private cleanSourceLabel(label: string): string {
     const cleaned = label
       .replace(/\bknowledge\s+experiment\b/gi, '')
-      .replace(/\bworkspace\s+Knowledge\b/g, 'contexte du workspace')
+      .replace(/\bworkspace\s+Knowledge\b/g, this.i18n.t('chat.context.workspace'))
       .replace(/\s{2,}/g, ' ')
       .replace(/[\s·,:-]+$/g, '')
       .trim();
@@ -6453,7 +6456,7 @@ export class ChatPanelComponent implements AfterViewInit {
     stage: string | null;
     parentMessageId: string | null;
   }): void {
-    const content = 'Recherche approfondie lancée pour affiner cette réponse.';
+    const content = this.i18n.t('chat.deep_search.started_notice');
     this.messages.update((messages) => {
       const existing = messages.some((msg) => msg.id === params.messageId);
       if (existing) {
@@ -6955,7 +6958,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   /** Plain-language tooltip for the "Réponse à vérifier" badge. */
   qaReviewTooltip(): string {
-    return 'Le contrôle qualité automatique recommande de vérifier cette réponse avant de l’utiliser. Cliquez pour consulter le détail.';
+    return this.i18n.t('chat.qa.review_tooltip');
   }
 
   /** Navigate to the detailed QA review for a flagged reply (opt-in). */
@@ -7054,14 +7057,14 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private async startCorrectionRecording(): Promise<void> {
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      this.toast.error('Le micro n’est pas disponible dans ce navigateur. Saisissez la correction.', 'Dictée');
+      this.toast.error(this.i18n.t('chat.correction.mic_unsupported'), this.i18n.t('chat.correction.dictation'));
       return;
     }
     try {
       this.correctionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       this.correctionMicState.set('idle');
-      this.toast.error('Accès au micro refusé. Vous pouvez saisir la correction manuellement.', 'Dictée');
+      this.toast.error(this.i18n.t('chat.correction.mic_denied'), this.i18n.t('chat.correction.dictation'));
       this.cdr.markForCheck();
       return;
     }
@@ -7191,7 +7194,7 @@ export class ChatPanelComponent implements AfterViewInit {
       }
       this.correctionMicState.set('idle');
       this.correctionLiveTranscript.set('');
-      this.toast.warning('Aucun son capté. Réessayez ou saisissez la correction.', 'Dictée');
+      this.toast.warning(this.i18n.t('chat.correction.no_sound'), this.i18n.t('chat.correction.dictation'));
       this.cdr.markForCheck();
       return;
     }
@@ -7216,7 +7219,7 @@ export class ChatPanelComponent implements AfterViewInit {
             this.applyCorrectionTranscript(livePreview);
           } else {
             this.correctionMicState.set('idle');
-            this.toast.warning('Transcription vide. Vous pouvez saisir la correction.', 'Dictée');
+            this.toast.warning(this.i18n.t('chat.correction.empty_transcript'), this.i18n.t('chat.correction.dictation'));
           }
           this.correctionLiveTranscript.set('');
           this.cdr.markForCheck();
@@ -7226,10 +7229,10 @@ export class ChatPanelComponent implements AfterViewInit {
           // present, otherwise keep the textarea usable for manual typing.
           if (livePreview) {
             this.applyCorrectionTranscript(livePreview);
-            this.toast.info('Transcription serveur indisponible — texte capté localement, relisez-le.', 'Dictée');
+            this.toast.info(this.i18n.t('chat.correction.local_transcript'), this.i18n.t('chat.correction.dictation'));
           } else {
             this.correctionMicState.set('idle');
-            this.toast.error('Transcription indisponible. Saisissez la correction manuellement.', 'Dictée');
+            this.toast.error(this.i18n.t('chat.correction.transcript_failed'), this.i18n.t('chat.correction.dictation'));
           }
           this.correctionLiveTranscript.set('');
           this.cdr.markForCheck();
@@ -7276,7 +7279,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (micState === 'recording' || micState === 'transcribing') return;
     const correction = this.correctionText().trim();
     if (!correction) {
-      this.toast.warning('Saisissez ou dictez une correction avant d’envoyer.', 'Correction');
+      this.toast.warning(this.i18n.t('chat.correction.text_required'), this.i18n.t('chat.correction.title'));
       return;
     }
     const usedVoice = this.correctionUsedVoice() && !!this.correctionTranscriptRaw;
@@ -7343,15 +7346,15 @@ export class ChatPanelComponent implements AfterViewInit {
           }));
           const toastRef: ActiveToast<unknown> = published
             ? this.toast.success(
-                'Connaissance experte publiée — prioritaire.',
-                'Merci',
+                this.i18n.t('chat.correction.published'),
+                this.i18n.t('chat.correction.thanks'),
                 { closeButton: true, tapToDismiss: true },
               )
             : this.toast.success(
                 url
-                  ? 'Correction envoyée en revue — toucher pour ouvrir la file de revue.'
-                  : 'Correction envoyée en revue.',
-                'Merci',
+                  ? this.i18n.t('chat.correction.sent_tap')
+                  : this.i18n.t('chat.correction.sent'),
+                this.i18n.t('chat.correction.thanks'),
                 { closeButton: true, tapToDismiss: !url },
               );
           if (!published && url) {
@@ -7379,8 +7382,8 @@ export class ChatPanelComponent implements AfterViewInit {
             // Feature disabled for the workspace / caller not permitted: degrade
             // gracefully by collapsing the composer and informing the expert.
             this.toast.info(
-              'La correction experte n’est pas activée pour ce workspace.',
-              'Correction',
+              this.i18n.t('chat.correction.disabled'),
+              this.i18n.t('chat.correction.title'),
             );
             this.closeCorrection();
             this.cdr.markForCheck();
@@ -7526,7 +7529,7 @@ export class ChatPanelComponent implements AfterViewInit {
       this.resetTtsPipeline();
     }
     this.voiceConnection?.ttsInterrupted({ reason: 'user_stop', surface: 'chat' });
-    this.voiceNotice.set('Lecture coupée');
+    this.voiceNotice.set(this.i18n.t('chat.voice.playback_cut'));
     this.cdr.markForCheck();
   }
 
@@ -8045,7 +8048,7 @@ export class ChatPanelComponent implements AfterViewInit {
         this.scheduleVoiceLoopRearm();
         return true;
       }
-      this.userInput = 'Reformule ta dernière réponse de façon plus courte et opérationnelle.';
+      this.userInput = this.i18n.t('chat.voice.rephrase_prompt');
       if (!this.streaming()) queueMicrotask(() => this.send());
       return true;
     }

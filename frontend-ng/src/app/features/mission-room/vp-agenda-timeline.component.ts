@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import type { VpAgendaTimeline, VpAgendaTimelineEvent, VpArbitrationCard } from './vp-cockpit.types';
 
 @Component({
@@ -10,10 +11,10 @@ import type { VpAgendaTimeline, VpAgendaTimelineEvent, VpArbitrationCard } from 
   template: `
     <section class="agenda-timeline" aria-label="Agenda ministeriel">
       <header>
-        <span class="eyebrow">{{ timeline.label || 'Agenda ministeriel' }}</span>
-        <h2>Pilotage du temps</h2>
+        <span class="eyebrow">{{ timeline.label || i18n.t('mission.agenda.timeline_eyebrow') }}</span>
+        <h2>{{ i18n.t('mission.agenda.timeline_title') }}</h2>
         @if (timeline.separate_from_actions !== false) {
-          <small>Distinct des actions a arbitrer</small>
+          <small>{{ i18n.t('mission.agenda.timeline_hint') }}</small>
         }
       </header>
       <div class="timeline-track">
@@ -155,6 +156,7 @@ import type { VpAgendaTimeline, VpAgendaTimelineEvent, VpArbitrationCard } from 
   ],
 })
 export class VpAgendaTimelineComponent {
+  readonly i18n = inject(I18nService);
   @Input() timeline: VpAgendaTimeline = { events: [] };
   @Output() eventSelected = new EventEmitter<VpAgendaTimelineEvent>();
 

@@ -36,6 +36,7 @@ export const COMMON_FR = {
   'state.error.title': 'Une erreur est survenue',
   'state.error.network': 'Erreur réseau. Vérifiez votre connexion.',
   'state.error.retry': 'Réessayer',
+  'state.error.stream_timeout': 'La réponse prend trop de temps. La session a été arrêtée proprement.',
 } as const satisfies Record<string, string>;
 
 /**
@@ -74,4 +75,5 @@ export const COMMON_EN: Record<keyof typeof COMMON_FR, string> = {
   'state.error.title': 'Something went wrong',
   'state.error.network': 'Network error. Check your connection.',
   'state.error.retry': 'Retry',
+  'state.error.stream_timeout': 'The answer is taking too long. The session was stopped cleanly.',
 };

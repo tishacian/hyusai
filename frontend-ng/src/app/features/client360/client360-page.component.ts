@@ -1605,17 +1605,17 @@ interface CampaignDraftsOutcome {
                     }
                   </div>
                   <label>
-                    Echeance sous (semaines)
-                    <input type="number" min="1" max="520" [(ngModel)]="campaignDueWithinWeeks" placeholder="Toutes" />
+                    {{ i18n.t('client360.campaign.due_within') }}
+                    <input type="number" min="1" max="520" [(ngModel)]="campaignDueWithinWeeks" [placeholder]="i18n.t('client360.filter.any_confidence')" />
                   </label>
-                  <p class="hint">La campagne ciblera les opportunites de ces clients ; les filtres pays / techno / famille ci-dessus restent appliques.</p>
+                  <p class="hint">{{ i18n.t('client360.campaign.target_note') }}</p>
                 </div>
               }
               <button type="button" class="primary" [disabled]="campaignBusy()" (click)="createCampaign()">
                 <ck-glyph name="ledger" [size]="14" color="currentColor" />
                 {{ campaignTargetCustomerKeys().length
-                  ? 'Creer pour la selection (' + campaignTargetCustomerKeys().length + ')'
-                  : 'Creer depuis les filtres' }}
+                  ? i18n.t('client360.campaign.create_selection', { count: campaignTargetCustomerKeys().length })
+                  : i18n.t('client360.campaign.create_filters') }}
               </button>
               @if (campaignStatus()) {
                 <div class="action-status" role="status" aria-live="polite">{{ campaignStatus() }}</div>
@@ -1653,24 +1653,24 @@ interface CampaignDraftsOutcome {
                 </div>
                 <div class="detail-actions">
                   <button type="button" class="primary" [disabled]="campaignBusy()" (click)="generateCampaignDrafts(false)">
-                    <ck-glyph name="ledger" [size]="14" color="currentColor" /> Generer les brouillons
+                    <ck-glyph name="ledger" [size]="14" color="currentColor" /> {{ i18n.t('client360.campaign.generate_drafts') }}
                   </button>
                   <button type="button" class="secondary" [disabled]="campaignBusy()" (click)="generateCampaignDrafts(true)">
-                    <ck-glyph name="orbit" [size]="14" color="currentColor" /> Preparer relances
+                    <ck-glyph name="orbit" [size]="14" color="currentColor" /> {{ i18n.t('client360.campaign.prepare_followups') }}
                   </button>
                 </div>
               </div>
               <p class="c360-note">
-                Validation humaine obligatoire, aucun envoi automatique. Les clients sans email de contact ou deja engages dans une campagne active sont exclus.
+                {{ i18n.t('client360.campaign.note') }}
               </p>
               @if (campaignDraftsOutcome(); as outcome) {
                 @if (outcome.campaignId === campaign.id) {
                   <section class="drafts-outcome" role="status" aria-live="polite">
                     <strong>
                       {{ outcome.followUp
-                        ? outcome.prepared + ' relance(s) preparee(s)'
-                        : outcome.created + ' brouillon(s) cree(s)' }}
-                      · {{ outcome.skippedTotal }} ignore(s)
+                        ? i18n.t('client360.campaign.prepared', { count: outcome.prepared })
+                        : i18n.t('client360.campaign.created', { count: outcome.created }) }}
+                      · {{ i18n.t('client360.campaign.skipped', { count: outcome.skippedTotal }) }}
                     </strong>
                     @if (outcome.skipped.length) {
                       <ul>
@@ -1679,30 +1679,32 @@ interface CampaignDraftsOutcome {
                         }
                       </ul>
                     } @else {
-                      <small>Aucun client exclu par les regles de dedoublonnage.</small>
+                      <small>{{ i18n.t('client360.campaign.no_skips') }}</small>
                     }
                   </section>
                 }
               }
               @if (campaignStats(); as stats) {
                 <section class="kpi-grid campaign-kpis">
-                  <div class="ck-surface kpi"><span>CA potentiel</span><strong>{{ formatCurrency(stats.potential_gap_value, stats.currency) }}</strong></div>
-                  <div class="ck-surface kpi"><span>CA attendu</span><strong>{{ formatCurrency(stats.expected_value, stats.currency) }}</strong></div>
-                  <div class="ck-surface kpi"><span>Clients cibles</span><strong>{{ stats.targeted_customers }}</strong></div>
-                  <div class="ck-surface kpi"><span>Brouillons</span><strong>{{ stats.drafts }}</strong></div>
-                  <div class="ck-surface kpi"><span>Envoyes</span><strong>{{ stats.sent }}</strong></div>
-                  <div class="ck-surface kpi"><span>Reponses</span><strong>{{ stats.responses }}</strong></div>
-                  <div class="ck-surface kpi"><span>Devis</span><strong>{{ stats.quotes }}</strong></div>
-                  <div class="ck-surface kpi"><span>Commandes</span><strong>{{ stats.orders }}</strong></div>
-                  <div class="ck-surface kpi"><span>CA gagne</span><strong>{{ formatCurrency(stats.won_value, stats.currency) }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.potential_revenue') }}</span><strong>{{ formatCurrency(stats.potential_gap_value, stats.currency) }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.expected_revenue') }}</span><strong>{{ formatCurrency(stats.expected_value, stats.currency) }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.targeted_customers') }}</span><strong>{{ stats.targeted_customers }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.drafts') }}</span><strong>{{ stats.drafts }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.sent') }}</span><strong>{{ stats.sent }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.responses') }}</span><strong>{{ stats.responses }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.quotes') }}</span><strong>{{ stats.quotes }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.orders') }}</span><strong>{{ stats.orders }}</strong></div>
+                  <div class="ck-surface kpi"><span>{{ i18n.t('client360.kpi.won_revenue') }}</span><strong>{{ formatCurrency(stats.won_value, stats.currency) }}</strong></div>
                 </section>
                 <p class="hint">
-                  CA attendu = potentiel adressable x proxy de conversion {{ conversionProxyLabel(stats) }}
-                  — {{ stats.expected_value_disclaimer || 'estimation deterministe, a recaler des les premiers retours' }}.
+                  {{ i18n.t('client360.campaign.expected_formula', {
+                    proxy: conversionProxyLabel(stats),
+                    disclaimer: stats.expected_value_disclaimer || i18n.t('client360.campaign.expected_disclaimer'),
+                  }) }}
                 </p>
               }
             } @else {
-              <div class="state-line">Selectionnez une campagne pour suivre sa transformation.</div>
+              <div class="state-line">{{ i18n.t('client360.campaign.select_prompt') }}</div>
             }
           </div>
         </section>
@@ -1729,10 +1731,10 @@ interface CampaignDraftsOutcome {
                 </div>
               </div>
             } @empty {
-              <div class="state-line">Posez une question : « opportunites haute confiance », « campagnes en cours », « fiche client Septona »…</div>
+              <div class="state-line">{{ i18n.t('client360.chat.empty') }}</div>
             }
             @if (chatBusy()) {
-              <div class="chat-msg assistant"><div class="chat-bubble muted"><ck-glyph name="pulse" [size]="12" color="currentColor" /> Recherche…</div></div>
+              <div class="chat-msg assistant"><div class="chat-bubble muted"><ck-glyph name="pulse" [size]="12" color="currentColor" /> {{ i18n.t('client360.chat.searching') }}</div></div>
             }
           </div>
           @if (chatError()) {
@@ -1744,10 +1746,10 @@ interface CampaignDraftsOutcome {
               name="chatInput"
               [(ngModel)]="chatInput"
               [disabled]="chatBusy()"
-              placeholder="Poser une question a l'assistant Client360…"
+              [placeholder]="i18n.t('client360.chat.placeholder')"
             />
             <button type="submit" class="primary" [disabled]="chatBusy() || !chatInput.trim()">
-              <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Envoyer
+              <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> {{ i18n.t('client360.chat.send') }}
             </button>
           </form>
         </section>
