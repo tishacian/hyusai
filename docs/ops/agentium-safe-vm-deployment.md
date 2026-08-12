@@ -3308,3 +3308,94 @@ Le contrat `docs/ops/assistant-engine-contract.md` continue d'écrire
 `"knowledge_scope": "itsd"` en §4 et en §4.1, alors que la production porte
 `itsd-knowledge`. Le corriger touche un document gelé comme contrat ; l'écart
 est consigné ici plutôt que patché en fenêtre.
+
+## Itération du 12/08 — déployée sur `ec934d64`, polish UI/UX bilingue et sans jargon interne
+
+Deux commits sur `demo/agentic` : `9ea4b4a9` (import BRD pour amorcer une skill,
+rattachement à une capability) et `ec934d64` (dictionnaire scindé en onze
+modules de domaine, thème tri-state partout, assistant de création de skill,
+liste de contrôle du Flow Builder en langage clair). Le déclencheur était des
+libellés livrés en français seulement, un mode clair partiel, et une création de
+skill qui exigeait d'écrire du JSON à la main.
+
+**Ni migration Alembic ni dépendance frontale nouvelle.** `alembic current` rend
+`084_decision_condition_repair` avant **et** après la bascule, donc le retour
+arrière est symétrique : redéployer les images précédentes suffit. Côté backend
+la dépendance `python-docx` entre pour le parse `.docx`, ce qui impose de
+reconstruire l'image plutôt que de recycler la précédente.
+
+### Portails locaux
+
+| Portail | Commande | Observé |
+|---|---|---|
+| Garde i18n | `npm run check:i18n` | sortie 0 — **2792** clés, 11 domaines, 20 règles de lexique |
+| Garde chrome | `npm run check:ui-chrome` | sortie 0 — les deux violations de violet hérité de `connectors-page` et `resources-page` sont soldées |
+| Types | `npx tsc -p tsconfig.app.json --noEmit` | sortie 0 |
+| Unitaires front | `node scripts/run-unit.mjs` | **857/857** |
+| Build AOT | `npm run build:prod` | réussi, seuls les avertissements de budget préexistants |
+| QA navigateur | pilotes `e2e/qa-*.mjs` sur le build AOT servi par `serve-dist.mjs` | **134** captures relues en clair/sombre × FR/EN |
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `d650b72a` → `ec934d64`, accès Bitbucket direct depuis le poste |
+| Ancre + worktree | `/home/ubuntu/omnirag` en `pull --ff-only`, worktree de build détaché sur le même SHA, `git status` vierge des deux côtés |
+| Build | **trois** images au tag `ec934d64a889`, `AGENTIUM_IMAGE_REVISION` en 40-hex (~9,5 min) |
+| Dump | **aucun** — la tranche ne mute ni schéma ni graphes stockés |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services recréés (backend, worker-cpu, frontend, p4-maintenance, beat), `RestartCount=0` sur tous |
+| `build-info` | `revision: ec934d64a889ea02c2efa29dfb8affa5b42ed090`, `revision_verified: true` |
+| Alembic | `084_decision_condition_repair` avant **et** après |
+| Conteneurs | **13**, `--filter health=healthy` = **9** — compte nominal inchangé |
+| Sidecar | `agentium-livekit-agent` non reconstruit et non recréé : `Up 5 days`, `healthy` |
+| Logs | **0** `ERROR`, **0** `Traceback` sur le backend depuis la bascule |
+| Canaris carakai | **6/6 vertes** au premier passage, artefacts `/tmp/iteration-canaries-20260812T140225Z.MK5cMy` |
+| Alias | `demo-agentic` déplacé sur `ec934d64a889` après les canaris |
+
+### Ce que la fenêtre a corrigé au passage, hors périmètre annoncé
+
+Le build AOT était **déjà cassé** avant l'ouverture de la fenêtre :
+`client360-page.component.ts` portait deux boucles `@for` sur des membres jamais
+déclarés, absents de `HEAD` et introduits par une itération antérieure. Les deux
+tableaux ont été reconstitués depuis les `<option>` d'origine. Un déploiement
+tenté sans cette réparation aurait échoué au build, pas en production.
+
+Le garde i18n ne sondait que les templates : le français en dur des littéraux
+TypeScript lui échappait entièrement, ce qui explique que des libellés
+monolingues aient pu être livrés sans alerte. La sonde couvre désormais les
+deux, et la dette restante est cliquetée — un budget par fichier qui ne peut que
+descendre, avec les vraies fixtures (verbatims de démonstration, table
+d'anonymisation, miroir du contrat `capture_templates`) séparées de la dette
+sous une catégorie explicite.
+
+### Ce que cette fenêtre prouve, et ce qu'elle ne prouve pas
+
+Elle prouve que le SHA déployé sert, que les deux thèmes se tiennent sur les
+écrans touchés, et que le mot `advisory` a disparu de l'écran au profit de
+« recommandation » pour le livrable consultatif et de « consultatif » pour une
+donnée non contraignante — le lexique opposable le bannit désormais, donc la
+rechute est bloquée à la garde.
+
+Elle ne prouve rien des états denses : la QA navigateur tourne sur un stub d'API
+et rend le chrome et les états vides, pas des listes peuplées ni la mission
+room. La barre vocale n'a été vue qu'inactive, aucune session micro réelle n'a
+été ouverte. Et aucun parcours authentifié contre la production n'a été rejoué
+au-delà des six canaris.
+
+### Dette relevée, non traitée
+
+- **Dette i18n restante** : 11 entrées de ratchet côté template pour 66 lignes,
+  et `knowledge-capture.component.ts` concentre à lui seul ~282 littéraux.
+- **Trois défauts QA constatés, non corrigés faute d'arbitrage** : les libellés
+  indicatifs de l'overlay de chat débordent et se coupent sur deux lignes dans
+  les quatre cellules (arbitrage de largeur) ; la copie des catalogues
+  `connectors` et `resources` reste anglaise en locale FR (antérieur à la
+  fenêtre) ; l'écran de publication expose `source_type` en pleine phrase
+  utilisateur.
+- **Terminal d'exécution du Flow Builder** : il imprime encore la phrase brute
+  de l'analyseur en anglais. C'est un journal, registre technique, mais il
+  pourrait réutiliser la correspondance code → message écrite pour le bandeau.
+- **Messages de `capture-engine`** : résolus au moment de l'événement puis
+  stockés en signal, ils ne se retraduisent pas si l'utilisateur change de
+  langue en cours de session.
