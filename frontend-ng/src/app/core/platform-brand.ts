@@ -18,6 +18,15 @@ export const DEFAULT_BRAND_NAME = 'Agentium';
 export interface PlatformBrand {
   label: string;
   emblem: string;
+  /**
+   * Optional second artwork for light surfaces. A customer wordmark is often
+   * delivered as an opaque file drawn for a dark background; on a light chrome
+   * it reads as a plate rather than a mark. A tenant that has a keyed-out or
+   * light-surface variant declares it here and the chrome picks it up when the
+   * resolved theme is light. Absent, the single `emblem` is used in both
+   * themes, which is every other tenant's case.
+   */
+  emblemLight: string | null;
   /** Where the emblem returns to, typically the workspace's own business app. */
   home: string | null;
 }
@@ -34,7 +43,10 @@ export function platformBrand(
   // tenant logo, is worse than no white-labelling at all.
   if (!label || !emblem) return null;
   const home = text(declared['home']);
-  return { label, emblem, home: home?.startsWith('/') ? home : null };
+  // Purely an alternate rendering of a brand that is already whole: it never
+  // takes part in the completeness check above.
+  const emblemLight = text(declared['emblem_light']);
+  return { label, emblem, emblemLight, home: home?.startsWith('/') ? home : null };
 }
 
 function text(value: unknown): string | null {

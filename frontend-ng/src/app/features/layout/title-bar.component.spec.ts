@@ -159,3 +159,106 @@ test('TitleBar drops A telemetry atomically and reloads only B after a workspace
   assert.equal(workspace.resetterCount(), 0, 'destroy unregisters the workspace reset callback');
   assert.equal(responses.at(-1)?.observed, false, 'destroy unsubscribes the B request');
 });
+
+/** A TitleBar wired to a fixed workspace payload and a controllable theme. */
+function brandHarness(settings: Record<string, unknown> | undefined) {
+  const workspace = new WorkspaceStub() as unknown as WorkspaceStub & {
+    current(): { settings?: Record<string, unknown> };
+  };
+  (workspace as unknown as { current: () => unknown }).current = () => ({ settings });
+  const resolved = signal<'light' | 'dark'>('dark');
+  const injector = Injector.create({
+    providers: [
+      TitleBarComponent,
+      { provide: WorkspaceService, useValue: workspace },
+      { provide: ApiService, useValue: { get: () => new Subject<TelemetrySnapshot>().asObservable() } },
+      {
+        provide: ThemeService,
+        useValue: { mode: signal('dark'), resolved, setMode: () => undefined },
+      },
+      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
+      {
+        provide: ChatOverlayService,
+        useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
+      },
+      {
+        provide: I18nService,
+        useValue: { locale: signal('en'), t: (key: string) => key, setLocale: () => undefined },
+      },
+      { provide: AuthBootstrapService, useValue: { markInvalid: () => undefined } },
+      {
+        provide: TokenStorageService,
+        useValue: { getRefreshToken: () => null, clear: () => undefined },
+      },
+      { provide: AuthApiService, useValue: { logout: () => of(null) } },
+      {
+        provide: Router,
+        useValue: { navigate: () => Promise.resolve(true), navigateByUrl: () => Promise.resolve(true) },
+      },
+      { provide: ToastrService, useValue: { success: () => undefined, error: () => undefined } },
+    ],
+  });
+  const titleBar = injector.get(TitleBarComponent) as unknown as {
+    emblem(): string | null;
+    emblemIsKeyed(): boolean;
+  };
+  return { titleBar, resolved, injector };
+}
+
+test('a tenant without a light variant shows the same emblem in both themes', () => {
+  const { titleBar, resolved, injector } = brandHarness({
+    platform_brand: { label: 'Acme', emblem: '/assets/acme/mark.png', home: '/acme' },
+  });
+  try {
+    assert.equal(titleBar.emblem(), '/assets/acme/mark.png');
+    assert.equal(titleBar.emblemIsKeyed(), false, 'the softening radius stays on');
+    resolved.set('light');
+    assert.equal(titleBar.emblem(), '/assets/acme/mark.png', 'unchanged: the guarantee for every other tenant');
+    assert.equal(titleBar.emblemIsKeyed(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a declared light variant is swapped in on the light theme, live', () => {
+  const { titleBar, resolved, injector } = brandHarness({
+    platform_brand: {
+      label: 'NAWA',
+      emblem: '/assets/nawa/nawa-logo.png',
+      emblem_light: '/assets/nawa/nawa-logo-transparent.png',
+      home: '/nawa/itsd',
+    },
+  });
+  try {
+    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo.png');
+    assert.equal(titleBar.emblemIsKeyed(), false);
+
+    // No reload: the theme signal drives the emblem the same way it drives the
+    // token switch on `html`.
+    resolved.set('light');
+    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo-transparent.png');
+    assert.equal(
+      titleBar.emblemIsKeyed(),
+      true,
+      'a keyed-out wordmark has no opaque corners left to round',
+    );
+
+    resolved.set('dark');
+    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo.png');
+    assert.equal(titleBar.emblemIsKeyed(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a workspace with no brand at all keeps the Agentium mark', () => {
+  const { titleBar, resolved, injector } = brandHarness(undefined);
+  try {
+    assert.equal(titleBar.emblem(), null);
+    resolved.set('light');
+    assert.equal(titleBar.emblem(), null);
+    assert.equal(titleBar.emblemIsKeyed(), false);
+  } finally {
+    injector.destroy();
+  }
+});

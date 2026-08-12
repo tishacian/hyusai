@@ -33,8 +33,47 @@ test('a label and an emblem together carry the tenant identity', () => {
   assert.deepEqual(brand, {
     label: 'NAWA',
     emblem: '/assets/nawa/nawa-logo.png',
+    emblemLight: null,
     home: '/nawa/itsd',
   });
+});
+
+test('a tenant may declare a second artwork for light surfaces', () => {
+  const brand = platformBrand({
+    platform_brand: {
+      label: 'NAWA',
+      emblem: '/assets/nawa/nawa-logo.png',
+      emblem_light: '  /assets/nawa/nawa-logo-transparent.png  ',
+      home: '/nawa/itsd',
+    },
+  });
+  assert.equal(brand?.emblem, '/assets/nawa/nawa-logo.png');
+  assert.equal(brand?.emblemLight, '/assets/nawa/nawa-logo-transparent.png');
+});
+
+test('the light variant alone never makes a brand whole', () => {
+  // It is an alternate rendering of an identity, not an identity: without the
+  // label and the base emblem there is nothing for it to be a variant of.
+  assert.equal(
+    platformBrand({ platform_brand: { emblem_light: '/assets/nawa/nawa-logo-transparent.png' } }),
+    null,
+  );
+  assert.equal(
+    platformBrand({
+      platform_brand: { label: 'NAWA', emblem_light: '/assets/nawa/nawa-logo-transparent.png' },
+    }),
+    null,
+  );
+});
+
+test('a malformed or blank light variant falls back to the single emblem', () => {
+  for (const emblem_light of [42, '   ', null, {}, []]) {
+    const brand = platformBrand({
+      platform_brand: { label: 'NAWA', emblem: '/assets/nawa/nawa-logo.png', emblem_light },
+    });
+    assert.equal(brand?.emblemLight, null);
+    assert.equal(brand?.emblem, '/assets/nawa/nawa-logo.png');
+  }
 });
 
 test('half a declaration is refused rather than mixed with our own brand', () => {

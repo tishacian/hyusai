@@ -64,12 +64,22 @@ const THEME_ICONS: Record<ThemeMode, string> = {
              the browser tab instead. -->
         @if (tenant.home; as home) {
           <a class="tb-brand" [routerLink]="home" [title]="tenant.label">
-            <img class="tb-emblem-brand" [src]="tenant.emblem" [alt]="tenant.label" />
+            <img
+              class="tb-emblem-brand"
+              [class.tb-emblem-keyed]="emblemIsKeyed()"
+              [src]="emblem()"
+              [alt]="tenant.label"
+            />
             <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
           </a>
         } @else {
           <div class="tb-brand">
-            <img class="tb-emblem-brand" [src]="tenant.emblem" [alt]="tenant.label" />
+            <img
+              class="tb-emblem-brand"
+              [class.tb-emblem-keyed]="emblemIsKeyed()"
+              [src]="emblem()"
+              [alt]="tenant.label"
+            />
             <span class="ck-mono tb-brand-line">OS · v0.4.0</span>
           </div>
         }
@@ -423,6 +433,11 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       width: auto;
       border-radius: 4px;
     }
+    /* A tenant that declared a light variant keyed its artwork out; there are no
+       opaque corners left to soften, and rounding them would clip the wordmark. */
+    .tb-emblem-keyed {
+      border-radius: 0;
+    }
     .tb-brand-copy {
       display: flex;
       flex-direction: column;
@@ -451,6 +466,20 @@ export class TitleBarComponent {
   protected readonly brand = computed(() =>
     platformBrand(this.workspaceService.current()?.settings),
   );
+  /**
+   * The artwork actually on screen. A tenant may declare a second file for
+   * light surfaces; absent it, the single emblem serves both themes. Reading
+   * the resolved theme signal makes the swap follow the toggle, no reload.
+   */
+  private readonly emblemChoice = computed(() => {
+    const tenant = this.brand();
+    if (!tenant) return { src: null, keyed: false };
+    const keyed = this.themeService.resolved() === 'light' && !!tenant.emblemLight;
+    return { src: keyed ? tenant.emblemLight : tenant.emblem, keyed };
+  });
+  protected readonly emblem = computed(() => this.emblemChoice().src);
+  /** True only while the declared light variant is the one being shown. */
+  protected readonly emblemIsKeyed = computed(() => this.emblemChoice().keyed);
   protected readonly authStore = inject(AuthStore);
   protected readonly chatOverlay = inject(ChatOverlayService);
   protected readonly i18n = inject(I18nService);
