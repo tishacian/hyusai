@@ -9,7 +9,7 @@ verified executor set rather than to code of its own.
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import load_only
@@ -33,10 +33,17 @@ from app.services.catalog_visibility import (
 )
 from app.services.flow_contracts import FlowContractError, validate_schema_definition
 from app.services.iam.decision_plane import enforce_action
-from app.services.iam.legacy_authority import legacy_workspace_admin
+from app.services.iam.legacy_authority import (
+    legacy_object_action_allowed,
+    legacy_workspace_admin,
+)
 from app.services.run_access import readable_runs, readable_skill_invocations_for_runs
 from app.services.projection_integrity import invocation_cost_is_measured
 from app.services.skills_registry.binding import SkillBindingError, workspace_skill_slug
+from app.services.skills_registry.brd_import import (
+    BrdUnreadableError,
+    parse_business_requirements,
+)
 from app.services.skills_registry.executors import (
     validate_executor_binding,
     verified_executor_catalog,
@@ -77,6 +84,10 @@ class SkillCreate(BaseModel):
     executor: Dict[str, Any]
     execution: Optional[Dict[str, Any]] = None
     pricing: Optional[Dict[str, Any]] = None
+    # Optional: a Skill nobody claims is still catalogued, it simply sits in
+    # the palette with no Capability behind it. Naming one at creation is what
+    # spares the author a second trip through the Capability screen.
+    capability_id: str | None = None
 
     _category = field_validator("category")(_known_category)
 
@@ -330,6 +341,76 @@ def _validated_schemas(body: SkillCreate | SkillUpdate) -> Dict[str, Any]:
     return validated
 
 
+def _claim_capability(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    skill: Skill,
+    capability_id: str,
+) -> dict[str, Any]:
+    """Ask one Capability of this workspace to carry a freshly authored Skill.
+
+    Deliberately non-fatal. The Skill already exists and is already visible in
+    the catalog; a refused claim is a missing link, not a reason to throw the
+    definition away and make the author retype it. The verdict travels back in
+    the response so the surface can say which of the two happened.
+
+    Only a workspace-owned Capability is a candidate: the seeded catalog is
+    shared by every workspace, and appending to it here would append to it for
+    all of them.
+    """
+
+    row = (
+        db.query(Capability)
+        .filter(Capability.id == capability_id, Capability.workspace_id == workspace.id)
+        .first()
+    )
+    if row is None:
+        return {
+            "attached": False,
+            "capability_name": None,
+            "reason": "no Capability of this workspace has that id",
+        }
+    try:
+        enforce_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capability",
+            action="admin",
+            legacy_allowed=legacy_object_action_allowed(
+                db,
+                user=user,
+                workspace=workspace,
+                resource_kind="capability",
+                action="admin",
+            ),
+            resource_attrs={"capability_id": row.id},
+        )
+    except HTTPException as exc:
+        return {
+            "attached": False,
+            "capability_name": row.name,
+            "reason": _refusal_text(exc),
+        }
+    claimed = list(row.skill_ids or [])
+    if skill.id not in claimed:
+        claimed.append(skill.id)
+        # Reassigned rather than mutated in place: a JSON column does not see
+        # an append, and the claim would be lost at commit.
+        row.skill_ids = claimed
+        db.commit()
+    return {"attached": True, "capability_name": row.name, "reason": None}
+
+
+def _refusal_text(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("code") or detail)
+    return str(detail)
+
+
 @router.get("/runtime-health")
 async def runtime_health(
     workspace: Workspace = Depends(get_current_workspace),
@@ -491,7 +572,59 @@ async def create_skill(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+    payload = _serialize(row)
+    if body.capability_id:
+        payload["capability_claim"] = _claim_capability(
+            db,
+            workspace=workspace,
+            user=user,
+            skill=row,
+            capability_id=body.capability_id,
+        )
+    return payload
+
+
+# A Business Requirements document is a few hundred kilobytes of tables. The
+# ceiling is here so an accidental upload of something else is refused before
+# it is parsed, not after.
+_MAX_IMPORT_BYTES = 5 * 1024 * 1024
+
+
+@router.post("/import/business-requirements")
+async def import_business_requirements(
+    file: UploadFile = File(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Read a BRD ``.docx`` into draft material. Nothing is created.
+
+    Gated on ``skill.admin`` because the only thing this answer is good for is
+    authoring a Skill, and offering the reading to someone who cannot author
+    would be an invitation to a dead end.
+
+    A document whose tables are missing or renamed still answers 200 with empty
+    lists and a ``problems`` sentence: the wizard must open either way, blank
+    if need be. Only a file that is not a Word document at all is refused.
+    """
+
+    _enforce_catalog_admin(db, user=user, workspace=workspace)
+    data = await file.read()
+    if len(data) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            413,
+            {
+                "code": "brd_document_too_large",
+                "message": "The document exceeds 5 MiB.",
+            },
+        )
+    try:
+        return parse_business_requirements(data)
+    except BrdUnreadableError as exc:
+        raise HTTPException(
+            400,
+            {"code": "brd_document_unreadable", "message": str(exc)},
+        ) from exc
 
 
 @router.get("/{slug}")
