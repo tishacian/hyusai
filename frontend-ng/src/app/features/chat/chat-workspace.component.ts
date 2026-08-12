@@ -14,6 +14,7 @@ import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription } from 'rxjs';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
   WorkspaceService,
@@ -815,6 +816,7 @@ export class ChatWorkspaceComponent implements OnInit {
   /** Screen copy names the product by its brand in this workspace. */
   protected readonly brand = inject(WorkspaceService).brandName;
   private readonly canonical = inject(CanonicalApiService);
+  private readonly i18n = inject(I18nService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
@@ -935,7 +937,7 @@ export class ChatWorkspaceComponent implements OnInit {
   });
 
   readonly modeHint = computed<string>(() => {
-    if (this.businessSurface()) return 'Questions sur les sources du workspace';
+    if (this.businessSurface()) return this.i18n.t('chat.context.workspace_sources');
     if (this.ephemeralContextId()) return 'Session docs ground the answer';
     const selected = this.selectedSystem();
     if (selected) {
@@ -943,7 +945,7 @@ export class ChatWorkspaceComponent implements OnInit {
     }
     const chatSystem = this.workspaceChatSystem();
     if (chatSystem) return chatSystem.objective || 'Fast workspace chat flow';
-    return 'Contexte du workspace';
+    return this.i18n.t('chat.context.workspace');
   });
 
   constructor() {

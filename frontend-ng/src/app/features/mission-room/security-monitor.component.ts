@@ -10,6 +10,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { catchError, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import { VpRumorTraceTimelineComponent } from './vp-rumor-trace-timeline.component';
 
@@ -70,25 +71,25 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="security-monitor" aria-label="Security Monitor Sahel">
+    <section class="security-monitor" [attr.aria-label]="i18n.t('mission.security.title')">
       <header class="sm-topbar">
         <div class="sm-brand">
           <a routerLink="/hypervisor/mission-room/securite" class="sm-back">
-            <span>Sécurité</span>
+            <span>{{ i18n.t('mission.security.back') }}</span>
           </a>
           <span class="live-dot" aria-hidden="true"></span>
           <strong>SENTINEL-CI</strong>
-          <small>Security Monitor</small>
+          <small>{{ i18n.t('mission.security.monitor') }}</small>
         </div>
 
         <div class="sm-status">
-          <span class="mission-status-badge is-baseline" title="Mode démo reproductible">{{ sourceBadgeLabel() }}</span>
-          <span class="mission-status-badge is-advisory">Advisory only</span>
-          <b>{{ monitor()?.title || 'Théâtre Sahel' }}</b>
+          <span class="mission-status-badge is-baseline" [title]="i18n.t('mission.security.demo_mode')">{{ sourceBadgeLabel() }}</span>
+          <span class="mission-status-badge is-advisory">{{ i18n.t('mission.security.advisory_only') }}</span>
+          <b>{{ monitor()?.title || i18n.t('mission.security.theater_fallback') }}</b>
         </div>
 
         <div class="sm-council">
-          <span>Conseil Défense restreint</span>
+          <span>{{ i18n.t('mission.security.council') }}</span>
           <strong>{{ councilTime() }}</strong>
         </div>
       </header>
@@ -97,10 +98,10 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
         <main class="sm-map-stage">
           <div class="stage-head mission-panel-head">
             <div class="mission-panel-head-copy">
-              <span class="mission-panel-kicker">Carte Sahel · ADS-B advisory + tension frontière</span>
+              <span class="mission-panel-kicker">{{ i18n.t('mission.security.map_kicker') }}</span>
               <p class="mission-panel-subtitle">{{ monitor()?.summary || '' }}</p>
             </div>
-            <span class="mission-status-badge is-watch">{{ alertCount() }} traces</span>
+            <span class="mission-status-badge is-watch">{{ i18n.t('mission.security.traces', { count: alertCount() }) }}</span>
           </div>
 
           <app-workspace-map
@@ -115,21 +116,21 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
             <section
               id="satellite-imagery-rail"
               class="sm-satellite-rail"
-              aria-label="Imagerie satellite advisory"
+              [attr.aria-label]="i18n.t('mission.security.satellite_rail')"
             >
               <header class="sm-satellite-head">
                 <div>
-                  <span class="eyebrow">Imagerie satellite · advisory</span>
-                  <strong>Couverture Nord + contexte Sahel</strong>
+                  <span class="eyebrow">{{ i18n.t('mission.security.satellite_rail') }}</span>
+                  <strong>{{ i18n.t('mission.security.satellite_coverage') }}</strong>
                 </div>
                 <div class="sm-satellite-badges">
                   <span class="mission-status-badge is-baseline">{{ satelliteModeLabel() }}</span>
-                  <span class="mission-status-badge is-advisory">Aucune interprétation auto</span>
+                  <span class="mission-status-badge is-advisory">{{ i18n.t('mission.security.no_auto_reading') }}</span>
                 </div>
               </header>
 
               <div class="sm-satellite-meta">
-                <span>Capturé {{ satelliteCapturedLabel() }}</span>
+                <span>{{ i18n.t('mission.security.captured_at', { time: satelliteCapturedLabel() }) }}</span>
                 <span>{{ satelliteProviderLabel() }}</span>
               </div>
 
@@ -138,9 +139,9 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
                   <button type="button" class="sm-satellite-card" (click)="openSatelliteScene(scene)">
                     <span class="sm-satellite-thumb" aria-hidden="true">
                       @if (satelliteThumbUrl(scene); as thumbUrl) {
-                        <img [src]="thumbUrl" [alt]="scene.label || 'Scène satellite'" />
+                        <img [src]="thumbUrl" [alt]="scene.label || i18n.t('mission.security.scene_alt')" />
                       } @else {
-                        <span class="sm-satellite-thumb-placeholder">Chargement</span>
+                        <span class="sm-satellite-thumb-placeholder">{{ i18n.t('common.loading') }}</span>
                       }
                     </span>
                     <span class="sm-satellite-copy">
@@ -148,8 +149,8 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
                       <strong>{{ scene.label }}</strong>
                       <span class="sm-satellite-status">{{ sceneStatusLabel(scene) }}</span>
                       <small>
-                        Nuages {{ scene.cloud_cover_pct ?? '—' }}% ·
-                        {{ scene.narrative_summary || 'Corrélation OSINT indicative' }}
+                        {{ i18n.t('mission.security.clouds') }} {{ scene.cloud_cover_pct ?? '—' }}% ·
+                        {{ scene.narrative_summary || i18n.t('mission.security.osint_correlation') }}
                       </small>
                     </span>
                   </button>
@@ -165,11 +166,11 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
           }
         </main>
 
-        <aside class="sm-adsb-rail" aria-label="Rail ADS-B advisory">
+        <aside class="sm-adsb-rail" [attr.aria-label]="i18n.t('mission.security.adsb_rail')">
           <section class="sm-panel sm-panel-adsb">
             <header class="sm-panel-head">
-              <span class="eyebrow">ADS-B advisory</span>
-              <strong>{{ alertCount() }} traces</strong>
+              <span class="eyebrow">{{ i18n.t('mission.security.adsb_rail') }}</span>
+              <strong>{{ i18n.t('mission.security.traces', { count: alertCount() }) }}</strong>
             </header>
 
             <div class="sm-alert-list">
@@ -177,7 +178,7 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
                 <article class="sm-alert mission-row-highlight" [class]="'tone-' + (alert['tone'] || 'watch')">
                   <header>
                     <strong>{{ alert['callsign'] }}</strong>
-                    <span>{{ alert['kind'] || 'trace' }}</span>
+                    <span>{{ alert['kind'] || i18n.t('mission.security.trace') }}</span>
                   </header>
                   <p>{{ alert['summary'] }}</p>
                   <footer>
@@ -186,17 +187,17 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
                   </footer>
                 </article>
               } @empty {
-                <p class="empty-line">Aucune trace ADS-B dans le snapshot.</p>
+                <p class="empty-line">{{ i18n.t('mission.troops.no_tracks') }}</p>
               }
             </div>
           </section>
         </aside>
 
-        <aside class="sm-intel-rail" aria-label="Rail rumeur et social">
+        <aside class="sm-intel-rail" [attr.aria-label]="i18n.t('mission.security.intel_rail')">
           <section class="sm-panel sm-rumor-panel">
             <header class="sm-panel-head">
-              <span class="eyebrow">Rumeur frontière Nord</span>
-              <span class="mission-status-badge is-denied">Démenti officiel</span>
+              <span class="eyebrow">{{ i18n.t('mission.security.rumor_panel') }}</span>
+              <span class="mission-status-badge is-denied">{{ i18n.t('mission.rumor.phase.denial') }}</span>
             </header>
             <app-vp-rumor-trace-timeline
               [embedded]="true"
@@ -207,7 +208,7 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
 
           <section class="sm-panel sm-feed">
             <div class="sm-feed-head">
-              <span class="eyebrow">Pulsation sociale · Abidjan</span>
+              <span class="eyebrow">{{ i18n.t('mission.security.social_panel') }} · Abidjan</span>
               <small>{{ freshnessLabel() }}</small>
             </div>
             <div class="sm-feed-grid">
@@ -218,10 +219,10 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
                     <span>{{ sentimentLabel(item['sentiment']) }}</span>
                   </header>
                   <p>{{ item['text'] }}</p>
-                  <small>{{ item['engagement'] }} eng.</small>
+                  <small>{{ item['engagement'] }} {{ i18n.t('mission.social.engagement_short') }}</small>
                 </article>
               } @empty {
-                <p class="empty-line">Aucun signal social dans le snapshot.</p>
+                <p class="empty-line">{{ i18n.t('mission.security.no_social') }}</p>
               }
             </div>
           </section>
@@ -239,36 +240,36 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
           <article class="sm-satellite-drawer" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
             <header class="sm-satellite-drawer-head">
               <div>
-                <span class="eyebrow">Scène satellite · {{ sceneAxisLabel(scene) }}</span>
+                <span class="eyebrow">{{ i18n.t('mission.security.scene') }} · {{ sceneAxisLabel(scene) }}</span>
                 <h2>{{ scene.label }}</h2>
               </div>
-              <button type="button" class="sm-icon-button" aria-label="Fermer" (click)="closeSatelliteScene()">×</button>
+              <button type="button" class="sm-icon-button" [attr.aria-label]="i18n.t('common.close')" (click)="closeSatelliteScene()">×</button>
             </header>
 
             <div class="sm-satellite-drawer-body">
               <figure>
                 @if (satelliteAssetUrl(scene); as assetUrl) {
-                  <img [src]="assetUrl" [alt]="scene.label || 'Scène satellite détaillée'" />
+                  <img [src]="assetUrl" [alt]="scene.label || i18n.t('mission.security.scene_alt_detail')" />
                 } @else {
-                  <figcaption>Chargement de la scène satellite…</figcaption>
+                  <figcaption>{{ i18n.t('mission.security.scene_loading') }}</figcaption>
                 }
               </figure>
 
               <aside>
                 <span class="mission-status-badge is-baseline">{{ satelliteModeLabel() }}</span>
                 <h3>{{ sceneStatusLabel(scene) }}</h3>
-                <p>{{ scene.narrative_summary || 'Lecture OSINT publique indicative.' }}</p>
+                <p>{{ scene.narrative_summary || i18n.t('mission.security.osint_public_reading') }}</p>
                 <dl>
                   <div>
-                    <dt>Résolution</dt>
+                    <dt>{{ i18n.t('mission.security.resolution') }}</dt>
                     <dd>{{ scene.resolution_m || 10 }} m</dd>
                   </div>
                   <div>
-                    <dt>Nuages</dt>
+                    <dt>{{ i18n.t('mission.security.clouds') }}</dt>
                     <dd>{{ scene.cloud_cover_pct ?? '—' }}%</dd>
                   </div>
                   <div>
-                    <dt>Capture</dt>
+                    <dt>{{ i18n.t('mission.security.capture') }}</dt>
                     <dd>{{ satelliteCapturedLabel() }}</dd>
                   </div>
                 </dl>
@@ -788,6 +789,7 @@ type SatelliteImageVariant = 'asset' | 'thumbnail';
 })
 export class SecurityMonitorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
   private readonly satelliteObjectUrls = new Map<string, string>();
 
   readonly monitor = signal<SecurityMonitorPayload | null>(null);
@@ -822,13 +824,13 @@ export class SecurityMonitorComponent implements OnInit, OnDestroy {
 
   freshnessLabel(): string {
     const fresh = this.monitor()?.source_freshness;
-    return String(fresh?.['social'] || 'Snapshot demo-safe');
+    return String(fresh?.['social'] || this.i18n.t('mission.security.snapshot_demo_safe'));
   }
 
   sourceBadgeLabel(): string {
     const snapshot = this.monitor()?.theater_sahel as Record<string, unknown> | null;
     const raw = String(snapshot?.['source_badge'] || 'CACHE BASELINE').toLowerCase();
-    return raw.includes('live') ? 'Live' : 'Baseline démo';
+    return raw.includes('live') ? this.i18n.t('mission.security.live') : this.i18n.t('mission.security.baseline');
   }
 
   alertCount(): number {
@@ -839,22 +841,22 @@ export class SecurityMonitorComponent implements OnInit, OnDestroy {
     const origin = String(alert['origin'] || '');
     const destination = String(alert['destination'] || '');
     if (origin || destination) return `${origin || '—'} → ${destination || '—'}`;
-    return 'Sahel · snapshot public';
+    return this.i18n.t('mission.security.route_fallback');
   }
 
   toneLabel(tone: unknown): string {
     const key = String(tone || '').toLowerCase();
-    if (key === 'critical') return 'Tendu';
-    if (key === 'stable') return 'Stable';
-    return 'À suivre';
+    if (key === 'critical') return this.i18n.t('mission.troops.tone.critical');
+    if (key === 'stable') return this.i18n.t('mission.troops.tone.stable');
+    return this.i18n.t('mission.troops.tone.watch');
   }
 
   sentimentLabel(value: unknown): string {
     const key = String(value || '').toLowerCase();
-    if (key === 'positive') return 'positif';
-    if (key === 'negative') return 'négatif';
-    if (key === 'neutral') return 'neutre';
-    return key || 'neutre';
+    if (key === 'positive') return this.i18n.t('mission.social.sentiment.positive');
+    if (key === 'negative') return this.i18n.t('mission.social.sentiment.negative');
+    if (key === 'neutral') return this.i18n.t('mission.social.sentiment.neutral');
+    return key || this.i18n.t('mission.social.sentiment.neutral');
   }
 
   defaultMapState(): Record<string, unknown> {
@@ -893,7 +895,7 @@ export class SecurityMonitorComponent implements OnInit, OnDestroy {
   satelliteDisclaimer(): string {
     return String(
       this.monitor()?.satellite_imagery?.disclaimer ||
-        'Imagerie indicative · corrélation OSINT · aucune interprétation automatique · non classifié',
+        this.i18n.t('mission.security.satellite_disclaimer'),
     );
   }
 
@@ -913,14 +915,16 @@ export class SecurityMonitorComponent implements OnInit, OnDestroy {
   }
 
   sceneAxisLabel(scene: SatelliteScene): string {
-    return String(scene.axis || '').toLowerCase() === 'exterieur' ? 'Extérieur' : 'Intérieur';
+    return String(scene.axis || '').toLowerCase() === 'exterieur'
+      ? this.i18n.t('mission.security.axis_exterior')
+      : this.i18n.t('mission.security.axis_interior');
   }
 
   sceneStatusLabel(scene: SatelliteScene): string {
     const status = String(scene.narrative_status || '').toLowerCase();
-    if (status === 'no_anomaly_confirmed') return 'Pas d’anomalie confirmée';
-    if (status === 'context_only') return 'Lecture contextuelle only';
-    return 'Advisory only';
+    if (status === 'no_anomaly_confirmed') return this.i18n.t('mission.security.status.no_anomaly');
+    if (status === 'context_only') return this.i18n.t('mission.security.status.context_only');
+    return this.i18n.t('mission.security.advisory_only');
   }
 
   openSatelliteScene(scene: SatelliteScene): void {

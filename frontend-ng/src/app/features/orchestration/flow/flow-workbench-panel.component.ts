@@ -10,12 +10,14 @@ import {
   signal,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
+import type { I18nKey } from '@app/core/i18n.dict';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
   FlowWorkbenchService,
   type FlowWorkbenchGoldenCase,
 } from './flow-workbench.service';
-import { runtimeModeLabel } from './flow-manifest.service';
+import { runtimeModeKey } from './flow-manifest.service';
 import { FlowStore } from './flow.store';
 
 type WorkbenchTab = 'chat' | 'node' | 'golden';
@@ -47,17 +49,17 @@ export function isRunnableWorkbenchSkillNode(
 
 export type WorkbenchParseResult<T> =
   | { ok: true; value: T }
-  | { ok: false; message: string };
+  | { ok: false; messageKey: I18nKey; params?: Record<string, string | number> };
 
 export function parseWorkbenchObject(text: string): WorkbenchParseResult<Record<string, unknown>> {
   try {
     const value: unknown = JSON.parse(text);
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { ok: false, message: 'Enter a JSON object.' };
+      return { ok: false, messageKey: 'flow.workbench.error.object' };
     }
     return { ok: true, value: value as Record<string, unknown> };
   } catch {
-    return { ok: false, message: 'Enter valid JSON.' };
+    return { ok: false, messageKey: 'flow.workbench.error.json' };
   }
 }
 
@@ -68,25 +70,29 @@ export function parseWorkbenchGoldenSet(
   try {
     value = JSON.parse(text);
   } catch {
-    return { ok: false, message: 'Enter a valid JSON array.' };
+    return { ok: false, messageKey: 'flow.workbench.error.array' };
   }
   if (!Array.isArray(value) || value.length < 1 || value.length > 20) {
-    return { ok: false, message: 'A golden set must contain between 1 and 20 cases.' };
+    return { ok: false, messageKey: 'flow.workbench.error.golden_size' };
   }
   const cases: FlowWorkbenchGoldenCase[] = [];
   const ids = new Set<string>();
   for (const [index, item] of value.entries()) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return { ok: false, message: `Golden case ${index + 1} must be an object.` };
+      return {
+        ok: false,
+        messageKey: 'flow.workbench.error.golden_object',
+        params: { index: index + 1 },
+      };
     }
     const record = item as Record<string, unknown>;
     const id = typeof record['id'] === 'string' ? record['id'] : '';
     const inputRef = record['input_ref'];
     if (!id || id !== id.trim() || ids.has(id)) {
-      return { ok: false, message: 'Golden case ids must be unique, non-empty and trimmed.' };
+      return { ok: false, messageKey: 'flow.workbench.error.golden_id' };
     }
     if (!inputRef || typeof inputRef !== 'object' || Array.isArray(inputRef)) {
-      return { ok: false, message: `Golden case “${id}” needs an input_ref object.` };
+      return { ok: false, messageKey: 'flow.workbench.error.golden_input', params: { id } };
     }
     ids.add(id);
     cases.push({
@@ -121,14 +127,16 @@ const DEFAULT_GOLDEN_SET = `[
   styleUrl: './flow-workbench-panel.component.scss',
   template: `
     @if (open()) {
-      <section class="ck-workbench" aria-label="Local Flow workbench">
+      <section class="ck-workbench" [attr.aria-label]="i18n.t('flow.workbench.aria')">
         <header class="ck-workbench__header">
           <div class="ck-workbench__identity">
-            <strong>Try this Flow before saving it</strong>
+            <strong>{{ i18n.t('flow.workbench.title') }}</strong>
             <span class="ck-workbench__status">
-              Runs {{ store.dirty() ? 'your unsaved canvas' : 'the current canvas' }}
-              exactly as it is. Nothing is saved or published — but the Skills are
-              real and so are their side effects.
+              {{
+                store.dirty()
+                  ? i18n.t('flow.workbench.status.dirty')
+                  : i18n.t('flow.workbench.status.clean')
+              }}
             </span>
             <button
               type="button"
@@ -137,46 +145,52 @@ const DEFAULT_GOLDEN_SET = `[
               aria-controls="ck-workbench-detail"
               (click)="detailOpen.set(!detailOpen())"
             >
-              What this run touches
+              {{ i18n.t('flow.workbench.detail.toggle') }}
             </button>
           </div>
 
-          <div class="ck-workbench__tabs" role="tablist" aria-label="Workbench mode">
+          <div
+            class="ck-workbench__tabs"
+            role="tablist"
+            [attr.aria-label]="i18n.t('flow.workbench.tabs.aria')"
+          >
             <button type="button" role="tab" [attr.aria-selected]="tab() === 'chat'" (click)="tab.set('chat')">
-              <app-icon name="message-square" [size]="13" /> Chat
+              <app-icon name="message-square" [size]="13" /> {{ i18n.t('flow.workbench.tab.chat') }}
             </button>
             <button type="button" role="tab" [attr.aria-selected]="tab() === 'node'" (click)="tab.set('node')">
-              <app-icon name="target" [size]="13" /> Node
+              <app-icon name="target" [size]="13" /> {{ i18n.t('flow.workbench.tab.node') }}
             </button>
             <button type="button" role="tab" [attr.aria-selected]="tab() === 'golden'" (click)="tab.set('golden')">
-              <app-icon name="list-checks" [size]="13" /> Golden set
+              <app-icon name="list-checks" [size]="13" /> {{ i18n.t('flow.workbench.tab.golden') }}
             </button>
           </div>
 
-          <button type="button" class="ck-workbench__close" aria-label="Close local workbench" (click)="close.emit()">
+          <button
+            type="button"
+            class="ck-workbench__close"
+            [attr.aria-label]="i18n.t('flow.workbench.close')"
+            (click)="close.emit()"
+          >
             <app-icon name="x" [size]="15" />
           </button>
         </header>
 
         <dl id="ck-workbench-detail" class="ck-workbench__detail" [hidden]="!detailOpen()">
-          <dt>Graph</dt>
+          <dt>{{ i18n.t('flow.workbench.detail.graph') }}</dt>
           <dd>
-            {{ store.dirty() ? 'The unsaved canvas' : 'The current canvas' }}, sent
-            hash-bound so the server refuses anything that drifted since dispatch.
+            {{
+              store.dirty()
+                ? i18n.t('flow.workbench.detail.graph.dirty')
+                : i18n.t('flow.workbench.detail.graph.clean')
+            }}
           </dd>
-          <dt>Saving</dt>
-          <dd>Autosave stays paused for as long as this panel is open.</dd>
-          <dt>Publishing</dt>
-          <dd>
-            Never published. The published version and the ingress serving it do
-            not move.
-          </dd>
-          <dt>Side effects</dt>
-          <dd>
-            Real Skills run. Whatever they write, send or call outside Agentium
-            happens for real.
-          </dd>
-          <dt>Runtime</dt>
+          <dt>{{ i18n.t('flow.workbench.detail.saving') }}</dt>
+          <dd>{{ i18n.t('flow.workbench.detail.saving.body') }}</dd>
+          <dt>{{ i18n.t('flow.workbench.detail.publishing') }}</dt>
+          <dd>{{ i18n.t('flow.workbench.detail.publishing.body') }}</dd>
+          <dt>{{ i18n.t('flow.workbench.detail.effects') }}</dt>
+          <dd>{{ i18n.t('flow.workbench.detail.effects.body') }}</dd>
+          <dt>{{ i18n.t('flow.workbench.detail.runtime') }}</dt>
           <dd [attr.data-mode]="workbench.runtimeMode() ?? 'unknown'">{{ runtimeLabel() }}</dd>
         </dl>
 
@@ -186,29 +200,26 @@ const DEFAULT_GOLDEN_SET = `[
             [checked]="realSideEffectsAcknowledged()"
             (change)="onAcknowledgementChange($event)"
           />
-          <span>
-            I understand this preview invokes real Skills and may cause external side effects.
-            Confirmation is valid only for the current Flow revision.
-          </span>
+          <span>{{ i18n.t('flow.workbench.consent') }}</span>
         </label>
 
         @if ((tab() === 'chat' || tab() === 'golden') && workbench.ingresses().length > 0) {
-          <div class="ck-workbench__ingress">
-            <label for="flow-workbench-ingress">Ingress</label>
+          <div class="ck-workbench__entry">
+            <label for="flow-workbench-entry">{{ i18n.t('flow.workbench.entry') }}</label>
             @if (workbench.ingresses().length === 1) {
               <span>
                 {{ workbench.ingresses()[0].label }} · {{ workbench.ingresses()[0].kind }}
               </span>
             } @else {
               <select
-                id="flow-workbench-ingress"
+                id="flow-workbench-entry"
                 [value]="workbench.selectedIngressId()"
                 (change)="onIngressChange($event)"
               >
-                <option value="" disabled>Choose one ingress…</option>
-                @for (ingress of workbench.ingresses(); track ingress.ingress_id) {
-                  <option [value]="ingress.ingress_id">
-                    {{ ingress.label }} · {{ ingress.kind }}
+                <option value="" disabled>{{ i18n.t('flow.workbench.entry.choose') }}</option>
+                @for (entry of workbench.ingresses(); track entry.ingress_id) {
+                  <option [value]="entry.ingress_id">
+                    {{ entry.label }} · {{ entry.kind }}
                   </option>
                 }
               </select>
@@ -232,24 +243,21 @@ const DEFAULT_GOLDEN_SET = `[
                     }
                   </article>
                 } @empty {
-                  <p class="ck-workbench__empty">
-                    Test the exact graph in the canvas. The Flow is validated and hash-bound,
-                    but it is not saved or published.
-                  </p>
+                  <p class="ck-workbench__empty">{{ i18n.t('flow.workbench.chat.empty') }}</p>
                 }
               </div>
               <div class="ck-workbench__composer">
                 <label>
-                  <span>Additional input_ref (JSON)</span>
+                  <span>{{ i18n.t('flow.workbench.chat.context') }}</span>
                   <textarea rows="3" spellcheck="false" [value]="chatContextText()" (input)="chatContextText.set(textValue($event))"></textarea>
                 </label>
                 <label class="ck-workbench__prompt">
-                  <span>Message</span>
+                  <span>{{ i18n.t('flow.workbench.chat.message') }}</span>
                   <textarea rows="3" [value]="chatText()" (input)="chatText.set(textValue($event))" (keydown.control.enter)="runChatFromKeyboard($event)" (keydown.meta.enter)="runChatFromKeyboard($event)"></textarea>
                 </label>
                 <button type="button" class="is-primary" [disabled]="!canRunChat()" (click)="runChat()">
                   <app-icon [name]="workbench.busy() ? 'loader-2' : 'send'" [size]="14" />
-                  {{ workbench.busy() ? 'Running…' : 'Send preview' }}
+                  {{ workbench.busy() ? i18n.t('flow.workbench.busy') : i18n.t('flow.workbench.chat.send') }}
                 </button>
               </div>
             }
@@ -257,21 +265,21 @@ const DEFAULT_GOLDEN_SET = `[
             @case ('node') {
               <div class="ck-workbench__node-grid">
                 <div class="ck-workbench__node-target">
-                  <span>Selected Skill node</span>
+                  <span>{{ i18n.t('flow.workbench.node.target') }}</span>
                   @if (selectedRunnableNode(); as node) {
                     <strong>{{ node.label || node.id }}</strong>
                     <code>{{ node.id }}</code>
                   } @else {
-                    <p>Select one task node with an executable Skill binding.</p>
+                    <p>{{ i18n.t('flow.workbench.node.none') }}</p>
                   }
                 </div>
                 <label>
-                  <span>Manual input_ref (JSON)</span>
+                  <span>{{ i18n.t('flow.workbench.node.input') }}</span>
                   <textarea rows="8" spellcheck="false" [value]="nodeInputText()" (input)="nodeInputText.set(textValue($event))"></textarea>
                 </label>
                 <button type="button" class="is-primary" [disabled]="!canRunNode()" (click)="runNode()">
                   <app-icon [name]="workbench.busy() ? 'loader-2' : 'play'" [size]="14" />
-                  {{ workbench.busy() ? 'Running…' : 'Run selected node' }}
+                  {{ workbench.busy() ? i18n.t('flow.workbench.busy') : i18n.t('flow.workbench.node.run') }}
                 </button>
                 @if (workbench.nodeResult(); as result) {
                   <div class="ck-workbench__result" [attr.data-status]="result.run.status">
@@ -286,20 +294,27 @@ const DEFAULT_GOLDEN_SET = `[
             @case ('golden') {
               <div class="ck-workbench__golden-grid">
                 <label>
-                  <span>Golden cases (JSON · max 20)</span>
+                  <span>{{ i18n.t('flow.workbench.golden.cases') }}</span>
                   <textarea rows="9" spellcheck="false" [value]="goldenText()" (input)="goldenText.set(textValue($event))"></textarea>
                 </label>
                 <div class="ck-workbench__golden-actions">
                   <button type="button" class="is-primary" [disabled]="!canRunGolden()" (click)="runGolden()">
                     <app-icon [name]="workbench.busy() ? 'loader-2' : 'play'" [size]="14" />
-                    {{ workbench.busy() ? 'Running set…' : 'Run golden set' }}
+                    {{
+                      workbench.busy()
+                        ? i18n.t('flow.workbench.golden.busy')
+                        : i18n.t('flow.workbench.golden.run')
+                    }}
                   </button>
                   @if (workbench.goldenSummary().total > 0) {
-                    <span>
-                      {{ workbench.goldenSummary().completed }}/{{ workbench.goldenSummary().total }} complete ·
-                      {{ workbench.goldenSummary().passed }} pass ·
-                      {{ workbench.goldenSummary().failed }} fail
-                    </span>
+                    <span>{{
+                      i18n.t('flow.workbench.golden.summary', {
+                        completed: workbench.goldenSummary().completed,
+                        total: workbench.goldenSummary().total,
+                        passed: workbench.goldenSummary().passed,
+                        failed: workbench.goldenSummary().failed,
+                      })
+                    }}</span>
                   }
                 </div>
                 @if (workbench.goldenResults().length > 0) {
@@ -311,13 +326,13 @@ const DEFAULT_GOLDEN_SET = `[
                         <code>{{ result.run.id.slice(0, 8) }}</code>
                         @if (result.error) { <p>{{ result.error }}</p> }
                         <div class="ck-workbench__golden-evidence">
-                          <span>Expected</span>
+                          <span>{{ i18n.t('flow.workbench.golden.expected') }}</span>
                           @if (result.expectedProvided) {
                             <pre>{{ json(result.expected) }}</pre>
                           } @else {
-                            <em>Completion only (no expected value).</em>
+                            <em>{{ i18n.t('flow.workbench.golden.expected.none') }}</em>
                           }
-                          <span>Actual output_ref</span>
+                          <span>{{ i18n.t('flow.workbench.golden.actual') }}</span>
                           <pre>{{ json(result.actual) }}</pre>
                         </div>
                       </article>
@@ -339,6 +354,7 @@ const DEFAULT_GOLDEN_SET = `[
 export class FlowWorkbenchPanelComponent {
   protected readonly workbench = inject(FlowWorkbenchService);
   protected readonly store = inject(FlowStore);
+  readonly i18n = inject(I18nService);
 
   readonly open = input(false);
   readonly close = output<void>();
@@ -380,7 +396,7 @@ export class FlowWorkbenchPanelComponent {
   }
 
   protected runtimeLabel(): string {
-    return runtimeModeLabel(this.workbench.runtimeMode());
+    return this.i18n.t(runtimeModeKey(this.workbench.runtimeMode()));
   }
 
   protected textValue(event: Event): string {
@@ -404,12 +420,12 @@ export class FlowWorkbenchPanelComponent {
 
   protected async runChat(): Promise<void> {
     if (!this.chatText().trim()) {
-      this.localError.set('Enter a message before running the local preview.');
+      this.localError.set(this.i18n.t('flow.workbench.error.message'));
       return;
     }
     const additionalInputRef = parseWorkbenchObject(this.chatContextText());
     if (!additionalInputRef.ok) {
-      this.localError.set(additionalInputRef.message);
+      this.localError.set(this.i18n.t(additionalInputRef.messageKey, additionalInputRef.params));
       return;
     }
     if (!this.requireIngress()) return;
@@ -426,12 +442,12 @@ export class FlowWorkbenchPanelComponent {
   protected async runNode(): Promise<void> {
     const node = this.selectedRunnableNode();
     if (!node) {
-      this.localError.set('Select a task node with an executable Skill binding.');
+      this.localError.set(this.i18n.t('flow.workbench.error.node'));
       return;
     }
     const parsed = parseWorkbenchObject(this.nodeInputText());
     if (!parsed.ok) {
-      this.localError.set(parsed.message);
+      this.localError.set(this.i18n.t(parsed.messageKey, parsed.params));
       return;
     }
     if (!this.requireRealSideEffectsAcknowledgement()) return;
@@ -442,7 +458,7 @@ export class FlowWorkbenchPanelComponent {
   protected async runGolden(): Promise<void> {
     const parsed = parseWorkbenchGoldenSet(this.goldenText());
     if (!parsed.ok) {
-      this.localError.set(parsed.message);
+      this.localError.set(this.i18n.t(parsed.messageKey, parsed.params));
       return;
     }
     if (!this.requireIngress()) return;
@@ -455,21 +471,23 @@ export class FlowWorkbenchPanelComponent {
     try {
       return JSON.stringify(value, null, 2);
     } catch {
-      return '[Unserialisable result]';
+      return this.i18n.t('flow.workbench.error.unserialisable');
     }
   }
 
   private requireIngress(): boolean {
     const ingresses = this.workbench.ingresses();
     if (ingresses.length === 0) {
-      this.localError.set('The current Flow has no executable ingress.');
+      this.localError.set(this.i18n.t('flow.workbench.error.no_entry'));
       return false;
     }
     if (
       ingresses.length > 1
       && !ingresses.some((item) => item.ingress_id === this.workbench.selectedIngressId())
     ) {
-      this.localError.set(`Choose one of the ${ingresses.length} Flow ingresses before running the workbench.`);
+      this.localError.set(
+        this.i18n.t('flow.workbench.error.choose_entry', { count: ingresses.length }),
+      );
       return false;
     }
     return true;
@@ -477,9 +495,7 @@ export class FlowWorkbenchPanelComponent {
 
   private requireRealSideEffectsAcknowledgement(): boolean {
     if (this.realSideEffectsAcknowledged()) return true;
-    this.localError.set(
-      'Confirm that this Workbench run invokes real Skills and may cause external side effects.',
-    );
+    this.localError.set(this.i18n.t('flow.workbench.error.consent'));
     return false;
   }
 }

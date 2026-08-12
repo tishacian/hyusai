@@ -17,7 +17,10 @@ import { IconComponent } from './icon.component';
         (input)="onInput($event)"
         [placeholder]="placeholder"
         type="text"
-        class="w-full pl-9 pr-8 py-2 text-sm rounded bg-black/20 dark:bg-black/30 border border-white/10 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition"
+        class="w-full pl-9 pr-8 py-2 text-sm rounded border focus:outline-none focus:ring-1 focus:ring-cyan-500/60 transition"
+        [style.background]="'var(--ck-bg-inset)'"
+        [style.borderColor]="'var(--ck-stroke-2)'"
+        [style.color]="'var(--ck-fg-1)'"
       />
       @if (value) {
         <button

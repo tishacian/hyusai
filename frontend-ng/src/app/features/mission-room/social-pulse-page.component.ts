@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   SocialSnapshot,
   SocialTweet,
@@ -27,52 +28,52 @@ type SortKey = 'engagement' | 'time';
   imports: [CommonModule, RouterLink, FormsModule, VpSocialPulseDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="social-pulse-page" aria-label="Veille sociale Abidjan">
+    <section class="social-pulse-page" [attr.aria-label]="i18n.t('mission.social.title')">
       <header class="spp-topbar">
         <a routerLink="/hypervisor/mission-room/cockpit" class="spp-back">
-          <span>← Mission Room</span>
+          <span>← {{ i18n.t('mission.room.title') }}</span>
         </a>
         <div>
-          <span class="eyebrow">Veille sociale</span>
-          <h1>Pulsation sociale · Abidjan</h1>
+          <span class="eyebrow">{{ i18n.t('mission.social.eyebrow') }}</span>
+          <h1>{{ i18n.t('mission.social.title') }} · Abidjan</h1>
         </div>
         <button type="button" class="spp-export" (click)="exportCsv()">
-          Exporter CSV advisory
+          {{ i18n.t('mission.social.export') }}
         </button>
       </header>
 
       <div class="spp-toolbar">
         <label>
-          <span>Périmètre</span>
+          <span>{{ i18n.t('mission.social.filter.scope') }}</span>
           <select [(ngModel)]="bucketFilter">
-            <option value="all">Tous</option>
-            <option value="officiel">Canaux vérifiés</option>
-            <option value="citoyen">Citoyens</option>
-            <option value="rumeur">Rumeur Nord</option>
+            <option value="all">{{ i18n.t('common.all') }}</option>
+            <option value="officiel">{{ i18n.t('mission.social.scope.official') }}</option>
+            <option value="citoyen">{{ i18n.t('mission.social.scope.citizen') }}</option>
+            <option value="rumeur">{{ i18n.t('mission.social.scope.rumor') }}</option>
           </select>
         </label>
         <label>
-          <span>Sentiment</span>
+          <span>{{ i18n.t('mission.social.filter.sentiment') }}</span>
           <select [(ngModel)]="sentimentFilter">
-            <option value="all">Tous</option>
-            <option value="positive">Positif</option>
-            <option value="neutral">Neutre</option>
-            <option value="negative">Négatif</option>
+            <option value="all">{{ i18n.t('common.all') }}</option>
+            <option value="positive">{{ i18n.t('mission.social.sentiment.positive') }}</option>
+            <option value="neutral">{{ i18n.t('mission.social.sentiment.neutral') }}</option>
+            <option value="negative">{{ i18n.t('mission.social.sentiment.negative') }}</option>
           </select>
         </label>
         <label>
-          <span>Période</span>
+          <span>{{ i18n.t('mission.social.filter.period') }}</span>
           <select [(ngModel)]="periodFilter">
-            <option value="all">Toute la séquence</option>
-            <option value="morning">Matin (06h-12h)</option>
-            <option value="midday">Midi (12h-15h)</option>
+            <option value="all">{{ i18n.t('mission.social.period.all') }}</option>
+            <option value="morning">{{ i18n.t('mission.social.period.morning') }}</option>
+            <option value="midday">{{ i18n.t('mission.social.period.midday') }}</option>
           </select>
         </label>
         <label>
-          <span>Tri</span>
+          <span>{{ i18n.t('mission.social.filter.sort') }}</span>
           <select [(ngModel)]="sortKey">
-            <option value="engagement">Engagement</option>
-            <option value="time">Heure</option>
+            <option value="engagement">{{ i18n.t('mission.social.sort.engagement') }}</option>
+            <option value="time">{{ i18n.t('mission.social.sort.time') }}</option>
           </select>
         </label>
       </div>
@@ -148,6 +149,7 @@ type SortKey = 'engagement' | 'time';
 })
 export class SocialPulsePageComponent implements OnInit {
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
 
   readonly rawSnapshot = signal<SocialSnapshot | null>(null);
   bucketFilter: BucketFilter = 'all';
@@ -208,7 +210,7 @@ export class SocialPulsePageComponent implements OnInit {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'pulsation-sociale-abidjan-advisory.csv';
+    anchor.download = 'pulsation-sociale-abidjan-consultatif.csv';
     anchor.click();
     URL.revokeObjectURL(url);
   }

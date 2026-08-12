@@ -19,7 +19,10 @@ export type PulseTone = 'accent' | 'success' | 'warning' | 'danger';
         }"
       ></span>
       @if (label) {
-        <span class="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+        <span
+          class="text-[10px] uppercase tracking-wider font-semibold"
+          [style.color]="'var(--ck-fg-4)'"
+        >
           {{ label }}
         </span>
       }

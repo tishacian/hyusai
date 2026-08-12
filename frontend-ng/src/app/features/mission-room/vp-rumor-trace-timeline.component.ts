@@ -5,8 +5,10 @@ import {
   HostListener,
   Input,
   Output,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 
 export interface RumorChainStep {
   step?: number;
@@ -42,12 +44,12 @@ type TimelineFilter = Phase | 'all';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (trace && (embedded || open)) {
-      <div [class]="embedded ? 'rumor-embedded-root' : 'rumor-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Dossier rumeur frontière Nord">
+      <div [class]="embedded ? 'rumor-embedded-root' : 'rumor-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" [attr.aria-label]="i18n.t('mission.rumor.title')">
         @if (!embedded) {
           <button
             type="button"
             class="rumor-drawer-backdrop"
-            aria-label="Fermer le dossier rumeur"
+            [attr.aria-label]="i18n.t('common.close')"
             (click)="closed.emit()"
           ></button>
         }
@@ -59,17 +61,17 @@ type TimelineFilter = Phase | 'all';
                 [class.is-denied]="hasOfficialDenial()"
                 [class.is-watch]="!hasOfficialDenial()"
               >
-                {{ hasOfficialDenial() ? 'démenti officiel' : 'vérification' }}
+                {{ hasOfficialDenial() ? i18n.t('mission.rumor.badge.denied') : i18n.t('mission.rumor.badge.checking') }}
               </span>
-              <small class="publisher-badge">Chronologie OSINT</small>
-              <h2>{{ trace.headline || 'Dossier rumeur frontière Nord' }}</h2>
+              <small class="publisher-badge">{{ i18n.t('mission.rumor.osint_timeline') }}</small>
+              <h2>{{ trace.headline || i18n.t('mission.rumor.title') }}</h2>
               <p class="rumor-drawer-summary">{{ trace.summary || '' }}</p>
             </div>
             @if (!embedded) {
               <button
                 type="button"
                 class="rumor-drawer-close"
-                aria-label="Fermer"
+                [attr.aria-label]="i18n.t('common.close')"
                 (click)="closed.emit()"
               >
                 ×
@@ -82,59 +84,59 @@ type TimelineFilter = Phase | 'all';
               <section class="verdict-bar verdict-denied mission-row-highlight" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">✓</span>
                 <div class="verdict-copy">
-                  <strong>{{ trace.verdict_label || 'DÉMENTI OFFICIEL FANCI' }}</strong>
-                  <span>{{ deniedTimingLabel() }} — postes mixtes nominaux, advisory only.</span>
+                  <strong>{{ trace.verdict_label || i18n.t('mission.rumor.verdict.denied') }}</strong>
+                  <span>{{ deniedTimingLabel() }} — {{ i18n.t('mission.rumor.verdict.denied_note') }}</span>
                 </div>
               </section>
             } @else {
               <section class="verdict-bar verdict-pending mission-row-highlight" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">!</span>
                 <div class="verdict-copy">
-                  <strong>RUMEUR EN COURS DE VÉRIFICATION</strong>
-                  <span>Aucun communiqué officiel détecté dans la chaîne OSINT.</span>
+                  <strong>{{ i18n.t('mission.rumor.verdict.pending') }}</strong>
+                  <span>{{ i18n.t('mission.rumor.verdict.pending_note') }}</span>
                 </div>
               </section>
             }
 
             <section class="rumor-meta">
               <div>
-                <span class="eyebrow">Origine</span>
+                <span class="eyebrow">{{ i18n.t('mission.rumor.origin') }}</span>
                 <p>{{ trace.origin || '—' }}</p>
               </div>
               <div>
-                <span class="eyebrow">Étapes</span>
-                <p>{{ steps().length }} signaux · {{ countByPhase('emergence') }} émergence · {{ countByPhase('amplification') }} amplification · {{ countByPhase('demente') }} démenti</p>
+                <span class="eyebrow">{{ i18n.t('mission.rumor.steps') }}</span>
+                <p>{{ i18n.t('mission.rumor.steps_summary', { signals: steps().length, emergence: countByPhase('emergence'), amplification: countByPhase('amplification'), denial: countByPhase('demente') }) }}</p>
               </div>
             </section>
 
-            <section class="rumor-metrics" aria-label="Indicateurs de propagation">
+            <section class="rumor-metrics" [attr.aria-label]="i18n.t('mission.rumor.metrics')">
               <article>
-                <span>Durée</span>
+                <span>{{ i18n.t('mission.rumor.duration') }}</span>
                 <strong>{{ rumorDurationLabel() }}</strong>
-                <small>premier signal → mise au point</small>
+                <small>{{ i18n.t('mission.rumor.duration_hint') }}</small>
               </article>
               <article>
-                <span>Pic relais</span>
+                <span>{{ i18n.t('mission.rumor.peak') }}</span>
                 <strong>{{ amplificationPeakLabel() }}</strong>
-                <small>avant démenti officiel</small>
+                <small>{{ i18n.t('mission.rumor.peak_hint') }}</small>
               </article>
               <article>
-                <span>Démenti</span>
+                <span>{{ i18n.t('mission.rumor.denial') }}</span>
                 <strong>{{ denialGapLabel() }}</strong>
-                <small>temps jusqu'au premier démenti</small>
+                <small>{{ i18n.t('mission.rumor.denial_hint') }}</small>
               </article>
             </section>
 
-            <section class="rumor-filter-bar" aria-label="Filtres chronologie">
-              <button type="button" [class.active]="activeFilter === 'all'" (click)="setFilter('all')">Tout</button>
-              <button type="button" [class.active]="activeFilter === 'emergence'" (click)="setFilter('emergence')">Origine</button>
-              <button type="button" [class.active]="activeFilter === 'amplification'" (click)="setFilter('amplification')">Amplification</button>
-              <button type="button" [class.active]="activeFilter === 'demente'" (click)="setFilter('demente')">Démentis officiels</button>
+            <section class="rumor-filter-bar" [attr.aria-label]="i18n.t('mission.rumor.filters')">
+              <button type="button" [class.active]="activeFilter === 'all'" (click)="setFilter('all')">{{ i18n.t('common.all') }}</button>
+              <button type="button" [class.active]="activeFilter === 'emergence'" (click)="setFilter('emergence')">{{ i18n.t('mission.rumor.origin') }}</button>
+              <button type="button" [class.active]="activeFilter === 'amplification'" (click)="setFilter('amplification')">{{ i18n.t('mission.rumor.amplification') }}</button>
+              <button type="button" [class.active]="activeFilter === 'demente'" (click)="setFilter('demente')">{{ i18n.t('mission.rumor.official_denials') }}</button>
             </section>
 
-            <section class="rumor-investigation-grid" aria-label="Analyse de propagation">
-              <div class="rumor-timeline" aria-label="Chronologie OSINT">
-                <span class="eyebrow">Chaîne de propagation</span>
+            <section class="rumor-investigation-grid" [attr.aria-label]="i18n.t('mission.rumor.spread_analysis')">
+              <div class="rumor-timeline" [attr.aria-label]="i18n.t('mission.rumor.osint_timeline')">
+                <span class="eyebrow">{{ i18n.t('mission.rumor.chain') }}</span>
                 <ol class="timeline">
                   @for (step of visibleSteps(); track stepKey(step, $index)) {
                     <li class="timeline-item" [attr.data-phase]="phaseFor(step)">
@@ -163,7 +165,7 @@ type TimelineFilter = Phase | 'all';
                         <footer class="timeline-foot">
                           @if (step.confidence !== undefined && step.confidence !== null) {
                             <span class="confidence-chip" [ngClass]="confidenceClass(step.confidence)">
-                              confiance {{ confidencePct(step.confidence) }}%
+                              {{ i18n.t('mission.rumor.confidence_chip', { pct: confidencePct(step.confidence) }) }}
                             </span>
                           }
                           @if (step.source_id) {
@@ -173,25 +175,25 @@ type TimelineFilter = Phase | 'all';
                       </button>
                     </li>
                   } @empty {
-                    <li class="timeline-empty">Aucun signal dans ce filtre.</li>
+                    <li class="timeline-empty">{{ i18n.t('mission.rumor.no_signal') }}</li>
                   }
                 </ol>
               </div>
 
               @if (selectedStep(); as active) {
                 <aside class="rumor-step-detail" aria-live="polite">
-                  <span class="eyebrow">Étape active</span>
+                  <span class="eyebrow">{{ i18n.t('mission.rumor.active_step') }}</span>
                   <h3>{{ phaseLabel(phaseFor(active)) }}</h3>
                   <dl>
-                    <div><dt>Canal</dt><dd>{{ active.channel || '—' }}</dd></div>
-                    <div><dt>Acteur</dt><dd>{{ active.actor || '—' }}</dd></div>
-                    <div><dt>Heure</dt><dd>{{ active.time || '—' }}</dd></div>
-                    <div><dt>Confiance</dt><dd>{{ active.confidence !== undefined && active.confidence !== null ? confidencePct(active.confidence) + '%' : '—' }}</dd></div>
-                    <div><dt>Source</dt><dd>{{ active.source_id || 'source indexée · extrait non disponible' }}</dd></div>
+                    <div><dt>{{ i18n.t('mission.rumor.channel') }}</dt><dd>{{ active.channel || '—' }}</dd></div>
+                    <div><dt>{{ i18n.t('mission.rumor.actor') }}</dt><dd>{{ active.actor || '—' }}</dd></div>
+                    <div><dt>{{ i18n.t('mission.rumor.time') }}</dt><dd>{{ active.time || '—' }}</dd></div>
+                    <div><dt>{{ i18n.t('mission.rumor.confidence') }}</dt><dd>{{ active.confidence !== undefined && active.confidence !== null ? confidencePct(active.confidence) + '%' : '—' }}</dd></div>
+                    <div><dt>{{ i18n.t('mission.rumor.source') }}</dt><dd>{{ active.source_id || i18n.t('mission.rumor.source_fallback') }}</dd></div>
                   </dl>
-                  <p>{{ active.signal || 'Signal indexé sans extrait disponible.' }}</p>
+                  <p>{{ active.signal || i18n.t('mission.rumor.signal_fallback') }}</p>
                   <div class="detail-callout">
-                    <strong>Effet narratif</strong>
+                    <strong>{{ i18n.t('mission.rumor.narrative_effect') }}</strong>
                     <span>{{ narrativeEffectFor(active) }}</span>
                   </div>
                   <button type="button" class="action-link primary compact" (click)="draftCommunique.emit()">
@@ -203,7 +205,7 @@ type TimelineFilter = Phase | 'all';
 
             @if (trace.recommended_action || trace.aya_sentence) {
               <section class="rumor-recommendation">
-                <span class="eyebrow">Recommandation cabinet</span>
+                <span class="eyebrow">{{ i18n.t('mission.rumor.recommendation') }}</span>
                 @if (trace.aya_sentence) {
                   <blockquote>« {{ trace.aya_sentence }} »</blockquote>
                 }
@@ -216,18 +218,18 @@ type TimelineFilter = Phase | 'all';
 
           <footer class="rumor-drawer-foot mission-action-footer">
             <button type="button" class="action-link primary" (click)="draftCommunique.emit()">
-              Préparer un communiqué
+              {{ i18n.t('mission.rumor.draft_statement') }}
             </button>
             @if (embedded) {
               <button type="button" class="action-link muted" (click)="showMap.emit()">
-                Voir sur carte Nord
+                {{ i18n.t('mission.rumor.show_on_map') }}
               </button>
               <button type="button" class="action-link muted" (click)="filterDenied()">
-                Filtrer démentis
+                {{ i18n.t('mission.rumor.filter_denials') }}
               </button>
             } @else {
               <button type="button" class="action-link muted" (click)="closed.emit()">
-                Fermer
+                {{ i18n.t('common.close') }}
               </button>
             }
           </footer>
@@ -717,6 +719,8 @@ type TimelineFilter = Phase | 'all';
   ],
 })
 export class VpRumorTraceTimelineComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() embedded = false;
   @Input() open = false;
   @Output() closed = new EventEmitter<void>();
@@ -802,9 +806,10 @@ export class VpRumorTraceTimelineComponent {
 
   deniedTimingLabel(): string {
     const denied = this.steps().filter((step) => this.phaseFor(step) === 'demente');
-    if (!denied.length) return 'démenti officiel publié';
-    const first = denied[0]?.time;
-    return first ? `Démenti publié à ${first}` : 'Démenti officiel publié';
+    const first = denied.length ? denied[0]?.time : null;
+    return first
+      ? this.i18n.t('mission.rumor.denial_published_at', { time: first })
+      : this.i18n.t('mission.rumor.denial_published');
   }
 
   countByPhase(phase: Phase): number {
@@ -822,7 +827,9 @@ export class VpRumorTraceTimelineComponent {
 
   amplificationPeakLabel(): string {
     const count = this.countByPhase('amplification');
-    return count ? `${count} relais` : 'aucun pic';
+    return count
+      ? this.i18n.t('mission.rumor.relays', { count })
+      : this.i18n.t('mission.rumor.no_peak');
   }
 
   phaseFor(step: RumorChainStep): Phase {
@@ -854,23 +861,23 @@ export class VpRumorTraceTimelineComponent {
   }
 
   phaseLabel(phase: Phase): string {
-    if (phase === 'emergence') return 'Origine du signal';
-    if (phase === 'amplification') return 'Amplification publique';
-    return 'Démenti officiel';
+    if (phase === 'emergence') return this.i18n.t('mission.rumor.phase.emergence');
+    if (phase === 'amplification') return this.i18n.t('mission.rumor.phase.amplification');
+    return this.i18n.t('mission.rumor.phase.denial');
   }
 
   narrativeEffectFor(step: RumorChainStep): string {
     const phase = this.phaseFor(step);
-    if (phase === 'demente') return 'Stabilise la lecture cabinet : la rumeur est officiellement démentie et peut être traitée en communication maîtrisée.';
-    if (phase === 'amplification') return 'Montre où la rumeur a gagné en visibilité avant le démenti, sans valider le fond du récit.';
-    return 'Ancre l’origine dans un compte pseudonyme et évite de présenter la rumeur comme un fait établi.';
+    if (phase === 'demente') return this.i18n.t('mission.rumor.effect.denial');
+    if (phase === 'amplification') return this.i18n.t('mission.rumor.effect.amplification');
+    return this.i18n.t('mission.rumor.effect.emergence');
   }
 
   actionFor(step: RumorChainStep): string {
     const phase = this.phaseFor(step);
-    if (phase === 'demente') return 'Préparer un communiqué';
-    if (phase === 'amplification') return 'Préparer réponse proportionnée';
-    return 'Cadrer origine';
+    if (phase === 'demente') return this.i18n.t('mission.rumor.draft_statement');
+    if (phase === 'amplification') return this.i18n.t('mission.rumor.action.proportionate');
+    return this.i18n.t('mission.rumor.action.frame_origin');
   }
 
   glyphFor(channel?: string): string {

@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -287,12 +288,12 @@ type KbTabId =
 
     @if (!loading() && docCount() === 0 && chunkCount() === 0) {
       <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-warn" style="border-color:rgba(245, 184, 74, 0.25); background:rgba(245, 184, 74, 0.10);">
-        Collection vide ou non indexée : elle ne peut pas encore alimenter la recherche ni la capture.
+        {{ i18n.t('capture.kb.collection_empty') }}
       </div>
     }
     @if (!loadingBindings() && bindings().length === 0) {
       <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-cool" style="border-color:rgba(125, 211, 252, 0.20); background:rgba(125, 211, 252, 0.10);">
-        Aucun système n’utilise cette collection pour l’instant. Créez ou mettez à jour un Context pour la rendre disponible dans Capture.
+        {{ i18n.t('capture.kb.no_system_binding') }}
       </div>
     }
 
@@ -1095,19 +1096,19 @@ type KbTabId =
           </div>
           @if (!loadingTableFacts() && tableFacts().length > 0) {
             <div class="px-5 py-2 border-b ck-bd-1 text-[11px] ck-fg-4">
-              {{ visibleTableFacts().length }} résultat(s) affiché(s) sur {{ tableFactTotal() }} total. Les faits suspects restent visibles pour audit.
+              {{ i18n.t('capture.kb.facts_shown', { shown: visibleTableFacts().length, total: tableFactTotal() }) }}
             </div>
           }
           @if (loadingTableFacts()) {
             <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
-              Loading table facts…
+              {{ i18n.t('capture.kb.loading_facts') }}
             </div>
           } @else if (visibleTableFacts().length === 0) {
             <app-empty-state
               icon="table"
-              title="No table facts found"
-              description="Aucun fait ne correspond aux filtres. Ré-indexez les fichiers Excel si la collection devrait en contenir."
+              [title]="i18n.t('capture.kb.no_facts')"
+              [description]="i18n.t('capture.kb.no_facts_hint')"
             />
           } @else {
             <div class="ck-divide">
@@ -1673,6 +1674,7 @@ type KbTabId =
   `],
 })
 export class KnowledgeViewComponent implements OnInit {
+  readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly http = inject(HttpClient);
   private readonly canonical = inject(CanonicalApiService);

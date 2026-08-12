@@ -6,7 +6,7 @@ import { Subscription, timer } from 'rxjs';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { ApiService } from '@app/core/api.service';
-import { ThemeService } from '@app/core/theme.service';
+import { ThemeService, type ThemeMode } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { platformBrand } from '@app/core/platform-brand';
@@ -16,6 +16,13 @@ import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/sha
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+
+/** Sun, moon and screen: the same three glyphs as every other theme switch. */
+const THEME_ICONS: Record<ThemeMode, string> = {
+  system: 'monitor',
+  light: 'sun',
+  dark: 'moon',
+};
 
 /**
  * Cockpit title bar (48px tall). Hosts the brand mark, the semantic zoom
@@ -115,9 +122,11 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
         <app-icon name="message-square" [size]="14" />
       </button>
 
-      <!-- Theme indicator: dark mode is pinned until light contrast is demo-safe. -->
+      <!-- Theme switch: cycles system → light → dark. -->
       <button
         type="button"
+        data-testid="titlebar-theme-toggle"
+        (click)="cycleTheme()"
         [style.background]="'transparent'"
         [style.border]="'1px solid var(--ck-stroke-2)'"
         [style.borderRadius.px]="4"
@@ -127,11 +136,11 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
         [style.alignItems]="'center'"
         [style.justifyContent]="'center'"
         [style.color]="'var(--ck-fg-2)'"
-        [style.cursor]="'default'"
+        [style.cursor]="'pointer'"
         [title]="themeTooltip()"
         [attr.aria-label]="themeTooltip()"
       >
-        <ck-glyph [name]="themeGlyph()" [size]="14" />
+        <app-icon [name]="themeIcon()" [size]="14" />
       </button>
 
       <!-- Workspace switcher -->
@@ -407,9 +416,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
       border-radius: 6px;
     }
     /* Height-constrained, never squared: a customer wordmark is wide. The radius
-       softens the opaque corners of a logo shipped without an alpha channel —
-       safe here because this bar only ever renders on the dark-pinned cockpit
-       chrome, never in the business shell where the theme can go light. */
+       softens the opaque corners of a logo shipped without an alpha channel. */
     .tb-emblem-brand {
       display: block;
       height: 26px;
@@ -567,20 +574,17 @@ export class TitleBarComponent {
     this.telemetry.set(null);
   }
 
-  readonly themeGlyph = computed(() => {
-    this.themeService.mode();
-    return 'pulse' as const;
-  });
+  readonly themeIcon = computed(() => THEME_ICONS[this.themeService.mode()]);
 
   readonly themeTooltip = computed(() => {
-    this.themeService.mode();
+    const mode = this.themeService.mode();
     // Read the i18n locale signal so the tooltip re-renders on flip.
     this.i18n.locale();
-    return this.i18n.t('titlebar.theme.locked');
+    return this.i18n.t(`titlebar.theme.${mode}`);
   });
 
   cycleTheme(): void {
-    this.themeService.setMode('dark');
+    this.themeService.cycle();
   }
 
   setLocale(locale: Locale): void {

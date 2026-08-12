@@ -22,10 +22,9 @@ const NEXT: Record<BusinessTheme, BusinessTheme> = {
 };
 
 /**
- * Theme control for the WE surfaces. It drives the shared business-shell
- * preference rather than a private one, so an operator who picked light in one
- * business app finds light in this one — the cockpit stays pinned to dark
- * either way.
+ * Theme control for the WE surfaces. It drives the one global preference
+ * rather than a private one, so an operator who picked light here finds light
+ * in the cockpit and in every other business app.
  *
  * The button styles itself from the inherited `--nawa-*` custom properties
  * instead of importing the feature stylesheet, which would otherwise apply the

@@ -9,6 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService, type CapturePlanRequest } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
@@ -68,18 +69,16 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
     <div style="display:flex; flex-direction:column; gap:18px; max-width:720px;">
       <div>
         <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-          Capture · Préparation
+          {{ i18n.t('capture.prep.eyebrow') }}
         </span>
         <h2 style="margin:6px 0 4px; font-size:22px; font-weight:680; color:var(--ck-fg-1);">
-          {{ template() ? 'Identifier l’intervention' : 'Cadrer la séance' }}
+          {{ template() ? i18n.t('capture.prep.title_template') : i18n.t('capture.prep.title') }}
         </h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:62ch;">
           @if (template(); as tpl) {
-            Choisissez le type de rapport (trame EX70), puis renseignez l’en-tête du {{ tpl.label }}.
-            Le plan type suit le type choisi ; la capture reste guidée (Fil + Scène + oracle).
+            {{ i18n.t('capture.prep.intro_template', { label: tpl.label }) }}
           } @else {
-            Un titre suffit pour démarrer. Avec un plan, vous le construisez ensuite (dictée, assistant, import de
-            document) avant de lancer la capture.
+            {{ i18n.t('capture.prep.intro') }}
           }
         </p>
       </div>
@@ -88,8 +87,7 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
         <div style="display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-radius:var(--ck-radius-md); background:color-mix(in oklab, var(--ck-signal-warn) 10%, transparent); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 35%, transparent);">
           <ck-glyph name="warn" [size]="15" color="var(--ck-signal-warn)" />
           <div style="font-size:13px; color:var(--ck-fg-2); line-height:1.5;">
-            {{ previousReportOpenCount() }} point{{ previousReportOpenCount() > 1 ? 's' : '' }} ouvert{{ previousReportOpenCount() > 1 ? 's' : '' }}
-            repris du rapport N-1 — à traiter ou clôturer pendant la séance.
+            {{ i18n.t('capture.prep.carried_open_points', { count: previousReportOpenCount() }) }}
           </div>
         </div>
       }
@@ -99,7 +97,7 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
           @if (interventionTypes().length) {
             <div style="display:flex; flex-direction:column; gap:8px;">
               <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
-                Type d’intervention *
+                {{ i18n.t('capture.prep.intervention_type') }} *
               </span>
               <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 @for (t of interventionTypes(); track t.id) {
@@ -155,7 +153,7 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
                     <input
                       [value]="checkboxDescription(field.key)"
                       (input)="setCheckboxDescription(field.key, $any($event.target).value)"
-                      placeholder="Description des modifications *"
+                      [placeholder]="i18n.t('capture.prep.changes_description')"
                       style="margin-top:4px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-base); color:var(--ck-fg-1); font-size:13px; padding:8px 10px;"
                     />
                   }
@@ -167,11 +165,11 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
                   (input)="setHeaderField(field.key, $any($event.target).value)"
                   [placeholder]="
                     field.key === 'hse_safety'
-                      ? 'None / rien à signaler'
+                      ? i18n.t('capture.prep.nothing_to_report')
                       : field.key === 'week'
                         ? 'W28'
                         : field.key === 'issued_by'
-                          ? 'Superviseur / auteur'
+                          ? i18n.t('capture.prep.issued_by')
                           : field.label
                   "
                   style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
@@ -181,18 +179,18 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
           }
         } @else {
           <label style="display:flex; flex-direction:column; gap:6px;">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Titre de la séance *</span>
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.prep.session_title') }}</span>
             <input
               [value]="title()"
               (input)="title.set($any($event.target).value)"
-              placeholder="Ex. Méthode d'analyse géotechnique avant terrassement"
+              [placeholder]="i18n.t('capture.prep.session_title_placeholder')"
               style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
             />
           </label>
         }
 
         <label style="display:flex; flex-direction:column; gap:6px; max-width:220px;">
-          <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Durée indicative (min)</span>
+          <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.prep.duration') }}</span>
           <input
             type="number"
             min="0"
@@ -204,7 +202,7 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
 
         @if (!hideFreeMode()) {
           <div style="display:flex; flex-direction:column; gap:8px;">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Mode</span>
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.prep.mode') }}</span>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
               @for (m of modes; track m.id) {
                 <button
@@ -223,11 +221,11 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
           <div style="display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:var(--ck-radius-md); background:var(--ck-tint-faint); border:1px solid var(--ck-stroke-2);">
             <ck-glyph name="ledger" [size]="15" color="var(--ck-signal-cool)" />
             <div style="font-size:12.5px; color:var(--ck-fg-3); line-height:1.5;">
-              Mode plan type
+              {{ i18n.t('capture.prep.template_mode') }}
               @if (activeIntervention(); as it) {
                 · {{ it.label }} ({{ it.doc_ref }})
               }
-              — conversation libre désactivée pour ce rapport.
+              {{ i18n.t('capture.prep.free_disabled') }}
             </div>
           </div>
         }
@@ -249,13 +247,21 @@ const PREP_DEFERRED_KINDS = new Set(['equipment_progress']);
           [style.cursor]="!canSubmit() || busy() ? 'not-allowed' : 'pointer'"
         >
           <ck-glyph name="arrow-right" [size]="14" color="currentColor" />
-          {{ waitingForSystem() ? 'Connexion au système FSE…' : (busy() ? 'Préparation…' : 'Préparer la séance') }}
+          {{
+            waitingForSystem()
+              ? i18n.t('capture.prep.connecting')
+              : busy()
+                ? i18n.t('capture.prep.preparing')
+                : i18n.t('capture.prep.submit')
+          }}
         </button>
       </div>
     </div>
   `,
 })
 export class CaptureFilPrepComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
@@ -266,13 +272,13 @@ export class CaptureFilPrepComponent {
   protected readonly modes: ModeOption[] = [
     {
       id: 'plan_build',
-      label: 'Avec plan',
-      hint: 'Construire un plan de sujets en amont (dictée, assistant, import de document), puis capturer.',
+      label: this.i18n.t('capture.prep.mode_plan'),
+      hint: this.i18n.t('capture.prep.mode_plan_hint'),
     },
     {
       id: 'free_conversation',
-      label: 'Sans plan',
-      hint: 'Capturer directement au fil de la conversation, sans plan préalable.',
+      label: this.i18n.t('capture.prep.mode_free'),
+      hint: this.i18n.t('capture.prep.mode_free_hint'),
     },
   ];
 
@@ -444,12 +450,12 @@ export class CaptureFilPrepComponent {
 
   /** Derive the objective from the title (v0 `captureObjectiveForPlan`). */
   private objectiveFor(title: string): string {
-    return `Capturer les savoirs métier et retours d'expérience liés à : ${title}.`;
+    return this.i18n.t('capture.prep.objective', { title });
   }
 
   private objectiveForTemplate(fields: Record<string, CaptureHeaderValue>, label: string): string {
     const title = composeTemplateSessionTitle(fields, label);
-    return `Produire le ${label} pour : ${title}.`;
+    return this.i18n.t('capture.prep.objective_template', { label, title });
   }
 
   protected prepare(): void {
@@ -527,7 +533,7 @@ export class CaptureFilPrepComponent {
         },
         error: () => {
           this.busy.set(false);
-          this.error.set('Préparation impossible. Vérifiez le backend, puis réessayez.');
+          this.error.set(this.i18n.t('capture.prep.failed'));
         },
       });
   }

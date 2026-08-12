@@ -10,6 +10,7 @@ import {
   CanonicalApiService,
   type Context,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
   WorkspaceService,
@@ -103,6 +104,7 @@ function makeHarness() {
       { provide: WorkspaceService, useValue: workspace },
       { provide: HttpClient, useValue: http },
       { provide: CanonicalApiService, useValue: canonical },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: NavigationProfileService, useValue: { businessShellActive: () => false } },
       { provide: Router, useValue: { navigate: () => undefined } },
       {

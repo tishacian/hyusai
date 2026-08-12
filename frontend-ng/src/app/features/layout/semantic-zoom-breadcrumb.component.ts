@@ -6,6 +6,7 @@ import {
   type ZoomHierarchyKey,
 } from '@app/core/zoom-context.service';
 import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
+import { I18nService } from '@app/core/i18n.service';
 
 interface ZoomLevel {
   key: ZoomHierarchyKey;
@@ -75,6 +76,7 @@ interface ZoomLevel {
 export class SemanticZoomBreadcrumbComponent {
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
+  private readonly i18n = inject(I18nService);
 
   readonly levels = computed<ZoomLevel[]>(() => {
     if (!this.navigation.axesV3Enabled()) return this.legacyLevels();
@@ -85,7 +87,9 @@ export class SemanticZoomBreadcrumbComponent {
       : (this.navigation.deepestResolvedType() ?? 'portfolio');
     return nodes.map((node) => ({
       key: node.key,
-      label: node.label,
+      // Every other node is named after the object it points at; the
+      // portfolio root is the one generic word, so it follows the locale.
+      label: node.key === 'portfolio' ? this.i18n.t('nav.zoom.portfolio') : node.label,
       sub: node.sub,
       href: node.href,
       active: node.key === activeKey,
@@ -111,22 +115,28 @@ export class SemanticZoomBreadcrumbComponent {
         active,
       };
     };
+    const t = (key: ZoomHierarchyKey) => this.i18n.t(`nav.zoom.${key}`);
     return [
-      level('portfolio', 'Portfolio', agentiumSurfaceRoute('hypervisor'), first === 'hypervisor'),
-      level('capability', 'Capability', agentiumSurfaceRoute('capabilities'), first === 'capabilities'),
+      level('portfolio', t('portfolio'), agentiumSurfaceRoute('hypervisor'), first === 'hypervisor'),
+      level(
+        'capability',
+        t('capability'),
+        agentiumSurfaceRoute('capabilities'),
+        first === 'capabilities',
+      ),
       level(
         'system',
-        'System',
+        t('system'),
         agentiumSurfaceRoute('systems'),
         first === 'systems' || first === 'steering',
       ),
       level(
         'run',
-        'Run',
+        t('run'),
         agentiumSurfaceRoute('runs'),
         first === 'runs' || first === 'observability',
       ),
-      level('skill', 'Skill', agentiumSurfaceRoute('skills'), first === 'skills'),
+      level('skill', t('skill'), agentiumSurfaceRoute('skills'), first === 'skills'),
     ];
   }
 

@@ -7,7 +7,7 @@
  * `System.settings['event_trigger']`). It exposes:
  *   - the GLOBAL master switch + the System's effective mode (read-only),
  *   - a dry_run ⇄ live mode toggle,
- *   - the circuit-breaker status with a "Réarmer" (reset) action,
+ *   - the circuit-breaker status with a re-arm (reset) action,
  *   - a deep link to the System's Runs (where `simulated` dry-run journals show).
  *
  * Governance stays code-enforced on the backend — this never bypasses the
@@ -25,6 +25,7 @@ import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 
 interface EventTriggerState {
   system_id: string;
@@ -45,36 +46,43 @@ type LoadState = 'loading' | 'loaded' | 'error';
   styleUrl: './flow-trigger-controls.component.scss',
   template: `
     <section class="ck-trig">
-      <span class="ck-trig__label">Pilotage des déclencheurs</span>
+      <span class="ck-trig__label">{{ i18n.t('flow.triggers.piloting') }}</span>
 
       @if (loadState() === 'loading') {
-        <p class="ck-trig__muted">Chargement de l'état…</p>
+        <p class="ck-trig__muted">{{ i18n.t('flow.triggers.piloting.loading') }}</p>
       } @else if (loadState() === 'error') {
         <p class="ck-trig__muted">
-          État indisponible.
-          <button type="button" class="ck-trig__linkbtn" (click)="reload()">Réessayer</button>
+          {{ i18n.t('flow.triggers.piloting.error') }}
+          <button type="button" class="ck-trig__linkbtn" (click)="reload()">
+            {{ i18n.t('flow.triggers.retry') }}
+          </button>
         </p>
       } @else if (state(); as s) {
         <dl class="ck-trig__kv">
-          <dt>Global</dt>
+          <dt>{{ i18n.t('flow.triggers.piloting.global') }}</dt>
           <dd>
             <span class="ck-trig__pill" [attr.data-on]="s.master_enabled">
-              {{ s.master_enabled ? 'Activés' : 'Désactivés' }}
+              {{
+                s.master_enabled
+                  ? i18n.t('flow.triggers.piloting.global.on')
+                  : i18n.t('flow.triggers.piloting.global.off')
+              }}
             </span>
           </dd>
-          <dt>Mode système</dt>
+          <dt>{{ i18n.t('flow.triggers.piloting.mode') }}</dt>
           <dd>
             <span class="ck-trig__pill" [attr.data-tone]="s.mode === 'live' ? 'live' : 'dry'">
-              {{ s.mode === 'live' ? 'Live' : 'Dry-run' }}
+              {{
+                s.mode === 'live'
+                  ? i18n.t('flow.triggers.piloting.mode.live')
+                  : i18n.t('flow.triggers.piloting.mode.dry')
+              }}
             </span>
           </dd>
         </dl>
 
         @if (!s.master_enabled) {
-          <p class="ck-trig__muted">
-            Les déclencheurs sont désactivés globalement — le mode ci-dessous ne s'applique
-            qu'une fois activés au niveau de la plateforme.
-          </p>
+          <p class="ck-trig__muted">{{ i18n.t('flow.triggers.piloting.global.note') }}</p>
         }
 
         <button
@@ -84,17 +92,23 @@ type LoadState = 'loading' | 'loaded' | 'error';
           (click)="toggleMode(s)"
         >
           <ck-glyph [name]="s.mode === 'live' ? 'pause' : 'play'" [size]="12" color="currentColor" />
-          {{ s.mode === 'live' ? 'Repasser en dry-run' : 'Passer en live' }}
+          {{
+            s.mode === 'live'
+              ? i18n.t('flow.triggers.piloting.to_dry')
+              : i18n.t('flow.triggers.piloting.to_live')
+          }}
         </button>
 
         @if (s.disabled) {
           <div class="ck-trig__breaker" role="status">
             <div class="ck-trig__breaker-head">
               <ck-glyph name="warn" [size]="13" color="currentColor" />
-              <span>Circuit ouvert — déclencheur désarmé</span>
+              <span>{{ i18n.t('flow.triggers.piloting.breaker.open') }}</span>
             </div>
-            @if (s.disabled_reason) {
-              <p class="ck-trig__breaker-reason">Cause : {{ s.disabled_reason }}</p>
+            @if (s.disabled_reason; as reason) {
+              <p class="ck-trig__breaker-reason">
+                {{ i18n.t('flow.triggers.piloting.breaker.cause', { reason }) }}
+              </p>
             }
             <button
               type="button"
@@ -103,13 +117,13 @@ type LoadState = 'loading' | 'loaded' | 'error';
               (click)="rearm()"
             >
               <ck-glyph name="check" [size]="12" color="currentColor" />
-              Réarmer
+              {{ i18n.t('flow.triggers.piloting.breaker.rearm') }}
             </button>
           </div>
         } @else {
           <p class="ck-trig__ok">
             <ck-glyph name="shield" [size]="12" color="currentColor" />
-            Circuit armé
+            {{ i18n.t('flow.triggers.piloting.breaker.armed') }}
           </p>
         }
 
@@ -119,7 +133,7 @@ type LoadState = 'loading' | 'loaded' | 'error';
           [queryParams]="{ facet: 'runs' }"
         >
           <ck-glyph name="ledger" [size]="12" color="currentColor" />
-          Voir les runs déclenchés
+          {{ i18n.t('flow.triggers.piloting.runs') }}
         </a>
       }
     </section>
@@ -128,6 +142,7 @@ type LoadState = 'loading' | 'loaded' | 'error';
 export class FlowTriggerControlsComponent {
   private readonly api = inject(ApiService);
   private readonly toastr = inject(ToastrService);
+  readonly i18n = inject(I18nService);
 
   /** The System whose triggers we pilot. */
   readonly systemId = input.required<string>();
@@ -165,11 +180,18 @@ export class FlowTriggerControlsComponent {
 
   toggleMode(s: EventTriggerState): void {
     const next = s.mode === 'live' ? 'dry_run' : 'live';
-    this.patch({ mode: next }, next === 'live' ? 'Mode live activé.' : 'Mode dry-run rétabli.');
+    this.patch(
+      { mode: next },
+      this.i18n.t(
+        next === 'live'
+          ? 'flow.triggers.piloting.live_done'
+          : 'flow.triggers.piloting.dry_done',
+      ),
+    );
   }
 
   rearm(): void {
-    this.patch({ disabled: false }, 'Déclencheur réarmé.');
+    this.patch({ disabled: false }, this.i18n.t('flow.triggers.piloting.breaker.rearmed'));
   }
 
   private patch(body: { mode?: string; disabled?: boolean }, successMsg: string): void {
@@ -180,11 +202,14 @@ export class FlowTriggerControlsComponent {
       next: (res) => {
         this.state.set(res);
         this.busy.set(false);
-        this.toastr.success(successMsg, 'Déclencheurs');
+        this.toastr.success(successMsg, this.i18n.t('flow.triggers.toast.title'));
       },
       error: () => {
         this.busy.set(false);
-        this.toastr.error('La mise à jour du déclencheur a échoué.', 'Déclencheurs');
+        this.toastr.error(
+          this.i18n.t('flow.triggers.piloting.failed'),
+          this.i18n.t('flow.triggers.toast.title'),
+        );
       },
     });
   }

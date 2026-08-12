@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import type { VpPressPreviewItem } from './vp-cockpit.types';
 
 @Component({
@@ -8,14 +9,20 @@ import type { VpPressPreviewItem } from './vp-cockpit.types';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="press-preview" aria-label="Alertes presse">
+    <section class="press-preview" [attr.aria-label]="i18n.t('mission.press.title')">
       @if (morningHighlight && !morningDismissed) {
-        <div class="morning-banner" role="region" aria-label="Brief presse du matin">
+        <div class="morning-banner" role="region" [attr.aria-label]="i18n.t('mission.press.morning')">
           <p>{{ morningHighlight }}</p>
           <div class="morning-actions">
-            <button type="button" (click)="morningView.emit()">Voir</button>
-            <button type="button" (click)="morningLater.emit()">Plus tard</button>
-            <button type="button" (click)="morningVoice.emit()">Parler à AYA</button>
+            <button type="button" (click)="morningView.emit()">
+              {{ i18n.t('mission.press.view') }}
+            </button>
+            <button type="button" (click)="morningLater.emit()">
+              {{ i18n.t('mission.press.later') }}
+            </button>
+            <button type="button" (click)="morningVoice.emit()">
+              {{ i18n.t('mission.assistant.talk_to', { name: assistantName }) }}
+            </button>
           </div>
         </div>
       }
@@ -23,8 +30,8 @@ import type { VpPressPreviewItem } from './vp-cockpit.types';
       @if (!items.length) {
         <div class="press-empty" role="status">
           <span class="press-empty-icon" aria-hidden="true">◇</span>
-          <strong>Aucune alerte presse hero</strong>
-          <small>Les signaux du jour seront poussés ici dès qu'AYA les flagge.</small>
+          <strong>{{ i18n.t('mission.press.empty') }}</strong>
+          <small>{{ i18n.t('mission.press.empty_hint', { name: assistantName }) }}</small>
         </div>
       } @else {
         <div class="press-cards" [class.is-hero]="items.length === 1">
@@ -42,7 +49,11 @@ import type { VpPressPreviewItem } from './vp-cockpit.types';
                   {{ item.risk_label || item.risk }}
                 </span>
                 @if (highlightId === item.id) {
-                  <span class="aya-flag" aria-label="Flaggé par AYA">AYA flag</span>
+                  <span
+                    class="aya-flag"
+                    [attr.aria-label]="i18n.t('mission.press.flagged_by', { name: assistantName })"
+                    >{{ i18n.t('mission.press.flag_tag', { name: assistantName }) }}</span
+                  >
                 }
               </span>
               <strong>{{ item.title }}</strong>
@@ -237,6 +248,9 @@ import type { VpPressPreviewItem } from './vp-cockpit.types';
   ],
 })
 export class VpPressPreviewComponent {
+  readonly i18n = inject(I18nService);
+
+  @Input() assistantName = 'AYA';
   @Input() items: VpPressPreviewItem[] = [];
   @Input() highlightId: string | null = null;
   @Input() morningHighlight: string | null = null;

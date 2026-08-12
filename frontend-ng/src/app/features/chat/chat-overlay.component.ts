@@ -48,16 +48,16 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
         <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()">
           <div class="chat-overlay-toolbar">
             <span class="chat-overlay-hint">
-              Quick panel
+              {{ i18n.t('chat.overlay.hint') }}
             </span>
             <button
               type="button"
               class="chat-overlay-expand"
               (click)="expandToWorkspaceChat()"
-              [title]="sentinelShowcase() ? 'Ouvrir AYA en plein écran' : 'Open this chat as a direct full-page workspace view'"
+              [title]="i18n.t('chat.overlay.expand.hint')"
             >
               <app-icon name="maximize" [size]="13" />
-              {{ sentinelShowcase() ? 'Plein écran' : 'Expand' }}
+              {{ i18n.t('chat.overlay.expand') }}
             </button>
           </div>
           <app-chat-workspace

@@ -78,7 +78,8 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/mission-room',
     status: 'canonical',
     audience: 'workspace-user',
-    description: 'Executive government cockpit for briefing, projects, open intelligence, map and advisory actions.',
+    description:
+      'Executive government cockpit for briefing, projects, open intelligence, map and recommendation actions.',
   },
   {
     id: 'systems',

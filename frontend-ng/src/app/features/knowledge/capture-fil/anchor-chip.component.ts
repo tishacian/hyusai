@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import type { CapturePinnedView, CaptureViewReference } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from './capture-engine';
@@ -45,14 +46,14 @@ const HYBRID_CONFIRM_MS = 4200;
             style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--ck-fg-5); text-decoration:line-through; opacity:0.62;"
           >
             <ck-glyph name="crosshair" [size]="12" color="currentColor" />
-            {{ title }} — pointage annulé
+            {{ i18n.t('capture.anchor.cancelled', { title: title }) }}
             <button
               type="button"
               class="ck-mono"
               (click)="restore()"
               style="text-decoration:none; border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:10px;"
             >
-              rétablir
+              {{ i18n.t('capture.anchor.restore') }}
             </button>
           </span>
         }
@@ -63,7 +64,7 @@ const HYBRID_CONFIRM_MS = 4200;
               class="anc-pill"
               [class.anc-breathe]="display() === 'pending'"
               (click)="focusPiece()"
-              title="Remettre cette pièce en scène"
+              [title]="i18n.t('capture.anchor.restage')"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; align-self:flex-start; color:var(--ck-fg-1); font-family:var(--ck-font-sans);"
               [style.background]="ghostly() ? 'transparent' : tintMix"
               [style.border]="'1px ' + (ghostly() ? 'dashed' : 'solid') + ' ' + edgeColor()"
@@ -79,13 +80,13 @@ const HYBRID_CONFIRM_MS = 4200;
             @if (display() === 'pending' && !rebinding()) {
               <span style="display:inline-flex; align-items:center; gap:8px; padding-left:4px; flex-wrap:wrap;">
                 <span class="ck-mono" style="font-size:10.5px; color:var(--ck-fg-4);">
-                  confirmation auto dans {{ secondsLeft() }}s
+                  {{ i18n.t('capture.anchor.auto_confirm', { seconds: secondsLeft() }) }}
                 </span>
                 <button type="button" class="anc-btn" (click)="confirm()" [style.--anc-accent]="'var(--ck-signal-pos)'">
-                  <ck-glyph name="check" [size]="11" color="currentColor" /> Confirmer
+                  <ck-glyph name="check" [size]="11" color="currentColor" /> {{ i18n.t('capture.anchor.confirm') }}
                 </button>
                 <button type="button" class="anc-btn" (click)="startRebind()">
-                  <ck-glyph name="crosshair" [size]="11" color="currentColor" /> Relier…
+                  <ck-glyph name="crosshair" [size]="11" color="currentColor" /> {{ i18n.t('capture.anchor.rebind') }}
                 </button>
                 <button type="button" class="anc-btn" (click)="discard()" [style.--anc-accent]="'var(--ck-signal-neg)'">
                   <ck-glyph name="x" [size]="11" color="currentColor" />
@@ -96,10 +97,12 @@ const HYBRID_CONFIRM_MS = 4200;
             @if (display() === 'lowconf' && !rebinding()) {
               <span style="display:inline-flex; align-items:center; gap:8px; padding-left:4px; flex-wrap:wrap;">
                 <span class="ck-mono" style="font-size:10.5px; color:var(--ck-signal-warn);">
-                  ⚠ association incertaine{{ phrase ? ' · « ' + phrase + ' »' : '' }}
+                  {{ phrase
+                    ? i18n.t('capture.anchor.uncertain_phrase', { phrase: phrase })
+                    : i18n.t('capture.anchor.uncertain') }}
                 </span>
                 <button type="button" class="anc-btn" (click)="startRebind()" [style.--anc-accent]="'var(--ck-signal-warn)'">
-                  <ck-glyph name="crosshair" [size]="11" color="currentColor" /> Corriger
+                  <ck-glyph name="crosshair" [size]="11" color="currentColor" /> {{ i18n.t('capture.anchor.correct') }}
                 </button>
                 <button type="button" class="anc-btn" (click)="accept()">
                   <ck-glyph name="check" [size]="11" color="currentColor" /> OK
@@ -109,7 +112,7 @@ const HYBRID_CONFIRM_MS = 4200;
 
             @if (rebinding()) {
               <span style="display:flex; flex-wrap:wrap; gap:6px; padding-left:4px; align-items:center;">
-                <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">relier à :</span>
+                <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ i18n.t('capture.anchor.rebind_to') }}</span>
                 @for (piece of engine.scene(); track piece.key) {
                   <button
                     type="button"
@@ -121,7 +124,7 @@ const HYBRID_CONFIRM_MS = 4200;
                   </button>
                 }
                 @if (engine.scene().length === 0) {
-                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-5);">aucune pièce en scène</span>
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-5);">{{ i18n.t('capture.scene.empty_short') }}</span>
                 }
                 <button type="button" class="anc-btn" (click)="cancelRebind()">
                   <ck-glyph name="x" [size]="11" color="currentColor" />
@@ -168,6 +171,7 @@ const HYBRID_CONFIRM_MS = 4200;
   ],
 })
 export class AnchorChipComponent {
+  readonly i18n = inject(I18nService);
   protected readonly engine = inject(CaptureEngine);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -197,11 +201,14 @@ export class AnchorChipComponent {
 
   protected get title(): string {
     const v = this.viewSig();
-    return v ? viewTitle(v) : 'Pièce';
+    const fallback = this.i18n.t('capture.piece.fallback');
+    return v ? viewTitle(v, fallback) : fallback;
   }
   protected get location(): string {
     const v = this.viewSig();
-    return v ? viewLocation(v) : '';
+    return v
+      ? viewLocation(v, (index) => this.i18n.t('capture.view.snapshot', { index }))
+      : '';
   }
   protected get phrase(): string {
     const v = this.viewSig();
@@ -248,7 +255,7 @@ export class AnchorChipComponent {
   }
 
   protected pieceLabel(piece: CapturePinnedView): string {
-    return piece.title ?? piece.filename ?? 'Pièce';
+    return piece.title ?? piece.filename ?? this.i18n.t('capture.piece.fallback');
   }
 
   /**

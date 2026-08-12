@@ -31,6 +31,9 @@ import {
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { I18nService } from '@app/core/i18n.service';
 import type {
   CanonicalFlowNode,
   DecisionNodeConfig,
@@ -47,6 +50,9 @@ import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
 import { FlowIngressEditorComponent } from './flow-ingress-editor.component';
 import { FlowDecisionBindingsComponent } from './flow-decision-bindings.component';
 import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
+
+/** Engine kind of the node the lexicon calls an Output. */
+const OUTPUT_NODE_KIND = 'sink';
 
 export interface RetrievalDocumentRef {
   collection_slug: string;
@@ -112,6 +118,8 @@ export function buildRetrievalDocumentOptions(
     A11yModule,
     RouterLink,
     GlyphComponent,
+    HelpTooltipComponent,
+    EmptyStateComponent,
     ManifestFieldsComponent,
     FlowTriggerControlsComponent,
     FlowTriggersPanelComponent,
@@ -124,7 +132,7 @@ export function buildRetrievalDocumentOptions(
     <aside
       class="ck-flow-inspector"
       role="complementary"
-      aria-label="Node inspector"
+      [attr.aria-label]="i18n.t('flow.inspector.aria')"
       cdkTrapFocus
       [cdkTrapFocusAutoCapture]="false"
       (keydown.escape)="close.emit()"
@@ -132,101 +140,83 @@ export function buildRetrievalDocumentOptions(
       <header class="ck-flow-inspector__head">
         <div class="ck-flow-inspector__heading">
           <span class="ck-flow-inspector__eyebrow">
-            {{ node() ? (node()!.kind ?? 'task') : 'inspector' }}
+            {{ node() ? kindLabel(node()!.kind ?? 'task') : i18n.t('flow.inspector.aria') }}
             @if (dirty()) {
-              <span class="ck-flow-inspector__dirty" title="Unsaved changes — use Save in the toolbar">
+              <span
+                class="ck-flow-inspector__dirty"
+                [title]="i18n.t('flow.inspector.unsaved.hint')"
+              >
                 <ck-glyph name="pulse" [size]="11" color="currentColor" />
-                Unsaved
+                {{ i18n.t('flow.inspector.unsaved') }}
               </span>
             }
           </span>
           <h2 class="ck-flow-inspector__title">
-            {{ node()?.label || node()?.type || 'No node selected' }}
+            {{ node()?.label || node()?.type || i18n.t('flow.inspector.empty.title') }}
           </h2>
         </div>
         <button
           type="button"
           class="ck-flow-inspector__close"
           (click)="close.emit()"
-          aria-label="Close inspector"
-          title="Close (Esc)"
+          [attr.aria-label]="i18n.t('flow.inspector.close.aria')"
+          [title]="i18n.t('flow.inspector.close')"
         >
           <ck-glyph name="x" [size]="13" color="currentColor" />
         </button>
       </header>
 
+      <!--
+        Three registers, top to bottom: what you name (label, description),
+        what you configure (the kind-specific sections, open by default), and
+        what you rarely need — identity, ports, contract, deletion — folded
+        into disclosures. Folded is not hidden: every field stays one click
+        away, in the same place, and none was removed.
+      -->
       <div class="ck-flow-inspector__body">
         @if (node(); as n) {
           <section class="ck-flow-section">
-            <span class="ck-flow-section__label">Identity</span>
-            <dl class="ck-flow-kv">
-              <dt>ID</dt>
-              <dd class="mono">{{ n.id }}</dd>
-              <dt>Type</dt>
-              <dd>{{ n.type }}</dd>
-              <dt>Kind</dt>
-              <dd>{{ n.kind ?? 'task' }}</dd>
-            </dl>
-          </section>
-
-          <section class="ck-flow-section">
             <label class="ck-flow-field">
-              <span class="ck-flow-field__label">Label</span>
+              <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.field.label') }}</span>
               <input
                 class="ck-flow-input"
                 type="text"
                 [value]="n.label ?? ''"
                 (input)="onLabel($event)"
-                placeholder="Node label"
+                [attr.placeholder]="i18n.t('flow.inspector.field.label.placeholder')"
               />
             </label>
             <label class="ck-flow-field">
-              <span class="ck-flow-field__label">Description</span>
+              <span class="ck-flow-field__label">{{
+                i18n.t('flow.inspector.field.description')
+              }}</span>
               <textarea
                 class="ck-flow-input ck-flow-input--area"
                 rows="3"
                 [value]="description(n)"
                 (input)="onDescription($event)"
-                placeholder="What this node does"
+                [attr.placeholder]="i18n.t('flow.inspector.field.description.placeholder')"
               ></textarea>
             </label>
           </section>
 
-          @if ((n.inputs?.length ?? 0) > 0 || (n.outputs?.length ?? 0) > 0) {
-            <section class="ck-flow-section">
-              <span class="ck-flow-section__label">Ports</span>
-              <div class="ck-flow-ports">
-                @for (p of n.inputs ?? []; track p.name) {
-                  <span class="ck-flow-chip ck-flow-chip--in">
-                    {{ p.name }} · {{ p.schema }}
-                  </span>
-                }
-                @for (p of n.outputs ?? []; track p.name) {
-                  <span class="ck-flow-chip ck-flow-chip--out">
-                    {{ p.name }} · {{ p.schema }}
-                  </span>
-                }
-              </div>
-            </section>
-          }
-
           @if ((n.kind ?? 'task') === 'decision') {
             <section class="ck-flow-section ck-flow-decision">
               <div class="ck-flow-section__heading-row">
-                <span class="ck-flow-section__label">Decision routes</span>
+                <span class="ck-flow-section__label">
+                  {{ i18n.t('flow.inspector.section.decision') }}
+                  <ck-help id="concept.decision" />
+                </span>
                 <button
                   type="button"
                   class="ck-flow-mini-action"
                   (click)="addDecisionBranch()"
                 >
-                  + Branch
+                  {{ i18n.t('flow.inspector.decision.add') }}
                 </button>
               </div>
 
-              <p class="ck-flow-hint">
-                Conditions run top-to-bottom. The first match wins; Default is
-                used only when no condition matches.
-              </p>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.decision.hint') }}</p>
 
               <div class="ck-flow-decision__branches">
                 @for (branch of decisionBranches(n); track $index; let i = $index; let first = $first; let last = $last) {
@@ -234,7 +224,11 @@ export function buildRetrievalDocumentOptions(
                     <div class="ck-flow-decision__branch-head">
                       <span class="ck-flow-decision__order">{{ i + 1 }}</span>
                       <span class="ck-flow-decision__route-count">
-                        {{ decisionRouteCount(n.id, branch.label) }} route(s)
+                        {{
+                          i18n.t('flow.inspector.decision.routes', {
+                            count: decisionRouteCount(n.id, branch.label),
+                          })
+                        }}
                       </span>
                       <div class="ck-flow-decision__branch-actions">
                         <button
@@ -242,30 +236,32 @@ export function buildRetrievalDocumentOptions(
                           class="ck-flow-icon-action"
                           [disabled]="first"
                           (click)="moveDecisionBranch(i, -1)"
-                          aria-label="Move branch up"
-                          title="Move up"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.up.aria')"
+                          [title]="i18n.t('flow.inspector.decision.up')"
                         >↑</button>
                         <button
                           type="button"
                           class="ck-flow-icon-action"
                           [disabled]="last"
                           (click)="moveDecisionBranch(i, 1)"
-                          aria-label="Move branch down"
-                          title="Move down"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.down.aria')"
+                          [title]="i18n.t('flow.inspector.decision.down')"
                         >↓</button>
                         <button
                           type="button"
                           class="ck-flow-icon-action ck-flow-icon-action--danger"
                           [disabled]="decisionBranches(n).length <= 2"
                           (click)="removeDecisionBranch(i)"
-                          aria-label="Delete branch and its routes"
-                          title="Delete branch and its routes"
+                          [attr.aria-label]="i18n.t('flow.inspector.decision.remove')"
+                          [title]="i18n.t('flow.inspector.decision.remove')"
                         >×</button>
                       </div>
                     </div>
 
                     <label class="ck-flow-field">
-                      <span class="ck-flow-field__label">Route label</span>
+                      <span class="ck-flow-field__label">{{
+                        i18n.t('flow.inspector.decision.route_label')
+                      }}</span>
                       <input
                         class="ck-flow-input mono"
                         type="text"
@@ -277,7 +273,9 @@ export function buildRetrievalDocumentOptions(
                     </label>
 
                     <label class="ck-flow-field">
-                      <span class="ck-flow-field__label">Condition</span>
+                      <span class="ck-flow-field__label">{{
+                        i18n.t('flow.inspector.decision.condition')
+                      }}</span>
                       <textarea
                         class="ck-flow-input ck-flow-input--area"
                         rows="2"
@@ -292,15 +290,19 @@ export function buildRetrievalDocumentOptions(
               </div>
 
               <label class="ck-flow-field">
-                <span class="ck-flow-field__label">Default branch</span>
+                <span class="ck-flow-field__label">{{
+                  i18n.t('flow.inspector.decision.default')
+                }}</span>
                 <select
                   class="ck-flow-input"
                   [value]="decisionDefault(n)"
                   (change)="onDecisionDefault($event)"
                 >
-                  <option value="">No default · fail on no-match</option>
+                  <option value="">{{ i18n.t('flow.inspector.decision.default.none') }}</option>
                   @for (branch of decisionBranches(n); track $index) {
-                    <option [value]="branch.label">{{ branch.label || '(invalid label)' }}</option>
+                    <option [value]="branch.label">{{
+                      branch.label || i18n.t('flow.inspector.decision.invalid_label')
+                    }}</option>
                   }
                 </select>
               </label>
@@ -311,17 +313,23 @@ export function buildRetrievalDocumentOptions(
 
           @if ((n.kind ?? 'task') === 'asset') {
             <section class="ck-flow-section">
-              <span class="ck-flow-section__label">Collection asset</span>
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.asset')
+              }}</span>
 
               @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
                 <label class="ck-flow-field">
-                  <span class="ck-flow-field__label">Collection</span>
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.asset.collection')
+                  }}</span>
                   <select
                     class="ck-flow-input"
                     [value]="collectionSlug(n)"
                     (change)="onCollectionSlug($event)"
                   >
-                    <option value="">— Sélectionner une collection —</option>
+                    <option value="">{{
+                      i18n.t('flow.inspector.asset.collection.none')
+                    }}</option>
                     @for (slug of collectionOptions(); track slug) {
                       <option [value]="slug">{{ slug }}</option>
                     }
@@ -329,26 +337,28 @@ export function buildRetrievalDocumentOptions(
                 </label>
               } @else {
                 <label class="ck-flow-field">
-                  <span class="ck-flow-field__label">Collection slug</span>
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.asset.slug')
+                  }}</span>
                   <input
                     class="ck-flow-input"
                     type="text"
                     [value]="collectionSlug(n)"
                     (input)="onCollectionSlug($event)"
-                    placeholder="my-collection-slug"
+                    [attr.placeholder]="i18n.t('flow.inspector.asset.slug.placeholder')"
                   />
                 </label>
                 @if (collectionsState() === 'loading') {
-                  <p class="ck-flow-hint">Chargement des collections…</p>
+                  <p class="ck-flow-hint">{{ i18n.t('flow.inspector.asset.loading') }}</p>
                 } @else if (collectionsState() === 'error') {
                   <p class="ck-flow-hint">
-                    Collections indisponibles — saisie manuelle.
+                    {{ i18n.t('flow.inspector.asset.error') }}
                     <button type="button" class="ck-flow-hint__btn" (click)="retryCollections()">
-                      Réessayer
+                      {{ i18n.t('flow.inspector.asset.retry') }}
                     </button>
                   </p>
                 } @else if (collectionsState() === 'loaded') {
-                  <p class="ck-flow-hint">Aucune collection indexée — saisie manuelle.</p>
+                  <p class="ck-flow-hint">{{ i18n.t('flow.inspector.asset.empty') }}</p>
                 }
               }
 
@@ -358,18 +368,20 @@ export function buildRetrievalDocumentOptions(
                   [checked]="workspaceScoped(n)"
                   (change)="onWorkspaceScoped($event)"
                 />
-                <span class="ck-flow-field__label">Workspace scoped</span>
+                <span class="ck-flow-field__label">{{
+                  i18n.t('flow.inspector.asset.workspace_scoped')
+                }}</span>
               </label>
 
               @if (collectionSlug(n); as slug) {
                 <a class="ck-flow-action" [routerLink]="['/knowledge', slug]">
                   <ck-glyph name="layers" [size]="12" color="currentColor" />
-                  Ouvrir la collection
+                  {{ i18n.t('flow.inspector.asset.open') }}
                 </a>
               } @else {
                 <a class="ck-flow-action" routerLink="/knowledge">
                   <ck-glyph name="layers" [size]="12" color="currentColor" />
-                  Ouvrir Knowledge
+                  {{ i18n.t('flow.inspector.asset.open_knowledge') }}
                 </a>
               }
             </section>
@@ -377,24 +389,25 @@ export function buildRetrievalDocumentOptions(
 
           @if (isRetrievalNode(n)) {
             <section class="ck-flow-section" data-testid="retrieval-scope-editor">
-              <span class="ck-flow-section__label">Retrieval scope</span>
-              <p class="ck-flow-hint">
-                This scope is owned by this Retrieval node. It does not change the
-                workspace default or another Retrieval node.
-              </p>
+              <span class="ck-flow-section__label">{{
+                i18n.t('flow.inspector.section.retrieval')
+              }}</span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.retrieval.hint') }}</p>
               @if (retrievalScopeError(); as scopeError) {
                 <p class="ck-flow-hint ck-flow-hint--error" role="alert">{{ scopeError }}</p>
               }
 
               @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
                 <label class="ck-flow-field">
-                  <span class="ck-flow-field__label">Collections</span>
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.retrieval.collections')
+                  }}</span>
                   <select
                     class="ck-flow-input ck-flow-input--multi"
                     multiple
                     size="5"
                     (change)="onRetrievalCollections($event)"
-                    aria-label="Collections used by this Retrieval node"
+                    [attr.aria-label]="i18n.t('flow.inspector.retrieval.collections.aria')"
                   >
                     @for (slug of collectionOptions(); track slug) {
                       <option [value]="slug" [selected]="retrievalCollectionSelected(n, slug)">
@@ -405,7 +418,9 @@ export function buildRetrievalDocumentOptions(
                 </label>
               } @else {
                 <label class="ck-flow-field">
-                  <span class="ck-flow-field__label">Collection slugs</span>
+                  <span class="ck-flow-field__label">{{
+                    i18n.t('flow.inspector.retrieval.slugs')
+                  }}</span>
                   <textarea
                     class="ck-flow-input ck-flow-input--area"
                     rows="2"
@@ -418,25 +433,29 @@ export function buildRetrievalDocumentOptions(
 
               @if (retrievalCollections(n).length > 0) {
                 @if (retrievalDocumentsLoading()) {
-                  <p class="ck-flow-hint">Loading documents for the selected collections…</p>
+                  <p class="ck-flow-hint">{{
+                    i18n.t('flow.inspector.retrieval.documents.loading')
+                  }}</p>
                 }
                 @if (retrievalDocumentsError()) {
                   <p class="ck-flow-hint">
-                    Some document catalogues are unavailable.
+                    {{ i18n.t('flow.inspector.retrieval.documents.error') }}
                     <button type="button" class="ck-flow-hint__btn" (click)="retryRetrievalDocuments()">
-                      Retry
+                      {{ i18n.t('flow.inspector.retrieval.documents.retry') }}
                     </button>
                   </p>
                 }
                 @if (retrievalDocumentOptions().length > 0) {
                   <label class="ck-flow-field">
-                    <span class="ck-flow-field__label">Documents</span>
+                    <span class="ck-flow-field__label">{{
+                      i18n.t('flow.inspector.retrieval.documents')
+                    }}</span>
                     <select
                       class="ck-flow-input ck-flow-input--multi"
                       multiple
                       size="7"
                       (change)="onRetrievalDocuments($event)"
-                      aria-label="Documents used by this Retrieval node"
+                      [attr.aria-label]="i18n.t('flow.inspector.retrieval.documents.aria')"
                     >
                       @for (doc of retrievalDocumentOptions(); track doc.key) {
                         <option
@@ -444,71 +463,65 @@ export function buildRetrievalDocumentOptions(
                           [selected]="retrievalDocumentSelected(n, doc.collection, doc.id)"
                         >
                           {{ doc.filename }} · {{ doc.collection }}
-                          @if (!doc.catalogued) { · stored reference }
+                          @if (!doc.catalogued) {
+                            · {{ i18n.t('flow.inspector.retrieval.documents.stored') }}
+                          }
                         </option>
                       }
                     </select>
                   </label>
                   <p class="ck-flow-hint">
-                    No document selected means all documents in the selected collections.
+                    {{ i18n.t('flow.inspector.retrieval.documents.all') }}
                     @if (retrievalDocumentsTruncated()) {
-                      More documents are available beyond the loaded pages.
+                      {{ i18n.t('flow.inspector.retrieval.documents.more') }}
                       <button
                         type="button"
                         class="ck-flow-hint__btn"
                         [disabled]="retrievalDocumentsLoading()"
                         (click)="loadMoreRetrievalDocuments()"
                       >
-                        Load next page
+                        {{ i18n.t('flow.inspector.retrieval.documents.load_more') }}
                       </button>
                     }
                   </p>
                 } @else if (!retrievalDocumentsLoading() && !retrievalDocumentsError()) {
-                  <p class="ck-flow-hint">No selectable document in this scope.</p>
+                  <p class="ck-flow-hint">{{
+                    i18n.t('flow.inspector.retrieval.documents.empty')
+                  }}</p>
                 }
               } @else {
-                <p class="ck-flow-hint">No explicit scope: runtime workspace defaults apply.</p>
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.retrieval.no_scope') }}</p>
               }
             </section>
           }
 
           @if ((n.kind ?? 'task') === 'source') {
             <section class="ck-flow-section">
-              <span class="ck-flow-section__label">Entry point</span>
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.entry') }}
+                <ck-help id="concept.entry-point" />
+              </span>
               <app-flow-ingress-editor [systemId]="systemId()" />
-            </section>
-          }
-
-          @if (declaresOutputContract(n)) {
-            <section class="ck-flow-section">
-              <span class="ck-flow-section__label">Output contract</span>
-              <app-flow-schema-editor
-                configKey="output_schema"
-                label="Published output schema"
-                [deriveFrom]="(n.kind ?? 'task') === 'sink' ? 'inputs' : 'outputs'"
-                [hint]="outputContractHint(n)"
-                [fallbackHint]="outputContractFallback(n)"
-              />
             </section>
           }
 
           @if (isTriggerSource(n)) {
             <section class="ck-flow-section">
-              <span class="ck-flow-section__label">Déclencheur (source)</span>
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.trigger') }}
+                <ck-help id="concept.trigger" />
+              </span>
               @if (isSftpTrigger(n)) {
                 <a class="ck-flow-action" routerLink="/connectors/sftp">
                   <ck-glyph name="orbit" [size]="12" color="currentColor" />
-                  Ouvrir le dépôt SFTP
+                  {{ i18n.t('flow.inspector.trigger.sftp') }}
                 </a>
               }
               @if (systemId(); as sid) {
                 <app-flow-trigger-controls [systemId]="sid" />
                 <app-flow-triggers-panel [systemId]="sid" />
               } @else {
-                <p class="ck-flow-hint">
-                  Le pilotage des déclencheurs est disponible une fois le flux enregistré
-                  dans un Système.
-                </p>
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.unavailable') }}</p>
               }
             </section>
           }
@@ -520,29 +533,87 @@ export function buildRetrievalDocumentOptions(
           <!-- Kept seam for any further inspector extensions. -->
           <ng-content select="[flowInspectorFields]" />
 
-          <section class="ck-flow-section ck-flow-danger">
-            <span class="ck-flow-section__label">Remove this node</span>
+          <!-- Folded tail: the published contract, the port shapes, the engine
+               identifiers and the deletion. Each is a native disclosure —
+               closed on arrival, one click from the same content as before. -->
+          @if (declaresOutputContract(n)) {
+            <details class="ck-flow-section ck-flow-fold">
+              <summary class="ck-flow-fold__summary">
+                {{ i18n.t('flow.inspector.section.output_contract') }}
+              </summary>
+              <ck-help id="concept.output" />
+              <app-flow-schema-editor
+                configKey="output_schema"
+                [label]="i18n.t('flow.inspector.output_contract.label')"
+                [deriveFrom]="outputContractDeriveFrom(n)"
+                [hint]="outputContractHint(n)"
+                [fallbackHint]="outputContractFallback(n)"
+              />
+            </details>
+          }
+
+          @if ((n.inputs?.length ?? 0) > 0 || (n.outputs?.length ?? 0) > 0) {
+            <details class="ck-flow-section ck-flow-fold">
+              <summary class="ck-flow-fold__summary">
+                {{ i18n.t('flow.inspector.section.ports') }}
+              </summary>
+              <div class="ck-flow-ports">
+                @for (p of n.inputs ?? []; track p.name) {
+                  <span class="ck-flow-chip ck-flow-chip--in">
+                    {{ p.name }} · {{ p.schema }}
+                  </span>
+                }
+                @for (p of n.outputs ?? []; track p.name) {
+                  <span class="ck-flow-chip ck-flow-chip--out">
+                    {{ p.name }} · {{ p.schema }}
+                  </span>
+                }
+              </div>
+            </details>
+          }
+
+          <details class="ck-flow-section ck-flow-fold">
+            <summary class="ck-flow-fold__summary">
+              {{ i18n.t('flow.inspector.section.identity') }}
+            </summary>
+            <p class="ck-flow-hint">{{ i18n.t('flow.inspector.section.identity.hint') }}</p>
+            <dl class="ck-flow-kv">
+              <dt>{{ i18n.t('flow.inspector.identity.id') }}</dt>
+              <dd class="mono">{{ n.id }}</dd>
+              <dt>{{ i18n.t('flow.inspector.identity.type') }}</dt>
+              <dd class="mono">{{ n.type }}</dd>
+              <dt>{{ i18n.t('flow.inspector.identity.kind') }}</dt>
+              <dd class="mono">{{ n.kind ?? 'task' }}</dd>
+            </dl>
+          </details>
+
+          <details class="ck-flow-section ck-flow-fold ck-flow-danger">
+            <summary class="ck-flow-fold__summary">
+              {{ i18n.t('flow.inspector.section.danger') }}
+            </summary>
             <button
               type="button"
               class="ck-flow-danger__btn"
               [disabled]="editingLocked()"
               (click)="deleteNode()"
-              aria-label="Delete node"
+              [attr.aria-label]="i18n.t('flow.inspector.danger.delete.aria')"
               aria-keyshortcuts="Delete Backspace"
-              title="Delete this node and its connections (Delete/Backspace)"
+              [title]="i18n.t('flow.inspector.danger.delete.hint')"
             >
-              Delete node
+              {{ i18n.t('flow.inspector.danger.delete') }}
             </button>
             <p class="ck-flow-hint">
-              Deletes “{{ n.label || n.id }}” and every connection attached to it.
-              The Delete or Backspace key does the same on the selected node, and
-              Ctrl/Cmd+Z brings it back.
+              {{ i18n.t('flow.inspector.danger.body', { name: n.label || n.id }) }}
             </p>
-          </section>
+          </details>
         } @else {
           <div class="ck-flow-empty">
-            <ck-glyph name="crosshair" [size]="18" color="currentColor" />
-            <p>Select a node on the canvas to inspect and edit it.</p>
+            <app-empty-state
+              icon="crosshair"
+              size="sm"
+              [title]="i18n.t('flow.inspector.empty.title')"
+              [description]="i18n.t('flow.inspector.empty.body')"
+            />
           </div>
         }
       </div>
@@ -552,6 +623,7 @@ export function buildRetrievalDocumentOptions(
 export class FlowInspectorComponent {
   private readonly store = inject(FlowStore);
   private readonly collectionsSvc = inject(FlowCollectionsService);
+  readonly i18n = inject(I18nService);
   /** Optional: present whenever the inspector renders inside the builder shell. */
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
 
@@ -675,19 +747,42 @@ export class FlowInspectorComponent {
    *  envelope produced by the adapter, and publication rejects an override. */
   declaresOutputContract(n: CanonicalFlowNode): boolean {
     const kind = n.kind ?? 'task';
-    return kind === 'task' || kind === 'sink';
+    return kind === 'task' || kind === OUTPUT_NODE_KIND;
+  }
+
+  /**
+   * Engine node kinds are API values, so the label is looked up at runtime and
+   * falls back to the raw kind for anything the dictionary does not name yet.
+   */
+  kindLabel(kind: string): string {
+    const key = `flow.node.kind.${kind}`;
+    const label = this.i18n.t(key);
+    return label === key ? kind : label;
+  }
+
+  /** An Output node publishes what it consumes; every other node, what it emits. */
+  outputContractDeriveFrom(n: CanonicalFlowNode): 'inputs' | 'outputs' {
+    return this.isOutputNode(n) ? 'inputs' : 'outputs';
+  }
+
+  private isOutputNode(n: CanonicalFlowNode): boolean {
+    return (n.kind ?? 'task') === OUTPUT_NODE_KIND;
   }
 
   outputContractHint(n: CanonicalFlowNode): string {
-    return (n.kind ?? 'task') === 'sink'
-      ? 'Validated before the Run result becomes visible.'
-      : 'Validated on every node output, so a malformed answer fails here rather than at the Decision reading it.';
+    return this.i18n.t(
+      this.isOutputNode(n)
+        ? 'flow.inspector.output_contract.hint.output'
+        : 'flow.inspector.output_contract.hint.task',
+    );
   }
 
   outputContractFallback(n: CanonicalFlowNode): string {
-    return (n.kind ?? 'task') === 'sink'
-      ? "No schema declared — publication derives one from this node's input ports and accepts any extra field."
-      : "No schema declared — publication freezes the bound Skill's catalogue schema, whatever it says at that moment.";
+    return this.i18n.t(
+      this.isOutputNode(n)
+        ? 'flow.inspector.output_contract.fallback.output'
+        : 'flow.inspector.output_contract.fallback.task',
+    );
   }
 
   description(n: { data?: Record<string, unknown> }): string {
@@ -868,7 +963,7 @@ export class FlowInspectorComponent {
     });
     if (refs.length > 1000) {
       this.retrievalScopeError?.set(
-        'Select at most 1000 documents for one Retrieval node.',
+        this.i18n.t('flow.inspector.retrieval.error.documents'),
       );
       return;
     }
@@ -905,7 +1000,7 @@ export class FlowInspectorComponent {
     )].sort();
     if (collection_slugs.length > 32) {
       this.retrievalScopeError?.set(
-        'Select at most 32 collections for one Retrieval node.',
+        this.i18n.t('flow.inspector.retrieval.error.collections'),
       );
       return;
     }

@@ -12,6 +12,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 
 interface MeetingAgendaItem {
   id?: string;
@@ -79,11 +80,11 @@ interface MeetingPayload {
   imports: [CommonModule, FormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="vp-meeting-shell" aria-label="Mode meeting live">
+    <section class="vp-meeting-shell" [attr.aria-label]="i18n.t('mission.meeting.title')">
       <header class="vp-meeting-header">
         <div class="meeting-title">
-          <span class="eyebrow">Réunion live · arbitrages</span>
-          <h1>{{ event()?.title || 'Réunion en préparation' }}</h1>
+          <span class="eyebrow">{{ i18n.t('mission.meeting.eyebrow') }}</span>
+          <h1>{{ event()?.title || i18n.t('mission.meeting.untitled') }}</h1>
           <p>
             {{ participantsLabel() }} ·
             <time>{{ scheduleLabel() }}</time>
@@ -91,29 +92,26 @@ interface MeetingPayload {
         </div>
         <div class="meeting-chrono">
           <strong>{{ chronoLabel() }}</strong>
-          <small>chrono live</small>
+          <small>{{ i18n.t('mission.meeting.chrono') }}</small>
         </div>
         <a class="ghost-link" routerLink="/hypervisor/mission-room/agenda">
-          Retour agenda
+          {{ i18n.t('mission.meeting.back_agenda') }}
         </a>
       </header>
 
       @if (loading()) {
         <div class="meeting-loading">
           <span class="dots"></span>
-          <strong>Chargement de la réunion…</strong>
+          <strong>{{ i18n.t('mission.meeting.loading') }}</strong>
         </div>
       } @else {
         <main class="meeting-main">
           @if (pendingPatch(); as pending) {
-            <aside class="pending-patch-banner" aria-label="Modification ODJ proposee par AYA">
+            <aside class="pending-patch-banner" [attr.aria-label]="i18n.t('mission.meeting.patch_aria', { name: assistantName })">
               <div class="pending-patch-copy">
-                <span class="eyebrow">Modification ODJ proposee · AYA</span>
+                <span class="eyebrow">{{ i18n.t('mission.meeting.patch_eyebrow', { name: assistantName }) }}</span>
                 <strong>{{ pendingPatchTitle(pending) }}</strong>
-                <p>
-                  {{ pending.agenda_items?.length || 0 }} point(s) en attente de validation. Validez ou
-                  rejetez avant le demarrage de la reunion.
-                </p>
+                <p>{{ i18n.t('mission.meeting.patch_hint', { count: pending.agenda_items?.length || 0 }) }}</p>
               </div>
               <div class="pending-patch-actions">
                 <button
@@ -122,7 +120,7 @@ interface MeetingPayload {
                   [disabled]="patchSubmitting()"
                   (click)="confirmPendingPatch()"
                 >
-                  Valider modification
+                  {{ i18n.t('mission.meeting.patch_accept') }}
                 </button>
                 <button
                   type="button"
@@ -130,23 +128,23 @@ interface MeetingPayload {
                   [disabled]="patchSubmitting()"
                   (click)="rejectPendingPatch()"
                 >
-                  Rejeter
+                  {{ i18n.t('mission.meeting.patch_reject') }}
                 </button>
               </div>
             </aside>
           }
 
-          <section class="agenda-propose" aria-label="Proposer un point ODJ">
+          <section class="agenda-propose" [attr.aria-label]="i18n.t('mission.meeting.propose')">
             <header>
-              <span class="eyebrow">Proposer un point ODJ</span>
-              <small>Memes effets que la voix « AYA, ajoute le point ... »</small>
+              <span class="eyebrow">{{ i18n.t('mission.meeting.propose') }}</span>
+              <small>{{ i18n.t('mission.meeting.propose_hint', { name: assistantName }) }}</small>
             </header>
             <div class="agenda-propose-row">
               <input
                 type="text"
                 [(ngModel)]="proposeAgendaTitle"
-                placeholder="Ex. Point cacao - diversification anacarde"
-                aria-label="Intitule du point a ajouter"
+                [placeholder]="i18n.t('mission.meeting.propose_placeholder')"
+                [attr.aria-label]="i18n.t('mission.meeting.propose_label')"
               />
               <button
                 type="button"
@@ -154,12 +152,12 @@ interface MeetingPayload {
                 [disabled]="!proposeAgendaTitle.trim() || patchSubmitting()"
                 (click)="proposeAgendaPatch()"
               >
-                Proposer modification
+                {{ i18n.t('mission.meeting.propose_submit') }}
               </button>
             </div>
           </section>
 
-          <ol class="agenda-list" aria-label="Ordre du jour">
+          <ol class="agenda-list" [attr.aria-label]="i18n.t('mission.meeting.agenda')">
             @for (item of agendaItems(); track item.id || item.title; let idx = $index) {
               <li
                 class="agenda-item"
@@ -171,25 +169,25 @@ interface MeetingPayload {
                   <div class="agenda-copy">
                     <strong>{{ item.title }}</strong>
                     <small>
-                      {{ item.owner_proposer || 'Cabinet' }}
+                      {{ item.owner_proposer || i18n.t('mission.meeting.cabinet') }}
                       @if (item.decision_required) {
-                        · décision requise
+                        · {{ i18n.t('mission.meeting.decision_required') }}
                       }
                     </small>
                   </div>
                   @if (decisionForItem(item); as decision) {
                     <span class="decision-badge">
-                      Option {{ optionShortLabel(decision.chosen_option) }}
+                      {{ i18n.t('mission.meeting.option') }} {{ optionShortLabel(decision.chosen_option) }}
                     </span>
                   } @else if (item.decision_required) {
-                    <span class="pending-badge">à arbitrer</span>
+                    <span class="pending-badge">{{ i18n.t('mission.meeting.to_decide') }}</span>
                   }
                 </button>
 
                 @if (activeIndex() === idx && item.decision_required) {
                   <div class="agenda-item-body">
                     <p class="agenda-item-prompt">
-                      Choisissez une option pour ce point. La décision sera loggée comme advisory dans l'historique d'arbitrage.
+                      {{ i18n.t('mission.meeting.choose_hint') }}
                     </p>
                     <div class="options-grid">
                       @for (option of itemOptions(item); track option.id) {
@@ -206,7 +204,7 @@ interface MeetingPayload {
                             <p>{{ option.summary }}</p>
                           }
                           @if (option.recommended) {
-                            <small class="reco-pill">recommandée</small>
+                            <small class="reco-pill">{{ i18n.t('mission.meeting.recommended') }}</small>
                           }
                         </button>
                       }
@@ -217,7 +215,7 @@ interface MeetingPayload {
                       [disabled]="!pendingOptionId() || submitting()"
                       (click)="openDecideModal(item)"
                     >
-                      Décider
+                      {{ i18n.t('mission.meeting.decide') }}
                     </button>
                   </div>
                 }
@@ -225,48 +223,48 @@ interface MeetingPayload {
             }
             @if (!agendaItems().length) {
               <li class="agenda-empty">
-                Aucun point d'ordre du jour structuré. Ajoutez des points depuis la vue Agenda.
+                {{ i18n.t('mission.meeting.agenda_empty') }}
               </li>
             }
           </ol>
         </main>
 
-        <footer class="meeting-footer" aria-label="Récapitulatif arbitrages">
+        <footer class="meeting-footer" [attr.aria-label]="i18n.t('mission.meeting.recap')">
           <span class="counter">
             <strong>{{ decisions().length }}</strong>
-            <small>arbitrage{{ decisions().length > 1 ? 's' : '' }} loggé{{ decisions().length > 1 ? 's' : '' }}</small>
+            <small>{{ i18n.t('mission.meeting.recorded', { count: decisions().length }) }}</small>
             <span aria-hidden="true" class="counter-sep">·</span>
             <strong>{{ remainingCount() }}</strong>
-            <small>restant{{ remainingCount() > 1 ? 's' : '' }}</small>
+            <small>{{ i18n.t('mission.meeting.remaining', { count: remainingCount() }) }}</small>
           </span>
-          <button type="button" class="ghost-link" (click)="refresh()">Rafraîchir</button>
+          <button type="button" class="ghost-link" (click)="refresh()">{{ i18n.t('common.refresh') }}</button>
         </footer>
       }
 
       @if (decideModalOpen()) {
         <div class="modal-backdrop" (click)="closeDecideModal()" aria-hidden="true"></div>
-        <aside class="decide-modal" role="dialog" aria-label="Confirmer décision">
+        <aside class="decide-modal" role="dialog" [attr.aria-label]="i18n.t('mission.meeting.confirm')">
           <header>
-            <span class="eyebrow">Confirmer décision</span>
+            <span class="eyebrow">{{ i18n.t('mission.meeting.confirm') }}</span>
             <h3>{{ pendingItem()?.title }}</h3>
           </header>
           <p class="modal-line">
-            Option choisie : <strong>{{ pendingOptionLabel() }}</strong>
+            {{ i18n.t('mission.meeting.chosen_option') }} <strong>{{ pendingOptionLabel() }}</strong>
           </p>
           <label class="modal-field">
-            <span>Justification courte (rationale)</span>
+            <span>{{ i18n.t('mission.meeting.rationale') }}</span>
             <textarea
               rows="3"
               [(ngModel)]="rationaleText"
-              placeholder="Pourquoi cette option ? Sources, contraintes, alternatives écartées…"
+              [placeholder]="i18n.t('mission.meeting.rationale_placeholder')"
             ></textarea>
           </label>
           <footer>
             <button type="button" class="action-button primary" [disabled]="submitting()" (click)="confirmDecision()">
-              Logger la décision
+              {{ i18n.t('mission.meeting.record_decision') }}
             </button>
             <button type="button" class="action-button ghost" (click)="closeDecideModal()">
-              Annuler
+              {{ i18n.t('common.cancel') }}
             </button>
           </footer>
         </aside>
@@ -803,6 +801,8 @@ interface MeetingPayload {
 export class VpMeetingComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  readonly i18n = inject(I18nService);
+  readonly assistantName = 'AYA';
 
   private readonly eventIdParam = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('event_id') || '')),
@@ -854,13 +854,13 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
 
   participantsLabel(): string {
     const list = this.event()?.participants || [];
-    if (!list.length) return 'Cabinet · participants à confirmer';
+    if (!list.length) return this.i18n.t('mission.meeting.participants_tbc');
     return list.join(', ');
   }
 
   scheduleLabel(): string {
     const event = this.event();
-    if (!event?.start_at) return 'horaire à confirmer';
+    if (!event?.start_at) return this.i18n.t('mission.meeting.schedule_tbc');
     const start = new Date(event.start_at);
     const end = event.end_at ? new Date(event.end_at) : null;
     const formatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
@@ -911,7 +911,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
     if (item.options?.length) return item.options;
     return [
       { id: 'A', label: 'Option A · statu quo', summary: 'Ne pas trancher maintenant, ré-arbitrer après collecte d\'éléments.' },
-      { id: 'B', label: 'Option B · arbitrage cabinet', summary: 'Décision cabinet avec instructions advisory et calendrier de mise en œuvre.', recommended: true },
+      { id: 'B', label: 'Option B · arbitrage cabinet', summary: 'Décision cabinet avec recommandations et calendrier de mise en œuvre.', recommended: true },
       { id: 'C', label: 'Option C · délégation', summary: 'Déléguer la décision opérationnelle au cabinet sectoriel.' },
     ];
   }
@@ -952,7 +952,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       agenda_item_ref: item.id || item.title,
       chosen_option: optionId,
       options_offered: options,
-      rationale: this.rationaleText.trim() || `Décision advisory option ${optionId}.`,
+      rationale: this.rationaleText.trim() || `Décision consultative option ${optionId}.`,
     };
     this.api
       .post<MeetingDecision>(`/meetings/${event.id}/decisions`, payload)
@@ -1026,7 +1026,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
   pendingPatchTitle(pending: PendingAgendaPatch): string {
     const items = pending.agenda_items || [];
     const first = items[0];
-    if (!first) return 'Nouvelle modification ODJ';
+    if (!first) return this.i18n.t('mission.meeting.patch_untitled');
     const more = items.length > 1 ? ` (+${items.length - 1})` : '';
     return `${first.title || 'Point sans titre'}${more}`;
   }

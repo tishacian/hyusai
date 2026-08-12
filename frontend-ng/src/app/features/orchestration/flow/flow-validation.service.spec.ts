@@ -1,7 +1,9 @@
 import '@angular/compiler';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DestroyRef, Injector } from '@angular/core';
+import { DestroyRef, Injector, signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import { Subject } from 'rxjs';
 import {
   CanonicalApiService,
@@ -73,6 +75,14 @@ function setup(initial = flow()) {
       FlowStore as never,
       FlowSerializerService,
       FlowValidationService,
+      {
+        provide: I18nService,
+        useValue: {
+          locale: signal('en'),
+          setLocale: () => undefined,
+          t: (key: string) => (FLOW_EN as Record<string, string>)[key] ?? key,
+        },
+      },
       { provide: CanonicalApiService, useValue: api },
       { provide: DestroyRef, useValue: destroyRef },
     ],

@@ -1,17 +1,22 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+
+import { I18nService } from '@app/core/i18n.service';
 
 import { TagComponent, type CkTagTone } from './tag.component';
 
 export type RuntimeStatus = 'bound' | 'stub' | 'unbound' | 'catalog_only' | string;
 
+/** The API values this badge knows how to speak about in plain words. */
+const KNOWN: readonly string[] = ['bound', 'stub', 'unbound', 'catalog_only'];
+
 /**
- * `<ck-runtime-status>` — single source of truth for the canonical
- * 4-state runtime badge used wherever skills surface in the UI:
+ * `<ck-runtime-status>` — single source of truth for the runtime badge used
+ * wherever skills surface in the UI.
  *
- *   bound        · implementation ships real results (green)
- *   stub         · degraded stand-in — returns empty/synthetic payloads (amber)
- *   unbound      · declared in registry but no wrapper attached (red)
- *   catalog_only · row exists in DB but no registry entry at all (violet)
+ * The API values (`bound`, `stub`, `unbound`, `catalog_only`) never reach the
+ * screen: the label is the plain-language wording from `skills.runtime.status.*`
+ * and the raw value stays on the `title`, per the two-register rule. An
+ * unrecognised value degrades to "Unknown" rather than leaking itself.
  */
 @Component({
   selector: 'ck-runtime-status',
@@ -25,23 +30,19 @@ export type RuntimeStatus = 'bound' | 'stub' | 'unbound' | 'catalog_only' | stri
   `,
 })
 export class RuntimeStatusBadgeComponent {
+  private readonly i18n = inject(I18nService);
+
   readonly status = input.required<RuntimeStatus | null | undefined>();
   readonly variant = input<'solid' | 'soft' | 'outline'>('soft');
 
-  readonly label = computed(() => {
-    switch (this.status()) {
-      case 'bound':
-        return 'BOUND';
-      case 'stub':
-        return 'STUB';
-      case 'unbound':
-        return 'UNBOUND';
-      case 'catalog_only':
-        return 'CATALOG';
-      default:
-        return 'UNKNOWN';
-    }
+  private readonly known = computed(() => {
+    const status = this.status();
+    return status && KNOWN.includes(status) ? status : 'unknown';
   });
+
+  readonly label = computed(() =>
+    this.i18n.t(`skills.runtime.status.${this.known()}` as never),
+  );
 
   readonly tone = computed<CkTagTone>(() => {
     switch (this.status()) {
@@ -58,18 +59,10 @@ export class RuntimeStatusBadgeComponent {
     }
   });
 
+  /** Plain explanation first, raw API value second — the support line. */
   readonly title = computed(() => {
-    switch (this.status()) {
-      case 'bound':
-        return 'Implementation ships real results.';
-      case 'stub':
-        return 'Degraded stand-in — returns empty or synthetic payloads.';
-      case 'unbound':
-        return 'Declared in the registry but no wrapper attached.';
-      case 'catalog_only':
-        return 'Declared in the catalog but not registered at runtime.';
-      default:
-        return 'Runtime status unknown.';
-    }
+    const hint = this.i18n.t(`skills.runtime.status.${this.known()}.hint` as never);
+    const raw = this.status();
+    return raw && this.known() !== 'unknown' ? `${hint} (${raw})` : hint;
   });
 }

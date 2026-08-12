@@ -27,7 +27,7 @@ import { IconComponent } from './icon.component';
           >
             <div class="flex items-center gap-3 min-w-0">
               @if (icon) {
-                <div class="w-8 h-8 rounded-md flex items-center justify-center bg-cyan-500/15 text-cyan-400">
+                <div class="w-8 h-8 rounded-md flex items-center justify-center bg-cyan-500/15 ck-accent">
                   <app-icon [name]="icon" [size]="16" />
                 </div>
               }

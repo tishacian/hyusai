@@ -44,10 +44,12 @@ import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
+import { type I18nKey } from '@app/core/i18n.dict';
 import { FlowStore } from './flow.store';
 import {
   FlowManifestService,
-  runtimeModeLabel as formatRuntimeModeLabel,
+  runtimeModeKey,
 } from './flow-manifest.service';
 import { FlowPersistenceService } from './flow-persistence.service';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
@@ -59,7 +61,7 @@ const POLL_INTERVAL_MS = 1500;
 
 export type RunInputParseResult =
   | { ok: true; value: Record<string, unknown> }
-  | { ok: false; message: string };
+  | { ok: false; messageKey: I18nKey };
 
 /** Parse the operator input without persisting or normalising it into the
  * Flow. `_debug` is service-owned and cannot be smuggled through the editor. */
@@ -68,13 +70,13 @@ export function parseRunInputRef(text: string): RunInputParseResult {
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, message: 'Enter valid JSON.' };
+    return { ok: false, messageKey: 'flow.run.input.error.json' };
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, message: 'Run input must be a JSON object.' };
+    return { ok: false, messageKey: 'flow.run.input.error.object' };
   }
   if (Object.prototype.hasOwnProperty.call(parsed, '_debug')) {
-    return { ok: false, message: '“_debug” is reserved for the debugger controls.' };
+    return { ok: false, messageKey: 'flow.run.input.error.debug_reserved' };
   }
   return { ok: true, value: parsed as Record<string, unknown> };
 }
@@ -149,6 +151,7 @@ export class FlowRunService {
   private readonly persistence = inject(FlowPersistenceService);
   private readonly manifest = inject(FlowManifestService);
   private readonly workspace = inject(WorkspaceService, { optional: true });
+  private readonly i18n = inject(I18nService);
 
   // ---- shared UI state (signals) ------------------------------------------
   /** The System this builder is bound to, or `null` on the scratchpad. */
@@ -169,7 +172,7 @@ export class FlowRunService {
   readonly selectedDraftIngressId = signal('');
   readonly inputValidationError = computed(() => {
     const parsed = parseRunInputRef(this.inputText());
-    return parsed.ok ? null : parsed.message;
+    return parsed.ok ? null : this.i18n.t(parsed.messageKey);
   });
 
   readonly debugMode = signal<DebugMode>('off');
@@ -182,10 +185,14 @@ export class FlowRunService {
       : this.manifest.runtimeMode(),
   );
   readonly runtimeModeLabel = computed(() =>
-    formatRuntimeModeLabel(this.runtimeMode()),
+    this.i18n.t(runtimeModeKey(this.runtimeMode())),
   );
   readonly executionSurfaceLabel = computed(() =>
-    this.persistence.publicationMode() ? 'Draft test-run' : 'Published run',
+    this.i18n.t(
+      this.persistence.publicationMode()
+        ? 'flow.runtime.surface.draft'
+        : 'flow.runtime.surface.published',
+    ),
   );
   readonly draftTestMode = computed(() => this.persistence.publicationMode());
   readonly draftTestIngresses = computed(() =>
@@ -198,12 +205,12 @@ export class FlowRunService {
     if (!this.draftTestMode()) return null;
     const candidates = this.draftTestIngresses();
     if (candidates.length === 0) {
-      return 'This draft has no ingress. Add a Source before starting a test-run.';
+      return this.i18n.t('flow.run.entry.none');
     }
     if (!this.selectedDraftTestIngress()) {
       return candidates.length === 1
-        ? 'Select the draft ingress before starting the test-run.'
-        : `Choose one of the ${candidates.length} draft ingresses before starting the test-run.`;
+        ? this.i18n.t('flow.run.entry.select')
+        : this.i18n.t('flow.run.entry.choose', { count: candidates.length });
     }
     return null;
   });
@@ -356,7 +363,7 @@ export class FlowRunService {
       this.push({
         tone: 'warn',
         tag: 'EXEC',
-        text: this.executionBlockReason() ?? 'A Run is already executing.',
+        text: this.executionBlockReason() ?? this.i18n.t('flow.run.log.already_running'),
       });
       return;
     }
@@ -387,7 +394,7 @@ export class FlowRunService {
   submitInputEditor(): void {
     const parsed = parseRunInputRef(this.inputText());
     if (!parsed.ok) {
-      this.dispatchError.set(parsed.message);
+      this.dispatchError.set(this.i18n.t(parsed.messageKey));
       return;
     }
     this.executeOnBackend(parsed.value);
@@ -419,7 +426,7 @@ export class FlowRunService {
   simulate(): void {
     if (this.store.nodeCount() === 0) {
       this.terminalOpen.set(true);
-      this.push({ tone: 'warn', tag: 'SIM', text: 'Add at least one node before simulating.' });
+      this.push({ tone: 'warn', tag: 'SIM', text: this.i18n.t('flow.run.log.sim_empty') });
       return;
     }
     const errors = this.blockingIssues();
@@ -432,7 +439,7 @@ export class FlowRunService {
     const order = this.serializer.topoSort(flow) ?? flow.nodes.map((n) => n.id);
     const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
     this.terminalOpen.set(true);
-    this.push({ tone: 'cyan', tag: 'SIM', text: 'Client-side simulation — no backend call.' });
+    this.push({ tone: 'cyan', tag: 'SIM', text: this.i18n.t('flow.run.log.sim_start') });
     this.push({
       tone: 'info',
       tag: 'PLAN',
@@ -445,14 +452,14 @@ export class FlowRunService {
       if (kind === 'source' || kind === 'sink') continue;
       this.push({ tone: 'info', tag: kind.toUpperCase(), text: `▷ ${node.label ?? id}` });
     }
-    this.push({ tone: 'pos', tag: 'DONE', text: 'Simulation finished (dry run).' });
+    this.push({ tone: 'pos', tag: 'DONE', text: this.i18n.t('flow.run.log.sim_done') });
   }
 
   // ---- real backend run ---------------------------------------------------
   executeOnBackend(inputRef: Record<string, unknown> = {}): void {
     const sid = this.systemId();
     if (Object.prototype.hasOwnProperty.call(inputRef, '_debug')) {
-      const message = 'Execute rejected — “_debug” is reserved for the debugger controls.';
+      const message = this.i18n.t('flow.run.log.debug_reserved');
       this.inputEditorOpen.set(true);
       this.dispatchError.set(message);
       this.terminalOpen.set(true);
@@ -472,7 +479,7 @@ export class FlowRunService {
       this.push({
         tone: 'warn',
         tag: 'EXEC',
-        text: blocked ?? 'Scratchpad cannot Execute — promote to a System first.',
+        text: blocked ?? this.i18n.t('flow.run.blocked.scratchpad'),
       });
       if (sid) this.status.set('error');
       return;
@@ -484,7 +491,7 @@ export class FlowRunService {
     if (this.draftTestMode() && !draftIngress) {
       const message =
         this.draftIngressSelectionError() ??
-        'Choose a draft ingress before starting the test-run.';
+        this.i18n.t('flow.run.entry.required');
       this.inputEditorOpen.set(true);
       this.dispatchError.set(message);
       this.terminalOpen.set(true);
@@ -502,14 +509,14 @@ export class FlowRunService {
     this.executing.set(true);
     this.dispatchError.set(null);
     this.status.set('running');
-    this.push({ tone: 'cyan', tag: 'EXEC', text: 'Dispatching run to backend…' });
+    this.push({ tone: 'cyan', tag: 'EXEC', text: this.i18n.t('flow.run.log.dispatching') });
 
     const mode = this.debugMode();
     const expectedFlowSha256 = this.persistence.savedFlowSha256();
     // The readiness gate above proves this exists. Keep the local guard so a
     // future refactor cannot emit a trigger without its concurrency token.
     if (!expectedFlowSha256) {
-      this.fail('Execute blocked — the saved Flow has no authoritative hash.');
+      this.fail(this.i18n.t('flow.run.log.no_hash'));
       return;
     }
     const canonicalInput = structuredClone(inputRef);
@@ -537,7 +544,10 @@ export class FlowRunService {
       this.push({
         tone: 'warn',
         tag: 'DEBUG',
-        text: `Debugger attached · mode=${mode} · breakpoints=${this._breakpoints().length}`,
+        text: this.i18n.t('flow.run.log.debugger_attached', {
+          mode,
+          count: this._breakpoints().length,
+        }),
       });
     }
 
@@ -545,7 +555,7 @@ export class FlowRunService {
       next: (run) => {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         if (!run) {
-          this.fail('Backend rejected the trigger request.');
+          this.fail(this.i18n.t('flow.run.log.trigger_rejected'));
           return;
         }
         this.currentRun.set(run);
@@ -555,7 +565,10 @@ export class FlowRunService {
         this.push({
           tone: 'info',
           tag: 'RUN',
-          text: `Run ${run.id.slice(0, 8)}… scheduled (status=${run.status}).`,
+          text: this.i18n.t('flow.run.log.scheduled', {
+            id: run.id.slice(0, 8),
+            status: run.status,
+          }),
         });
         this.startStreaming(run.id, scope);
       },
@@ -566,7 +579,7 @@ export class FlowRunService {
           this.staleRejectedSha256.set(expectedFlowSha256);
           if (this.persistence.publicationMode()) {
             this.persistence.markRevisionConflict(
-              'The server draft changed before the test-run was created. Reload it before continuing.',
+              this.i18n.t('flow.run.log.draft_changed'),
             );
           }
         }
@@ -588,7 +601,11 @@ export class FlowRunService {
     this.push({
       tone: action === 'accept' ? 'pos' : 'warn',
       tag: 'HITL',
-      text: `Operator ${action === 'accept' ? 'approved' : 'rejected'} the pending step.`,
+      text: this.i18n.t(
+        action === 'accept'
+          ? 'flow.run.log.approval_accepted'
+          : 'flow.run.log.approval_declined',
+      ),
     });
     const scope = this.captureWorkspaceScope();
     this.canonical.resolveRunHitl(run.id, { action }).subscribe({
@@ -596,7 +613,7 @@ export class FlowRunService {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);
         if (!updated) {
-          this.push({ tone: 'neg', tag: 'ERR', text: 'HITL resolve rejected by backend.' });
+          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.approval_rejected') });
           return;
         }
         this.currentRun.set(updated);
@@ -608,7 +625,7 @@ export class FlowRunService {
       error: () => {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);
-        this.push({ tone: 'neg', tag: 'ERR', text: 'Network error during HITL resolve.' });
+        this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.approval_network') });
       },
     });
   }
@@ -622,7 +639,7 @@ export class FlowRunService {
     this.push({
       tone: action === 'stop' ? 'neg' : 'cyan',
       tag: 'DEBUG',
-      text: `Operator → ${action}`,
+      text: this.i18n.t('flow.run.log.operator_action', { action }),
     });
     const scope = this.captureWorkspaceScope();
     this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }).subscribe({
@@ -630,7 +647,7 @@ export class FlowRunService {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.debugStepping.set(false);
         if (!updated) {
-          this.push({ tone: 'neg', tag: 'ERR', text: 'Debugger rejected by backend.' });
+          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_rejected') });
           return;
         }
         if (action === 'stop') {
@@ -653,7 +670,7 @@ export class FlowRunService {
       error: () => {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.debugStepping.set(false);
-        this.push({ tone: 'neg', tag: 'ERR', text: 'Network error during debug action.' });
+        this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_network') });
       },
     });
   }
@@ -664,7 +681,7 @@ export class FlowRunService {
     const checkpoints = (run?.checkpoints ?? []) as Array<Record<string, unknown> & { kind?: string }>;
     if (!run || checkpoints.length === 0) {
       this.terminalOpen.set(true);
-      this.push({ tone: 'info', tag: 'REPLAY', text: 'No checkpoints to replay on this run.' });
+      this.push({ tone: 'info', tag: 'REPLAY', text: this.i18n.t('flow.run.log.replay_none') });
       return;
     }
     this.terminalOpen.set(true);
@@ -673,7 +690,10 @@ export class FlowRunService {
     this.push({
       tone: 'cyan',
       tag: 'REPLAY',
-      text: `Replaying ${checkpoints.length} checkpoints from run ${run.id.slice(0, 8)}…`,
+      text: this.i18n.t('flow.run.log.replay_start', {
+        count: checkpoints.length,
+        id: run.id.slice(0, 8),
+      }),
     });
     for (const cp of checkpoints) {
       this.emitStreamEvent(
@@ -682,7 +702,7 @@ export class FlowRunService {
         this.captureWorkspaceScope(),
       );
     }
-    this.push({ tone: 'pos', tag: 'REPLAY', text: 'Replay done.' });
+    this.push({ tone: 'pos', tag: 'REPLAY', text: this.i18n.t('flow.run.log.replay_done') });
   }
 
   /** Stop all live connections. Called by the shell on destroy. */
@@ -696,106 +716,106 @@ export class FlowRunService {
     options: { ignoreDebugMode?: boolean } = {},
   ): string | null {
     const sid = this.systemId();
-    if (!sid) return 'Scratchpad cannot Execute — promote to a System first.';
+    if (!sid) return this.i18n.t('flow.run.blocked.scratchpad');
     if (!this.persistence.hydrationReady()) {
-      return 'Execute is locked until the persisted Flow is strictly hydrated.';
+      return this.i18n.t('flow.run.blocked.hydration');
     }
     const saveState = this.persistence.saveState();
     if (saveState === 'saving' || this.persistence.actionsDisabled()) {
-      return 'Execute is locked while the Flow is saving or changing version.';
+      return this.i18n.t('flow.run.blocked.saving');
     }
     if (saveState === 'error') {
-      return 'Execute is locked because the last save failed.';
+      return this.i18n.t('flow.run.blocked.save_failed');
     }
     if (this.store.dirty() || saveState === 'unsaved') {
-      return 'Save the current Flow before Execute.';
+      return this.i18n.t('flow.run.blocked.unsaved');
     }
     const savedSha = this.persistence.savedFlowSha256();
     if (!savedSha) {
-      return 'Execute is locked because the saved Flow has no authoritative hash.';
+      return this.i18n.t('flow.run.blocked.no_hash');
     }
     if (this.staleRejectedSha256() === savedSha) {
-      return 'The Flow changed on the server. Reload the authoritative Flow before Execute.';
+      return this.i18n.t('flow.run.blocked.server_changed');
     }
     const serverValidation = this.persistence.serverValidation();
     if (!serverValidation) {
       return this.persistence.serverValidationState() === 'error'
-        ? 'Execute is locked because the current Flow could not be validated by the server.'
-        : 'Execute is locked until the current Flow is validated by the server.';
+        ? this.i18n.t('flow.run.blocked.validation_failed')
+        : this.i18n.t('flow.run.blocked.validation_pending');
     }
     if (serverValidation.flow_sha256 !== savedSha) {
-      return 'Execute is locked while server validation refreshes to the saved Flow hash.';
+      return this.i18n.t('flow.run.blocked.validation_refreshing');
     }
     if (
       !serverValidation.valid ||
       serverValidation.issues.some((issue) => issue.level === 'error')
     ) {
-      return 'Execute is locked by current server validation errors.';
+      return this.i18n.t('flow.run.blocked.server_errors');
     }
     if (this.blockingIssues().length > 0) {
-      return 'Execute is locked by Flow validation errors.';
+      return this.i18n.t('flow.run.blocked.local_errors');
     }
     if (
       !options.ignoreDebugMode &&
       this.debugMode() === 'breakpoints' &&
       this._breakpoints().length === 0
     ) {
-      return 'Breakpoint debugging requires at least one selected node.';
+      return this.i18n.t('flow.run.blocked.breakpoints');
     }
 
     if (this.persistence.publicationMode()) {
       if (this.persistence.draftRevision() === null) {
-        return 'Execute is locked because the server draft revision is missing.';
+        return this.i18n.t('flow.run.blocked.revision_missing');
       }
       const runtimeMode = this.runtimeMode();
       if (!runtimeMode) {
-        return 'Execute is locked because the draft runtime mode is unknown.';
+        return this.i18n.t('flow.run.blocked.draft_mode_unknown');
       }
       if (
         !options.ignoreDebugMode &&
         this.debugMode() !== 'off' &&
         runtimeMode === 'sequential_legacy'
       ) {
-        return 'Debug is unavailable for LEGACY · SEQUENTIAL execution.';
+        return this.i18n.t('flow.run.debug.unavailable.sequential');
       }
       return null;
     }
 
     const manifest = this.manifest.manifest();
     if (!manifest || manifest.system_id !== sid) {
-      return 'Execute is locked until the runtime contract is loaded for this System.';
+      return this.i18n.t('flow.run.blocked.contract_loading');
     }
     if (!manifest.flow_sha256) {
-      return 'Execute is locked because the runtime contract has no Flow hash.';
+      return this.i18n.t('flow.run.blocked.contract_no_hash');
     }
     if (manifest.flow_sha256 !== savedSha) {
-      return 'Execute is locked while the runtime contract refreshes to the saved Flow.';
+      return this.i18n.t('flow.run.blocked.contract_refreshing');
     }
     const runtimeMode = this.runtimeMode();
     if (!runtimeMode) {
-      return 'Execute is locked because the server runtime mode is unknown.';
+      return this.i18n.t('flow.run.blocked.server_mode_unknown');
     }
     if (!options.ignoreDebugMode && this.debugMode() !== 'off' && runtimeMode === 'sequential_legacy') {
-      return 'Debug is unavailable for LEGACY · SEQUENTIAL execution.';
+      return this.i18n.t('flow.run.debug.unavailable.sequential');
     }
     return null;
   }
 
   private triggerErrorMessage(error: unknown): string {
     if (!(error instanceof HttpErrorResponse)) {
-      return 'Network error while triggering run.';
+      return this.i18n.t('flow.run.error.network');
     }
     switch (error.status) {
       case 403:
-        return 'Execute denied — you do not have permission to run this System.';
+        return this.i18n.t('flow.run.error.denied');
       case 409:
-        return 'Execute rejected — the saved Flow changed. Reload before retrying.';
+        return this.i18n.t('flow.run.error.flow_changed');
       case 422:
-        return 'Execute rejected — the Run input or debug configuration is invalid.';
+        return this.i18n.t('flow.run.error.invalid_input');
       default:
         return error.status > 0
-          ? `Execute rejected by the backend (HTTP ${error.status}).`
-          : 'Network error while triggering run.';
+          ? this.i18n.t('flow.run.error.http', { status: error.status })
+          : this.i18n.t('flow.run.error.network');
     }
   }
 
@@ -811,7 +831,7 @@ export class FlowRunService {
     this.push({
       tone: 'neg',
       tag,
-      text: `Blocked — ${issues.length} validation error(s). Fix before running:`,
+      text: this.i18n.t('flow.run.log.validation_blocked', { count: issues.length }),
     });
     for (const issue of issues) {
       this.push({ tone: 'neg', tag: 'ERR', text: issue.message });
@@ -839,10 +859,10 @@ export class FlowRunService {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         if (!this.streamFellBackToPoll) {
           this.streamFellBackToPoll = true;
-          this.push({ tone: 'warn', tag: 'STREAM', text: 'Live stream interrupted — falling back to polling.' });
+          this.push({ tone: 'warn', tag: 'STREAM', text: this.i18n.t('flow.run.log.stream_interrupted') });
           this.startPolling(runId, scope);
         } else {
-          this.fail('Lost connection to the backend (stream + poll).');
+          this.fail(this.i18n.t('flow.run.log.connection_lost'));
         }
       },
       complete: () => {
@@ -889,7 +909,7 @@ export class FlowRunService {
           if (!this.isWorkspaceScopeCurrent(scope)) return;
           this.executing.set(false);
           this.stopPolling();
-          this.push({ tone: 'neg', tag: 'ERR', text: 'Lost connection while polling run.' });
+          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.poll_lost') });
         },
       });
   }
@@ -929,7 +949,11 @@ export class FlowRunService {
       this.push({
         tone: 'neg',
         tag: 'RESULT',
-        text: `Run failed${run.error ? ` · ${String(run.error).slice(0, 160)}` : ''}`,
+        text: run.error
+          ? this.i18n.t('flow.run.log.failed_detail', {
+            detail: String(run.error).slice(0, 160),
+          })
+          : this.i18n.t('flow.run.log.failed'),
       });
       return;
     }
@@ -942,7 +966,7 @@ export class FlowRunService {
     } else if (Object.keys(output).length > 0) {
       this.push({ tone: 'pos', tag: 'RESULT', text: JSON.stringify(output).slice(0, 600) });
     } else {
-      this.push({ tone: 'info', tag: 'RESULT', text: 'Run completed with no output payload.' });
+      this.push({ tone: 'info', tag: 'RESULT', text: this.i18n.t('flow.run.log.no_output') });
     }
     const citations = Array.isArray(output['citations']) ? (output['citations'] as unknown[]) : [];
     if (citations.length > 0) {
@@ -1007,7 +1031,7 @@ export class FlowRunService {
 
     switch (event.event) {
       case 'run_start':
-        this.push({ tone: 'info', tag: 'START', text: 'Walker booted — executing DAG.' });
+        this.push({ tone: 'info', tag: 'START', text: this.i18n.t('flow.run.log.walker_booted') });
         break;
       case 'node_start': {
         if (data.node_id) this.activeNodeId.set(data.node_id);
@@ -1039,14 +1063,20 @@ export class FlowRunService {
         const branch = data.chosen_branch ? ` → ${data.chosen_branch}` : '';
         const text =
           resolution === 'matched'
-            ? `Decision ${data.node_id ?? ''} · matched${branch}`
+            ? this.i18n.t('flow.run.log.decision_matched', { node: data.node_id ?? '', branch })
             : resolution === 'defaulted'
-              ? `Decision ${data.node_id ?? ''} · default${branch}`
+              ? this.i18n.t('flow.run.log.decision_default', {
+                node: data.node_id ?? '',
+                branch,
+              })
               : resolution === 'no_match'
-                ? `Decision ${data.node_id ?? ''} · no matching branch`
+                ? this.i18n.t('flow.run.log.decision_no_match', { node: data.node_id ?? '' })
                 : resolution === 'unroutable'
-                  ? `Decision ${data.node_id ?? ''} · unroutable${branch}`
-                  : `Decision ${data.node_id ?? ''} · evaluation error`;
+                  ? this.i18n.t('flow.run.log.decision_unroutable', {
+                    node: data.node_id ?? '',
+                    branch,
+                  })
+                  : this.i18n.t('flow.run.log.decision_error', { node: data.node_id ?? '' });
         this.push({
           tone:
             resolution === 'matched' || resolution === 'defaulted'
@@ -1097,7 +1127,7 @@ export class FlowRunService {
         this.push({
           tone: data.status === 'completed' ? 'pos' : 'neg',
           tag: 'END',
-          text: `Run finished · status=${data.status ?? 'unknown'}`,
+          text: this.i18n.t('flow.run.log.finished', { status: data.status ?? 'unknown' }),
         });
         this.status.set(data.status === 'completed' ? 'done' : 'error');
         this.activeNodeId.set(null);

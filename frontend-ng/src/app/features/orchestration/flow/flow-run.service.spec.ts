@@ -41,11 +41,13 @@ import {
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import { FlowStore } from './flow.store';
 import {
   FlowManifestService,
   manifestRuntimeMode,
-  runtimeModeLabel,
+  runtimeModeKey,
 } from './flow-manifest.service';
 import { FlowPersistenceService } from './flow-persistence.service';
 import {
@@ -172,7 +174,7 @@ class ManifestStub {
     runtime_mode: 'dag_strict',
   });
   readonly runtimeMode = signal<FlowExecutionRuntimeMode | null>('dag_strict');
-  readonly runtimeModeLabel = signal('STRICT DAG');
+  readonly runtimeModeLabel = signal('flow.runtime.mode.dag_strict');
 }
 
 class WorkspaceStub {
@@ -240,6 +242,23 @@ function makeHarness(workspace?: WorkspaceStub): Harness {
       { provide: RunStreamService, useValue: stream },
       { provide: FlowPersistenceService, useValue: persistence },
       { provide: FlowManifestService, useValue: manifest },
+      {
+        provide: I18nService,
+        useValue: {
+          locale: signal('en'),
+          setLocale: () => undefined,
+          // Resolve the real EN copy so the log assertions below keep reading
+          // the words an operator sees rather than the key that carries them.
+          t: (key: string, params?: Record<string, string | number>) => {
+            const value = (FLOW_EN as Record<string, string>)[key] ?? key;
+            return params
+              ? value.replace(/\{(\w+)\}/g, (match, name: string) =>
+                  name in params ? String(params[name]) : match,
+                )
+              : value;
+          },
+        },
+      },
       ...(workspace ? [{ provide: WorkspaceService, useValue: workspace }] : []),
     ],
   });
@@ -371,7 +390,7 @@ test('publication Builder executes the saved server draft, never the published R
       },
     },
   ]);
-  assert.equal(svc.executionSurfaceLabel(), 'Draft test-run');
+  assert.equal(svc.executionSurfaceLabel(), FLOW_EN['flow.runtime.surface.draft']);
 });
 
 test('multiple draft ingresses stay ambiguous until the operator chooses one', () => {
@@ -642,7 +661,7 @@ test('gating: scratchpad (no systemId) cannot Execute', () => {
   svc.executeOnBackend();
   assert.equal(api.triggerRunCalls, 0);
   assert.equal(svc.status(), 'idle', 'status untouched on the scratchpad');
-  assert.ok(svc.log().some((e) => e.text.includes('Scratchpad')));
+  assert.ok(svc.log().some((e) => e.text.includes('scratchpad')));
 });
 
 test('input editor accepts only JSON objects and reserves _debug', () => {
@@ -655,7 +674,7 @@ test('input editor accepts only JSON objects and reserves _debug', () => {
   assert.equal(parseRunInputRef('null').ok, false);
   const reserved = parseRunInputRef('{"_debug":{"mode":"step"}}');
   assert.equal(reserved.ok, false);
-  if (!reserved.ok) assert.match(reserved.message, /reserved/);
+  if (!reserved.ok) assert.equal(reserved.messageKey, 'flow.run.input.error.debug_reserved');
 });
 
 test('service-owned debug metadata cannot be injected through a direct Execute call', () => {
@@ -684,9 +703,10 @@ test('runtime badge accepts the three server modes and only falls back when cano
     runtime_mode: 'historical_unknown',
     execution_mode: 'dag_strict',
   }), null, 'an invalid canonical field cannot be masked by the fallback');
-  assert.equal(runtimeModeLabel('dag_strict'), 'STRICT DAG');
-  assert.equal(runtimeModeLabel('dag_overlay'), 'DAG · OVERLAY COMPAT');
-  assert.equal(runtimeModeLabel('sequential_legacy'), 'LEGACY · SEQUENTIAL');
+  assert.equal(runtimeModeKey('dag_strict'), 'flow.runtime.mode.dag_strict');
+  assert.equal(runtimeModeKey('dag_overlay'), 'flow.runtime.mode.dag_overlay');
+  assert.equal(runtimeModeKey('sequential_legacy'), 'flow.runtime.mode.sequential_legacy');
+  assert.equal(runtimeModeKey(null), 'flow.runtime.mode.unknown');
 });
 
 test('gating: dirty, saving, save error, missing hash and stale manifest all fail closed', () => {
@@ -759,7 +779,7 @@ test('debug is blocked in sequential legacy while normal Execute stays available
   store.load(validFlow());
   svc.bindSystem('sys-1');
   manifest.runtimeMode.set('sequential_legacy');
-  manifest.runtimeModeLabel.set('LEGACY · SEQUENTIAL');
+  manifest.runtimeModeLabel.set('flow.runtime.mode.sequential_legacy');
   manifest.manifest.set({
     system_id: 'sys-1',
     system_name: 'System 1',
@@ -771,7 +791,10 @@ test('debug is blocked in sequential legacy while normal Execute stays available
   assert.equal(svc.canDebug(), false);
   svc.debugMode.set('step');
   assert.equal(svc.canExecute(), false);
-  assert.match(svc.executionBlockReason() ?? '', /Debug is unavailable/);
+  assert.equal(
+    svc.executionBlockReason(),
+    FLOW_EN['flow.run.debug.unavailable.sequential'],
+  );
   svc.executeOnBackend();
   assert.equal(api.triggerRunCalls, 0);
 });

@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import type { VpAyaRecommendation, VpDirectiveOfDay } from './vp-cockpit.types';
 
@@ -9,13 +10,18 @@ import type { VpAyaRecommendation, VpDirectiveOfDay } from './vp-cockpit.types';
   imports: [CommonModule, GlyphComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <article class="aya-banner" aria-label="Directive AYA">
+    <article
+      class="aya-banner"
+      [attr.aria-label]="i18n.t('mission.assistant.directive', { name: assistantName })"
+    >
       <span class="assistant-orb" aria-hidden="true">
         <span class="assistant-orb-halo"></span>
         <span class="assistant-orb-letter">{{ assistantName.slice(0, 1) }}</span>
       </span>
       <div class="copy">
-        <span class="eyebrow">{{ assistantName }} · Directive du jour</span>
+        <span class="eyebrow">{{
+          i18n.t('mission.assistant.directive_of_day', { name: assistantName })
+        }}</span>
         <h2>{{ directive.text }}</h2>
         @if (recommendation?.answer || directive.window || directive.deadline) {
           <p>{{ recommendation?.answer || directive.window || directive.deadline }}</p>
@@ -24,15 +30,17 @@ import type { VpAyaRecommendation, VpDirectiveOfDay } from './vp-cockpit.types';
       <div class="actions">
         <button type="button" class="action-button primary" (click)="voiceRequest.emit(recommendation?.prompt)">
           <ck-glyph name="bolt" [size]="14" />
-          <span>{{ recommendation?.cta_primary || 'Parler à ' + assistantName }}</span>
+          <span>{{
+            recommendation?.cta_primary || i18n.t('mission.assistant.talk_to', { name: assistantName })
+          }}</span>
         </button>
         <button type="button" class="action-button compact" (click)="briefingRequest.emit()">
           <ck-glyph name="ledger" [size]="14" />
-          <span>{{ directive.primary_cta || 'Comparer les options' }}</span>
+          <span>{{ directive.primary_cta || i18n.t('mission.assistant.compare_options') }}</span>
         </button>
         <button type="button" class="action-button ghost" (click)="voiceListen.emit()">
           <ck-glyph name="pulse" [size]="14" />
-          <span>{{ directive.voice_cta || 'Écouter le briefing' }}</span>
+          <span>{{ directive.voice_cta || i18n.t('mission.assistant.listen_briefing') }}</span>
         </button>
       </div>
     </article>
@@ -176,6 +184,8 @@ import type { VpAyaRecommendation, VpDirectiveOfDay } from './vp-cockpit.types';
   ],
 })
 export class VpAyaPriorityBannerComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() assistantName = 'AYA';
   @Input() directive: VpDirectiveOfDay = { text: '' };
   @Input() recommendation: VpAyaRecommendation | null = null;

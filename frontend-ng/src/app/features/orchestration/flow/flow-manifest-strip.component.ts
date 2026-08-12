@@ -20,6 +20,7 @@ import {
   inject,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { FlowManifestService } from './flow-manifest.service';
 import { manifestToStripVm } from './flow-manifest-strip.vm';
 
@@ -32,9 +33,9 @@ import { manifestToStripVm } from './flow-manifest-strip.vm';
   template: `
     @if (bound()) {
       @if (vm(); as v) {
-        <div class="ck-manifest" role="status" aria-label="Runtime manifest summary">
+        <div class="ck-manifest" role="status" [attr.aria-label]="i18n.t('flow.manifest.aria')">
           <span class="ck-manifest__eyebrow">
-            <app-icon name="cpu" [size]="12" /> Runtime manifest
+            <app-icon name="cpu" [size]="12" /> {{ i18n.t('flow.manifest.title') }}
           </span>
           <span class="ck-manifest__name" [title]="v.systemName">{{ v.systemName }}</span>
           <span class="ck-manifest__sep" aria-hidden="true"></span>
@@ -48,9 +49,9 @@ import { manifestToStripVm } from './flow-manifest-strip.vm';
       } @else {
         <div class="ck-manifest ck-manifest--muted" role="status">
           <span class="ck-manifest__eyebrow">
-            <app-icon name="cpu" [size]="12" /> Runtime manifest
+            <app-icon name="cpu" [size]="12" /> {{ i18n.t('flow.manifest.title') }}
           </span>
-          <span class="ck-manifest__hint">Loading…</span>
+          <span class="ck-manifest__hint">{{ i18n.t('flow.manifest.loading') }}</span>
         </div>
       }
     }
@@ -58,10 +59,13 @@ import { manifestToStripVm } from './flow-manifest-strip.vm';
 })
 export class FlowManifestStripComponent {
   private readonly manifest = inject(FlowManifestService);
+  readonly i18n = inject(I18nService);
 
   /** Per-System surface — hidden on the scratchpad (no systemId loaded). */
   protected readonly bound = computed(() => this.manifest.systemId() !== null);
 
   /** Reactively re-derives whenever the manifest signal changes (e.g. reload). */
-  protected readonly vm = computed(() => manifestToStripVm(this.manifest.manifest()));
+  protected readonly vm = computed(() =>
+    manifestToStripVm(this.manifest.manifest(), (key, params) => this.i18n.t(key, params)),
+  );
 }

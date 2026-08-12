@@ -51,17 +51,15 @@ export class TagComponent {
   }
 
   private get rgba(): string {
-    // Tone-biased washes keep a consistent hint of the signal color
-    // on both themes. The saturated signal rgbas work on light because
-    // alpha is < 15 % — they read as faint colored tints on paper.
-    // Neutral uses the theme-aware --ck-tint-faint token so the pill
-    // remains visible against warm paper backgrounds.
+    // Tone-biased washes. Each one is a status trio's `-bg`, so the tint is
+    // re-mixed from the light palette on paper instead of staying a dark-theme
+    // literal. Violet has no status meaning and keeps its own wash.
     switch (this.tone) {
-      case 'pos':    return 'rgba(52,211,153,0.12)';
-      case 'neg':    return 'rgba(239,90,111,0.14)';
-      case 'cool':   return 'rgba(125,211,252,0.12)';
+      case 'pos':    return 'var(--ck-status-ok-bg)';
+      case 'neg':    return 'var(--ck-status-neg-bg)';
+      case 'cool':   return 'var(--ck-status-info-bg)';
       case 'violet': return 'rgba(167,139,250,0.14)';
-      case 'warn':   return 'rgba(245,184,74,0.12)';
+      case 'warn':   return 'var(--ck-status-warn-bg)';
       case 'neutral':
       default:       return 'var(--ck-tint-faint)';
     }

@@ -1089,7 +1089,7 @@ interface ProposalFact {
                     <div class="min-w-0">
                       <div class="text-xs font-semibold text-gray-200 truncate">{{ ctx.name }}</div>
                       <div class="mt-1 text-[11px] text-gray-500 font-mono truncate">
-                        {{ ctx.environment_state?.collection || ctx.data_refs?.[0] || 'Sources par défaut du workspace' }}
+                        {{ ctx.environment_state?.collection || ctx.data_refs?.[0] || i18n.t('capture.prep.workspace_default_sources') }}
                       </div>
                     </div>
                     @if (newContextId() === ctx.id) {
@@ -1104,9 +1104,9 @@ interface ProposalFact {
               <div class="mt-4 rounded border border-brand-400/20 bg-brand-500/5 p-4 space-y-3">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Créer depuis une collection</p>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.prep.create_from_collection') }}</p>
                     <p class="mt-1 text-xs text-gray-400">
-                      Rattachez une collection documentaire à la capture sans quitter la préparation.
+                      {{ i18n.t('capture.prep.create_from_collection_hint') }}
                     </p>
                   </div>
                   @if (loadingKnowledgeCollections()) {
@@ -1141,7 +1141,7 @@ interface ProposalFact {
 
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <p class="text-[11px] text-gray-500">
-                    Ce contexte servira à retrouver les documents utiles pendant la capture.
+                    {{ i18n.t('capture.prep.context_hint') }}
                   </p>
                   <button
                     type="button"
@@ -1150,7 +1150,7 @@ interface ProposalFact {
                     (click)="createContextFromCollection()"
                   >
                     <app-icon name="plus" [size]="14" />
-                    {{ creatingContext() ? 'Création...' : 'Créer le contexte' }}
+                    {{ creatingContext() ? i18n.t('capture.prep.creating_context') : i18n.t('capture.prep.create_context') }}
                   </button>
                 </div>
 
@@ -1510,7 +1510,7 @@ interface ProposalFact {
                 (click)="toggleArchivedSessions()"
               >
                 <app-icon name="archive" [size]="12" />
-                {{ showArchivedSessions() ? 'Masquer les sessions archivées' : 'Afficher les sessions archivées' }}
+                {{ showArchivedSessions() ? i18n.t('capture.dashboard.hide_archived') : i18n.t('capture.dashboard.show_archived') }}
               </button>
             </div>
             <div class="space-y-2">
@@ -1537,7 +1537,7 @@ interface ProposalFact {
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
                       @if (row.archived) {
-                        <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-500 ring-1 ring-white/10">Archivée</span>
+                        <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-500 ring-1 ring-white/10">{{ i18n.t('capture.dashboard.archived') }}</span>
                       } @else {
                         <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
                       }
@@ -1546,7 +1546,7 @@ interface ProposalFact {
                           <button
                             type="button"
                             class="p-1.5 rounded text-gray-500 hover:text-brand-200 hover:bg-white/5"
-                            title="Désarchiver la session"
+                            [title]="i18n.t('capture.dashboard.unarchive')"
                             [disabled]="sessionActionLoading() === row.id"
                             (click)="unarchiveSession(row, $event)"
                           >
@@ -1577,7 +1577,7 @@ interface ProposalFact {
                   </div>
                   @if (confirmDeleteSessionId() === row.id) {
                     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs">
-                      <span class="text-red-200">Supprimer définitivement cette session (transcript et rapports inclus) ?</span>
+                      <span class="text-red-200">{{ i18n.t('capture.dashboard.confirm_delete') }}</span>
                       <span class="flex gap-2">
                         <button
                           type="button"
@@ -1618,7 +1618,7 @@ interface ProposalFact {
             </div>
             @if (!isDemoMode() && dashboardQualityBacklog().length) {
               <section class="rounded border border-amber-500/25 bg-amber-500/5 p-4 space-y-2">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Points à clarifier</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">{{ i18n.t('capture.quality.points') }}</p>
                 @for (row of dashboardQualityBacklog(); track row.sessionId + (row.item.id || row.item.label)) {
                   <article class="text-sm text-gray-200 flex flex-wrap items-center justify-between gap-2">
                     <span class="min-w-0 truncate">{{ row.sessionTitle }} · {{ row.item.label || row.item.follow_up }}</span>
@@ -1638,7 +1638,7 @@ interface ProposalFact {
           @if (!isDemoMode()) {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Rapports à relire</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.dashboard.reports_to_review') }}</p>
               <h2 class="text-lg font-semibold text-white">File de revue</h2>
             </div>
             <div class="space-y-2">
@@ -1656,7 +1656,7 @@ interface ProposalFact {
                   </div>
                   @if (showAdvancedSetup()) {
                   <div class="mt-2 text-xs text-gray-500">
-                    {{ row.proposal?.captured_facts?.length || 0 }} faits · {{ row.proposal?.audit?.event_count || 0 }} événements d’audit
+                    {{ i18n.t('capture.dashboard.facts_audit', { facts: row.proposal?.captured_facts?.length || 0, events: row.proposal?.audit?.event_count || 0 }) }}
                   </div>
                   }
                 </button>
@@ -1725,7 +1725,7 @@ interface ProposalFact {
               <section class="t-card rounded-lg border border-amber-400/30 bg-amber-500/10 p-5 space-y-4">
                 <div>
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Fin de session</p>
-                  <h3 class="text-lg font-semibold text-white mt-1">Durée planifiée atteinte</h3>
+                  <h3 class="text-lg font-semibold text-white mt-1">{{ i18n.t('capture.session.planned_duration_reached') }}</h3>
                   <p class="text-sm text-gray-300 mt-1">
                     Continuez vers le rapport, prolongez de 15 minutes ou replanifiez une session — sans interruption vocale.
                   </p>
@@ -1785,7 +1785,7 @@ interface ProposalFact {
                   </div>
                   @if (!isFreeConversationSession(s)) {
                     <p class="mt-1 text-[11px] leading-relaxed text-gray-500">
-                      Simple repère : parlez librement, dans l’ordre que vous voulez. Rien ne vous oblige à suivre ce plan.
+                      {{ i18n.t('capture.session.plan_is_a_guide') }}
                     </p>
                   }
                 </div>
@@ -1793,7 +1793,7 @@ interface ProposalFact {
                 @if (!isDemoMode()) {
                 <div class="grid grid-cols-2 gap-2 text-xs shrink-0">
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.session.state') }}</span>
                     <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -1811,23 +1811,23 @@ interface ProposalFact {
                   <div class="flex items-center justify-between gap-2">
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions IA</p>
                     <span class="text-[10px] text-gray-600">
-                      {{ oracleQuestionsMuted() ? 'masquées' : activeOracleQuestions().length }}
+                      {{ oracleQuestionsMuted() ? i18n.t('capture.oracle.muted') : activeOracleQuestions().length }}
                     </span>
                   </div>
                   @if (oracleQuestionsMuted()) {
                     <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
-                      Les questions IA sont masquées pour cette session.
+                      {{ i18n.t('capture.oracle.muted_hint') }}
                     </p>
                     <button
                       type="button"
                       class="mt-2 text-[10px] text-gray-400 hover:text-gray-200"
                       (click)="unmuteOracleQuestions()"
                     >
-                      Réactiver
+                      {{ i18n.t('capture.oracle.unmute') }}
                     </button>
                   } @else {
                     <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
-                      Questions utiles à clarifier pendant ou après l’échange.
+                      {{ i18n.t('capture.oracle.hint') }}
                     </p>
                     @if (activeOracleQuestions().length) {
                       <button
@@ -1856,14 +1856,14 @@ interface ProposalFact {
                             }
                           </div>
                           <div class="mt-2 flex flex-wrap gap-2 pl-3.5">
-                            <button type="button" class="text-[10px] text-brand-200 hover:text-brand-100" (click)="answerOracleQuestion(q)">Répondre</button>
-                            <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="dismissOracleQuestion(q)">Fermer</button>
+                            <button type="button" class="text-[10px] text-brand-200 hover:text-brand-100" (click)="answerOracleQuestion(q)">{{ i18n.t('capture.oracle.answer') }}</button>
+                            <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="dismissOracleQuestion(q)">{{ i18n.t('common.close') }}</button>
                             <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="deferOracleQuestion(q)">Plus tard</button>
                           </div>
                         </div>
                       } @empty {
                         <p class="text-[11px] text-gray-600">
-                          Les questions IA apparaîtront ici au fil de l’échange.
+                          {{ i18n.t('capture.oracle.empty') }}
                         </p>
                       }
                     }
@@ -1918,7 +1918,7 @@ interface ProposalFact {
                       </div>
                     } @empty {
                       <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-                        Aucun sujet structuré. La pile de relances reste disponible dans la colonne centrale.
+                        {{ i18n.t('capture.session.no_structured_topic') }}
                       </div>
                     }
                   </div>
@@ -1928,7 +1928,7 @@ interface ProposalFact {
                 @if (!isDemoMode() && showAdvancedSetup()) {
                   <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                     <div class="flex items-center justify-between gap-2">
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.retrieval.title') }}</p>
                       @if (retrieval().latency_ms !== undefined) {
                         <span class="text-[10px] text-gray-600">{{ retrieval().latency_ms }} ms</span>
                       }
@@ -1943,7 +1943,7 @@ interface ProposalFact {
                                 <button
                                   type="button"
                                   class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
-                                  title="Prévisualiser la source"
+                                  [title]="i18n.t('capture.retrieval.preview_source')"
                                   (click)="previewRetrievalChunk(ci)"
                                 >
                                   <app-icon name="eye" [size]="12" />
@@ -1958,7 +1958,7 @@ interface ProposalFact {
                       </div>
                     } @else {
                       <p class="mt-2 text-[11px] text-gray-600 leading-relaxed">
-                        Les passages utiles s’affichent ici dès que l’échange devient assez précis. L’IA ne vous attend pas.
+                        {{ i18n.t('capture.retrieval.empty_exchange') }}
                       </p>
                     }
                   </section>
@@ -1981,7 +1981,7 @@ interface ProposalFact {
                         Position
                       </span>
                       <p class="truncate text-sm text-gray-100" [title]="captureBreadcrumb(s) || ''">
-                        {{ captureBreadcrumb(s) || 'Parlez librement : le plan reste visible à gauche.' }}
+                        {{ captureBreadcrumb(s) || i18n.t('capture.session.speak_freely') }}
                       </p>
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
@@ -2038,7 +2038,7 @@ interface ProposalFact {
                           {{ isDemoMode() ? 'Prochaines questions' : 'Pile de relances' }}
                         </p>
                         <h3 class="text-sm font-semibold text-white">
-                          {{ isDemoMode() ? 'À aborder pendant l’échange' : 'Questions disponibles hors navigation' }}
+                          {{ isDemoMode() ? i18n.t('capture.questions.to_cover') : i18n.t('capture.questions.available') }}
                         </h3>
                       </div>
                       @if (!isDemoMode()) {
@@ -2065,17 +2065,17 @@ interface ProposalFact {
                             </span>
                           </div>
                           <p class="mt-2 text-sm text-gray-100 leading-snug line-clamp-2">{{ questionText(q) }}</p>
-                          <p class="mt-2 text-[10px] text-gray-500">{{ q.path_label || 'Relance guidée' }}</p>
+                          <p class="mt-2 text-[10px] text-gray-500">{{ q.path_label || i18n.t('capture.questions.guided_prompt') }}</p>
                         </button>
                       } @empty {
                         <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400 md:col-span-2">
-                          Les questions générées apparaîtront ici dès que la banque de relances est prête.
+                          {{ i18n.t('capture.questions.empty') }}
                         </div>
                       }
                     </div>
                     @if (topHint(); as hint) {
                       <div class="mt-3 rounded border border-brand-400/20 bg-brand-500/10 p-3">
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">À préciser si pertinent</p>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">{{ i18n.t('capture.questions.clarify_if_relevant') }}</p>
                         <p class="mt-2 text-sm text-gray-100 leading-snug">{{ hint.hint || hint.full_question }}</p>
                       </div>
                     }
@@ -2086,7 +2086,7 @@ interface ProposalFact {
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">
-                        {{ isDemoMode() ? 'Échange avec l’expert' : 'Échange capturé' }}
+                        {{ isDemoMode() ? i18n.t('capture.transcript.with_expert') : i18n.t('capture.transcript.captured') }}
                       </p>
                       <h3 class="text-xs font-medium text-gray-200">{{ voiceStateLabel() }}</h3>
                     </div>
@@ -2115,7 +2115,7 @@ interface ProposalFact {
                           }
                         } @empty {
                           <div class="flex h-full flex-col items-center justify-center text-center">
-                            <p class="text-sm text-gray-400">La transcription de l’échange apparaîtra ici.</p>
+                            <p class="text-sm text-gray-400">{{ i18n.t('capture.transcript.empty') }}</p>
                             <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
                           </div>
                         }
@@ -2126,7 +2126,7 @@ interface ProposalFact {
                           class="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-brand-500/90 hover:bg-brand-400 px-3 py-1.5 text-xs font-medium text-white shadow-lg"
                           (click)="jumpToLatestTranscript()"
                         >
-                          <app-icon name="arrow-down" [size]="12" /> Dernier échange
+                          <app-icon name="arrow-down" [size]="12" /> {{ i18n.t('capture.transcript.latest') }}
                         </button>
                       }
                     </div>
@@ -2139,7 +2139,7 @@ interface ProposalFact {
                         <span class="text-[10px] text-gray-500">{{ currentQuestion()?.estimated_minutes || 3 }} min</span>
                       </div>
                       <p class="mt-2 text-sm text-gray-100 leading-relaxed">
-                        {{ currentPromptText() || 'La prochaine relance apparaîtra ici.' }}
+                        {{ currentPromptText() || i18n.t('capture.questions.next_prompt_here') }}
                       </p>
                     </article>
                     @for (event of textEvents().slice(-5); track event.id) {
@@ -2172,13 +2172,13 @@ interface ProposalFact {
                       </article>
                     } @empty {
                       <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                        <p class="text-sm text-gray-400">Aucune réponse expert capturée pour l’instant.</p>
+                        <p class="text-sm text-gray-400">{{ i18n.t('capture.transcript.no_expert_answer') }}</p>
                         <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
                       </div>
                     }
                     @if (answer.trim()) {
                       <article class="rounded border border-emerald-400/20 bg-emerald-500/10 p-4">
-                        <span class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">Réponse en brouillon</span>
+                        <span class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">{{ i18n.t('capture.answer.draft') }}</span>
                         <p class="mt-2 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ answer }}</p>
                       </article>
                     }
@@ -2191,10 +2191,10 @@ interface ProposalFact {
                           <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Documents de capture</p>
                           @if (pinnedCaptureDocumentViews().length; as pinCount) {
                             <p class="mt-1 text-xs text-cyan-100">
-                              {{ pinCount }} {{ pinCount > 1 ? 'pièces épinglées' : 'pièce épinglée' }} — portées par chaque tour.
+                              {{ i18n.t('capture.pin.pinned_count', { count: pinCount }) }}
                             </p>
                           } @else {
-                            <p class="mt-1 text-xs text-gray-500">Épinglez une page, une slide ou une image pour l'illustrer au fil de capture.</p>
+                            <p class="mt-1 text-xs text-gray-500">{{ i18n.t('capture.pin.hint') }}</p>
                           }
                         </div>
                         <input
@@ -2225,7 +2225,7 @@ interface ProposalFact {
                               <button
                                 type="button"
                                 class="inline-flex min-w-0 items-center gap-2 hover:text-white"
-                                title="Aperçu (épingle la vue)"
+                                [title]="i18n.t('capture.pin.preview')"
                                 (click)="previewCaptureDocument(doc)"
                               >
                                 <app-icon name="file-text" [size]="13" class="text-cyan-200" />
@@ -2249,7 +2249,7 @@ interface ProposalFact {
                                 (click)="togglePinCaptureDocument(doc)"
                               >
                                 <app-icon name="pin" [size]="11" />
-                                {{ isCaptureDocumentPinned(doc) ? 'Désépingler' : 'Épingler' }}
+                                {{ isCaptureDocumentPinned(doc) ? i18n.t('capture.pin.unpin') : i18n.t('capture.pin.pin') }}
                               </button>
                             </div>
                           }
@@ -2284,7 +2284,7 @@ interface ProposalFact {
                             </span>
                           }
                           <span class="text-[10px] text-gray-500">
-                            ({{ pinnedCaptureDocumentViews().length }} {{ pinnedCaptureDocumentViews().length > 1 ? 'pièces en focus' : 'pièce en focus' }})
+                            ({{ i18n.t('capture.pin.focus_count', { count: pinnedCaptureDocumentViews().length }) }})
                           </span>
                         </div>
                       }
@@ -2319,7 +2319,7 @@ interface ProposalFact {
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                         [disabled]="transcribing() || !canCaptureExecute(s)"
-                        [title]="recording() ? 'Met le micro en pause sans déclencher de relance.' : 'Ouvre le micro pour parler librement.'"
+                        [title]="recording() ? i18n.t('capture.mic.pause_hint') : i18n.t('capture.mic.open_hint')"
                         (click)="onPrimaryCaptureAction(s)"
                       >
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
@@ -2342,7 +2342,7 @@ interface ProposalFact {
                           type="button"
                           class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
                           [disabled]="closureActionLoading() || transcribing()"
-                          title="Clôt toutes les sections restantes et lance la phase finale (proposition)."
+                          [title]="i18n.t('capture.action.close_all_hint')"
                           (click)="openCaptureTriage(s)"
                         >
                           <app-icon name="flag" [size]="14" /> Terminer la capture
@@ -2352,7 +2352,7 @@ interface ProposalFact {
                         <button
                           type="button"
                           class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20 sm:w-auto"
-                          title="Couper la lecture et répondre tout de suite (la conversation continue)."
+                          [title]="i18n.t('capture.action.interrupt_hint')"
                           (click)="interruptSpeech()"
                         >
                           <app-icon name="pause" [size]="14" /> Interrompre
@@ -2366,7 +2366,7 @@ interface ProposalFact {
                         (click)="startGuidedSession(s)"
                       >
                         <app-icon [name]="planStartIcon(s)" [size]="15" />
-                        {{ loading() ? 'Préparation...' : planStartLabel(s) }}
+                        {{ loading() ? i18n.t('capture.action.preparing') : planStartLabel(s) }}
                       </button>
                     }
                     @if (showAnswerComposer(s)) {
@@ -2394,7 +2394,7 @@ interface ProposalFact {
                           <div [class]="voiceNoticeClass()">{{ notice }}</div>
                         } @else {
                           <div class="text-[10px] text-gray-500 truncate">
-                            {{ showAdvancedSetup() ? voiceRuntimeArchitecture(s.voice_runtime) : 'Prêt à écouter l’expert' }}
+                            {{ showAdvancedSetup() ? voiceRuntimeArchitecture(s.voice_runtime) : i18n.t('capture.voice.ready_to_listen') }}
                           </div>
                         }
                       </div>
@@ -2402,8 +2402,8 @@ interface ProposalFact {
                     @if (!isDemoMode()) {
                     <div class="flex items-center gap-2 text-xs text-gray-400">
                       <span class="px-2 py-1 rounded bg-white/5">{{ sessionStartStateLabel(s) }}</span>
-                      <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'enregistrement' : 'prêt' }}</span>
-                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'restitution' : 'voix prête' }}</span>
+                      <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? i18n.t('capture.voice.recording') : i18n.t('capture.voice.idle') }}</span>
+                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? i18n.t('capture.voice.playing') : i18n.t('capture.voice.voice_ready') }}</span>
                     </div>
                     }
                   </div>
@@ -2417,8 +2417,8 @@ interface ProposalFact {
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Qualité</p>
-                      <h3 class="text-sm font-semibold text-white mt-1">Points à clarifier</h3>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.quality.eyebrow') }}</p>
+                      <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('capture.quality.points') }}</h3>
                     </div>
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                       {{ qualityBacklogCount() }}
@@ -2442,12 +2442,12 @@ interface ProposalFact {
                       <article class="rounded border border-white/10 bg-black/20 p-3">
                         <p class="text-xs text-gray-200">{{ item.label || item.follow_up }}</p>
                         <div class="mt-2 flex gap-2">
-                          <button type="button" class="text-[10px] text-brand-200" (click)="respondToQualityItem(s, item)">Répondre maintenant</button>
-                          <button type="button" class="text-[10px] text-gray-400" (click)="deferQualityItem(s, item)">Reporter</button>
+                          <button type="button" class="text-[10px] text-brand-200" (click)="respondToQualityItem(s, item)">{{ i18n.t('capture.quality.answer_now') }}</button>
+                          <button type="button" class="text-[10px] text-gray-400" (click)="deferQualityItem(s, item)">{{ i18n.t('capture.review.defer') }}</button>
                         </div>
                       </article>
                     } @empty {
-                      <p class="text-xs text-gray-500">Aucun point dans cette catégorie pour l’instant.</p>
+                      <p class="text-xs text-gray-500">{{ i18n.t('capture.quality.empty_category') }}</p>
                     }
                   </div>
                 </section>
@@ -2461,7 +2461,7 @@ interface ProposalFact {
                     <div>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Mode de session</p>
                       <h3 class="text-sm font-semibold text-white mt-1">
-                        {{ conversationMode() === 'conversation_only' ? 'Conversation autonome' : 'Capture guidée' }}
+                        {{ conversationMode() === 'conversation_only' ? i18n.t('capture.mode.conversation') : i18n.t('capture.mode.guided_capture') }}
                       </h3>
                     </div>
                     @if (conversationSessionActive()) {
@@ -2478,7 +2478,7 @@ interface ProposalFact {
                         (click)="setConversationMode('manual')"
                       >
                         <span class="flex items-center gap-2 text-xs font-semibold">
-                          <app-icon name="list-checks" [size]="13" /> Guidé
+                          <app-icon name="list-checks" [size]="13" /> {{ i18n.t('capture.mode.guided') }}
                         </span>
                       </button>
                       <button
@@ -2511,7 +2511,7 @@ interface ProposalFact {
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">État de la conversation</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.conversation.state') }}</p>
                       <h3 class="text-sm font-semibold text-white mt-1">{{ conversationStateHeadline(s) }}</h3>
                     </div>
                     @if (lastConversationStep(); as step) {
@@ -2547,7 +2547,7 @@ interface ProposalFact {
                   <section class="t-card rounded-lg p-4">
                     <div class="flex items-center justify-between gap-3">
                       <div>
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.retrieval.title') }}</p>
                         <h3 class="text-sm font-semibold text-white">{{ retrievalLabel() }}</h3>
                       </div>
                       @if (retrieval().latency_ms !== undefined) {
@@ -2564,7 +2564,7 @@ interface ProposalFact {
                                 <button
                                   type="button"
                                   class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
-                                  title="Prévisualiser la source"
+                                  [title]="i18n.t('capture.retrieval.preview_source')"
                                   (click)="previewRetrievalChunk(ci)"
                                 >
                                   <app-icon name="eye" [size]="12" />
@@ -2579,7 +2579,7 @@ interface ProposalFact {
                       </div>
                     } @else {
                       <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-                        Les passages utiles apparaissent ici dès que la réponse devient assez précise. La conversation ne les attend pas.
+                        {{ i18n.t('capture.retrieval.empty_conversation') }}
                       </p>
                     }
                   </section>
@@ -2606,7 +2606,7 @@ interface ProposalFact {
           </section>
         } @else {
           <section class="t-card rounded-lg p-8 text-center text-gray-400">
-            Préparez une session de capture avant d’ouvrir l’échange.
+            {{ i18n.t('capture.session.prepare_first') }}
           </section>
         }
       }
@@ -2618,7 +2618,7 @@ interface ProposalFact {
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-                    {{ isDemoMode() ? 'Plan d’échange' : 'Plan d’entretien' }}
+                    {{ isDemoMode() ? i18n.t('capture.plan.exchange_plan') : i18n.t('capture.plan.interview_plan') }}
                   </p>
                   <h2 class="text-lg font-semibold text-white mt-1">{{ s.title }}</h2>
                   <p class="text-sm text-gray-500 mt-1 max-w-3xl">{{ s.objective }}</p>
@@ -2629,7 +2629,7 @@ interface ProposalFact {
                   class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                   (click)="goSurface('session')"
                 >
-                  <app-icon name="eye" [size]="14" /> Prévisualiser l’échange
+                  <app-icon name="eye" [size]="14" /> {{ i18n.t('capture.plan.preview_exchange') }}
                 </button>
                 }
               </div>
@@ -2641,12 +2641,12 @@ interface ProposalFact {
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Durée estimée</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.estimated_duration') }}</div>
                     <div class="text-2xl text-white font-semibold">{{ planDurationMinutes(s) }} min</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-gray-500">
-                      {{ isDemoMode() ? 'Préparation' : 'Préparation du plan' }}
+                      {{ isDemoMode() ? i18n.t('capture.step.prep') : i18n.t('capture.plan.prep_title') }}
                     </div>
                     <div class="text-sm text-gray-200 mt-2">{{ questionBankStatusLabel(s) }}</div>
                   </div>
@@ -2656,14 +2656,14 @@ interface ProposalFact {
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Durée estimée</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.estimated_duration') }}</div>
                     <div class="text-2xl text-white font-semibold">{{ planDurationMinutes(s) }} min</div>
                   </div>
                 }
                 @if (!isDemoMode()) {
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <div class="text-[10px] uppercase tracking-wider text-gray-500">Destination</div>
-                  <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || 'Sources par défaut du workspace' }}</div>
+                  <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || i18n.t('capture.prep.workspace_default_sources') }}</div>
                 </div>
                 }
               </div>
@@ -2680,19 +2680,19 @@ interface ProposalFact {
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
                     @if (canEditPlan(s)) {
                       <div class="flex flex-wrap items-center gap-1.5">
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter (Shift+Tab)" aria-label="Désindenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'outdent')">
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.outdent')" [attr.aria-label]="i18n.t('capture.outline.outdent')" (click)="applyPlanOutlineFormatFrom('plan', s, 'outdent')">
                           <app-icon name="list-indent-decrease" [size]="15" />
                         </button>
                         <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'indent')">
                           <app-icon name="list-indent-increase" [size]="15" />
                         </button>
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Remettre en forme la numérotation" aria-label="Remettre en forme la numérotation" (click)="applyPlanOutlineFormatFrom('plan', s, 'renumber')">
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.renumber')" [attr.aria-label]="i18n.t('capture.outline.renumber')" (click)="applyPlanOutlineFormatFrom('plan', s, 'renumber')">
                           <app-icon name="list-ordered" [size]="15" />
                         </button>
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.move_up')" [attr.aria-label]="i18n.t('capture.outline.move_up')" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
                           <app-icon name="arrow-up" [size]="15" />
                         </button>
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.move_down')" [attr.aria-label]="i18n.t('capture.outline.move_down')" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
                           <app-icon name="arrow-down" [size]="15" />
                         </button>
                         <label
@@ -2735,7 +2735,7 @@ interface ProposalFact {
                           [disabled]="!canEditPlan(s)"
                           (ngModelChange)="touchPlanDraft()"
                         />
-                        <p class="mt-2 text-xs text-gray-500">{{ outlineItemPrompt(topic) || topic.objective || 'Sujet à présenter' }}</p>
+                        <p class="mt-2 text-xs text-gray-500">{{ outlineItemPrompt(topic) || topic.objective || i18n.t('capture.plan.topic_placeholder') }}</p>
                       </div>
                       <span class="rounded bg-brand-500/10 text-brand-100 border border-brand-300/20 px-2 py-1 text-xs">
                         {{ (topic.subtopics || []).length }} sous-sujets
@@ -2764,10 +2764,10 @@ interface ProposalFact {
 
                         @if (isTopicOnlyPlan(s) && (subtopic.questions || []).length) {
                           <div class="space-y-1.5">
-                            <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Points à présenter</p>
+                            <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.plan.points_to_present') }}</p>
                             @for (point of subtopic.questions || []; track point.id) {
                               <div class="rounded border border-white/10 bg-white/[0.03] px-3 py-2">
-                                <p class="text-xs text-gray-200 leading-relaxed">{{ outlineItemLabel(point) || 'Point à présenter' }}</p>
+                                <p class="text-xs text-gray-200 leading-relaxed">{{ outlineItemLabel(point) || i18n.t('capture.plan.point_placeholder') }}</p>
                               </div>
                             }
                           </div>
@@ -2776,7 +2776,7 @@ interface ProposalFact {
                         @if (!isTopicOnlyPlan(s) && isDemoMode()) {
                           @for (q of subtopic.questions || []; track q.id) {
                             <div class="rounded border border-white/10 bg-white/[0.03] p-3">
-                              <p class="text-sm text-gray-100 leading-relaxed">{{ outlineItemLabel(q) || 'Point à présenter' }}</p>
+                              <p class="text-sm text-gray-100 leading-relaxed">{{ outlineItemLabel(q) || i18n.t('capture.plan.point_placeholder') }}</p>
                             </div>
                           }
                         }
@@ -2885,7 +2885,7 @@ interface ProposalFact {
                       <app-icon name="check-circle-2" [size]="13" class="shrink-0 text-emerald-300" />
                       <span class="text-xs text-gray-300">{{ questionBankStatusLabel(s) }}</span>
                       <span class="ml-auto shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-500">
-                        prêt
+                        {{ i18n.t('capture.voice.idle') }}
                       </span>
                     } @else if ((s.plan.question_bank_status || questionBankStatus()) === 'ready') {
                       <app-icon name="check-circle-2" [size]="13" class="shrink-0 text-emerald-300" />
@@ -2913,7 +2913,7 @@ interface ProposalFact {
                   <span class="text-gray-200">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.session.state') }}</span>
                   <span class="text-gray-200">{{ sessionStartStateLabel(s) }} · {{ planReviewLabel(s) }}</span>
                 </div>
               </div>
@@ -2939,7 +2939,7 @@ interface ProposalFact {
                     (click)="setConversationMode('manual')"
                   >
                     <span class="flex items-center gap-2 text-xs font-semibold">
-                      <app-icon name="list-checks" [size]="13" /> Guidé
+                      <app-icon name="list-checks" [size]="13" /> {{ i18n.t('capture.mode.guided') }}
                     </span>
                     <span class="mt-1 block text-[10px] text-gray-500">Tour par tour</span>
                   </button>
@@ -2953,7 +2953,7 @@ interface ProposalFact {
                     <span class="flex items-center gap-2 text-xs font-semibold">
                       <app-icon name="message-circle" [size]="13" /> Conversation
                     </span>
-                    <span class="mt-1 block text-[10px] text-gray-500">Piloté à la voix</span>
+                    <span class="mt-1 block text-[10px] text-gray-500">{{ i18n.t('capture.mode.voice_driven') }}</span>
                   </button>
                 </div>
               </div>
@@ -2983,7 +2983,7 @@ interface ProposalFact {
                 <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Source du plan</p>
                 <h2 class="mt-2 text-3xl text-white font-semibold">Donner le texte source</h2>
                 <p class="mt-2 text-sm text-gray-400 max-w-3xl">
-                  Fichier, copier-coller ou saisie libre : le texte est transformé en plan éditable.
+                  {{ i18n.t('capture.plan.source_text_hint') }}
                 </p>
               </div>
 
@@ -3057,7 +3057,7 @@ interface ProposalFact {
                 <div>
                   <div class="mb-2 flex items-center justify-between gap-3">
                     <label class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">
-                      Plan extrait et éditable
+                      {{ i18n.t('capture.plan.extracted_editable') }}
                     </label>
                     @if (providedPlanText.trim()) {
                       <span class="text-[11px] text-gray-500">{{ providedPlanSourceStats() }}</span>
@@ -3097,17 +3097,17 @@ interface ProposalFact {
             </section>
           } @else {
             <section class="max-w-3xl mx-auto py-10 space-y-4 text-center">
-              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
-              <h2 class="text-2xl text-white font-semibold">Revenir à la préparation</h2>
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">{{ i18n.t('capture.step.prep') }}</p>
+              <h2 class="text-2xl text-white font-semibold">{{ i18n.t('capture.plan.back_to_prep') }}</h2>
               <p class="text-sm text-gray-400">
-                Choisissez un déroulé, puis continuez directement vers la capture.
+                {{ i18n.t('capture.plan.back_to_prep_hint') }}
               </p>
               <button
                 type="button"
                 class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white"
                 (click)="goSurface('prep')"
               >
-                <app-icon name="arrow-left" [size]="14" /> Retour à la préparation
+                <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('capture.plan.back_to_prep') }}
               </button>
             </section>
           }
@@ -3125,7 +3125,7 @@ interface ProposalFact {
                 <h2 class="mt-2 text-2xl text-white font-semibold">{{ s.title }}</h2>
                 <p class="mt-2 text-sm text-gray-400">
                   @if (isProvidedPlanSession(s)) {
-                    Ajustez l’arborescence importée, puis validez les sujets.
+                    {{ i18n.t('capture.plan.adjust_imported') }}
                   } @else {
                     Modifiez l’arborescence, puis continuez vers la capture.
                   }
@@ -3146,13 +3146,13 @@ interface ProposalFact {
                     </div>
                     @if (source.replacedExistingPlan) {
                       <span class="shrink-0 rounded bg-amber-500/15 px-2 py-1 text-[10px] uppercase tracking-wider text-amber-100 ring-1 ring-amber-300/20">
-                        Remplacement confirmé
+                        {{ i18n.t('capture.plan.replacement_confirmed') }}
                       </span>
                     }
                   </div>
                   @if (source.extractedOutline.length) {
                     <div class="rounded border border-white/10 bg-black/20 p-3">
-                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Interprétation extraite</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">{{ i18n.t('capture.plan.extracted_reading') }}</p>
                       <div class="mt-3 grid gap-2 md:grid-cols-2">
                         @for (item of source.extractedOutline; track $index) {
                           <article class="rounded border border-white/10 bg-white/[0.03] p-3">
@@ -3174,19 +3174,19 @@ interface ProposalFact {
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
                   @if (canEditPlan(s)) {
                     <div class="flex flex-wrap items-center gap-1.5">
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter (Shift+Tab)" aria-label="Désindenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'outdent')">
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.outdent')" [attr.aria-label]="i18n.t('capture.outline.outdent')" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'outdent')">
                         <app-icon name="list-indent-decrease" [size]="15" />
                       </button>
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'indent')">
                         <app-icon name="list-indent-increase" [size]="15" />
                       </button>
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Remettre en forme la numérotation" aria-label="Remettre en forme la numérotation" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'renumber')">
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.renumber')" [attr.aria-label]="i18n.t('capture.outline.renumber')" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'renumber')">
                         <app-icon name="list-ordered" [size]="15" />
                       </button>
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.move_up')" [attr.aria-label]="i18n.t('capture.outline.move_up')" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
                         <app-icon name="arrow-up" [size]="15" />
                       </button>
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" [title]="i18n.t('capture.outline.move_down')" [attr.aria-label]="i18n.t('capture.outline.move_down')" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
                         <app-icon name="arrow-down" [size]="15" />
                       </button>
                       <label
@@ -3220,7 +3220,7 @@ interface ProposalFact {
             <aside class="t-card rounded-lg p-5 space-y-4">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Modifier le plan</p>
-                <p class="mt-2 text-sm text-gray-300 leading-relaxed">Indiquez quoi ajouter, déplacer ou reformuler dans le plan à gauche.</p>
+                <p class="mt-2 text-sm text-gray-300 leading-relaxed">{{ i18n.t('capture.plan.edit_instruction_hint') }}</p>
               </div>
               <div class="space-y-2">
                 <div class="flex items-start gap-2">
@@ -3249,8 +3249,8 @@ interface ProposalFact {
                     [class.bg-brand-500/25]="planDictationTranscribing()"
                     [class.text-brand-200]="planDictationTranscribing()"
                     [class.ring-brand-300/40]="planDictationTranscribing()"
-                    [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
-                    [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
+                    [attr.aria-label]="recording() ? i18n.t('capture.dictation.stop') : i18n.t('capture.dictation.start')"
+                    [title]="recording() ? i18n.t('capture.dictation.stop') : i18n.t('capture.dictation.start')"
                     (click)="dictatePlanDialogue()"
                   >
                     @if (planDictationTranscribing()) {
@@ -3317,8 +3317,8 @@ interface ProposalFact {
               </div>
               @if (planDialogueLoading()) {
                 <p class="flex items-center gap-2 text-[11px] leading-relaxed text-brand-200/90">
-                  <ck-thinking-orb state="solving" [size]="20" label="L’assistant analyse votre description" />
-                  L’assistant analyse votre description et met à jour le plan de sujets…
+                  <ck-thinking-orb state="solving" [size]="20" [label]="i18n.t('capture.plan.analysing_label')" />
+                  {{ i18n.t('capture.plan.analysing') }}
                 </p>
               } @else if (planDialogueReadyHint(s); as hint) {
                 <p class="text-[11px] leading-relaxed text-amber-200/85">{{ hint }}</p>
@@ -3356,15 +3356,15 @@ interface ProposalFact {
             @if (captureBackgroundIndexing(); as idx) {
               @if (idx.visible) {
                 <div class="flex items-center gap-3 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
-                  <ck-thinking-orb state="shaping" [size]="20" label="Indexation en arrière-plan" />
+                  <ck-thinking-orb state="shaping" [size]="20" [label]="i18n.t('capture.indexing.label')" />
                   <div class="min-w-0 flex-1">
-                    <p class="text-[11px] text-gray-300">Indexation en arrière-plan — {{ idx.indexed }}/{{ idx.total }} vue(s)/doc(s)</p>
+                    <p class="text-[11px] text-gray-300">{{ i18n.t('capture.indexing.progress', { indexed: idx.indexed, total: idx.total }) }}</p>
                     <div class="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/5">
                       <div class="h-full rounded-full bg-brand-400 transition-all duration-700" [style.width.%]="idx.total ? (idx.indexed / idx.total) * 100 : 0"></div>
                     </div>
                   </div>
                   @if (idx.failed) {
-                    <span class="text-[11px] text-red-300 shrink-0">{{ idx.failed }} échec(s)</span>
+                    <span class="text-[11px] text-red-300 shrink-0">{{ i18n.t('capture.indexing.failures', { count: idx.failed }) }}</span>
                   }
                 </div>
               }
@@ -3520,7 +3520,7 @@ interface ProposalFact {
                   }
                   @if (reportUnassignedFacts().length) {
                     <article class="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-3.5 space-y-2">
-                      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Éléments hors plan</h3>
+                      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ i18n.t('capture.review.off_plan_items') }}</h3>
                       @for (fact of reportUnassignedFacts(); track $index) {
                         <p class="text-[13px] leading-relaxed text-gray-400">• {{ fact }}</p>
                       }
@@ -3712,7 +3712,7 @@ interface ProposalFact {
                       </span>
                       @if (row.status === 'answered') {
                         <span class="rounded bg-emerald-500/15 px-2 py-0.5 text-[9px] uppercase tracking-wider text-emerald-200 ring-1 ring-emerald-300/20">
-                          répondue
+                          {{ i18n.t('capture.questions.answered') }}
                         </span>
                       } @else if (row.status === 'deferred') {
                         <span class="rounded bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-400">
@@ -3726,7 +3726,7 @@ interface ProposalFact {
                     }
                     @if (proposalQuestionAnswer(row.question); as answered) {
                       <p class="mt-2 rounded bg-emerald-500/10 border border-emerald-400/20 px-2 py-1.5 text-[11px] leading-relaxed text-emerald-100/90">
-                        <span class="text-emerald-300/80">Réponse :</span> {{ answered }}
+                        <span class="text-emerald-300/80">{{ i18n.t('capture.questions.answer_label') }}</span> {{ answered }}
                       </p>
                     }
                     @if (answeringQuestionKey() === row.key) {
@@ -3734,17 +3734,17 @@ interface ProposalFact {
                         <textarea
                           class="w-full min-h-16 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white leading-relaxed"
                           [(ngModel)]="questionAnswerDraft"
-                          placeholder="Saisissez la réponse, ou dictez-la avec le micro…"
+                          [placeholder]="i18n.t('capture.questions.answer_placeholder')"
                         ></textarea>
                         <div class="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             class="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
-                            title="Répondre à la voix (transcrite en texte)."
+                            [title]="i18n.t('capture.dictation.voice_answer_hint')"
                             (click)="dictateProposalQuestionAnswer()"
                           >
                             <app-icon [name]="recording() ? 'square' : 'mic'" [size]="12" />
-                            {{ recording() ? 'Arrêter la dictée' : 'Dicter' }}
+                            {{ recording() ? i18n.t('capture.dictation.stop_short') : i18n.t('capture.dictation.start_short') }}
                           </button>
                           <button
                             type="button"
@@ -3756,7 +3756,7 @@ interface ProposalFact {
                               <span class="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-emerald-200/40 border-t-emerald-200 animate-spin"></span>
                               Enregistrement…
                             } @else {
-                              <app-icon name="send" [size]="12" /> Valider la réponse
+                              <app-icon name="send" [size]="12" /> {{ i18n.t('capture.questions.validate_answer') }}
                             }
                           </button>
                           <button
@@ -3776,7 +3776,7 @@ interface ProposalFact {
                           class="rounded bg-brand-500/15 px-2 py-1 text-[10px] font-medium text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/25"
                           (click)="beginProposalQuestionAnswer(row.key)"
                         >
-                          {{ row.status === 'answered' ? 'Modifier la réponse' : 'Répondre' }}
+                          {{ row.status === 'answered' ? i18n.t('capture.questions.edit_answer') : i18n.t('capture.oracle.answer') }}
                         </button>
                       }
                       <button
@@ -3789,7 +3789,7 @@ interface ProposalFact {
                       <button
                         type="button"
                         class="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200 ring-1 ring-red-400/20 hover:bg-red-500/20"
-                        title="Supprime la question : masquée et exclue de la publication."
+                        [title]="i18n.t('capture.questions.remove_hint')"
                         (click)="invalidateProposalOpenQuestion(row.key)"
                       >
                         {{ i18n.t('capture.review.hide') }}
@@ -4111,7 +4111,7 @@ interface ProposalFact {
               <app-icon name="loader-2" [size]="18" class="animate-spin text-brand-200" />
             </span>
             <div class="min-w-0">
-              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Synthèse finale</p>
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">{{ i18n.t('capture.final.eyebrow') }}</p>
               <h2 class="mt-0.5 text-sm font-semibold text-white">Restructuration de la capture en cours</h2>
             </div>
           </div>
@@ -4147,8 +4147,7 @@ interface ProposalFact {
             }
           </ul>
           <p class="text-[11px] leading-relaxed text-gray-500">
-            L'expression captée est restructurée selon le plan, nettoyée de ses doublons et alignée sur le
-            vocabulaire métier. Le rapport s'ouvrira automatiquement.
+            {{ i18n.t('capture.final.hint') }}
           </p>
         </section>
       </div>
@@ -4162,7 +4161,7 @@ interface ProposalFact {
           <div>
             <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Terminer la capture</p>
             <h2 class="mt-0.5 text-base font-semibold text-white">Que partager en entier dans la base ?</h2>
-            <p class="mt-1 text-xs text-gray-500">Les vues que vous avez montrées sont déjà journalisées.</p>
+            <p class="mt-1 text-xs text-gray-500">{{ i18n.t('capture.triage.views_logged') }}</p>
           </div>
           <div class="space-y-2 max-h-72 overflow-auto">
             @for (doc of captureDocuments(); track captureDocumentTrack(doc, $index)) {
@@ -4173,7 +4172,7 @@ interface ProposalFact {
                 </span>
                 <span class="flex items-center gap-3 shrink-0">
                   @if (captureReferencedViewsCount(doc); as refs) {
-                    <span class="text-[11px] text-brand-200">{{ refs }} {{ refs > 1 ? 'vues référencées' : 'vue référencée' }}</span>
+                    <span class="text-[11px] text-brand-200">{{ i18n.t('capture.triage.referenced_views', { count: refs }) }}</span>
                   } @else {
                     <span class="text-[11px] text-gray-500">0 vue</span>
                   }
@@ -4203,7 +4202,7 @@ interface ProposalFact {
               class="inline-flex items-center gap-2 rounded bg-brand-500 hover:bg-brand-400 px-3 py-2 text-sm font-semibold text-white"
               (click)="confirmCaptureTriage()"
             >
-              <app-icon name="flag" [size]="14" /> Terminer et générer
+              <app-icon name="flag" [size]="14" /> {{ i18n.t('capture.triage.finish_and_generate') }}
             </button>
           </div>
         </section>
@@ -4215,7 +4214,7 @@ interface ProposalFact {
       <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2" role="status" aria-live="polite">
         <div class="flex items-center gap-3 rounded-full bg-gray-900/95 px-4 py-2.5 text-sm text-gray-100 ring-1 ring-brand-300/30 shadow-2xl backdrop-blur">
           <app-icon name="pin" [size]="14" class="text-brand-200" />
-          <span>Référence journalisée — {{ toast.label }}</span>
+          <span>{{ i18n.t('capture.triage.reference_logged', { label: toast.label }) }}</span>
           <button
             type="button"
             class="rounded px-2 py-0.5 text-xs font-semibold text-brand-200 hover:text-brand-100 hover:bg-white/10"

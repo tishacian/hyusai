@@ -1,0 +1,259 @@
+{
+  "$note": "Exceptions for scripts/check-i18n.mjs. Every entry carries a reason. \"hardcodedText.max\" is a ratchet: the guard tells you when a sweep lets you lower it, and fails if it grows. Deleting an entry is the definition of done for that file.",
+  "$backlog": "12 entries were opened in one go when the hard-coded-text detector stopped relying on accents alone, for 108 lines in total. They are not new French — they are French the accent probe could never see, on screens the FR sweeps reported as done. Each is a ratchet at its measured value and the number can only go down; the three capture-fil entries (report-provenance, finalize, publish) reached zero and were deleted.",
+  "hardcodedText": {
+    "src/app/features/chat/chat-workspace.component.ts": {
+      "max": 2,
+      "reason": "Straggler from the FR chat sweep, revealed by the function-word probe. chat.dict.ts owns the surface."
+    },
+    "src/app/features/client360/client360-page.component.ts": {
+      "max": 12,
+      "reason": "Was 44. The class body is now fully swept — every status, error, skip reason, SMTP label and campaign chip renders from client360.dict.ts, which already held the keys but was never wired to the call sites. The 12 remaining template lines are filter options and campaign copy typed directly in the markup. Owner: the verticals sweep. Do not claim FR/EN parity on Client360 until this is 0."
+    },
+    "src/app/features/knowledge/knowledge-base.component.ts": {
+      "max": 1,
+      "reason": "Straggler from the capture sweep: one button title. capture.dict.ts owns the surface."
+    },
+    "src/app/features/knowledge/knowledge-capture.component.ts": {
+      "max": 19,
+      "reason": "The capture sweep converted the accented copy on this screen and left the accent-free half: collection pickers, loading states, tree editing. Owner: the capture sweep."
+    },
+    "src/app/features/mission-room/mission-control-monitor.component.html": {
+      "max": 4,
+      "reason": "Seeded French demo content (\"Sentence du jour\") and a French proper noun (Côte d'Ivoire) in the mission-room scenario. The plan classes seeded scenario content as data, not chrome; the proper noun stays French in both locales."
+    },
+    "src/app/features/mission-room/mission-room.component.ts": {
+      "max": 15,
+      "reason": "Accent-free French left by the mission-room sweep, mixed with seeded scenario prose. Owner: the mission-room sweep, which has to split the two before it can lower this."
+    },
+    "src/app/features/mission-room/vp-agenda-timeline.component.ts": {
+      "max": 2,
+      "reason": "Stragglers from the mission-room sweep: the agenda panel title and its subtitle. mission.dict.ts owns the surface."
+    },
+    "src/app/features/mission-room/vp-press-article-drawer.component.ts": {
+      "max": 2,
+      "reason": "Stragglers from the mission-room sweep: two drawer actions. mission.dict.ts owns the surface."
+    },
+    "src/app/features/workspace/chat-knowledge-settings.component.ts": {
+      "max": 7,
+      "reason": "Mostly permanent. The accented lines are `placeholder` examples of the French values an admin types into this form — stop phrases (\"on peut s'arrêter là\") and synonym lists for the French voice gateway. The sample must be in the language of the data, not of the chrome; translating it would show the admin an example they cannot use. The function-word probe added 3 more lines on the same form, of the same nature."
+    },
+    "src/app/features/workspace/general.component.ts": {
+      "max": 1,
+      "reason": "The accented line is an English help sentence quoting the French label of the chat action it governs (\"Corriger / Compléter\"). It resolves itself when workspace settings are swept — the whole screen is still hard-coded English, so this one line is not the interesting part of that file."
+    }
+  },
+  "$hardcodedCodeNote": "Two kinds of entry live below, and the difference matters. A DATA entry is permanent: the literal is scenario content, a backend contract value or a sample in the language of the data, and translating it would be wrong. A DEBT entry is a ratchet at its measured value: it is real French chrome that nobody has moved to a key yet, the number may only go down, and the entry is deleted when it reaches zero. Never turn a DEBT entry into a DATA entry to make the guard green.",
+  "hardcodedCode": {
+    "src/app/core/navigation.catalog.ts": {
+      "max": 3,
+      "reason": "DATA — the seeded name and description of the FSE field-report workspace and its constrained capture template. Business content of a seeded tenant, mirrored from the backend catalog, not chrome."
+    },
+    "src/app/core/workspace.service.ts": {
+      "max": 1,
+      "reason": "DATA — the same seeded FSE workspace name as navigation.catalog.ts, used as the fallback display name before the API answers."
+    },
+    "src/app/features/auth/signin-experience.ts": {
+      "max": 1,
+      "reason": "DATA — the sovereign demo tenant's own branding line. A tenant's name is not translated, and the Octocity presentation adapter rewrites it for the anonymised profile."
+    },
+    "src/app/features/chat/assistant-draft-drawer.component.ts": {
+      "max": 2,
+      "reason": "DATA — two verbatim prompts the demo scenario sends as the user's own message (social pulse, Sahel theatre before the 15h Council). Scenario script, like the mission-room fixtures."
+    },
+    "src/app/features/knowledge/capture-fil/capture-templates.ts": {
+      "max": 24,
+      "reason": "DATA — front-end mirror of the backend `capture_templates` registry (see the module header). These are the customer's report field names and must match the backend contract and the delivered report, which is why the file already mixes French and English ('Constat', 'Customer Specific Needs', 'Project manager'). Translating them client-side would desynchronise the report."
+    },
+    "src/app/features/mission-room/mission-room.presentation.ts": {
+      "max": 23,
+      "reason": "DATA — the anonymisation substitution table: search/replace pairs and the labels of the forbidden-pattern canaries. Every French string here is a needle to match in rendered text, never a string that is itself rendered. Translating one would break the Octocity redaction and its Playwright canary."
+    },
+    "src/app/features/mission-room/vp-map-preview.component.ts": {
+      "max": 1,
+      "reason": "DATA — the photo credit for the placeholder webcam still (APM Terminals Apapa standing in for Abidjan). An attribution names its source as published."
+    },
+    "src/app/features/mission-room/vp-troops-theater-drawer.component.ts": {
+      "max": 1,
+      "reason": "DATA — the demo theatre's proper noun, used as the fallback when the snapshot carries no `theater_label`. A geographic name is not translated; the surrounding chrome is already keyed."
+    },
+    "src/app/features/mission-room/workspace-map.component.ts": {
+      "max": 2,
+      "reason": "DATA — the country name, passed as the `{place}` parameter of an already-keyed sentence and as the selected-zone fallback. The wording around it comes from mission.dict.ts; only the toponym is literal."
+    },
+    "src/app/features/workspace/chat-knowledge-settings.component.ts": {
+      "max": 2,
+      "reason": "DATA — the French stop-phrase example an admin types into the voice-gateway form. Same reasoning as this file's hardcodedText entry: the sample must be in the language of the data, not of the chrome, or the admin is shown an example they cannot use."
+    },
+    "src/app/shared/cockpit/help-tooltip.component.ts": {
+      "max": 2,
+      "reason": "DATA — not a leak: `ck-help` keeps its own language preference, separate from the UI locale (CONVENTION.md §5 forbids routing its labels through i18n.t, or content and chrome would disagree). Both locales are already present in the same switch; the guard only sees the French branch."
+    },
+    "src/app/core/sse.service.ts": {
+      "max": 1,
+      "reason": "DEBT — one stream-timeout message shown to the user. Needs a `common.` key; no dictionary owns the SSE layer yet."
+    },
+    "src/app/features/chat/chat-panel.component.ts": {
+      "max": 28,
+      "reason": "DEBT — was 69. The prompt packs, the empty state and the live progress labels are keyed; what remains is the voice/dictation cluster, the expert-correction toasts and the Deep Search notices. chat.dict.ts owns the surface."
+    },
+    "src/app/features/chat/chat-workspace.component.ts": {
+      "max": 2,
+      "reason": "DEBT — was 4. The two workspace-context hints now render from chat.dict.ts; two source labels and one aria-label remain. chat.dict.ts owns the surface."
+    },
+    "src/app/features/knowledge/knowledge-capture.component.ts": {
+      "max": 282,
+      "reason": "DEBT — the largest single block of un-keyed French in the app, and the honest number: it was reported as 261 until the guard stopped mis-reading a regex literal as a template literal, which had been hiding 21 more. This is a 12k-line screen whose entire conversational capture loop (voice states, role refusals, plan validation, report review, synthesis progress) is hard-coded French. It needs its own pass, not a corner of one. capture.dict.ts owns the surface. Do not claim FR/EN parity on Knowledge capture until this is 0."
+    },
+    "src/app/features/knowledge/knowledge-view.component.ts": {
+      "max": 3,
+      "reason": "DEBT — three self-reference audit labels ('Valeur auto-référente', 'En-tête auto-référent', 'À relire'). capture.dict.ts owns the surface."
+    },
+    "src/app/features/mission-room/mission-control-monitor.component.ts": {
+      "max": 31,
+      "reason": "DEBT, mixed with data — the Abidjan scenario's seeded evidence prose and AYA prompt verbatims are data, but genuine chrome is interleaved with it ('Preuves corrélées', 'Embed video instable · aperçu prioritaire', the recommendation sentences). The mission-room sweep has to split the two before it can lower this; ratcheted whole rather than declared data, so the chrome half is not lost."
+    },
+    "src/app/features/mission-room/mission-room.component.ts": {
+      "max": 73,
+      "reason": "DEBT, mixed with data — same split problem as mission-control-monitor, at four times the size: seeded press/agenda scenario content and Sentinel proper nouns sit next to real chrome ('Sécurité', 'Arbitrer les options', 'Voir tous les articles'). Owner: the mission-room sweep. This file also carries 15 lines of hardcodedText debt for the same reason."
+    },
+    "src/app/features/mission-room/vp-cockpit.component.ts": {
+      "max": 6,
+      "reason": "DEBT — press-filter labels ('Intérieur', 'Extérieur', 'RSS sécurité') and demo-source badges. mission.dict.ts owns the surface."
+    },
+    "src/app/features/mission-room/vp-meeting.component.ts": {
+      "max": 7,
+      "reason": "DEBT — the arbitration options and the advisory decision wording. mission.dict.ts owns the surface."
+    },
+    "src/app/features/nawa/nawa-run-fixtures.ts": {
+      "max": 1,
+      "reason": "DATA — a simulated end user's verbatim in the NAWA ITSD demo run ('mon compte est bloque depuis ce matin…'), typos and missing accents included. It is transcript content the demo replays, not chrome; translating it would destroy what the fixture demonstrates."
+    }
+  },
+  "lexicon": {
+    "src/app/core/navigation.catalog.ts": {
+      "words": [
+        "job",
+        "jobs"
+      ],
+      "reason": "Vectorization and continuous-intelligence jobs are Celery work units behind a surface, not Runs. These are the catalog's own descriptions, rendered on the governance surface-map inventory."
+    },
+    "src/app/features/resources/resources.catalog.ts": {
+      "words": [
+        "jobs"
+      ],
+      "reason": "Jobs dispatched to an external RPA orchestrator (UiPath, Power Automate) — the third party's word for its own object, not a Run."
+    },
+    "src/app/features/chat/chat-panel.component.ts": {
+      "words": [
+        "job",
+        "pipeline"
+      ],
+      "reason": "Deep Search's backend job id and retrieval pipeline, shown as raw runtime detail under the answer. Both are RAG-side objects distinct from a Run and a Flow."
+    },
+    "src/app/features/knowledge/knowledge-capture.component.ts": {
+      "words": [
+        "HITL"
+      ],
+      "reason": "Not a label: the audit `reason` string sent with a correction to the API. It is read in the backend trail, never on screen."
+    },
+    "src/app/features/account/profile.component.ts": {
+      "words": [
+        "job"
+      ],
+      "reason": "\"Job title\" is a person's role in the org, unrelated to Run."
+    },
+    "src/app/features/apps/apps-page.component.ts": {
+      "words": [
+        "catalog only"
+      ],
+      "reason": "Pending: raw runtime status used as a label, rename with the flow-clarity pass."
+    },
+    "src/app/features/capabilities/capabilities.component.ts": {
+      "words": [
+        "HITL"
+      ],
+      "reason": "Pending: internal term still used as a primary label, rename with the flow-clarity pass."
+    },
+    "src/app/features/connectors/rpa/rpa-connector.component.ts": {
+      "words": [
+        "job",
+        "jobs"
+      ],
+      "reason": "Connector ingestion jobs and the retrieval pipeline are backend objects distinct from Run and Flow; renaming them needs a product copy decision."
+    },
+    "src/app/features/connectors/sftp/sftp-connector.component.ts": {
+      "words": [
+        "job",
+        "jobs",
+        "pipeline"
+      ],
+      "reason": "Connector ingestion jobs and the retrieval pipeline are backend objects distinct from Run and Flow; renaming them needs a product copy decision."
+    },
+    "src/app/features/connectors/sharepoint/sharepoint-connector.component.ts": {
+      "words": [
+        "job",
+        "jobs",
+        "pipeline"
+      ],
+      "reason": "Connector ingestion jobs and the retrieval pipeline are backend objects distinct from Run and Flow; renaming them needs a product copy decision."
+    },
+    "src/app/features/knowledge/knowledge-view.component.ts": {
+      "words": [
+        "job",
+        "jobs"
+      ],
+      "reason": "Artifact indexing job — a backend object distinct from a Run."
+    },
+    "src/app/features/observability/workspace-monitor.component.ts": {
+      "words": [
+        "jobs"
+      ],
+      "reason": "Celery jobs surfaced as-is for operators debugging the queue; distinct from a Run."
+    },
+    "src/app/features/presets/preset-view.component.ts": {
+      "words": [
+        "pipeline"
+      ],
+      "reason": "Pending: \"Pipeline mode\" is drift for Flow, rename with the flow-clarity pass."
+    },
+    "src/app/features/settings/rag-settings.component.ts": {
+      "words": [
+        "pipeline"
+      ],
+      "reason": "\"Retrieval pipeline\" is the RAG ingestion chain, not a Flow."
+    },
+    "src/app/features/steering/steering.component.ts": {
+      "words": [
+        "HITL"
+      ],
+      "reason": "Pending: internal term still used as a primary label, rename with the flow-clarity pass."
+    },
+    "src/app/features/systems/flow-runner.component.ts": {
+      "words": [
+        "ingress"
+      ],
+      "reason": "Pending: internal term still used as a primary label, rename with the flow-clarity pass."
+    },
+    "src/app/features/systems/system-builder.component.ts": {
+      "words": [
+        "HITL",
+        "pipeline",
+        "unbound"
+      ],
+      "reason": "Pending: internal term still used as a primary label, rename with the flow-clarity pass."
+    },
+    "src/app/features/systems/system-value-loop.component.ts": {
+      "words": [
+        "HITL"
+      ],
+      "reason": "Pending: internal term still used as a primary label, rename with the flow-clarity pass."
+    },
+    "src/app/features/systems/system-view.component.ts": {
+      "words": [
+        "pipeline"
+      ],
+      "reason": "Pending: \"OmniRAG pipeline\" is the product name of the non-flow stage chain; renaming it needs a product copy decision (flow-clarity pass)."
+    }
+  }
+}

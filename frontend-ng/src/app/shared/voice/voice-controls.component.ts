@@ -448,6 +448,91 @@ export interface SharedVoiceOracleStep {
         justify-content: flex-start;
       }
     }
+
+    /* ------------------------------------------------------------------
+       Light theme. Everything above was authored dark-only: near-white
+       text on translucent black slabs. On paper that is a grey smear with
+       invisible labels.
+
+       This has to live here, not in the host. chat-panel does carry
+       host-context light rules for .voice-control-bar, but view
+       encapsulation stamps them with chat-panel's own attribute, so they
+       never match anything inside this component — they were dead the day
+       they were written.
+
+       The accent tints (cyan, emerald, amber at ~10 % alpha) hold up on
+       both surfaces and stay as they are; only the neutral foregrounds
+       and the black slabs need a counterpart.
+       ------------------------------------------------------------------ */
+    :host-context([data-theme="light"]) .voice-control-bar,
+    :host-context([data-theme="light"]) .voice-oracle-panel {
+      background: var(--ck-tint-faint);
+      border-bottom-color: var(--ck-stroke-2);
+      color: var(--ck-fg-3);
+    }
+    :host-context([data-theme="light"]) .voice-control-label,
+    :host-context([data-theme="light"]) .voice-loop-button,
+    :host-context([data-theme="light"]) .voice-oracle-message {
+      color: var(--ck-fg-2);
+    }
+    :host-context([data-theme="light"]) .voice-checkbox,
+    :host-context([data-theme="light"]) .voice-transport-button,
+    :host-context([data-theme="light"]) .voice-select-chevron,
+    :host-context([data-theme="light"]) .voice-oracle-step,
+    :host-context([data-theme="light"]) .control-info-dot {
+      color: var(--ck-fg-3);
+    }
+    :host-context([data-theme="light"]) .control-info-dot,
+    :host-context([data-theme="light"]) .voice-transport-toggle,
+    :host-context([data-theme="light"]) .voice-loop-actions,
+    :host-context([data-theme="light"]) .voice-oracle-step {
+      background: var(--ck-tint-soft);
+      border-color: var(--ck-stroke-2);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+    }
+    :host-context([data-theme="light"]) .voice-select {
+      background: var(--ck-bg-panel-hi);
+      color: var(--ck-fg-1);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+      color-scheme: light;
+    }
+    :host-context([data-theme="light"]) .voice-select:focus {
+      background: var(--ck-bg-panel-hi);
+      box-shadow: 0 0 0 1px var(--ck-stroke-hot);
+    }
+    :host-context([data-theme="light"]) .voice-transport-button:hover:not(:disabled),
+    :host-context([data-theme="light"]) .voice-loop-button:hover:not(:disabled) {
+      background: var(--ck-tint-soft);
+      color: var(--ck-fg-1);
+    }
+    /* The saturated states keep their meaning, on the light signal tones. */
+    :host-context([data-theme="light"]) .tandem-oracle-pill,
+    :host-context([data-theme="light"]) .voice-transport-active,
+    :host-context([data-theme="light"]) .voice-oracle-step-active {
+      color: var(--ck-status-info-fg);
+      background: var(--ck-status-info-bg);
+      box-shadow: inset 0 0 0 1px var(--ck-status-info-line);
+    }
+    :host-context([data-theme="light"]) .voice-warning-pill {
+      color: var(--ck-status-warn-fg);
+      background: var(--ck-status-warn-bg);
+      box-shadow: inset 0 0 0 1px var(--ck-status-warn-line);
+    }
+    :host-context([data-theme="light"]) .voice-loop-start,
+    :host-context([data-theme="light"]) .voice-oracle-step-done {
+      color: var(--ck-status-ok-fg);
+      background: var(--ck-status-ok-bg);
+      box-shadow: inset 0 0 0 1px var(--ck-status-ok-line);
+    }
+    :host-context([data-theme="light"]) .voice-loop-stop,
+    :host-context([data-theme="light"]) .voice-oracle-step-error {
+      color: var(--ck-status-neg-fg);
+      background: var(--ck-status-neg-bg);
+      box-shadow: inset 0 0 0 1px var(--ck-status-neg-line);
+    }
+    :host-context([data-theme="light"]) .voice-oracle-kicker {
+      color: var(--ck-status-info-fg);
+    }
   `],
 })
 export class VoiceControlsComponent {

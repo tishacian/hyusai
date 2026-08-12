@@ -24,6 +24,10 @@ export interface Capability {
   sla?: Record<string, unknown>;
   roi_model?: Record<string, unknown>;
   is_seeded?: 'Y' | 'N';
+  /** `global` for the seeded catalog, `workspace` for a row this workspace
+   * owns — the only kind it may edit, and so the only kind that can be made
+   * to carry a newly authored Skill. */
+  workspace_scope?: 'global' | 'workspace';
 }
 
 export interface Skill {
@@ -62,6 +66,14 @@ export interface Skill {
   executor?: { kind: string; params?: Record<string, unknown> } | null;
   /** `global` for the seeded registry, `workspace` for an authored row. */
   workspace_scope?: 'global' | 'workspace';
+  /** Published Flow versions that dispatch this Skill. Returned by `PATCH`
+   * only: an edit cannot change what they do, so the response owes the author
+   * the truth about reach rather than a veto. */
+  published_bindings?: Array<{ system_name?: string; version?: string | number }>;
+  /** Outcome of the optional capability claim asked for at creation. Creation
+   * does not fail on a refused claim: the Skill exists either way, and the
+   * caller is told which of the two happened. */
+  capability_claim?: { attached: boolean; capability_name?: string | null; reason?: string | null };
 }
 
 export interface ListSkillsOptions {
@@ -116,6 +128,53 @@ export interface SkillDraft {
   executor: { kind: string; params: Record<string, unknown> };
   execution?: Record<string, unknown>;
   pricing?: Record<string, unknown>;
+  /** Capability asked to carry the new Skill. Optional: without it the Skill
+   * is still catalogued, it simply has no capability behind it. */
+  capability_id?: string | null;
+}
+
+/** One row extracted from a Business Requirements document. */
+export interface BrdRequirement {
+  id: string;
+  requirement: string;
+  priority: string;
+  capability: string;
+}
+
+export interface BrdDecision {
+  id: string;
+  decision: string;
+  inputs: string;
+  outcomes: string;
+  threshold: string;
+  escalation: string;
+}
+
+export interface BrdOutcome {
+  id: string;
+  outcome: string;
+  why: string;
+  signal: string;
+}
+
+export interface BrdGuardrail {
+  id: string;
+  text: string;
+  kind: 'rule' | 'prohibition';
+}
+
+/**
+ * What `POST /skills/import/business-requirements` reads out of the template.
+ * `problems` is never fatal: a document it cannot read yields empty lists and
+ * a sentence, so the wizard opens either way.
+ */
+export interface BrdImport {
+  context: Array<{ label: string; value: string }>;
+  outcomes: BrdOutcome[];
+  requirements: BrdRequirement[];
+  decisions: BrdDecision[];
+  guardrails: BrdGuardrail[];
+  problems: string[];
 }
 
 export interface Outcome {
@@ -1350,6 +1409,19 @@ export class CanonicalApiService {
 
   deleteSkill(slug: string): Observable<{ deleted: string }> {
     return this.api.delete<{ deleted: string }>(`/skills/${encodeURIComponent(slug)}`);
+  }
+
+  /**
+   * Read a Business Requirements document into draft material.
+   *
+   * The endpoint parses and returns; it creates nothing. The error is not
+   * swallowed because the import screen has something honest to say about a
+   * document it could not read, and a silent empty list is not it.
+   */
+  importBusinessRequirements(file: File): Observable<BrdImport> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.api.post<BrdImport>('/skills/import/business-requirements', form);
   }
 
   // ---- Systems -------------------------------------------------------------

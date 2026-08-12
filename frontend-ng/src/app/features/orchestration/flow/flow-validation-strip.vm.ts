@@ -5,7 +5,9 @@
  * server-side issues surfaced at save time into one flat, grouped list of
  * rows. Both inputs share the same `{ level, code, message, node_id }` shape
  * (the front and `dag_validator` enumerations are kept in lockstep), so the
- * strip renders them identically with NO translation.
+ * strip renders them identically. The `code` is the contract and travels
+ * untouched; the component turns it into the localised sentence and keeps the
+ * raw `message` as the technical register (title / `data-detail`).
  *
  * Kept Angular-free (only structural types) so the non-trivial mapping —
  * grouping, cross-origin dedup, error/warn split — is unit-testable in the

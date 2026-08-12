@@ -10,6 +10,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent, LiveDotComponent } from '@app/shared/cockpit';
 import {
   CaptureEngine,
@@ -46,7 +47,7 @@ import { clockLabel } from './capture-presentation';
           style="font-size:11px; font-weight:700; letter-spacing:0.08em;"
           [style.color]="connected() ? 'var(--ck-signal-neg)' : 'var(--ck-fg-4)'"
         >
-          {{ connected() ? 'CAPTURE' : connectionLabel() }}
+          {{ connected() ? i18n.t('capture.fil.recording') : connectionLabel() }}
         </span>
         <span style="width:1px; height:18px; background:var(--ck-stroke-2);"></span>
         <span style="font-size:13px; color:var(--ck-fg-1); font-weight:600;">{{ title() }}</span>
@@ -54,7 +55,7 @@ import { clockLabel } from './capture-presentation';
           class="ck-mono ck-tnum"
           style="font-size:12px; font-weight:700;"
           [style.color]="overtime() ? 'var(--ck-signal-neg)' : (lastFiveMinutes() ? 'var(--ck-signal-warn)' : 'var(--ck-fg-3)')"
-          [title]="overtime() ? 'Temps imparti dépassé' : 'Temps restant'"
+          [title]="overtime() ? i18n.t('capture.fil.overtime') : i18n.t('capture.fil.time_left')"
         >
           {{ remainingLabel() }}
         </span>
@@ -62,24 +63,28 @@ import { clockLabel } from './capture-presentation';
           type="button"
           class="ck-mono"
           (click)="togglePause()"
-          [title]="paused() ? 'Reprendre la capture' : 'Mettre la capture en pause'"
+          [title]="paused() ? i18n.t('capture.fil.resume_hint') : i18n.t('capture.fil.pause_hint')"
           style="display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent;"
           [style.border]="'1px solid ' + (paused() ? 'var(--ck-signal-warn)' : 'var(--ck-stroke-2)')"
           [style.color]="paused() ? 'var(--ck-signal-warn)' : 'var(--ck-fg-4)'"
         >
           <ck-glyph [name]="paused() ? 'arrow-right' : 'pulse'" [size]="11" color="currentColor" />
-          {{ paused() ? 'Reprendre' : 'Pause' }}
+          {{ paused() ? i18n.t('capture.fil.resume') : i18n.t('capture.fil.pause') }}
         </button>
         <button
           type="button"
           class="ck-mono"
           (click)="toggleFilLayout()"
-          [title]="docsMode() ? 'Priorité pièces jointes — basculer vers Priorité transcript' : 'Priorité transcript — basculer vers Priorité pièces jointes'"
+          [title]="
+            docsMode()
+              ? i18n.t('capture.fil.layout_documents_hint')
+              : i18n.t('capture.fil.layout_transcript_hint')
+          "
           style="display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent; border:1px solid var(--ck-stroke-2);"
           [style.color]="docsMode() ? 'var(--ck-signal-cool)' : 'var(--ck-fg-4)'"
         >
           <ck-glyph [name]="docsMode() ? 'layers' : 'ledger'" [size]="11" color="currentColor" />
-          {{ docsMode() ? 'priorité pièces' : 'priorité transcript' }}
+          {{ docsMode() ? i18n.t('capture.fil.layout_documents') : i18n.t('capture.fil.layout_transcript') }}
         </button>
 
         <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -87,27 +92,31 @@ import { clockLabel } from './capture-presentation';
             class="ck-mono"
             style="font-size:10px; color:var(--ck-fg-4); padding:3px 8px; border:1px solid var(--ck-stroke-2); border-radius:999px;"
           >
-            pointage · hybride
+            {{ i18n.t('capture.fil.pointing_mode') }}
           </span>
-          <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ refsCount() }} réf.</span>
+          <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ i18n.t('capture.fil.refs_count', { count: refsCount() }) }}</span>
           <button
             type="button"
             class="ck-mono"
             (click)="toggleMuteWhileTyping()"
-            [title]="muteWhileTyping() ? 'Le micro est coupé pendant la frappe' : 'Le micro reste ouvert pendant la frappe'"
+            [title]="
+              muteWhileTyping()
+                ? i18n.t('capture.fil.mic_muted_hint')
+                : i18n.t('capture.fil.mic_open_hint')
+            "
             style="display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent;"
             [style.border]="'1px solid ' + (muteWhileTyping() ? 'var(--ck-signal-warn)' : 'var(--ck-stroke-2)')"
             [style.color]="muteWhileTyping() ? 'var(--ck-signal-warn)' : 'var(--ck-fg-4)'"
           >
             <ck-glyph name="pulse" [size]="11" color="currentColor" />
-            {{ muteWhileTyping() ? 'micro coupé à la frappe' : 'micro continu' }}
+            {{ muteWhileTyping() ? i18n.t('capture.fil.mic_muted') : i18n.t('capture.fil.mic_open') }}
           </button>
           <button
             type="button"
             (click)="finish.emit()"
             style="display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-weight:550; font-size:12.5px; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
           >
-            <ck-glyph name="arrow-right" [size]="13" color="currentColor" /> Terminer la capture
+            <ck-glyph name="arrow-right" [size]="13" color="currentColor" /> {{ i18n.t('capture.fil.finish') }}
           </button>
         </div>
       </div>
@@ -127,8 +136,7 @@ import { clockLabel } from './capture-presentation';
         >
           <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" />
           <span style="font-size:12px; color:var(--ck-fg-2);">
-            {{ previousReportOpenCount() }} point{{ previousReportOpenCount() > 1 ? 's' : '' }} ouvert{{ previousReportOpenCount() > 1 ? 's' : '' }}
-            repris du rapport N-1 — visibles dans le panneau Oracle.
+            {{ i18n.t('capture.fil.carried_open_points', { count: previousReportOpenCount() }) }}
           </span>
         </div>
       }
@@ -139,7 +147,7 @@ import { clockLabel } from './capture-presentation';
           style="flex:none; padding:7px 16px; background:color-mix(in oklab, var(--ck-signal-warn) 10%, var(--ck-bg-panel)); border-bottom:1px solid color-mix(in oklab, var(--ck-signal-warn) 28%, transparent); display:flex; align-items:center; gap:8px;"
         >
           <ck-glyph name="pulse" [size]="13" color="var(--ck-signal-warn)" />
-          <span style="font-size:12px; color:var(--ck-fg-2);">5 dernières minutes — pensez à conclure les points clés.</span>
+          <span style="font-size:12px; color:var(--ck-fg-2);">{{ i18n.t('capture.fil.last_five_minutes') }}</span>
         </div>
       }
 
@@ -150,23 +158,23 @@ import { clockLabel } from './capture-presentation';
         >
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <ck-glyph name="warn" [size]="14" color="var(--ck-signal-neg)" />
-            <span style="font-size:12.5px; color:var(--ck-fg-1); font-weight:600;">Temps imparti dépassé</span>
+            <span style="font-size:12.5px; color:var(--ck-fg-1); font-weight:600;">{{ i18n.t('capture.fil.overtime') }}</span>
             <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="lf-close-btn" (click)="engine.extendSession(15)">
-                <ck-glyph name="bolt" [size]="12" color="currentColor" /> Prolonger +15
+                <ck-glyph name="bolt" [size]="12" color="currentColor" /> {{ i18n.t('capture.fil.extend') }}
               </button>
               <button type="button" class="lf-close-btn" (click)="scheduleFollowup()">
-                <ck-glyph name="arrow-right" [size]="12" color="currentColor" /> Programmer un suivi
+                <ck-glyph name="arrow-right" [size]="12" color="currentColor" /> {{ i18n.t('capture.fil.schedule_followup') }}
               </button>
               <button type="button" class="lf-close-btn" (click)="toggleClosure()">
-                <ck-glyph name="layers" [size]="12" color="currentColor" /> {{ showClosure() ? 'Masquer la fiche' : 'Aperçu fiche' }}
+                <ck-glyph name="layers" [size]="12" color="currentColor" /> {{ showClosure() ? i18n.t('capture.fil.hide_closure') : i18n.t('capture.fil.preview_closure') }}
               </button>
               <button
                 type="button"
                 (click)="finish.emit()"
                 style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-weight:600; font-size:12px; background:color-mix(in oklab, var(--ck-signal-neg) 88%, transparent); color:var(--ck-on-signal);"
               >
-                <ck-glyph name="check" [size]="12" color="currentColor" /> Terminer
+                <ck-glyph name="check" [size]="12" color="currentColor" /> {{ i18n.t('capture.fil.end') }}
               </button>
             </div>
           </div>
@@ -181,7 +189,7 @@ import { clockLabel } from './capture-presentation';
                   style="margin:0; white-space:pre-wrap; word-break:break-word; font-size:11.5px; line-height:1.55; color:var(--ck-fg-2);"
                   >{{ sheet.markdown }}</pre>
               } @else {
-                <span style="font-size:12px; color:var(--ck-fg-4); font-style:italic;">Chargement de la fiche de clôture…</span>
+                <span style="font-size:12px; color:var(--ck-fg-4); font-style:italic;">{{ i18n.t('capture.fil.closure_loading') }}</span>
               }
             </div>
           }
@@ -204,7 +212,7 @@ import { clockLabel } from './capture-presentation';
               class="ck-mono"
               style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);"
             >
-              Sections
+              {{ i18n.t('capture.fil.sections') }}
             </span>
             @if (topicProgress().index >= 0) {
               <span class="ck-mono ck-tnum" style="margin-left:auto; font-size:10px; color:var(--ck-fg-4);">
@@ -221,12 +229,12 @@ import { clockLabel } from './capture-presentation';
             <button
               type="button"
               (click)="applySuggestion(sug)"
-              title="Section proposée automatiquement — cliquer pour suivre"
+              [title]="i18n.t('capture.fil.auto_section_hint')"
               style="flex:none; display:flex; align-items:center; gap:6px; margin:8px 10px 0; padding:6px 8px; border-radius:var(--ck-radius-sm); cursor:pointer; text-align:left; border:1px dashed color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-fg-3);"
             >
               <ck-glyph name="bolt" [size]="11" color="var(--ck-signal-cool)" />
               <span style="font-size:11px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                suggestion auto · {{ labelFor(sug.topic_id, sug.subtopic_id) }}
+                {{ i18n.t('capture.fil.auto_section', { label: labelFor(sug.topic_id, sug.subtopic_id) }) }}
               </span>
             </button>
           }
@@ -239,7 +247,7 @@ import { clockLabel } from './capture-presentation';
               <span
                 style="color:var(--ck-fg-5); font-size:11.5px; font-style:italic; padding:6px 9px; line-height:1.4;"
               >
-                Conversation libre — aucun plan de sections.
+                {{ i18n.t('capture.fil.no_plan') }}
               </span>
             }
             @for (topic of planTopics(); track topic.id; let i = $index) {
@@ -271,7 +279,7 @@ import { clockLabel } from './capture-presentation';
               (click)="engine.finishSection()"
               style="display:inline-flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:7px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); cursor:pointer; font-size:11.5px; font-weight:550; background:transparent; color:var(--ck-fg-3);"
             >
-              <ck-glyph name="check" [size]="12" color="currentColor" /> Section terminée
+              <ck-glyph name="check" [size]="12" color="currentColor" /> {{ i18n.t('capture.fil.section_done') }}
             </button>
           </div>
         </div>
@@ -292,7 +300,7 @@ import { clockLabel } from './capture-presentation';
           >
             @if (engine.feed().length === 0) {
               <div style="color:var(--ck-fg-4); font-size:13px; font-style:italic; margin-top:12px;">
-                En écoute… la parole et l'écrit s'inscrivent ici, sur un seul fil horodaté.
+                {{ i18n.t('capture.fil.listening') }}
               </div>
             }
             @for (item of engine.feed(); track item.id) {
@@ -347,10 +355,10 @@ import { clockLabel } from './capture-presentation';
                   class="ck-mono"
                   style="font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);"
                 >
-                  Relances
+                  {{ i18n.t('capture.fil.prompts') }}
                 </span>
                 <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">
-                  {{ hintQueue().length }} · non bloquant
+                  {{ i18n.t('capture.fil.prompts_count', { count: hintQueue().length }) }}
                 </span>
               </div>
               @if (topHint(); as h) {
@@ -402,7 +410,7 @@ import { clockLabel } from './capture-presentation';
                 (keydown)="onKeydown($event)"
                 (focus)="typing.set(true)"
                 (blur)="typing.set(false)"
-                placeholder="Écrire une note — s'insère dans le Fil  ·  la voix est captée en continu"
+                [placeholder]="i18n.t('capture.fil.composer_placeholder')"
                 style="flex:1; resize:none; border:none; outline:none; background:transparent; color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; line-height:1.5; max-height:120px;"
               ></textarea>
               <button
@@ -414,13 +422,13 @@ import { clockLabel } from './capture-presentation';
                 [style.color]="draft().trim() ? 'var(--ck-on-signal)' : 'var(--ck-fg-4)'"
                 [style.cursor]="draft().trim() ? 'pointer' : 'not-allowed'"
               >
-                <ck-glyph name="ledger" [size]="12" color="currentColor" /> Insérer
+                <ck-glyph name="ledger" [size]="12" color="currentColor" /> {{ i18n.t('capture.fil.insert') }}
               </button>
             </div>
             <div style="display:flex; gap:16px; margin-top:7px; padding-left:4px; flex-wrap:wrap;">
-              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">↵ insérer</span>
-              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">⇧↵ nouvelle ligne</span>
-              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">voix ⇄ écrit : même flux</span>
+              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">{{ i18n.t('capture.fil.hint_enter') }}</span>
+              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">{{ i18n.t('capture.fil.hint_shift_enter') }}</span>
+              <span class="ck-mono" style="font-size:9.5px; color:var(--ck-fg-5);">{{ i18n.t('capture.fil.hint_same_flow') }}</span>
             </div>
           </div>
         </div>
@@ -440,30 +448,34 @@ import { clockLabel } from './capture-presentation';
             <div style="display:flex; align-items:center; gap:8px;">
               <ck-glyph name="bolt" [size]="13" color="var(--ck-signal-violet)" />
               <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-                Pistes de l'oracle
+                {{ i18n.t('capture.fil.oracle_leads') }}
               </span>
               <button
                 type="button"
                 class="ck-mono"
                 (click)="toggleOracleSuppressed()"
-                [title]="oracleSuppressed() ? 'Réafficher les pistes de l\\'oracle' : 'Masquer l\\'oracle pour cette séance'"
+                [title]="
+                  oracleSuppressed()
+                    ? i18n.t('capture.fil.oracle_show_hint')
+                    : i18n.t('capture.fil.oracle_hide_hint')
+                "
                 style="margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:9px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent;"
                 [style.border]="'1px solid ' + (oracleSuppressed() ? 'var(--ck-signal-violet)' : 'var(--ck-stroke-2)')"
                 [style.color]="oracleSuppressed() ? 'var(--ck-signal-violet)' : 'var(--ck-fg-5)'"
               >
                 <ck-glyph [name]="oracleSuppressed() ? 'bolt' : 'x'" [size]="10" color="currentColor" />
-                {{ oracleSuppressed() ? 'Afficher' : 'Masquer' }}
+                {{ oracleSuppressed() ? i18n.t('capture.fil.show') : i18n.t('capture.fil.hide') }}
               </button>
             </div>
             @if (oracleSuppressed()) {
               <span style="color:var(--ck-fg-5); font-size:12px; font-style:italic;">
-                Oracle masqué — il continue d'écouter en arrière-plan.
+                {{ i18n.t('capture.fil.oracle_hidden') }}
               </span>
             } @else {
               <div class="ck-scroll" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:280px;">
                 @if (openOracle().length === 0) {
                   <span style="color:var(--ck-fg-5); font-size:12px; font-style:italic;">
-                    L'oracle écoute… il déposera ici des questions d'approfondissement.
+                    {{ i18n.t('capture.fil.oracle_empty') }}
                   </span>
                 }
                 @for (q of openOracle(); track q.id) {
@@ -474,15 +486,25 @@ import { clockLabel } from './capture-presentation';
                   >
                     <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                       <span
-                        [title]="q.blocking ? 'Bloquante' : isHighPriority(q.priority) ? 'Priorité haute' : 'Priorité normale'"
+                        [title]="
+                          q.blocking
+                            ? i18n.t('capture.fil.priority_blocking')
+                            : isHighPriority(q.priority)
+                              ? i18n.t('capture.fil.priority_high')
+                              : i18n.t('capture.fil.priority_normal')
+                        "
                         style="flex:none; width:6px; height:6px; border-radius:999px;"
                         [style.background]="q.blocking ? 'var(--ck-signal-neg)' : isHighPriority(q.priority) ? 'var(--ck-signal-warn)' : 'var(--ck-fg-5)'"
                       ></span>
                       <span class="ck-mono" style="font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-signal-violet);">
-                        {{ q.source === 'previous_report' ? 'N-1' : 'Oracle' }}
+                        {{
+                          q.source === 'previous_report'
+                            ? i18n.t('capture.fil.source_previous')
+                            : i18n.t('capture.fil.source_oracle')
+                        }}
                       </span>
                       @if (q.blocking) {
-                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-neg);">bloquante</span>
+                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-neg);">{{ i18n.t('capture.fil.blocking') }}</span>
                       }
                       @if (oracleTopic(q.topic_id); as topic) {
                         <span
@@ -494,7 +516,7 @@ import { clockLabel } from './capture-presentation';
                         </span>
                       }
                       @if (q.status === 'deferred') {
-                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-cool);">différée</span>
+                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-cool);">{{ i18n.t('capture.fil.deferred') }}</span>
                       }
                       <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">{{ stamp(q.ts_ms) }}</span>
                     </div>
@@ -506,7 +528,7 @@ import { clockLabel } from './capture-presentation';
                         (click)="engine.setOracleStatus(q.id, q.status === 'answered' ? 'open' : 'answered')"
                         [style.--lf-accent]="q.status === 'answered' ? 'var(--ck-signal-violet)' : null"
                       >
-                        <ck-glyph name="layers" [size]="11" color="currentColor" /> {{ q.status === 'answered' ? 'À traiter' : 'Garder' }}
+                        <ck-glyph name="layers" [size]="11" color="currentColor" /> {{ q.status === 'answered' ? i18n.t('capture.fil.reopen') : i18n.t('capture.fil.keep') }}
                       </button>
                       <button
                         type="button"
@@ -514,10 +536,10 @@ import { clockLabel } from './capture-presentation';
                         (click)="engine.deferOracle(q.id)"
                         [style.--lf-accent]="q.status === 'deferred' ? 'var(--ck-signal-cool)' : null"
                       >
-                        <ck-glyph name="arrow-right" [size]="11" color="currentColor" /> Différer
+                        <ck-glyph name="arrow-right" [size]="11" color="currentColor" /> {{ i18n.t('capture.fil.defer') }}
                       </button>
                       <button type="button" class="lf-chip" (click)="engine.setOracleStatus(q.id, 'dismissed')">
-                        <ck-glyph name="x" [size]="11" color="currentColor" /> Ignorer
+                        <ck-glyph name="x" [size]="11" color="currentColor" /> {{ i18n.t('capture.fil.dismiss') }}
                       </button>
                     </div>
                   </div>
@@ -642,6 +664,8 @@ import { clockLabel } from './capture-presentation';
   ],
 })
 export class LeFilSessionComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
 
   /** Emitted by "Terminer la capture" — the shell routes to the publish surface. */
@@ -758,15 +782,15 @@ export class LeFilSessionComponent {
   protected connectionLabel(): string {
     switch (this.engine.connectionState()) {
       case 'connecting':
-        return 'CONNEXION…';
+        return this.i18n.t('capture.fil.conn.connecting');
       case 'reconnecting':
-        return 'RECONNEXION…';
+        return this.i18n.t('capture.fil.conn.reconnecting');
       case 'error':
-        return 'ERREUR';
+        return this.i18n.t('capture.fil.conn.error');
       case 'closed':
-        return 'TERMINÉ';
+        return this.i18n.t('capture.fil.conn.closed');
       default:
-        return 'EN ATTENTE';
+        return this.i18n.t('capture.fil.conn.waiting');
     }
   }
 

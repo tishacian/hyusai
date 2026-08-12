@@ -3,6 +3,7 @@ import { ActivatedRoute } from '@angular/router';
 import { PageFrameComponent } from '@app/shared/cockpit';
 import type { CaptureViewReference } from '@app/core/api.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { CaptureEngine, type CaptureSessionInfo } from './capture-engine';
 import { FSE_INTERVENTION_V1 } from './capture-templates';
 import { LeFilSessionComponent } from './le-fil-session.component';
@@ -25,7 +26,7 @@ export type CaptureFilSurface =
 
 interface SurfaceTab {
   id: CaptureFilSurface;
-  label: string;
+  labelKey: string;
 }
 
 /**
@@ -72,7 +73,7 @@ interface SurfaceTab {
             [style.color]="surface() === tab.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
             [style.boxShadow]="surface() === tab.id ? 'inset 0 0 0 1px var(--ck-stroke-3)' : 'none'"
           >
-            {{ tab.label }}
+            {{ i18n.t(tab.labelKey) }}
           </button>
         }
       </nav>
@@ -117,6 +118,7 @@ interface SurfaceTab {
   ],
 })
 export class CaptureFilShellComponent {
+  readonly i18n = inject(I18nService);
   private readonly engine = inject(CaptureEngine);
   private readonly route = inject(ActivatedRoute);
   private readonly systems = inject(CanonicalApiService);
@@ -136,7 +138,7 @@ export class CaptureFilShellComponent {
     if (this.engine.template()) return this.engine.template()!.label;
     return this.interventionsRoute()
       ? FSE_INTERVENTION_V1.label
-      : 'Capture de connaissances';
+      : this.i18n.t('capture.title');
   });
   protected readonly eyebrow = computed(() =>
     this.engine.template() || this.interventionsRoute()
@@ -197,13 +199,13 @@ export class CaptureFilShellComponent {
   }
 
   protected readonly tabs: SurfaceTab[] = [
-    { id: 'dashboard', label: 'Séances' },
-    { id: 'prep', label: 'Préparation' },
-    { id: 'plan', label: 'Plan' },
-    { id: 'session', label: 'Capture' },
-    { id: 'finalize', label: 'Finalisation' },
-    { id: 'review', label: 'Revue' },
-    { id: 'publish', label: 'Publication' },
+    { id: 'dashboard', labelKey: 'capture.tab.dashboard' },
+    { id: 'prep', labelKey: 'capture.tab.prep' },
+    { id: 'plan', labelKey: 'capture.tab.plan' },
+    { id: 'session', labelKey: 'capture.tab.session' },
+    { id: 'finalize', labelKey: 'capture.tab.finalize' },
+    { id: 'review', labelKey: 'capture.tab.review' },
+    { id: 'publish', labelKey: 'capture.tab.publish' },
   ];
 
   /**

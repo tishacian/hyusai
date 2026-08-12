@@ -18,6 +18,7 @@ import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { FlowStore } from './flow.store';
 
 export type FlowServerValidationState =
@@ -61,6 +62,7 @@ export function flowValidationFingerprint(value: unknown): string {
 
 @Injectable()
 export class FlowValidationService {
+  private readonly i18n = inject(I18nService);
   private readonly store = inject(FlowStore);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService, { optional: true });
@@ -183,7 +185,7 @@ export class FlowValidationService {
           }
           this.accepted.set(null);
           this._state.set('error');
-          this._error.set('The current Flow could not be validated by the server.');
+          this._error.set(this.i18n.t('flow.validation.error.server'));
         },
       });
     if (!request.closed) {

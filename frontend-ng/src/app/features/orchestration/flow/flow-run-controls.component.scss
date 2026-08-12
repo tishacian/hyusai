@@ -17,7 +17,7 @@
   border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
   border-radius: 999px;
   color: var(--ck-fg-3, #8891a0);
-  background: rgba(255, 255, 255, 0.025);
+  background: color-mix(in srgb, var(--ck-fg-1, #f2f5f8) 3%, transparent);
   font: 700 9px / 1 var(--ck-font-mono, monospace);
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -76,17 +76,17 @@
   &.is-on {
     border-color: var(--ck-signal-warn, #f5b84a);
     color: var(--ck-signal-warn, #f5b84a);
-    background: rgba(245, 184, 74, 0.12);
+    background: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 12%, transparent);
   }
 }
 
 .ck-run__btn--accent {
   border-color: var(--ck-stroke-hot, rgba(125, 211, 252, 0.32));
   color: var(--ck-signal-cool, #7dd3fc);
-  background: rgba(125, 211, 252, 0.1);
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
 
   &:hover:not(:disabled) {
-    background: rgba(125, 211, 252, 0.18);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 18%, transparent);
     color: var(--ck-signal-ice, #e0f2fe);
   }
 }
@@ -135,7 +135,7 @@
   height: 100%;
   padding: 0;
   border: 0;
-  background: rgba(2, 5, 9, 0.72);
+  background: var(--ck-scrim-strong);
   backdrop-filter: blur(4px);
   cursor: default;
 }
@@ -147,7 +147,7 @@
   border: 1px solid var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
   border-radius: var(--ck-radius-lg, 10px);
   background: var(--ck-bg-panel, #11161d);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--ck-shadow-modal);
   color: var(--ck-fg-1, #f2f5f8);
 }
 
@@ -212,7 +212,7 @@
   border: 1px solid var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
   border-radius: var(--ck-radius-sm, 4px);
   outline: none;
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--ck-bg-0, rgba(0, 0, 0, 0.28));
   color: var(--ck-fg-1, #f2f5f8);
   caret-color: var(--ck-signal-cool, #7dd3fc);
   font: 12px / 1.55 var(--ck-font-mono, monospace);
@@ -220,7 +220,7 @@
 
   &:focus {
     border-color: var(--ck-signal-cool, #7dd3fc);
-    box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.12);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
   }
 }
 
@@ -239,7 +239,7 @@
 
   &:focus {
     border-color: var(--ck-signal-cool, #7dd3fc);
-    box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.12);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
   }
 }
 
@@ -286,7 +286,7 @@
 
     &.is-primary {
       border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
-      background: rgba(125, 211, 252, 0.12);
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
       color: var(--ck-signal-ice, #e0f2fe);
     }
 

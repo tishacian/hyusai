@@ -32,7 +32,10 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { FlowStore } from './flow.store';
 import {
@@ -112,6 +115,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowPublicationPanelComponent,
     FlowWorkbenchPanelComponent,
     ConfirmDialogComponent,
+    EmptyStateComponent,
+    HelpTooltipComponent,
   ],
   styleUrl: './flow-builder.component.scss',
   template: `
@@ -122,18 +127,21 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     >
       <header class="flow-builder__header">
         <div class="flow-builder__crumbs">
-          <a routerLink="/systems" class="flow-builder__crumb">Systems</a>
+          <a routerLink="/systems" class="flow-builder__crumb">{{
+            i18n.t('flow.builder.crumb.systems')
+          }}</a>
           <span class="flow-builder__sep">/</span>
           @if (system(); as sys) {
             <a [routerLink]="['/systems', sys.id]" class="flow-builder__crumb">{{ sys.name }}</a>
             <span class="flow-builder__sep">/</span>
-            <span class="flow-builder__here">Flow builder</span>
+            <span class="flow-builder__here">{{ i18n.t('flow.builder.crumb.here') }}</span>
           } @else {
-            <span class="flow-builder__here">Scratchpad flow</span>
+            <span class="flow-builder__here">{{ i18n.t('flow.builder.crumb.scratchpad') }}</span>
           }
         </div>
         <h1 class="flow-builder__title">
-          {{ system()?.name || 'Flow builder' }}
+          {{ system()?.name || i18n.t('flow.builder.title') }}
+          <ck-help id="concept.flow" />
         </h1>
       </header>
 
@@ -173,16 +181,23 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       @if (loadState() === 'ready' && persistence.hydrationReady()) {
         @if (persistence.publicationMode()) {
           <div class="flow-builder__publication-boundary" role="status">
-            <strong>Server Draft r{{ persistence.draftRevision() }}</strong>
+            <strong>
+              {{
+                i18n.t('flow.builder.boundary.draft', {
+                  revision: persistence.draftRevision() ?? '',
+                })
+              }}
+              <ck-help id="concept.draft" />
+            </strong>
             <span>
-              Test draft executes this saved revision. Operator Runner and ingress stay on
-              Published v{{ persistence.publishedVersionNumber() }} until an explicit Publish.
+              {{
+                i18n.t('flow.builder.boundary.detail', {
+                  version: persistence.publishedVersionNumber() ?? '',
+                })
+              }}
             </span>
             @if (!persistence.publishedContractReady()) {
-              <strong>
-                Contract publish required: the migration baseline remains non-executable until
-                this draft is explicitly published.
-              </strong>
+              <strong>{{ i18n.t('flow.builder.boundary.contract') }}</strong>
             }
           </div>
         } @else if (systemId()) {
@@ -201,9 +216,18 @@ const PUBLICATION_HYDRATION_CODES = new Set([
                 [name]="manifestStripOpen() ? 'chevron-down' : 'chevron-right'"
                 [size]="12"
               />
-              <span>Runtime details</span>
+              <span>{{ i18n.t('flow.builder.runtime.details') }}</span>
             </button>
+            <ck-help id="concept.execution-mode" />
             <div id="flow-builder-runtime-manifest" [hidden]="!manifestStripOpen()">
+              <!-- The two facts the badge wall used to shout at the top of the
+                   canvas, named in full and read where they are asked for. -->
+              <dl class="flow-builder__runtime-facts">
+                <dt>{{ i18n.t('flow.builder.runtime.surface') }}</dt>
+                <dd>{{ run.executionSurfaceLabel() }}</dd>
+                <dt>{{ i18n.t('flow.builder.runtime.mode') }}</dt>
+                <dd>{{ run.runtimeModeLabel() }}</dd>
+              </dl>
               <app-flow-manifest-strip />
             </div>
           </div>
@@ -219,16 +243,37 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         @if (persistence.autosavePaused()) {
           <div class="flow-builder__review" role="status" aria-live="polite">
             <div>
-              <strong>Autosave paused.</strong>
-              This bulk or destructive replacement stays local until you explicitly save it.
+              <strong>{{ i18n.t('flow.builder.autosave.paused') }}</strong>
+              {{ i18n.t('flow.builder.autosave.paused.body') }}
             </div>
             <div class="flow-builder__review-actions">
               @if (persistence.reviewRequired() === 'conflict') {
-                <button type="button" (click)="reloadAuthoritativeSystem()">Reload server Flow</button>
+                <button type="button" (click)="reloadAuthoritativeSystem()">
+                  {{ i18n.t('flow.builder.autosave.reload') }}
+                </button>
               } @else {
-                <button type="button" (click)="persistence.saveNow()">Review &amp; save</button>
-                <button type="button" (click)="persistence.discardPendingChanges()">Discard local changes</button>
+                <button type="button" (click)="persistence.saveNow()">
+                  {{ i18n.t('flow.builder.autosave.review') }}
+                </button>
+                <button type="button" (click)="persistence.discardPendingChanges()">
+                  {{ i18n.t('flow.builder.autosave.discard') }}
+                </button>
               }
+            </div>
+          </div>
+        } @else if (persistence.workbenchAutosaveHeld() && store.dirty()) {
+          <!-- The workbench hold used to be silent: the toolbar said "Unsaved"
+               and nothing ever saved. Say it, and offer the one action that
+               ends it. -->
+          <div class="flow-builder__review is-hold" role="status" aria-live="polite">
+            <div>
+              <strong>{{ i18n.t('flow.builder.autosave.hold') }}</strong>
+              {{ i18n.t('flow.builder.autosave.hold.hint') }}
+            </div>
+            <div class="flow-builder__review-actions">
+              <button type="button" (click)="persistence.saveNow()">
+                {{ i18n.t('flow.builder.autosave.review') }}
+              </button>
             </div>
           </div>
         }
@@ -255,20 +300,30 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           <div class="flow-builder__canvas">
             <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
             @if (store.nodeCount() === 0) {
+              <!-- First-Flow guide. The three steps are the shape of every Flow,
+                   named in the words the palette uses, so the empty canvas
+                   teaches the model instead of only inviting a click. -->
               <div class="flow-builder__canvas-empty">
-                <p class="flow-builder__canvas-empty-title">Nothing on the canvas yet</p>
-                <p class="flow-builder__canvas-empty-hint">
-                  Start with a structure from the palette — a trigger, a skill or an
-                  output — and it lands here.
-                </p>
-                <button
-                  type="button"
-                  class="flow-builder__canvas-empty-cta"
-                  (click)="startFromPalette()"
+                <app-empty-state
+                  icon="git-branch"
+                  size="lg"
+                  [title]="i18n.t('flow.builder.empty.title')"
+                  [description]="i18n.t('flow.builder.empty.body')"
                 >
-                  <app-icon name="plus" [size]="14" />
-                  <span>Add the first node</span>
-                </button>
+                  <ol class="flow-builder__canvas-empty-steps">
+                    <li>{{ i18n.t('flow.builder.empty.step1') }}</li>
+                    <li>{{ i18n.t('flow.builder.empty.step2') }}</li>
+                    <li>{{ i18n.t('flow.builder.empty.step3') }}</li>
+                  </ol>
+                  <button
+                    type="button"
+                    class="flow-builder__canvas-empty-cta"
+                    (click)="startFromPalette()"
+                  >
+                    <app-icon name="plus" [size]="14" />
+                    <span>{{ i18n.t('flow.builder.empty.cta') }}</span>
+                  </button>
+                </app-empty-state>
               </div>
             }
           </div>
@@ -292,13 +347,15 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       } @else {
         <div class="flow-builder__load-state" role="status">
           @if (loadState() === 'loading') {
-            <strong>Loading the persisted Flow…</strong>
-            <span>Editing and execution remain locked until hydration completes.</span>
+            <strong>{{ i18n.t('flow.builder.load.loading') }}</strong>
+            <span>{{ i18n.t('flow.builder.load.loading.body') }}</span>
           } @else {
-            <strong>Flow loading blocked</strong>
+            <strong>{{ i18n.t('flow.builder.load.error') }}</strong>
             <span>{{ loadError() }}</span>
             @if (systemId(); as sid) {
-              <button type="button" (click)="hydrateFromSystem(sid)">Retry strict reload</button>
+              <button type="button" (click)="hydrateFromSystem(sid)">
+                {{ i18n.t('flow.builder.load.retry') }}
+              </button>
             }
           }
         </div>
@@ -309,12 +366,16 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         <div
           class="flow-builder__handle-menu"
           role="menu"
-          aria-label="Insert connected node"
+          [attr.aria-label]="i18n.t('flow.builder.handle.aria')"
           [style.left.px]="menu.position.x"
           [style.top.px]="menu.position.y"
         >
           <div class="flow-builder__handle-title">
-            Insert {{ menu.connector.direction === 'out' ? 'target' : 'source' }} node
+            {{
+              menu.connector.direction === 'out'
+                ? i18n.t('flow.builder.handle.insert.target')
+                : i18n.t('flow.builder.handle.insert.source')
+            }}
           </div>
           @for (item of handleMenuShortlist(); track item.config?.['skill_slug'] ?? item.type) {
             <button
@@ -328,7 +389,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               {{ item.label }}
             </button>
           } @empty {
-            <p class="flow-builder__handle-empty">No type-compatible node.</p>
+            <p class="flow-builder__handle-empty">{{ i18n.t('flow.builder.handle.empty') }}</p>
           }
           @if (handleMenuItems().length > handleMenuShortlist().length) {
             <button
@@ -337,7 +398,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               class="flow-builder__handle-more"
               (click)="promoteHandleMenuToPalette()"
             >
-              Search all {{ handleMenuItems().length }} compatible…
+              {{ i18n.t('flow.builder.handle.more', { count: handleMenuItems().length }) }}
             </button>
           }
         </div>
@@ -371,10 +432,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
     <app-confirm-dialog
       [open]="clearConfirmationOpen()"
-      title="Clear this Flow?"
+      [title]="i18n.t('flow.builder.clear.title')"
       [description]="clearConfirmationDescription()"
-      confirmLabel="Clear and pause autosave"
-      cancelLabel="Keep Flow"
+      [confirmLabel]="i18n.t('flow.builder.clear.confirm')"
+      [cancelLabel]="i18n.t('flow.builder.clear.cancel')"
       tone="danger"
       icon="trash-2"
       [confirmPhrase]="confirmationPhrase()"
@@ -384,10 +445,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
     <app-confirm-dialog
       [open]="persistence.replacementConfirmationRequested()"
-      title="Replace the active Flow?"
-      description="This replacement changes the execution graph of an active System. It will be sent once with explicit replacement authority; autosave remains paused."
-      confirmLabel="Replace active Flow"
-      cancelLabel="Keep reviewing"
+      [title]="i18n.t('flow.builder.replace.title')"
+      [description]="i18n.t('flow.builder.replace.description')"
+      [confirmLabel]="i18n.t('flow.builder.replace.confirm')"
+      [cancelLabel]="i18n.t('flow.builder.replace.cancel')"
       tone="danger"
       icon="alert-triangle"
       [confirmPhrase]="confirmationPhrase()"
@@ -404,6 +465,7 @@ export class FlowBuilderComponent {
   /** Provided here (see decorator) so the toolbar + validation strip share it. */
   protected readonly persistence = inject(FlowPersistenceService);
   protected readonly workbench = inject(FlowWorkbenchService);
+  readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly catalog = inject(FlowCatalogService);
   private readonly route = inject(ActivatedRoute);
@@ -436,10 +498,11 @@ export class FlowBuilderComponent {
   protected readonly confirmationPhrase = computed(
     () => this.system()?.name?.trim() || 'CLEAR',
   );
-  protected readonly clearConfirmationDescription = computed(
-    () =>
-      `This will remove ${this.store.nodeCount()} nodes and ${this.store.edgeCount()} edges locally. ` +
-      'Autosave will pause; the persisted Flow is unchanged until you explicitly save.',
+  protected readonly clearConfirmationDescription = computed(() =>
+    this.i18n.t('flow.builder.clear.description', {
+      nodes: this.store.nodeCount(),
+      edges: this.store.edgeCount(),
+    }),
   );
   private ownsNativeFullscreen = false;
   private lastInspectorSelectionId: string | null = null;
@@ -606,7 +669,7 @@ export class FlowBuilderComponent {
       this.manifest.reload();
     } else {
       this.loadError.set(
-        this.persistence.hydrationError() ?? 'Rollback returned a malformed Flow.',
+        this.persistence.hydrationError() ?? this.i18n.t('flow.builder.error.rollback'),
       );
       this.loadState.set('error');
     }
@@ -640,7 +703,7 @@ export class FlowBuilderComponent {
             : this.persistence.hydrateSystem(sys);
           if (!hydrated) {
             this.loadError.set(
-              this.persistence.hydrationError() ?? 'The persisted Flow is malformed.',
+              this.persistence.hydrationError() ?? this.i18n.t('flow.builder.error.malformed'),
             );
             this.loadState.set('error');
             return;
@@ -657,7 +720,7 @@ export class FlowBuilderComponent {
           this.persistence.markHydrationFailed(message);
           this.loadError.set(message);
           this.loadState.set('error');
-          this.toastr.error(message, 'Flow loading blocked');
+          this.toastr.error(message, this.i18n.t('flow.builder.load.error'));
         },
       });
   }
@@ -678,7 +741,7 @@ export class FlowBuilderComponent {
    * so its server message replaces the generic refusal instead of hiding it. */
   private hydrationFailureMessage(error: unknown): string {
     const generic =
-      'The System could not be loaded. No fallback graph was opened, so the persisted Flow cannot be overwritten accidentally.';
+      this.i18n.t('flow.builder.error.generic');
     if (!(error instanceof HttpErrorResponse)) return generic;
     const detail = error.error?.detail ?? error.error;
     if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return generic;

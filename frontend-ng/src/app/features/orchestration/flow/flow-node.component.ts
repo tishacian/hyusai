@@ -29,6 +29,7 @@ import {
 } from '@angular/core';
 import { FFlowModule } from '@foblex/flow';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { FlowNodeView } from './flow-foblex.adapter';
 import { FlowManifestService } from './flow-manifest.service';
@@ -70,9 +71,13 @@ interface RuntimeBadge {
             [class.is-on]="breakpoint()"
             (click)="onToggleBreakpoint($event)"
             (mousedown)="$event.stopPropagation()"
-            [title]="breakpoint() ? 'Remove breakpoint' : 'Set breakpoint'"
+            [title]="
+              breakpoint()
+                ? i18n.t('flow.node.breakpoint.remove')
+                : i18n.t('flow.node.breakpoint.set')
+            "
             [attr.aria-pressed]="breakpoint()"
-            aria-label="Toggle breakpoint"
+            [attr.aria-label]="i18n.t('flow.node.breakpoint.aria')"
           ></button>
         }
         <span class="ck-flow-node__pill">{{ typeLabel() }}</span>
@@ -82,7 +87,11 @@ interface RuntimeBadge {
             class="ck-flow-node__badge"
             [attr.data-status]="b.status"
             [attr.data-operational]="b.operational"
-            [title]="(b.operational ? 'Configured · ' : 'Not configured · ') + b.status"
+            [title]="
+              (b.operational
+                ? i18n.t('flow.node.configured')
+                : i18n.t('flow.node.not_configured')) + ' · ' + b.status
+            "
           >
             {{ b.label }}
           </span>
@@ -93,9 +102,9 @@ interface RuntimeBadge {
           (click)="onDeleteNode(view().id, $event)"
           (mousedown)="$event.stopPropagation()"
           [disabled]="editingLocked()"
-          [attr.aria-label]="'Delete node ' + label()"
+          [attr.aria-label]="i18n.t('flow.node.delete', { name: label() })"
           aria-keyshortcuts="Delete Backspace"
-          [title]="'Delete node ' + label() + ' (Delete/Backspace)'"
+          [title]="i18n.t('flow.node.delete.hint', { name: label() })"
         >
           <app-icon name="trash-2" [size]="14" />
         </button>
@@ -140,6 +149,7 @@ export class FlowNodeComponent {
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: present whenever the node renders inside the builder shell. */
   private readonly run = inject(FlowRunService, { optional: true });
+  readonly i18n = inject(I18nService);
 
   readonly view = input.required<FlowNodeView>();
   readonly selected = input(false);
@@ -172,35 +182,22 @@ export class FlowNodeComponent {
     () => this.node().label || String(this.node().type),
   );
 
+  /**
+   * The pill names the node's role in plain words. API kinds (`sink`, `hitl`)
+   * never reach the label: the key carries the canonical term and the raw kind
+   * stays on `data-kind` for styling and for whoever inspects the DOM.
+   */
   readonly typeLabel = computed(() => {
     const node = this.node();
     const cfg = (node.config ?? {}) as Record<string, unknown>;
-    if (typeof cfg['skill_slug'] === 'string' && cfg['skill_slug']) return 'SKILL';
-    if (typeof cfg['runtime_ref'] === 'string' && cfg['runtime_ref']) return 'RUNTIME';
-    switch (node.kind ?? 'task') {
-      case 'source':
-        return 'TRIGGER';
-      case 'asset':
-        return 'ASSET';
-      case 'sink':
-        return 'OUTPUT';
-      case 'decision':
-        return 'ROUTER';
-      case 'fork':
-        return 'FORK';
-      case 'join':
-        return 'JOIN';
-      case 'loop':
-        return 'LOOP';
-      case 'retry':
-        return 'RETRY';
-      case 'hitl':
-        return 'HITL';
-      case 'subflow':
-        return 'SUBFLOW';
-      default:
-        return String(node.type).toUpperCase().slice(0, 12);
-    }
+    const kind = typeof cfg['skill_slug'] === 'string' && cfg['skill_slug']
+      ? 'skill'
+      : typeof cfg['runtime_ref'] === 'string' && cfg['runtime_ref']
+        ? 'runtime'
+        : (node.kind ?? 'task');
+    const key = `flow.node.kind.${kind}`;
+    const label = this.i18n.t(key);
+    return label === key ? String(node.type).toUpperCase().slice(0, 12) : label;
   });
 
   readonly description = computed<string | null>(() => {

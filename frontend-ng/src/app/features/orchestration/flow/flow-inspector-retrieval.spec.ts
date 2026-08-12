@@ -1,6 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
   FlowInspectorComponent,
@@ -194,12 +195,14 @@ test('Retrieval picker rejects client scopes beyond the server bounds', () => {
     node: () => CanonicalFlowNode;
     store: { patchNode: (id: string, patch: Partial<CanonicalFlowNode>) => void };
     retrievalScopeError: { set: (message: string | null) => void };
+    i18n: { t: (key: keyof typeof FLOW_EN) => string };
     onRetrievalDocuments: (event: Event) => void;
     patchRetrievalCollections: (collections: string[]) => void;
   };
   inspector.node = () => retrievalNode({ collection_slugs: ['alpha'] });
   inspector.store = { patchNode: (_id, patch) => patches.push(patch) };
   inspector.retrievalScopeError = { set: (message) => errors.push(message) };
+  inspector.i18n = { t: (key) => FLOW_EN[key] };
 
   inspector.patchRetrievalCollections(
     Array.from({ length: 33 }, (_item, index) => `collection-${index}`),

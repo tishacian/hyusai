@@ -17,25 +17,25 @@ import { IconComponent } from './icon.component';
     <header class="ck-section-header pb-5 mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0 flex-1">
         @if (breadcrumb) {
-          <div class="ck-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300 mb-1.5 font-semibold">
+          <div class="ck-mono ck-accent text-[10px] uppercase tracking-[0.18em] mb-1.5 font-semibold">
             {{ breadcrumb }}
           </div>
         }
         <h1 class="text-2xl md:text-[28px] font-medium tracking-tight leading-tight text-white flex items-center gap-3">
           @if (icon) {
-            <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-white/[0.03] text-cyan-300 ring-1 ring-white/10">
+            <span class="ck-tone-info inline-flex items-center justify-center w-8 h-8 rounded-md">
               <app-icon [name]="icon" [size]="20" />
             </span>
           }
           {{ title }}
           @if (pill) {
-            <span class="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <span class="ck-pill ck-tone-warn rounded-full">
               {{ pill }}
             </span>
           }
         </h1>
         @if (subtitle) {
-          <p class="text-sm text-gray-500 dark:text-gray-400 mt-1.5 max-w-2xl">{{ subtitle }}</p>
+          <p class="text-sm mt-1.5 max-w-2xl" [style.color]="'var(--ck-fg-4)'">{{ subtitle }}</p>
         }
       </div>
       <div class="flex items-center gap-2 shrink-0">
@@ -45,7 +45,7 @@ import { IconComponent } from './icon.component';
   `,
   styles: [`
     .ck-section-header {
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      border-bottom: 1px solid var(--ck-stroke-2);
     }
   `],
 })

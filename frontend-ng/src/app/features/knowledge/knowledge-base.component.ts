@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
@@ -200,21 +201,20 @@ interface SearchResult {
       <div class="flex items-start justify-between gap-4">
         <div class="space-y-1">
           <div class="ck-mono text-[10px] uppercase tracking-[0.14em]" style="color:var(--ck-signal-cool);">
-            Capture de connaissances
+            {{ i18n.t('capture.title') }}
           </div>
           <h2 class="text-base font-semibold" style="color:var(--ck-fg-1);">
-            Préparer un échange et produire un rapport relu.
+            {{ i18n.t('capture.kb.pitch_title') }}
           </h2>
           <p class="text-sm max-w-3xl" style="color:var(--ck-fg-3);">
-            Lancez une session, rattachez une collection documentaire et publiez un rapport final
-            après relecture.
+            {{ i18n.t('capture.kb.pitch_body') }}
           </p>
         </div>
         <a
           routerLink="/knowledge/capture"
           class="ck-btn-primary shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         >
-          <app-icon name="arrow-right" [size]="14" /> Démarrer une capture
+          <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.kb.start_capture') }}
         </a>
       </div>
     </section>
@@ -733,6 +733,7 @@ interface SearchResult {
   `],
 })
 export class KnowledgeBaseComponent implements OnInit {
+  readonly i18n = inject(I18nService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
 

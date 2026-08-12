@@ -7,6 +7,9 @@ import {
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
 import { Subject, of } from 'rxjs';
+import { signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import {
   CanonicalApiService,
   type FlowValidationResponse,
@@ -237,6 +240,28 @@ class WorkspaceStub {
   }
 }
 
+/**
+ * Resolves real EN copy so the assertions below keep reading the words an
+ * operator sees, now that they live in the dictionary rather than the service.
+ */
+function i18nStub() {
+  return {
+    provide: I18nService,
+    useValue: {
+      locale: signal('en' as const),
+      setLocale: () => undefined,
+      t: (key: string, params?: Record<string, string | number>) => {
+        const value = (FLOW_EN as Record<string, string>)[key] ?? key;
+        return params
+          ? value.replace(/\{(\w+)\}/g, (match, name: string) =>
+              name in params ? String(params[name]) : match,
+            )
+          : value;
+      },
+    },
+  };
+}
+
 function harness(flow = validFlow()) {
   const api = new ApiStub();
   const workspace = new WorkspaceStub();
@@ -246,6 +271,7 @@ function harness(flow = validFlow()) {
       FlowSerializerService,
       FlowStore as never,
       FlowWorkbenchService,
+      i18nStub(),
       { provide: CanonicalApiService, useValue: api },
       { provide: WorkspaceService, useValue: workspace },
       {
@@ -297,10 +323,16 @@ test('chat input follows the selected ingress schema without synthetic aliases',
   );
   const unknown = buildFlowWorkbenchChatInput(flow, 'source.request', 'Hello', { ticket: 42 });
   assert.equal(unknown.ok, false);
-  if (!unknown.ok) assert.match(unknown.message, /does not accept: ticket/);
+  if (!unknown.ok) {
+    assert.equal(unknown.messageKey, 'flow.workbench.error.entry_rejects');
+    assert.equal(unknown.params?.['keys'], 'ticket');
+  }
   const missing = buildFlowWorkbenchChatInput(flow, 'source.request', 'Hello', {});
   assert.equal(missing.ok, false);
-  if (!missing.ok) assert.match(missing.message, /also requires: locale/);
+  if (!missing.ok) {
+    assert.equal(missing.messageKey, 'flow.workbench.error.entry_requires');
+    assert.equal(missing.params?.['keys'], 'locale');
+  }
 });
 
 test('real side-effect acknowledgement is required before validation or dispatch', async () => {
@@ -309,7 +341,7 @@ test('real side-effect acknowledgement is required before validation or dispatch
   assert.equal(await service.runChat('Do not dispatch'), null);
   assert.equal(api.validationCalls.length, 0);
   assert.equal(api.previewCalls.length, 0);
-  assert.match(service.error() ?? '', /Acknowledge.*real Skills.*side effects/i);
+  assert.match(service.error() ?? '', /real Skills.*side effects/i);
 });
 
 test('chat validates and hash-binds the exact dirty snapshot without saving it', async () => {
@@ -369,7 +401,7 @@ test('multiple ingresses require an explicit stable selection', async () => {
   const rejected = await service.runChat('Ambiguous', {}, true);
   assert.equal(rejected, null);
   assert.equal(api.previewCalls.length, 0);
-  assert.match(service.error() ?? '', /Choose one of the 2 Flow ingresses/);
+  assert.match(service.error() ?? '', /Choose one of the 2 Flow entry points/);
 
   service.selectedIngressId.set('source.request');
   api.runs.set(api.previewResult.id, { ...api.previewResult, status: 'completed' });
@@ -509,14 +541,14 @@ test('sequential legacy validation fails closed before any workbench endpoint', 
   assert.equal(await service.runChat('Legacy', {}, true), null);
   assert.equal(api.previewCalls.length, 0);
   assert.equal(service.runtimeMode(), 'sequential_legacy');
-  assert.match(service.error() ?? '', /requires a DAG runtime.*LEGACY.*SEQUENTIAL/i);
+  assert.match(service.error() ?? '', /requires a graph runtime.*Legacy sequential/i);
 });
 
 test('golden polling has a distinct one-hour budget without changing interactive polling', async (t) => {
   assert.deepEqual(FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY, {
     intervalMs: 500,
     maxAttempts: 240,
-    timeoutLabel: 'The workbench Run',
+    timeoutLabelKey: 'flow.workbench.timeout.interactive',
   });
   assert.equal(
     FLOW_WORKBENCH_GOLDEN_POLL_POLICY.intervalMs
@@ -556,7 +588,7 @@ test('golden polling has a distinct one-hour budget without changing interactive
 
   assert.equal(await pending, null);
   assert.equal(api.getRunCalls, FLOW_WORKBENCH_GOLDEN_POLL_POLICY.maxAttempts);
-  assert.match(service.error() ?? '', /golden Run did not finish within 60 minutes/i);
+  assert.match(service.error() ?? '', /golden run did not finish within 60 minutes/i);
 });
 
 test('every Flow revision invalidates completed workbench evidence', async () => {

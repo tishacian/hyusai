@@ -1,0 +1,177 @@
+/**
+ * Hypervisor and steering: balance sheet, decisions, levers.
+ *
+ * Accepted key prefixes: 'hypervisor.', 'steering.'. See `./CONVENTION.md`.
+ */
+
+export const HYPERVISOR_FR = {
+  // --- Page chrome ---------------------------------------------------
+  'hypervisor.page.eyebrow': 'Hypervisor · Bilan de valeur',
+  'hypervisor.page.title': 'Valeur nette générée',
+  'hypervisor.page.description':
+    'La vue dirigeante de votre portefeuille IA. Coût, valeur, ROI et signaux — en direct, par capacité et par système.',
+  'hypervisor.state.live': 'EN DIRECT',
+  'hypervisor.state.offline': 'HORS LIGNE',
+  'hypervisor.state.not_measured': 'NON MESURÉ',
+  'hypervisor.state.unmeasured': 'non mesuré',
+  'hypervisor.state.available': 'DISPONIBLE',
+  'hypervisor.state.not_configured': 'NON CONFIGURÉ',
+  'hypervisor.state.restricted': 'ACCÈS RESTREINT',
+  'hypervisor.state.unavailable': 'INDISPONIBLE',
+  'hypervisor.state.no_observed_risk': '0 RISQUE OBSERVÉ',
+  // --- Hero balance sheet ---------------------------------------------
+  'hypervisor.hero.net_value': 'VALEUR NETTE',
+  'hypervisor.hero.model_note': 'Valeur estimée par le modèle de ROI des capacités',
+  'hypervisor.hero.surplus': 'excédent',
+  'hypervisor.hero.deficit': 'déficit',
+  'hypervisor.metric.value': 'VALEUR',
+  'hypervisor.metric.cost': 'COÛT',
+  'hypervisor.metric.runs': 'EXÉCUTIONS',
+  'hypervisor.metric.roi': 'ROI',
+  'hypervisor.metric.confidence': 'CONFIANCE',
+  'hypervisor.metric.efficiency': 'EFFICACITÉ',
+  'hypervisor.metric.capabilities': 'CAPACITÉS',
+  // --- Value loop ------------------------------------------------------
+  'hypervisor.value_loop.title': 'BOUCLE DE VALEUR · PORTEFEUILLE',
+  'hypervisor.value_loop.simulation_note': 'Une simulation n’est pas une mesure',
+  'hypervisor.value_loop.loading': 'Chargement des preuves du portefeuille…',
+  'hypervisor.value_loop.unavailable': 'Preuves de valeur du portefeuille indisponibles',
+  'hypervisor.value_loop.not_configured':
+    'Aucune boucle de valeur gouvernée n’est configurée pour ce portefeuille',
+  'hypervisor.value_loop.observed_delta': 'Δ OBSERVÉ',
+  'hypervisor.value_loop.risks': 'RISQUES',
+  'hypervisor.value_loop.arbitrations': 'ARBITRAGES',
+  'hypervisor.value_loop.scenarios': 'SCÉNARIOS',
+  'hypervisor.value_loop.actuator_drift': 'DÉRIVE DES ACTIONNEURS',
+  'hypervisor.value_loop.governed_scenarios': 'Scénarios gouvernés',
+  'hypervisor.value_loop.evidence_risks': 'Risques étayés par des preuves',
+  'hypervisor.value_loop.persisted_evidence': 'preuve enregistrée',
+  // --- Capabilities table ----------------------------------------------
+  'hypervisor.capabilities.ranked_by': 'classées par {rank}',
+  'hypervisor.capabilities.full_catalog': 'CATALOGUE COMPLET →',
+  'hypervisor.capabilities.empty': 'Aucune exécution de capacité valorisée pour l’instant',
+  'hypervisor.capabilities.empty_hint':
+    'Commencez par une activité de chat, inspectez l’observabilité, puis descendez dans les exécutions.',
+  'hypervisor.capabilities.open_runs': 'Ouvrir les exécutions de cette capacité',
+  'hypervisor.col.capability': 'CAPACITÉ',
+  'hypervisor.col.tier': 'PALIER',
+  'hypervisor.col.actions': 'ACTIONS',
+  // --- Signals and recommendations --------------------------------------
+  'hypervisor.signals.title': 'SIGNAUX · 20 derniers',
+  'hypervisor.signals.empty': 'SILENCE — aucune exécution récente',
+  'hypervisor.reco.title': 'RECOMMANDATIONS',
+  'hypervisor.reco.scan': 'ANALYSER',
+  'hypervisor.reco.scanning': 'ANALYSE…',
+  'hypervisor.reco.empty': 'AUCUNE RECOMMANDATION EN ATTENTE',
+  // --- Decisions ---------------------------------------------------------
+  'hypervisor.decisions.title': 'DÉCISIONS',
+  'hypervisor.decisions.one': 'DÉCISION',
+  'hypervisor.decisions.loading': 'CHARGEMENT DES DÉCISIONS…',
+  'hypervisor.decisions.empty': 'AUCUNE DÉCISION POUR CE FILTRE',
+  'hypervisor.decisions.load_more': 'CHARGER PLUS',
+  'hypervisor.decisions.accept': 'ACCEPTER',
+  'hypervisor.decisions.reject': 'REJETER',
+  'hypervisor.decisions.actuator_missing': 'ACTIONNEUR NON CONFIGURÉ',
+  'hypervisor.decisions.actuator_missing_long':
+    'ACTIONNEUR NON CONFIGURÉ — PASSEZ PAR LA BOUCLE DE VALEUR',
+  'hypervisor.decisions.applied_at': 'APPLIQUÉE {when}',
+  'hypervisor.decisions.created_at': 'CRÉÉE {when}',
+  'hypervisor.decisions.approved_by': 'APPROUVÉE PAR {who}',
+  'hypervisor.decisions.impact_estimate': 'IMPACT ESTIMÉ',
+  'hypervisor.decisions.rationale': 'JUSTIFICATION',
+  'hypervisor.decisions.notes': 'NOTES',
+  'hypervisor.decisions.applied_patch': 'CORRECTIF APPLIQUÉ',
+  'hypervisor.decisions.filter.all': 'TOUTES',
+  'hypervisor.decisions.filter.proposed': 'PROPOSÉES',
+  'hypervisor.decisions.filter.accepted': 'ACCEPTÉES',
+  'hypervisor.decisions.filter.rejected': 'REJETÉES',
+  'hypervisor.decisions.filter.applied': 'APPLIQUÉES',
+} as const satisfies Record<string, string>;
+
+/**
+ * The `Record<keyof typeof HYPERVISOR_FR, string>` annotation is the parity
+ * contract: `tsc` fails on a key present in one locale and missing in the
+ * other, before the guard even runs.
+ */
+export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
+  // --- Page chrome ---------------------------------------------------
+  'hypervisor.page.eyebrow': 'Hypervisor · Balance sheet',
+  'hypervisor.page.title': 'Net value generated',
+  'hypervisor.page.description':
+    'The executive view onto your AI portfolio. Cost, value, ROI and signals — live, per capability and per system.',
+  'hypervisor.state.live': 'LIVE',
+  'hypervisor.state.offline': 'OFFLINE',
+  'hypervisor.state.not_measured': 'NOT MEASURED',
+  'hypervisor.state.unmeasured': 'unmeasured',
+  'hypervisor.state.available': 'AVAILABLE',
+  'hypervisor.state.not_configured': 'NOT CONFIGURED',
+  'hypervisor.state.restricted': 'RESTRICTED',
+  'hypervisor.state.unavailable': 'UNAVAILABLE',
+  'hypervisor.state.no_observed_risk': '0 OBSERVED RISK',
+  // --- Hero balance sheet ---------------------------------------------
+  'hypervisor.hero.net_value': 'NET VALUE',
+  'hypervisor.hero.model_note': 'Estimated value from the capability ROI model',
+  'hypervisor.hero.surplus': 'surplus',
+  'hypervisor.hero.deficit': 'deficit',
+  'hypervisor.metric.value': 'VALUE',
+  'hypervisor.metric.cost': 'COST',
+  'hypervisor.metric.runs': 'RUNS',
+  'hypervisor.metric.roi': 'ROI',
+  'hypervisor.metric.confidence': 'CONFIDENCE',
+  'hypervisor.metric.efficiency': 'EFFICIENCY',
+  'hypervisor.metric.capabilities': 'CAPABILITIES',
+  // --- Value loop ------------------------------------------------------
+  'hypervisor.value_loop.title': 'VALUE LOOP · PORTFOLIO',
+  'hypervisor.value_loop.simulation_note': 'Simulation is not measurement',
+  'hypervisor.value_loop.loading': 'Loading governed Portfolio evidence…',
+  'hypervisor.value_loop.unavailable': 'Portfolio value evidence unavailable',
+  'hypervisor.value_loop.not_configured':
+    'No governed System value loop is configured for this Portfolio',
+  'hypervisor.value_loop.observed_delta': 'OBSERVED Δ',
+  'hypervisor.value_loop.risks': 'RISKS',
+  'hypervisor.value_loop.arbitrations': 'ARBITRATIONS',
+  'hypervisor.value_loop.scenarios': 'SCENARIOS',
+  'hypervisor.value_loop.actuator_drift': 'ACTUATOR DRIFT',
+  'hypervisor.value_loop.governed_scenarios': 'Governed scenarios',
+  'hypervisor.value_loop.evidence_risks': 'Evidence-backed risks',
+  'hypervisor.value_loop.persisted_evidence': 'persisted evidence',
+  // --- Capabilities table ----------------------------------------------
+  'hypervisor.capabilities.ranked_by': 'ranked by {rank}',
+  'hypervisor.capabilities.full_catalog': 'FULL CATALOG →',
+  'hypervisor.capabilities.empty': 'No valued capability run yet',
+  'hypervisor.capabilities.empty_hint':
+    'Start with chat activity, inspect Observability, then drill into Runs.',
+  'hypervisor.capabilities.open_runs': 'Open the Runs for this capability',
+  'hypervisor.col.capability': 'CAPABILITY',
+  'hypervisor.col.tier': 'TIER',
+  'hypervisor.col.actions': 'ACTIONS',
+  // --- Signals and recommendations --------------------------------------
+  'hypervisor.signals.title': 'SIGNALS · last 20',
+  'hypervisor.signals.empty': 'SILENCE — no recent runs',
+  'hypervisor.reco.title': 'RECOMMENDATIONS',
+  'hypervisor.reco.scan': 'SCAN',
+  'hypervisor.reco.scanning': 'SCANNING…',
+  'hypervisor.reco.empty': 'NO PENDING RECOMMENDATION',
+  // --- Decisions ---------------------------------------------------------
+  'hypervisor.decisions.title': 'DECISIONS',
+  'hypervisor.decisions.one': 'DECISION',
+  'hypervisor.decisions.loading': 'LOADING DECISIONS…',
+  'hypervisor.decisions.empty': 'NO DECISION FOR THIS FILTER',
+  'hypervisor.decisions.load_more': 'LOAD MORE',
+  'hypervisor.decisions.accept': 'ACCEPT',
+  'hypervisor.decisions.reject': 'REJECT',
+  'hypervisor.decisions.actuator_missing': 'ACTUATOR NOT CONFIGURED',
+  'hypervisor.decisions.actuator_missing_long': 'ACTUATOR NOT CONFIGURED — USE THE VALUE LOOP',
+  'hypervisor.decisions.applied_at': 'APPLIED {when}',
+  'hypervisor.decisions.created_at': 'CREATED {when}',
+  'hypervisor.decisions.approved_by': 'APPROVED BY {who}',
+  'hypervisor.decisions.impact_estimate': 'IMPACT ESTIMATE',
+  'hypervisor.decisions.rationale': 'RATIONALE',
+  'hypervisor.decisions.notes': 'NOTES',
+  'hypervisor.decisions.applied_patch': 'APPLIED PATCH',
+  'hypervisor.decisions.filter.all': 'ALL',
+  'hypervisor.decisions.filter.proposed': 'PROPOSED',
+  'hypervisor.decisions.filter.accepted': 'ACCEPTED',
+  'hypervisor.decisions.filter.rejected': 'REJECTED',
+  'hypervisor.decisions.filter.applied': 'APPLIED',
+};

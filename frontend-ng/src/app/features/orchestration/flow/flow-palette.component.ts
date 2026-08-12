@@ -34,6 +34,7 @@ import {
 import { RouterLink } from '@angular/router';
 import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { FlowCatalogService } from './flow-catalog.service';
 import { isPaletteItemConnectable } from './flow-preconnect';
 import {
@@ -78,12 +79,14 @@ const MOST_USED_LIMIT = 5;
         <span class="ck-flow-palette__row-name">{{ item.label }}</span>
         <span class="ck-flow-palette__row-intent">{{ intent(item) }}</span>
         @if (isInFlow(item)) {
-          <span class="ck-flow-palette__row-flag" title="Already used in this Flow">in flow</span>
+          <span class="ck-flow-palette__row-flag" [title]="i18n.t('flow.palette.row.in_flow.hint')">{{
+            i18n.t('flow.palette.row.in_flow')
+          }}</span>
         }
         @if (usage(item); as calls) {
           <span
             class="ck-flow-palette__row-usage"
-            [attr.aria-label]="calls + ' runs in this workspace'"
+            [attr.aria-label]="i18n.t('flow.palette.row.usage', { count: calls })"
             >{{ calls }}</span
           >
         }
@@ -91,18 +94,21 @@ const MOST_USED_LIMIT = 5;
           <span
             class="ck-flow-palette__row-dot"
             [attr.data-status]="status"
-            [attr.aria-label]="'Runtime ' + status"
+            [attr.aria-label]="i18n.t('flow.palette.row.runtime', { status })"
           ></span>
         }
       </button>
     </ng-template>
 
-    <aside class="ck-flow-palette" role="group" aria-label="Node palette">
+    <aside class="ck-flow-palette" role="group" [attr.aria-label]="i18n.t('flow.palette.aria')">
       <div class="ck-flow-palette__heading">
         <h3 class="ck-flow-palette__label">
           <app-icon name="boxes" set="phosphor" [size]="12" /> {{ headingLabel() }}
         </h3>
-        <span class="ck-flow-palette__count" [attr.aria-label]="headingLabel() + ' count'">
+        <span
+          class="ck-flow-palette__count"
+          [attr.aria-label]="i18n.t('flow.palette.heading.count', { name: headingLabel() })"
+        >
           {{ headingCount() }}
         </span>
       </div>
@@ -110,7 +116,8 @@ const MOST_USED_LIMIT = 5;
       @if (context(); as ctx) {
         <div class="ck-flow-palette__context" role="status">
           <span>
-            Connects to <strong>{{ ctx.originLabel }}</strong>
+            {{ i18n.t('flow.palette.context.connects') }}
+            <strong>{{ ctx.originLabel }}</strong>
             @if (ctx.originPort) {
               · <code>{{ ctx.originPort }}</code>
             }
@@ -118,7 +125,9 @@ const MOST_USED_LIMIT = 5;
               (<code>{{ ctx.schema }}</code>)
             }
           </span>
-          <button type="button" (click)="clearContext.emit()">Show all</button>
+          <button type="button" (click)="clearContext.emit()">
+            {{ i18n.t('flow.palette.context.clear') }}
+          </button>
         </div>
       }
 
@@ -136,11 +145,15 @@ const MOST_USED_LIMIT = 5;
       </label>
 
       @if (catalog.state() === 'loading') {
-        <p class="ck-flow-palette__empty" role="status">Loading skill catalog…</p>
+        <p class="ck-flow-palette__empty" role="status">
+          {{ i18n.t('flow.palette.catalog.loading') }}
+        </p>
       } @else if (catalog.state() === 'error') {
         <div class="ck-flow-palette__catalog-error" role="alert">
-          <span>Skill catalog unavailable.</span>
-          <button type="button" (click)="catalog.retry()">Retry</button>
+          <span>{{ i18n.t('flow.palette.catalog.error') }}</span>
+          <button type="button" (click)="catalog.retry()">
+            {{ i18n.t('flow.palette.catalog.retry') }}
+          </button>
         </div>
       } @else {
         <div class="ck-flow-palette__body">
@@ -153,34 +166,37 @@ const MOST_USED_LIMIT = 5;
               <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
               @if (context()) {
                 <button type="button" class="ck-flow-palette__link" (click)="clearContext.emit()">
-                  Show every node
+                  {{ i18n.t('flow.palette.empty.show_all') }}
                 </button>
               }
             }
             @if (rankedOverflow() > 0) {
               <p class="ck-flow-palette__more">
-                {{ rankedOverflow() }} more — refine the search to narrow it.
+                {{ i18n.t('flow.palette.overflow', { count: rankedOverflow() }) }}
               </p>
             }
             @if (query() && unavailableMatches().length > 0) {
               <div class="ck-flow-palette__hatch">
                 <p class="ck-flow-palette__hatch-why">
-                  {{ unavailableMatches().length }} registry
-                  {{ unavailableMatches().length === 1 ? 'skill matches' : 'skills match' }}
-                  but {{ unavailableMatches().length === 1 ? 'is' : 'are' }} not available in this
-                  workspace.
+                  {{
+                    unavailableMatches().length === 1
+                      ? i18n.t('flow.palette.unavailable.one')
+                      : i18n.t('flow.palette.unavailable.many', {
+                          count: unavailableMatches().length,
+                        })
+                  }}
                 </p>
                 @for (item of unavailableMatches().slice(0, 5); track itemKey(item)) {
                   <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
                 }
                 <a class="ck-flow-palette__link" [routerLink]="curationRoute">
-                  Adjust catalog visibility
+                  {{ i18n.t('flow.palette.unavailable.link') }}
                 </a>
               </div>
             }
           } @else if (openGroup(); as group) {
             <button type="button" class="ck-flow-palette__back" (click)="closeCapability()">
-              <app-icon name="chevron-left" [size]="11" /> Capabilities
+              <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
             </button>
             @if (group.hint) {
               <p class="ck-flow-palette__group-hint">{{ group.hint }}</p>
@@ -190,7 +206,7 @@ const MOST_USED_LIMIT = 5;
             }
           } @else if (level() === 'advanced') {
             <button type="button" class="ck-flow-palette__back" (click)="level.set('capabilities')">
-              <app-icon name="chevron-left" [size]="11" /> Capabilities
+              <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
             </button>
             @for (section of categorySections(); track section.category) {
               <h4 class="ck-flow-palette__section-heading" [id]="sectionHeadingId(section.category)">
@@ -225,7 +241,7 @@ const MOST_USED_LIMIT = 5;
               }
             } @empty {
               <p class="ck-flow-palette__empty" role="status">
-                No skill is available in this workspace.
+                {{ i18n.t('flow.palette.section.empty.skills') }}
               </p>
             }
             @if (catalog.filteredItems().length > 0) {
@@ -240,7 +256,11 @@ const MOST_USED_LIMIT = 5;
                     [name]="showUnavailable() ? 'chevron-down' : 'chevron-right'"
                     [size]="11"
                   />
-                  {{ catalog.filteredItems().length }} in the registry, not available here
+                  {{
+                    i18n.t('flow.palette.unavailable.toggle', {
+                      count: catalog.filteredItems().length,
+                    })
+                  }}
                 </button>
                 @if (showUnavailable()) {
                   <p class="ck-flow-palette__hatch-why">{{ unavailableExplanation() }}</p>
@@ -248,7 +268,7 @@ const MOST_USED_LIMIT = 5;
                     <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
                   }
                   <a class="ck-flow-palette__link" [routerLink]="curationRoute">
-                    Adjust catalog visibility
+                    {{ i18n.t('flow.palette.unavailable.link') }}
                   </a>
                 }
               </div>
@@ -256,7 +276,7 @@ const MOST_USED_LIMIT = 5;
           } @else {
             @if (mostUsed().length > 0) {
               <h4 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
-                Used in this workspace
+                {{ i18n.t('flow.palette.section.most_used') }}
               </h4>
               @for (item of mostUsed(); track itemKey(item)) {
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
@@ -264,7 +284,7 @@ const MOST_USED_LIMIT = 5;
             }
 
             <h4 class="ck-flow-palette__section-heading ck-flow-palette__section-heading--plain">
-              Capabilities
+              {{ i18n.t('flow.palette.section.capabilities') }}
             </h4>
             @for (group of capabilityGroups(); track group.slug) {
               <button
@@ -281,7 +301,7 @@ const MOST_USED_LIMIT = 5;
               </button>
             } @empty {
               <p class="ck-flow-palette__empty" role="status">
-                No capability carries a skill in this workspace.
+                {{ i18n.t('flow.palette.section.empty.capabilities') }}
               </p>
             }
 
@@ -297,7 +317,7 @@ const MOST_USED_LIMIT = 5;
                   [name]="structureExpanded() ? 'chevron-down' : 'chevron-right'"
                   [size]="11"
                 />
-                <span>Structure</span>
+                <span>{{ i18n.t('flow.palette.section.structure') }}</span>
                 <span class="ck-flow-palette__count">{{ items().length }}</span>
               </button>
             </h4>
@@ -314,7 +334,7 @@ const MOST_USED_LIMIT = 5;
               class="ck-flow-palette__advanced"
               (click)="level.set('advanced')"
             >
-              <span>Advanced — the whole registry</span>
+              <span>{{ i18n.t('flow.palette.advanced') }}</span>
               <span class="ck-flow-palette__count">{{ catalog.skillItems().length }}</span>
             </button>
           }
@@ -328,6 +348,7 @@ const MOST_USED_LIMIT = 5;
 })
 export class FlowPaletteComponent {
   protected readonly catalog = inject(FlowCatalogService);
+  readonly i18n = inject(I18nService);
 
   /** Structural primitives, supplied by the shell (`DEFAULT_PALETTE`). */
   readonly items = input<PaletteItem[]>([]);
@@ -422,11 +443,13 @@ export class FlowPaletteComponent {
   }
 
   protected headingLabel(): string {
-    if (this.context()) return 'Connects here';
-    if (this.query().trim()) return 'Matches';
+    if (this.context()) return this.i18n.t('flow.palette.heading.context');
+    if (this.query().trim()) return this.i18n.t('flow.palette.heading.matches');
     const group = this.openGroup();
     if (group) return group.name;
-    return this.level() === 'advanced' ? 'All skills' : 'Add node';
+    return this.i18n.t(
+      this.level() === 'advanced' ? 'flow.palette.heading.all' : 'flow.palette.heading.add',
+    );
   }
 
   protected headingCount(): string {
@@ -439,12 +462,14 @@ export class FlowPaletteComponent {
   }
 
   protected searchPlaceholder(): string {
-    return this.context() ? 'Search what connects here…' : 'Search or describe a step…';
+    return this.i18n.t(
+      this.context() ? 'flow.palette.search.context' : 'flow.palette.search',
+    );
   }
 
   protected rankedEmptyMessage(): string {
-    if (this.context()) return 'No type-compatible node.';
-    return `Nothing available matches “${this.query()}”.`;
+    if (this.context()) return this.i18n.t('flow.palette.empty.context');
+    return this.i18n.t('flow.palette.empty.query', { query: this.query() });
   }
 
   protected unavailableExplanation(): string {

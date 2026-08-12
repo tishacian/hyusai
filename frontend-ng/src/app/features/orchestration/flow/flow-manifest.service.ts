@@ -27,6 +27,7 @@ import {
   type FlowRuntimeManifest,
 } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 
 export interface NodeRuntimeStatus {
   /** bound | stub | unbound | manifest_only | catalog_only (backend verbatim). */
@@ -35,10 +36,12 @@ export interface NodeRuntimeStatus {
   operational: boolean;
 }
 
-const RUNTIME_MODE_LABELS: Record<FlowExecutionRuntimeMode, string> = {
-  dag_strict: 'STRICT DAG',
-  dag_overlay: 'DAG · OVERLAY COMPAT',
-  sequential_legacy: 'LEGACY · SEQUENTIAL',
+/** Engine mode → the dictionary key naming it in plain words. The raw engine
+ * mode stays available as the `data-mode` attribute and the badge title. */
+const RUNTIME_MODE_KEYS: Record<FlowExecutionRuntimeMode, string> = {
+  dag_strict: 'flow.runtime.mode.dag_strict',
+  dag_overlay: 'flow.runtime.mode.dag_overlay',
+  sequential_legacy: 'flow.runtime.mode.sequential_legacy',
 };
 
 /** Read the server dispatcher verdict without guessing from client graph
@@ -53,14 +56,15 @@ export function manifestRuntimeMode(
     : null;
 }
 
-export function runtimeModeLabel(mode: FlowExecutionRuntimeMode | null): string {
-  return mode ? RUNTIME_MODE_LABELS[mode] : 'RUNTIME UNKNOWN';
+export function runtimeModeKey(mode: FlowExecutionRuntimeMode | null): string {
+  return mode ? RUNTIME_MODE_KEYS[mode] : 'flow.runtime.mode.unknown';
 }
 
 @Injectable({ providedIn: 'root' })
 export class FlowManifestService {
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly i18n = inject(I18nService);
 
   private readonly _manifest = signal<FlowRuntimeManifest | null>(null);
   private readonly _systemId = signal<string | null>(null);
@@ -71,7 +75,7 @@ export class FlowManifestService {
   readonly manifest = this._manifest.asReadonly();
   readonly systemId = this._systemId.asReadonly();
   readonly runtimeMode = computed(() => manifestRuntimeMode(this._manifest()));
-  readonly runtimeModeLabel = computed(() => runtimeModeLabel(this.runtimeMode()));
+  readonly runtimeModeLabel = computed(() => this.i18n.t(runtimeModeKey(this.runtimeMode())));
 
   constructor() {
     this.workspace.registerContextReset(() => this.clear());

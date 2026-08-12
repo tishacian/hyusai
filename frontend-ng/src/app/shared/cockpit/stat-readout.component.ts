@@ -1,5 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input, computed, signal } from '@angular/core';
-import { NgClass } from '@angular/common';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SparklineComponent } from '@app/shared/ui/sparkline.component';
 
@@ -25,7 +24,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
   selector: 'ck-stat-readout',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgClass, IconComponent, SparklineComponent],
+  imports: [IconComponent, SparklineComponent],
   template: `
     @if (variant === 'tile') {
       <div
@@ -33,32 +32,30 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
         [class.cursor-pointer]="interactive"
       >
         <div class="flex items-center justify-between">
-          <span class="text-[10px] uppercase tracking-[0.14em] font-semibold text-gray-500 dark:text-gray-400">
+          <span
+            class="text-[10px] uppercase tracking-[0.14em] font-semibold"
+            [style.color]="'var(--ck-fg-4)'"
+          >
             {{ label }}
           </span>
           @if (icon) {
-            <div
-              class="w-7 h-7 rounded-md flex items-center justify-center text-cyan-500 bg-cyan-500/10 group-hover:bg-cyan-500/20 transition-colors"
-            >
+            <div class="ck-tone-info w-7 h-7 rounded-md flex items-center justify-center">
               <app-icon [name]="icon" [size]="14" />
             </div>
           }
         </div>
         <div class="flex items-baseline gap-2">
-          <span class="text-2xl font-semibold text-gray-900 dark:text-white tabular-nums">{{ value }}</span>
+          <span
+            class="text-2xl font-semibold tabular-nums"
+            [style.color]="'var(--ck-fg-1)'"
+          >{{ value }}</span>
           @if (unit) {
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ unit }}</span>
+            <span class="text-xs" [style.color]="'var(--ck-fg-4)'">{{ unit }}</span>
           }
           @if (trend) {
             <span
               class="inline-flex items-center gap-0.5 text-[10px] font-semibold ml-auto tabular-nums"
-              [ngClass]="{
-                'text-emerald-500': trend === 'up' && trendSentiment !== 'negative',
-                'text-red-500': trend === 'up' && trendSentiment === 'negative',
-                'text-emerald-500 flip': trend === 'down' && trendSentiment === 'negative',
-                'text-red-500 flip2': trend === 'down' && trendSentiment !== 'negative',
-                'text-gray-500': trend === 'flat'
-              }"
+              [style.color]="trendColor"
             >
               @if (trend === 'up') {
                 <app-icon name="trending-up" [size]="10" />
@@ -74,21 +71,19 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
           }
         </div>
         @if (sparkline && sparkline.length >= 2) {
-          <div
-            class="-mx-1 -mb-1"
-            [class.text-emerald-400]="sparklineTone === 'positive'"
-            [class.text-red-400]="sparklineTone === 'negative'"
-            [class.text-cyan-400]="!sparklineTone || sparklineTone === 'neutral'"
-          >
+          <div class="-mx-1 -mb-1" [style.color]="sparklineColor">
             <app-sparkline [data]="sparkline" [width]="140" [height]="28" />
           </div>
         }
         @if (hint && (!sparkline || sparkline.length < 2)) {
-          <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ hint }}</div>
+          <div class="text-[11px]" [style.color]="'var(--ck-fg-4)'">{{ hint }}</div>
         } @else if (hint) {
-          <div class="text-[10px] text-gray-500 dark:text-gray-400">{{ hint }}</div>
+          <div class="text-[10px]" [style.color]="'var(--ck-fg-4)'">{{ hint }}</div>
         }
-        <div class="absolute inset-x-0 bottom-0 h-0.5 bg-cyan-500/40 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div
+          class="absolute inset-x-0 bottom-0 h-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          [style.background]="'var(--ck-signal-cool)'"
+        ></div>
       </div>
     } @else {
       <div
@@ -160,6 +155,19 @@ export class StatReadoutComponent {
 
   get toneColor(): string {
     return resolveTone(this.tone, 'var(--ck-fg-1)');
+  }
+
+  /** A rising trend is green unless rising is the bad news (errors, cost). */
+  get trendColor(): string {
+    if (this.trend === 'flat') return 'var(--ck-fg-4)';
+    const good = (this.trend === 'up') !== (this.trendSentiment === 'negative');
+    return good ? 'var(--ck-status-ok-fg)' : 'var(--ck-status-neg-fg)';
+  }
+
+  get sparklineColor(): string {
+    if (this.sparklineTone === 'positive') return 'var(--ck-status-ok-fg)';
+    if (this.sparklineTone === 'negative') return 'var(--ck-status-neg-fg)';
+    return 'var(--ck-signal-cool)';
   }
 
   get deltaColor(): string {

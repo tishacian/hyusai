@@ -1,6 +1,7 @@
 import { NgClass } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import {
@@ -510,7 +511,7 @@ interface CampaignDraftsOutcome {
   imports: [FormsModule, NgClass, GlyphComponent, PageFrameComponent],
   template: `
     <ck-page-frame eyebrow="Andritz / Spare Parts" title="Client360 PDR" [hasActions]="true">
-      <button actions type="button" class="icon-button" title="Rafraichir" (click)="refresh()">
+      <button actions type="button" class="icon-button" [title]="i18n.t('client360.refresh')" (click)="refresh()">
         <ck-glyph name="orbit" [size]="14" color="currentColor" />
       </button>
 
@@ -524,26 +525,26 @@ interface CampaignDraftsOutcome {
 
       <section class="c360-workspace">
       @if (loading()) {
-        <div class="state-line"><ck-glyph name="pulse" [size]="14" color="currentColor" /> Chargement Client360 PDR</div>
+        <div class="state-line"><ck-glyph name="pulse" [size]="14" color="currentColor" /> {{ i18n.t('client360.loading') }}</div>
       } @else if (error()) {
         <div class="state-line error"><ck-glyph name="warn" [size]="14" color="currentColor" /> {{ error() }}</div>
       }
 
       <section class="kpi-grid">
         <div class="ck-surface kpi">
-          <span>Opportunites</span>
+          <span>{{ i18n.t('client360.kpi.opportunities') }}</span>
           <strong>{{ summary()?.summary?.opportunities ?? 0 }}</strong>
         </div>
         <div class="ck-surface kpi">
-          <span>Clients</span>
+          <span>{{ i18n.t('client360.kpi.customers') }}</span>
           <strong>{{ summary()?.summary?.customers ?? 0 }}</strong>
         </div>
         <div class="ck-surface kpi">
-          <span>Sources</span>
+          <span>{{ i18n.t('client360.kpi.sources') }}</span>
           <strong>{{ summary()?.summary?.data_sources ?? 0 }}</strong>
         </div>
         <div class="ck-surface kpi">
-          <span>Ecart adressable</span>
+          <span>{{ i18n.t('client360.kpi.addressable_gap') }}</span>
           <strong>{{ formatQty(summary()?.summary?.potential_gap_qty) }}</strong>
         </div>
       </section>
@@ -552,14 +553,14 @@ interface CampaignDraftsOutcome {
         @if (alerts().length > 0) {
           <section class="ck-surface alerts-panel">
             <div class="alerts-head">
-              <h3><ck-glyph name="warn" [size]="14" color="currentColor" /> Alertes ({{ alerts().length }})</h3>
+              <h3><ck-glyph name="warn" [size]="14" color="currentColor" /> {{ i18n.t('client360.alerts.title', { count: alerts().length }) }}</h3>
               <div class="alerts-counts">
                 @for (entry of alertCountEntries(); track entry.key) {
                   <button
                     type="button"
                     class="pill pill-filter"
                     [ngClass]="{ active: alertTypeFilter() === entry.key }"
-                    title="Filtrer les alertes de ce type"
+                    [title]="i18n.t('client360.alerts.filter_hint')"
                     (click)="toggleAlertTypeFilter(entry.key)"
                   >
                     {{ labelAlertType(entry.key) }} · {{ entry.value }}
@@ -585,9 +586,9 @@ interface CampaignDraftsOutcome {
               <div class="button-row">
                 <button type="button" class="secondary" (click)="toggleAlertsExpanded()">
                   @if (alertsExpanded()) {
-                    Reduire
+                    {{ i18n.t('client360.alerts.collapse') }}
                   } @else {
-                    Afficher tout ({{ filteredAlerts().length }})
+                    {{ i18n.t('client360.alerts.show_all', { count: filteredAlerts().length }) }}
                   }
                 </button>
               </div>
@@ -596,45 +597,51 @@ interface CampaignDraftsOutcome {
         }
         <section class="ck-surface toolbar">
           <label>
-            Client
-            <input type="search" [(ngModel)]="filters.customer" (keyup.enter)="loadOpportunities()" placeholder="Nom client" />
+            {{ i18n.t('client360.filter.customer') }}
+            <input
+              type="search"
+              [(ngModel)]="filters.customer"
+              (keyup.enter)="loadOpportunities()"
+              [placeholder]="i18n.t('client360.filter.customer_placeholder')"
+            />
           </label>
           <label>
-            Pays
+            {{ i18n.t('client360.filter.country') }}
             <select [(ngModel)]="filters.country" (change)="loadOpportunities()">
-              <option value="">Tous</option>
+              <option value="">{{ i18n.t('client360.filter.all_countries') }}</option>
               @for (item of opportunitiesResponse()?.facets?.countries ?? []; track item) {
                 <option [value]="item">{{ item }}</option>
               }
             </select>
           </label>
           <label>
-            Famille
+            {{ i18n.t('client360.filter.part_family') }}
             <select [(ngModel)]="filters.part_family" (change)="loadOpportunities()">
-              <option value="">Toutes</option>
+              <option value="">{{ i18n.t('client360.filter.all_families') }}</option>
               @for (item of opportunitiesResponse()?.facets?.part_families ?? []; track item) {
                 <option [value]="item">{{ item }}</option>
               }
             </select>
           </label>
           <label>
-            Confiance
+            {{ i18n.t('client360.filter.confidence') }}
             <select [(ngModel)]="filters.confidence" (change)="loadOpportunities()">
-              <option value="">Toutes</option>
-              <option value="high">Haute</option>
-              <option value="medium">Moyenne</option>
-              <option value="low">Faible</option>
+              <option value="">{{ i18n.t('client360.filter.any_confidence') }}</option>
+              <option value="high">{{ i18n.t('client360.confidence.high') }}</option>
+              <option value="medium">{{ i18n.t('client360.confidence.medium') }}</option>
+              <option value="low">{{ i18n.t('client360.confidence.low') }}</option>
             </select>
           </label>
           <label>
-            Trier par
+            {{ i18n.t('client360.filter.sort') }}
             <select [ngModel]="sortKey()" (ngModelChange)="sortKey.set($event)">
-              <option value="score">Confiance</option>
-              <option value="value">Valeur potentielle (EUR)</option>
+              <option value="score">{{ i18n.t('client360.sort.score') }}</option>
+              <option value="value">{{ i18n.t('client360.sort.value') }}</option>
             </select>
           </label>
           <button type="button" class="secondary" (click)="loadOpportunities()">
-            <ck-glyph name="sliders" [size]="14" color="currentColor" /> Filtrer
+            <ck-glyph name="sliders" [size]="14" color="currentColor" />
+            {{ i18n.t('client360.filter.apply') }}
           </button>
         </section>
 
@@ -642,24 +649,24 @@ interface CampaignDraftsOutcome {
           @if (opportunities().length === 0) {
             <div class="empty">
               <ck-glyph name="ledger" [size]="18" color="currentColor" />
-              <span>Aucune opportunite PDR calculee pour le moment.</span>
-              <small>Les sources detectees et les gaps sont visibles dans l'onglet Donnees.</small>
+              <span>{{ i18n.t('client360.opportunities.empty') }}</span>
+              <small>{{ i18n.t('client360.opportunities.empty_hint') }}</small>
             </div>
           } @else {
             <table>
               <thead>
                 <tr>
-                  <th>Client</th>
-                  <th>Piece / famille</th>
-                  <th>Pays</th>
-                  <th>Echeance</th>
-                  <th>Potentiel</th>
-                  <th>Achats connus</th>
-                  <th>Ecart achats</th>
-                  <th>Valeur potentielle</th>
-                  <th>Confiance</th>
-                  <th>Action</th>
-                  <th>Statut</th>
+                  <th>{{ i18n.t('client360.table.customer') }}</th>
+                  <th>{{ i18n.t('client360.table.part') }}</th>
+                  <th>{{ i18n.t('client360.table.country') }}</th>
+                  <th>{{ i18n.t('client360.table.due') }}</th>
+                  <th>{{ i18n.t('client360.table.potential') }}</th>
+                  <th>{{ i18n.t('client360.table.known_purchases') }}</th>
+                  <th>{{ i18n.t('client360.table.purchase_gap') }}</th>
+                  <th>{{ i18n.t('client360.table.potential_value') }}</th>
+                  <th>{{ i18n.t('client360.table.confidence') }}</th>
+                  <th>{{ i18n.t('client360.table.action') }}</th>
+                  <th>{{ i18n.t('client360.table.status') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -667,13 +674,13 @@ interface CampaignDraftsOutcome {
                   <tr (click)="selectOpportunity(opp)">
                     <td>
                       <strong>{{ opp.customer_name }}</strong>
-                      <small>{{ opp.technology || opp.line_label || opp.machine_label || 'Perimetre a completer' }}</small>
+                      <small>{{ opp.technology || opp.line_label || opp.machine_label || i18n.t('client360.placeholder.scope') }}</small>
                     </td>
                     <td>
                       <strong>{{ opp.part_family }}</strong>
-                      <small>{{ opp.part_reference || opp.part_description || 'Reference a completer' }}</small>
+                      <small>{{ opp.part_reference || opp.part_description || i18n.t('client360.placeholder.reference') }}</small>
                     </td>
-                    <td>{{ opp.country || opp.hub || 'A completer' }}</td>
+                    <td>{{ opp.country || opp.hub || i18n.t('client360.placeholder.todo') }}</td>
                     <td>{{ formatDate(opp.next_due_at) }}</td>
                     <td>{{ formatQty(opp.potential_theoretical) }}</td>
                     <td>{{ formatQty(opp.sales_known_qty) }}</td>
@@ -689,7 +696,7 @@ interface CampaignDraftsOutcome {
             @if (sortedOpportunities().length > opportunitiesTableLimit()) {
               <div class="button-row show-more-row">
                 <button type="button" class="secondary" (click)="showMoreOpportunitiesTable()">
-                  Afficher plus ({{ sortedOpportunities().length - opportunitiesTableLimit() }} restantes)
+                  {{ i18n.t('client360.show_more', { count: sortedOpportunities().length - opportunitiesTableLimit() }) }}
                 </button>
               </div>
             }
@@ -701,30 +708,30 @@ interface CampaignDraftsOutcome {
         <section class="split">
           <aside class="ck-surface list-panel">
             <label class="directory-search">
-              Annuaire
+              {{ i18n.t('client360.directory.label') }}
               <input
                 type="search"
                 [(ngModel)]="customerDirectoryQuery"
                 (keyup.enter)="loadCustomers()"
                 (ngModelChange)="onCustomerDirectoryQueryChange()"
-                placeholder="Rechercher un client"
+                [placeholder]="i18n.t('client360.directory.search_placeholder')"
               />
             </label>
             @if (customerDirectoryFacets().countries.length || customerDirectoryFacets().technologies.length) {
               <div class="directory-facets">
                 <label>
-                  Pays
+                  {{ i18n.t('client360.filter.country') }}
                   <select [(ngModel)]="customerDirectoryCountry" (ngModelChange)="loadCustomers()">
-                    <option value="">Tous</option>
+                    <option value="">{{ i18n.t('client360.filter.all_countries') }}</option>
                     @for (country of customerDirectoryFacets().countries; track country) {
                       <option [value]="country">{{ country }}</option>
                     }
                   </select>
                 </label>
                 <label>
-                  Techno
+                  {{ i18n.t('client360.filter.technology') }}
                   <select [(ngModel)]="customerDirectoryTechnology" (ngModelChange)="loadCustomers()">
-                    <option value="">Toutes</option>
+                    <option value="">{{ i18n.t('client360.filter.all_technologies') }}</option>
                     @for (tech of customerDirectoryFacets().technologies; track tech) {
                       <option [value]="tech">{{ tech }}</option>
                     }
@@ -736,9 +743,9 @@ interface CampaignDraftsOutcome {
               <div class="directory-selection-bar">
                 <button type="button" class="primary" (click)="startCampaignFromSelection()">
                   <ck-glyph name="ledger" [size]="14" color="currentColor" />
-                  Creer une campagne ({{ directorySelection().length }} client{{ directorySelection().length > 1 ? 's' : '' }})
+                  {{ i18n.t('client360.directory.create_campaign', { count: directorySelection().length }) }}
                 </button>
-                <button type="button" class="secondary" title="Vider la selection" (click)="clearDirectorySelection()">Effacer</button>
+                <button type="button" class="secondary" [title]="i18n.t('client360.directory.clear_hint')" (click)="clearDirectorySelection()">{{ i18n.t('client360.directory.clear') }}</button>
               </div>
             }
             <div class="directory-list">
@@ -748,8 +755,8 @@ interface CampaignDraftsOutcome {
                     type="checkbox"
                     [checked]="isDirectoryCustomerSelected(customer.customer_key)"
                     (change)="toggleDirectoryCustomer(customer.customer_key)"
-                    [attr.aria-label]="'Selectionner ' + customer.customer_name + ' pour une campagne'"
-                    title="Selectionner pour une campagne"
+                    [attr.aria-label]="i18n.t('client360.directory.select_customer', { name: customer.customer_name })"
+                    [title]="i18n.t('client360.directory.select_hint')"
                   />
                   <button
                     type="button"
@@ -758,7 +765,7 @@ interface CampaignDraftsOutcome {
                   >
                     <strong>{{ customer.customer_name }}</strong>
                     <span>
-                      {{ customer.countries.join(', ') || 'Pays a completer' }}
+                      {{ customer.countries.join(', ') || i18n.t('client360.placeholder.country') }}
                       · {{ customer.opportunity_count }} opp.
                       · {{ formatCurrency(customer.potential_gap_value, customer.currency) }}
                     </span>
@@ -766,7 +773,7 @@ interface CampaignDraftsOutcome {
                 </div>
               }
               @if (!directoryCustomers().length) {
-                <div class="empty compact"><span>Aucun client dans l'annuaire.</span></div>
+                <div class="empty compact"><span>{{ i18n.t('client360.directory.empty') }}</span></div>
               }
             </div>
           </aside>
@@ -774,12 +781,12 @@ interface CampaignDraftsOutcome {
             @if (customerDetailLoading()) {
               <div class="detail-loader" role="status">
                 <ck-glyph name="pulse" [size]="16" color="currentColor" />
-                <span>Chargement de la fiche client…</span>
+                <span>{{ i18n.t('client360.customer.loading') }}</span>
               </div>
             } @else if (selectedCustomer(); as fiche) {
               <div class="detail-head">
                 <div>
-                  <p class="ck-label c360-eyebrow">Fiche client 360</p>
+                  <p class="ck-label c360-eyebrow">{{ i18n.t('client360.customer.eyebrow') }}</p>
                   <h2>{{ fiche.customer.name }}</h2>
                   <div class="chips">
                     @for (country of fiche.customer.countries; track country) {
@@ -797,10 +804,12 @@ interface CampaignDraftsOutcome {
                   <div class="detail-actions">
                     <div class="button-row">
                       <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpp, 'validated')">
-                        <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
+                        <ck-glyph name="check" [size]="14" color="currentColor" />
+                        {{ i18n.t('client360.validate') }}
                       </button>
                       <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpp, 'dismissed')">
-                        <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
+                        <ck-glyph name="x" [size]="14" color="currentColor" />
+                        {{ i18n.t('client360.customer.dismiss') }}
                       </button>
                       <button
                         type="button"
@@ -811,9 +820,11 @@ interface CampaignDraftsOutcome {
                         (click)="generateDraft(selectedOpp)"
                       >
                         @if (isGeneratingDraft(selectedOpp)) {
-                          <ck-glyph name="pulse" [size]="14" color="currentColor" /> Generation...
+                          <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                          {{ i18n.t('client360.customer.generating') }}
                         } @else {
-                          <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
+                          <ck-glyph name="ledger" [size]="14" color="currentColor" />
+                          {{ i18n.t('client360.customer.mail_draft') }}
                         }
                       </button>
                     </div>
@@ -824,7 +835,7 @@ interface CampaignDraftsOutcome {
               @if (fiche.ai_summary; as summaryAi) {
                 <section class="c360-summary">
                   <div class="c360-summary-head">
-                    <p class="ck-label c360-eyebrow">Resume IA</p>
+                    <p class="ck-label c360-eyebrow">{{ i18n.t('client360.summary.title') }}</p>
                     <span class="pill" [ngClass]="summaryAi.generation_mode">{{ summaryModeLabel(summaryAi) }}</span>
                   </div>
                   <p class="c360-summary-text">{{ summaryAi.text }}</p>
@@ -840,51 +851,51 @@ interface CampaignDraftsOutcome {
               } @else if (customerSummaryLoading()) {
                 <section class="c360-summary">
                   <div class="c360-summary-head">
-                    <p class="ck-label c360-eyebrow">Resume IA</p>
-                    <span class="pill">Generation…</span>
+                    <p class="ck-label c360-eyebrow">{{ i18n.t('client360.summary.title') }}</p>
+                    <span class="pill">{{ i18n.t('client360.customer.generating') }}</span>
                   </div>
                   <p class="hint" role="status">
                     <ck-glyph name="pulse" [size]="14" color="currentColor" />
-                    Redaction du resume IA en cours — la fiche reste utilisable.
+                    {{ i18n.t('client360.summary.writing') }}
                   </p>
                 </section>
               }
 
-              <h3>Identite</h3>
+              <h3>{{ i18n.t('client360.section.identity') }}</h3>
               <dl class="facts">
-                <div><dt>Client</dt><dd>{{ fiche.customer.name }}</dd></div>
-                <div><dt>Pays</dt><dd>{{ fiche.customer.countries.join(', ') || 'A completer' }}</dd></div>
-                <div><dt>Hubs</dt><dd>{{ fiche.customer.hubs.join(', ') || 'A completer' }}</dd></div>
-                <div><dt>Technologies</dt><dd>{{ fiche.customer.technologies.join(', ') || 'A completer' }}</dd></div>
-                <div><dt>Projets</dt><dd>{{ (fiche.projects ?? []).length }}</dd></div>
-                <div><dt>Opportunites</dt><dd>{{ fiche.opportunities.length }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.customer') }}</dt><dd>{{ fiche.customer.name }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.country') }}</dt><dd>{{ fiche.customer.countries.join(', ') || i18n.t('client360.placeholder.todo') }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.hubs') }}</dt><dd>{{ fiche.customer.hubs.join(', ') || i18n.t('client360.placeholder.todo') }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.technologies') }}</dt><dd>{{ fiche.customer.technologies.join(', ') || i18n.t('client360.placeholder.todo') }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.projects') }}</dt><dd>{{ (fiche.projects ?? []).length }}</dd></div>
+                <div><dt>{{ i18n.t('client360.fact.opportunities') }}</dt><dd>{{ fiche.opportunities.length }}</dd></div>
               </dl>
 
-              <h3>Projets</h3>
+              <h3>{{ i18n.t('client360.section.projects') }}</h3>
               @if ((fiche.projects ?? []).length) {
                 <div class="chips">
                   @for (project of fiche.projects ?? []; track project.project_code || project.sap_reference || $index) {
                     <button type="button" class="chip-button" (click)="focusProject(project)">
-                      {{ project.project_code || project.sap_reference || 'Projet' }}
+                      {{ project.project_code || project.sap_reference || i18n.t('client360.placeholder.project') }}
                       <small>{{ project.sap_reference && project.project_code ? project.sap_reference : (project.country || '') }}</small>
                     </button>
                   }
                 </div>
               } @else {
-                <p class="hint">Aucun projet registre pour ce client.</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_projects') }}</p>
               }
 
-              <h3>Parc installe</h3>
+              <h3>{{ i18n.t('client360.section.installed_base') }}</h3>
               @if ((fiche.machines ?? []).length) {
                 <div class="c360-tree">
                   @for (machine of machinesForFocusedProject(); track machine.machine_label + (machine.project_code || '')) {
                     <div class="c360-tree-machine">
                       <p class="c360-tree-machine-head">
-                        <span>{{ machine.machine_label || 'Machine' }}</span>
-                        <span>{{ machine.technology || 'Techno a completer' }}</span>
+                        <span>{{ machine.machine_label || i18n.t('client360.placeholder.machine') }}</span>
+                        <span>{{ machine.technology || i18n.t('client360.placeholder.technology') }}</span>
                       </p>
                       <p class="hint">
-                        {{ machine.line_label || 'Ligne a completer' }}
+                        {{ machine.line_label || i18n.t('client360.placeholder.line') }}
                         @if (machine.project_code) { · {{ machine.project_code }} }
                         @if (machine.construction_year) { · {{ machine.construction_year }} }
                       </p>
@@ -916,7 +927,7 @@ interface CampaignDraftsOutcome {
                                 <button type="button" class="c360-tree-part linkish" (click)="selectOpportunityFromFiche(part.opportunity_id)">
                                   <span class="c360-tree-part-label">{{ part.part_family }}<small>{{ part.part_reference ? ' · ' + part.part_reference : '' }}</small></span>
                                   <span class="c360-tree-part-meta">
-                                    Ecart {{ formatQty(part.potential_gap_qty) }} · {{ formatCurrency(part.potential_gap_value, part.currency) }}
+                                    {{ i18n.t('client360.tree.gap') }} {{ formatQty(part.potential_gap_qty) }} · {{ formatCurrency(part.potential_gap_value, part.currency) }}
                                   </span>
                                 </button>
                               }
@@ -929,21 +940,21 @@ interface CampaignDraftsOutcome {
                 </div>
               }
               @if (!(fiche.machines ?? []).length && !(fiche.installed_base ?? []).length) {
-                <p class="hint">Aucun parc installe agrege pour ce client.</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_installed_base') }}</p>
               }
 
-              <h3>Achats / ventes</h3>
+              <h3>{{ i18n.t('client360.section.purchases') }}</h3>
               @if ((fiche.purchases ?? []).length) {
                 <div class="table-wrap compact-table">
                   <table>
                     <thead>
                       <tr>
-                        <th>Piece</th>
-                        <th>Qte</th>
-                        <th>Valeur</th>
-                        <th>Cout PO</th>
-                        <th>Delai</th>
-                        <th>Derniere commande</th>
+                        <th>{{ i18n.t('client360.purchases.part') }}</th>
+                        <th>{{ i18n.t('client360.purchases.qty') }}</th>
+                        <th>{{ i18n.t('client360.purchases.value') }}</th>
+                        <th>{{ i18n.t('client360.purchases.po_cost') }}</th>
+                        <th>{{ i18n.t('client360.purchases.lead_time') }}</th>
+                        <th>{{ i18n.t('client360.purchases.last_order') }}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -966,20 +977,20 @@ interface CampaignDraftsOutcome {
                 @if ((fiche.purchases ?? []).length > fichePurchasesLimit()) {
                   <div class="button-row show-more-row">
                     <button type="button" class="secondary" (click)="showMoreFichePurchases()">
-                      Afficher plus ({{ (fiche.purchases ?? []).length - fichePurchasesLimit() }} restantes)
+                      {{ i18n.t('client360.show_more', { count: (fiche.purchases ?? []).length - fichePurchasesLimit() }) }}
                     </button>
                   </div>
                 }
               } @else {
-                <p class="hint">Aucun historique sales orders pour ce client.</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_orders') }}</p>
               }
 
-              <h3>A prevoir</h3>
+              <h3>{{ i18n.t('client360.section.upcoming') }}</h3>
               @if ((fiche.next_due ?? []).length) {
                 <div class="chips">
                   @for (item of fiche.next_due ?? []; track item.part_reference || item.next_due_at || $index) {
                     <span>
-                      {{ item.part_reference || item.part_family || 'Piece' }}
+                      {{ item.part_reference || item.part_family || i18n.t('client360.placeholder.part') }}
                       · {{ formatDate(item.next_due_at) }}
                     </span>
                   }
@@ -988,18 +999,19 @@ interface CampaignDraftsOutcome {
                   <button
                     type="button"
                     class="secondary"
-                    title="Pre-remplit une campagne ciblant ce client et ses echeances a venir"
+                    [title]="i18n.t('client360.upcoming.campaign_hint')"
                     (click)="startCampaignFromNextDue(fiche)"
                   >
-                    <ck-glyph name="ledger" [size]="14" color="currentColor" /> Campagne sur ces echeances
+                    <ck-glyph name="ledger" [size]="14" color="currentColor" />
+                    {{ i18n.t('client360.upcoming.campaign_cta') }}
                   </button>
                 </div>
-                <p class="hint">Echeances deterministes — estimation a recaler des les premiers retours.</p>
+                <p class="hint">{{ i18n.t('client360.upcoming.note') }}</p>
               } @else {
-                <p class="hint">Aucune echeance deterministe disponible (module prevision non branche).</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_due_dates') }}</p>
               }
 
-              <h3>Opportunites</h3>
+              <h3>{{ i18n.t('client360.section.opportunities') }}</h3>
               @if (fiche.opportunities.length) {
                 <div class="chips">
                   @for (opp of ficheOpportunities(); track opp.id) {
@@ -1009,13 +1021,13 @@ interface CampaignDraftsOutcome {
                       [ngClass]="{ active: selectedOpportunity()?.id === opp.id }"
                       (click)="selectOpportunityFromFiche(opp.id)"
                     >
-                      {{ opp.part_family || opp.part_reference || 'Opportunite' }}
+                      {{ opp.part_family || opp.part_reference || i18n.t('client360.placeholder.opportunity') }}
                       <small>{{ formatCurrency(opp.potential_gap_value, opp.currency) }}</small>
                     </button>
                   }
                   @if (fiche.opportunities.length > ficheOpportunitiesLimit()) {
                     <button type="button" class="chip-button" (click)="showMoreFicheOpportunities()">
-                      + {{ fiche.opportunities.length - ficheOpportunitiesLimit() }} autres…
+                      {{ i18n.t('client360.opportunities.more', { count: fiche.opportunities.length - ficheOpportunitiesLimit() }) }}
                     </button>
                   }
                 </div>
@@ -1025,46 +1037,47 @@ interface CampaignDraftsOutcome {
                       type="button"
                       class="primary"
                       [disabled]="isGeneratingDraft(selectedOpp)"
-                      title="Ouvre le brouillon dans l'onglet Mail & suivi"
+                      [title]="i18n.t('client360.draft.open_hint')"
                       (click)="generateDraft(selectedOpp)"
                     >
                       <ck-glyph name="ledger" [size]="14" color="currentColor" />
-                      Brouillon mail — {{ selectedOpp.part_family || selectedOpp.part_reference || 'opportunite' }}
+                      {{ i18n.t('client360.draft.cta', { label: selectedOpp.part_family || selectedOpp.part_reference || i18n.t('client360.placeholder.opportunity') }) }}
                     </button>
                   } @else {
-                    <button type="button" class="primary" disabled title="Selectionnez d'abord une opportunite ci-dessus">
-                      <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
+                    <button type="button" class="primary" disabled [title]="i18n.t('client360.draft.select_first')">
+                      <ck-glyph name="ledger" [size]="14" color="currentColor" />
+                      {{ i18n.t('client360.customer.mail_draft') }}
                     </button>
                   }
                 </div>
-                <p class="hint">Le brouillon s'ouvre dans « Mail & suivi » — relecture et envoi toujours valides par un humain.</p>
+                <p class="hint">{{ i18n.t('client360.draft.note') }}</p>
               } @else {
-                <p class="hint">Aucune opportunite detectee pour ce client.</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_opportunities') }}</p>
               }
 
               @if (selectedOpportunity(); as selectedOpp) {
-                <h3>Detail opportunite selectionnee</h3>
+                <h3>{{ i18n.t('client360.section.selected_opportunity') }}</h3>
                 <dl class="facts">
-                  <div><dt>Pays / hub</dt><dd>{{ selectedOpp.country || selectedOpp.hub || 'A completer' }}</dd></div>
-                  <div><dt>Technologie</dt><dd>{{ selectedOpp.technology || 'A completer' }}</dd></div>
-                  <div><dt>Piece</dt><dd>{{ selectedOpp.part_family }}</dd></div>
-                  <div><dt>Periodicite</dt><dd>{{ formatWeeks(selectedOpp.periodicity_weeks) }}</dd></div>
-                  <div><dt>Quantite annuelle</dt><dd>{{ formatQty(selectedOpp.annual_theoretical_qty) }}</dd></div>
-                  <div><dt>Achats SAP connus</dt><dd>{{ formatQty(selectedOpp.sales_known_qty) }}</dd></div>
-                  <div><dt>Ecart vs achats</dt><dd>{{ formatQty(selectedOpp.potential_gap_qty) }}</dd></div>
-                  <div><dt>Valeur potentielle</dt><dd>{{ formatCurrency(selectedOpp.potential_gap_value, selectedOpp.currency) }}</dd></div>
-                  <div><dt>Adressable pondere</dt><dd>{{ formatQty(selectedOpp.potential_addressable) }}</dd></div>
-                  <div><dt>Delai</dt><dd>{{ formatWeeks(selectedOpp.delivery_time_weeks) }}</dd></div>
-                  <div><dt>Echeance</dt><dd>{{ formatDate(selectedOpp.next_due_at) }}</dd></div>
-                  <div><dt>Action</dt><dd>{{ labelAction(selectedOpp.recommended_action) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.country_hub') }}</dt><dd>{{ selectedOpp.country || selectedOpp.hub || i18n.t('client360.placeholder.todo') }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.technology') }}</dt><dd>{{ selectedOpp.technology || i18n.t('client360.placeholder.todo') }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.part') }}</dt><dd>{{ selectedOpp.part_family }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.periodicity') }}</dt><dd>{{ formatWeeks(selectedOpp.periodicity_weeks) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.annual_qty') }}</dt><dd>{{ formatQty(selectedOpp.annual_theoretical_qty) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.sap_known') }}</dt><dd>{{ formatQty(selectedOpp.sales_known_qty) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.gap_vs_purchases') }}</dt><dd>{{ formatQty(selectedOpp.potential_gap_qty) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.potential_value') }}</dt><dd>{{ formatCurrency(selectedOpp.potential_gap_value, selectedOpp.currency) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.weighted_addressable') }}</dt><dd>{{ formatQty(selectedOpp.potential_addressable) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.lead_time') }}</dt><dd>{{ formatWeeks(selectedOpp.delivery_time_weeks) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.due') }}</dt><dd>{{ formatDate(selectedOpp.next_due_at) }}</dd></div>
+                  <div><dt>{{ i18n.t('client360.fact.action') }}</dt><dd>{{ labelAction(selectedOpp.recommended_action) }}</dd></div>
                 </dl>
-                <h3>Donnees manquantes</h3>
+                <h3>{{ i18n.t('client360.section.missing_data') }}</h3>
                 <div class="chips">
                   @for (gap of selectedOpp.data_gaps; track gap) {
                     <span>{{ labelGap(gap) }}</span>
                   }
                 </div>
-                <h3>Raisons du score</h3>
+                <h3>{{ i18n.t('client360.section.score_reasons') }}</h3>
                 <div class="reason-list">
                   @for (reason of selectedOpp.score_reasons; track reason.code) {
                     <span [ngClass]="{ met: reason.met }">{{ reason.label }}</span>
@@ -1072,7 +1085,7 @@ interface CampaignDraftsOutcome {
                 </div>
               }
 
-              <h3>Chronologie</h3>
+              <h3>{{ i18n.t('client360.section.timeline') }}</h3>
               @if ((fiche.timeline ?? []).length) {
                 <ol class="c360-timeline">
                   @for (event of ficheTimeline(); track $index) {
@@ -1086,25 +1099,25 @@ interface CampaignDraftsOutcome {
                 @if ((fiche.timeline ?? []).length > ficheTimelineLimit()) {
                   <div class="button-row show-more-row">
                     <button type="button" class="secondary" (click)="showMoreFicheTimeline()">
-                      Afficher plus ({{ (fiche.timeline ?? []).length - ficheTimelineLimit() }} restants)
+                      {{ i18n.t('client360.show_more', { count: (fiche.timeline ?? []).length - ficheTimelineLimit() }) }}
                     </button>
                   </div>
                 }
               } @else {
-                <p class="hint">Aucun evenement chronologique enregistre.</p>
+                <p class="hint">{{ i18n.t('client360.customer.no_timeline') }}</p>
               }
 
-              <h3>Signaux externes</h3>
+              <h3>{{ i18n.t('client360.section.external_signals') }}</h3>
               <div class="chips">
                 @for (signal of fiche.market_signals; track signal.id) {
                   <span>{{ signal.label }}</span>
                 }
                 @if (fiche.market_signals.length === 0) {
-                  <span>Pas de signal externe rattache</span>
+                  <span>{{ i18n.t('client360.customer.no_signal') }}</span>
                 }
               </div>
             } @else {
-              <div class="empty"><span>Selectionner un client dans l'annuaire.</span></div>
+              <div class="empty"><span>{{ i18n.t('client360.customer.select_prompt') }}</span></div>
             }
           </article>
         </section>
@@ -1115,30 +1128,28 @@ interface CampaignDraftsOutcome {
           <div class="ck-surface gap-panel">
             <div class="detail-head compact">
               <div>
-                <p class="ck-label c360-eyebrow">Collection unifiee</p>
+                <p class="ck-label c360-eyebrow">{{ i18n.t('client360.data.collection_eyebrow') }}</p>
                 <h2>Installed base SPL</h2>
               </div>
             </div>
             <dl class="engine-facts">
               <div><dt>Slug</dt><dd class="mono-slug">{{ unifiedCollectionSlug }}</dd></div>
-              <div><dt>Sources liees</dt><dd>{{ unifiedCollectionStats().linkedSources }} / {{ unifiedCollectionStats().totalSources }}</dd></div>
-              <div><dt>Pretes</dt><dd>{{ unifiedCollectionStats().readySources }}</dd></div>
-              <div><dt>Fichiers / origines</dt><dd>{{ unifiedCollectionStats().originSummary }}</dd></div>
+              <div><dt>{{ i18n.t('client360.data.linked_sources') }}</dt><dd>{{ unifiedCollectionStats().linkedSources }} / {{ unifiedCollectionStats().totalSources }}</dd></div>
+              <div><dt>{{ i18n.t('client360.data.ready') }}</dt><dd>{{ unifiedCollectionStats().readySources }}</dd></div>
+              <div><dt>{{ i18n.t('client360.data.files_origins') }}</dt><dd>{{ unifiedCollectionStats().originSummary }}</dd></div>
             </dl>
-            <h3>Comptes par type</h3>
+            <h3>{{ i18n.t('client360.data.counts_by_type') }}</h3>
             <div class="chips">
               @for (entry of unifiedCollectionStats().typeEntries; track entry.key) {
-                <span>{{ labelSourceType(entry.key) }} · {{ entry.count }}{{ entry.rows != null ? ' · ' + formatQty(entry.rows) + ' lignes' : '' }}</span>
+                <span>{{ labelSourceType(entry.key) }} · {{ entry.count }}{{ entry.rows != null ? ' · ' + formatQty(entry.rows) + ' ' + i18n.t('client360.data.rows_suffix') : '' }}</span>
               }
               @if (unifiedCollectionStats().typeEntries.length === 0) {
-                <span>Aucune source Client360 detectee</span>
+                <span>{{ i18n.t('client360.data.no_sources') }}</span>
               }
             </div>
             @if (!unifiedCollectionStats().hasLinkedSources && unifiedCollectionStats().totalSources > 0) {
               <p class="hint">
-                Aucune source n'est encore liee a {{ unifiedCollectionSlug }}.
-                Cliquez « Synchroniser les sources » pour rattacher le pilote MVP ;
-                les fichiers Installed_base_SPL doivent d'abord etre promus dans la collection.
+                {{ i18n.t('client360.data.no_link_hint', { slug: unifiedCollectionSlug }) }}
               </p>
             }
             <div class="data-actions">
@@ -1151,16 +1162,20 @@ interface CampaignDraftsOutcome {
                 (click)="syncFromCollection(false)"
               >
                 @if (syncBusy()) {
-                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Sync...
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.data.syncing') }}
                 } @else {
-                  <ck-glyph name="orbit" [size]="14" color="currentColor" /> Synchroniser les sources
+                  <ck-glyph name="orbit" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.data.sync') }}
                 }
               </button>
               <button type="button" class="secondary" [disabled]="loading()" (click)="runEngine(true)">
-                <ck-glyph name="sliders" [size]="14" color="currentColor" /> Dry-run moteur
+                <ck-glyph name="sliders" [size]="14" color="currentColor" />
+                {{ i18n.t('client360.data.dry_run') }}
               </button>
               <button type="button" class="primary" [disabled]="loading()" (click)="runEngine(false)">
-                <ck-glyph name="play" [size]="14" color="currentColor" /> Calculer
+                <ck-glyph name="play" [size]="14" color="currentColor" />
+                {{ i18n.t('client360.data.compute') }}
               </button>
             </div>
             @if (syncStatus()) {
@@ -1168,46 +1183,46 @@ interface CampaignDraftsOutcome {
             }
             @if (syncResult()) {
               <dl class="engine-facts">
-                <div><dt>Sync</dt><dd>{{ syncResult()?.dry_run ? 'Dry-run' : 'Applique' }}</dd></div>
-                <div><dt>Sources vues</dt><dd>{{ syncResult()?.sources_seen ?? '-' }}</dd></div>
-                <div><dt>Upsert</dt><dd>{{ syncResult()?.sources_upserted ?? '-' }}</dd></div>
-                <div><dt>Records</dt><dd>{{ syncResult()?.records_seen ?? '-' }}</dd></div>
-                <div><dt>Crees</dt><dd>{{ syncResult()?.created ?? '-' }}</dd></div>
-                <div><dt>Maj</dt><dd>{{ syncResult()?.updated ?? '-' }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.sync_label') }}</dt><dd>{{ syncResult()?.dry_run ? i18n.t('client360.data.dry_run_value') : i18n.t('client360.data.applied') }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.sources_seen') }}</dt><dd>{{ syncResult()?.sources_seen ?? '-' }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.upsert') }}</dt><dd>{{ syncResult()?.sources_upserted ?? '-' }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.records') }}</dt><dd>{{ syncResult()?.records_seen ?? '-' }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.created') }}</dt><dd>{{ syncResult()?.created ?? '-' }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.updated') }}</dt><dd>{{ syncResult()?.updated ?? '-' }}</dd></div>
               </dl>
             }
             <div class="scope-panel">
-              <h3>Gaps metier</h3>
+              <h3>{{ i18n.t('client360.data.business_gaps') }}</h3>
               <div class="chips">
                 @for (gap of summary()?.data_gaps ?? []; track gap) {
                   <span>{{ labelGap(gap) }}</span>
                 }
                 @if ((summary()?.data_gaps ?? []).length === 0) {
-                  <span class="ok">Sources minimales detectees</span>
+                  <span class="ok">{{ i18n.t('client360.data.min_sources_ok') }}</span>
                 }
               </div>
-              <h3>Scope MVP</h3>
-              <p>{{ summary()?.positioning?.mvp_contract?.promise || 'Potentiel PDR explicable, validation humaine et boucle impact.' }}</p>
+              <h3>{{ i18n.t('client360.data.mvp_scope') }}</h3>
+              <p>{{ summary()?.positioning?.mvp_contract?.promise || i18n.t('client360.data.mvp_promise') }}</p>
               <div class="chips">
                 @for (segment of campaignSegments(); track segment.id) {
                   <span>{{ segment.label }}</span>
                 }
               </div>
-              <h3>Routage IA</h3>
+              <h3>{{ i18n.t('client360.data.ai_routing') }}</h3>
               <dl class="engine-facts">
-                <div><dt>Mode</dt><dd>{{ mailAiStatusLabel() }}</dd></div>
-                <div><dt>Route</dt><dd>{{ mailAiRouteLabel() }}</dd></div>
-                <div><dt>Runtime</dt><dd>{{ mailAiModelLabel() }}</dd></div>
-                <div><dt>Source</dt><dd>{{ mailAiSourceLabel() }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.mode') }}</dt><dd>{{ mailAiStatusLabel() }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.route') }}</dt><dd>{{ mailAiRouteLabel() }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.runtime') }}</dt><dd>{{ mailAiModelLabel() }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.source') }}</dt><dd>{{ mailAiSourceLabel() }}</dd></div>
               </dl>
             </div>
             @if (engineResult()) {
               <dl class="engine-facts">
-                <div><dt>Records lus</dt><dd>{{ engineResult()?.records_seen }}</dd></div>
-                <div><dt>Opportunites</dt><dd>{{ engineResult()?.opportunities_detected }}</dd></div>
-                <div><dt>Crees</dt><dd>{{ engineResult()?.created }}</dd></div>
-                <div><dt>Maj</dt><dd>{{ engineResult()?.updated }}</dd></div>
-                <div><dt>Mappings</dt><dd>{{ engineResult()?.candidate_mappings_created }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.records_read') }}</dt><dd>{{ engineResult()?.records_seen }}</dd></div>
+                <div><dt>{{ i18n.t('client360.kpi.opportunities') }}</dt><dd>{{ engineResult()?.opportunities_detected }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.created') }}</dt><dd>{{ engineResult()?.created }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.updated') }}</dt><dd>{{ engineResult()?.updated }}</dd></div>
+                <div><dt>{{ i18n.t('client360.data.mappings') }}</dt><dd>{{ engineResult()?.candidate_mappings_created }}</dd></div>
               </dl>
             }
           </div>
@@ -1215,11 +1230,11 @@ interface CampaignDraftsOutcome {
             <table>
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Source</th>
-                  <th>Collection</th>
-                  <th>Lignes</th>
-                  <th>Statut</th>
+                  <th>{{ i18n.t('client360.sources.type') }}</th>
+                  <th>{{ i18n.t('client360.sources.source') }}</th>
+                  <th>{{ i18n.t('client360.sources.collection') }}</th>
+                  <th>{{ i18n.t('client360.sources.rows') }}</th>
+                  <th>{{ i18n.t('client360.sources.status') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1246,18 +1261,18 @@ interface CampaignDraftsOutcome {
           @if (mappings().length === 0) {
             <div class="empty">
               <ck-glyph name="flow" [size]="18" color="currentColor" />
-              <span>Aucun mapping SAP / famille PDR pour le moment.</span>
-              <small>Lancer le moteur depuis Donnees cree les candidats detectables.</small>
+              <span>{{ i18n.t('client360.mapping.empty') }}</span>
+              <small>{{ i18n.t('client360.mapping.hint') }}</small>
             </div>
           } @else {
             <table>
               <thead>
                 <tr>
-                  <th>SAP / source</th>
-                  <th>Famille PDR</th>
-                  <th>Technologie</th>
-                  <th>Periodicite</th>
-                  <th>Statut</th>
+                  <th>{{ i18n.t('client360.mapping.source') }}</th>
+                  <th>{{ i18n.t('client360.mapping.family') }}</th>
+                  <th>{{ i18n.t('client360.mapping.technology') }}</th>
+                  <th>{{ i18n.t('client360.mapping.periodicity') }}</th>
+                  <th>{{ i18n.t('client360.mapping.status') }}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1266,7 +1281,7 @@ interface CampaignDraftsOutcome {
                   <tr>
                     <td>
                       <strong>{{ mapping.source_part_reference || mapping.source_part_family || mapping.source_part_label || '-' }}</strong>
-                      <small>{{ mapping.notes || 'Mapping semi-manuel' }}</small>
+                      <small>{{ mapping.notes || i18n.t('client360.mapping.semi_manual') }}</small>
                     </td>
                     <td>{{ mapping.pdr_family }}</td>
                     <td>{{ mapping.technology || '-' }}</td>
@@ -1275,7 +1290,8 @@ interface CampaignDraftsOutcome {
                     <td>
                       @if (mapping.status !== 'validated') {
                         <button type="button" class="secondary" (click)="validateMapping(mapping)">
-                          <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
+                          <ck-glyph name="check" [size]="14" color="currentColor" />
+                          {{ i18n.t('client360.validate') }}
                         </button>
                       }
                     </td>
@@ -1292,8 +1308,8 @@ interface CampaignDraftsOutcome {
           <div class="ck-surface detail-panel mail-editor-panel">
             <div class="detail-head">
               <div>
-                <p class="ck-label c360-eyebrow">Mail & suivi</p>
-                <h2>{{ currentDraft()?.subject || 'Aucun brouillon selectionne' }}</h2>
+                <p class="ck-label c360-eyebrow">{{ i18n.t('client360.tab.mail') }}</p>
+                <h2>{{ currentDraft()?.subject || i18n.t('client360.mail.no_draft') }}</h2>
                 @if (currentDraft()) {
                   <div class="draft-meta">
                     <span class="pill" [ngClass]="draftGenerationMode(currentDraft())">
@@ -1308,11 +1324,11 @@ interface CampaignDraftsOutcome {
             </div>
             <div class="draft-fields">
               <label>
-                Destinataire
+                {{ i18n.t('client360.mail.recipient') }}
                 <input type="email" [(ngModel)]="recipientEmail" placeholder="contact@client.com" />
               </label>
               <label>
-                Sujet
+                {{ i18n.t('client360.mail.subject') }}
                 <input type="text" [ngModel]="draftSubject()" (ngModelChange)="draftSubject.set($event)" />
               </label>
             </div>
@@ -1327,14 +1343,17 @@ interface CampaignDraftsOutcome {
                 (click)="sendCurrentDraft()"
               >
                 @if (isSendingMail()) {
-                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Envoi SMTP...
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.mail.sending') }}
                 } @else {
-                  <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Envoyer via SMTP
+                  <ck-glyph name="arrow-up" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.mail.send') }}
                 }
               </button>
               @if (currentDraft()?.action_item_id) {
                 <button type="button" class="secondary" (click)="markSent()" [disabled]="isSendingMail()">
-                  <ck-glyph name="check" [size]="14" color="currentColor" /> Tracer envoye
+                  <ck-glyph name="check" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.mail.mark_sent') }}
                 </button>
               }
               @if (mailStatus()) {
@@ -1348,105 +1367,97 @@ interface CampaignDraftsOutcome {
             </div>
             @if (currentDraft() && !mailSettings()?.configured) {
               <p class="hint">
-                Envoi SMTP indisponible — {{ smtpStatusDetail() || 'configuration incomplete' }}.
-                Completez le panneau SMTP ci-contre, ou utilisez « Tracer envoye » apres un envoi manuel.
+                {{ i18n.t('client360.mail.smtp_unavailable', { detail: smtpStatusDetail() || i18n.t('client360.mail.incomplete_config') }) }}
               </p>
             }
-            <p class="hint">Aucun envoi automatique : chaque mail est relu, ajuste et envoye par un humain.</p>
+            <p class="hint">{{ i18n.t('client360.mail.human_review') }}</p>
           </div>
           <aside class="side-stack">
             <section class="ck-surface impact-panel">
-              <h3>Suivi commercial</h3>
+              <h3>{{ i18n.t('client360.impact.title') }}</h3>
               <label>
-                Attribution a cette campagne
+                {{ i18n.t('client360.impact.attribution') }}
                 <select [(ngModel)]="impactAttribution">
-                  <option value="direct">Directe</option>
-                  <option value="probable">Probable</option>
-                  <option value="unknown">A qualifier</option>
-                  <option value="none">Non liee</option>
+                  <option value="direct">{{ i18n.t('client360.impact.attribution.direct') }}</option>
+                  <option value="probable">{{ i18n.t('client360.impact.attribution.probable') }}</option>
+                  <option value="unknown">{{ i18n.t('client360.impact.attribution.unknown') }}</option>
+                  <option value="none">{{ i18n.t('client360.impact.attribution.none') }}</option>
                 </select>
               </label>
               <label>
-                Motif
+                {{ i18n.t('client360.impact.reason') }}
                 <select [(ngModel)]="impactReason">
-                  <option value="unknown">A qualifier</option>
-                  <option value="price">Prix</option>
-                  <option value="competitor">Concurrent</option>
-                  <option value="no_need">Pas besoin</option>
-                  <option value="wrong_contact">Mauvais contact</option>
-                  <option value="timing">Timing</option>
-                  <option value="hub">Hub</option>
-                  <option value="technical_mismatch">Ecart technique</option>
-                  <option value="bad_data">Donnee incorrecte</option>
-                  <option value="other">Autre</option>
+                  @for (reason of impactReasons; track reason) {
+                    <option [value]="reason">{{ i18n.t('client360.impact.reason.' + reason) }}</option>
+                  }
                 </select>
               </label>
               <label>
-                Commentaire retour client
+                {{ i18n.t('client360.impact.comment') }}
                 <textarea class="small-textarea" [(ngModel)]="impactSummary"></textarea>
               </label>
               <div class="impact-buttons">
-                <button type="button" (click)="recordImpact('response')">Reponse recue</button>
-                <button type="button" (click)="recordImpact('quote')">Devis demande</button>
-                <button type="button" (click)="recordImpact('order')">Commande</button>
-                <button type="button" (click)="recordImpact('lost')">Perdu</button>
+                <button type="button" (click)="recordImpact('response')">{{ i18n.t('client360.impact.response') }}</button>
+                <button type="button" (click)="recordImpact('quote')">{{ i18n.t('client360.impact.quote') }}</button>
+                <button type="button" (click)="recordImpact('order')">{{ i18n.t('client360.impact.order') }}</button>
+                <button type="button" (click)="recordImpact('lost')">{{ i18n.t('client360.impact.lost') }}</button>
               </div>
             </section>
 
             @if (followUpAlerts().length) {
               <section class="ck-surface impact-panel">
                 <div class="panel-head">
-                  <h3>Relances a prevoir ({{ followUpAlerts().length }})</h3>
-                  <span class="pill" title="Pas de tracking d'ouverture : relance declenchee manuellement">suivi manuel</span>
+                  <h3>{{ i18n.t('client360.followup.title', { count: followUpAlerts().length }) }}</h3>
+                  <span class="pill" [title]="i18n.t('client360.followup.manual_hint')">{{ i18n.t('client360.followup.manual_pill') }}</span>
                 </div>
                 <ul class="followup-list">
                   @for (alert of followUpAlerts(); track alert.id) {
                     <li>
-                      <strong>{{ alert.opportunity_label || alert.customer_key || 'Opportunite' }}</strong>
+                      <strong>{{ alert.opportunity_label || alert.customer_key || i18n.t('client360.placeholder.opportunity') }}</strong>
                       <small>{{ alert.message }}</small>
                     </li>
                   }
                 </ul>
-                <p class="hint">Mails envoyes restes sans reponse — preparez les relances depuis la campagne (« Preparer relances »).</p>
+                <p class="hint">{{ i18n.t('client360.followup.note') }}</p>
               </section>
             }
 
             <section class="ck-surface smtp-panel">
               <div class="panel-head">
-                <h3>SMTP workspace</h3>
+                <h3>{{ i18n.t('client360.smtp.title') }}</h3>
                 <span class="status" [ngClass]="{ ok: mailSettings()?.configured }">{{ smtpStatusLabel() }}</span>
               </div>
               <p class="hint">{{ smtpSourceLabel() }}{{ smtpStatusDetail() ? ' — ' + smtpStatusDetail() : '' }}</p>
               <label>
-                Host
+                {{ i18n.t('client360.smtp.host') }}
                 <input type="text" [(ngModel)]="smtpHost" />
               </label>
               <div class="settings-grid">
                 <label>
-                  Port
+                  {{ i18n.t('client360.smtp.port') }}
                   <input type="number" [(ngModel)]="smtpPort" />
                 </label>
                 <label>
-                  User
+                  {{ i18n.t('client360.smtp.user') }}
                   <input type="text" [(ngModel)]="smtpUsername" />
                 </label>
               </div>
               <label>
-                Password
+                {{ i18n.t('client360.smtp.password') }}
                 <input type="password" [(ngModel)]="smtpPassword" [placeholder]="smtpPasswordPlaceholder()" />
               </label>
               <div class="settings-grid">
                 <label>
-                  From
+                  {{ i18n.t('client360.smtp.from') }}
                   <input type="email" [(ngModel)]="smtpFromEmail" />
                 </label>
                 <label>
-                  Nom expediteur
+                  {{ i18n.t('client360.smtp.from_name') }}
                   <input type="text" [(ngModel)]="smtpFromName" />
                 </label>
               </div>
               <div class="toggle-row">
-                <label class="checkline"><input type="checkbox" [(ngModel)]="smtpEnabled" /> Actif</label>
+                <label class="checkline"><input type="checkbox" [(ngModel)]="smtpEnabled" /> {{ i18n.t('client360.smtp.active') }}</label>
                 <label class="checkline"><input type="checkbox" [(ngModel)]="smtpSsl" /> SSL</label>
                 <label class="checkline"><input type="checkbox" [(ngModel)]="smtpStarttls" /> STARTTLS</label>
               </div>
@@ -1458,34 +1469,34 @@ interface CampaignDraftsOutcome {
                 (click)="saveMailSettings()"
               >
                 @if (savingMailSettings()) {
-                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Enregistrement...
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.smtp.saving') }}
                 } @else {
-                  <ck-glyph name="check" [size]="14" color="currentColor" /> Enregistrer SMTP
+                  <ck-glyph name="check" [size]="14" color="currentColor" />
+                  {{ i18n.t('client360.smtp.save') }}
                 }
               </button>
             </section>
 
             <section class="ck-surface smtp-panel mail-prompt-panel">
               <div class="panel-head">
-                <h3>Prompt de generation</h3>
+                <h3>{{ i18n.t('client360.prompt.title') }}</h3>
                 <span
                   class="status"
                   [ngClass]="{ ok: mailSettings()?.system_prompt_source === 'workspace' }"
-                  title="Defaut = prompt produit · Personnalise = version propre a ce workspace"
+                  [title]="i18n.t('client360.prompt.source_hint')"
                 >
                   {{ mailPromptSourceLabel() }}
                 </span>
               </div>
               <p class="hint mail-prompt-invariants">
-                Ce prompt systeme pilote la generation IA des brouillons (ton, structure, consignes).
-                Invariants non modifiables : reponse JSON stricte (subject / body), aucune invention de
-                donnees, validation humaine avant envoi.
+                {{ i18n.t('client360.prompt.invariants') }}
                 @if (mailSettings()?.prompt_version) {
                   <span class="mono-slug"> {{ mailSettings()?.prompt_version }}</span>
                 }
               </p>
               <label>
-                System prompt effectif
+                {{ i18n.t('client360.prompt.effective') }}
                 <textarea
                   class="small-textarea prompt-textarea"
                   [(ngModel)]="mailSystemPrompt"
@@ -1501,9 +1512,11 @@ interface CampaignDraftsOutcome {
                   (click)="saveMailPrompt()"
                 >
                   @if (savingMailPrompt()) {
-                    <ck-glyph name="pulse" [size]="14" color="currentColor" /> Enregistrement...
+                    <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                    {{ i18n.t('client360.smtp.saving') }}
                   } @else {
-                    <ck-glyph name="check" [size]="14" color="currentColor" /> Enregistrer le prompt
+                    <ck-glyph name="check" [size]="14" color="currentColor" />
+                    {{ i18n.t('client360.prompt.save') }}
                   }
                 </button>
                 <button
@@ -1516,16 +1529,17 @@ interface CampaignDraftsOutcome {
                   "
                   [attr.title]="
                     mailSettings()?.system_prompt_source === 'workspace'
-                      ? 'Restaurer le prompt par defaut du produit'
-                      : 'Deja sur le prompt par defaut'
+                      ? i18n.t('client360.prompt.reset_hint')
+                      : i18n.t('client360.prompt.already_default')
                   "
                   [ngClass]="{ 'is-loading': resettingMailPrompt() }"
                   (click)="resetMailPrompt()"
                 >
                   @if (resettingMailPrompt()) {
-                    <ck-glyph name="pulse" [size]="14" color="currentColor" /> Reinitialisation...
+                    <ck-glyph name="pulse" [size]="14" color="currentColor" />
+                    {{ i18n.t('client360.prompt.resetting') }}
                   } @else {
-                    Reinitialiser
+                    {{ i18n.t('client360.prompt.reset') }}
                   }
                 </button>
               </div>
@@ -1538,55 +1552,52 @@ interface CampaignDraftsOutcome {
         <section class="split">
           <div class="ck-surface list-panel">
             <div class="panel-head">
-              <h3>Campagnes</h3>
+              <h3>{{ i18n.t('client360.campaigns.title') }}</h3>
               <span class="muted">{{ campaigns().length }}</span>
             </div>
             <div class="campaign-form">
               <label>
-                Nom
-                <input type="text" [(ngModel)]="campaignName" placeholder="Nom de campagne" />
+                {{ i18n.t('client360.campaign.name') }}
+                <input type="text" [(ngModel)]="campaignName" [placeholder]="i18n.t('client360.campaign.name_placeholder')" />
               </label>
               <label>
-                Type
+                {{ i18n.t('client360.campaign.type') }}
                 <select [(ngModel)]="campaignType">
-                  <option value="first_replacement">Premier remplacement</option>
-                  <option value="maintenance_education">Pedagogie maintenance</option>
-                  <option value="renewal">Renouvellement</option>
-                  <option value="cross_selling">Vente croisee</option>
-                  <option value="upselling">Montee en gamme</option>
-                  <option value="free">Libre</option>
+                  @for (type of campaignTypes; track type) {
+                    <option [value]="type">{{ i18n.t('client360.campaign_type.' + type) }}</option>
+                  }
                 </select>
               </label>
               <div class="settings-grid">
                 <label>
-                  Pays
-                  <input type="text" [(ngModel)]="campaignCriteria.country" placeholder="Tous" />
+                  {{ i18n.t('client360.filter.country') }}
+                  <input type="text" [(ngModel)]="campaignCriteria.country" [placeholder]="i18n.t('client360.filter.all_countries')" />
                 </label>
                 <label>
-                  Technologie
-                  <input type="text" [(ngModel)]="campaignCriteria.technology" placeholder="Toutes" />
+                  {{ i18n.t('client360.filter.technology') }}
+                  <input type="text" [(ngModel)]="campaignCriteria.technology" [placeholder]="i18n.t('client360.filter.all_technologies')" />
                 </label>
               </div>
               <div class="settings-grid">
                 <label>
-                  Famille
-                  <input type="text" [(ngModel)]="campaignCriteria.part_family" placeholder="Toutes" />
+                  {{ i18n.t('client360.filter.part_family') }}
+                  <input type="text" [(ngModel)]="campaignCriteria.part_family" [placeholder]="i18n.t('client360.filter.all_families')" />
                 </label>
                 <label>
-                  Confiance
+                  {{ i18n.t('client360.filter.confidence') }}
                   <select [(ngModel)]="campaignCriteria.confidence">
-                    <option value="">Toutes</option>
-                    <option value="high">Haute</option>
-                    <option value="medium">Moyenne</option>
-                    <option value="low">Faible</option>
+                    <option value="">{{ i18n.t('client360.filter.any_confidence') }}</option>
+                    <option value="high">{{ i18n.t('client360.confidence.high') }}</option>
+                    <option value="medium">{{ i18n.t('client360.confidence.medium') }}</option>
+                    <option value="low">{{ i18n.t('client360.confidence.low') }}</option>
                   </select>
                 </label>
               </div>
               @if (campaignTargetCustomerKeys().length) {
                 <div class="campaign-targeting">
                   <div class="panel-head">
-                    <h3>Cible annuaire · {{ campaignTargetCustomerKeys().length }} client{{ campaignTargetCustomerKeys().length > 1 ? 's' : '' }}</h3>
-                    <button type="button" class="secondary" title="Revenir au ciblage par filtres" (click)="clearCampaignTargeting()">Retirer</button>
+                    <h3>{{ i18n.t('client360.campaign.target_title', { count: campaignTargetCustomerKeys().length }) }}</h3>
+                    <button type="button" class="secondary" [title]="i18n.t('client360.campaign.remove_target_hint')" (click)="clearCampaignTargeting()">{{ i18n.t('client360.campaign.remove_target') }}</button>
                   </div>
                   <div class="chips">
                     @for (key of campaignTargetCustomerKeys(); track key) {
@@ -1620,7 +1631,7 @@ interface CampaignDraftsOutcome {
                   <small>{{ labelCampaignType(campaign.campaign_type) }} · {{ campaign.drafts_count }} brouillon(s) / {{ campaign.targeted_count }} cible(s)</small>
                 </li>
               } @empty {
-                <li class="muted">Aucune campagne. Creez-en une depuis les filtres.</li>
+                <li class="muted">{{ i18n.t('client360.campaigns.empty') }}</li>
               }
             </ul>
           </div>
@@ -1981,6 +1992,8 @@ interface CampaignDraftsOutcome {
   `],
 })
 export class Client360PageComponent implements OnInit, OnDestroy {
+  readonly i18n = inject(I18nService);
+
   private readonly http = inject(HttpClient);
   private readonly workspace = inject(WorkspaceService);
   private workspaceActionGeneration = 0;
@@ -2067,9 +2080,31 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   impactAttribution = 'unknown';
   impactReason = 'unknown';
   impactSummary = '';
+  /** Option values of the impact-reason picker; the label is `client360.impact.reason.<value>`. */
+  readonly impactReasons = [
+    'unknown',
+    'price',
+    'competitor',
+    'no_need',
+    'wrong_contact',
+    'timing',
+    'hub',
+    'technical_mismatch',
+    'bad_data',
+    'other',
+  ] as const;
 
   campaignName = '';
   campaignType = 'first_replacement';
+  /** Option values of the campaign-type picker; the label is `client360.campaign_type.<value>`. */
+  readonly campaignTypes = [
+    'first_replacement',
+    'maintenance_education',
+    'renewal',
+    'cross_selling',
+    'upselling',
+    'free',
+  ] as const;
   campaignDueWithinWeeks: number | null = null;
   readonly campaignCriteria = {
     country: '',
@@ -2089,13 +2124,13 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   };
 
   readonly tabs: Array<{ id: ViewKey; label: string }> = [
-    { id: 'opportunities', label: 'Opportunites' },
-    { id: 'customer', label: 'Client' },
-    { id: 'data', label: 'Donnees' },
-    { id: 'mapping', label: 'Mapping' },
-    { id: 'mail', label: 'Mail & suivi' },
-    { id: 'campaigns', label: 'Campagnes' },
-    { id: 'chat', label: 'Assistant' },
+    { id: 'opportunities', label: this.i18n.t('client360.tab.opportunities') },
+    { id: 'customer', label: this.i18n.t('client360.tab.customer') },
+    { id: 'data', label: this.i18n.t('client360.tab.data') },
+    { id: 'mapping', label: this.i18n.t('client360.tab.mapping') },
+    { id: 'mail', label: this.i18n.t('client360.tab.mail') },
+    { id: 'campaigns', label: this.i18n.t('client360.tab.campaigns') },
+    { id: 'chat', label: this.i18n.t('client360.tab.chat') },
   ];
 
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
@@ -2503,7 +2538,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
           .filter((label): label is string => !!label);
         this.chatMessages.update((msgs) => [
           ...msgs,
-          { role: 'assistant', content: payload.content || 'Aucune reponse.', sources },
+          { role: 'assistant', content: payload.content || this.i18n.t('client360.chat.no_answer'), sources },
         ]);
         this.chatBusy.set(false);
       },
@@ -2566,7 +2601,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         if (showLoading) this.loading.set(false);
-        this.error.set('Impossible de charger les mappings Client360 PDR');
+        this.error.set(this.i18n.t('client360.error.mappings'));
       },
     });
     this.trackActionRefreshRequest(request, actionContext);
@@ -2635,7 +2670,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.savingMailSettings.set(false);
-        this.mailStatus.set("Impossible d'enregistrer le SMTP");
+        this.mailStatus.set(this.i18n.t('client360.error.smtp_save'));
       },
     });
   }
@@ -2671,7 +2706,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         error: () => {
           if (!this.workspaceActionIsCurrent(scope, generation)) return;
           this.savingMailPrompt.set(false);
-          this.mailStatus.set("Impossible d'enregistrer le prompt");
+          this.mailStatus.set(this.i18n.t('client360.error.prompt_save'));
         },
       });
   }
@@ -2716,7 +2751,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.syncRequest?.unsubscribe();
     this.syncRequest = null;
     this.syncBusy.set(true);
-    this.syncStatus.set(dryRun ? 'Previsualisation sync...' : 'Synchronisation des sources...');
+    this.syncStatus.set(
+      this.i18n.t(dryRun ? 'client360.toast.sync_preview' : 'client360.toast.syncing'),
+    );
     this.error.set(null);
     const request = this.http.post<Client360SyncFromCollectionResult>(
       '/api/v1/client360/sources/sync-from-collection',
@@ -2733,15 +2770,21 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         const upserted = payload.sources_upserted ?? payload.created ?? payload.updated;
         const linked = payload.mvp_sources_linked;
         const parts: string[] = [];
-        if (linked != null && linked > 0) parts.push(`${linked} pilote(s) rattache(s)`);
-        if (upserted != null) parts.push(`${upserted} source(s) SPL`);
-        if (!parts.length && (payload.files_seen ?? 0) === 0) {
-          parts.push('aucun fichier SPL promu — rattachement pilote uniquement');
+        if (linked != null && linked > 0) {
+          parts.push(this.i18n.t('client360.toast.sync_pilots_linked', { count: linked }));
         }
+        if (upserted != null) {
+          parts.push(this.i18n.t('client360.toast.sync_spl_sources', { count: upserted }));
+        }
+        if (!parts.length && (payload.files_seen ?? 0) === 0) {
+          parts.push(this.i18n.t('client360.toast.sync_no_spl'));
+        }
+        const detail = parts.length ? ` · ${parts.join(' · ')}` : '';
         this.syncStatus.set(
-          dryRun
-            ? `Dry-run sync OK${parts.length ? ` · ${parts.join(' · ')}` : ''}`
-            : `Sources synchronisees${parts.length ? ` · ${parts.join(' · ')}` : ''} — lancez Calculer pour maj les opportunites`,
+          this.i18n.t(
+            dryRun ? 'client360.toast.sync_dry_run_ok' : 'client360.toast.synced',
+            { detail },
+          ),
         );
         if (!dryRun) this.refresh({ scope, generation });
         else this.loadSummary(this.mailAiResolved(), { scope, generation });
@@ -2752,9 +2795,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         const detail = err?.error?.detail;
         this.syncStatus.set(null);
         this.error.set(
-          typeof detail === 'string'
-            ? detail
-            : 'Impossible de synchroniser les sources depuis la collection',
+          typeof detail === 'string' ? detail : this.i18n.t('client360.error.sync'),
         );
       },
     });
@@ -2852,7 +2893,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       },
       error: () => {
         if (this.workspaceActionIsCurrent(scope, generation)) {
-          this.error.set('Impossible de charger les mappings Client360 PDR');
+          this.error.set(this.i18n.t('client360.error.mappings'));
         }
       },
     });
@@ -2994,7 +3035,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionContextIsCurrent(actionContext)) return;
         this.loading.set(false);
-        this.error.set('Impossible de charger les opportunites Client360 PDR');
+        this.error.set(this.i18n.t('client360.error.opportunities'));
       },
     });
     this.trackActionRefreshRequest(request, actionContext);
@@ -3050,7 +3091,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.loading.set(false);
         this.generatingDraftOpportunityId.set(null);
-        this.error.set('Impossible de generer le brouillon');
+        this.error.set(this.i18n.t('client360.error.generate_draft'));
       },
     });
   }
@@ -3175,7 +3216,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         if (showLoading) this.loading.set(false);
-        this.error.set('Impossible de charger les campagnes Client360 PDR');
+        this.error.set(this.i18n.t('client360.error.campaigns'));
       },
     });
   }
@@ -3218,8 +3259,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.campaignName = '';
         this.campaignStatus.set(
           targetKeys.length
-            ? `Campagne creee pour ${targetKeys.length} client${targetKeys.length > 1 ? 's' : ''}`
-            : 'Campagne creee',
+            ? this.i18n.t('client360.toast.campaign_created', { count: targetKeys.length })
+            : this.i18n.t('client360.toast.campaign_created_plain'),
         );
         this.clearCampaignTargeting();
         this.clearDirectorySelection();
@@ -3229,7 +3270,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
-        this.campaignStatus.set('Impossible de creer la campagne');
+        this.campaignStatus.set(this.i18n.t('client360.error.campaign_create'));
       },
     });
   }
@@ -3263,7 +3304,11 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     const campaign = this.selectedCampaign();
     if (!campaign || this.campaignBusy()) return;
     this.campaignBusy.set(true);
-    this.campaignStatus.set(followUp ? 'Preparation des relances...' : 'Generation des brouillons...');
+    this.campaignStatus.set(
+      this.i18n.t(
+        followUp ? 'client360.toast.preparing_followups' : 'client360.toast.generating_drafts',
+      ),
+    );
     const scope = this.workspace.captureRequestScope();
     const generation = this.workspaceActionGeneration;
     this.http.post<Client360CampaignDraftsResult>(
@@ -3302,22 +3347,16 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.campaignBusy.set(false);
-        this.campaignStatus.set('Impossible de generer les brouillons');
+        this.campaignStatus.set(this.i18n.t('client360.error.generate_drafts'));
       },
     });
   }
 
   labelSkipReason(reason: string): string {
-    const labels: Record<string, string> = {
-      missing_contact_email: 'email de contact manquant',
-      active_campaign_conflict: 'client deja engage dans une autre campagne active',
-      already_in_campaign: 'brouillon deja cree dans cette campagne',
-      not_due_yet: 'relance pas encore due',
-      already_responded: 'client deja repondu',
-      follow_up_already_prepared: 'relance deja preparee',
-      missing_sent_at: "date d'envoi inconnue",
-    };
-    return labels[reason] || reason;
+    // Keys mirror the API's skip-reason values; an unknown one shows raw.
+    const key = `client360.skip.${reason}`;
+    const label = this.i18n.t(key);
+    return label === key ? reason : label;
   }
 
   campaignCriteriaChips(campaign: Client360Campaign): string[] {
@@ -3327,25 +3366,28 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       ? (criteria['customer_keys'] as string[])
       : [];
     if (customerKeys.length) {
-      chips.push(`Selection annuaire : ${customerKeys.length} client${customerKeys.length > 1 ? 's' : ''}`);
+      chips.push(
+        this.i18n.t('client360.campaign.criteria.selection', { count: customerKeys.length }),
+      );
     }
     const dueWeeks = Number(criteria['due_within_weeks']);
     if (Number.isFinite(dueWeeks) && dueWeeks > 0) {
-      chips.push(`Echeance sous ${dueWeeks} sem.`);
+      chips.push(this.i18n.t('client360.chip.due_in_weeks', { count: dueWeeks }));
     }
-    const labels: Record<string, string> = {
-      status: 'Statut',
-      customer: 'Client',
-      country: 'Pays',
-      hub: 'Hub',
-      technology: 'Technologie',
-      part_family: 'Famille',
-      confidence: 'Confiance',
-      limit: 'Limite',
-    };
-    for (const [key, label] of Object.entries(labels)) {
+    const criteriaKeys = [
+      'status',
+      'customer',
+      'country',
+      'hub',
+      'technology',
+      'part_family',
+      'confidence',
+      'limit',
+    ];
+    for (const key of criteriaKeys) {
       const value = criteria[key];
-      if (value != null && value !== '') chips.push(`${label} : ${value}`);
+      if (value == null || value === '') continue;
+      chips.push(`${this.i18n.t(`client360.campaign.criteria.${key}`)} : ${value}`);
     }
     return chips;
   }
@@ -3355,9 +3397,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     if (proxy == null || Number.isNaN(proxy)) return '';
     const pct = Math.round(proxy * 1000) / 10;
     const sources: Record<string, string> = {
-      observed_impacts: 'taux observe sur les retours',
-      contract_observed_conversion_weight: 'ponderation contractuelle par defaut',
-      explicit: 'proxy explicite',
+      observed_impacts: this.i18n.t('client360.impact.observed_rate'),
+      contract_observed_conversion_weight: this.i18n.t('client360.impact.contract_weight'),
+      explicit: this.i18n.t('client360.impact.explicit'),
     };
     const source = stats.conversion_proxy_source
       ? sources[stats.conversion_proxy_source] || stats.conversion_proxy_source
@@ -3442,7 +3484,9 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   summaryModelLabel(summary: Client360AiSummary | null | undefined): string {
     if (summary?.generation_mode !== 'ai_assisted') {
-      return summary?.fallback_reason ? `Fallback deterministe (${summary.fallback_reason})` : 'Resume deterministe a partir des agregats';
+      return summary?.fallback_reason
+        ? this.i18n.t('client360.summary.fallback', { reason: summary.fallback_reason })
+        : this.i18n.t('client360.summary.deterministic');
     }
     if (this.isDemoSafe()) return 'Redaction assistee — modele gere par le runtime';
     const model = summary?.model;
@@ -3596,34 +3640,32 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   smtpStatusLabel(): string {
     const settings = this.mailSettings();
-    if (!settings) return 'Non charge';
-    if (settings.configured) return 'Pret';
-    if (!settings.enabled) return 'Desactive';
-    return 'Incomplet';
+    if (!settings) return this.i18n.t('client360.smtp.status.not_loaded');
+    if (settings.configured) return this.i18n.t('client360.smtp.status.ready');
+    if (!settings.enabled) return this.i18n.t('client360.smtp.status.disabled');
+    return this.i18n.t('client360.smtp.status.incomplete');
   }
 
   smtpSourceLabel(): string {
     const source = this.mailSettings()?.source;
-    if (!source) return 'Configuration SMTP non chargee';
-    return source.startsWith('workspace')
-      ? 'Configuration SMTP du workspace'
-      : 'Configuration SMTP globale (fallback serveur)';
+    if (!source) return this.i18n.t('client360.smtp.source.unloaded');
+    return this.i18n.t(
+      source.startsWith('workspace')
+        ? 'client360.smtp.source.workspace'
+        : 'client360.smtp.source.global',
+    );
   }
 
   smtpStatusDetail(): string {
     const settings = this.mailSettings();
     if (!settings || settings.configured) return '';
     const reason = settings.disabled_reason || '';
-    const labels: Record<string, string> = {
-      smtp_disabled: 'SMTP desactive pour ce workspace',
-      smtp_host_missing: 'hote SMTP manquant',
-      smtp_username_missing: 'utilisateur SMTP manquant',
-      smtp_password_missing: 'mot de passe SMTP manquant',
-      global_smtp_host_missing: 'hote manquant dans la configuration globale',
-      global_smtp_username_missing: 'utilisateur manquant dans la configuration globale',
-      global_smtp_password_missing: 'mot de passe manquant dans la configuration globale',
-    };
-    return labels[reason] || (reason ? `configuration incomplete (${reason})` : 'configuration incomplete');
+    // The keys mirror the API's `disabled_reason` values, so the lookup is
+    // direct; an unknown reason falls back to the generic wording.
+    if (!reason) return this.i18n.t('client360.mail.incomplete_config');
+    const key = `client360.smtp.reason.${reason}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('client360.smtp.reason.generic', { reason }) : label;
   }
 
   smtpPasswordPlaceholder(): string {

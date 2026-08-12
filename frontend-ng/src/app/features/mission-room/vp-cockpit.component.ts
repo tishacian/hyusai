@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import { VpMapPreviewComponent } from './vp-map-preview.component';
 import { VpArbitrationStripComponent } from './vp-arbitration-strip.component';
 import { VpAyaPriorityBannerComponent } from './vp-aya-priority-banner.component';
@@ -35,18 +36,18 @@ import type {
           id="s3-security-posture"
           class="vp-block vp-block-security"
           [class.mission-focus-pulse]="focusTarget === 'security_posture'"
-          aria-label="Posture sécuritaire dual-axis"
+          [attr.aria-label]="i18n.t('mission.posture.aria')"
         >
           <header class="vp-block-head">
             <div class="vp-block-head-main">
-              <span class="vp-block-eyebrow">Posture sécuritaire</span>
-              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis intérieur · extérieur' }}</h2>
+              <span class="vp-block-eyebrow">{{ i18n.t('mission.posture.eyebrow') }}</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || i18n.t('mission.posture.summary_fallback') }}</h2>
               @if (postureNextCouncil(posture); as council) {
-                <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+                <span class="vp-security-council" [attr.aria-label]="i18n.t('mission.posture.next_council', { council: council })">{{ council }}</span>
               }
             </div>
             @if (securityOsintBadges(posture).length) {
-              <div class="vp-osint-badges" aria-label="Sources OSINT sécurité">
+              <div class="vp-osint-badges" [attr.aria-label]="i18n.t('mission.posture.osint_sources')">
                 @for (badge of securityOsintBadges(posture); track badge.key) {
                   <span
                     class="mission-status-badge"
@@ -63,7 +64,7 @@ import type {
             @for (axis of postureAxes(posture); track axis.key) {
               <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
                 <header class="vp-security-card-head">
-                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? 'Axe intérieur' : 'Axe extérieur' }}</span>
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? i18n.t('mission.posture.axis_interior') : i18n.t('mission.posture.axis_exterior') }}</span>
                   <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
                 </header>
                 <strong class="vp-security-axis-label">{{ axis.label }}</strong>
@@ -71,7 +72,7 @@ import type {
                   <p class="vp-security-card-headline">{{ axis.headline }}</p>
                 }
                 @if (axis.signals?.length) {
-                  <ul class="vp-security-card-signals" aria-label="Signaux">
+                  <ul class="vp-security-card-signals" [attr.aria-label]="i18n.t('mission.posture.signals')">
                     @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
                       <li [class]="'tone-' + (signal.tone || 'monitoring')">
                         <span class="vp-security-signal-label">{{ signal.label }}</span>
@@ -87,20 +88,20 @@ import type {
           </div>
           <div class="vp-security-actions mission-action-footer">
             <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
-              Posture sécuritaire complète
+              {{ i18n.t('mission.posture.full') }}
             </button>
             <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
-              Préparer le communiqué Nord
+              {{ i18n.t('mission.posture.draft_statement') }}
             </button>
           </div>
         </section>
       }
     } @else {
-    <div class="vp-cockpit" aria-label="Cockpit Vice Premier Ministre">
-      <section class="vp-block vp-block-status" aria-label="Posture nationale">
+    <div class="vp-cockpit" [attr.aria-label]="i18n.t('mission.cockpit.aria')">
+      <section class="vp-block vp-block-status" [attr.aria-label]="i18n.t('mission.cockpit.national_posture')">
         <header class="vp-block-head">
-          <span class="vp-block-eyebrow">Posture nationale</span>
-          <h2 class="vp-block-title">État du jour</h2>
+          <span class="vp-block-eyebrow">{{ i18n.t('mission.cockpit.national_posture') }}</span>
+          <h2 class="vp-block-title">{{ i18n.t('mission.cockpit.today_state') }}</h2>
         </header>
         <div class="vp-status-bar">
           @for (item of orderedStatusBar(); track item.key) {
@@ -125,11 +126,11 @@ import type {
         </div>
       </section>
 
-      <section class="vp-block vp-block-macro" aria-label="Indicateurs macro">
+      <section class="vp-block vp-block-macro" [attr.aria-label]="i18n.t('mission.cockpit.macro')">
         <app-vp-macro-indicators />
       </section>
 
-      <section class="vp-block vp-block-aya" aria-label="Priorité AYA">
+      <section class="vp-block vp-block-aya" [attr.aria-label]="i18n.t('mission.cockpit.assistant_priority', { name: assistantName })">
         <app-vp-aya-priority-banner
           [assistantName]="assistantName"
           [directive]="directive"
@@ -140,7 +141,7 @@ import type {
         />
       </section>
 
-      <section class="vp-block vp-block-terrain" aria-label="Carte et arbitrages">
+      <section class="vp-block vp-block-terrain" [attr.aria-label]="i18n.t('mission.cockpit.map_and_decisions')">
         <app-vp-map-preview
           [context]="mapPreview"
           [assistantName]="assistantName"
@@ -157,18 +158,18 @@ import type {
           id="s3-security-posture"
           class="vp-block vp-block-security"
           [class.mission-focus-pulse]="focusTarget === 'security_posture'"
-          aria-label="Posture sécuritaire dual-axis"
+          [attr.aria-label]="i18n.t('mission.posture.aria')"
         >
           <header class="vp-block-head">
             <div class="vp-block-head-main">
-              <span class="vp-block-eyebrow">Posture sécuritaire</span>
-              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis intérieur · extérieur' }}</h2>
+              <span class="vp-block-eyebrow">{{ i18n.t('mission.posture.eyebrow') }}</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || i18n.t('mission.posture.summary_fallback') }}</h2>
               @if (postureNextCouncil(posture); as council) {
-                <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+                <span class="vp-security-council" [attr.aria-label]="i18n.t('mission.posture.next_council', { council: council })">{{ council }}</span>
               }
             </div>
             @if (securityOsintBadges(posture).length) {
-              <div class="vp-osint-badges" aria-label="Sources OSINT sécurité">
+              <div class="vp-osint-badges" [attr.aria-label]="i18n.t('mission.posture.osint_sources')">
                 @for (badge of securityOsintBadges(posture); track badge.key) {
                   <span
                     class="mission-status-badge"
@@ -185,7 +186,7 @@ import type {
             @for (axis of postureAxes(posture); track axis.key) {
               <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
                 <header class="vp-security-card-head">
-                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? 'Axe intérieur' : 'Axe extérieur' }}</span>
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? i18n.t('mission.posture.axis_interior') : i18n.t('mission.posture.axis_exterior') }}</span>
                   <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
                 </header>
                 <strong class="vp-security-axis-label">{{ axis.label }}</strong>
@@ -193,7 +194,7 @@ import type {
                   <p class="vp-security-card-headline">{{ axis.headline }}</p>
                 }
                 @if (axis.signals?.length) {
-                  <ul class="vp-security-card-signals" aria-label="Signaux">
+                  <ul class="vp-security-card-signals" [attr.aria-label]="i18n.t('mission.posture.signals')">
                     @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
                       <li [class]="'tone-' + (signal.tone || 'monitoring')">
                         <span class="vp-security-signal-label">{{ signal.label }}</span>
@@ -209,19 +210,19 @@ import type {
           </div>
           <div class="vp-security-actions mission-action-footer">
             <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
-              Posture sécuritaire complète
+              {{ i18n.t('mission.posture.full') }}
             </button>
             <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
-              Préparer le communiqué Nord
+              {{ i18n.t('mission.posture.draft_statement') }}
             </button>
           </div>
         </section>
       }
 
-      <section class="vp-block vp-block-press" aria-label="Alerte presse">
+      <section class="vp-block vp-block-press" [attr.aria-label]="i18n.t('mission.cockpit.press_alert')">
         <header class="vp-block-head">
-          <span class="vp-block-eyebrow">Signal presse</span>
-          <h2 class="vp-block-title">Alerte hero du matin</h2>
+          <span class="vp-block-eyebrow">{{ i18n.t('mission.cockpit.press_signal') }}</span>
+          <h2 class="vp-block-title">{{ i18n.t('mission.cockpit.press_headline') }}</h2>
         </header>
         <app-vp-press-preview
           [items]="pressPreview.slice(0, 1)"
@@ -535,6 +536,8 @@ import type {
   ],
 })
 export class VpCockpitComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() assistantName = 'AYA';
   @Input() statusBar: VpStatusBarItem[] = [];
   @Input() mapPreview: VpMapPreviewContext = {

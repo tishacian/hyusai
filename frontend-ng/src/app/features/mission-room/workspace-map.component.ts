@@ -14,6 +14,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import type { VesselPosition } from '@app/core/maritime-tracking.service';
 
 type MapZone = {
@@ -470,9 +471,9 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
         </div>
         <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">{{ resetMapLabel }}</button>
         <div class="map-zoom-controls" (click)="$event.stopPropagation()">
-          <button type="button" aria-label="Zoom avant" (click)="zoomIn()">+</button>
-          <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
-          <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
+          <button type="button" [attr.aria-label]="i18n.t('mission.map.zoom_in')" (click)="zoomIn()">+</button>
+          <button type="button" [attr.aria-label]="i18n.t('mission.map.zoom_out')" (click)="zoomOut()">−</button>
+          <button type="button" [attr.aria-label]="i18n.t('mission.map.country_view')" (click)="resetCountry()">⌂</button>
         </div>
         @if (!legendOpen && !isLayerActive('maritime-traffic') && !hasS3Legend()) {
           <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">{{ levelsLabel }}</button>
@@ -490,15 +491,15 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
             }
             @if (isLayerActive('maritime-traffic') && !isOctocityMode) {
               <div class="legend-section maritime">
-                <strong>Maritime</strong>
-                <span><i class="corridor"></i>corridor</span>
-                <span><i class="port"></i>ports</span>
-                <span><i class="vessel-cargo"></i>cargo</span>
-                <span><i class="vessel-tanker"></i>tanker</span>
+                <strong>{{ i18n.t('mission.map.legend.maritime') }}</strong>
+                <span><i class="corridor"></i>{{ i18n.t('mission.map.legend.corridor') }}</span>
+                <span><i class="port"></i>{{ i18n.t('mission.map.legend.ports') }}</span>
+                <span><i class="vessel-cargo"></i>{{ i18n.t('mission.map.legend.cargo') }}</span>
+                <span><i class="vessel-tanker"></i>{{ i18n.t('mission.map.legend.tanker') }}</span>
                 <button
                   type="button"
                   class="legend-port-webcam"
-                  aria-label="Ouvrir la webcam port demo APM Apapa"
+                  [attr.aria-label]="i18n.t('mission.map.open_port_webcam')"
                   (click)="openDemoPortWebcam($event)"
                 >
                   Port Vridi · cargo demo
@@ -507,16 +508,16 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
             }
             @if (hasS3Legend()) {
               <div class="legend-section security">
-                <strong>Sécurité</strong>
+                <strong>{{ i18n.t('mission.map.legend.security') }}</strong>
                 <span><i class="s3-air"></i>ADS-B</span>
-                <span><i class="s3-social"></i>social</span>
-                <span><i class="s3-border"></i>frontière</span>
+                <span><i class="s3-social"></i>{{ i18n.t('mission.map.legend.social') }}</span>
+                <span><i class="s3-border"></i>{{ i18n.t('mission.map.legend.border') }}</span>
               </div>
             }
           </div>
         }
         @if (isLayerActive('maritime-traffic') && !isOctocityMode && !compact && !previewMode) {
-          <div class="map-maritime-caption">Corridor maritime · Golfe de Guinée</div>
+          <div class="map-maritime-caption">{{ i18n.t('mission.map.maritime_caption') }}</div>
         }
         @if (briefOpen && selectedBriefZone(); as zone) {
           <article class="map-brief-popup" (click)="$event.stopPropagation()">
@@ -1637,6 +1638,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   readonly octocityCities = OCTOCITY_CITY_MARKERS;
 
   private readonly cdr = inject(ChangeDetectorRef);
+  readonly i18n = inject(I18nService);
   private readonly activeLayerKeys = new Set<string>();
   private layerStateInitialized = false;
   /**
@@ -1695,15 +1697,23 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       ];
     }
     return [
-      { key: 'territorial-risk', label: 'Zones de vigilance', shortLabel: 'Zones', tone: 'cyan', count: this.zones.length, confidence: 78, visible: true },
-      { key: 'open-intelligence', label: 'Signaux presse', shortLabel: 'Presse', tone: 'blue', count: 3, confidence: 72, visible: true },
-      { key: 'regional-context', label: 'Contexte CEDEAO', shortLabel: 'Region', tone: 'orange', count: 6, confidence: 74, visible: true },
-      { key: 'strategic-projects', label: 'Projets sensibles', shortLabel: 'Projets', tone: 'green', count: 3, confidence: 69, visible: true },
-      { key: 'agenda-windows', label: 'Agenda / fenêtres d’action', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 81, visible: true },
-      { key: 'visual-streams', label: 'Observations visuelles', shortLabel: 'Visuel', tone: 'violet', count: 1, confidence: 62, visible: true },
-      { key: 'maritime-traffic', label: 'Maritime / douanes', shortLabel: 'Maritime', tone: 'blue', count: 5, confidence: 66, visible: false },
-      { key: 'preventive-actions', label: 'Actions recommandées', shortLabel: 'Actions', tone: 'red', count: 4, confidence: 74, visible: true },
+      { key: 'territorial-risk', ...this.layerText('territorial_risk'), tone: 'cyan', count: this.zones.length, confidence: 78, visible: true },
+      { key: 'open-intelligence', ...this.layerText('open_intelligence'), tone: 'blue', count: 3, confidence: 72, visible: true },
+      { key: 'regional-context', ...this.layerText('regional_context'), tone: 'orange', count: 6, confidence: 74, visible: true },
+      { key: 'strategic-projects', ...this.layerText('strategic_projects'), tone: 'green', count: 3, confidence: 69, visible: true },
+      { key: 'agenda-windows', ...this.layerText('agenda_windows'), tone: 'amber', count: 5, confidence: 81, visible: true },
+      { key: 'visual-streams', ...this.layerText('visual_streams'), tone: 'violet', count: 1, confidence: 62, visible: true },
+      { key: 'maritime-traffic', ...this.layerText('maritime_traffic'), tone: 'blue', count: 5, confidence: 66, visible: false },
+      { key: 'preventive-actions', ...this.layerText('preventive_actions'), tone: 'red', count: 4, confidence: 74, visible: true },
     ];
+  }
+
+  /** Long and short label of a default-profile map layer, in the active locale. */
+  private layerText(layer: string): { label: string; shortLabel: string } {
+    return {
+      label: this.i18n.t(`mission.map.layer.${layer}`),
+      shortLabel: this.i18n.t(`mission.map.layer.${layer}.short`),
+    };
   }
 
   get filteredLayerControls(): MapLayerControl[] {
@@ -1730,10 +1740,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       })).filter((item) => item.key);
     }
     return [
-      { key: 'command', label: 'Commandement', style: this.defaultStyle('#151719') },
-      { key: 'administrative', label: 'Administratif', style: this.defaultStyle('#12202b') },
-      { key: 'dark', label: 'Sombre', style: this.defaultStyle('#05080d') },
-      { key: 'contours', label: 'Contours', style: this.defaultStyle('#071018') },
+      { key: 'command', label: this.i18n.t('mission.map.basemap.command'), style: this.defaultStyle('#151719') },
+      { key: 'administrative', label: this.i18n.t('mission.map.basemap.administrative'), style: this.defaultStyle('#12202b') },
+      { key: 'dark', label: this.i18n.t('mission.map.basemap.dark'), style: this.defaultStyle('#05080d') },
+      { key: 'contours', label: this.i18n.t('mission.map.basemap.contours'), style: this.defaultStyle('#071018') },
     ];
   }
 
@@ -1746,80 +1756,86 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get mapAttribution(): string {
-    if (this.isOctocityMode) return 'France operating room · synthetic Agentium map';
-    return this.effectiveMapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
+    if (this.isOctocityMode) return this.i18n.t('mission.map.attribution_octocity');
+    return (
+      this.effectiveMapSystem?.['renderer_config']?.attribution
+      || this.i18n.t('mission.map.attribution')
+    );
   }
 
+  /** The demo tenant decides *which* country is on screen; the locale decides the wording. */
   get resetMapLabel(): string {
-    return this.isOctocityMode ? 'Recenter Octocity' : 'Recentrer Côte d’Ivoire';
+    return this.i18n.t('mission.map.recenter', {
+      place: this.isOctocityMode ? 'Octocity' : 'Côte d’Ivoire',
+    });
   }
 
   get askAssistantLabel(): string {
-    return this.isOctocityMode ? `Ask ${this.assistantName || 'OCTAVE'}` : 'Demander AYA';
+    return this.i18n.t('mission.map.ask_assistant', { name: this.assistantName || 'AYA' });
   }
 
   get mapLayersTitle(): string {
-    return this.isOctocityMode ? 'Map layers' : 'Couches carte';
+    return this.i18n.t('mission.map.layers');
   }
 
   get mapLayersCountLabel(): string {
-    return this.isOctocityMode ? 'layers' : 'couches';
+    return this.i18n.t('mission.map.layers_unit');
   }
 
   get basemapLabel(): string {
-    return this.isOctocityMode ? 'Basemap' : 'Fond';
+    return this.i18n.t('mission.map.basemap');
   }
 
   get layerSearchLabel(): string {
-    return this.isOctocityMode ? 'Search' : 'Rechercher';
+    return this.i18n.t('common.search');
   }
 
   get layerSearchPlaceholder(): string {
-    return this.isOctocityMode ? 'signal, news, agenda...' : 'navire, presse, agenda...';
+    return this.i18n.t('mission.map.layer_search_placeholder');
   }
 
   get hiddenLayerLabel(): string {
-    return this.isOctocityMode ? 'hidden' : 'masqué';
+    return this.i18n.t('mission.map.hidden');
   }
 
   get levelsLabel(): string {
-    return this.isOctocityMode ? 'Levels' : 'Niveaux';
+    return this.i18n.t('mission.map.levels');
   }
 
   get stableLabel(): string {
-    return this.isOctocityMode ? 'stable' : 'stable';
+    return this.i18n.t('mission.level.stable');
   }
 
   get watchLabel(): string {
-    return this.isOctocityMode ? 'watch' : 'surveillance';
+    return this.i18n.t('mission.level.watch');
   }
 
   get elevatedLabel(): string {
-    return this.isOctocityMode ? 'elevated' : 'élevé';
+    return this.i18n.t('mission.level.elevated');
   }
 
   get criticalLabel(): string {
-    return this.isOctocityMode ? 'critical' : 'critique';
+    return this.i18n.t('mission.level.critical');
   }
 
   get closeBriefLabel(): string {
-    return this.isOctocityMode ? 'Close' : 'Fermer';
+    return this.i18n.t('common.close');
   }
 
   get operationalBriefLabel(): string {
-    return this.isOctocityMode ? 'Operational brief' : 'Brief operationnel';
+    return this.i18n.t('mission.map.operational_brief');
   }
 
   get priorityHudLabel(): string {
-    return this.isOctocityMode ? 'Priority signal' : 'Zone prioritaire';
+    return this.i18n.t('mission.map.priority_zone');
   }
 
   get fallbackBriefRecommendation(): string {
-    return this.isOctocityMode ? 'Qualify evidence, then prepare a governed review.' : 'Qualifier puis preparer arbitrage.';
+    return this.i18n.t('mission.map.brief_fallback');
   }
 
   get prepareReviewLabel(): string {
-    return this.isOctocityMode ? 'Prepare review' : 'Preparer arbitrage';
+    return this.i18n.t('mission.map.prepare_review');
   }
 
   get isOctocityMode(): boolean {
@@ -2940,7 +2956,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           severity: properties.tone || 'monitoring',
           drivers: [properties.summary, properties.domain, properties.location].filter(Boolean).slice(0, 3),
           sources: properties.source_refs || [],
-          recommendation: properties.recommended_action || 'Relier le signal maritime aux douanes avant arbitrage.',
+          recommendation:
+            properties.recommended_action
+            || this.i18n.t('mission.map.evidence.maritime_recommendation'),
           decision_deadline: properties.decision_deadline || "aujourd'hui",
           cta: 'Preparer arbitrage',
           map_focus: {
@@ -2964,22 +2982,23 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const properties = feature.properties;
     const longitude = Number(feature.geometry?.coordinates?.[0] ?? -5.75);
     const latitude = Number(feature.geometry?.coordinates?.[1] ?? 7.95);
+    const sourceFallback = this.i18n.t('mission.map.evidence.source');
     this.evidenceAction.emit({
       action: String(properties.layer_key || 'source'),
       zone: {
         id: properties.zone_id || properties.id || 'map-source',
-        name: properties.zone_name || properties.title || 'Source qualifiée',
+        name: properties.zone_name || properties.title || sourceFallback,
         level: Number(properties.score || 52),
         tone: properties.tone || 'monitoring',
         sources: [properties.source_label].filter(Boolean),
         signals: [properties.summary].filter(Boolean),
         popup_brief: {
-          title: properties.title || 'Source qualifiée',
+          title: properties.title || sourceFallback,
           score: Number(properties.score || 52),
           severity: properties.tone || 'monitoring',
           drivers: [properties.summary, properties.source_kind, properties.zone_name].filter(Boolean).slice(0, 3),
           sources: [properties.source_label].filter(Boolean),
-          recommendation: 'Rapprocher cette source des décisions en cours avant arbitrage.',
+          recommendation: this.i18n.t('mission.map.evidence.source_recommendation'),
           decision_deadline: "aujourd'hui",
           cta: 'Ouvrir dossier source',
           map_focus: {
@@ -2988,7 +3007,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
             focus_marker: {
               longitude,
               latitude,
-              label: properties.title || 'Source qualifiée',
+              label: properties.title || sourceFallback,
               zone_id: properties.zone_id,
               tone: properties.layer_key || 'source',
             },

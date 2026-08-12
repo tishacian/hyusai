@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { EMPTY, Observable, catchError, filter, of, shareReplay, tap } from 'rxjs';
 
 import { ApiService } from './api.service';
+import { CONCEPT_HELP_PREFIX, lexiconEntry } from './i18n.lexicon';
 import { WorkspaceService } from './workspace.service';
 
 export type Persona = 'builder' | 'operator' | 'executive';
@@ -37,6 +38,38 @@ export interface HelpContentIndex {
   personas: Persona[];
   languages: Language[];
   items: HelpContent[];
+}
+
+/**
+ * Build a help entry from the UI lexicon, so `<ck-help id="concept.flow" />`
+ * shows the very definition the guard enforces. The lexicon is the source of
+ * truth: nothing here is a second copy of the wording, and `concept.*` ids
+ * are never expected in `help_content.yaml`.
+ *
+ * The builder persona additionally gets the internal terms the label
+ * replaces (API field, node kind, raw status) — the technical register the
+ * two-register rule keeps out of primary labels but never hides.
+ */
+function conceptHelpContent(id: string): HelpContent | null {
+  const entry = lexiconEntry(id.slice(CONCEPT_HELP_PREFIX.length));
+  if (!entry) return null;
+  const summary: LocalizedText = { en: entry.definition.en, fr: entry.definition.fr };
+  const base: PersonaCopy = {
+    summary,
+    user_story: {},
+    prerequisites: [],
+    related_actions: [],
+  };
+  return {
+    id,
+    title: { en: entry.en, fr: entry.fr },
+    category: 'concept',
+    by_persona: {
+      builder: { ...base, related_actions: [...(entry.internal ?? [])] },
+      operator: base,
+      executive: base,
+    },
+  };
 }
 
 const PERSONA_STORAGE_KEY = 'agentium.persona';
@@ -130,6 +163,9 @@ export class HelpService {
   }
 
   find(index: HelpContentIndex | null, id: string): HelpContent | null {
+    if (id.startsWith(CONCEPT_HELP_PREFIX)) {
+      return conceptHelpContent(id);
+    }
     if (!index) return null;
     return index.items.find((item) => item.id === id) ?? null;
   }

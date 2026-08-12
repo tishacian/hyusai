@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { FlowPersistenceService } from './flow-persistence.service';
 
 /** Explicit, secret-free semantic review between a saved server draft and the
@@ -35,14 +36,14 @@ import { FlowPersistenceService } from './flow-persistence.service';
         >
           <header class="ck-publish__header">
             <div>
-              <p class="ck-publish__eyebrow">Draft → Published</p>
-              <h2 id="ck-publish-title">Review publication</h2>
-              <p>Creates an immutable version. It never activates or resumes the System.</p>
+              <p class="ck-publish__eyebrow">{{ i18n.t('flow.publish.eyebrow') }}</p>
+              <h2 id="ck-publish-title">{{ i18n.t('flow.publish.title') }}</h2>
+              <p>{{ i18n.t('flow.publish.subtitle') }}</p>
             </div>
             <button
               type="button"
               class="ck-publish__close"
-              aria-label="Close publication review"
+              [attr.aria-label]="i18n.t('flow.publish.close')"
               [disabled]="persistence.publishing()"
               (click)="close()"
             >
@@ -66,24 +67,36 @@ import { FlowPersistenceService } from './flow-persistence.service';
             @case ('loading') {
               <div class="ck-publish__state" role="status">
                 <app-icon name="loader-2" [size]="15" class="is-spinning" />
-                Loading the semantic diff…
+                {{ i18n.t('flow.publish.diff.loading') }}
               </div>
             }
             @case ('error') {
               <div class="ck-publish__state is-error" role="alert">
                 <app-icon name="alert-triangle" [size]="15" />
-                {{ persistence.publishError() || 'Publication diff unavailable.' }}
+                {{ persistence.publishError() || i18n.t('flow.publish.diff.error') }}
               </div>
             }
             @case ('ready') {
               @if (persistence.publishDiff(); as diff) {
-                <div class="ck-publish__summary" aria-label="Semantic diff summary">
-                  <span data-impact="breaking">{{ diff.summary.breaking }} breaking</span>
-                  <span data-impact="behavioral">{{ diff.summary.behavioral }} behavioral</span>
-                  <span data-impact="presentation">{{ diff.summary.presentation }} presentation</span>
+                <div
+                  class="ck-publish__summary"
+                  [attr.aria-label]="i18n.t('flow.publish.diff.aria')"
+                >
+                  <span data-impact="breaking">{{
+                    i18n.t('flow.publish.diff.breaking', { count: diff.summary.breaking })
+                  }}</span>
+                  <span data-impact="behavioral">{{
+                    i18n.t('flow.publish.diff.behavioral', { count: diff.summary.behavioral })
+                  }}</span>
+                  <span data-impact="presentation">{{
+                    i18n.t('flow.publish.diff.presentation', { count: diff.summary.presentation })
+                  }}</span>
                 </div>
 
-                <ol class="ck-publish__changes" aria-label="Semantic changes">
+                <ol
+                  class="ck-publish__changes"
+                  [attr.aria-label]="i18n.t('flow.publish.diff.changes.aria')"
+                >
                   @for (change of diff.changes; track change.path + change.subject) {
                     <li [attr.data-impact]="change.impact">
                       <div class="ck-publish__change-head">
@@ -94,7 +107,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
                       <p>{{ change.description }}</p>
                     </li>
                   } @empty {
-                    <li class="is-empty">No semantic change detected.</li>
+                    <li class="is-empty">{{ i18n.t('flow.publish.diff.empty') }}</li>
                   }
                 </ol>
 
@@ -105,9 +118,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
                       [checked]="persistence.breakingChangeAcknowledged()"
                       (change)="onBreakingAcknowledgement($event)"
                     />
-                    <span>
-                      I reviewed the breaking changes and explicitly accept their release impact.
-                    </span>
+                    <span>{{ i18n.t('flow.publish.ack') }}</span>
                   </label>
                 }
               }
@@ -115,12 +126,12 @@ import { FlowPersistenceService } from './flow-persistence.service';
           }
 
           <label class="ck-publish__message" for="ck-publish-message">
-            <span>Release message</span>
+            <span>{{ i18n.t('flow.publish.message') }}</span>
             <textarea
               id="ck-publish-message"
               rows="3"
               maxlength="2000"
-              placeholder="What changed, why, and what operators should know"
+              [placeholder]="i18n.t('flow.publish.message.placeholder')"
               [value]="message()"
               [disabled]="persistence.publishing()"
               (input)="onMessage($event)"
@@ -133,7 +144,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
 
           <footer class="ck-publish__actions">
             <button type="button" (click)="close()" [disabled]="persistence.publishing()">
-              Cancel
+              {{ i18n.t('flow.publish.cancel') }}
             </button>
             <button
               type="button"
@@ -142,9 +153,11 @@ import { FlowPersistenceService } from './flow-persistence.service';
               (click)="publish()"
             >
               @if (persistence.publishing()) {
-                <app-icon name="loader-2" [size]="14" class="is-spinning" /> Publishing…
+                <app-icon name="loader-2" [size]="14" class="is-spinning" />
+                {{ i18n.t('flow.publish.submitting') }}
               } @else {
-                <app-icon name="upload-cloud" [size]="14" /> Publish immutable version
+                <app-icon name="upload-cloud" [size]="14" />
+                {{ i18n.t('flow.publish.submit') }}
               }
             </button>
           </footer>
@@ -155,6 +168,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
 })
 export class FlowPublicationPanelComponent {
   protected readonly persistence = inject(FlowPersistenceService);
+  readonly i18n = inject(I18nService);
   protected readonly message = signal('');
   protected readonly canSubmit = computed(
     () =>

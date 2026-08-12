@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { Subject } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   findOctocityForbiddenPresentationTerms,
   findSentinelForbiddenPresentationTerms,
@@ -33,6 +34,7 @@ function createHarness() {
   const injector = Injector.create({
     providers: [
       VpMacroIndicatorsComponent,
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: ApiService, useValue: api },
       { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
       { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },

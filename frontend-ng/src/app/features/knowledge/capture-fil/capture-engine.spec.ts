@@ -6,6 +6,8 @@ import { NEVER, Subject, of, type Observable } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { LiveKitConversationService } from '@app/core/livekit-conversation.service';
+import { FR_DICT } from '@app/core/i18n.dict';
+import { I18nService } from '@app/core/i18n.service';
 import { VoiceSessionService } from '@app/core/voice-session.service';
 import {
   WorkspaceService,
@@ -141,6 +143,14 @@ function createHarness(options: HarnessOptions) {
       { provide: VoiceSessionService, useValue: voiceSession },
       { provide: LiveKitConversationService, useValue: livekit },
       { provide: WorkspaceService, useValue: workspace },
+      // The real service opens a localStorage effect this bare injector has no
+      // scheduler for; the engine only needs the FR lookup t() performs.
+      {
+        provide: I18nService,
+        useValue: {
+          t: (key: string) => (FR_DICT as Record<string, string>)[key] ?? key,
+        },
+      },
       { provide: CanonicalApiService, useValue: { getSystem: () => of({ settings: {} }) } },
       { provide: DestroyRef, useValue: destroyRef },
     ],

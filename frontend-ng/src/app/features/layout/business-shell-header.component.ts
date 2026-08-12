@@ -20,23 +20,27 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
         <img src="/assets/brand/agentium-mark.svg" alt="" width="24" height="24" />
         <div class="business-cyan-copy">
           <span class="business-cyan-title">{{ workspace.current()?.name || brand() }}</span>
-          <span class="business-cyan-subtitle">Workspace métier</span>
+          <span class="business-cyan-subtitle">{{ i18n.t('workspace.business.subtitle') }}</span>
         </div>
       </div>
 
-      <nav class="business-nav" aria-label="Navigation métier">
+      <nav class="business-nav" [attr.aria-label]="i18n.t('workspace.business.nav')">
         @if (navigation.businessSurfaceEnabled('chat')) {
           <a
             routerLink="/chat"
             routerLinkActive="business-nav-active"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
-            title="Recherche"
-            aria-label="Recherche"
+            [title]="i18n.t('workspace.business.search')"
+            [attr.aria-label]="i18n.t('workspace.business.search')"
           >
             <app-icon name="message-square" set="phosphor" [size]="14" />
-            <span class="business-nav-text business-nav-text-full">Recherche</span>
-            <span class="business-nav-text business-nav-text-short">Recherche</span>
+            <span class="business-nav-text business-nav-text-full">{{
+              i18n.t('workspace.business.search')
+            }}</span>
+            <span class="business-nav-text business-nav-text-short">{{
+              i18n.t('workspace.business.search')
+            }}</span>
           </a>
         }
         @if (navigation.businessSurfaceEnabled('client360-pdr')) {
@@ -44,12 +48,16 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             routerLink="/client360"
             routerLinkActive="business-nav-active"
             class="business-nav-link"
-            title="Client360 PDR"
-            aria-label="Client360 PDR"
+            [title]="i18n.t('workspace.business.client360')"
+            [attr.aria-label]="i18n.t('workspace.business.client360')"
           >
             <app-icon name="target" set="phosphor" [size]="14" />
-            <span class="business-nav-text business-nav-text-full">Client360 PDR</span>
-            <span class="business-nav-text business-nav-text-short">Client360</span>
+            <span class="business-nav-text business-nav-text-full">{{
+              i18n.t('workspace.business.client360')
+            }}</span>
+            <span class="business-nav-text business-nav-text-short">{{
+              i18n.t('workspace.business.client360_short')
+            }}</span>
           </a>
         }
         @if (navigation.businessSurfaceEnabled('knowledge-capture')) {
@@ -58,12 +66,14 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             routerLinkActive="business-nav-active"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
-            title="Capture de connaissances"
-            aria-label="Capture de connaissances"
+            [title]="i18n.t('nav.capture')"
+            [attr.aria-label]="i18n.t('nav.capture')"
           >
             <app-icon name="mic" set="phosphor" [size]="14" />
-            <span class="business-nav-text business-nav-text-full">Capture de connaissances</span>
-            <span class="business-nav-text business-nav-text-short">Capture</span>
+            <span class="business-nav-text business-nav-text-full">{{ i18n.t('nav.capture') }}</span>
+            <span class="business-nav-text business-nav-text-short">{{
+              i18n.t('workspace.business.capture_short')
+            }}</span>
           </a>
         }
         @if (navigation.businessSurfaceEnabled('fse-reports')) {
@@ -72,12 +82,16 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             routerLinkActive="business-nav-active"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
-            title="Rapports d'intervention FSE"
-            aria-label="Rapports d'intervention FSE"
+            [title]="i18n.t('workspace.business.fse')"
+            [attr.aria-label]="i18n.t('workspace.business.fse')"
           >
             <app-icon name="file-text" set="phosphor" [size]="14" />
-            <span class="business-nav-text business-nav-text-full">Rapports FSE</span>
-            <span class="business-nav-text business-nav-text-short">FSE</span>
+            <span class="business-nav-text business-nav-text-full">{{
+              i18n.t('workspace.business.fse_short')
+            }}</span>
+            <span class="business-nav-text business-nav-text-short">{{
+              i18n.t('workspace.business.fse_abbr')
+            }}</span>
           </a>
         }
       </nav>
@@ -88,11 +102,11 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
             type="button"
             class="business-action"
             (click)="exitPreview()"
-            title="Mode avancé"
-            aria-label="Mode avancé"
+            [title]="i18n.t('workspace.business.advanced')"
+            [attr.aria-label]="i18n.t('workspace.business.advanced')"
           >
             <app-icon name="panel-left" [size]="13" />
-            <span class="business-action-text">Mode avancé</span>
+            <span class="business-action-text">{{ i18n.t('workspace.business.advanced') }}</span>
           </button>
         }
 
@@ -107,11 +121,11 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
         </button>
 
         <label class="business-workspace">
-          <span class="sr-only">Workspace</span>
+          <span class="sr-only">{{ i18n.t('titlebar.workspace') }}</span>
           <select
             [ngModel]="workspace.currentSlug()"
             (ngModelChange)="selectWorkspace($event)"
-            title="Changer de workspace"
+            [title]="i18n.t('workspace.business.switch')"
           >
             @for (ws of workspace.workspaces(); track ws.id) {
               <option [value]="ws.slug">{{ ws.name }}</option>
@@ -119,9 +133,13 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           </select>
         </label>
 
-        <a routerLink="/account/profile" class="business-account" title="Compte utilisateur">
+        <a
+          routerLink="/account/profile"
+          class="business-account"
+          [title]="i18n.t('workspace.business.account')"
+        >
           <span class="business-avatar">{{ initials() }}</span>
-          <span class="business-email">{{ auth.email() || 'Compte' }}</span>
+          <span class="business-email">{{ auth.email() || i18n.t('titlebar.account') }}</span>
         </a>
       </div>
     </header>

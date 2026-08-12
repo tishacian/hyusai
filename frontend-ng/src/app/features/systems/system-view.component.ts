@@ -16,6 +16,7 @@ import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -147,7 +148,7 @@ interface ContextConfigRow {
         <a
           actions
           [routerLink]="['/systems', systemId, 'run']"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500/10 hover:bg-cyan-500/20 ring-1 ring-cyan-400/30 text-cyan-200 transition"
+          class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
           title="Open the published Flow in the Operator Runner"
           data-testid="system-operator-runner-link"
         >
@@ -172,17 +173,17 @@ interface ContextConfigRow {
         <a
           actions
           [routerLink]="['/systems', systemId, 'capture']"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition"
-          title="Lancer une capture de connaissances"
+          class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          [title]="i18n.t('systems.view.capture.cta.hint')"
         >
-          <app-icon name="mic" [size]="14" /> Capture de connaissances
+          <app-icon name="mic" [size]="14" /> {{ i18n.t('systems.view.capture.cta') }}
         </a>
       }
       <button
         actions
         type="button"
         (click)="chatPanelOpen.set(true)"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         title="Open chat panel"
       >
         <app-icon name="message-square" [size]="14" /> Chat
@@ -192,7 +193,7 @@ interface ContextConfigRow {
           actions
           type="button"
           (click)="settingsPanelOpen.set(true)"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
           title="Open settings panel"
         >
           <app-icon name="settings" [size]="14" /> Settings
@@ -211,7 +212,7 @@ interface ContextConfigRow {
         </ck-tab>
       }
 
-      <ck-tab id="overview" [label]="isExpertKnowledgeCapture() ? 'Aperçu' : 'Overview'">
+      <ck-tab id="overview" [label]="i18n.t('systems.view.tab.overview')">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -233,38 +234,28 @@ interface ContextConfigRow {
             <section class="ck-surface t-elevated rounded-md p-6">
               <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div class="max-w-2xl">
-                  <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">Capture de connaissances</p>
-                  <h2 class="mt-2 text-2xl font-semibold text-white">Préparer une session de capture</h2>
+                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-[0.18em]">{{ i18n.t('systems.view.capture.eyebrow') }}</p>
+                  <h2 class="mt-2 text-2xl font-semibold text-white">{{ i18n.t('systems.view.capture.title') }}</h2>
                   <p class="mt-3 text-sm leading-relaxed text-gray-400">
-                    Construisez le plan, menez l’échange avec l’expert, relisez le rapport, puis publiez la connaissance validée.
+                    {{ i18n.t('systems.view.capture.description') }}
                   </p>
                 </div>
                 <a
                   [routerLink]="['/systems', systemId, 'capture']"
-                  class="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-3 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-cyan-400"
+                  class="ck-cta inline-flex shrink-0 items-center justify-center gap-2 rounded px-4 py-3 text-sm font-semibold"
                 >
-                  <app-icon name="mic" [size]="16" /> Ouvrir les sessions
+                  <app-icon name="mic" [size]="16" /> {{ i18n.t('systems.view.capture.open_sessions') }}
                 </a>
               </div>
             </section>
 
             <section class="grid gap-3 md:grid-cols-4">
-              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">1 · Préparer</p>
-                <p class="mt-2 text-sm text-gray-300">Titre, durée et mode de capture.</p>
-              </div>
-              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">2 · Plan</p>
-                <p class="mt-2 text-sm text-gray-300">Plan éditable ou importé depuis un fichier.</p>
-              </div>
-              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">3 · Capture</p>
-                <p class="mt-2 text-sm text-gray-300">Échange guidé, questions utiles et transcription.</p>
-              </div>
-              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">4 · Publier</p>
-                <p class="mt-2 text-sm text-gray-300">Rapport relu, destination confirmée.</p>
-              </div>
+              @for (step of captureSteps(); track step.label) {
+                <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-wider">{{ step.label }}</p>
+                  <p class="mt-2 text-sm text-gray-300">{{ step.description }}</p>
+                </div>
+              }
             </section>
           </div>
         } @else if (flowProfile(); as flow) {
@@ -278,20 +269,16 @@ interface ContextConfigRow {
               <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <app-icon name="workflow" set="phosphor" [size]="18" class="text-cyan-400" />
-                    <span class="text-xs uppercase tracking-wider font-semibold text-cyan-300">Executable flow</span>
+                    <app-icon name="workflow" set="phosphor" [size]="18" class="ck-accent" />
+                    <span class="ck-accent text-xs uppercase tracking-wider font-semibold">Executable flow</span>
                     <span
-                      class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ring-1"
-                      [ngClass]="flow.publishedVersionId
-                        ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
-                        : 'bg-amber-500/10 text-amber-300 ring-amber-500/25'"
+                      class="ck-pill"
+                      [ngClass]="flow.publishedVersionId ? 'ck-tone-ok' : 'ck-tone-warn'"
                     >
                       {{ flowPublicationLabel() }}
                     </span>
                     @if (flow.promotedFromScratchpad) {
-                      <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
-                        From scratchpad
-                      </span>
+                      <span class="ck-pill ck-tone-neutral">From scratchpad</span>
                     }
                   </div>
                   <p class="mt-3 text-sm leading-relaxed text-gray-400 max-w-2xl">
@@ -300,7 +287,7 @@ interface ContextConfigRow {
                 </div>
                 <a
                   [routerLink]="['/systems', systemId, 'flow']"
-                  class="inline-flex shrink-0 items-center gap-2 rounded bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-cyan-400"
+                  class="ck-cta inline-flex shrink-0 items-center gap-2 rounded px-4 py-2.5 text-sm font-semibold"
                   data-testid="system-flow-open-builder"
                 >
                   <app-icon name="workflow" [size]="14" /> Open in flow builder
@@ -310,22 +297,20 @@ interface ContextConfigRow {
 
             <section class="ck-surface t-elevated rounded-md p-5">
               <div class="flex items-center gap-2 mb-3">
-                <app-icon name="play-circle" set="phosphor" [size]="16" class="text-cyan-400" />
+                <app-icon name="play-circle" set="phosphor" [size]="16" class="ck-accent" />
                 <h3 class="text-sm font-semibold text-white">Triggers</h3>
                 <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }} declared</span>
               </div>
               @if (flow.triggers.length === 0) {
                 <p class="text-xs text-gray-400 leading-relaxed">
-                  No ingress is declared on this graph. It runs only when triggered manually from
-                  this page or the flow builder.
+                  No entry point is declared on this graph. It runs only when triggered manually
+                  from this page or the flow builder.
                 </p>
               } @else {
                 <ul class="grid gap-2 md:grid-cols-2">
                   @for (trigger of flow.triggers; track trigger.nodeId) {
                     <li class="flex items-center gap-3 rounded border border-white/5 bg-black/20 px-3 py-2.5">
-                      <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25 shrink-0">
-                        {{ trigger.kind }}
-                      </span>
+                      <span class="ck-pill ck-tone-info shrink-0">{{ trigger.kind }}</span>
                       <span class="text-sm text-white truncate">{{ trigger.label }}</span>
                       <span class="ml-auto font-mono text-[10px] text-gray-500 truncate">{{ trigger.nodeId }}</span>
                     </li>
@@ -368,12 +353,12 @@ interface ContextConfigRow {
 
             <section class="ck-surface t-elevated rounded-md p-5">
               <div class="flex items-center gap-2 mb-3">
-                <app-icon name="git-commit" [size]="16" class="text-cyan-400" />
+                <app-icon name="git-commit" [size]="16" class="ck-accent" />
                 <h3 class="text-sm font-semibold text-white">Latest runs</h3>
                 <button
                   type="button"
                   (click)="onTabChange('runs')"
-                  class="ml-auto text-[11px] text-cyan-400 hover:text-cyan-300"
+                  class="ck-accent ml-auto text-[11px]"
                 >
                   See all
                 </button>
@@ -402,18 +387,18 @@ interface ContextConfigRow {
         >
           <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
           <div class="relative flex items-center gap-3 flex-wrap">
-            <app-icon name="atom" set="phosphor" [size]="18" class="text-cyan-400" />
-            <span class="text-xs uppercase tracking-wider font-semibold text-cyan-300">
-              {{ isTranslationSuite() ? 'Translation Suite' : (isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline') }}
+            <app-icon name="atom" set="phosphor" [size]="18" class="ck-accent" />
+            <span class="ck-accent text-xs uppercase tracking-wider font-semibold">
+              {{ pipelineBannerLabel() }}
             </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
               @for (stage of pipelineStages; track stage.key; let last = $last) {
                 <a
                   [routerLink]="stage.route"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200 hover:bg-white/10 hover:ring-cyan-500/40 transition"
+                  class="ck-btn-quiet inline-flex items-center gap-1.5 px-2 py-1 rounded"
                   [title]="'Open ' + stage.configureLabel"
                 >
-                  <app-icon [name]="stage.icon" [size]="11" class="text-cyan-400" />
+                  <app-icon [name]="stage.icon" [size]="11" class="ck-accent" />
                   {{ stage.name }}
                 </a>
                 @if (!last) {
@@ -482,14 +467,15 @@ interface ContextConfigRow {
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="ck-surface t-elevated rounded-md p-6">
           <div class="flex items-center gap-2 mb-4">
-            <app-icon name="list-checks" set="phosphor" [size]="16" class="text-cyan-400" />
+            <app-icon name="list-checks" set="phosphor" [size]="16" class="ck-accent" />
             <h3 class="text-base font-semibold text-white">Setup checklist</h3>
             <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
           </div>
 
           <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
             <div
-              class="h-full rounded-full bg-cyan-500 transition-all"
+              class="h-full rounded-full transition-all"
+              [style.background]="'var(--ck-cta-bg)'"
               [style.width.%]="(completedSteps() / wizard().length) * 100"
             ></div>
           </div>
@@ -498,15 +484,12 @@ interface ContextConfigRow {
             @for (step of wizard(); track step.key; let i = $index) {
               <li
                 class="flex items-start gap-3 px-4 py-3 rounded-md border"
-                [ngClass]="step.done
-                  ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
-                  : 'border-white/5 bg-black/20'"
+                [style.background]="step.done ? 'var(--ck-status-ok-bg)' : 'var(--ck-bg-inset)'"
+                [style.borderColor]="step.done ? 'var(--ck-status-ok-line)' : 'var(--ck-stroke-2)'"
               >
                 <div
                   class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
-                  [ngClass]="step.done
-                    ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
-                    : 'bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20'"
+                  [ngClass]="step.done ? 'ck-tone-ok' : 'ck-tone-info'"
                 >
                   <app-icon [name]="step.done ? 'check-circle-2' : step.icon" [size]="16" />
                 </div>
@@ -519,10 +502,8 @@ interface ContextConfigRow {
                 </div>
                 <a
                   [routerLink]="step.route"
-                  class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium transition"
-                  [ngClass]="step.done
-                    ? 'bg-white/5 text-gray-300 hover:bg-white/10 ring-1 ring-white/10'
-                    : 'bg-cyan-500 text-white hover:bg-cyan-600 shadow-glow-sm'"
+                  class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium"
+                  [ngClass]="step.done ? 'ck-btn-quiet' : 'ck-cta'"
                 >
                   <app-icon [name]="step.done ? 'external-link' : 'arrow-right'" [size]="12" />
                   {{ step.cta }}
@@ -603,7 +584,7 @@ interface ContextConfigRow {
               class="ck-surface rounded-md p-4 flex items-start gap-3"
               style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
             >
-              <div class="w-10 h-10 rounded-md flex items-center justify-center bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30 shrink-0">
+              <div class="ck-tone-info w-10 h-10 rounded-md flex items-center justify-center shrink-0">
                 <app-icon name="workflow" set="phosphor" [size]="18" />
               </div>
               <div class="flex-1 min-w-0">
@@ -614,7 +595,7 @@ interface ContextConfigRow {
               </div>
               <a
                 [routerLink]="['/systems', systemId, 'flow']"
-                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition shrink-0"
+                class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
               >
                 <app-icon name="workflow" [size]="14" /> Open in flow builder
               </a>
@@ -623,13 +604,13 @@ interface ContextConfigRow {
             @if (flow.triggers.length > 0) {
               <section class="ck-surface t-elevated rounded-md p-5">
                 <div class="flex items-center gap-2 mb-3">
-                  <app-icon name="play-circle" [size]="16" class="text-cyan-400" />
+                  <app-icon name="play-circle" [size]="16" class="ck-accent" />
                   <h3 class="text-sm font-semibold text-white">Triggers</h3>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   @for (trigger of flow.triggers; track trigger.nodeId) {
-                    <span class="inline-flex items-center gap-2 rounded bg-black/20 ring-1 ring-white/10 px-2.5 py-1.5">
-                      <span class="text-[10px] uppercase tracking-wider text-cyan-300">{{ trigger.kind }}</span>
+                    <span class="ck-tone-neutral inline-flex items-center gap-2 rounded px-2.5 py-1.5">
+                      <span class="ck-accent text-[10px] uppercase tracking-wider">{{ trigger.kind }}</span>
                       <span class="text-xs text-gray-200">{{ trigger.label }}</span>
                     </span>
                   }
@@ -640,7 +621,7 @@ interface ContextConfigRow {
             <section class="ck-surface t-elevated rounded-md overflow-hidden">
               <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
                 <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-                  <app-icon name="layers" set="phosphor" [size]="16" class="text-cyan-400" />
+                  <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
                   Steps
                 </h3>
                 <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -663,10 +644,8 @@ interface ContextConfigRow {
                         </span>
                         @if (step.runtimeStatus) {
                           <span
-                            class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ring-1"
-                            [ngClass]="step.operational
-                              ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
-                              : 'bg-amber-500/10 text-amber-300 ring-amber-500/25'"
+                            class="ck-pill"
+                            [ngClass]="step.operational ? 'ck-tone-ok' : 'ck-tone-warn'"
                           >
                             {{ step.runtimeStatus }}
                           </span>
@@ -684,14 +663,14 @@ interface ContextConfigRow {
             @if (flow.skillSlugs.length > 0) {
               <section class="ck-surface t-elevated rounded-md p-5">
                 <div class="flex items-center gap-2 mb-3">
-                  <app-icon name="zap" [size]="16" class="text-cyan-400" />
+                  <app-icon name="zap" [size]="16" class="ck-accent" />
                   <h3 class="text-sm font-semibold text-white">Bound skills</h3>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   @for (slug of flow.skillSlugs; track slug) {
                     <a
                       [routerLink]="['/skills', slug]"
-                      class="font-mono text-[11px] px-2 py-1 rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-500/25 hover:bg-cyan-500/20 transition"
+                      class="ck-tone-info font-mono text-[11px] px-2 py-1 rounded"
                     >
                       {{ slug }}
                     </a>
@@ -707,7 +686,7 @@ interface ContextConfigRow {
           class="ck-surface rounded-md p-4 flex items-start gap-3"
           style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
         >
-          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30 shrink-0">
+          <div class="ck-tone-info w-10 h-10 rounded-md flex items-center justify-center shrink-0">
             <app-icon name="workflow" set="phosphor" [size]="18" />
           </div>
           <div class="flex-1 min-w-0">
@@ -720,7 +699,7 @@ interface ContextConfigRow {
           </div>
           <a
             [routerLink]="['/systems', systemId, 'flow']"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition shrink-0"
+            class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> Open in flow builder
           </a>
@@ -730,7 +709,7 @@ interface ContextConfigRow {
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-              <app-icon name="layers" set="phosphor" [size]="16" class="text-cyan-400" />
+              <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
               Stages
             </h3>
             <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -745,12 +724,8 @@ interface ContextConfigRow {
                 [class.border-white\\/5]="!last"
               >
                 <div
-                  class="w-11 h-11 rounded-md flex items-center justify-center shrink-0 ring-1"
-                  [ngClass]="{
-                    'bg-cyan-500/15 text-cyan-400 ring-cyan-500/30': stage.tone === 'brand',
-                    'bg-sky-500/15 text-sky-400 ring-sky-500/30': stage.tone === 'violet',
-                    'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30': stage.tone === 'emerald'
-                  }"
+                  class="w-11 h-11 rounded-md flex items-center justify-center shrink-0"
+                  [ngClass]="stage.tone === 'emerald' ? 'ck-tone-ok' : 'ck-tone-info'"
                 >
                   <app-icon [name]="stage.icon" [size]="18" />
                 </div>
@@ -794,15 +769,13 @@ interface ContextConfigRow {
         } @else if (!currentContext() && effectiveRetrievalContext(); as retrievalContext) {
           <section class="ck-surface t-elevated rounded-md p-5">
             <div class="flex items-start gap-3 mb-5">
-              <div class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30 inline-flex items-center justify-center">
+              <div class="ck-tone-info w-9 h-9 rounded inline-flex items-center justify-center">
                 <app-icon name="database" set="phosphor" [size]="16" />
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
                   <h3 class="text-sm font-semibold text-white">Effective retrieval context</h3>
-                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/25">
-                    Runtime scoped
-                  </span>
+                  <span class="ck-pill ck-tone-ok">Runtime scoped</span>
                 </div>
                 <p class="text-xs text-gray-400 mt-1 leading-relaxed">
                   No dedicated Context row is attached. This System is scoped by its workspace chat retrieval profile.
@@ -817,7 +790,7 @@ interface ContextConfigRow {
                 </a>
                 <a
                   [routerLink]="['/systems', systemId, 'flow']"
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+                  class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
                 >
                   <app-icon name="workflow" [size]="12" /> Open flow
                 </a>
@@ -850,7 +823,7 @@ interface ContextConfigRow {
               } @else {
                 <div class="flex flex-wrap gap-2">
                   @for (collection of retrievalContext.collections; track collection) {
-                    <span class="font-mono text-[11px] px-2 py-1 rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-500/25">
+                    <span class="ck-tone-info font-mono text-[11px] px-2 py-1 rounded">
                       {{ collection }}
                     </span>
                   }
@@ -912,7 +885,7 @@ interface ContextConfigRow {
             <div class="mt-3">
               <a
                 routerLink="/steering/contexts"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+                class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
               >
                 <app-icon name="external-link" [size]="12" /> Manage contexts
               </a>
@@ -921,7 +894,7 @@ interface ContextConfigRow {
         } @else {
           <section class="ck-surface t-elevated rounded-md p-5">
             <div class="flex items-center gap-2 mb-4">
-              <app-icon name="database" [size]="14" class="text-cyan-400" />
+              <app-icon name="database" [size]="14" class="ck-accent" />
               <h3 class="text-sm font-semibold text-white">{{ currentContext()!.name }}</h3>
               <span class="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
                 v{{ currentContext()!.version ?? 1 }}
@@ -980,7 +953,7 @@ interface ContextConfigRow {
         </p>
         <a
           routerLink="/settings"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+          class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
         >
           <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
         </a>
@@ -993,7 +966,7 @@ interface ContextConfigRow {
 
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="tag" set="phosphor" [size]="14" class="text-cyan-400" /> Identity
+            <app-icon name="tag" set="phosphor" [size]="14" class="ck-accent" /> Identity
           </h3>
           <div class="space-y-3 text-sm">
             <div>
@@ -1019,16 +992,14 @@ interface ContextConfigRow {
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" set="phosphor" [size]="14" class="text-cyan-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
+            <app-icon name="cpu" set="phosphor" [size]="14" class="ck-accent" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
               {{ isDemoMode() ? 'Runtime policy:' : 'Default model:' }}
               <span class="text-white font-mono">{{ effectiveModel() }}</span>
               @if (!isDemoMode() && systemDefaults()?.default_model) {
-                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                  override
-                </span>
+                <span class="ck-pill ck-tone-info ml-1">override</span>
               }
             </div>
             <div>
@@ -1041,16 +1012,14 @@ interface ContextConfigRow {
         </section>
         <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="database" set="phosphor" [size]="14" class="text-cyan-400" /> Retrieval
+            <app-icon name="database" set="phosphor" [size]="14" class="ck-accent" /> Retrieval
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
               Pipeline:
               <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
               @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
-                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  pinned
-                </span>
+                <span class="ck-pill ck-tone-info ml-1">pinned</span>
               }
             </div>
             <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
@@ -1058,7 +1027,7 @@ interface ContextConfigRow {
             <div class="pt-1">
               <a
                 routerLink="/knowledge"
-                class="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300"
+                class="ck-accent inline-flex items-center gap-1 text-xs"
               >
                 <app-icon name="external-link" [size]="11" /> Manage collections
               </a>
@@ -1092,6 +1061,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   private readonly flowManifest = inject(FlowManifestService);
+  readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
   readonly lensService = inject(LensService);
   private systemRouteSubscription: Subscription | null = null;
@@ -1128,7 +1098,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.isIntelligence()
       ? 'Systems · Intelligence'
       : this.isExpertKnowledgeCapture()
-        ? 'Capture de connaissances'
+        ? this.i18n.t('systems.view.capture.eyebrow')
         : this.isTranslationSuite()
           ? 'PMI Sovereign Stack'
           : this.flowChromeActive()
@@ -1139,12 +1109,29 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
       : this.isExpertKnowledgeCapture()
-        ? 'Préparer l’échange, capturer les réponses, relire puis publier.'
+        ? this.i18n.t('systems.view.capture.subtitle')
         : this.isTranslationSuite()
           ? 'Sovereign DITA translation, replay, agent QA, RBAC and audit-ready delivery.'
           : this.flowChromeActive()
             ? 'A graph the run engine executes, step by step.'
             : 'Configure, run and refine this AI system.',
+  );
+
+  /** Banner label above the stage strip — names what the stages belong to. */
+  readonly pipelineBannerLabel = computed(() =>
+    this.isTranslationSuite()
+      ? 'Translation Suite'
+      : this.isExpertKnowledgeCapture()
+        ? this.i18n.t('systems.view.capture.journey')
+        : 'OmniRAG pipeline',
+  );
+
+  /** The four beats of a capture session, shown before the first one starts. */
+  readonly captureSteps = computed(() =>
+    ([1, 2, 3, 4] as const).map((n) => ({
+      label: this.i18n.t(`systems.view.capture.step${n}`),
+      description: this.i18n.t(`systems.view.capture.step${n}.desc`),
+    })),
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
@@ -1501,37 +1488,37 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       return [
         {
           key: 'plan',
-          name: 'Plan',
+          name: this.i18n.t('systems.view.stage.plan'),
           icon: 'list-checks',
-          description: 'Préparer le déroulé de l’échange.',
-          configureLabel: 'Capture',
+          description: this.i18n.t('systems.view.stage.plan.desc'),
+          configureLabel: this.i18n.t('systems.view.capture.cta'),
           route: ['/systems', this.systemId, 'capture'],
           tone: 'brand',
         },
         {
           key: 'voice',
-          name: 'Échange',
+          name: this.i18n.t('systems.view.stage.voice'),
           icon: 'mic',
-          description: 'Conduire la capture en voix ou au clavier.',
-          configureLabel: 'Capture',
+          description: this.i18n.t('systems.view.stage.voice.desc'),
+          configureLabel: this.i18n.t('systems.view.capture.cta'),
           route: ['/systems', this.systemId, 'capture'],
           tone: 'violet',
         },
         {
           key: 'retrieve',
-          name: 'Sources',
+          name: this.i18n.t('systems.view.stage.sources'),
           icon: 'database',
-          description: 'Utiliser les documents rattachés comme appui.',
-          configureLabel: 'Sources',
+          description: this.i18n.t('systems.view.stage.sources.desc'),
+          configureLabel: this.i18n.t('systems.view.stage.sources'),
           route: '/knowledge',
           tone: 'brand',
         },
         {
           key: 'proposal',
-          name: 'Report',
+          name: this.i18n.t('systems.view.stage.report'),
           icon: 'check-circle-2',
-          description: 'Review and publish the final report.',
-          configureLabel: 'Report',
+          description: this.i18n.t('systems.view.stage.report.desc'),
+          configureLabel: this.i18n.t('systems.view.stage.report'),
           route: ['/systems', this.systemId, 'flow'],
           tone: 'emerald',
         },

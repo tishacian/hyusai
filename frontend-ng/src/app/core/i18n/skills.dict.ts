@@ -1,0 +1,515 @@
+/**
+ * Skills and capabilities: catalog, detail, authoring, lifecycle.
+ *
+ * Accepted key prefixes: 'skills.', 'capabilities.'. See `./CONVENTION.md`.
+ *
+ * Three groups deserve a word:
+ *
+ * * `skills.runtime.<kind>` and `skills.cert.<level>` mirror API values, so
+ *   the key is built at the call site and falls back to the raw value. The
+ *   label is the lexicon term; the raw kind stays available as a secondary
+ *   line, never as the primary label.
+ * * `skills.schema.*` belongs to `<ck-schema-builder>`, the contract editor
+ *   this surface owns and the Flow inspector reuses.
+ * * `skills.import.*` speaks the words of the Business Requirements template
+ *   (outcome, requirement, decision) beside the platform words, so the wizard
+ *   bridges the two vocabularies instead of inventing a third. `skills.wizard.hint.*`
+ *   asks each step's question in plain language, with an example;
+ *   `skills.wizard.brd.*` is the pointer into that document for whoever has
+ *   one, and is rendered as a secondary line next to a `ck-help`, never as the
+ *   instruction itself.
+ */
+
+export const SKILLS_FR = {
+  // -- Catalog ------------------------------------------------------------
+  'skills.title': 'Registre des skills',
+  'skills.list.eyebrow': 'Build · Skills',
+  'skills.list.description':
+    'Opérations typées, versionnées et certifiées — les briques que les systèmes orchestrent.',
+  'skills.list.search': 'Filtrer les skills…',
+  'skills.list.new': 'Nouvelle skill',
+  'skills.list.new.hint': 'Définir une skill appartenant à cet espace de travail',
+  'skills.list.import': 'Importer un BRD',
+  'skills.list.import.hint':
+    'Lire un document Business Requirements et en tirer des brouillons de skills',
+  'skills.list.loading': 'Chargement du registre…',
+  'skills.list.empty': 'Aucune skill ne correspond',
+  'skills.list.filter.all': 'Toutes',
+  'skills.list.totals': 'Totaux du registre',
+  'skills.list.total.skills': 'Skills',
+  'skills.list.total.calls': 'Appels',
+  'skills.list.total.latency': 'Latence moy.',
+  'skills.list.total.success': 'Taux de succès',
+  'skills.list.column.cert': 'Cert',
+  'skills.list.column.skill': 'Skill',
+  'skills.list.column.type': 'Type',
+  'skills.list.column.calls': 'Appels',
+  'skills.list.column.latency': 'Lat. moy.',
+  'skills.list.column.cost': 'Coût',
+  'skills.list.column.success': 'Succès',
+  'skills.list.column.price': 'Prix unitaire',
+  'skills.list.open': 'Ouvrir',
+  'skills.list.open.hint': 'Ouvrir le détail de la skill',
+
+  // -- Certification levels (API values) ----------------------------------
+  'skills.cert.basic': 'Base',
+  'skills.cert.production': 'Production',
+  'skills.cert.enterprise': 'Entreprise',
+
+  // -- Detail panel -------------------------------------------------------
+  'skills.detail.input': "Contrat d'entrée",
+  'skills.detail.output': 'Contrat de sortie',
+  'skills.detail.execution': 'Exécution',
+  'skills.detail.performance': 'Performance observée',
+  'skills.detail.provider': 'Fournisseur',
+  'skills.detail.owned': 'Skill de cet espace de travail',
+  'skills.detail.close': 'Fermer',
+  'skills.exec.mode': 'Mode',
+  'skills.exec.timeout': 'Délai maximum',
+  'skills.exec.retryable': 'Réessayable',
+  'skills.exec.idempotent': 'Idempotente',
+
+  // -- Lifecycle ----------------------------------------------------------
+  'skills.action.edit': 'Modifier',
+  'skills.action.delete': 'Supprimer',
+  'skills.delete.ask': 'Supprimer {name} définitivement ?',
+  'skills.delete.confirm': 'Supprimer',
+  'skills.delete.cancel': 'Annuler',
+  'skills.notice.created': '{slug} créée.',
+  'skills.notice.updated': '{slug} enregistrée.',
+  'skills.notice.deleted': '{slug} supprimée.',
+  'skills.notice.claimed': 'Rattachée à {name}.',
+  'skills.notice.claim_failed':
+    "La skill est créée mais n'a pas pu être rattachée à la capability : {reason}",
+  'skills.notice.published_bindings':
+    'Publiée dans : {names}. Ces versions gardent le contrat figé à leur publication.',
+
+  // -- Authoring wizard ---------------------------------------------------
+  'skills.wizard.eyebrow': 'Skill de cet espace de travail',
+  'skills.wizard.title.create': 'Nouvelle skill',
+  'skills.wizard.title.edit': 'Modifier la skill',
+  'skills.wizard.subtitle':
+    "Le slug est dérivé du nom local et de cet espace de travail. La certification reste Base.",
+  'skills.wizard.subtitle.edit':
+    "Le slug ne change pas : il est déjà inscrit dans les flows qui appellent cette skill.",
+  'skills.wizard.step.intent': 'Intention',
+  'skills.wizard.step.contract': 'Contrat',
+  'skills.wizard.step.runtime': 'Exécution',
+  'skills.wizard.step.review': 'Revue',
+  'skills.wizard.hint.intent':
+    "Que doit produire cette skill, et pour quel résultat métier ? Par exemple : retrouver le délai de traitement contractuel d'un ticket.",
+  'skills.wizard.hint.contract':
+    "Ce que la skill reçoit pour travailler, et ce qu'elle rend en retour. Par exemple : elle reçoit un numéro de ticket, elle rend un délai et une échéance.",
+  'skills.wizard.hint.runtime': 'Comment le travail est réellement fait.',
+  'skills.wizard.hint.review': 'Ce qui part au serveur, et ce que le serveur décide à votre place.',
+  'skills.wizard.brd.intent':
+    "Vous partez d'un document d'exigences métier (BRD) ? Ses résultats attendus et ses exigences fonctionnelles répondent à ces deux questions (§4 et §5).",
+  'skills.wizard.brd.contract':
+    "Vous partez d'un BRD ? Les décisions que l'agent doit prendre (D-x) nomment les entrées dont cette skill a besoin.",
+  'skills.wizard.brd.review':
+    "Vous partez d'un BRD ? Vérifiez que le nom et la capability correspondent à l'exigence dont vous partez : c'est ce qui garde la trace du document jusqu'à la skill qui tourne.",
+  'skills.wizard.back': 'Précédent',
+  'skills.wizard.next': 'Suivant',
+  'skills.wizard.cancel': 'Annuler',
+  'skills.wizard.create': 'Créer la skill',
+  'skills.wizard.creating': 'Création…',
+  'skills.wizard.save': 'Enregistrer',
+  'skills.wizard.saving': 'Enregistrement…',
+
+  // -- Presets ------------------------------------------------------------
+  'skills.preset.label': 'Point de départ',
+  'skills.preset.scratch': 'Page blanche',
+  'skills.preset.scratch.summary': 'Tout déclarer soi-même.',
+  'skills.preset.llm.summary':
+    "Un prompt que vous rédigez, envoyé au modèle de l'espace de travail.",
+  'skills.preset.wrapper.summary':
+    "Rejouer une skill fournie par la plateforme avec des entrées fixées d'avance.",
+
+  // -- Intent step --------------------------------------------------------
+  'skills.field.local_name': 'Nom local',
+  'skills.field.local_name.hint': 'Sert à dériver le slug. Lettres, chiffres et tirets bas.',
+  'skills.field.name': "Nom d'affichage",
+  'skills.field.description': 'Description',
+  'skills.field.description.hint':
+    "Ce que la skill fait, en une phrase. Par exemple : « Retourne le délai contractuel d'un ticket. » Depuis un BRD, la formulation de l'exigence (FR-x) convient telle quelle.",
+  'skills.field.type': 'Type',
+  'skills.field.category': 'Catégorie',
+  'skills.field.category.hint': 'Décide du groupe dans lequel la palette du flow la range.',
+  'skills.field.category.none': '— aucune —',
+  'skills.field.capability': 'Portée par la capability',
+  'skills.field.capability.hint':
+    "Le résultat métier auquel cette skill contribue. Sans rattachement, elle reste visible au catalogue mais aucune capability ne la porte. Depuis un BRD : colonne « Maps to capability » (§5).",
+  'skills.field.capability.none': '— aucune pour le moment —',
+
+  // -- Contract step ------------------------------------------------------
+  'skills.contract.input': "Contrat d'entrée",
+  'skills.contract.input.hint': 'Ce que la skill attend de recevoir à chaque exécution.',
+  'skills.contract.output': 'Contrat de sortie',
+  'skills.contract.output.hint': 'Ce que la skill garantit de rendre.',
+
+  // -- Runtime step -------------------------------------------------------
+  'skills.runtime.label': 'Comment le travail est fait',
+  'skills.runtime.technical': 'Terme technique',
+  'skills.runtime.registry_call': 'Encapsuler une skill du socle',
+  'skills.runtime.prompt_template': 'Gabarit LLM',
+  'skills.runtime.choose': '— choisir —',
+  'skills.runtime.target.choose': '— choisir une skill du catalogue —',
+  'skills.runtime.optional': 'facultatif',
+  'skills.param.provider': 'Fournisseur de modèle',
+  'skills.param.template': 'Prompt',
+  'skills.param.skill_slug': 'Skill encapsulée',
+  'skills.param.frozen_input': 'Entrées prédéfinies',
+
+  // -- Runtime status badge (<ck-runtime-status>) --------------------------
+  'skills.runtime.status.bound': 'Prête',
+  'skills.runtime.status.bound.hint': "L'implémentation renvoie de vrais résultats.",
+  'skills.runtime.status.stub': 'Simulée',
+  'skills.runtime.status.stub.hint':
+    'Substitut de démonstration — renvoie une réponse vide ou fabriquée.',
+  'skills.runtime.status.unbound': 'Sans implémentation',
+  'skills.runtime.status.unbound.hint':
+    "Déclarée, mais aucune implémentation n'y est encore rattachée.",
+  'skills.runtime.status.catalog_only': 'Référencée seulement',
+  'skills.runtime.status.catalog_only.hint':
+    "Présente au catalogue, mais inconnue du moteur d'exécution.",
+  'skills.runtime.status.unknown': 'Inconnue',
+  'skills.runtime.status.unknown.hint': "État d'exécution inconnu.",
+
+  // -- Preset inputs ------------------------------------------------------
+  'skills.preset_inputs.hint':
+    "Valeurs fixées d'avance, fusionnées par-dessus ce que le flow envoie à l'exécution.",
+  'skills.preset_inputs.empty':
+    "Choisissez d'abord la skill à encapsuler : ses entrées apparaîtront ici.",
+  'skills.preset_inputs.no_contract':
+    "Cette skill ne déclare pas de contrat d'entrée. Utilisez l'onglet JSON pour prédéfinir des valeurs.",
+  'skills.preset_inputs.extra': 'Valeurs sans champ correspondant, conservées telles quelles : {keys}',
+  'skills.preset_inputs.advanced': 'JSON avancé',
+  'skills.preset_inputs.form': 'Formulaire',
+
+  // -- Review step --------------------------------------------------------
+  'skills.review.slug': 'Slug',
+  'skills.review.slug.derived': 'Dérivé par le serveur du nom local et de cet espace de travail.',
+  'skills.review.slug.frozen': 'Inchangeable : les flows qui appellent cette skill le connaissent.',
+  'skills.review.cert': 'Certification',
+  'skills.review.cert.value': 'Base',
+  'skills.review.cert.hint':
+    "Une skill créée ici ne peut pas revendiquer une certification que personne ne lui a accordée.",
+  'skills.review.runtime': 'Exécution',
+  'skills.review.capability': 'Capability',
+
+  // -- Validation ---------------------------------------------------------
+  'skills.problem.local_name': 'Un nom local est requis.',
+  'skills.problem.name': "Un nom d'affichage est requis.",
+  'skills.problem.runtime': 'Choisissez comment le travail est fait.',
+  'skills.problem.required': '{field} est requis par ce mode.',
+  'skills.problem.enum': '{field} doit valoir une de ces valeurs : {options}.',
+  'skills.problem.maxlength': '{field} dépasse {max} caractères.',
+  'skills.problem.json': "{field} n'est pas du JSON valide.",
+  'skills.problem.json_object': '{field} doit être un objet JSON, pas une liste ni une valeur simple.',
+  'skills.error.create': "La skill n'a pas été créée.",
+  'skills.error.update': "La skill n'a pas été enregistrée.",
+  'skills.error.delete': "La skill n'a pas été supprimée.",
+
+  // -- Schema builder -----------------------------------------------------
+  'skills.schema.tab.fields': 'Champs',
+  'skills.schema.tab.json': 'JSON avancé',
+  'skills.schema.field.name': 'Nom',
+  'skills.schema.field.type': 'Type',
+  'skills.schema.field.required': 'Requis',
+  'skills.schema.field.description': 'Description',
+  'skills.schema.field.default': 'Valeur par défaut',
+  'skills.schema.field.items': 'Type des éléments',
+  'skills.schema.field.enum': 'Valeurs autorisées',
+  'skills.schema.field.enum.hint':
+    'Séparées par des virgules ; laissez vide pour accepter toute valeur.',
+  'skills.schema.add': 'Ajouter un champ',
+  'skills.schema.add_nested': 'Ajouter un sous-champ',
+  'skills.schema.remove': 'Retirer',
+  'skills.schema.empty': 'Aucun champ. Ajoutez le premier, ou rédigez le contrat en JSON.',
+  'skills.schema.locked.title': 'Ce contrat va au-delà de ce que les champs expriment',
+  'skills.schema.locked.body':
+    "Rien n'est perdu : modifiez-le dans l'onglet JSON, les champs reviendront dès qu'il y rentrera à nouveau.",
+  'skills.schema.json.invalid': "JSON invalide — rien n'a été enregistré.",
+  'skills.schema.json.not_object':
+    'Un contrat doit être un objet JSON, pas une liste ni une valeur simple.',
+  'skills.schema.type.string': 'Texte',
+  'skills.schema.type.number': 'Nombre',
+  'skills.schema.type.integer': 'Entier',
+  'skills.schema.type.boolean': 'Oui / non',
+  'skills.schema.type.object': 'Objet',
+  'skills.schema.type.array': 'Liste',
+
+  // -- Business Requirements import ---------------------------------------
+  'skills.import.title': "Importer un document d'exigences métier",
+  'skills.import.description':
+    "Le document est lu, jamais exécuté : il produit des brouillons que vous ouvrez dans l'assistant. Aucune skill n'est créée automatiquement.",
+  'skills.import.pick': 'Choisir un fichier .docx',
+  'skills.import.parsing': 'Lecture du document…',
+  'skills.import.failed':
+    "Le document n'a pas pu être lu ({reason}). Vous pouvez créer la skill à la main.",
+  'skills.import.empty':
+    "Aucune ligne exploitable trouvée. Vérifiez que les tableaux du modèle sont remplis.",
+  'skills.import.close': 'Fermer',
+  'skills.import.context': 'Contexte',
+  'skills.import.outcomes': 'Résultats métier attendus',
+  'skills.import.requirements': 'Exigences fonctionnelles',
+  'skills.import.decisions': "Décisions prises par l'agent",
+  'skills.import.guardrails': 'Règles et interdits',
+  'skills.import.column.id': 'Réf.',
+  'skills.import.column.requirement': 'Exigence',
+  'skills.import.column.priority': 'Priorité',
+  'skills.import.column.capability': 'Capability visée',
+  'skills.import.column.decision': 'Décision',
+  'skills.import.column.outcome': 'Résultat',
+  'skills.import.column.rule': 'Règle',
+  'skills.import.draft': 'Ouvrir un brouillon',
+  'skills.import.ignored':
+    "Non repris : processus, exigences non fonctionnelles, sources de données, indicateurs, hors périmètre et signatures. Le modèle opérationnel cible n'est pas lu.",
+} as const satisfies Record<string, string>;
+
+/**
+ * The `Record<keyof typeof SKILLS_FR, string>` annotation is the parity
+ * contract: `tsc` fails on a key present in one locale and missing in the
+ * other, before the guard even runs.
+ */
+export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
+  // -- Catalog ------------------------------------------------------------
+  'skills.title': 'Skill registry',
+  'skills.list.eyebrow': 'Build · Skills',
+  'skills.list.description':
+    'Typed, versioned, certified operations — the building blocks systems orchestrate.',
+  'skills.list.search': 'Filter skills…',
+  'skills.list.new': 'New skill',
+  'skills.list.new.hint': 'Define a skill owned by this workspace',
+  'skills.list.import': 'Import a BRD',
+  'skills.list.import.hint': 'Read a Business Requirements document and draft skills from it',
+  'skills.list.loading': 'Loading the registry…',
+  'skills.list.empty': 'No skill matches',
+  'skills.list.filter.all': 'All',
+  'skills.list.totals': 'Registry totals',
+  'skills.list.total.skills': 'Skills',
+  'skills.list.total.calls': 'Calls',
+  'skills.list.total.latency': 'Avg latency',
+  'skills.list.total.success': 'Success rate',
+  'skills.list.column.cert': 'Cert',
+  'skills.list.column.skill': 'Skill',
+  'skills.list.column.type': 'Type',
+  'skills.list.column.calls': 'Calls',
+  'skills.list.column.latency': 'Avg lat',
+  'skills.list.column.cost': 'Cost',
+  'skills.list.column.success': 'Success',
+  'skills.list.column.price': 'Unit price',
+  'skills.list.open': 'Open',
+  'skills.list.open.hint': 'Open the skill detail',
+
+  // -- Certification levels (API values) ----------------------------------
+  'skills.cert.basic': 'Basic',
+  'skills.cert.production': 'Production',
+  'skills.cert.enterprise': 'Enterprise',
+
+  // -- Detail panel -------------------------------------------------------
+  'skills.detail.input': 'Input contract',
+  'skills.detail.output': 'Output contract',
+  'skills.detail.execution': 'Execution',
+  'skills.detail.performance': 'Live performance',
+  'skills.detail.provider': 'Provider',
+  'skills.detail.owned': 'Skill owned by this workspace',
+  'skills.detail.close': 'Close',
+  'skills.exec.mode': 'Mode',
+  'skills.exec.timeout': 'Timeout',
+  'skills.exec.retryable': 'Retryable',
+  'skills.exec.idempotent': 'Idempotent',
+
+  // -- Lifecycle ----------------------------------------------------------
+  'skills.action.edit': 'Edit',
+  'skills.action.delete': 'Delete',
+  'skills.delete.ask': 'Delete {name} for good?',
+  'skills.delete.confirm': 'Delete',
+  'skills.delete.cancel': 'Cancel',
+  'skills.notice.created': '{slug} created.',
+  'skills.notice.updated': '{slug} saved.',
+  'skills.notice.deleted': '{slug} deleted.',
+  'skills.notice.claimed': 'Carried by {name}.',
+  'skills.notice.claim_failed':
+    'The skill exists but no capability could be made to carry it: {reason}',
+  'skills.notice.published_bindings':
+    'Published in: {names}. Those versions keep the contract frozen at their publication.',
+
+  // -- Authoring wizard ---------------------------------------------------
+  'skills.wizard.eyebrow': 'Workspace skill',
+  'skills.wizard.title.create': 'New skill',
+  'skills.wizard.title.edit': 'Edit skill',
+  'skills.wizard.subtitle':
+    'The slug is derived from the local name and this workspace. Certification stays Basic.',
+  'skills.wizard.subtitle.edit':
+    'The slug does not change: the flows that call this skill already carry it.',
+  'skills.wizard.step.intent': 'Intent',
+  'skills.wizard.step.contract': 'Contract',
+  'skills.wizard.step.runtime': 'Execution',
+  'skills.wizard.step.review': 'Review',
+  'skills.wizard.hint.intent':
+    'What should this skill produce, and for which business outcome? For example: find the contractual handling time of a ticket.',
+  'skills.wizard.hint.contract':
+    'What the skill receives to do its work, and what it hands back. For example: it receives a ticket number, it hands back a delay and a due date.',
+  'skills.wizard.hint.runtime': 'How the work actually gets done.',
+  'skills.wizard.hint.review': 'What is sent to the server, and what the server decides for you.',
+  'skills.wizard.brd.intent':
+    'Working from a business requirements document (BRD)? Its business outcomes and functional requirements answer both questions (§4 and §5).',
+  'skills.wizard.brd.contract':
+    'Working from a BRD? The decisions the agent has to make (D-x) name the inputs this skill needs.',
+  'skills.wizard.brd.review':
+    'Working from a BRD? Check that the name and the capability match the requirement you started from — that is what keeps the trail from the document to the running skill.',
+  'skills.wizard.back': 'Back',
+  'skills.wizard.next': 'Next',
+  'skills.wizard.cancel': 'Cancel',
+  'skills.wizard.create': 'Create skill',
+  'skills.wizard.creating': 'Creating…',
+  'skills.wizard.save': 'Save',
+  'skills.wizard.saving': 'Saving…',
+
+  // -- Presets ------------------------------------------------------------
+  'skills.preset.label': 'Start from',
+  'skills.preset.scratch': 'A blank page',
+  'skills.preset.scratch.summary': 'Declare everything yourself.',
+  'skills.preset.llm.summary': "A prompt you write, sent to the workspace's model.",
+  'skills.preset.wrapper.summary':
+    'Replay a skill the platform provides, with inputs fixed in advance.',
+
+  // -- Intent step --------------------------------------------------------
+  'skills.field.local_name': 'Local name',
+  'skills.field.local_name.hint': 'The slug is derived from it. Letters, digits and underscores.',
+  'skills.field.name': 'Display name',
+  'skills.field.description': 'Description',
+  'skills.field.description.hint':
+    'What the skill does, in one sentence. For example: “Returns the contractual handling time of a ticket.” From a BRD, the wording of the requirement (FR-x) fits as it is.',
+  'skills.field.type': 'Type',
+  'skills.field.category': 'Category',
+  'skills.field.category.hint': 'Decides the group the flow palette files it under.',
+  'skills.field.category.none': '— none —',
+  'skills.field.capability': 'Carried by the capability',
+  'skills.field.capability.hint':
+    'The business outcome this skill contributes to. With none, it stays visible in the catalog but no capability carries it. From a BRD: the “Maps to capability” column (§5).',
+  'skills.field.capability.none': '— none for now —',
+
+  // -- Contract step ------------------------------------------------------
+  'skills.contract.input': 'Input contract',
+  'skills.contract.input.hint': 'What the skill expects to receive on every run.',
+  'skills.contract.output': 'Output contract',
+  'skills.contract.output.hint': 'What the skill guarantees to hand back.',
+
+  // -- Runtime step -------------------------------------------------------
+  'skills.runtime.label': 'How the work is done',
+  'skills.runtime.technical': 'Technical term',
+  'skills.runtime.registry_call': 'Wrap a core skill',
+  'skills.runtime.prompt_template': 'LLM prompt template',
+  'skills.runtime.choose': '— choose —',
+  'skills.runtime.target.choose': '— choose a catalog skill —',
+  'skills.runtime.optional': 'optional',
+  'skills.param.provider': 'Model provider',
+  'skills.param.template': 'Prompt',
+  'skills.param.skill_slug': 'Wrapped skill',
+  'skills.param.frozen_input': 'Preset inputs',
+
+  // -- Runtime status badge (<ck-runtime-status>) --------------------------
+  'skills.runtime.status.bound': 'Ready',
+  'skills.runtime.status.bound.hint': 'The implementation returns real results.',
+  'skills.runtime.status.stub': 'Simulated',
+  'skills.runtime.status.stub.hint':
+    'Demo stand-in — returns an empty or made-up answer.',
+  'skills.runtime.status.unbound': 'No implementation',
+  'skills.runtime.status.unbound.hint': 'Declared, but nothing implements it yet.',
+  'skills.runtime.status.catalog_only': 'Listed only',
+  'skills.runtime.status.catalog_only.hint':
+    'Present in the catalog, but the execution engine has never seen it.',
+  'skills.runtime.status.unknown': 'Unknown',
+  'skills.runtime.status.unknown.hint': 'Runtime status unknown.',
+
+  // -- Preset inputs ------------------------------------------------------
+  'skills.preset_inputs.hint':
+    'Values fixed in advance, merged over whatever the flow sends at run time.',
+  'skills.preset_inputs.empty': 'Pick the skill to wrap first: its inputs will appear here.',
+  'skills.preset_inputs.no_contract':
+    'This skill declares no input contract. Use the JSON tab to preset values.',
+  'skills.preset_inputs.extra': 'Values with no matching field, kept as they are: {keys}',
+  'skills.preset_inputs.advanced': 'Advanced JSON',
+  'skills.preset_inputs.form': 'Form',
+
+  // -- Review step --------------------------------------------------------
+  'skills.review.slug': 'Slug',
+  'skills.review.slug.derived': 'Derived by the server from the local name and this workspace.',
+  'skills.review.slug.frozen': 'Unchangeable: the flows calling this skill know it by this name.',
+  'skills.review.cert': 'Certification',
+  'skills.review.cert.value': 'Basic',
+  'skills.review.cert.hint':
+    'A skill authored here cannot claim a certification nobody granted it.',
+  'skills.review.runtime': 'Execution',
+  'skills.review.capability': 'Capability',
+
+  // -- Validation ---------------------------------------------------------
+  'skills.problem.local_name': 'A local name is required.',
+  'skills.problem.name': 'A display name is required.',
+  'skills.problem.runtime': 'Choose how the work gets done.',
+  'skills.problem.required': '{field} is required by this mode.',
+  'skills.problem.enum': '{field} must be one of: {options}.',
+  'skills.problem.maxlength': '{field} exceeds {max} characters.',
+  'skills.problem.json': '{field} is not valid JSON.',
+  'skills.problem.json_object': '{field} must be a JSON object, not a list or a single value.',
+  'skills.error.create': 'The skill was not created.',
+  'skills.error.update': 'The skill was not saved.',
+  'skills.error.delete': 'The skill was not deleted.',
+
+  // -- Schema builder -----------------------------------------------------
+  'skills.schema.tab.fields': 'Fields',
+  'skills.schema.tab.json': 'Advanced JSON',
+  'skills.schema.field.name': 'Name',
+  'skills.schema.field.type': 'Type',
+  'skills.schema.field.required': 'Required',
+  'skills.schema.field.description': 'Description',
+  'skills.schema.field.default': 'Default',
+  'skills.schema.field.items': 'Item type',
+  'skills.schema.field.enum': 'Allowed values',
+  'skills.schema.field.enum.hint': 'Comma-separated; leave empty to accept any value.',
+  'skills.schema.add': 'Add a field',
+  'skills.schema.add_nested': 'Add a sub-field',
+  'skills.schema.remove': 'Remove',
+  'skills.schema.empty': 'No field yet. Add the first one, or write the contract as JSON.',
+  'skills.schema.locked.title': 'This contract goes beyond what the fields express',
+  'skills.schema.locked.body':
+    'Nothing is lost: edit it in the JSON tab, and the fields come back as soon as it fits them again.',
+  'skills.schema.json.invalid': 'Invalid JSON — nothing was saved.',
+  'skills.schema.json.not_object':
+    'A contract must be a JSON object, not a list or a single value.',
+  'skills.schema.type.string': 'Text',
+  'skills.schema.type.number': 'Number',
+  'skills.schema.type.integer': 'Integer',
+  'skills.schema.type.boolean': 'Yes / no',
+  'skills.schema.type.object': 'Object',
+  'skills.schema.type.array': 'List',
+
+  // -- Business Requirements import ---------------------------------------
+  'skills.import.title': 'Import a business requirements document',
+  'skills.import.description':
+    'The document is read, never run: it produces drafts you open in the wizard. No skill is created automatically.',
+  'skills.import.pick': 'Choose a .docx file',
+  'skills.import.parsing': 'Reading the document…',
+  'skills.import.failed':
+    'The document could not be read ({reason}). You can still author the skill by hand.',
+  'skills.import.empty':
+    'No usable row found. Check that the template tables are filled in.',
+  'skills.import.close': 'Close',
+  'skills.import.context': 'Context',
+  'skills.import.outcomes': 'Business outcomes',
+  'skills.import.requirements': 'Functional requirements',
+  'skills.import.decisions': 'Decisions the agent makes',
+  'skills.import.guardrails': 'Rules and prohibitions',
+  'skills.import.column.id': 'Ref.',
+  'skills.import.column.requirement': 'Requirement',
+  'skills.import.column.priority': 'Priority',
+  'skills.import.column.capability': 'Target capability',
+  'skills.import.column.decision': 'Decision',
+  'skills.import.column.outcome': 'Outcome',
+  'skills.import.column.rule': 'Rule',
+  'skills.import.draft': 'Open a draft',
+  'skills.import.ignored':
+    'Not taken in: process steps, non-functional requirements, data sources, KPIs, out of scope and signatures. The target operating model is not read.',
+};

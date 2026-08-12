@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
+import { I18nService } from '@app/core/i18n.service';
 
 /**
  * Bottom command bar (28px). Mirrors the BottomCommand region of the
@@ -27,7 +28,7 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
       [style.color]="'var(--ck-fg-3)'"
       [style.gap.px]="12"
     >
-      <ck-live-dot tone="pos" label="System operational" />
+      <ck-live-dot tone="pos" [label]="i18n.t('nav.footer.status_operational')" />
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span
         class="ck-mono"
@@ -45,10 +46,10 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.gap.px]="6"
-      ><ck-kbd>⌘K</ck-kbd>Command</span>
+      ><ck-kbd>⌘K</ck-kbd>{{ i18n.t('nav.footer.command') }}</span>
       <span
         class="ck-mono"
-        title="⌘Z zoom out · ⇧⌘Z zoom in  (Portfolio › Capability › System › Skill › Run)"
+        [title]="zoomHint()"
         [style.fontSize.px]="9"
         [style.letterSpacing]="'0.14em'"
         [style.textTransform]="'uppercase'"
@@ -57,7 +58,7 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
         [style.alignItems]="'center'"
         [style.gap.px]="6"
         [style.cursor]="'help'"
-      ><ck-kbd>⌘Z</ck-kbd>Zoom</span>
+      ><ck-kbd>⌘Z</ck-kbd>{{ i18n.t('nav.footer.zoom') }}</span>
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span
         class="ck-mono"
@@ -70,6 +71,7 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
   `,
 })
 export class CommandBarComponent {
+  readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -81,4 +83,12 @@ export class CommandBarComponent {
   );
 
   readonly path = computed(() => (this.url() || '/').split('?')[0]);
+
+  /** Canonical zoom chain, in the order `SemanticZoomBreadcrumbComponent` walks it. */
+  readonly zoomHint = computed(() => {
+    const chain = (['portfolio', 'capability', 'system', 'run', 'skill'] as const)
+      .map((key) => this.i18n.t(`nav.zoom.${key}`))
+      .join(' › ');
+    return this.i18n.t('nav.zoom.hint', { chain });
+  });
 }

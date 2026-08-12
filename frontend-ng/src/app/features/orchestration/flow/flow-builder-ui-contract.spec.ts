@@ -2,12 +2,28 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 
 function source(name: string): string {
   return readFileSync(
     join(process.cwd(), 'src/app/features/orchestration/flow', name),
     'utf8',
   );
+}
+
+/**
+ * Accessible names moved from literal attributes to dictionary keys. The
+ * invariant is unchanged — every control still carries a non-empty name — so
+ * the assertion checks both halves: the template binds the key, and the key
+ * resolves to real copy.
+ */
+function assertAccessibleName(src: string, key: keyof typeof FLOW_EN, control: string): void {
+  assert.match(
+    src,
+    new RegExp(`\\[attr\\.aria-label\\]="i18n\\.t\\('${key.replace(/\./g, '\\.')}'\\)"`),
+    `${control} keeps an accessible name`,
+  );
+  assert.ok(FLOW_EN[key]?.trim(), `${key} resolves to copy`);
 }
 
 test('every node card exposes an accessible, lock-aware delete control', () => {
@@ -36,7 +52,7 @@ test('the node trash keeps a 24px hit area that head-row crowding cannot shrink'
 
 test('the inspector deletes the selected node through the same store mutation', () => {
   const inspector = source('flow-inspector.component.ts');
-  assert.match(inspector, /aria-label="Delete node"/);
+  assertAccessibleName(inspector, 'flow.inspector.danger.delete.aria', 'inspector delete');
   assert.match(inspector, /aria-keyshortcuts="Delete Backspace"/);
   assert.match(inspector, /\(click\)="deleteNode\(\)"/);
   assert.match(inspector, /\[disabled\]="editingLocked\(\)"/);
@@ -46,7 +62,7 @@ test('the inspector deletes the selected node through the same store mutation', 
     'one removal path for the trash, the shortcut and the inspector',
   );
   assert.match(
-    inspector,
+    FLOW_EN['flow.inspector.danger.body'],
     /The Delete or Backspace key does the same on the selected node/,
     'the inspector names the shortcut it duplicates',
   );
@@ -62,19 +78,22 @@ test('global Delete and Backspace use the interactive-surface guard', () => {
 test('toolbar keeps palette, inspector, focus, compact and workbench as explicit controls', () => {
   const toolbar = source('flow-toolbar.component.ts');
   const controls = [
-    ['Toggle node palette', 'togglePalette.emit()'],
-    ['Toggle node inspector', 'toggleInspector.emit()'],
-    ['Toggle canvas focus mode', 'toggleFocus.emit()'],
-    ['Toggle compact toolbar', 'toggleCompact.emit()'],
-    ['Toggle local Flow workbench', 'toggleWorkbench.emit()'],
+    ['flow.toolbar.palette.aria', 'togglePalette.emit()'],
+    ['flow.toolbar.inspector.aria', 'toggleInspector.emit()'],
+    ['flow.toolbar.focus.aria', 'toggleFocus.emit()'],
+    ['flow.toolbar.compact.aria', 'toggleCompact.emit()'],
+    ['flow.toolbar.workbench.aria', 'toggleWorkbench.emit()'],
   ] as const;
 
-  for (const [label, action] of controls) {
-    assert.match(toolbar, new RegExp(`aria-label="${label}"`));
+  for (const [key, action] of controls) {
+    assertAccessibleName(toolbar, key, key);
     assert.match(toolbar, new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.match(toolbar, /\[disabled\]="!hydrationReady\(\) \|\| !workbenchAvailable\(\)"/);
-  assert.match(toolbar, /Test the exact local Flow without saving or publishing it/);
+  assert.match(
+    FLOW_EN['flow.toolbar.workbench.hint'],
+    /Test the exact local Flow without saving or publishing it/,
+  );
 });
 
 test('authoring is the default toolbar surface and operating is one disclosure away', () => {
@@ -90,38 +109,38 @@ test('authoring is the default toolbar surface and operating is one disclosure a
     /id="ck-flow-toolbar-more"[\s\S]*?\n      <\/div>/,
   )?.[0] ?? '';
 
-  for (const label of [
-    'Toggle node palette',
-    'Toggle node inspector',
-    'Undo',
-    'Redo',
-    'Zoom in',
-    'Zoom out',
-    'Fit to view',
-    'Auto-arrange all nodes',
-    'Validate current flow',
-    'Save flow',
-    'Review and publish server draft',
-    'Save as System',
-    'Operate',
-    'More actions',
-  ]) {
-    assert.match(author, new RegExp(`aria-label="${label}"`), `${label} stays on the author bar`);
+  for (const key of [
+    'flow.toolbar.palette.aria',
+    'flow.toolbar.inspector.aria',
+    'flow.toolbar.undo.aria',
+    'flow.toolbar.redo.aria',
+    'flow.toolbar.zoom_in',
+    'flow.toolbar.zoom_out',
+    'flow.toolbar.fit.aria',
+    'flow.toolbar.arrange.aria',
+    'flow.toolbar.validate.aria',
+    'flow.toolbar.save.aria',
+    'flow.toolbar.publish.aria',
+    'flow.toolbar.promote.aria',
+    'flow.toolbar.operate',
+    'flow.toolbar.more.aria',
+  ] as const) {
+    assertAccessibleName(author, key, `${key} stays on the author bar`);
   }
 
   // Nothing was removed: every relocated control keeps its accessible name.
   assert.match(operate, /<ng-content select="\[flowToolbarActions\]" \/>/);
-  assert.match(operate, /aria-label="Toggle local Flow workbench"/);
-  for (const label of [
-    'Toggle canvas focus mode',
-    'Toggle compact toolbar',
-    'Cycle routing',
-    'Export flow',
-    'Import flow',
-    'Share flow',
-    'Clear canvas',
-  ]) {
-    assert.match(more, new RegExp(`aria-label="${label}"`), `${label} moved to More`);
+  assertAccessibleName(operate, 'flow.toolbar.workbench.aria', 'workbench toggle');
+  for (const key of [
+    'flow.toolbar.focus.aria',
+    'flow.toolbar.compact.aria',
+    'flow.toolbar.routing.aria',
+    'flow.toolbar.export.aria',
+    'flow.toolbar.import.aria',
+    'flow.toolbar.share.aria',
+    'flow.toolbar.clear.aria',
+  ] as const) {
+    assertAccessibleName(more, key, `${key} moved to More`);
   }
 
   assert.match(toolbar, /aria-controls="ck-flow-toolbar-operate"/);
@@ -141,7 +160,8 @@ test('the runtime manifest is collapsed until asked for and the empty canvas off
 
   assert.match(builder, /@if \(store\.nodeCount\(\) === 0\) \{/);
   assert.match(builder, /\(click\)="startFromPalette\(\)"/);
-  assert.match(builder, /Add the first node/);
+  assert.match(builder, /i18n\.t\('flow\.builder\.empty\.cta'\)/);
+  assert.equal(FLOW_EN['flow.builder.empty.cta'], 'Add the first node');
   assert.match(
     builder,
     /startFromPalette\(\): void \{[\s\S]*?this\.paletteOpen\.set\(true\)/,
@@ -197,9 +217,12 @@ test('closing the inspector preserves graph selection and later selection reopen
 test('retrieval scope remains a per-node inspector contract', () => {
   const inspector = source('flow-inspector.component.ts');
   assert.match(inspector, /data-testid="retrieval-scope-editor"/);
-  assert.match(inspector, /aria-label="Collections used by this Retrieval node"/);
-  assert.match(inspector, /aria-label="Documents used by this Retrieval node"/);
-  assert.match(inspector, /No document selected means all documents in the selected collections/);
+  assertAccessibleName(inspector, 'flow.inspector.retrieval.collections.aria', 'collections picker');
+  assertAccessibleName(inspector, 'flow.inspector.retrieval.documents.aria', 'documents picker');
+  assert.match(
+    FLOW_EN['flow.inspector.retrieval.documents.all'],
+    /No document selected means all documents in the selected collections/,
+  );
   assert.match(inspector, /collection_slugs: scope\.collection_slugs/);
   assert.match(inspector, /document_refs: scope\.document_refs/);
 });

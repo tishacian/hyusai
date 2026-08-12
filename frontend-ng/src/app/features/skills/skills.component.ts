@@ -3,21 +3,31 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, catchError, distinctUntilChanged, forkJoin, map, of } from 'rxjs';
 import {
   CanonicalApiService,
+  type Capability,
   type Skill,
   type SkillExecutorCatalog,
 } from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
+  HelpTooltipComponent,
   KbdComponent,
   MicroBarComponent,
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import type { I18nKey } from '@app/core/i18n.dict';
+import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
-import { NewSkillDialogComponent } from './new-skill-dialog.component';
+import { BrdImportComponent } from './brd-import.component';
+import {
+  NewSkillDialogComponent,
+  backendMessage,
+  type SkillDraftSeed,
+  type SkillUpdateResult,
+} from './new-skill-dialog.component';
 
 type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
 
@@ -34,35 +44,38 @@ interface SkillsScope {
   imports: [
     PageFrameComponent,
     GlyphComponent,
+    HelpTooltipComponent,
     KbdComponent,
     StatReadoutComponent,
     MicroBarComponent,
     TagComponent,
     RouterLink,
+    BrdImportComponent,
     NewSkillDialogComponent,
   ],
   template: `
     <ck-page-frame
-      eyebrow="Build · Skills"
-      title="Atomic skill registry"
-      description="Typed, versioned, certified operations — the building blocks orchestrated by Systems. For packaged integrations, see /apps."
+      [eyebrow]="i18n.t('skills.list.eyebrow')"
+      [title]="i18n.t('skills.title')"
+      [description]="i18n.t('skills.list.description')"
     >
+      <ck-help titleHelp id="concept.skill" />
       <div class="flex flex-col gap-6">
         <!-- Filter bar -->
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-1 ck-surface rounded-md" style="padding:4px;">
-            @for (c of certs; track c.id) {
+            @for (c of certs; track c) {
               <button
                 type="button"
-                (click)="cert.set(c.id)"
+                (click)="cert.set(c)"
                 class="ck-mono"
                 style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase;"
-                [style.background]="cert() === c.id ? 'var(--ck-bg-inset)' : 'transparent'"
-                [style.color]="cert() === c.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
-                [style.boxShadow]="cert() === c.id ? 'inset 0 0 0 1px var(--ck-stroke-strong)' : 'none'"
+                [style.background]="cert() === c ? 'var(--ck-bg-inset)' : 'transparent'"
+                [style.color]="cert() === c ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
+                [style.boxShadow]="cert() === c ? 'inset 0 0 0 1px var(--ck-stroke-strong)' : 'none'"
               >
-                {{ c.label }}
-                @if (cert() === c.id) {
+                {{ certLabel(c) }}
+                @if (cert() === c) {
                   <span class="ck-tnum" style="margin-left:6px; color:var(--ck-fg-3);">
                     {{ filtered().length }}
                   </span>
@@ -76,19 +89,31 @@ interface SkillsScope {
               type="search"
               [value]="query()"
               (input)="query.set(asInput($event).value)"
-              placeholder="Filter skills…"
+              [placeholder]="i18n.t('skills.list.search')"
               class="ck-mono"
               style="padding:6px 12px; font-size:11px; border-radius:4px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); width:220px;"
             />
             @if (canAuthor()) {
+              <span class="flex items-center gap-1">
+                <button
+                  type="button"
+                  (click)="openImport()"
+                  class="ck-mono"
+                  [style]="ghostStyle"
+                  [title]="i18n.t('skills.list.import.hint')"
+                >
+                  {{ i18n.t('skills.list.import') }}
+                </button>
+                <ck-help id="concept.business-requirements" />
+              </span>
               <button
                 type="button"
                 (click)="openAuthoring()"
                 class="ck-mono"
                 style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-strong);"
-                title="Define a Skill owned by this workspace"
+                [title]="i18n.t('skills.list.new.hint')"
               >
-                + NEW SKILL
+                + {{ i18n.t('skills.list.new') }}
               </button>
             }
           </div>
@@ -99,30 +124,35 @@ interface SkillsScope {
             {{ notice }}
           </div>
         }
+        @if (lifecycleError(); as message) {
+          <div class="ck-mono" role="alert" style="font-size:10px; color:var(--ck-neg); white-space:pre-wrap;">
+            {{ message }}
+          </div>
+        }
 
         <!-- Portfolio summary -->
         <section class="ck-surface rounded-md ck-hero-ambient relative overflow-hidden" style="padding:20px 24px;">
           <div class="ck-mono flex items-center gap-2" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:14px;">
             <ck-glyph name="ledger" [size]="12" />
-            REGISTRY TOTALS
+            {{ i18n.t('skills.list.totals') }}
           </div>
           <div style="display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:24px;">
-            <ck-stat-readout label="SKILLS" [value]="skills().length.toString()" tone="cool" [size]="20" />
-            <ck-stat-readout label="TOTAL CALLS" [value]="formatNum(totals().calls)" tone="pos" [size]="20" />
-            <ck-stat-readout label="AVG LATENCY" [value]="formatLatency(totals().avgLatency)" tone="warn" [size]="20" />
-            <ck-stat-readout label="SUCCESS RATE" [value]="formatPct(totals().successRate)" tone="pos" [size]="20" />
+            <ck-stat-readout [label]="i18n.t('skills.list.total.skills')" [value]="skills().length.toString()" tone="cool" [size]="20" />
+            <ck-stat-readout [label]="i18n.t('skills.list.total.calls')" [value]="formatNum(totals().calls)" tone="pos" [size]="20" />
+            <ck-stat-readout [label]="i18n.t('skills.list.total.latency')" [value]="formatLatency(totals().avgLatency)" tone="warn" [size]="20" />
+            <ck-stat-readout [label]="i18n.t('skills.list.total.success')" [value]="formatPct(totals().successRate)" tone="pos" [size]="20" />
           </div>
         </section>
 
         <!-- Table -->
         @if (loading()) {
           <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); text-align:center; padding:40px;">
-            Loading registry…
+            {{ i18n.t('skills.list.loading') }}
           </div>
         } @else if (!filtered().length) {
           <div class="ck-surface rounded-md" style="padding:40px; text-align:center;">
             <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
-              NO SKILL MATCHES
+              {{ i18n.t('skills.list.empty') }}
             </div>
           </div>
         } @else {
@@ -132,29 +162,27 @@ interface SkillsScope {
               class="ck-mono"
               style="display:grid; grid-template-columns: 80px 2fr 1fr 100px 110px 110px 110px 100px; gap:12px; padding:12px 16px; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); background:var(--ck-bg-inset); border-bottom:1px solid var(--ck-stroke-soft);"
             >
-              <span>CERT</span>
-              <span>SKILL</span>
-              <span>TYPE</span>
-              <span style="text-align:right;">CALLS</span>
-              <span style="text-align:right;">AVG LAT</span>
-              <span style="text-align:right;">COST</span>
-              <span style="text-align:right;">SUCCESS</span>
-              <span style="text-align:right;">UNIT PRICE</span>
+              <span>{{ i18n.t('skills.list.column.cert') }}</span>
+              <span>{{ i18n.t('skills.list.column.skill') }}</span>
+              <span>{{ i18n.t('skills.list.column.type') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.list.column.calls') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.list.column.latency') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.list.column.cost') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.list.column.success') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.list.column.price') }}</span>
             </div>
             @for (sk of filtered(); track sk.id) {
               <div
-                (click)="selected.set(selected()?.id === sk.id ? null : sk)"
+                (click)="select(sk)"
                 style="display:grid; grid-template-columns: 80px 2fr 1fr 100px 110px 110px 110px 100px; gap:12px; padding:12px 16px; align-items:center; cursor:pointer; border-bottom:1px solid var(--ck-hair); transition: background 120ms ease;"
                 [style.background]="selected()?.id === sk.id ? 'var(--ck-bg-inset)' : 'transparent'"
-                onmouseover="this.style.background='var(--ck-bg-inset)'"
-                onmouseout="this.style.background=this.dataset.sel==='1'?'var(--ck-bg-inset)':'transparent'"
               >
                 <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
-                  {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
+                  {{ certLabel(sk.certification_level || 'basic') }}
                 </ck-tag>
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
-                    <span class="text-sm text-white font-medium truncate">{{ sk.name }}</span>
+                    <span class="text-sm font-medium truncate" style="color:var(--ck-fg-1);">{{ sk.name }}</span>
                     <a
                       [routerLink]="navigation.objectUrlTree('skill', sk.slug, {
                         capabilityId: navigation.capabilityId(),
@@ -164,8 +192,8 @@ interface SkillsScope {
                       (click)="$event.stopPropagation()"
                       class="ck-mono"
                       style="font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4); border:1px solid var(--ck-stroke-soft); padding:2px 6px; border-radius:3px; text-decoration:none;"
-                      title="Open skill detail"
-                    >Open →</a>
+                      [title]="i18n.t('skills.list.open.hint')"
+                    >{{ i18n.t('skills.list.open') }} →</a>
                   </div>
                   <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                     {{ sk.slug }}<span style="color:var(--ck-fg-5); margin:0 4px;">·</span>{{ sk.version || 'v1' }}
@@ -199,61 +227,75 @@ interface SkillsScope {
               <div>
                 <div class="flex items-center gap-2 mb-2">
                   <ck-tag [tone]="certTone(sk.certification_level)" variant="solid">
-                    {{ (sk.certification_level || 'basic').toUpperCase() }}
+                    {{ certLabel(sk.certification_level || 'basic') }}
                   </ck-tag>
-                  <ck-tag tone="cool" variant="outline">{{ sk.type || 'GENERIC' }}</ck-tag>
+                  <ck-tag tone="cool" variant="outline">{{ sk.type || 'generic' }}</ck-tag>
                   <ck-tag tone="violet" variant="outline">{{ sk.version || 'v1' }}</ck-tag>
                 </div>
-                <h3 class="text-xl font-medium text-white">{{ sk.name }}</h3>
+                <h3 class="text-xl font-medium" style="color:var(--ck-fg-1);">{{ sk.name }}</h3>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); margin-top:4px;">{{ sk.slug }}</p>
+                @if (owns(sk)) {
+                  <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-5); margin-top:2px;">
+                    {{ i18n.t('skills.detail.owned') }}
+                  </p>
+                }
               </div>
-              <button
-                type="button"
-                (click)="selected.set(null)"
-                class="ck-mono"
-                style="padding:6px 10px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-3); border:1px solid var(--ck-stroke-soft);"
-              >
-                CLOSE
-              </button>
+              <div class="flex items-center" style="gap:8px;">
+                @if (owns(sk)) {
+                  @if (confirmingDelete()) {
+                    <span class="ck-mono" style="font-size:10px; color:var(--ck-warn);">
+                      {{ i18n.t('skills.delete.ask', { name: sk.name }) }}
+                    </span>
+                    <button type="button" (click)="confirmDelete(sk)" class="ck-mono" [style]="dangerStyle">
+                      {{ i18n.t('skills.delete.confirm') }}
+                    </button>
+                    <button type="button" (click)="confirmingDelete.set(false)" class="ck-mono" [style]="ghostStyle">
+                      {{ i18n.t('skills.delete.cancel') }}
+                    </button>
+                  } @else {
+                    <button type="button" (click)="openEditing(sk)" class="ck-mono" [style]="ghostStyle">
+                      {{ i18n.t('skills.action.edit') }}
+                    </button>
+                    <button type="button" (click)="askDelete()" class="ck-mono" [style]="ghostStyle">
+                      {{ i18n.t('skills.action.delete') }}
+                    </button>
+                  }
+                }
+                <button type="button" (click)="select(null)" class="ck-mono" [style]="ghostStyle">
+                  {{ i18n.t('skills.detail.close') }}
+                </button>
+              </div>
             </div>
 
-            <p class="text-sm text-white mb-6" style="line-height:1.6;">{{ sk.description || '—' }}</p>
+            <p class="text-sm mb-6" style="color:var(--ck-fg-1); line-height:1.6;">{{ sk.description || '—' }}</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  INPUT CONTRACT
-                </div>
-                <pre class="ck-mono" style="font-size:10px; color:var(--ck-fg-2); margin:0; background:var(--ck-bg-inset); padding:12px; border-radius:4px; white-space:pre-wrap; max-height:180px; overflow:auto;">{{ formatJson(sk.input_schema) }}</pre>
+                <div class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.detail.input') }}</div>
+                <pre class="ck-mono" [style]="codeStyle">{{ formatJson(sk.input_schema) }}</pre>
               </div>
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  OUTPUT CONTRACT
-                </div>
-                <pre class="ck-mono" style="font-size:10px; color:var(--ck-fg-2); margin:0; background:var(--ck-bg-inset); padding:12px; border-radius:4px; white-space:pre-wrap; max-height:180px; overflow:auto;">{{ formatJson(sk.output_schema) }}</pre>
+                <div class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.detail.output') }}</div>
+                <pre class="ck-mono" [style]="codeStyle">{{ formatJson(sk.output_schema) }}</pre>
               </div>
 
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  EXECUTION
-                </div>
+                <div class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.detail.execution') }}</div>
                 <div class="ck-surface rounded-md" style="padding:12px; display:flex; flex-direction:column; gap:6px;">
-                  @for (row of execRows(sk); track row.k) {
+                  @for (row of execRows(sk); track row.key) {
                     <div class="flex items-center justify-between">
-                      <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ row.k }}</span>
-                      <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ row.v }}</span>
+                      <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t(row.key) }}</span>
+                      <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ row.value }}</span>
                     </div>
                   }
                 </div>
               </div>
 
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  LIVE PERFORMANCE
-                </div>
+                <div class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.detail.performance') }}</div>
                 <div class="ck-surface rounded-md" style="padding:14px 16px; display:flex; flex-direction:column; gap:10px;">
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">SUCCESS RATE</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.list.total.success') }}</span>
                     <div style="display:flex; align-items:center; gap:8px;">
                       <ck-micro-bar
                         [value]="(sk.metrics?.success_rate ?? 0) * 100"
@@ -267,19 +309,19 @@ interface SkillsScope {
                     </div>
                   </div>
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">CALLS</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.list.total.calls') }}</span>
                     <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatNum(sk.metrics?.calls) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">AVG LATENCY</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.list.total.latency') }}</span>
                     <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatLatency(sk.metrics?.avg_latency_ms) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">TOTAL COST</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.list.column.cost') }}</span>
                     <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatPrice(sk.metrics?.total_cost) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">PROVIDER</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.detail.provider') }}</span>
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">{{ sk.provider || 'omnirag' }}</span>
                   </div>
                 </div>
@@ -288,13 +330,21 @@ interface SkillsScope {
           </section>
         }
 
-        @if (authoringCatalog(); as catalog) {
+        @if (dialogCatalog(); as catalog) {
           <app-new-skill-dialog
             [catalog]="catalog"
             [registryTargets]="registryTargets()"
+            [capabilities]="claimableCapabilities()"
+            [skill]="editingSkill()"
+            [seed]="draftSeed()"
             (created)="onAuthored($event)"
-            (dismissed)="authoring.set(false)"
+            (updated)="onUpdated($event)"
+            (dismissed)="closeDialog()"
           />
+        }
+
+        @if (importing()) {
+          <app-brd-import (drafted)="onDrafted($event)" (dismissed)="importing.set(false)" />
         }
       </div>
     </ck-page-frame>
@@ -304,6 +354,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   protected readonly navigation = inject(ZoomContextService);
   private routeSubscription: Subscription | null = null;
   private contextRefreshSubscription: Subscription | null = null;
@@ -315,12 +366,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
     () => this.reloadCurrentScope(),
   );
 
-  readonly certs: { id: CertFilter; label: string }[] = [
-    { id: 'all', label: 'ALL' },
-    { id: 'basic', label: 'BASIC' },
-    { id: 'production', label: 'PRODUCTION' },
-    { id: 'enterprise', label: 'ENTERPRISE' },
-  ];
+  readonly certs: CertFilter[] = ['all', 'basic', 'production', 'enterprise'];
 
   readonly skills = signal<Skill[]>([]);
   readonly loading = signal(true);
@@ -335,15 +381,44 @@ export class SkillsComponent implements OnInit, OnDestroy {
    */
   readonly executors = signal<SkillExecutorCatalog | null>(null);
   readonly authoring = signal(false);
+  readonly editingSkill = signal<Skill | null>(null);
+  readonly importing = signal(false);
+  readonly draftSeed = signal<SkillDraftSeed | null>(null);
+  readonly confirmingDelete = signal(false);
   readonly authoredNotice = signal<string | null>(null);
-  /** The workspace catalog before the route scope narrows it: a `registry_call`
-   * may target any visible seeded row, not only the ones this view lists. */
+  readonly lifecycleError = signal<string | null>(null);
+  /** The workspace catalog before the route scope narrows it: a wrapped-skill
+   * runtime may target any visible seeded row, not only the ones this view
+   * lists. */
   private readonly catalogRows = signal<Skill[]>([]);
+  private readonly capabilities = signal<Capability[]>([]);
   private pendingSelection: string | null = null;
+
+  protected readonly ghostStyle =
+    'padding:6px 10px; border-radius:4px; font-size:10px; letter-spacing:0.14em;'
+    + ' text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-3);'
+    + ' border:1px solid var(--ck-stroke-soft);';
+  protected readonly dangerStyle =
+    'padding:6px 10px; border-radius:4px; font-size:10px; letter-spacing:0.14em;'
+    + ' text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-neg);'
+    + ' border:1px solid var(--ck-neg);';
+  protected readonly sectionStyle =
+    'font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);'
+    + ' margin-bottom:8px;';
+  protected readonly rowLabelStyle =
+    'font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);';
+  protected readonly codeStyle =
+    'font-size:10px; color:var(--ck-fg-2); margin:0; background:var(--ck-bg-inset);'
+    + ' padding:12px; border-radius:4px; white-space:pre-wrap; max-height:180px; overflow:auto;';
 
   readonly canAuthor = computed(() => this.executors()?.editable === true);
 
-  /** The descriptor the dialog is opened with, or `null` when it is closed. */
+  /** The descriptor the wizard is opened with, or `null` when it is closed. */
+  readonly dialogCatalog = computed(() =>
+    this.authoring() || this.editingSkill() ? this.executors() : null,
+  );
+  /** Kept for the surface's own contract test: the create path is the one that
+   * must stay unreachable without `skill.admin`. */
   readonly authoringCatalog = computed(() => (this.authoring() ? this.executors() : null));
 
   readonly registryTargets = computed(() => this.catalogRows().filter((skill) => (
@@ -351,6 +426,13 @@ export class SkillsComponent implements OnInit, OnDestroy {
     && skill.runtime_status !== 'unbound'
     && skill.runtime_status !== 'catalog_only'
   )));
+
+  /** Only a capability this workspace owns can be made to carry a new Skill:
+   * the seeded catalog is shared, and editing it here would edit it for
+   * everyone. */
+  readonly claimableCapabilities = computed(() =>
+    this.capabilities().filter((row) => row.workspace_scope === 'workspace'),
+  );
 
   readonly filtered = computed(() => {
     const c = this.cert();
@@ -443,14 +525,18 @@ export class SkillsComponent implements OnInit, OnDestroy {
       // Fails closed: an unreachable descriptor leaves authoring unavailable
       // rather than assuming the caller holds `skill.admin`.
       executors: this.canonical.getSkillExecutors().pipe(catchError(() => of(null))),
+      // The claim target list is a convenience, never a gate: without it the
+      // wizard simply offers no capability to attach to.
+      capabilities: this.canonical.listCapabilities().pipe(catchError(() => of([] as Capability[]))),
       capability: scope.capabilityId ? this.canonical.getCapability(scope.capabilityId) : of(null),
       system: scope.systemId ? this.canonical.getSystem(scope.systemId) : of(null),
       run: scope.runId ? this.canonical.getRun(scope.runId) : of(null),
     }).subscribe({
-      next: ({ skills, executors, capability, system, run }) => {
+      next: ({ skills, executors, capabilities, capability, system, run }) => {
       if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
       this.executors.set(executors);
       this.catalogRows.set(skills);
+      this.capabilities.set(capabilities);
       let scoped = skills;
       if (scope.runId) {
         const slugs = new Set((run?.skill_invocations ?? []).map((item) => item.skill_slug).filter(Boolean));
@@ -476,6 +562,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
         if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
         this.skills.set([]);
         this.catalogRows.set([]);
+        this.capabilities.set([]);
         this.executors.set(null);
         this.selected.set(null);
         this.pendingSelection = null;
@@ -524,27 +611,120 @@ export class SkillsComponent implements OnInit, OnDestroy {
   private clearCatalog(): void {
     this.skills.set([]);
     this.catalogRows.set([]);
+    this.capabilities.set([]);
     this.executors.set(null);
     this.authoring.set(false);
+    this.editingSkill.set(null);
+    this.importing.set(false);
+    this.draftSeed.set(null);
+    this.confirmingDelete.set(false);
     this.authoredNotice.set(null);
+    this.lifecycleError.set(null);
     this.selected.set(null);
     this.pendingSelection = null;
     this.loading.set(false);
   }
 
+  /** A Skill this workspace authored, and therefore may edit or delete. The
+   * seeded registry is shared, so the affordance is simply absent for it. */
+  owns(skill: Skill): boolean {
+    return this.canAuthor() && skill.workspace_scope === 'workspace';
+  }
+
+  select(skill: Skill | null): void {
+    this.confirmingDelete.set(false);
+    this.lifecycleError.set(null);
+    this.selected.set(skill && this.selected()?.id === skill.id ? null : skill);
+  }
+
   openAuthoring(): void {
     if (!this.canAuthor()) return;
     this.authoredNotice.set(null);
+    this.lifecycleError.set(null);
+    this.editingSkill.set(null);
+    this.authoring.set(true);
+  }
+
+  openEditing(skill: Skill): void {
+    if (!this.owns(skill)) return;
+    this.authoredNotice.set(null);
+    this.lifecycleError.set(null);
+    this.authoring.set(false);
+    this.draftSeed.set(null);
+    this.editingSkill.set(skill);
+  }
+
+  openImport(): void {
+    if (!this.canAuthor()) return;
+    this.authoredNotice.set(null);
+    this.lifecycleError.set(null);
+    this.importing.set(true);
+  }
+
+  closeDialog(): void {
+    this.authoring.set(false);
+    this.editingSkill.set(null);
+    this.draftSeed.set(null);
+  }
+
+  /** An imported row opens the wizard already filled in — a draft, never a
+   * Skill created by the import. */
+  onDrafted(seed: SkillDraftSeed): void {
+    if (!this.canAuthor()) return;
+    this.importing.set(false);
+    this.editingSkill.set(null);
+    this.draftSeed.set(seed);
     this.authoring.set(true);
   }
 
   onAuthored(skill: Skill): void {
     this.authoring.set(false);
-    this.authoredNotice.set(`${skill.slug} created — bound to ${skill.executor?.kind ?? 'its runtime'}.`);
+    this.draftSeed.set(null);
+    this.authoredNotice.set(this.i18n.t('skills.notice.created', { slug: skill.slug }) + claimNote(skill, this.i18n));
     // The registry and the palette both read `GET /skills`, so re-reading the
     // scope is what makes the new row appear on either surface.
     this.pendingSelection = skill.slug;
     this.reloadCurrentScope();
+  }
+
+  onUpdated(result: SkillUpdateResult): void {
+    this.editingSkill.set(null);
+    const notice = this.i18n.t('skills.notice.updated', { slug: result.skill.slug });
+    this.authoredNotice.set(
+      result.publishedIn.length
+        ? notice + ' ' + this.i18n.t('skills.notice.published_bindings', {
+          names: result.publishedIn.join(', '),
+        })
+        : notice,
+    );
+    this.pendingSelection = result.skill.slug;
+    this.reloadCurrentScope();
+  }
+
+  askDelete(): void {
+    this.lifecycleError.set(null);
+    this.confirmingDelete.set(true);
+  }
+
+  /**
+   * Delete through the API guard rails rather than around them: a published
+   * Flow, a run history or a capability that claims the Skill each refuse with
+   * a sentence naming the dependency, and that sentence is what the author
+   * needs — not a retry.
+   */
+  confirmDelete(skill: Skill): void {
+    if (!this.owns(skill)) return;
+    this.confirmingDelete.set(false);
+    this.canonical.deleteSkill(skill.slug).subscribe({
+      next: () => {
+        this.authoredNotice.set(this.i18n.t('skills.notice.deleted', { slug: skill.slug }));
+        this.selected.set(null);
+        this.reloadCurrentScope();
+      },
+      error: (failure: unknown) => {
+        this.lifecycleError.set(backendMessage(failure, this.i18n.t('skills.error.delete')));
+      },
+    });
   }
 
   private sameScope(a: SkillsScope, b: SkillsScope): boolean {
@@ -555,14 +735,23 @@ export class SkillsComponent implements OnInit, OnDestroy {
     );
   }
 
-  execRows(sk: Skill): Array<{ k: string; v: string }> {
+  execRows(sk: Skill): Array<{ key: I18nKey; value: string }> {
     const e = sk.execution ?? {};
-    const rows: Array<{ k: string; v: string }> = [];
-    rows.push({ k: 'MODE', v: (e.mode || 'sync').toUpperCase() });
-    rows.push({ k: 'TIMEOUT', v: e.timeout_ms != null ? `${e.timeout_ms} ms` : '—' });
-    rows.push({ k: 'RETRYABLE', v: e.retryable ? 'YES' : 'NO' });
-    rows.push({ k: 'IDEMPOTENT', v: e.idempotent ? 'YES' : 'NO' });
-    return rows;
+    return [
+      { key: 'skills.exec.mode', value: (e.mode || 'sync').toUpperCase() },
+      { key: 'skills.exec.timeout', value: e.timeout_ms != null ? `${e.timeout_ms} ms` : '—' },
+      { key: 'skills.exec.retryable', value: this.i18n.t(e.retryable ? 'common.yes' : 'common.no') },
+      { key: 'skills.exec.idempotent', value: this.i18n.t(e.idempotent ? 'common.yes' : 'common.no') },
+    ];
+  }
+
+  /** The certification level comes from the API, so the key is built from it
+   * and falls back to the raw value for a level added later. */
+  certLabel(cert: string): string {
+    if (cert === 'all') return this.i18n.t('skills.list.filter.all');
+    const key = `skills.cert.${cert}` as I18nKey;
+    const label = this.i18n.t(key);
+    return label === key ? cert : label;
   }
 
   certTone(cert: string | undefined): 'pos' | 'cool' | 'violet' {
@@ -612,4 +801,14 @@ export class SkillsComponent implements OnInit, OnDestroy {
   asInput(ev: Event): HTMLInputElement {
     return ev.target as HTMLInputElement;
   }
+}
+
+/** What became of the optional capability claim, appended to the notice. */
+function claimNote(skill: Skill, i18n: I18nService): string {
+  const claim = skill.capability_claim;
+  if (!claim) return '';
+  if (claim.attached) {
+    return ' ' + i18n.t('skills.notice.claimed', { name: claim.capability_name ?? '' });
+  }
+  return ' ' + i18n.t('skills.notice.claim_failed', { reason: claim.reason ?? '' });
 }

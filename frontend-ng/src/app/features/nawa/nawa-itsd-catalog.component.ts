@@ -322,7 +322,7 @@ export class NawaItsdCatalogComponent {
   protected readonly appName = NAWA_APP_NAME;
   protected readonly subtitle = NAWA_APP_SUBTITLE;
 
-  /** Scoped on the host: the cockpit's own `html` stays pinned to dark. */
+  /** Mirrored on the host so the `--nawa-*` palette follows the global theme. */
   protected readonly theme = inject(ThemeService).businessResolved;
   protected readonly logo = computed(() => NAWA_LOGO[this.theme()]);
 

@@ -36,6 +36,7 @@ import type { CanonicalFlow } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { FlowPersistenceService } from './flow-persistence.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   diffCanonicalFlows,
   formatFlowSemanticDiff,
@@ -201,22 +202,24 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
   template: `
     <app-drawer
       [open]="open()"
-      title="Flow history"
-      subtitle="Append-only · restore any version"
+      [title]="i18n.t('flow.versions.title')"
+      [subtitle]="i18n.t('flow.versions.subtitle')"
       icon="history"
       [width]="380"
       (close)="close.emit()"
     >
       <div class="ck-vers">
         <header class="ck-vers__head">
-          <span class="ck-vers__total">{{ total() }} versions</span>
+          <span class="ck-vers__total">{{
+            i18n.t('flow.versions.total', { count: total() })
+          }}</span>
           <button
             type="button"
             class="ck-vers__refresh"
             (click)="refresh()"
             [disabled]="loading() || !persistence.hydrationReady()"
-            title="Refresh"
-            aria-label="Refresh versions"
+            [title]="i18n.t('flow.versions.refresh')"
+            [attr.aria-label]="i18n.t('flow.versions.refresh.aria')"
           >
             <app-icon name="refresh-cw" [size]="13" />
           </button>
@@ -227,9 +230,9 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
         }
 
         @if (loading() && versions().length === 0) {
-          <p class="ck-vers__empty">Loading…</p>
+          <p class="ck-vers__empty">{{ i18n.t('flow.versions.loading') }}</p>
         } @else if (!historyError() && versions().length === 0) {
-          <p class="ck-vers__empty">No history yet. The first save on this System seeds v1.</p>
+          <p class="ck-vers__empty">{{ i18n.t('flow.versions.empty') }}</p>
         } @else {
           <ol class="ck-vers__list">
             @for (v of versions(); track v.id; let i = $index) {
@@ -238,10 +241,18 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                   <span class="ck-vers__num">v{{ v.version_number }}</span>
                   @if (isCurrent(v, i)) {
                     <span class="ck-vers__tag" data-tone="pos">
-                      {{ persistence.publicationMode() ? 'PUBLISHED' : 'CURRENT' }}
+                      {{
+                        persistence.publicationMode()
+                          ? i18n.t('flow.versions.tag.published')
+                          : i18n.t('flow.versions.tag.current')
+                      }}
                     </span>
                   }
-                  @if (v.rolled_back_from_id) { <span class="ck-vers__tag" data-tone="warn">ROLLBACK</span> }
+                  @if (v.rolled_back_from_id) {
+                    <span class="ck-vers__tag" data-tone="warn">{{
+                      i18n.t('flow.versions.tag.rollback')
+                    }}</span>
+                  }
                   <span class="ck-vers__when">{{ relativeTime(v.created_at) }}</span>
                 </div>
                 <div class="ck-vers__meta">
@@ -263,13 +274,18 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                     (click)="preview(v)"
                     [disabled]="previewStatus(v) === 'loading'"
                     [attr.aria-busy]="previewStatus(v) === 'loading'"
-                    title="Load and show semantic diff"
+                    [title]="i18n.t('flow.versions.preview.hint')"
                   >
                     @if (previewStatus(v) === 'loading') {
-                      <app-icon name="loader-2" [size]="12" class="ck-vers__spin" /> Loading…
+                      <app-icon name="loader-2" [size]="12" class="ck-vers__spin" />
+                      {{ i18n.t('flow.versions.loading') }}
                     } @else {
                       <app-icon name="eye" [size]="12" />
-                      {{ previewStatus(v) === 'error' ? 'Retry preview' : 'Preview' }}
+                      {{
+                        previewStatus(v) === 'error'
+                          ? i18n.t('flow.versions.preview.retry')
+                          : i18n.t('flow.versions.preview')
+                      }}
                     }
                   </button>
                   <button
@@ -279,7 +295,8 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                     [disabled]="!!restoreBlockReason(v, i)"
                     [title]="restoreTitle(v, i)"
                   >
-                    <app-icon name="rotate-ccw" [size]="12" /> Restore this version
+                    <app-icon name="rotate-ccw" [size]="12" />
+                    {{ i18n.t('flow.versions.restore') }}
                   </button>
                 </div>
                 @if (restoreBlockReason(v, i); as reason) {
@@ -299,36 +316,42 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
               (click)="loadMore()"
               [disabled]="loadingMore()"
             >
-              {{ loadingMore() ? 'Loading…' : 'Load older versions' }}
+              {{
+                loadingMore()
+                  ? i18n.t('flow.versions.loading')
+                  : i18n.t('flow.versions.load_more')
+              }}
             </button>
           }
         }
 
         @if (rollbackTarget(); as tgt) {
-          <div class="ck-vers__confirm" role="dialog" aria-label="Confirm rollback">
+          <div
+            class="ck-vers__confirm"
+            role="dialog"
+            [attr.aria-label]="i18n.t('flow.versions.confirm.aria')"
+          >
             <p class="ck-vers__confirm-text">
-              @if (persistence.publicationMode()) {
-                Restore <strong>v{{ tgt.version_number }}</strong> into the server draft and replace
-                the canvas. The published pointer and System status stay unchanged.
-              } @else {
-                Create a new version that copies <strong>v{{ tgt.version_number }}</strong>'s graph and
-                replaces the canvas. History is append-only — nothing is deleted.
-              }
+              {{
+                persistence.publicationMode()
+                  ? i18n.t('flow.versions.confirm.published', { version: tgt.version_number })
+                  : i18n.t('flow.versions.confirm.draft', { version: tgt.version_number })
+              }}
             </p>
             @if (previewStatus(tgt) === 'loading') {
               <p class="ck-vers__preview-state" role="status">
-                Loading the exact immutable payload and authoritative semantic diff…
+                {{ i18n.t('flow.versions.confirm.loading') }}
               </p>
             } @else if (previewError(tgt); as error) {
               <div class="ck-vers__preview-state ck-vers__preview-state--error" role="alert">
                 <span>{{ error }}</span>
                 <button type="button" class="ck-vers__btn" (click)="preview(tgt)">
-                  Retry exact preview
+                  {{ i18n.t('flow.versions.confirm.retry') }}
                 </button>
               </div>
             } @else if (previewReady(tgt)) {
               <p class="ck-vers__preview-state" data-tone="ready">
-                Exact preview ready · {{ diffLabel(tgt) }}
+                {{ i18n.t('flow.versions.confirm.ready', { diff: diffLabel(tgt) ?? '' }) }}
               </p>
             }
             @if (!persistence.publicationMode()) {
@@ -337,9 +360,13 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                 class="ck-vers__confirm-input"
                 [value]="rollbackMessage()"
                 (input)="onMessage($event)"
-                [placeholder]="'rollback to v' + tgt.version_number"
+                [placeholder]="
+                  i18n.t('flow.versions.confirm.message.placeholder', {
+                    version: tgt.version_number,
+                  })
+                "
                 maxlength="280"
-                aria-label="Rollback message"
+                [attr.aria-label]="i18n.t('flow.versions.confirm.message.aria')"
               />
             }
             <div class="ck-vers__confirm-actions">
@@ -349,7 +376,7 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                 (click)="cancelRollback()"
                 [disabled]="rollbackPending()"
               >
-                Cancel
+                {{ i18n.t('flow.versions.confirm.cancel') }}
               </button>
               <button
                 type="button"
@@ -363,10 +390,15 @@ export function formatServerFlowSemanticDiff(diff: SystemFlowDiff): string {
                 "
               >
                 @if (rollbackPending()) {
-                  <app-icon name="loader-2" [size]="12" class="ck-vers__spin" /> Rolling back…
+                  <app-icon name="loader-2" [size]="12" class="ck-vers__spin" />
+                  {{ i18n.t('flow.versions.confirm.pending') }}
                 } @else {
                   <app-icon name="rotate-ccw" [size]="12" />
-                  {{ persistence.publicationMode() ? 'Restore draft' : 'Confirm' }}
+                  {{
+                    persistence.publicationMode()
+                      ? i18n.t('flow.versions.confirm.submit')
+                      : i18n.t('flow.versions.confirm.submit.draft')
+                  }}
                 }
               </button>
             </div>
@@ -380,6 +412,7 @@ export class FlowVersionsComponent {
   private readonly canonical = inject(CanonicalApiService);
   protected readonly store = inject(FlowStore);
   protected readonly persistence = inject(FlowPersistenceService);
+  readonly i18n = inject(I18nService);
   private readonly toastr = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   private readonly destroyRef = inject(DestroyRef);

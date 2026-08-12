@@ -1,4 +1,6 @@
 import '@angular/compiler';
+import { FR_DICT } from '@app/core/i18n.dict';
+import { I18nService } from '@app/core/i18n.service';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -75,6 +77,22 @@ function createHarness() {
       Client360PageComponent,
       { provide: WorkspaceService, useValue: workspace },
       { provide: HttpClient, useValue: http },
+      // Resolves against the real FR dictionary rather than echoing the key,
+      // so assertions on this screen's copy read what a user actually sees.
+      // `{brand}` is not interpolated here; no assertion below needs it.
+      {
+        provide: I18nService,
+        useValue: {
+          locale: () => 'fr',
+          t: (key: string, params?: Record<string, string | number>) => {
+            let value: string = FR_DICT[key as keyof typeof FR_DICT] ?? key;
+            for (const [name, replacement] of Object.entries(params ?? {})) {
+              value = value.replaceAll(`{${name}}`, String(replacement));
+            }
+            return value;
+          },
+        },
+      },
     ],
   });
   return {

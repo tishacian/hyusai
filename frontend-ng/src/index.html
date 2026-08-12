@@ -23,17 +23,27 @@
     >
   </noscript>
   <script>
-    // Runs before Angular bootstraps to avoid any FOUC. Agentium is currently
-    // pinned to the dark theme because light-mode contrast is not demo-safe.
+    // Runs before Angular bootstraps to avoid any FOUC: it must reach the same
+    // verdict as ThemeService.resolveStoredThemeMode, including the fold of the
+    // pre-unification `agentium_business_theme` key. Reads only — the service
+    // owns writing the unified preference and dropping the legacy key.
     (function () {
-      var root = document.documentElement;
-      root.classList.add('dark');
-      root.setAttribute('data-theme', 'dark');
+      var mode = 'system';
       try {
-        localStorage.setItem('agentium_theme', 'dark');
+        var valid = { system: 1, light: 1, dark: 1 };
+        var stored = localStorage.getItem('agentium_theme');
+        var legacy = localStorage.getItem('agentium_business_theme');
+        stored = valid[stored] ? stored : null;
+        legacy = valid[legacy] ? legacy : null;
+        mode = (stored && !(stored === 'dark' && legacy)) ? stored : (legacy || stored || 'system');
       } catch (e) {
         // Ignore quota/privacy errors.
       }
+      var dark = mode === 'dark' ||
+        (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var root = document.documentElement;
+      root.classList.toggle('dark', dark);
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
     })();
   </script>
 </head>

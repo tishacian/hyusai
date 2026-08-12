@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 import type { VpArbitrationCard } from './vp-cockpit.types';
 
 @Component({
@@ -8,13 +9,17 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="arb-strip" aria-label="Sujets à arbitrer">
+    <section class="arb-strip" [attr.aria-label]="i18n.t('mission.arbitration.title')">
       <header class="arb-strip-head">
         <div>
-          <span class="eyebrow">{{ isOctocityMode() ? 'Subjects to review' : 'Sujets à arbitrer' }}</span>
+          <span class="eyebrow">{{ i18n.t('mission.arbitration.title') }}</span>
           <h2>
             <strong>{{ cards.length }}</strong>
-            <span>{{ isOctocityMode() ? 'decision package' + (cards.length > 1 ? 's' : '') + ' today' : 'décision' + (cards.length > 1 ? 's' : '') + ' ce matin' }}</span>
+            <span>{{
+              cards.length > 1
+                ? i18n.t('mission.arbitration.unit_many')
+                : i18n.t('mission.arbitration.unit_one')
+            }}</span>
           </h2>
         </div>
       </header>
@@ -22,8 +27,8 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
       @if (!cards.length) {
         <div class="arb-empty" role="status">
           <span class="arb-empty-icon" aria-hidden="true">○</span>
-          <strong>File d'arbitrages vide</strong>
-          <small>{{ assistantName }} {{ isOctocityMode() ? 'pushes items when a file requires governed executive review.' : "pousse les sujets dès qu'un dossier requiert un arbitrage Vice Premier Ministre." }}</small>
+          <strong>{{ i18n.t('mission.arbitration.empty') }}</strong>
+          <small>{{ i18n.t('mission.arbitration.empty_hint', { name: assistantName }) }}</small>
         </div>
       } @else {
         <ul class="arb-cards" role="list">
@@ -42,7 +47,11 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
                   <span class="arb-head">
                     <span class="rank">{{ card.rank }} · {{ card.domain_label }}</span>
                     @if (card.aya_prepared) {
-                      <i class="aya-tag" [attr.aria-label]="assistantName + ' ready'">{{ assistantName }} {{ isOctocityMode() ? 'ready' : 'prêt' }}</i>
+                      <i
+                        class="aya-tag"
+                        [attr.aria-label]="i18n.t('mission.arbitration.assistant_ready', { name: assistantName })"
+                        >{{ i18n.t('mission.arbitration.assistant_ready', { name: assistantName }) }}</i
+                      >
                     }
                   </span>
                   <strong>{{ card.title }}</strong>
@@ -53,7 +62,7 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
                   </span>
                 </span>
                 <span class="arb-cta">
-                  <span>{{ card.cta_label || 'Décider' }}</span>
+                  <span>{{ card.cta_label || i18n.t('mission.arbitration.decide') }}</span>
                   <span aria-hidden="true">→</span>
                 </span>
               </button>
@@ -269,13 +278,11 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
   ],
 })
 export class VpArbitrationStripComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() assistantName = 'AYA';
   @Input() cards: VpArbitrationCard[] = [];
   @Output() cardSelected = new EventEmitter<VpArbitrationCard>();
-
-  isOctocityMode(): boolean {
-    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
-  }
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();

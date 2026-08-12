@@ -15,6 +15,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
@@ -34,10 +35,11 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
   ],
   template: `
     <ck-page-frame
-      eyebrow="Measure · Runs"
-      title="Runs"
-      description="Every execution is a Run: input, outcome, skill trail. Click a row to drill down."
+      [eyebrow]="i18n.t('runs.list.eyebrow')"
+      [title]="i18n.t('runs.title')"
+      [description]="i18n.t('runs.list.description')"
     >
+      <ck-help titleHelp id="concept.run" />
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
         <ck-help id="runs.list" />
         <select
@@ -52,11 +54,11 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           [style.fontSize.px]="11"
           [style.letterSpacing]="'0.04em'"
         >
-          <option value="all">All statuses</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="running">Running</option>
-          <option value="pending">Pending</option>
+          <option value="all">{{ i18n.t('runs.list.filter.all') }}</option>
+          <option value="completed">{{ i18n.t('runs.status.completed') }}</option>
+          <option value="failed">{{ i18n.t('runs.status.failed') }}</option>
+          <option value="running">{{ i18n.t('runs.status.running') }}</option>
+          <option value="pending">{{ i18n.t('runs.status.pending') }}</option>
         </select>
         <button
           type="button"
@@ -65,7 +67,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           [disabled]="loading()"
         >
           <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
-          Refresh
+          {{ i18n.t('common.refresh') }}
         </button>
       </div>
 
@@ -81,19 +83,19 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
         } @else if (visibleRuns().length === 0) {
           <app-empty-state
             icon="activity"
-            title="No runs yet"
-            description="Trigger a run from a System to populate this list."
+            [title]="i18n.t('runs.list.empty.title')"
+            [description]="i18n.t('runs.list.empty.description')"
           />
         } @else {
           <div
             class="px-5 py-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold grid grid-cols-12 gap-3 border-b border-white/5"
           >
-            <div class="col-span-4">Run ID · System</div>
-            <div class="col-span-2">Status</div>
-            <div class="col-span-2">Started</div>
-            <div class="col-span-1 text-right">Duration</div>
-            <div class="col-span-2 text-right">Outcome</div>
-            <div class="col-span-1 text-right">Cost</div>
+            <div class="col-span-4">{{ i18n.t('runs.list.column.identity') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.status') }}</div>
+            <div class="col-span-2">{{ i18n.t('runs.list.column.started') }}</div>
+            <div class="col-span-1 text-right">{{ i18n.t('runs.list.column.duration') }}</div>
+            <div class="col-span-2 text-right">{{ i18n.t('runs.list.column.outcome') }}</div>
+            <div class="col-span-1 text-right">{{ i18n.t('runs.list.column.cost') }}</div>
           </div>
           <ul class="divide-y divide-white/5">
             @for (r of visibleRuns(); track r.id) {
@@ -125,7 +127,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
                     [class.text-gray-300]="r.status === 'pending' || r.status === 'cancelled'"
                     [class.border-white\\/10]="r.status === 'pending' || r.status === 'cancelled'"
                   >
-                    {{ r.status }}
+                    {{ statusLabel(r.status) }}
                   </span>
                 </div>
                 <div class="col-span-2 text-xs text-gray-400 font-mono">
@@ -163,6 +165,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly navigation = inject(ZoomContextService);
+  readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
   private scopeParams: { system_id?: string; capability_id?: string } | undefined;
   private routeSubscription: Subscription | null = null;
@@ -247,6 +250,18 @@ export class RunsListComponent implements OnInit, OnDestroy {
 
   open(r: Run): void {
     this.router.navigateByUrl(this.navigation.objectUrl('run', r.id));
+  }
+
+  /**
+   * Translate a run status, falling back to the raw API value when the
+   * backend grows a status the dictionary hasn't caught up with — an unknown
+   * status must stay visible, not turn into a blank cell.
+   */
+  statusLabel(status: string | undefined): string {
+    if (!status) return '—';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
   }
 
   formatTime(ts: string | undefined): string {

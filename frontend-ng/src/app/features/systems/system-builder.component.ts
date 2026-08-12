@@ -152,7 +152,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
       <span actions>
         <a
           routerLink="/systems"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition mr-2"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
         >
           <app-icon name="arrow-left" [size]="14" /> Cancel
         </a>
@@ -160,7 +160,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           type="button"
           (click)="switchToFlow()"
           [disabled]="!canSwitchToFlow() || launching()"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition mr-2"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
           [title]="canSwitchToFlow() ? 'Open this draft as a flow graph' : 'Pick a name and a capability first'"
         >
           <app-icon name="workflow" [size]="14" /> Switch to Flow
@@ -213,9 +213,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   <span class="text-sm font-medium text-white">{{ section.title }}</span>
                   <span
                     class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
-                    [style.color]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
-                    [style.background]="isSectionValid(section.key) ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)'"
-                    [style.border]="'1px solid ' + (isSectionValid(section.key) ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.25)')"
+                    [class.ck-tone-ok]="isSectionValid(section.key)"
+                    [class.ck-tone-warn]="!isSectionValid(section.key)"
                   >
                     {{ isSectionValid(section.key) ? 'READY' : 'PENDING' }}
                   </span>
@@ -238,18 +237,18 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               >
               @if (isSectionLocked(section.key)) {
                 <div
-                  class="flex items-center gap-2"
-                  style="padding:8px 12px; margin-bottom:14px; border-radius:6px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.22); pointer-events:auto;"
+                  class="ck-tone-warn flex items-center gap-2"
+                  style="padding:8px 12px; margin-bottom:14px; border-radius:6px; pointer-events:auto;"
                 >
                   <ck-glyph name="bolt" [size]="12" />
-                  <div class="flex-1 text-xs ck-mono" style="color:var(--ck-signal-warn);">
+                  <div class="flex-1 text-xs ck-mono">
                     Edited in Flow — re-open this section from the flow builder to adjust it.
                   </div>
                   <a
                     [routerLink]="['/orchestration']"
                     [queryParams]="{ systemId: editingSystemId() }"
                     class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded"
-                    style="color: var(--ck-signal-warn); border:1px solid rgba(234,179,8,0.3); pointer-events:auto;"
+                    style="border:1px solid currentColor; pointer-events:auto;"
                   >
                     Open in Flow
                   </a>
@@ -439,7 +438,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               @if (enabledApps().length === 0) {
                 <p class="text-xs" style="color:var(--ck-fg-4);">
                   No apps enabled for this workspace.
-                  <a routerLink="/apps" class="text-cyan-400 hover:text-cyan-300">Manage apps</a>
+                  <a routerLink="/apps" class="ck-accent">Manage apps</a>
                 </p>
               } @else {
                 <ul style="display:flex; flex-direction:column; gap:4px;">
@@ -464,7 +463,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                       @if (app.wiring === 'wired' && app.connectorRoute) {
                         <a
                           [routerLink]="app.connectorRoute"
-                          class="ck-mono text-cyan-400 hover:text-cyan-300"
+                          class="ck-mono ck-accent"
                           style="font-size:10px; white-space:nowrap;"
                         >
                           Configure connector

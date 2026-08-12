@@ -962,13 +962,13 @@ export class FlowSerializerService {
         issues.push({
           level: 'error',
           code: 'flow_output_sink_required',
-          message: 'A strict Flow must declare exactly one explicit sink node.',
+          message: 'A strict Flow must declare exactly one explicit Output node.',
         });
       } else if (sinkIds.length > 1) {
         issues.push({
           level: 'error',
           code: 'flow_output_sink_ambiguous',
-          message: `A strict Flow must declare exactly one explicit sink node; found ${sinkIds.length} (${sinkIds.join(', ')}).`,
+          message: `A strict Flow must declare exactly one explicit Output node; found ${sinkIds.length} (${sinkIds.join(', ')}).`,
         });
       }
     }
@@ -1007,14 +1007,14 @@ export class FlowSerializerService {
             level: 'error',
             node_id: n.id,
             code: 'ingress_kind_invalid',
-            message: 'Ingress kind must be manual, chat, http, schedule or event.',
+            message: 'An entry point must be manual, chat, http, schedule or event.',
           });
         } else if (kind !== 'source') {
           issues.push({
             level: 'error',
             node_id: n.id,
             code: 'ingress_node_kind_invalid',
-            message: 'Only a source node can declare an ingress kind.',
+            message: 'Only a source node can declare an entry point.',
           });
         }
       }
@@ -1023,7 +1023,7 @@ export class FlowSerializerService {
           level: 'error',
           node_id: n.id,
           code: 'ingress_source_not_root',
-          message: 'An executable ingress source cannot have inbound edges.',
+          message: 'An executable entry point cannot have inbound edges.',
         });
       }
 
@@ -1174,7 +1174,7 @@ export class FlowSerializerService {
             level: 'warn',
             node_id: n.id,
             code: 'hitl_no_prompt',
-            message: `HITL "${n.label ?? n.id}" should include an approver prompt.`,
+            message: `Human approval "${n.label ?? n.id}" should include an approver prompt.`,
           });
         }
       }

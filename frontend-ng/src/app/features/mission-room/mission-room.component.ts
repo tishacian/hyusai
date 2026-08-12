@@ -18,6 +18,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { forkJoin, of, Subscription } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   WorkspaceService,
   type WorkspaceRequestScope,
@@ -2057,21 +2058,21 @@ export class MissionRailComponent {
                         type="text"
                         [value]="item.title"
                         (change)="updateAgendaSubItem(idx, $any($event.target).value)"
-                        aria-label="Intitulé du point"
+                        [attr.aria-label]="i18n.t('mission.agenda.item_title')"
                       />
                       <span class="agenda-odj-meta">
                         <small class="agenda-source-badge" [class]="agendaSubItemSourceClass(item)">
                           {{ agendaSubItemSourceLabel(item) }}
                         </small>
                         @if (item.decision_required) {
-                          <small class="agenda-decision-pill">décision requise</small>
+                          <small class="agenda-decision-pill">{{ i18n.t('mission.meeting.decision_required') }}</small>
                         }
                       </span>
                       <button
                         type="button"
                         class="ghost-icon"
                         (click)="removeAgendaSubItem(idx)"
-                        aria-label="Supprimer le point"
+                        [attr.aria-label]="i18n.t('mission.agenda.remove_item')"
                       >
                         ×
                       </button>
@@ -2079,7 +2080,7 @@ export class MissionRailComponent {
                   }
                 </ol>
               } @else {
-                <p class="empty-line">Aucun point structuré. Ajoutez un point ou demandez à {{ assistantName() }} de pré-remplir l'ordre du jour.</p>
+                <p class="empty-line">{{ i18n.t('mission.agenda.empty_hint', { name: assistantName() }) }}</p>
               }
             </section>
 
@@ -2105,7 +2106,7 @@ export class MissionRailComponent {
               (click)="startMeeting(event)"
             >
               <ck-glyph name="bolt" [size]="14" />
-              <span>Démarrer la réunion</span>
+              <span>{{ i18n.t('mission.agenda.start_meeting') }}</span>
             </button>
           }
 
@@ -2266,10 +2267,10 @@ export class MissionRailComponent {
     <ng-template #securiteView>
       <div class="securite-shell">
         <aside class="securite-council-bar" aria-live="polite">
-          <span class="eyebrow">Prochain arbitrage sécuritaire</span>
+          <span class="eyebrow">{{ i18n.t('mission.security.next_decision') }}</span>
           <strong>{{ securityCouncilLabel() }}</strong>
           <a routerLink="/hypervisor/mission-room/securite/monitor" class="inline-action">
-            Ouvrir Security Monitor
+            {{ i18n.t('mission.security.open_monitor') }}
           </a>
         </aside>
 
@@ -2315,13 +2316,13 @@ export class MissionRailComponent {
             <div class="panel-heading-row">
               <div>
                 <span class="eyebrow">{{ securityCollectionLabel() }}</span>
-                <h2>Documents sécurité · workbench mission</h2>
+                <h2>{{ i18n.t('mission.security.docs_title') }}</h2>
                 <p>{{ securityCollectionDescription() }}</p>
               </div>
-              <span class="status-pill elevated">{{ securityDocuments().length }} sources indexées</span>
+              <span class="status-pill elevated">{{ i18n.t('mission.security.indexed_sources', { count: securityDocuments().length }) }}</span>
             </div>
             <div class="security-doc-workbench">
-              <nav class="securite-doc-list" aria-label="Documents sécurité S3">
+              <nav class="securite-doc-list" [attr.aria-label]="i18n.t('mission.security.docs_list')">
                 @for (doc of securityDocuments(); track doc.id) {
                   <button
                     type="button"
@@ -2340,7 +2341,7 @@ export class MissionRailComponent {
                 <article class="security-doc-detail" aria-live="polite">
                   <div class="panel-heading-row">
                     <div>
-                      <span class="eyebrow">Document sélectionné</span>
+                      <span class="eyebrow">{{ i18n.t('mission.security.selected_doc') }}</span>
                       <h3>{{ doc.title }}</h3>
                       <p>{{ doc.summary }}</p>
                     </div>
@@ -2349,11 +2350,11 @@ export class MissionRailComponent {
 
                   <div class="doc-context-grid">
                     <article>
-                      <span>Dernière mise à jour</span>
+                      <span>{{ i18n.t('mission.security.last_update') }}</span>
                       <strong>{{ currentAbidjanSessionLabel() }}</strong>
                     </article>
                     <article>
-                      <span>Usage démo S3</span>
+                      <span>{{ i18n.t('mission.security.demo_usage') }}</span>
                       <strong>{{ securityDocUsage(doc) }}</strong>
                     </article>
                   </div>
@@ -2367,7 +2368,7 @@ export class MissionRailComponent {
                     @for (source of doc.sources || []; track source) {
                       <app-mission-source-pill [label]="sourceLabel(source)" (click)="showSource(source)" />
                     } @empty {
-                      <span class="doc-source-empty">Source indexée · extrait non disponible</span>
+                      <span class="doc-source-empty">{{ i18n.t('mission.rumor.source_fallback') }}</span>
                     }
                   </div>
 
@@ -2376,7 +2377,7 @@ export class MissionRailComponent {
                       {{ securityDocActionLabel(doc) }}
                     </button>
                     <button type="button" class="inline-action" (click)="openAssistant('AYA, résume le document sécurité ' + doc.title)">
-                      Résumer avec {{ assistantName() }}
+                      {{ i18n.t('mission.security.summarise_with', { name: assistantName() }) }}
                     </button>
                   </div>
                 </article>
@@ -2422,7 +2423,7 @@ export class MissionRailComponent {
           <div class="panel-heading-row">
             <div>
               <span class="eyebrow">Drill du sentiment · {{ cockpit()?.reputation?.period_label || 'Cette semaine' }}</span>
-              <h2>Réputation 2 positifs · 1 critique</h2>
+              <h2>{{ i18n.t('mission.reputation.drill_title') }}</h2>
               @if (cockpit()?.reputation?.aya_sentence; as sentence) {
                 <p>{{ sentence }}</p>
               }
@@ -2432,7 +2433,7 @@ export class MissionRailComponent {
               class="inline-action"
               (click)="openAssistant('AYA, montre le drill de réputation 2 positifs et 1 critique.')"
             >
-              Demander à {{ assistantName() }}
+              {{ i18n.t('mission.reputation.ask', { name: assistantName() }) }}
             </button>
           </div>
           <section class="reputation-balance-band">
@@ -2441,11 +2442,11 @@ export class MissionRailComponent {
               <strong>{{ reputationNarrativeBalanceLabel() }}</strong>
             </div>
             <button type="button" class="inline-action" (click)="runReputationCouncilAction()">
-              Préparer un encart Conseil 15h
+              {{ i18n.t('mission.reputation.council_insert') }}
             </button>
           </section>
           <div class="reputation-detail-layout">
-            <div class="reputation-drill-grid" aria-label="Signaux réputation">
+            <div class="reputation-drill-grid" [attr.aria-label]="i18n.t('mission.reputation.signals')">
               @for (item of reputationDrillItems(); track item.id) {
                 <button
                   type="button"
@@ -2490,11 +2491,11 @@ export class MissionRailComponent {
                   <div><dt>Source</dt><dd>{{ item.source_label || sourceLabel(item.source_id || '') }}</dd></div>
                   <div><dt>Engagement</dt><dd>{{ item.engagement || '—' }} interactions</dd></div>
                   <div><dt>Risque</dt><dd>{{ reputationItemRiskLabel(item) }}</dd></div>
-                  <div><dt>Réponse</dt><dd>{{ reputationResponseLabel(item) }}</dd></div>
+                  <div><dt>{{ i18n.t('mission.reputation.response') }}</dt><dd>{{ reputationResponseLabel(item) }}</dd></div>
                 </dl>
                 <div class="doc-action-row">
                   <button type="button" class="inline-action primary" (click)="runReputationCouncilAction()">
-                    Préparer réponse cabinet
+                    {{ i18n.t('mission.reputation.prepare_response') }}
                   </button>
                   @if (item.source_id) {
                     <button type="button" class="inline-action" (click)="showSource(item.source_id)">
@@ -2654,7 +2655,7 @@ export class MissionRailComponent {
 
         <aside class="content-panel draft-sidebar">
           @if (draft(); as draftValue) {
-            <span class="eyebrow">Brouillon advisory</span>
+            <span class="eyebrow">Brouillon de recommandation</span>
             <h2>{{ draftValue.title }}</h2>
             <p>{{ draftValue.body }}</p>
             <dl>
@@ -2662,7 +2663,7 @@ export class MissionRailComponent {
               <div><dt>Statut</dt><dd>{{ draftValue.status }}</dd></div>
             </dl>
           } @else {
-            <span class="eyebrow">Brouillon advisory</span>
+            <span class="eyebrow">Brouillon de recommandation</span>
             <h2>Aucun brouillon ouvert</h2>
             <p>Generez un brouillon depuis une carte ou la comparaison Zone Nord.</p>
           }
@@ -2671,10 +2672,10 @@ export class MissionRailComponent {
         <article class="content-panel span-2 meeting-decisions-panel">
           <div class="panel-heading-row">
             <div>
-              <span class="eyebrow">Décisions de réunion</span>
-              <h2>Arbitrages loggés en mode meeting</h2>
+              <span class="eyebrow">{{ i18n.t('mission.decisions.eyebrow') }}</span>
+              <h2>{{ i18n.t('mission.decisions.title') }}</h2>
             </div>
-            <small class="meeting-decisions-source">source : journal /meetings · advisory</small>
+            <small class="meeting-decisions-source">source : journal /meetings · consultatif</small>
           </div>
           @if (meetingDecisionsLog().length) {
             <div class="meeting-decisions-list">
@@ -2697,7 +2698,7 @@ export class MissionRailComponent {
               }
             </div>
           } @else {
-            <p class="empty-line">Aucune décision loggée. Démarrez une réunion depuis l'agenda pour enregistrer les arbitrages.</p>
+            <p class="empty-line">{{ i18n.t('mission.decisions.empty') }}</p>
           }
         </article>
       </section>
@@ -5279,6 +5280,7 @@ export class MissionRailComponent {
 })
 export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly chat = inject(ChatOverlayService);
@@ -5970,12 +5972,12 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (this.octocityProfile()) {
       if (key.includes('conseil')) return 'Support de préparation coordination avant la revue Northern Belt de 15h.';
       if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti Garde Civique et mise au point territoriale.';
-      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Northern Belt.';
+      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B consultatives et théâtre Northern Belt.';
       if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et conseil de coordination 15h.';
     } else {
       if (key.includes('conseil')) return 'Support de préparation cabinet avant la revue Sahel de 15h.';
       if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti FANCI et mise au point Préfecture.';
-      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Sahel.';
+      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B consultatives et théâtre Sahel.';
       if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et Conseil Défense 15h.';
     }
     return `Document indexé pour les réponses ${this.assistantName()} S3.`;

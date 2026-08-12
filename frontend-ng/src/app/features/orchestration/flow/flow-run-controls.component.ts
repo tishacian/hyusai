@@ -23,6 +23,7 @@ import {
 } from '@angular/core';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { FlowRunService } from './flow-run.service';
 import { FlowStore } from './flow.store';
 import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
@@ -34,7 +35,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
   imports: [IconComponent],
   styleUrl: './flow-run-controls.component.scss',
   template: `
-    <div class="ck-run" role="group" aria-label="Run controls">
+    <div class="ck-run" role="group" [attr.aria-label]="i18n.t('flow.run.aria')">
       <span
         class="ck-run__runtime"
         [attr.data-mode]="run.runtimeMode() ?? 'unknown'"
@@ -47,10 +48,10 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         type="button"
         class="ck-run__btn"
         (click)="run.simulate()"
-        title="Client-side dry run — no backend call"
-        aria-label="Simulate"
+        [title]="i18n.t('flow.run.simulate.hint')"
+        [attr.aria-label]="i18n.t('flow.run.simulate')"
       >
-        <app-icon name="play-circle" [size]="14" /><span>Simulate</span>
+        <app-icon name="play-circle" [size]="14" /><span>{{ i18n.t('flow.run.simulate') }}</span>
       </button>
 
       <button
@@ -59,10 +60,12 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         [disabled]="!run.canExecute() || run.executing()"
         (click)="run.openInputEditor()"
         [title]="executeTitle()"
-        aria-label="Execute on backend"
+        [attr.aria-label]="i18n.t('flow.run.execute.aria')"
       >
         @if (run.executing()) {
-          <app-icon name="loader-2" [size]="14" class="ck-run__spin" /><span>Running…</span>
+          <app-icon name="loader-2" [size]="14" class="ck-run__spin" /><span>{{
+            i18n.t('flow.run.execute.running')
+          }}</span>
         } @else {
           <app-icon name="play" [size]="14" /><span>{{ executeLabel() }}</span>
         }
@@ -75,9 +78,11 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         [disabled]="!run.canDebug() && run.debugMode() === 'off'"
         (click)="onCycleDebug()"
         [title]="debugTitle()"
-        aria-label="Cycle debug mode"
+        [attr.aria-label]="i18n.t('flow.run.debug.aria')"
       >
-        <app-icon name="bug" [size]="14" /><span>Debug: {{ run.debugMode() }}</span>
+        <app-icon name="bug" [size]="14" /><span>{{
+          i18n.t('flow.run.debug', { mode: run.debugMode() })
+        }}</span>
         @if (breakpointCount() > 0) {
           <span class="ck-run__count">{{ breakpointCount() }}</span>
         }
@@ -88,10 +93,10 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         class="ck-run__btn"
         [disabled]="!run.canReplay()"
         (click)="run.replayRun()"
-        title="Replay this run's checkpoints into the terminal"
-        aria-label="Replay run"
+        [title]="i18n.t('flow.run.replay.hint')"
+        [attr.aria-label]="i18n.t('flow.run.replay.aria')"
       >
-        <app-icon name="history" [size]="14" /><span>Replay</span>
+        <app-icon name="history" [size]="14" /><span>{{ i18n.t('flow.run.replay') }}</span>
       </button>
 
       <button
@@ -99,10 +104,14 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         class="ck-run__btn"
         [disabled]="!run.canUseSystemActions()"
         (click)="onVersions()"
-        [title]="run.canUseSystemActions() ? 'Open version history' : 'Promote or finish loading the System to track versions'"
-        aria-label="Versions"
+        [title]="
+          run.canUseSystemActions()
+            ? i18n.t('flow.run.versions.hint')
+            : i18n.t('flow.run.versions.blocked')
+        "
+        [attr.aria-label]="i18n.t('flow.run.versions')"
       >
-        <app-icon name="git-commit" [size]="14" /><span>Versions</span>
+        <app-icon name="git-commit" [size]="14" /><span>{{ i18n.t('flow.run.versions') }}</span>
       </button>
 
       <button
@@ -110,8 +119,8 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         class="ck-run__btn ck-run__btn--icon"
         [class.is-on]="run.terminalOpen()"
         (click)="run.toggleTerminal()"
-        title="Toggle execution terminal"
-        aria-label="Toggle terminal"
+        [title]="i18n.t('flow.run.terminal')"
+        [attr.aria-label]="i18n.t('flow.run.terminal.aria')"
       >
         <app-icon name="terminal" [size]="14" />
       </button>
@@ -122,7 +131,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         <button
           type="button"
           class="ck-run-input__backdrop"
-          aria-label="Close Run input editor"
+          [attr.aria-label]="i18n.t('flow.run.input.close')"
           (click)="run.closeInputEditor()"
         ></button>
         <section
@@ -135,12 +144,12 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
           <header class="ck-run-input__header">
             <div>
               <p class="ck-run-input__eyebrow">{{ run.runtimeModeLabel() }}</p>
-              <h2 id="ck-run-input-title">Run input</h2>
+              <h2 id="ck-run-input-title">{{ i18n.t('flow.run.input.title') }}</h2>
             </div>
             <button
               type="button"
               class="ck-run-input__close"
-              aria-label="Close Run input editor"
+              [attr.aria-label]="i18n.t('flow.run.input.close')"
               [disabled]="run.executing()"
               (click)="run.closeInputEditor()"
             >
@@ -148,49 +157,49 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
             </button>
           </header>
 
-          <p class="ck-run-input__hint">
-            Enter the JSON object exposed to the Flow as <code>input_ref</code>.
-            Debug metadata is injected separately by the Builder.
-          </p>
-          @if (prefillSource(); as ingress) {
+          <p class="ck-run-input__hint">{{ i18n.t('flow.run.input.hint') }}</p>
+          @if (prefillSource(); as entry) {
             <p class="ck-run-input__hint" data-testid="run-input-prefill-source">
-              Prefilled from the entry contract of <code>{{ ingress }}</code>.
+              {{ i18n.t('flow.run.input.prefill') }} <code>{{ entry }}</code>
             </p>
           }
           @if (run.draftTestMode()) {
-            <label class="ck-run-input__label" for="ck-run-input-ingress">
-              Draft ingress
+            <label class="ck-run-input__label" for="ck-run-input-entry">
+              {{ i18n.t('flow.run.input.entry') }}
             </label>
             <select
-              id="ck-run-input-ingress"
+              id="ck-run-input-entry"
               class="ck-run-input__select"
               [value]="run.selectedDraftIngressId()"
               (change)="onDraftIngressChange($event)"
-              data-testid="draft-test-ingress-select"
+              data-testid="draft-test-entry-select"
             >
-              <option value="" disabled>Select an ingress…</option>
-              @for (ingress of run.draftTestIngresses(); track ingress.ingress_id) {
-                <option [value]="ingress.ingress_id">
-                  {{ ingress.label }} · {{ ingress.kind }} · {{ ingress.ingress_id }}
+              <option value="" disabled>{{ i18n.t('flow.run.input.entry.choose') }}</option>
+              @for (entry of run.draftTestIngresses(); track entry.ingress_id) {
+                <option [value]="entry.ingress_id">
+                  {{ entry.label }} · {{ entry.kind }} · {{ entry.ingress_id }}
                 </option>
               }
             </select>
-            @if (run.draftIngressSelectionError(); as ingressError) {
+            @if (run.draftIngressSelectionError(); as selectionError) {
               <p
                 class="ck-run-input__selection-error"
                 role="alert"
-                data-testid="draft-test-ingress-error"
+                data-testid="draft-test-entry-error"
               >
-                {{ ingressError }}
+                {{ selectionError }}
               </p>
-            } @else if (run.selectedDraftTestIngress(); as ingress) {
+            } @else if (run.selectedDraftTestIngress(); as entry) {
               <p class="ck-run-input__selection-evidence">
-                Request authority: <code>{{ ingress.ingress_id }}</code>
-                (<code>{{ ingress.kind }}</code>)
+                {{ i18n.t('flow.run.input.entry.authority') }}
+                <code>{{ entry.ingress_id }}</code>
+                (<code>{{ entry.kind }}</code>)
               </p>
             }
           }
-          <label class="ck-run-input__label" for="ck-run-input-json">JSON object</label>
+          <label class="ck-run-input__label" for="ck-run-input-json">{{
+            i18n.t('flow.run.input.json')
+          }}</label>
           <textarea
             id="ck-run-input-json"
             class="ck-run-input__editor"
@@ -209,7 +218,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
 
           <footer class="ck-run-input__actions">
             <button type="button" (click)="run.closeInputEditor()" [disabled]="run.executing()">
-              Cancel
+              {{ i18n.t('flow.run.input.cancel') }}
             </button>
             <button
               type="button"
@@ -218,7 +227,8 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
               (click)="run.submitInputEditor()"
             >
               @if (run.executing()) {
-                <app-icon name="loader-2" [size]="14" class="ck-run__spin" /> Dispatching…
+                <app-icon name="loader-2" [size]="14" class="ck-run__spin" />
+                {{ i18n.t('flow.run.input.dispatching') }}
               } @else {
                 <app-icon name="play" [size]="14" />
                 {{ executeLabel(true) }}
@@ -232,6 +242,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
 })
 export class FlowRunControlsComponent {
   protected readonly run = inject(FlowRunService);
+  readonly i18n = inject(I18nService);
   private readonly store = inject(FlowStore);
   private readonly toastr = inject(ToastrService);
 
@@ -240,7 +251,7 @@ export class FlowRunControlsComponent {
 
   protected readonly breakpointCount = computed(() => this.run.breakpoints().length);
 
-  /** Label of the ingress whose contract produced the current prefill, when
+  /** Label of the entry point whose contract produced the current prefill, when
    * one did. An auto-filled editor has to say where its content came from. */
   protected readonly prefillSource = computed<string | null>(() => {
     if (!this.run.inputEditorOpen()) return null;
@@ -277,37 +288,40 @@ export class FlowRunControlsComponent {
 
   protected executeTitle(): string {
     if (!this.run.canExecute()) {
-      return this.run.executionBlockReason() ?? 'Execute unavailable.';
+      return this.run.executionBlockReason() ?? this.i18n.t('flow.run.execute.unavailable');
     }
     return this.run.debugMode() === 'off'
-      ? `${this.run.executionSurfaceLabel()} — real skill invocations against the explicitly selected Flow authority`
-      : 'Run with the debugger attached — walker pauses on steps / breakpoints';
+      ? this.i18n.t('flow.run.execute.hint', {
+          surface: this.run.executionSurfaceLabel(),
+        })
+      : this.i18n.t('flow.run.execute.hint.debug');
   }
 
   protected executeLabel(dialog = false): string {
-    if (this.run.debugMode() !== 'off') return dialog ? 'Start debug run' : 'Debug run';
-    return this.run.executionSurfaceLabel() === 'Draft test-run'
-      ? dialog
-        ? 'Start draft test-run'
-        : 'Test draft'
-      : 'Execute';
+    if (this.run.debugMode() !== 'off') {
+      return this.i18n.t(dialog ? 'flow.run.input.submit.debug' : 'flow.run.execute.debug');
+    }
+    if (!this.run.draftTestMode()) {
+      return this.i18n.t(dialog ? 'flow.run.input.submit' : 'flow.run.execute');
+    }
+    return this.i18n.t(dialog ? 'flow.run.input.submit.draft' : 'flow.run.execute.draft');
   }
 
   protected debugTitle(): string {
     if (!this.run.canDebug()) {
       return this.run.runtimeMode() === 'sequential_legacy'
-        ? 'Debug unavailable: LEGACY · SEQUENTIAL has no DAG debugger.'
-        : this.run.executionBlockReason() ?? 'Debug unavailable.';
+        ? this.i18n.t('flow.run.debug.unavailable.sequential')
+        : this.run.executionBlockReason() ?? this.i18n.t('flow.run.debug.unavailable');
     }
-    return `Debug mode: ${this.run.debugMode()} — click to cycle off / step / breakpoints`;
+    return this.i18n.t('flow.run.debug.hint', { mode: this.run.debugMode() });
   }
 
   protected onCycleDebug(): void {
     const next = this.run.cycleDebugMode();
     if (next === 'breakpoints' && this.run.breakpoints().length === 0) {
       this.toastr.info(
-        'Toggle breakpoints with the dot on each node (visible while debug mode is on).',
-        'Debugger',
+        this.i18n.t('flow.run.debug.breakpoints.toast'),
+        this.i18n.t('flow.run.debug.breakpoints.title'),
       );
     }
   }
@@ -315,8 +329,8 @@ export class FlowRunControlsComponent {
   protected onVersions(): void {
     if (!this.run.canUseSystemActions()) {
       this.toastr.info(
-        'Version history is tracked per System — promote this scratchpad first.',
-        'Versions',
+        this.i18n.t('flow.run.versions.toast'),
+        this.i18n.t('flow.run.versions'),
       );
       return;
     }

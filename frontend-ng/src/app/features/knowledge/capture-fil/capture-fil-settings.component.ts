@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
@@ -38,12 +39,12 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
         <div style="display:flex; align-items:center; gap:9px;">
           <ck-glyph name="sliders" [size]="14" color="var(--ck-signal-cool)" />
           <span class="ck-mono" style="font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);">
-            Paramètres de capture
+            {{ i18n.t('capture.settings.title') }}
           </span>
           <button
             type="button"
             (click)="closed.emit()"
-            title="Fermer"
+            [title]="i18n.t('common.close')"
             style="margin-left:auto; border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; display:inline-flex; padding:4px;"
           >
             <ck-glyph name="x" [size]="13" color="currentColor" />
@@ -51,14 +52,14 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
         </div>
 
         <div style="display:flex; flex-direction:column; gap:8px;">
-          <span style="font-size:13px; font-weight:600; color:var(--ck-fg-1);">Disposition du Fil</span>
+          <span style="font-size:13px; font-weight:600; color:var(--ck-fg-1);">{{ i18n.t('capture.settings.layout') }}</span>
           <span style="font-size:12px; color:var(--ck-fg-4); line-height:1.45;">
-            Choix par défaut de la séance de capture pour ce système. Un basculement en séance reste possible, sans modifier ce réglage.
+            {{ i18n.t('capture.settings.layout_hint') }}
           </span>
         </div>
 
         @if (loading()) {
-          <div style="font-size:12.5px; color:var(--ck-fg-4); padding:8px 0;">Chargement du réglage…</div>
+          <div style="font-size:12.5px; color:var(--ck-fg-4); padding:8px 0;">{{ i18n.t('capture.settings.loading') }}</div>
         } @else {
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <!-- Priorité pièces jointes : scène large au centre, fil à droite -->
@@ -68,11 +69,11 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
                 <span style="flex:1;" class="cfs-box cfs-box-hi"></span>
                 <span style="width:26%;" class="cfs-box"></span>
               </span>
-              <span style="font-size:12.5px; font-weight:600; color:var(--ck-fg-1);">Priorité pièces jointes</span>
+              <span style="font-size:12.5px; font-weight:600; color:var(--ck-fg-1);">{{ i18n.t('capture.settings.layout_documents') }}</span>
               <span style="font-size:11px; color:var(--ck-fg-4); line-height:1.4;">
-                Les pièces (La Scène) au centre, le transcript minimisé à droite.
+                {{ i18n.t('capture.settings.layout_documents_hint') }}
               </span>
-              <span class="ck-mono" style="font-size:9px; color:var(--ck-fg-5);">défaut</span>
+              <span class="ck-mono" style="font-size:9px; color:var(--ck-fg-5);">{{ i18n.t('capture.settings.default') }}</span>
             </button>
             <!-- Priorité transcript : fil au centre, scène à droite -->
             <button type="button" class="cfs-card" [class.is-active]="selected() === 'transcript'" (click)="selected.set('transcript')">
@@ -81,9 +82,9 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
                 <span style="flex:1;" class="cfs-box"></span>
                 <span style="width:26%;" class="cfs-box cfs-box-hi"></span>
               </span>
-              <span style="font-size:12.5px; font-weight:600; color:var(--ck-fg-1);">Priorité transcript</span>
+              <span style="font-size:12.5px; font-weight:600; color:var(--ck-fg-1);">{{ i18n.t('capture.settings.layout_transcript') }}</span>
               <span style="font-size:11px; color:var(--ck-fg-4); line-height:1.4;">
-                Le fil transcript au centre, les pièces à droite.
+                {{ i18n.t('capture.settings.layout_transcript_hint') }}
               </span>
             </button>
           </div>
@@ -105,7 +106,7 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
             (click)="closed.emit()"
             style="padding:7px 13px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:12.5px; font-weight:550;"
           >
-            Fermer
+            {{ i18n.t('common.close') }}
           </button>
           <button
             type="button"
@@ -115,7 +116,7 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
             [style.opacity]="loading() || saving() ? 0.6 : 1"
           >
             <ck-glyph name="check" [size]="12" color="currentColor" />
-            {{ saving() ? 'Enregistrement…' : 'Enregistrer' }}
+            {{ saving() ? i18n.t('capture.settings.saving') : i18n.t('common.save') }}
           </button>
         </div>
       </div>
@@ -163,6 +164,8 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
   ],
 })
 export class CaptureFilSettingsComponent {
+  readonly i18n = inject(I18nService);
+
   private readonly canonicalApi = inject(CanonicalApiService);
   private readonly engine = inject(CaptureEngine);
   private readonly destroyRef = inject(DestroyRef);
@@ -214,9 +217,9 @@ export class CaptureFilSettingsComponent {
         if (sys) {
           this.system = sys;
           this.engine.setFilLayout(this.selected());
-          this.feedback.set({ tone: 'pos', text: 'Réglage enregistré.' });
+          this.feedback.set({ tone: 'pos', text: this.i18n.t('capture.settings.saved') });
         } else {
-          this.feedback.set({ tone: 'neg', text: "Échec de l'enregistrement — réessayez." });
+          this.feedback.set({ tone: 'neg', text: this.i18n.t('capture.settings.save_failed') });
         }
       });
   }

@@ -170,7 +170,7 @@ export class CkTabComponent {
                   [style.alignItems]="'center'"
                   [style.width]="'100%'"
                   [style.padding]="'8px 10px'"
-                  [style.background]="isActive(t) ? 'rgba(125,211,252,0.08)' : 'transparent'"
+                  [style.background]="isActive(t) ? 'var(--ck-status-info-bg)' : 'transparent'"
                   [style.border]="'none'"
                   [style.borderRadius.px]="4"
                   [style.fontSize.px]="11"

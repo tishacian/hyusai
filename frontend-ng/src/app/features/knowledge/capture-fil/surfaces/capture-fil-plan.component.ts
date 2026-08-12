@@ -10,6 +10,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
@@ -63,7 +64,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
     <div style="display:flex; flex-direction:column; gap:18px; max-width:840px;">
       <div>
         <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-          Capture · {{ isFree() ? 'Lancement' : 'Plan' }}
+          {{ isFree() ? i18n.t('capture.plan.eyebrow_free') : i18n.t('capture.plan.eyebrow') }}
         </span>
         <h2 style="margin:6px 0 4px; font-size:22px; font-weight:680; color:var(--ck-fg-1);">{{ title() }}</h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:64ch;">
@@ -72,7 +73,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         @if (planLocked()) {
           <div style="margin-top:10px; display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--ck-fg-3); line-height:1.5;">
             <ck-glyph name="ledger" [size]="14" color="var(--ck-signal-cool)" />
-            <span>Plan type verrouillé — les sections de base ne peuvent pas être supprimées ; vous pouvez ajouter des sous-points.</span>
+            <span>{{ i18n.t('capture.plan.locked') }}</span>
           </div>
         }
       </div>
@@ -81,8 +82,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         <div style="display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-radius:var(--ck-radius-md); background:color-mix(in oklab, var(--ck-signal-warn) 10%, transparent); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 35%, transparent);">
           <ck-glyph name="warn" [size]="15" color="var(--ck-signal-warn)" />
           <div style="font-size:13px; color:var(--ck-fg-2); line-height:1.5;">
-            {{ previousReportOpenCount() }} point{{ previousReportOpenCount() > 1 ? 's' : '' }} ouvert{{ previousReportOpenCount() > 1 ? 's' : '' }}
-            repris du rapport N-1 — ils apparaîtront dans l’Oracle dès le démarrage de la capture.
+            {{ i18n.t('capture.plan.carried_open_points', { count: previousReportOpenCount() }) }}
           </div>
         </div>
       }
@@ -91,10 +91,9 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; gap:12px; align-items:flex-start;">
           <ck-glyph name="pulse" [size]="18" color="var(--ck-signal-cool)" />
           <div>
-            <div style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">Conversation libre — sans plan</div>
+            <div style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">{{ i18n.t('capture.plan.free_title') }}</div>
             <div style="font-size:12.5px; color:var(--ck-fg-4); margin-top:3px; line-height:1.5;">
-              Aucun plan de sujets. Vous capturerez directement au fil de la parole ; l'oracle structurera les
-              éléments utiles. Les pièces s'ajoutent pendant la séance.
+              {{ i18n.t('capture.plan.free_hint') }}
             </div>
           </div>
         </div>
@@ -103,14 +102,14 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; flex-direction:column; gap:12px;">
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
-              Plan · {{ topics().length }} sujet{{ topics().length > 1 ? 's' : '' }}
+              {{ i18n.t('capture.plan.topics_count', { count: topics().length }) }}
             </span>
             <div style="margin-left:auto; display:inline-flex; align-items:center; gap:6px;">
-              <button type="button" (click)="applyFormat('outdent')" title="Désindenter (Maj+Tab)" [style]="iconBtn"><ck-glyph name="zoom-out" [size]="13" color="currentColor" /></button>
-              <button type="button" (click)="applyFormat('indent')" title="Indenter (Tab) — créer un sous-sujet" [style]="iconBtn"><ck-glyph name="zoom-in" [size]="13" color="currentColor" /></button>
-              <button type="button" (click)="applyFormat('renumber')" title="Renuméroter" [style]="iconBtn"><ck-glyph name="ledger" [size]="13" color="currentColor" /></button>
-              <button type="button" (click)="applyFormat('move_up')" title="Monter" [style]="iconBtn"><ck-glyph name="arrow-up" [size]="13" color="currentColor" /></button>
-              <button type="button" (click)="applyFormat('move_down')" title="Descendre" [style]="iconBtn"><ck-glyph name="arrow-down" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('outdent')" [title]="i18n.t('capture.plan.outdent')" [style]="iconBtn"><ck-glyph name="zoom-out" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('indent')" [title]="i18n.t('capture.plan.indent')" [style]="iconBtn"><ck-glyph name="zoom-in" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('renumber')" [title]="i18n.t('capture.plan.renumber')" [style]="iconBtn"><ck-glyph name="ledger" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('move_up')" [title]="i18n.t('capture.plan.move_up')" [style]="iconBtn"><ck-glyph name="arrow-up" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('move_down')" [title]="i18n.t('capture.plan.move_down')" [style]="iconBtn"><ck-glyph name="arrow-down" [size]="13" color="currentColor" /></button>
             </div>
           </div>
 
@@ -121,11 +120,11 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
             (input)="onOutlineInput($any($event.target).value)"
             (keydown)="onOutlineKeydown($event)"
             spellcheck="false"
-            placeholder="Aucun sujet pour l'instant — saisissez votre plan ici, ou décrivez-le à l'assistant ci-dessous."
+            [placeholder]="i18n.t('capture.plan.outline_placeholder')"
             style="resize:vertical; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-mono); font-size:13px; line-height:1.6; padding:12px 14px; min-height:200px;"
           ></textarea>
           <div class="ck-mono" style="font-size:10.5px; color:var(--ck-fg-5);">
-            Tab pour créer un sous-sujet, Maj+Tab pour remonter d'un niveau. La numérotation se met à jour automatiquement.
+            {{ i18n.t('capture.plan.outline_hint') }}
           </div>
         </div>
 
@@ -134,7 +133,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
           <div style="display:flex; align-items:center; gap:8px;">
             <ck-glyph name="pulse" [size]="15" color="var(--ck-signal-violet)" />
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
-              Assistant de plan
+              {{ i18n.t('capture.plan.assistant') }}
             </span>
           </div>
 
@@ -149,7 +148,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
             [value]="instruction()"
             (input)="instruction.set($any($event.target).value)"
             [disabled]="dialogueLoading()"
-            placeholder="Donnez une instruction (« ajoute une section sur… », « ajoute un sous-sujet à 2 », « reformule… »). Le plan ci-dessus est conservé comme base."
+            [placeholder]="i18n.t('capture.plan.instruction_placeholder')"
             style="resize:vertical; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; line-height:1.5; padding:10px 12px;"
           ></textarea>
 
@@ -158,22 +157,28 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
               type="button"
               (click)="toggleDictation()"
               [disabled]="dialogueLoading() || transcribing()"
-              [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter une instruction'"
+              [title]="recording() ? i18n.t('capture.plan.dictation_stop_hint') : i18n.t('capture.plan.dictation_start_hint')"
               style="display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border-radius:var(--ck-radius-md); cursor:pointer; font-size:12.5px; background:var(--ck-bg-inset);"
               [style.border]="'1px solid ' + (recording() ? 'var(--ck-signal-neg)' : 'var(--ck-stroke-2)')"
               [style.color]="recording() ? 'var(--ck-signal-neg)' : 'var(--ck-fg-2)'"
             >
               <ck-glyph [name]="recording() ? 'pause' : 'pulse'" [size]="14" color="currentColor" />
-              {{ recording() ? 'Arrêter la dictée' : transcribing() ? 'Transcription…' : 'Dicter' }}
+              {{
+                recording()
+                  ? i18n.t('capture.plan.dictation_stop')
+                  : transcribing()
+                    ? i18n.t('capture.plan.transcribing')
+                    : i18n.t('capture.plan.dictate')
+              }}
             </button>
 
             <label
               style="display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); cursor:pointer; font-size:12.5px; color:var(--ck-fg-2);"
               [style.opacity]="dialogueLoading() || extracting() ? 0.5 : 1"
-              [title]="'Importer un document (notes, plan) : son contenu est appliqué comme instruction, le plan actuel reste la base.'"
+              [title]="i18n.t('capture.plan.import_hint')"
             >
               <ck-glyph name="layers" [size]="14" color="currentColor" />
-              {{ extracting() ? 'Extraction…' : 'Importer un document' }}
+              {{ extracting() ? i18n.t('capture.plan.extracting') : i18n.t('capture.plan.import') }}
               <input type="file" (change)="onImportInstruction($event)" [disabled]="dialogueLoading() || extracting()" style="display:none;" />
             </label>
 
@@ -185,7 +190,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
               [style.opacity]="dialogueLoading() || !instruction().trim() ? 0.5 : 1"
             >
               <ck-glyph name="arrow-right" [size]="13" color="currentColor" />
-              {{ dialogueLoading() ? 'Envoi…' : 'Appliquer' }}
+              {{ dialogueLoading() ? i18n.t('capture.plan.sending') : i18n.t('capture.plan.apply') }}
             </button>
           </div>
 
@@ -216,13 +221,23 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
           [style.cursor]="busy() || !sessionId() ? 'not-allowed' : 'pointer'"
         >
           <ck-glyph name="play" [size]="14" color="currentColor" />
-          {{ busy() ? (isLive() ? 'Reprise…' : 'Démarrage…') : isLive() ? 'Reprendre la capture' : 'Démarrer la capture' }}
+          {{
+            busy()
+              ? isLive()
+                ? i18n.t('capture.plan.resuming')
+                : i18n.t('capture.plan.starting')
+              : isLive()
+                ? i18n.t('capture.plan.resume')
+                : i18n.t('capture.plan.start')
+          }}
         </button>
       </div>
     </div>
   `,
 })
 export class CaptureFilPlanComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
@@ -372,7 +387,7 @@ export class CaptureFilPlanComponent {
       const fallback = fallbackTopics[index];
       const topic: PlanTopic = {
         id: fallback?.id || `t-${String(index + 1).padStart(2, '0')}`,
-        title: title.trim() || `Sujet ${index + 1}`,
+        title: title.trim() || this.i18n.t('capture.plan.topic_default', { index: index + 1 }),
         objective: fallback?.objective || '',
         prompt: fallback?.prompt,
         status: fallback?.status,
@@ -389,7 +404,9 @@ export class CaptureFilPlanComponent {
       const fallback = fallbackTopics[topics.length - 1]?.subtopics?.[subtopics.length];
       subtopics.push({
         id: fallback?.id || `${topic.id}-sub-${String(subtopics.length + 1).padStart(2, '0')}`,
-        title: title.trim() || `Sous-sujet ${subtopics.length + 1}`,
+        title:
+          title.trim()
+          || this.i18n.t('capture.plan.subtopic_default', { index: subtopics.length + 1 }),
         objective: fallback?.objective || '',
         prompt: fallback?.prompt,
         status: fallback?.status || 'pending',
@@ -542,7 +559,7 @@ export class CaptureFilPlanComponent {
       counters[level] = (counters[level] || 0) + 1;
       counters.length = level + 1;
       previousLevel = level;
-      const body = this.stripMarker(line.trim()) || 'Point à préciser';
+      const body = this.stripMarker(line.trim()) || this.i18n.t('capture.plan.point_to_clarify');
       return `${'   '.repeat(level)}${counters.slice(0, level + 1).join('.')}. ${body}`;
     });
   }
@@ -593,9 +610,9 @@ export class CaptureFilPlanComponent {
       }
       this.nextPrompt.set(body.next_prompt ?? null);
       this.instruction.set('');
-      this.notice.set({ tone: 'success', text: 'Plan mis à jour.' });
+      this.notice.set({ tone: 'success', text: this.i18n.t('capture.plan.updated') });
     } catch {
-      this.notice.set({ tone: 'error', text: "Impossible d'appliquer cette instruction. Réessayez." });
+      this.notice.set({ tone: 'error', text: this.i18n.t('capture.plan.instruction_failed') });
     } finally {
       this.dialogueLoading.set(false);
     }
@@ -607,7 +624,7 @@ export class CaptureFilPlanComponent {
     if (!file) return;
     input.value = '';
     this.extracting.set(true);
-    this.notice.set({ tone: 'info', text: 'Extraction du document…' });
+    this.notice.set({ tone: 'info', text: this.i18n.t('capture.plan.extracting_document') });
     this.api
       .extractCapturePlanSource(file)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -616,14 +633,14 @@ export class CaptureFilPlanComponent {
           this.extracting.set(false);
           const text = String(payload.text || '').slice(0, 20000).trim();
           if (!text) {
-            this.notice.set({ tone: 'error', text: 'Document vide ou illisible.' });
+            this.notice.set({ tone: 'error', text: this.i18n.t('capture.plan.document_empty') });
             return;
           }
-          void this.runDialogueTurn(`Voici un document de référence à intégrer au plan :\n\n${text}`);
+          void this.runDialogueTurn(this.i18n.t('capture.plan.import_prompt', { text }));
         },
         error: () => {
           this.extracting.set(false);
-          this.notice.set({ tone: 'error', text: "Import du document impossible." });
+          this.notice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_error') });
         },
       });
   }
@@ -642,14 +659,14 @@ export class CaptureFilPlanComponent {
     }
     const media = navigator.mediaDevices;
     if (!media?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      this.notice.set({ tone: 'error', text: 'Micro indisponible dans ce navigateur.' });
+      this.notice.set({ tone: 'error', text: this.i18n.t('capture.plan.mic_unavailable') });
       return;
     }
     let stream: MediaStream;
     try {
       stream = await media.getUserMedia({ audio: true });
     } catch {
-      this.notice.set({ tone: 'error', text: 'Accès au micro refusé.' });
+      this.notice.set({ tone: 'error', text: this.i18n.t('capture.plan.mic_denied') });
       return;
     }
     this.chunks = [];
@@ -671,7 +688,7 @@ export class CaptureFilPlanComponent {
     // Timeslice → periodic ondataavailable so partials stream during speech.
     recorder.start(1500);
     this.recording.set(true);
-    this.notice.set({ tone: 'info', text: 'Dictée en cours — le texte s’affiche en direct.' });
+    this.notice.set({ tone: 'info', text: this.i18n.t('capture.plan.dictation_live') });
   }
 
   private stopDictation(): void {
@@ -740,7 +757,7 @@ export class CaptureFilPlanComponent {
             this.applyDictation(text);
             this.notice.set(null);
           } else {
-            this.notice.set({ tone: 'info', text: 'Rien transcrit. Réessayez.' });
+            this.notice.set({ tone: 'info', text: this.i18n.t('capture.plan.nothing_transcribed') });
           }
         },
         error: () => {
@@ -788,7 +805,7 @@ export class CaptureFilPlanComponent {
           next: connect,
           error: () => {
             this.busy.set(false);
-            this.error.set('Démarrage impossible.');
+            this.error.set(this.i18n.t('capture.plan.start_failed'));
           },
         });
     // Persist topic edits before launching (with-plan only); never block start.

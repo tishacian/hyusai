@@ -4,7 +4,6 @@ import type {
   CaptureProposal,
   CaptureReportSource,
   CaptureReportStructureNode,
-  CaptureShareLevel,
   CaptureSessionDocument,
   CaptureViewReference,
   ProposalFact,
@@ -49,23 +48,31 @@ export function viewTone(ref: CaptureViewReference | CapturePinnedView): Capture
   return toneFor(ref.document_id ?? ref.filename ?? ref.title ?? null);
 }
 
-/** Human label for a piece — prefers the captured statement, else the doc title. */
-export function viewLabel(ref: CaptureViewReference | CapturePinnedView): string {
-  if ('statement' in ref && ref.statement) return ref.statement;
-  if ('trigger_phrase' in ref && ref.trigger_phrase) return ref.trigger_phrase;
-  return ref.title ?? cleanFilename(ref.filename) ?? 'Pièce';
+/**
+ * Short title used as the piece caption (always the document side, not the
+ * phrase). `fallback` is the untitled-piece label: this module has no injector,
+ * so the caller passes it translated (`i18n.t('capture.piece.fallback')`).
+ */
+export function viewTitle(
+  ref: CaptureViewReference | CapturePinnedView,
+  fallback: string,
+): string {
+  return ref.title ?? cleanFilename(ref.filename) ?? fallback;
 }
 
-/** Short title used as the piece caption (always the document side, not the phrase). */
-export function viewTitle(ref: CaptureViewReference | CapturePinnedView): string {
-  return ref.title ?? cleanFilename(ref.filename) ?? 'Pièce';
-}
-
-/** Locator badge: `p.12`, `cliché 3`, `slide 4`, `IMG` (images) or `doc`. */
-export function viewLocation(ref: CaptureViewReference | CapturePinnedView): string {
+/**
+ * Locator badge: `p.12`, `slide 4`, the caller's snapshot label, `IMG`
+ * (images) or `doc`. `snapshot` renders the extracted-image locator — the
+ * caller owns the wording so the number goes through `t()` as a parameter
+ * instead of being concatenated here.
+ */
+export function viewLocation(
+  ref: CaptureViewReference | CapturePinnedView,
+  snapshot: (index: number) => string,
+): string {
   if (ref.page != null) return `p.${ref.page}`;
   if (ref.slide != null) return `slide ${ref.slide}`;
-  if (ref.image_index != null) return `cliché ${ref.image_index}`;
+  if (ref.image_index != null) return snapshot(ref.image_index);
   // Pageless reference: only label images `IMG`; paginated/document formats
   // get a neutral `doc` (an unnavigated PDF is NOT an image).
   const name = (ref.filename ?? '').toLowerCase();
@@ -115,16 +122,19 @@ export function documentToPinnedView(doc: CaptureSessionDocument, page?: number 
   };
 }
 
-/** Background-index lifecycle display (D5 / §5.4). */
+/**
+ * Background-index lifecycle display (D5 / §5.4). Carries the dictionary key,
+ * not the label: no injector here, so the caller resolves it with `t()`.
+ */
 export const INDEX_STATE_DISPLAY: Record<
   CaptureIndexStatus,
-  { label: string; tone: CaptureTone | 'neutral' }
+  { labelKey: string; tone: CaptureTone | 'neutral' }
 > = {
-  not_indexed: { label: 'Non indexé', tone: 'neutral' },
-  referenced: { label: 'Référencé', tone: 'cool' },
-  queued: { label: 'En file', tone: 'warn' },
-  indexed: { label: 'Indexé', tone: 'pos' },
-  failed: { label: 'Échec', tone: 'neg' },
+  not_indexed: { labelKey: 'capture.index.not_indexed', tone: 'neutral' },
+  referenced: { labelKey: 'capture.index.referenced', tone: 'cool' },
+  queued: { labelKey: 'capture.index.queued', tone: 'warn' },
+  indexed: { labelKey: 'capture.index.indexed', tone: 'pos' },
+  failed: { labelKey: 'capture.index.failed', tone: 'neg' },
 };
 
 /** Normalise any raw index status to the known lifecycle enum. */
@@ -133,13 +143,6 @@ export function indexStatusOf(doc: CaptureSessionDocument): CaptureIndexStatus {
   if (raw === 'referenced' || raw === 'queued' || raw === 'indexed' || raw === 'failed') return raw;
   return 'not_indexed';
 }
-
-/** Share-level triage display (D5 / §5.3). */
-export const SHARE_LEVEL_DISPLAY: Record<CaptureShareLevel, { label: string; tone: CaptureTone | 'neutral' }> = {
-  full: { label: 'Entier', tone: 'pos' },
-  excerpt: { label: 'Extrait', tone: 'cool' },
-  none: { label: 'Aucun', tone: 'neutral' },
-};
 
 /** Tone (incl. neutral) → CSS colour, with `--ck-fg-4` for neutral. */
 export function paletteVar(tone: CaptureTone | 'neutral'): string {

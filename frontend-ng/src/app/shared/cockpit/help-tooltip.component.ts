@@ -116,10 +116,12 @@ import {
 
             <p class="ck-help-summary">{{ pick(resolved()!.copy.summary) }}</p>
 
-            <section class="ck-help-section">
-              <span class="ck-help-section-label">{{ labels().userStory }}</span>
-              <p class="ck-help-section-body">{{ pick(resolved()!.copy.user_story) }}</p>
-            </section>
+            @if (pick(resolved()!.copy.user_story)) {
+              <section class="ck-help-section">
+                <span class="ck-help-section-label">{{ labels().userStory }}</span>
+                <p class="ck-help-section-body">{{ pick(resolved()!.copy.user_story) }}</p>
+              </section>
+            }
 
             @if (resolved()!.copy.prerequisites.length) {
               <section class="ck-help-section">
@@ -134,7 +136,7 @@ import {
 
             @if (resolved()!.copy.related_actions.length) {
               <section class="ck-help-section">
-                <span class="ck-help-section-label">{{ labels().relatedActions }}</span>
+                <span class="ck-help-section-label">{{ relatedLabel() }}</span>
                 <ul class="ck-help-list">
                   @for (a of resolved()!.copy.related_actions; track a) {
                     <li><code class="ck-help-code">{{ a }}</code></li>
@@ -344,6 +346,7 @@ export class HelpTooltipComponent {
           userStory: 'USER STORY',
           prerequisites: 'PRÉREQUIS',
           relatedActions: 'ACTIONS LIÉES',
+          technicalDetail: 'TERME TECHNIQUE',
           learnMore: 'En savoir plus',
         };
       case 'en':
@@ -352,10 +355,21 @@ export class HelpTooltipComponent {
           userStory: 'USER STORY',
           prerequisites: 'PREREQUISITES',
           relatedActions: 'RELATED ACTIONS',
+          technicalDetail: 'TECHNICAL TERM',
           learnMore: 'Learn more',
         };
     }
   });
+
+  /**
+   * Lexicon-backed concepts list the internal terms the label replaces, not
+   * actions — the technical register of the two-register rule.
+   */
+  readonly relatedLabel = computed(() =>
+    this.resolved()?.entry.category === 'concept'
+      ? this.labels().technicalDetail
+      : this.labels().relatedActions,
+  );
 
   pick(text: LocalizedText | null | undefined): string {
     return this.help.pickText(text);

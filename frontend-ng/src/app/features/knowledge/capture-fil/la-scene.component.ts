@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService, type CapturePinnedView, type CaptureSessionDocument } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
@@ -37,7 +38,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       <div style="display:flex; align-items:center; gap:8px; position:relative;">
         <ck-glyph name="layers" [size]="13" color="var(--ck-fg-3)" />
         <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-          La Scène · {{ engine.scene().length }} pièce{{ engine.scene().length > 1 ? 's' : '' }}
+          {{ i18n.t('capture.scene.title', { count: engine.scene().length }) }}
         </span>
         <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
           @if (active(); as a) {
@@ -46,45 +47,45 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
                 type="button"
                 class="ck-mono"
                 (click)="openPreview(a)"
-                title="Voir le document en grand"
+                [title]="i18n.t('capture.scene.view_large')"
                 style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
                 [style.fontSize]="wide ? '11.5px' : '10px'"
                 [style.padding]="wide ? '5px 10px' : '3px 7px'"
               >
-                <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> voir
+                <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.view') }}
               </button>
             }
             <button
               type="button"
               class="ck-mono"
               (click)="engine.markActiveView()"
-              title="Marquer la page montrée dans le fil"
+              [title]="i18n.t('capture.scene.mark_hint')"
               style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
               [style.fontSize]="wide ? '11.5px' : '10px'"
               [style.padding]="wide ? '5px 10px' : '3px 7px'"
             >
-              <ck-glyph name="crosshair" [size]="wide ? 12 : 10" color="currentColor" /> marquer dans le fil
+              <ck-glyph name="crosshair" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.mark') }}
             </button>
             <button
               type="button"
               class="ck-mono"
               (click)="engine.unpinView(a.key)"
-              title="Retirer de la scène"
+              [title]="i18n.t('capture.scene.remove_hint')"
               style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:10px; display:inline-flex; align-items:center; gap:4px;"
               [style.fontSize]="wide ? '11.5px' : '10px'"
             >
-              <ck-glyph name="x" [size]="wide ? 12 : 10" color="currentColor" /> retirer
+              <ck-glyph name="x" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.scene.remove') }}
             </button>
           }
           <label
             class="ck-mono"
-            title="Ajouter une pièce à montrer (elle est mise en scène)"
+            [title]="i18n.t('capture.scene.add_hint')"
             style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
             [style.opacity]="uploading() ? 0.6 : 1"
             [style.fontSize]="wide ? '11.5px' : '10px'"
             [style.padding]="wide ? '5px 10px' : '3px 7px'"
           >
-            <ck-glyph name="bolt" [size]="wide ? 12 : 10" color="currentColor" /> {{ uploading() ? 'ajout…' : 'ajouter' }}
+            <ck-glyph name="bolt" [size]="wide ? 12 : 10" color="currentColor" /> {{ uploading() ? i18n.t('capture.scene.adding') : i18n.t('capture.scene.add') }}
             <input type="file" multiple (change)="onUpload($event)" [disabled]="uploading()" style="display:none;" />
           </label>
           @if (pinnable().length > 0) {
@@ -96,7 +97,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               [style.fontSize]="wide ? '11.5px' : '10px'"
               [style.padding]="wide ? '5px 10px' : '3px 7px'"
             >
-              <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> épingler
+              <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> {{ i18n.t('capture.pin.pin') }}
             </button>
           }
         </div>
@@ -148,7 +149,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
         <div
           style="min-height:120px; border:1px dashed var(--ck-stroke-3); border-radius:var(--ck-radius-md); display:grid; place-items:center; color:var(--ck-fg-5); font-size:12px; text-align:center; padding:12px;"
         >
-          Aucune pièce montrée — épinglez un document pour le mettre « en scène ».
+          {{ i18n.t('capture.scene.empty') }}
         </div>
       }
 
@@ -179,7 +180,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       [open]="previewOpen()"
       [previewUrl]="previewUrl()"
       [title]="previewTitle()"
-      [subtitle]="'Pièce montrée'"
+      [subtitle]="i18n.t('capture.scene.piece_shown')"
       [page]="previewPage()"
       (viewChanged)="onViewChanged($event)"
       (closed)="previewOpen.set(false)"
@@ -187,6 +188,8 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
   `,
 })
 export class LaSceneComponent {
+  readonly i18n = inject(I18nService);
+
   /**
    * Mode large (fil layout 'documents') — purely presentational: taller
    * viewport-based preview, bigger strip tiles and management affordances.
@@ -249,7 +252,7 @@ export class LaSceneComponent {
     const url = this.previewUrlFor(view);
     if (!url) return;
     this.previewUrl.set(url);
-    this.previewTitle.set(viewTitle(view));
+    this.previewTitle.set(viewTitle(view, this.i18n.t('capture.piece.fallback')));
     this.previewPage.set(view.page ?? null);
     this.previewOpen.set(true);
   }

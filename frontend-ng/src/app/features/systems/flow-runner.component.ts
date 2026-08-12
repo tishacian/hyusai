@@ -67,20 +67,22 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
     `
       :host { display: block; min-height: 100%; }
       .runner-shell { max-width: 1440px; margin: 0 auto; padding: 1.5rem; }
-      .runner-card { border: 1px solid var(--ck-border, rgba(255,255,255,.1)); background: var(--ck-surface, rgba(10,16,26,.82)); border-radius: .5rem; }
+      .runner-card { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); border-radius: .5rem; }
       .runner-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(22rem, .8fr); gap: 1rem; }
-      .runner-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .28rem .5rem; border: 1px solid rgba(103,232,249,.22); border-radius: .25rem; color: rgb(165,243,252); background: rgba(8,145,178,.08); font: 600 .68rem/1.1 ui-monospace, monospace; letter-spacing: .05em; }
-      .runner-label { display: block; color: rgb(148,163,184); font: 600 .68rem/1.2 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
-      .runner-input { width: 100%; border: 1px solid rgba(255,255,255,.12); border-radius: .35rem; background: rgba(2,6,23,.72); color: rgb(226,232,240); font: .78rem/1.55 ui-monospace, monospace; outline: none; }
-      .runner-input:focus { border-color: rgba(34,211,238,.65); box-shadow: 0 0 0 2px rgba(34,211,238,.08); }
+      .runner-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .28rem .5rem; border: 1px solid var(--ck-status-info-line); border-radius: .25rem; color: var(--ck-status-info-fg); background: var(--ck-status-info-bg); font: 600 .68rem/1.1 var(--ck-font-mono); letter-spacing: .05em; }
+      .runner-label { display: block; color: var(--ck-fg-3); font: 600 .68rem/1.2 var(--ck-font-mono); letter-spacing: .12em; text-transform: uppercase; }
+      .runner-muted { color: var(--ck-fg-4); }
+      .runner-input { width: 100%; border: 1px solid var(--ck-stroke-2); border-radius: .35rem; background: var(--ck-bg-inset); color: var(--ck-fg-1); font: .78rem/1.55 var(--ck-font-mono); outline: none; }
+      .runner-input:focus { border-color: var(--ck-stroke-hot); box-shadow: 0 0 0 2px var(--ck-status-info-bg); }
       .runner-button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; border-radius: .35rem; padding: .65rem .9rem; font-size: .78rem; font-weight: 700; transition: .15s ease; }
       .runner-button:disabled { opacity: .38; cursor: not-allowed; }
-      .runner-primary { color: rgb(3,7,18); background: rgb(34,211,238); }
-      .runner-secondary { color: rgb(203,213,225); border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
-      .runner-run { border-left: 2px solid rgb(71,85,105); }
-      .runner-run[data-status='completed'] { border-left-color: rgb(52,211,153); }
-      .runner-run[data-status='failed'], .runner-run[data-status='cancelled'] { border-left-color: rgb(248,113,113); }
-      .runner-run[data-status='running'], .runner-run[data-status='pending'] { border-left-color: rgb(34,211,238); }
+      .runner-primary { color: var(--ck-cta-fg); background: var(--ck-cta-bg); }
+      .runner-primary:hover:not(:disabled) { background: var(--ck-cta-bg-hover); }
+      .runner-secondary { color: var(--ck-fg-2); border: 1px solid var(--ck-stroke-2); background: var(--ck-tint-faint); }
+      .runner-run { border-left: 2px solid var(--ck-stroke-3); background: var(--ck-bg-inset); }
+      .runner-run[data-status='completed'] { border-left-color: var(--ck-status-ok-fg); }
+      .runner-run[data-status='failed'], .runner-run[data-status='cancelled'] { border-left-color: var(--ck-status-neg-fg); }
+      .runner-run[data-status='running'], .runner-run[data-status='pending'] { border-left-color: var(--ck-status-info-fg); }
       @media (max-width: 960px) { .runner-grid { grid-template-columns: 1fr; } .runner-shell { padding: 1rem; } }
     `,
   ],
@@ -91,12 +93,12 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
           <div>
             <a
               [routerLink]="['/systems', systemId]"
-              class="runner-label inline-flex items-center gap-1 hover:text-cyan-300"
+              class="runner-label inline-flex items-center gap-1"
             >
               <app-icon name="arrow-left" [size]="12" /> System
             </a>
             <h1 class="mt-2 text-2xl font-semibold text-white">Operator Runner</h1>
-            <p class="mt-1 text-sm text-slate-400">
+            <p class="runner-muted mt-1 text-sm">
               Durable sessions executing the immutable published Flow only.
             </p>
           </div>
@@ -122,11 +124,11 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
       </header>
 
       @if (loading()) {
-        <section class="runner-card p-8 text-center text-sm text-slate-400">
+        <section class="runner-card runner-muted p-8 text-center text-sm">
           Loading published execution authority…
         </section>
       } @else if (pageError()) {
-        <section class="runner-card border-red-400/30 p-5 text-sm text-red-300" role="alert">
+        <section class="ck-tone-neg rounded-lg p-5 text-sm" role="alert">
           <p>{{ pageError() }}</p>
           <button
             type="button"
@@ -141,12 +143,12 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
       } @else if (published(); as flow) {
         @if (stalePublishedEvidence()) {
           <section
-            class="runner-card border-amber-400/30 bg-amber-400/5 p-5 text-sm text-amber-100"
+            class="ck-tone-warn rounded-lg p-5 text-sm"
             role="alert"
             data-testid="runner-stale-authority"
           >
             <strong>Published authority changed.</strong>
-            <p class="mt-1 text-amber-100/80">
+            <p class="mt-1">
               New Runs are locked until the published version, hash and durable session are reloaded together.
             </p>
             <button
@@ -208,7 +210,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
                 <pre class="runner-input max-h-44 overflow-auto p-3 text-[11px]">{{ formatJson(ingress.input_schema || {}) }}</pre>
               </div>
             } @else {
-              <p class="rounded border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-amber-200">
+              <p class="ck-tone-warn rounded p-3 text-sm">
                 This published Flow has no manual ingress. Add and publish one before using the operator Runner.
               </p>
             }
@@ -225,7 +227,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
               ></textarea>
             </label>
             @if (inputError()) {
-              <p class="text-sm text-red-300" role="alert" data-testid="runner-input-error">
+              <p class="text-sm" [style.color]="'var(--ck-status-neg-fg)'" role="alert" data-testid="runner-input-error">
                 {{ inputError() }}
               </p>
             }
@@ -253,30 +255,30 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
             <div class="mt-4 space-y-3" data-testid="runner-runs">
               @for (run of runs(); track run.id) {
                 <article
-                  class="runner-run rounded bg-slate-950/40 p-4"
+                  class="runner-run rounded p-4"
                   [attr.data-status]="run.status"
                 >
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <a
                       [routerLink]="['/runs', run.id]"
-                      class="font-mono text-xs text-cyan-300 hover:text-cyan-200"
+                      class="ck-accent font-mono text-xs"
                     >{{ run.id }}</a>
                     <span class="runner-badge">{{ run.status }}</span>
                   </div>
-                  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-slate-500">
+                  <div class="runner-muted mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px]">
                     <span>{{ run.runtime_mode }}</span>
                     <span>{{ shortHash(run.flow_sha256) }}</span>
                     @if (run.duration_ms != null) { <span>{{ run.duration_ms }} ms</span> }
                   </div>
                   @if (run.error) {
-                    <p class="mt-3 text-sm text-red-300">{{ run.error }}</p>
+                    <p class="mt-3 text-sm" [style.color]="'var(--ck-status-neg-fg)'">{{ run.error }}</p>
                   }
                   @if (run.status === 'completed' || run.status === 'failed') {
                     <pre class="runner-input mt-3 max-h-64 overflow-auto p-3 text-[11px]">{{ formatJson(run.output_ref) }}</pre>
                   }
                 </article>
               } @empty {
-                <p class="py-10 text-center text-sm text-slate-500">
+                <p class="runner-muted py-10 text-center text-sm">
                   No Run in this durable session yet.
                 </p>
               }

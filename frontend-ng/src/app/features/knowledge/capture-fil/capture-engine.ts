@@ -28,6 +28,7 @@ import {
 } from '@app/core/livekit-conversation.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   coerceCaptureTemplate,
   lookupCaptureTemplate,
@@ -229,6 +230,12 @@ export class CaptureEngine {
   private readonly workspace = inject(WorkspaceService);
   private readonly canonicalApi = inject(CanonicalApiService);
   private readonly destroyRef = inject(DestroyRef);
+  /**
+   * The engine publishes user-facing status and error messages through its
+   * signals, so it resolves them here rather than shipping raw French. A
+   * message is translated when the event happens, not when it is rendered.
+   */
+  private readonly i18n = inject(I18nService);
 
   private connection: VoiceSessionConnection | LiveKitConversationConnection | null = null;
   /** Invalidates the whole hydrate → transport → subscription activation chain. */
@@ -1848,7 +1855,7 @@ export class CaptureEngine {
   ): Promise<boolean> {
     const proposalId = this._proposalId();
     if (!proposalId) {
-      this._lastError.set('Aucune proposition à réviser.');
+      this._lastError.set(this.i18n.t('capture.error.no_proposal'));
       return false;
     }
     try {
@@ -1861,7 +1868,7 @@ export class CaptureEngine {
       );
       this.applyProposalResponse(payload);
       const applied = (this._proposal()?.status ?? '').toLowerCase() === status;
-      if (!applied) this._lastError.set('La décision de revue n’a pas été enregistrée.');
+      if (!applied) this._lastError.set(this.i18n.t('capture.error.review_not_saved'));
       return applied;
     } catch (error) {
       this._lastError.set(this.errorMessage(error));
@@ -1979,7 +1986,7 @@ export class CaptureEngine {
       // A rejected fiche must NOT be silently re-accepted on publish: the
       // reviewer's decision stands until they explicitly accept it again.
       if (status === 'rejected') {
-        this._lastError.set('Fiche rejetée — acceptez-la explicitement avant de publier.');
+        this._lastError.set(this.i18n.t('capture.error.rejected_before_publish'));
         return null;
       }
       if (status !== 'accepted' && status !== 'published') {
@@ -2041,7 +2048,11 @@ export class CaptureEngine {
     if (!sessionId) return null;
     const attempt = this.captureCurrentAttempt(sessionId);
     if (!attempt) return null;
-    this._finalize.set({ ...FINALIZE_IDLE, stage: 'running', message: 'Génération de la synthèse…' });
+    this._finalize.set({
+      ...FINALIZE_IDLE,
+      stage: 'running',
+      message: this.i18n.t('capture.finalize.summary_generating'),
+    });
     // Prefer the live WS path on BOTH realtime transports: the gateway streams
     // honest `capture.finalize.progress` stage events to the report banner and
     // returns the proposal via `conversation.step` (capture_finished). On
@@ -2079,7 +2090,11 @@ export class CaptureEngine {
       this._finalize.update((s) =>
         s.stage === 'failed'
           ? s
-          : { ...s, stage: 'done', message: 'Rapport prêt — indexation en arrière-plan.' },
+          : {
+              ...s,
+              stage: 'done',
+              message: this.i18n.t('capture.finalize.report_ready'),
+            },
       );
       return proposalId;
     } catch (error) {
@@ -2127,7 +2142,11 @@ export class CaptureEngine {
       this._finalize.update((s) =>
         s.stage === 'failed'
           ? s
-          : { ...s, stage: 'done', message: 'Rapport prêt — indexation en arrière-plan.' },
+          : {
+              ...s,
+              stage: 'done',
+              message: this.i18n.t('capture.finalize.report_ready'),
+            },
       );
       return existing.id;
     }
@@ -2394,7 +2413,11 @@ export class CaptureEngine {
       this._finalize.update((s) =>
         s.stage === 'failed'
           ? s
-          : { ...s, stage: 'done', message: 'Rapport prêt — indexation en arrière-plan.' },
+          : {
+              ...s,
+              stage: 'done',
+              message: this.i18n.t('capture.finalize.report_ready'),
+            },
       );
       this.settleFinalize(proposalId);
       return;

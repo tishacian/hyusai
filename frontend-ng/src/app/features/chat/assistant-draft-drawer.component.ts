@@ -12,6 +12,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   AssistantEffectsService,
   type AssistantDraftOpenEffect,
@@ -138,31 +139,39 @@ interface DraftValidationResponse {
         class="draft-drawer"
         [class.document-mode]="isDocumentPreview()"
         role="dialog"
-        aria-label="Brouillon advisory"
+        [attr.aria-label]="i18n.t('chat.draft.badge')"
       >
         <header class="mission-panel-head">
           <div>
-            <span class="mission-status-badge is-advisory">Brouillon advisory</span>
+            <span class="mission-status-badge is-advisory">{{ i18n.t('chat.draft.badge') }}</span>
             <span class="eyebrow">{{ draftKind() }}</span>
             <h2>{{ draftTitle() }}</h2>
             @if (recipient()) {
               <p>{{ recipient() }}</p>
             }
           </div>
-          <button type="button" class="icon-button" (click)="cancel()" aria-label="Fermer">
+          <button
+            type="button"
+            class="icon-button"
+            (click)="cancel()"
+            [attr.aria-label]="i18n.t('common.close')"
+          >
             <ck-glyph name="x" [size]="16" />
           </button>
         </header>
 
         @if (isDocumentPreview()) {
-          <section class="doc-preview ck-scroll" aria-label="Aperçu document">
+          <section class="doc-preview ck-scroll" [attr.aria-label]="i18n.t('chat.draft.doc_preview')">
             @if (citedPassages().length) {
-              <section class="doc-citation-preview ck-scroll" aria-label="Extraits cités par AYA">
-                <span class="eyebrow">Aperçu document · extraits cités par AYA</span>
+              <section
+                class="doc-citation-preview ck-scroll"
+                [attr.aria-label]="i18n.t('chat.draft.cited')"
+              >
+                <span class="eyebrow">{{ i18n.t('chat.draft.cited_eyebrow') }}</span>
                 @for (passage of citedPassages(); track $index) {
                   <article class="citation-page">
                     @if (passage.page) {
-                      <strong>Page {{ passage.page }}</strong>
+                      <strong>{{ i18n.t('chat.draft.page', { page: passage.page }) }}</strong>
                     }
                     @if (passage.label) {
                       <em>{{ passage.label }}</em>
@@ -174,29 +183,29 @@ interface DraftValidationResponse {
                 }
                 @if (downloadHref()) {
                   <p class="doc-citation-hint">
-                    PDF complet disponible via « Télécharger ».
+                    {{ i18n.t('chat.draft.pdf_hint') }}
                   </p>
                 }
               </section>
             } @else if (previewLoading()) {
-              <p class="doc-fallback doc-loading">Chargement de l'aperçu PDF…</p>
+              <p class="doc-fallback doc-loading">{{ i18n.t('chat.draft.preview_loading') }}</p>
             } @else if (documentUrl(); as url) {
               <iframe
                 class="doc-frame"
                 [src]="url"
-                title="Aperçu document"
+                [title]="i18n.t('chat.draft.doc_preview')"
                 loading="lazy"
               ></iframe>
             } @else {
               <p class="doc-fallback">
-                {{ previewError() || "Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document." }}
+                {{ previewError() || i18n.t('chat.draft.preview_unavailable') }}
               </p>
             }
           </section>
         } @else {
           @if (subject()) {
             <div class="draft-subject">
-              <span>Objet</span>
+              <span>{{ i18n.t('chat.draft.subject') }}</span>
               <strong>{{ subject() }}</strong>
             </div>
           }
@@ -207,7 +216,7 @@ interface DraftValidationResponse {
 
           @if (sourceLabels().length) {
             <section class="draft-sources">
-              <span class="eyebrow">Sources</span>
+              <span class="eyebrow">{{ i18n.t('chat.draft.sources') }}</span>
               <ul>
                 @for (source of sourceLabels(); track source) {
                   <li>{{ source }}</li>
@@ -227,21 +236,21 @@ interface DraftValidationResponse {
                 target="_blank"
                 rel="noopener"
               >
-                Télécharger
+                {{ i18n.t('chat.draft.download') }}
               </a>
             }
             <button type="button" class="action-button ghost" (click)="cancel()">
-              Fermer
+              {{ i18n.t('common.close') }}
             </button>
           } @else {
             <button type="button" class="action-button primary" [disabled]="submitting()" (click)="validate()">
-              Valider (advisory)
+              {{ i18n.t('chat.draft.validate') }}
             </button>
             <button type="button" class="action-button" [disabled]="submitting()" (click)="modify()">
-              Modifier
+              {{ i18n.t('common.edit') }}
             </button>
             <button type="button" class="action-button ghost" (click)="cancel()">
-              Annuler
+              {{ i18n.t('common.cancel') }}
             </button>
           }
         </footer>
@@ -507,6 +516,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly assistantEffects = inject(AssistantEffectsService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly open = signal(false);
   readonly submitting = signal(false);
@@ -690,9 +700,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     const href = this.rawDocumentHref();
     if (!href) {
       if (!this.citedPassages().length) {
-        this.previewError.set(
-          'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
-        );
+        this.previewError.set(this.i18n.t('chat.draft.preview_unavailable'));
       }
       this.previewLoading.set(false);
       return;
@@ -708,9 +716,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
         this.revokePreviewBlobUrl();
         if (this.shouldUseCitationPreview(blob)) {
           if (!hasCitations) {
-            this.previewError.set(
-              'Document PDF indisponible — utilisez le bouton « Télécharger » ou consultez les passages cités.',
-            );
+            this.previewError.set(this.i18n.t('chat.draft.pdf_unavailable'));
           }
           this.previewLoading.set(false);
           return;
@@ -724,9 +730,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
         if (!this.previewRequestIsCurrent(generation, scope)) return;
         this.previewLoading.set(false);
         if (!hasCitations) {
-          this.previewError.set(
-            'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
-          );
+          this.previewError.set(this.i18n.t('chat.draft.preview_unavailable'));
         }
       },
     });
@@ -788,7 +792,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
 
   draftKind(): string {
     const payload = this.payload();
-    return payload?.kind || payload?.target_type || 'Instruction advisory';
+    return payload?.kind || payload?.target_type || 'Recommandation';
   }
 
   draftTitle(): string {
@@ -838,13 +842,16 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
         next: (response) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.submitting.set(false);
-          this.toast.success(response.title || 'Instruction advisory enregistree', 'Validation');
+          this.toast.success(
+            response.title || this.i18n.t('chat.draft.validate.saved'),
+            'Validation',
+          );
           this.cancel();
         },
         error: () => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.submitting.set(false);
-          this.toast.error('Validation advisory indisponible pour le moment.', 'Brouillon');
+          this.toast.error(this.i18n.t('chat.draft.validate.failed'), 'Brouillon');
         },
       });
   }
@@ -915,7 +922,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     );
     this.toast.info(
       `${track.callsign || 'Trace'} mis en surbrillance — ouvrez la vue Carte si besoin.`,
-      'ADS-B advisory',
+      'ADS-B consultatif',
     );
   }
 

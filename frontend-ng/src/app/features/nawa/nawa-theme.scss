@@ -35,10 +35,9 @@
 }
 
 /**
- * Light palette. A service desk is used all day on lit office screens, so the
- * business app offers what the cockpit cannot: the global `html` is pinned to
- * dark for the admin chrome, but this feature scopes its own `data-theme` and
- * only rewrites the tokens above.
+ * Light palette. A service desk is used all day on lit office screens. The
+ * host `data-theme` mirrors the one global theme preference; this feature
+ * keeps its own brand palette and only rewrites the tokens above.
  *
  * The accent darkens by one step because brick on white is louder than brick on
  * black, and the hairlines flip from white-alpha to black-alpha — anything left

@@ -353,7 +353,7 @@ export const APPS: AppDef[] = [
   { id: 'code_interpreter', name: 'Code Interpreter', description: 'Execute Python and analyze data programmatically.',       icon: 'terminal',     status: 'beta',  wiring: 'catalog' },
   { id: 'sql_query',       name: 'SQL Query',         description: 'Query structured databases and export results.',          icon: 'database',     status: 'ready', wiring: 'catalog' },
   { id: 'api_connector',   name: 'API Connector',     description: 'Call external REST APIs with custom authentication.',     icon: 'plug',         status: 'ready', wiring: 'catalog' },
-  { id: 'email_sender',    name: 'Email Sender',      description: 'Draft and send emails from agent workflows.',             icon: 'mail',         status: 'ready', wiring: 'catalog' },
+  { id: 'email_sender',    name: 'Email Sender',      description: 'Draft and send emails from a Flow.',                           icon: 'mail',         status: 'ready', wiring: 'catalog' },
   { id: 'file_generator',  name: 'File Generator',    description: 'Export agent output as PDF, Excel, or CSV.',              icon: 'file-text',    status: 'beta',  wiring: 'catalog' },
   { id: 'calendar_access', name: 'Calendar Access',   description: 'Read and write calendar events and schedules.',           icon: 'calendar',     status: 'beta',  wiring: 'catalog' },
   { id: 'memory',          name: 'Persistent Memory', description: 'Store and retrieve context across sessions.',             icon: 'brain',        status: 'ready', wiring: 'catalog' },

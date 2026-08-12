@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent, TagComponent, type CkTagTone } from '@app/shared/cockpit';
@@ -36,16 +37,16 @@ interface DashboardSession extends CaptureSessionInfo {
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
         <div>
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-            Capture · Connaissances
+            {{ i18n.t('capture.dashboard.eyebrow') }}
           </span>
-          <h2 style="margin:6px 0 0; font-size:22px; font-weight:680; color:var(--ck-fg-1);">Vos séances de capture</h2>
+          <h2 style="margin:6px 0 0; font-size:22px; font-weight:680; color:var(--ck-fg-1);">{{ i18n.t('capture.dashboard.title') }}</h2>
         </div>
         <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
           @if (hasSystem()) {
             <button
               type="button"
               (click)="settingsOpen.set(true)"
-              title="Paramètres de capture du système"
+              [title]="i18n.t('capture.dashboard.settings_hint')"
               style="display:inline-flex; align-items:center; justify-content:center; padding:9px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer;"
             >
               <ck-glyph name="sliders" [size]="14" color="currentColor" />
@@ -56,7 +57,7 @@ interface DashboardSession extends CaptureSessionInfo {
             (click)="newCapture.emit()"
             style="display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-size:13px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
           >
-            <ck-glyph name="bolt" [size]="14" color="currentColor" /> Nouvelle capture
+            <ck-glyph name="bolt" [size]="14" color="currentColor" /> {{ i18n.t('capture.dashboard.new') }}
           </button>
         </div>
       </div>
@@ -67,14 +68,14 @@ interface DashboardSession extends CaptureSessionInfo {
 
       @if (loading()) {
         <div class="ck-surface" style="border-radius:var(--ck-radius-md); padding:24px; text-align:center; color:var(--ck-fg-4); font-size:13px;">
-          Chargement des séances…
+          {{ i18n.t('capture.dashboard.loading') }}
         </div>
       } @else if (sessions().length === 0) {
         <div class="ck-surface" style="border-radius:var(--ck-radius-md); padding:28px; text-align:center; display:flex; flex-direction:column; gap:8px; align-items:center;">
           <ck-glyph name="ledger" [size]="22" color="var(--ck-fg-4)" />
-          <div style="font-size:14px; color:var(--ck-fg-2); font-weight:550;">Aucune séance pour le moment</div>
+          <div style="font-size:14px; color:var(--ck-fg-2); font-weight:550;">{{ i18n.t('capture.dashboard.empty') }}</div>
           <div style="font-size:12.5px; color:var(--ck-fg-4); max-width:42ch;">
-            Démarrez une nouvelle capture pour collecter la connaissance d'un expert sur un seul fil horodaté.
+            {{ i18n.t('capture.dashboard.empty_hint') }}
           </div>
         </div>
       } @else {
@@ -93,9 +94,9 @@ interface DashboardSession extends CaptureSessionInfo {
               >
                 <div style="flex:1; min-width:0;">
                   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                    <span style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">{{ s.title || 'Séance sans titre' }}</span>
+                    <span style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">{{ s.title || i18n.t('capture.dashboard.untitled') }}</span>
                     @if (s.archived) {
-                      <ck-tag tone="neutral" variant="soft">Archivée</ck-tag>
+                      <ck-tag tone="neutral" variant="soft">{{ i18n.t('capture.dashboard.archived') }}</ck-tag>
                     } @else {
                       <ck-tag [tone]="statusTone(s.status)" variant="soft">{{ statusLabel(s.status) }}</ck-tag>
                     }
@@ -113,20 +114,20 @@ interface DashboardSession extends CaptureSessionInfo {
                   type="button"
                   (click)="unarchive(s)"
                   [disabled]="busyId() === s.id"
-                  title="Restaurer cette séance dans la liste active"
+                  [title]="i18n.t('capture.dashboard.unarchive_hint')"
                   style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; cursor:pointer; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-2);"
                 >
-                  <ck-glyph name="orbit" [size]="13" color="currentColor" /> Désarchiver
+                  <ck-glyph name="orbit" [size]="13" color="currentColor" /> {{ i18n.t('capture.dashboard.unarchive') }}
                 </button>
               } @else {
                 <button
                   type="button"
                   (click)="archive(s)"
                   [disabled]="busyId() === s.id"
-                  title="Archiver cette séance (masquée de la liste active, restaurable — aucune suppression)"
+                  [title]="i18n.t('capture.dashboard.archive_hint')"
                   style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; cursor:pointer; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-3);"
                 >
-                  <ck-glyph name="layers" [size]="13" color="currentColor" /> Archiver
+                  <ck-glyph name="layers" [size]="13" color="currentColor" /> {{ i18n.t('capture.dashboard.archive') }}
                 </button>
               }
               <ck-glyph name="arrow-right" [size]="14" color="var(--ck-fg-4)" />
@@ -142,6 +143,8 @@ interface DashboardSession extends CaptureSessionInfo {
   `,
 })
 export class CaptureFilDashboardComponent {
+  readonly i18n = inject(I18nService);
+
   private readonly api = inject(ApiService);
   private readonly engine = inject(CaptureEngine);
   private readonly destroyRef = inject(DestroyRef);
@@ -211,8 +214,8 @@ export class CaptureFilDashboardComponent {
       error: () => {
         this.actionError.set(
           archived
-            ? "Impossible d'archiver la séance — réessayez."
-            : 'Impossible de désarchiver la séance — réessayez.',
+            ? this.i18n.t('capture.dashboard.archive_error')
+            : this.i18n.t('capture.dashboard.unarchive_error'),
         );
         this.busyId.set(null);
       },
@@ -221,11 +224,12 @@ export class CaptureFilDashboardComponent {
 
   protected statusLabel(status: string | null | undefined): string {
     const s = (status || '').toLowerCase();
-    if (s === 'completed' || s === 'published') return 'Terminée';
-    if (s === 'in_progress' || s === 'active' || s === 'running') return 'En cours';
-    if (s === 'archived') return 'Archivée';
-    if (s === 'draft' || s === 'planning') return 'Brouillon';
-    return status || 'Inconnu';
+    if (s === 'completed' || s === 'published') return this.i18n.t('capture.status.completed');
+    if (s === 'in_progress' || s === 'active' || s === 'running')
+      return this.i18n.t('capture.status.in_progress');
+    if (s === 'archived') return this.i18n.t('capture.status.archived');
+    if (s === 'draft' || s === 'planning') return this.i18n.t('capture.status.draft');
+    return status || this.i18n.t('capture.status.unknown');
   }
 
   protected statusTone(status: string | null | undefined): CkTagTone {

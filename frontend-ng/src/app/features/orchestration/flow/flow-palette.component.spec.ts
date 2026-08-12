@@ -16,6 +16,8 @@ import {
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import { FlowCatalogService } from './flow-catalog.service';
 import { FlowPaletteComponent } from './flow-palette.component';
 import type { PaletteInsertContext } from './flow-palette.vm';
@@ -68,6 +70,25 @@ function skill(overrides: Partial<PaletteItem> & { label: string }): PaletteItem
   };
 }
 
+/**
+ * Resolves real EN copy so the assertions below keep reading the words an
+ * operator sees, now that they live in the dictionary rather than the template.
+ */
+function i18nStub() {
+  return {
+    locale: signal('en' as const),
+    setLocale: () => undefined,
+    t: (key: string, params?: Record<string, string | number>) => {
+      const value = (FLOW_EN as Record<string, string>)[key] ?? key;
+      return params
+        ? value.replace(/\{(\w+)\}/g, (match, name: string) =>
+            name in params ? String(params[name]) : match,
+          )
+        : value;
+    },
+  };
+}
+
 /** The unit runner has no TestBed: substitute a signal input with a function
  * of the same read shape. */
 function bindInput(component: object, name: string, value: unknown): void {
@@ -104,6 +125,7 @@ function setup(options: {
       { provide: FlowCatalogService, useValue: catalog },
       { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
       { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
+      { provide: I18nService, useValue: i18nStub() },
     ],
   });
   const palette = runInInjectionContext(injector, () => new FlowPaletteComponent());

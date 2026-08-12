@@ -119,7 +119,7 @@
 
   &:hover {
     transform: scale(1.2);
-    background: rgba(239, 90, 111, 0.3);
+    background: color-mix(in srgb, var(--ck-signal-neg) 30%, transparent);
   }
   &.is-on {
     background: var(--ck-signal-neg, #ef5a6f);

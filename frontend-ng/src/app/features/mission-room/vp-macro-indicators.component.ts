@@ -9,6 +9,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { catchError, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 
 interface MacroIndicatorPoint {
   year?: number;
@@ -125,14 +126,14 @@ function rollSeriesDates(series: MacroIndicatorPoint[]): MacroIndicatorPoint[] {
       } @else {
         <div class="macro-empty" role="status">
           <span class="macro-empty-icon" aria-hidden="true">○</span>
-          <strong>Indicateurs en cours de chargement</strong>
-          <small>Les indicateurs s'affichent dès que la source du workspace répond.</small>
+          <strong>{{ i18n.t('mission.macro.loading') }}</strong>
+          <small>{{ i18n.t('mission.macro.loading_hint') }}</small>
         </div>
       }
 
       @if (contextIndicators().length) {
         <div class="macro-context">
-          <span class="context-label">Contexte macro · Banque mondiale</span>
+          <span class="context-label">{{ i18n.t('mission.macro.context') }}</span>
           <div class="macro-cards context-grid">
             @for (indicator of contextIndicators(); track indicator.key) {
               <button
@@ -160,7 +161,7 @@ function rollSeriesDates(series: MacroIndicatorPoint[]): MacroIndicatorPoint[] {
       }
 
       @if (expandedIndicator(); as expanded) {
-        <article class="macro-detail" role="region" aria-label="Détail indicateur">
+        <article class="macro-detail" role="region" [attr.aria-label]="i18n.t('mission.macro.detail')">
           <header>
             <div>
               <span class="eyebrow">{{ expanded.label }}</span>
@@ -525,6 +526,7 @@ function rollSeriesDates(series: MacroIndicatorPoint[]): MacroIndicatorPoint[] {
 })
 export class VpMacroIndicatorsComponent implements OnInit {
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
 
   // The cockpit mounts this strip in every workspace, so it must stay empty
   // until the workspace's own aggregate answers: any seeded placeholder would

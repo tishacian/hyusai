@@ -52,15 +52,15 @@
   }
   &[data-status='paused'] {
     color: var(--ck-signal-warn, #f5b84a);
-    border-color: rgba(245, 184, 74, 0.4);
+    border-color: color-mix(in srgb, var(--ck-signal-warn) 40%, transparent);
   }
   &[data-status='done'] {
     color: var(--ck-signal-pos, #34d399);
-    border-color: rgba(52, 211, 153, 0.4);
+    border-color: color-mix(in srgb, var(--ck-signal-pos) 40%, transparent);
   }
   &[data-status='error'] {
     color: var(--ck-signal-neg, #ef5a6f);
-    border-color: rgba(239, 90, 111, 0.4);
+    border-color: color-mix(in srgb, var(--ck-signal-neg) 40%, transparent);
   }
 }
 
@@ -161,8 +161,8 @@
   background: var(--ck-bg-panel-hi, #11161c);
   padding: 12px;
 
-  &[data-tone='hitl'] {
-    border-color: rgba(245, 184, 74, 0.45);
+  &[data-tone='approval'] {
+    border-color: color-mix(in srgb, var(--ck-signal-warn) 45%, transparent);
     box-shadow: var(--ck-glow-warn, none);
   }
   &[data-tone='debug'] {
@@ -179,7 +179,7 @@
   font-weight: 600;
   color: var(--ck-fg-1, #f2f5f8);
 
-  [data-tone='hitl'] & app-icon { color: var(--ck-signal-warn, #f5b84a); }
+  [data-tone='approval'] & app-icon { color: var(--ck-signal-warn, #f5b84a); }
   [data-tone='debug'] & app-icon { color: var(--ck-signal-cool, #7dd3fc); }
 }
 
@@ -194,7 +194,7 @@
   border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
   color: var(--ck-fg-3, #8891a0);
 
-  &[data-tone='warn'] { color: var(--ck-signal-warn, #f5b84a); border-color: rgba(245, 184, 74, 0.4); }
+  &[data-tone='warn'] { color: var(--ck-signal-warn, #f5b84a); border-color: color-mix(in srgb, var(--ck-signal-warn) 40%, transparent); }
   &[data-tone='cool'] { color: var(--ck-signal-cool, #7dd3fc); border-color: var(--ck-stroke-hot); }
 }
 
@@ -288,19 +288,19 @@
 }
 
 .ck-term__btn--accept {
-  border-color: rgba(52, 211, 153, 0.5);
+  border-color: color-mix(in srgb, var(--ck-signal-pos) 50%, transparent);
   color: var(--ck-signal-pos, #34d399);
 
   &:hover:not(:disabled) {
-    background: rgba(52, 211, 153, 0.12);
+    background: color-mix(in srgb, var(--ck-signal-pos) 12%, transparent);
   }
 }
 
 .ck-term__btn--reject {
-  border-color: rgba(239, 90, 111, 0.5);
+  border-color: color-mix(in srgb, var(--ck-signal-neg) 50%, transparent);
   color: var(--ck-signal-neg, #ef5a6f);
 
   &:hover:not(:disabled) {
-    background: rgba(239, 90, 111, 0.12);
+    background: color-mix(in srgb, var(--ck-signal-neg) 12%, transparent);
   }
 }

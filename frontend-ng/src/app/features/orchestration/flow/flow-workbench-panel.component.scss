@@ -39,7 +39,7 @@
    unsaved, never published, real side effects — in a sentence. */
 .ck-workbench__status {
   font: 11px / 1.4 var(--ck-font-sans, sans-serif);
-  color: #d7c797;
+  color: color-mix(in srgb, var(--ck-signal-warn, #fbbf24) 62%, var(--ck-fg-2, #c8cdd4));
 }
 
 .ck-workbench__detail-toggle {
@@ -65,7 +65,7 @@
   margin: 0;
   padding: 8px 10px;
   border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-  background: rgba(255, 255, 255, 0.015);
+  background: color-mix(in srgb, var(--ck-fg-1, #f2f5f8) 2%, transparent);
 
   dt {
     font: 600 9px / 1.5 var(--ck-font-mono, monospace);
@@ -78,7 +78,7 @@
     font: 11px / 1.5 var(--ck-font-sans, sans-serif);
     color: var(--ck-fg-2, #c8cdd4);
   }
-  dd[data-mode='sequential_legacy'] { color: #fbbf24; }
+  dd[data-mode='sequential_legacy'] { color: var(--ck-signal-warn, #fbbf24); }
   dd[data-mode='unknown'] { color: var(--ck-fg-4, #6f7886); }
 
   &[hidden] {
@@ -103,9 +103,9 @@
     cursor: pointer;
   }
   button[aria-selected='true'] {
-    border-color: rgba(125, 211, 252, 0.25);
-    background: rgba(125, 211, 252, 0.09);
-    color: #d9f4ff;
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 25%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 9%, transparent);
+    color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 40%, var(--ck-fg-1, #f2f5f8));
   }
 }
 
@@ -130,9 +130,9 @@
   align-items: center;
   gap: 8px !important;
   padding: 7px 10px;
-  border-bottom: 1px solid rgba(251, 191, 36, 0.18);
-  background: rgba(251, 191, 36, 0.045);
-  color: #d7c797;
+  border-bottom: 1px solid color-mix(in srgb, var(--ck-signal-warn, #fbbf24) 18%, transparent);
+  background: color-mix(in srgb, var(--ck-signal-warn, #fbbf24) 5%, transparent);
+  color: color-mix(in srgb, var(--ck-signal-warn, #fbbf24) 62%, var(--ck-fg-2, #c8cdd4));
   font-size: 10px;
   line-height: 1.35;
   cursor: pointer;
@@ -141,11 +141,11 @@
     flex: 0 0 auto;
     width: 14px;
     height: 14px;
-    accent-color: #fbbf24;
+    accent-color: var(--ck-signal-warn, #fbbf24);
   }
 }
 
-.ck-workbench__ingress {
+.ck-workbench__entry {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -187,10 +187,10 @@
   max-width: min(780px, 88%);
   padding: 7px 9px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.035);
+  background: color-mix(in srgb, var(--ck-fg-1, #f2f5f8) 4%, transparent);
 
-  &[data-role='operator'] { align-self: flex-end; background: rgba(59, 130, 246, 0.12); }
-  &[data-role='system'] { border: 1px solid rgba(239, 90, 111, 0.25); }
+  &[data-role='operator'] { align-self: flex-end; background: color-mix(in srgb, var(--ck-signal-cool) 12%, transparent); }
+  &[data-role='system'] { border: 1px solid color-mix(in srgb, var(--ck-signal-neg) 25%, transparent); }
   span { color: var(--ck-fg-4, #6f7886); font: 600 8px / 1 var(--ck-font-mono, monospace); text-transform: uppercase; }
   p { margin: 4px 0 0; white-space: pre-wrap; font-size: 11px; line-height: 1.45; }
   code { color: var(--ck-fg-4, #6f7886); font-size: 9px; }
@@ -203,7 +203,7 @@
   padding: 6px;
   border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.06));
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--ck-bg-0, rgba(0, 0, 0, 0.18));
   color: var(--ck-fg-2, #c8cdd4);
   font: 9px / 1.4 var(--ck-font-mono, monospace);
   white-space: pre-wrap;
@@ -245,7 +245,7 @@
   color: var(--ck-fg-1, #f2f5f8);
   font: 10px / 1.45 var(--ck-font-mono, monospace);
 
-  &:focus { outline: none; border-color: rgba(125, 211, 252, 0.5); }
+  &:focus { outline: none; border-color: color-mix(in srgb, var(--ck-signal-cool) 50%, transparent); }
 }
 
 .ck-workbench button.is-primary {
@@ -255,10 +255,10 @@
   justify-content: center;
   gap: 6px;
   padding: 6px 10px;
-  border: 1px solid rgba(125, 211, 252, 0.35);
+  border: 1px solid color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 35%, transparent);
   border-radius: 5px;
-  background: rgba(14, 165, 233, 0.14);
-  color: #d9f4ff;
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 16%, transparent);
+  color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 40%, var(--ck-fg-1, #f2f5f8));
   font-size: 11px;
   cursor: pointer;
   &:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -285,9 +285,9 @@
   grid-column: 1 / -1;
   min-height: 0;
   padding: 7px 9px;
-  border: 1px solid rgba(125, 211, 252, 0.18);
+  border: 1px solid color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 18%, transparent);
   border-radius: 5px;
-  &[data-status='failed'] { border-color: rgba(239, 90, 111, 0.35); }
+  &[data-status='failed'] { border-color: color-mix(in srgb, var(--ck-signal-neg) 35%, transparent); }
   strong { font-size: 10px; text-transform: uppercase; }
   p { margin: 4px 0; color: var(--ck-signal-neg, #ef5a6f); font-size: 10px; }
   pre { max-height: 92px; margin: 5px 0 0; overflow: auto; font: 9px / 1.4 var(--ck-font-mono, monospace); }
@@ -316,8 +316,8 @@
     border-radius: 4px;
     font-size: 9px;
   }
-  article[data-result='pass'] { border-color: rgba(52, 211, 153, 0.35); }
-  article[data-result='fail'] { border-color: rgba(239, 90, 111, 0.4); }
+  article[data-result='pass'] { border-color: color-mix(in srgb, var(--ck-signal-pos) 35%, transparent); }
+  article[data-result='fail'] { border-color: color-mix(in srgb, var(--ck-signal-neg) 40%, transparent); }
   code { color: var(--ck-fg-4, #6f7886); }
   p { grid-column: 1 / -1; margin: 0; color: var(--ck-signal-neg, #ef5a6f); }
 }
@@ -341,7 +341,7 @@
     overflow: auto;
     padding: 5px;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--ck-bg-0, rgba(0, 0, 0, 0.18));
     color: var(--ck-fg-2, #c8cdd4);
     font: 8px / 1.35 var(--ck-font-mono, monospace);
     white-space: pre-wrap;
@@ -353,9 +353,9 @@
   flex-shrink: 0;
   margin: 0;
   padding: 5px 10px;
-  border-top: 1px solid rgba(239, 90, 111, 0.2);
+  border-top: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 20%, transparent);
   color: var(--ck-signal-neg, #ef5a6f);
-  background: rgba(239, 90, 111, 0.06);
+  background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 6%, transparent);
   font-size: 10px;
 }
 

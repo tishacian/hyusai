@@ -1,21 +1,25 @@
 /**
- * `<app-flow-schema-editor>` — declare one node contract schema by hand.
+ * `<app-flow-schema-editor>` — declare one node contract schema.
  *
  * Writes a JSON Schema object into `config.<configKey>` on the selected node.
  * The backend already reads two such keys and freezes them into the immutable
  * execution contract at publication:
- *   - `input_schema`  on a source node → the ingress payload contract,
+ *   - `input_schema`  on a source node → the entry payload contract,
  *   - `output_schema` on a Skill node  → the node's frozen output contract.
  *
  * Before this editor both keys could only be authored by hand-editing the Flow
- * JSON, so an ingress fell back to a schema derived from its ports and a Skill
- * node published whatever the mutable catalogue happened to say. "Derive from
- * ports" reproduces that fallback exactly (mirroring the backend's
+ * JSON, so an entry point fell back to a schema derived from its ports and a
+ * Skill node published whatever the mutable catalogue happened to say. "Derive
+ * from ports" reproduces that fallback exactly (mirroring the backend's
  * `_ports_schema`) so declaring a contract starts from the current behaviour
  * rather than a blank page.
  *
- * Edits commit on `change` (blur), never per keystroke: a half-typed object is
- * not a contract.
+ * The editing surface itself is `<ck-schema-builder>`, shared with the Skill
+ * authoring wizard: a contract is the same object on both screens, so writing
+ * one should not be two different exercises. This component keeps what is
+ * specific to a Flow node — where the schema is stored, and the port-derived
+ * starting point. Every input of this component is unchanged: the inspector
+ * and the entry-point editor call it exactly as before.
  */
 import {
   ChangeDetectionStrategy,
@@ -23,9 +27,9 @@ import {
   computed,
   inject,
   input,
-  signal,
 } from '@angular/core';
 import type { CanonicalFlowNode, NodePort } from '@app/core/flow-serializer.service';
+import { SchemaBuilderComponent } from '@app/shared/schema-builder/schema-builder.component';
 import { FlowStore } from './flow.store';
 import { schemaFromPorts } from './flow-contract-bindings.vm';
 
@@ -34,25 +38,16 @@ import { schemaFromPorts } from './flow-contract-bindings.vm';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './flow-schema-editor.component.scss',
+  imports: [SchemaBuilderComponent],
   template: `
     <div class="ck-schema">
-      <span class="ck-schema__label">{{ label() }}</span>
-      @if (hint(); as text) {
-        <p class="ck-schema__hint">{{ text }}</p>
-      }
-      <textarea
-        class="ck-schema__editor"
-        rows="7"
-        spellcheck="false"
-        autocomplete="off"
-        [attr.aria-label]="label()"
-        [attr.aria-invalid]="error() !== null"
-        [value]="text()"
-        (change)="onCommit($event)"
-      ></textarea>
-      @if (error(); as message) {
-        <p class="ck-schema__hint ck-schema__hint--error" role="alert">{{ message }}</p>
-      } @else if (declared()) {
+      <ck-schema-builder
+        [label]="label()"
+        [hint]="hint()"
+        [value]="stored()"
+        (valueChange)="write($event)"
+      />
+      @if (declared()) {
         <p class="ck-schema__hint">Declared — this is what publication freezes.</p>
       } @else {
         <p class="ck-schema__hint">{{ fallbackHint() }}</p>
@@ -65,7 +60,7 @@ import { schemaFromPorts } from './flow-contract-bindings.vm';
           type="button"
           class="ck-schema__btn"
           [disabled]="!declared()"
-          (click)="clear()"
+          (click)="write(null)"
         >
           Clear
         </button>
@@ -86,63 +81,24 @@ export class FlowSchemaEditorComponent {
   readonly deriveFrom = input<'inputs' | 'outputs'>('outputs');
 
   private readonly node = this.store.selectedNode;
-  /** Rejected text kept on screen so an invalid edit is never silently lost. */
-  private readonly draft = signal<string | null>(null);
-  readonly error = signal<string | null>(null);
 
-  private readonly stored = computed<unknown>(
-    () => ((this.node()?.config ?? {}) as Record<string, unknown>)[this.configKey()],
-  );
-
-  readonly declared = computed(() => isSchemaObject(this.stored()));
-
-  readonly text = computed(() => {
-    const draft = this.draft();
-    if (draft !== null) return draft;
-    const stored = this.stored();
-    return isSchemaObject(stored) ? JSON.stringify(stored, null, 2) : '';
+  readonly stored = computed<Record<string, unknown> | null>(() => {
+    const value = ((this.node()?.config ?? {}) as Record<string, unknown>)[this.configKey()];
+    return isSchemaObject(value) ? value : null;
   });
 
-  onCommit(event: Event): void {
-    this.write((event.target as HTMLTextAreaElement).value);
-  }
+  readonly declared = computed(() => this.stored() !== null);
 
   deriveFromPorts(): void {
     const node = this.node();
     if (!node) return;
-    this.write(JSON.stringify(schemaFromPorts(portsOf(node, this.deriveFrom())), null, 2));
+    this.write(schemaFromPorts(portsOf(node, this.deriveFrom())) as Record<string, unknown>);
   }
 
-  clear(): void {
-    this.write('');
-  }
-
-  private write(raw: string): void {
+  write(schema: Record<string, unknown> | null): void {
     const id = this.node()?.id;
     if (!id) return;
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      this.draft.set(null);
-      this.error.set(null);
-      this.store.updateNodeConfig(id, this.configKey(), null);
-      return;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      this.draft.set(raw);
-      this.error.set('Invalid JSON — the schema was not saved.');
-      return;
-    }
-    if (!isSchemaObject(parsed)) {
-      this.draft.set(raw);
-      this.error.set('A JSON Schema must be an object, not an array or a scalar.');
-      return;
-    }
-    this.draft.set(null);
-    this.error.set(null);
-    this.store.updateNodeConfig(id, this.configKey(), parsed);
+    this.store.updateNodeConfig(id, this.configKey(), schema);
   }
 }
 

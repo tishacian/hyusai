@@ -499,13 +499,15 @@ const STEP_ICONS: Record<string, string> = {
       <aside class="chat-history-panel">
         <div class="chat-history-head">
           <div>
-            <div class="chat-history-kicker">Conversations</div>
-            <div class="chat-history-count">{{ chatSessions().length }} actives</div>
+            <div class="chat-history-kicker">{{ i18n.t('chat.history.title') }}</div>
+            <div class="chat-history-count">
+              {{ i18n.t('chat.history.count', { count: chatSessions().length }) }}
+            </div>
           </div>
           <button
             type="button"
             class="chat-history-new"
-            title="Nouveau chat"
+            [title]="i18n.t('chat.history.new')"
             [disabled]="creatingChatSession"
             (click)="createNewChat()"
           >
@@ -518,17 +520,17 @@ const STEP_ICONS: Record<string, string> = {
             type="search"
             [ngModel]="chatSessionSearch()"
             (ngModelChange)="chatSessionSearch.set($event)"
-            placeholder="Rechercher"
+            [placeholder]="i18n.t('chat.history.search')"
           />
         </div>
         <div class="chat-history-list">
           @if (chatSessionsLoading()) {
             <div class="chat-history-empty">
               <app-icon name="loader-2" [size]="13" class="animate-spin" />
-              Chargement
+              {{ i18n.t('chat.history.loading') }}
             </div>
           } @else if (filteredChatSessions().length === 0) {
-            <div class="chat-history-empty">Aucune conversation</div>
+            <div class="chat-history-empty">{{ i18n.t('chat.history.empty') }}</div>
           } @else {
             @for (session of filteredChatSessions(); track session.id) {
               <div
@@ -539,10 +541,18 @@ const STEP_ICONS: Record<string, string> = {
                 <span class="chat-history-title">{{ sessionTitle(session) }}</span>
                 <span class="chat-history-subtitle">{{ sessionSubtitle(session) }}</span>
                 <span class="chat-history-actions">
-                  <button type="button" title="Archiver" (click)="archiveChatSession(session, $event)">
+                  <button
+                    type="button"
+                    [title]="i18n.t('chat.history.archive')"
+                    (click)="archiveChatSession(session, $event)"
+                  >
                     <app-icon name="archive" [size]="11" />
                   </button>
-                  <button type="button" title="Supprimer" (click)="deleteChatSession(session, $event)">
+                  <button
+                    type="button"
+                    [title]="i18n.t('common.delete')"
+                    (click)="deleteChatSession(session, $event)"
+                  >
                     <app-icon name="trash-2" [size]="11" />
                   </button>
                 </span>
@@ -557,10 +567,10 @@ const STEP_ICONS: Record<string, string> = {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="vigie-kicker">
-                Briefing souverain
+                {{ i18n.t('chat.exec.kicker') }}
               </div>
               <div class="vigie-scope-line">
-                Sources qualifiées · Presse, projets, agenda, carte et observations
+                {{ i18n.t('chat.exec.scope') }}
               </div>
             </div>
             <div class="vigie-context-actions">
@@ -580,21 +590,21 @@ const STEP_ICONS: Record<string, string> = {
                 <button
                   type="button"
                   class="vigie-voice-stop"
-                  title="Arrêter la voix : couper la lecture et la boucle d’écoute."
+                  [title]="i18n.t('chat.voice.stop.hint')"
                   (click)="stopVoiceExperience()"
                 >
                   <app-icon name="square" [size]="13" />
-                  Arrêter
+                  {{ i18n.t('chat.voice.stop') }}
                 </button>
               }
               <button
                 type="button"
                 class="vigie-trace-button"
                 (click)="traceOpen.set(!traceOpen())"
-                [title]="traceOpen() ? 'Masquer les paramètres avancés' : 'Afficher traçabilité et paramètres avancés'"
+                [title]="traceOpen() ? i18n.t('chat.trace.hide') : i18n.t('chat.trace.show')"
               >
                 <app-icon name="sliders-horizontal" [size]="13" />
-                Traçabilité
+                {{ i18n.t('chat.trace.toggle') }}
               </button>
             </div>
           </div>
@@ -1209,7 +1219,7 @@ const STEP_ICONS: Record<string, string> = {
                     [class.text-amber-300]="executiveMode()"
                   />
                   <span>
-                    Carte stratégique prête · {{ mapCommandLabel(msg.mapCommand) }}
+                    {{ i18n.t('chat.map.ready') }} · {{ mapCommandLabel(msg.mapCommand) }}
                   </span>
                 </div>
               }
@@ -1487,7 +1497,7 @@ const STEP_ICONS: Record<string, string> = {
                     }
                   }
                   <span class="font-mono text-[10px] text-sky-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
-                    · job persistant
+                    · {{ i18n.t('chat.deep.tracking') }}
                   </span>
                   <button
                     type="button"
@@ -1509,7 +1519,11 @@ const STEP_ICONS: Record<string, string> = {
                   </div>
                   @if (deepRetrievalRunning(deepInfo)) {
                     <span class="basis-full text-[10px] text-gray-500">
-                      Le job continue côté serveur; ce suivi se met à jour via {{ deepInfo.deepPollUrl || '/documents/jobs/' + deepInfo.deepJobId }}.
+                      {{
+                        i18n.t('chat.deep.server_note', {
+                          url: deepTrackerPath(deepInfo),
+                        })
+                      }}
                     </span>
                   }
                 </div>
@@ -1530,7 +1544,7 @@ const STEP_ICONS: Record<string, string> = {
                       @if (deepInfo.deepAnswer; as deepAnswer) {
                         <div class="border-b border-white/5 px-3 py-3 text-sm leading-relaxed text-gray-800 dark:text-gray-100">
                           <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-sky-300">
-                            Réponse Deep Search
+                            {{ i18n.t('chat.deep.answer') }}
                           </div>
                           @for (block of renderMarkdownAnswer(deepAnswer, deepInfo.deepSources || msg.sources); track $index) {
                             @if (block.kind === 'heading') {
@@ -1674,11 +1688,11 @@ const STEP_ICONS: Record<string, string> = {
                     type="button"
                     class="p-1 rounded hover:bg-emerald-500/10 transition flex items-center gap-1 text-emerald-600 dark:text-emerald-300"
                     [class.bg-emerald-500\\/10]="correctionOpenFor() === msg.id"
-                    title="Corriger ou compléter cette réponse (relecture experte requise)"
+                    [title]="i18n.t('chat.correct.hint')"
                     (click)="toggleCorrection(msg)"
                   >
                     <app-icon name="pencil" [size]="12" />
-                    <span>Corriger</span>
+                    <span>{{ i18n.t('chat.correct.action') }}</span>
                   </button>
                 }
                 @if (!isDemoMode() && msg.evaluation) {
@@ -1694,7 +1708,7 @@ const STEP_ICONS: Record<string, string> = {
                   <div class="flex items-center justify-between gap-2">
                     <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 font-semibold">
                       <app-icon name="pencil" [size]="12" />
-                      Correction experte
+                      {{ i18n.t('chat.correct.title') }}
                     </div>
                     <button
                       type="button"
@@ -1708,7 +1722,9 @@ const STEP_ICONS: Record<string, string> = {
 
                   @if (correctionQuestionFor(msg); as question) {
                     <p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                      <span class="font-semibold text-gray-600 dark:text-gray-300">Question :</span>
+                      <span class="font-semibold text-gray-600 dark:text-gray-300">{{
+                        i18n.t('chat.correct.question')
+                      }}</span>
                       <span class="line-clamp-2">{{ question }}</span>
                     </p>
                   }
@@ -1717,7 +1733,7 @@ const STEP_ICONS: Record<string, string> = {
                     <textarea
                       rows="3"
                       class="flex-1 resize-y rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-white/[0.03] px-2.5 py-2 text-[12px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
-                      placeholder="Corrigez ou complétez la réponse. Vous pouvez aussi dicter au micro."
+                      [placeholder]="i18n.t('chat.correct.placeholder')"
                       [ngModel]="correctionText()"
                       (ngModelChange)="correctionText.set($event)"
                     ></textarea>
@@ -1734,8 +1750,10 @@ const STEP_ICONS: Record<string, string> = {
                       [class.ring-emerald-500\\/30]="correctionMicState() !== 'recording'"
                       [disabled]="correctionMicState() === 'transcribing' || correctionSubmitting()"
                       [title]="correctionMicState() === 'recording'
-                        ? 'Arrêter et transcrire'
-                        : (correctionMicState() === 'transcribing' ? 'Transcription en cours…' : 'Dicter la correction')"
+                        ? i18n.t('chat.correct.mic.stop')
+                        : (correctionMicState() === 'transcribing'
+                            ? i18n.t('chat.correct.mic.transcribing')
+                            : i18n.t('chat.correct.mic.start'))"
                       (click)="toggleCorrectionMic()"
                     >
                       @if (correctionMicState() === 'transcribing') {
@@ -1750,17 +1768,19 @@ const STEP_ICONS: Record<string, string> = {
 
                   @if ((correctionMicState() === 'recording' || correctionMicState() === 'transcribing') && correctionLiveTranscript()) {
                     <div class="rounded-md bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-[11px] italic leading-relaxed text-gray-600 dark:text-gray-300">
-                      <span class="not-italic text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 mr-1.5 align-middle">En direct</span>{{ correctionLiveTranscript() }}
+                      <span class="not-italic text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 mr-1.5 align-middle">{{ i18n.t('chat.correct.live') }}</span>{{ correctionLiveTranscript() }}
                     </div>
                   }
 
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-[10px] text-gray-500">
                       @switch (correctionMicState()) {
-                        @case ('recording') { <span class="text-red-400">● Enregistrement… touchez le carré pour arrêter</span> }
-                        @case ('transcribing') { Transcription en cours… }
-                        @case ('ready') { Transcription prête — relisez et ajustez avant d’envoyer. }
-                        @default { Saisie ou dictée — relecture experte requise avant publication. }
+                        @case ('recording') {
+                          <span class="text-red-400">{{ i18n.t('chat.correct.state.recording') }}</span>
+                        }
+                        @case ('transcribing') { {{ i18n.t('chat.correct.mic.transcribing') }} }
+                        @case ('ready') { {{ i18n.t('chat.correct.state.ready') }} }
+                        @default { {{ i18n.t('chat.correct.state.idle') }} }
                       }
                     </span>
                     <div class="flex items-center gap-1.5">
@@ -1769,7 +1789,7 @@ const STEP_ICONS: Record<string, string> = {
                         class="px-2 py-1 rounded text-[11px] text-gray-500 hover:text-gray-300 hover:bg-white/5 transition"
                         (click)="closeCorrection()"
                       >
-                        Annuler
+                        {{ i18n.t('common.cancel') }}
                       </button>
                       <button
                         type="button"
@@ -1782,10 +1802,10 @@ const STEP_ICONS: Record<string, string> = {
                       >
                         @if (correctionSubmitting()) {
                           <app-icon name="loader-2" [size]="12" class="animate-spin" />
-                          <span>Envoi…</span>
+                          <span>{{ i18n.t('chat.correct.sending') }}</span>
                         } @else {
                           <app-icon name="send" [size]="12" />
-                          <span>Envoyer en revue</span>
+                          <span>{{ i18n.t('chat.correct.submit') }}</span>
                         }
                       </button>
                     </div>
@@ -1800,27 +1820,32 @@ const STEP_ICONS: Record<string, string> = {
                   <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 font-semibold">
                     <app-icon name="check-circle" [size]="12" />
                     @if (trace.status === 'published') {
-                      <span>Connaissance experte publiée — prioritaire</span>
+                      <span>{{ i18n.t('chat.correct.trace.published') }}</span>
                     } @else {
-                      <span>Correction envoyée en revue</span>
+                      <span>{{ i18n.t('chat.correct.trace.sent') }}</span>
                     }
                     @if (trace.usedVoice) {
-                      <app-icon name="mic" [size]="11" class="opacity-70" title="Dictée vocale" />
+                      <app-icon
+                        name="mic"
+                        [size]="11"
+                        class="opacity-70"
+                        [title]="i18n.t('chat.correct.trace.voice')"
+                      />
                     }
                   </div>
                   <p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{{ trace.correction }}</p>
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
                     @if (trace.status === 'published') {
-                      <span>Publiée et priorisée devant les documents ingérés.</span>
+                      <span>{{ i18n.t('chat.correct.trace.published_note') }}</span>
                     } @else {
-                      <span>En attente de relecture experte avant publication.</span>
+                      <span>{{ i18n.t('chat.correct.trace.pending_note') }}</span>
                       @if (trace.reviewQueueUrl) {
                         <button
                           type="button"
                           class="text-emerald-600 dark:text-emerald-300 hover:underline"
                           (click)="openReviewQueue(trace.reviewQueueUrl)"
                         >
-                          Voir la file de revue
+                          {{ i18n.t('chat.correct.trace.queue') }}
                         </button>
                       }
                     }
@@ -1840,7 +1865,7 @@ const STEP_ICONS: Record<string, string> = {
                     (click)="openQaReview(qa.decisionId, qa.runId)"
                   >
                     <app-icon name="shield-alert" [size]="12" />
-                    <span>Réponse à vérifier</span>
+                    <span>{{ i18n.t('chat.qa.verify') }}</span>
                   </button>
                   @if (!isDemoMode() && qa.reasons.length) {
                     <span class="text-[10px] font-mono text-gray-500">
@@ -1955,7 +1980,7 @@ const STEP_ICONS: Record<string, string> = {
                   <span class="font-mono text-gray-500">· {{ deepInfo.deepStage }}</span>
                 }
                 <span class="font-mono text-[10px] text-sky-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
-                  · job persistant
+                  · {{ i18n.t('chat.deep.tracking') }}
                 </span>
                 <div class="basis-full h-1 overflow-hidden rounded bg-sky-500/10">
                   <span
@@ -1965,7 +1990,7 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
                 @if (deepRetrievalRunning(deepInfo)) {
                   <span class="basis-full text-[10px] text-gray-500">
-                    Deep Search continue côté serveur; le suivi restera disponible après la réponse.
+                    {{ i18n.t('chat.deep.resume_note') }}
                   </span>
                 }
               </div>
@@ -2430,8 +2455,7 @@ const STEP_ICONS: Record<string, string> = {
       max-width: 270px;
     }
     .source-picker-select,
-    .mini-select,
-    .voice-select {
+    .mini-select {
       width: 100%;
       -webkit-appearance: none;
       appearance: none;
@@ -2445,14 +2469,12 @@ const STEP_ICONS: Record<string, string> = {
       color-scheme: dark;
     }
     .source-picker-select:focus,
-    .mini-select:focus,
-    .voice-select:focus {
+    .mini-select:focus {
       box-shadow: 0 0 0 1px rgba(103, 213, 246, 0.42);
       background: rgba(6, 13, 25, 0.76);
     }
     .source-picker-chevron,
-    .mini-select-chevron,
-    .voice-select-chevron {
+    .mini-select-chevron {
       position: absolute;
       right: 7px;
       color: rgba(177, 190, 210, 0.72);
@@ -2485,8 +2507,7 @@ const STEP_ICONS: Record<string, string> = {
     .mini-control {
       padding: 3px 7px 3px 9px;
     }
-    .mini-select-wrap,
-    .voice-select-wrap {
+    .mini-select-wrap {
       position: relative;
       display: inline-flex;
       align-items: center;
@@ -2601,200 +2622,7 @@ const STEP_ICONS: Record<string, string> = {
       opacity: 0.88;
       font-size: 11px;
     }
-    .voice-control-bar {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      flex-wrap: wrap;
-      padding: 10px 14px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(0, 0, 0, 0.15);
-      color: rgba(177, 190, 210, 0.82);
-      font-size: 11px;
-    }
-	    .voice-control-group,
-	    .voice-control-label,
-	    .managed-runtime-pill,
-	    .tandem-oracle-pill,
-	    .voice-warning-pill,
-	    .voice-checkbox {
-	      display: inline-flex;
-	      align-items: center;
-	      gap: 7px;
-	    }
-    .voice-control-label {
-      color: rgba(232, 239, 250, 0.86);
-      font-weight: 700;
-    }
-    .managed-runtime-pill,
-    .tandem-oracle-pill {
-      min-height: 30px;
-      padding: 5px 9px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.045);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-      color: rgba(232, 239, 250, 0.88);
-    }
-	    .tandem-oracle-pill {
-	      background: rgba(34, 211, 238, 0.10);
-	      color: rgb(207, 250, 254);
-	      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.20);
-	    }
-	    .voice-warning-pill {
-	      min-height: 30px;
-	      padding: 5px 9px;
-	      border-radius: 12px;
-	      background: rgba(245, 158, 11, 0.10);
-	      color: rgb(253, 230, 138);
-	      box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
-	      font-weight: 750;
-	    }
-	    .voice-select-wrap {
-	      min-width: 176px;
-	      max-width: 260px;
-	    }
-    .voice-transport-toggle {
-      display: inline-flex;
-      overflow: hidden;
-      border-radius: 12px;
-      border: 1px solid rgba(148, 197, 229, 0.14);
-      background: rgba(255, 255, 255, 0.035);
-    }
-    .voice-transport-button {
-      padding: 6px 11px;
-      color: rgba(177, 190, 210, 0.78);
-      font-weight: 700;
-      transition: 140ms ease;
-    }
-    .voice-transport-button:hover:not(:disabled) {
-      color: rgba(245, 248, 252, 0.94);
-      background: rgba(255, 255, 255, 0.06);
-    }
-    .voice-transport-button:disabled {
-      opacity: 0.42;
-      cursor: not-allowed;
-    }
-    .voice-transport-active {
-      color: rgb(207, 250, 254);
-      background: rgba(34, 211, 238, 0.14);
-    }
-	    .voice-loop-actions {
-	      display: inline-flex;
-	      align-items: center;
-	      gap: 6px;
-	      padding: 3px;
-	      border-radius: 12px;
-	      border: 1px solid rgba(148, 197, 229, 0.14);
-	      background: rgba(255, 255, 255, 0.035);
-	    }
-	    .voice-loop-button {
-	      display: inline-flex;
-	      align-items: center;
-	      gap: 6px;
-	      min-height: 28px;
-	      border-radius: 9px;
-	      padding: 5px 9px;
-	      color: rgba(232, 239, 250, 0.86);
-	      font-weight: 750;
-	      transition: 140ms ease;
-	    }
-	    .voice-loop-button:hover:not(:disabled) {
-	      background: rgba(255, 255, 255, 0.07);
-	      color: rgb(245, 248, 252);
-	    }
-	    .voice-loop-button:disabled {
-	      opacity: 0.48;
-	      cursor: not-allowed;
-	    }
-	    .voice-loop-start {
-	      background: rgba(16, 185, 129, 0.12);
-	      color: rgb(187, 247, 208);
-	      box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.20);
-	    }
-	    .voice-loop-stop {
-	      background: rgba(239, 68, 68, 0.10);
-	      color: rgb(254, 202, 202);
-	      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.18);
-	    }
-	    .voice-checkbox {
-	      color: rgba(177, 190, 210, 0.84);
-	    }
-	    .voice-oracle-panel {
-	      display: flex;
-	      align-items: center;
-	      justify-content: space-between;
-	      gap: 12px;
-	      padding: 10px 14px;
-	      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-	      background:
-	        linear-gradient(90deg, rgba(34, 211, 238, 0.055), transparent 42%),
-	        rgba(3, 8, 16, 0.30);
-	      color: rgba(177, 190, 210, 0.84);
-	      font-size: 11px;
-	    }
-	    .voice-oracle-copy {
-	      display: flex;
-	      align-items: baseline;
-	      gap: 9px;
-	      min-width: 0;
-	    }
-	    .voice-oracle-kicker {
-	      color: rgb(103, 213, 246);
-	      font: 700 10px/1.2 var(--ck-font-mono, ui-monospace, monospace);
-	      letter-spacing: 0.12em;
-	      text-transform: uppercase;
-	      white-space: nowrap;
-	    }
-	    .voice-oracle-message {
-	      overflow: hidden;
-	      text-overflow: ellipsis;
-	      white-space: nowrap;
-	      color: rgba(232, 239, 250, 0.82);
-	    }
-	    .voice-oracle-steps {
-	      display: flex;
-	      align-items: center;
-	      gap: 6px;
-	      flex-wrap: wrap;
-	      justify-content: flex-end;
-	    }
-	    .voice-oracle-step {
-	      display: inline-flex;
-	      align-items: center;
-	      gap: 5px;
-	      min-height: 24px;
-	      padding: 3px 7px;
-	      border-radius: 999px;
-	      background: rgba(255, 255, 255, 0.035);
-	      color: rgba(177, 190, 210, 0.70);
-	      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-	      white-space: nowrap;
-	    }
-	    .voice-oracle-step-active {
-	      background: rgba(34, 211, 238, 0.12);
-	      color: rgb(207, 250, 254);
-	      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.24);
-	    }
-	    .voice-oracle-step-done {
-	      background: rgba(16, 185, 129, 0.10);
-	      color: rgb(187, 247, 208);
-	      box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.18);
-	    }
-	    .voice-oracle-step-error {
-	      background: rgba(239, 68, 68, 0.10);
-	      color: rgb(254, 202, 202);
-	      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.20);
-	    }
-	    @media (max-width: 900px) {
-	      .voice-oracle-panel {
-	        align-items: flex-start;
-	        flex-direction: column;
-	      }
-	      .voice-oracle-steps {
-	        justify-content: flex-start;
-	      }
-	    }
-	    .vigie-messages {
+    .vigie-messages {
       background:
         radial-gradient(circle at 82% 4%, rgba(101, 214, 110, 0.055), transparent 32%),
         linear-gradient(180deg, rgba(5, 10, 16, 0.18), transparent 38%);
@@ -2904,26 +2732,31 @@ const STEP_ICONS: Record<string, string> = {
     }
 
     /* ============================================================
-       LIGHT THEME (business shell) — this component was missed by
-       the tokenization sweep. The global <html> stays pinned .dark,
-       so every Tailwind dark:* utility fires even on the light paper
-       and the hardcoded rgba() rules above never flip. The only
-       reliable flip vector under [data-theme="light"] is a scoped
-       token override. Everything below applies ONLY when an ancestor
-       carries [data-theme="light"] (i.e. the business shell), so the
-       dark cockpit above is left byte-identical.
+       LIGHT THEME — the hard-coded rgba() rules above are written for
+       the dark cockpit and have no light counterpart, so this block
+       re-states them in tokens under [data-theme="light"]. The dark
+       cockpit above is left byte-identical.
+
+       It deliberately does NOT touch dark:* utilities. Those fire only
+       under a .dark ancestor, which the theme unlock now removes in
+       light; and every dark:* class in this template is written beside
+       a light-correct base class -- "text-gray-900 dark:text-white",
+       "bg-gray-100 dark:bg-white/[0.04]". Overriding the dark: half was
+       the only vector back when html was pinned .dark; today it would
+       beat the base class on specificity and, for the bubbles, replace
+       the intended bg-gray-100 with a 5 % wash.
+
+       Bare greys and white washes are also handled by the global
+       html:not(.dark) net in styles.scss; the rules kept here are the
+       same intent expressed on the cockpit --ck-fg-* tiering, which is
+       what the rest of this component's own classes use. The accent
+       families (cyan, sky, emerald, amber, red) have no equivalent in
+       the global net at all.
        ============================================================ */
 
-    /* --- Answer body + inline markup: neutral Tailwind utilities.
-           dark:* variants always win (html is .dark), so remap them
-           straight onto the light foreground tiers. --- */
-    :host-context([data-theme="light"]) .dark\\:text-white,
-    :host-context([data-theme="light"]) .dark\\:text-gray-100 { color: var(--ck-fg-1); }
-    :host-context([data-theme="light"]) .dark\\:text-gray-200,
-    :host-context([data-theme="light"]) .dark\\:text-gray-300,
+    /* --- Answer body + inline markup: neutral Tailwind utilities. --- */
     :host-context([data-theme="light"]) .text-gray-200,
     :host-context([data-theme="light"]) .text-gray-300 { color: var(--ck-fg-2); }
-    :host-context([data-theme="light"]) .dark\\:text-gray-400,
     :host-context([data-theme="light"]) .text-gray-400 { color: var(--ck-fg-3); }
     :host-context([data-theme="light"]) .text-gray-500 { color: var(--ck-fg-4); }
     :host-context([data-theme="light"]) .hover\\:text-white:hover { color: var(--ck-fg-1); }
@@ -2935,7 +2768,6 @@ const STEP_ICONS: Record<string, string> = {
            Covers citation chips ([n]), SOURCES icon, deep-search sky,
            positive/warn/negative states. --- */
     :host-context([data-theme="light"]) .text-cyan-300,
-    :host-context([data-theme="light"]) .dark\\:text-cyan-300,
     :host-context([data-theme="light"]) .text-cyan-400,
     :host-context([data-theme="light"]) .text-cyan-400\\/80,
     :host-context([data-theme="light"]) .text-cyan-500,
@@ -2948,14 +2780,11 @@ const STEP_ICONS: Record<string, string> = {
     :host-context([data-theme="light"]) .hover\\:text-cyan-400:hover,
     :host-context([data-theme="light"]) .hover\\:text-sky-300:hover { color: var(--ck-signal-cool); }
     :host-context([data-theme="light"]) .text-emerald-300,
-    :host-context([data-theme="light"]) .dark\\:text-emerald-300,
     :host-context([data-theme="light"]) .text-emerald-400,
-    :host-context([data-theme="light"]) .dark\\:text-emerald-400,
     :host-context([data-theme="light"]) .text-emerald-500,
     :host-context([data-theme="light"]) .text-emerald-600 { color: var(--ck-signal-pos); }
     :host-context([data-theme="light"]) .text-amber-200,
     :host-context([data-theme="light"]) .text-amber-300,
-    :host-context([data-theme="light"]) .dark\\:text-amber-300,
     :host-context([data-theme="light"]) .text-amber-400,
     :host-context([data-theme="light"]) .text-amber-700 { color: var(--ck-signal-warn); }
     :host-context([data-theme="light"]) .text-red-300,
@@ -2964,12 +2793,7 @@ const STEP_ICONS: Record<string, string> = {
     /* Faint white surface washes read as invisible mud on paper —
        give source cards / badges a subtle black tint instead. */
     :host-context([data-theme="light"]) .bg-white\\/5,
-    :host-context([data-theme="light"]) .bg-white\\/\\[0\\.02\\],
-    :host-context([data-theme="light"]) .dark\\:bg-white\\/10,
-    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.03\\],
-    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.04\\],
-    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.06\\] { background-color: var(--ck-tint-faint); }
-    :host-context([data-theme="light"]) .dark\\:border-white\\/10 { border-color: var(--ck-stroke-2); }
+    :host-context([data-theme="light"]) .bg-white\\/\\[0\\.02\\] { background-color: var(--ck-tint-faint); }
 
     /* --- QA / warn pills (Réponse à vérifier, missing citations) --- */
     :host-context([data-theme="light"]) .qa-review-badge,
@@ -3082,7 +2906,6 @@ const STEP_ICONS: Record<string, string> = {
     :host-context([data-theme="light"]) .mini-control-label,
     :host-context([data-theme="light"]) .source-picker-chevron,
     :host-context([data-theme="light"]) .mini-select-chevron,
-    :host-context([data-theme="light"]) .voice-select-chevron,
     :host-context([data-theme="light"]) .session-doc-mode-button,
     :host-context([data-theme="light"]) .control-info-dot { color: var(--ck-fg-3); }
     :host-context([data-theme="light"]) .source-picker-label app-icon,
@@ -3096,8 +2919,7 @@ const STEP_ICONS: Record<string, string> = {
       box-shadow: inset 0 1px 0 var(--ck-tint-faint);
     }
     :host-context([data-theme="light"]) .source-picker-select,
-    :host-context([data-theme="light"]) .mini-select,
-    :host-context([data-theme="light"]) .voice-select {
+    :host-context([data-theme="light"]) .mini-select {
       background: var(--ck-bg-inset);
       color: var(--ck-fg-1);
       color-scheme: light;
@@ -3136,43 +2958,13 @@ const STEP_ICONS: Record<string, string> = {
       color: var(--ck-signal-warn);
     }
 
-    /* --- Voice control bar + pills + oracle --- */
-    :host-context([data-theme="light"]) .voice-control-bar {
-      border-bottom-color: var(--ck-stroke-1);
-      background: var(--ck-bg-panel);
-      color: var(--ck-fg-3);
-    }
-    :host-context([data-theme="light"]) .voice-control-label,
-    :host-context([data-theme="light"]) .voice-loop-button { color: var(--ck-fg-2); }
-    :host-context([data-theme="light"]) .voice-checkbox,
-    :host-context([data-theme="light"]) .voice-transport-button,
+    /* --- Voice chips this component owns. The voice control bar, the
+           transport toggle, the loop actions and the oracle panel belong to
+           app-voice-controls; view encapsulation means a rule written here
+           can never reach them, so both their base and light styles live in
+           that component's own styles. --- */
     :host-context([data-theme="light"]) .demo-voice-chips-head,
     :host-context([data-theme="light"]) .demo-voice-dismiss { color: var(--ck-fg-3); }
-    :host-context([data-theme="light"]) .managed-runtime-pill {
-      background: var(--ck-bg-panel-hi);
-      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
-      color: var(--ck-fg-2);
-    }
-    :host-context([data-theme="light"]) .voice-transport-toggle,
-    :host-context([data-theme="light"]) .voice-loop-actions {
-      border-color: var(--ck-stroke-2);
-      background: var(--ck-bg-panel-hi);
-    }
-    :host-context([data-theme="light"]) .voice-transport-button:hover:not(:disabled),
-    :host-context([data-theme="light"]) .voice-loop-button:hover:not(:disabled) {
-      color: var(--ck-fg-1);
-      background: var(--ck-tint-soft);
-    }
-    :host-context([data-theme="light"]) .voice-oracle-panel {
-      border-bottom-color: var(--ck-stroke-1);
-      color: var(--ck-fg-3);
-    }
-    :host-context([data-theme="light"]) .voice-oracle-message { color: var(--ck-fg-2); }
-    :host-context([data-theme="light"]) .voice-oracle-step {
-      background: var(--ck-bg-panel-hi);
-      color: var(--ck-fg-3);
-      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
-    }
 
     /* --- Message stream: kill the dark top-haze on the paper --- */
     :host-context([data-theme="light"]) .vigie-messages { background: transparent; }
@@ -3294,7 +3086,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly permissions = inject(PermissionsService);
   private readonly assistantEffects = inject(AssistantEffectsService);
-  private readonly i18n = inject(I18nService);
+  readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -3326,22 +3118,25 @@ export class ChatPanelComponent implements AfterViewInit {
       [...steps].reverse().find((s) => s.type === t);
 
     // Synthesis is active but no text has landed yet → the model is writing.
-    if (byType('synthesis')) return { label: 'Rédaction de la réponse…', orb: 'composing' };
+    if (byType('synthesis')) {
+      return { label: this.i18n.t('chat.progress.composing'), orb: 'composing' };
+    }
 
     const retrieve = byType('retrieve');
     if (retrieve && (retrieve.status === 'completed' || retrieve.status === 'warning')) {
       const n = this.passagesFound(retrieve);
-      const label =
-        n != null
-          ? `${n} passage${n > 1 ? 's' : ''} trouvé${n > 1 ? 's' : ''} · analyse en cours…`
-          : 'Passages analysés…';
+      let label = this.i18n.t('chat.progress.passages_analysed');
+      if (n === 1) label = this.i18n.t('chat.progress.passages_found_one');
+      else if (n != null) label = this.i18n.t('chat.progress.passages_found', { count: n });
       return { label, orb: 'solving' };
     }
-    if (byType('thought')) return { label: 'Analyse des passages…', orb: 'solving' };
-    if (retrieve || byType('embedding') || byType('query_analysis')) {
-      return { label: 'Recherche dans les documents…', orb: 'searching' };
+    if (byType('thought')) {
+      return { label: this.i18n.t('chat.progress.analysing'), orb: 'solving' };
     }
-    return { label: 'Préparation de la requête…', orb: 'working' };
+    if (retrieve || byType('embedding') || byType('query_analysis')) {
+      return { label: this.i18n.t('chat.progress.searching'), orb: 'searching' };
+    }
+    return { label: this.i18n.t('chat.progress.preparing'), orb: 'working' };
   });
   readonly autoscrollSignature = computed(() => {
     const messages = this.messages();
@@ -3628,46 +3423,49 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly emptyTitle = computed(() => {
     const configured = this.workspaceChatConfig().title;
     if (configured) return configured;
-    if (this.isDemoMode()) return 'Posez votre question';
-    if (this.executiveMode()) return `Interroger ${this.assistantLabel()}`;
-    if (this.activeAssistantProfile()) return `Ask ${this.assistantLabel()}`;
-    return 'Start a conversation';
+    if (this.isDemoMode()) return this.i18n.t('chat.ask.title');
+    if (this.executiveMode() || this.activeAssistantProfile()) {
+      return this.i18n.t('chat.ask.title_scoped', { name: this.assistantLabel() });
+    }
+    return this.i18n.t('chat.ask.title_default');
   });
   readonly emptySubtitle = computed(() => {
     const configured = this.workspaceChatConfig().subtitle;
     if (configured) return configured;
     if (this.isDemoMode()) {
-      return `Posez une question sur le contexte ${this.workspaceContextLabel()}. La réponse cite les sources utilisées.`;
+      return this.i18n.t('chat.ask.subtitle_context', { scope: this.workspaceContextLabel() });
     }
-    if (this.executiveMode()) return 'Posez une question sur les signaux, projets, sources et décisions attendues.';
+    if (this.executiveMode()) return this.i18n.t('chat.ask.subtitle_executive');
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
-      return 'Ask a sourced question grounded only in the documents uploaded for this session.';
+      return this.i18n.t('chat.ask.subtitle_session');
     }
+    const source = this.scopeLabel(this.activeKnowledgeScope());
     if (this.contextId() && this.sessionDocsMode() === 'combine') {
-      return `Ask a sourced question across session documents and ${this.scopeLabel(this.activeKnowledgeScope())}.`;
+      return this.i18n.t('chat.ask.subtitle_session_combine', { source });
     }
     if (this.activeKnowledgeScope()) {
-      return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}.`;
+      return this.i18n.t('chat.ask.subtitle_scope', { source });
     }
-    return `Ask a workspace question. ${this.brand()} will route retrieval automatically and cite the sources used.`;
+    return this.i18n.t('chat.ask.subtitle_default');
   });
   readonly inputPlaceholder = computed(() => {
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
-    if (this.isDemoMode()) {
-      return 'Posez votre question...';
+    if (this.isDemoMode()) return this.i18n.t('chat.ask.placeholder');
+    if (this.executiveMode()) {
+      return this.i18n.t('chat.ask.placeholder_scoped', { name: this.assistantLabel() });
     }
-    if (this.executiveMode()) return `Interroger ${this.assistantLabel()} sur les sources du workspace...`;
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
-      return 'Ask about the uploaded session documents...';
+      return this.i18n.t('chat.ask.placeholder_session');
     }
+    const source = this.scopeLabel(this.activeKnowledgeScope());
     if (this.contextId() && this.sessionDocsMode() === 'combine') {
-      return `Ask across session documents and ${this.scopeLabel(this.activeKnowledgeScope())}...`;
+      return this.i18n.t('chat.ask.placeholder_session_combine', { source });
     }
     if (this.activeKnowledgeScope()) {
-      return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}...`;
+      return this.i18n.t('chat.ask.placeholder_scope', { source });
     }
-    return 'Ask a workspace question…';
+    return this.i18n.t('chat.ask.placeholder_default');
   });
   readonly sendLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'Interroger' : 'Send');
   readonly streamingLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'En cours…' : 'Streaming');
@@ -3743,11 +3541,15 @@ export class ChatPanelComponent implements AfterViewInit {
 
 	  readonly voiceStatusClass = computed(() => {
     const status = this.selectedVoiceRuntime()?.status || 'unknown';
-    if (this.voiceNotice()) return 'px-2 py-1 rounded bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-300/20';
-    if (status === 'bound') return 'px-2 py-1 rounded bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/20';
-    if (status === 'disabled' || status === 'unconfigured') return 'px-2 py-1 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/20';
-    if (status === 'experimental') return 'px-2 py-1 rounded bg-sky-500/10 text-sky-200 ring-1 ring-sky-400/20';
-	    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
+    // This badge is rendered by <app-voice-controls>, so a light override
+    // written in this component's styles could never reach it. The global
+    // .ck-tone-* utilities are theme-aware on their own.
+    const base = 'px-2 py-1 rounded ';
+    if (this.voiceNotice()) return base + 'ck-tone-info';
+    if (status === 'bound') return base + 'ck-tone-ok';
+    if (status === 'disabled' || status === 'unconfigured') return base + 'ck-tone-warn';
+    if (status === 'experimental') return base + 'ck-tone-info';
+	    return base + 'ck-tone-neutral';
 	  });
 
 		  readonly voiceOracleTimeline = computed<SharedVoiceOracleStep[]>(() => {
@@ -5568,8 +5370,8 @@ export class ChatPanelComponent implements AfterViewInit {
       return {
         ...keepScope,
         icon: 'search',
-        label: 'Poser une question',
-        prompt: 'Que disent les documents sur [votre sujet] ? Cite les sources utilisées.',
+        label: this.i18n.t('chat.prompt.ask.label'),
+        prompt: this.i18n.t('chat.prompt.ask.prompt_plain'),
       };
     }
     if (
@@ -5581,8 +5383,8 @@ export class ChatPanelComponent implements AfterViewInit {
       return {
         ...keepScope,
         icon: 'shield-check',
-        label: 'Vérifier les sources',
-        prompt: 'Réponds à la question avec les documents disponibles. Si aucun passage ne répond clairement, indique-le simplement.',
+        label: this.i18n.t('chat.prompt.verify.label'),
+        prompt: this.i18n.t('chat.prompt.verify.prompt'),
       };
     }
     if (
@@ -5593,8 +5395,8 @@ export class ChatPanelComponent implements AfterViewInit {
       return {
         ...keepScope,
         icon: 'file-search',
-        label: 'Retrouver un passage',
-        prompt: 'Retrouve le passage, la procédure ou la section qui explique [votre sujet], avec le document source.',
+        label: this.i18n.t('chat.prompt.find.label'),
+        prompt: this.i18n.t('chat.prompt.find.prompt_with_doc'),
       };
     }
     if (
@@ -5606,16 +5408,16 @@ export class ChatPanelComponent implements AfterViewInit {
       return {
         ...keepScope,
         icon: 'book-open',
-        label: 'Réponse sourcée',
-        prompt: 'Réponds à ma question uniquement avec les documents sélectionnés et cite les sources utiles.',
+        label: this.i18n.t('chat.prompt.sourced.label'),
+        prompt: this.i18n.t('chat.prompt.sourced.prompt'),
       };
     }
     if (label === 'find mismatch' || label === 'compare sources') {
       return {
         ...keepScope,
         icon: 'split',
-        label: 'Comparer',
-        prompt: 'Compare les informations disponibles sur [votre sujet] et indique les sources utilisées.',
+        label: this.i18n.t('chat.prompt.compare.label'),
+        prompt: this.i18n.t('chat.prompt.compare.prompt_plain'),
       };
     }
     return card;
@@ -5625,80 +5427,80 @@ export class ChatPanelComponent implements AfterViewInit {
     return [
       {
         icon: 'search',
-        label: 'Poser une question',
-        prompt: 'Que disent les documents du workspace sur [votre sujet] ? Cite les sources utilisées.',
+        label: this.i18n.t('chat.prompt.ask.label'),
+        prompt: this.i18n.t('chat.prompt.ask.prompt_workspace'),
       },
       {
         icon: 'file-search',
-        label: 'Retrouver un passage',
-        prompt: 'Retrouve le passage, la procédure ou la section qui explique [votre sujet].',
+        label: this.i18n.t('chat.prompt.find.label'),
+        prompt: this.i18n.t('chat.prompt.find.prompt_plain'),
       },
       {
         icon: 'split',
-        label: 'Comparer',
-        prompt: 'Compare les informations disponibles sur [votre sujet] dans les documents.',
+        label: this.i18n.t('chat.prompt.compare.label'),
+        prompt: this.i18n.t('chat.prompt.compare.prompt_docs'),
       },
       {
         icon: 'list-checks',
-        label: 'Résumer',
-        prompt: 'Résume les points clés sur [votre sujet] avec les sources utiles.',
+        label: this.i18n.t('chat.prompt.summarize.label'),
+        prompt: this.i18n.t('chat.prompt.summarize.prompt_plain'),
       },
     ];
   }
 
   private knowledgeSourceSuggestions(): SuggestionCard[] {
-    const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
+    const source = this.scopeLabel(this.activeKnowledgeScope());
     return [
       {
         icon: 'search',
-        label: 'Poser une question',
-        prompt: `Que disent les documents ${sourceLabel} sur [votre sujet] ? Cite les sources utilisées.`,
+        label: this.i18n.t('chat.prompt.ask.label'),
+        prompt: this.i18n.t('chat.prompt.ask.prompt', { source }),
       },
       {
         icon: 'file-search',
-        label: 'Retrouver un passage',
-        prompt: `Retrouve dans ${sourceLabel} le passage, la procédure ou la section qui explique [votre sujet].`,
+        label: this.i18n.t('chat.prompt.find.label'),
+        prompt: this.i18n.t('chat.prompt.find.prompt', { source }),
       },
       {
         icon: 'split',
-        label: 'Comparer',
-        prompt: `Compare les informations disponibles dans ${sourceLabel} sur [votre sujet].`,
+        label: this.i18n.t('chat.prompt.compare.label'),
+        prompt: this.i18n.t('chat.prompt.compare.prompt', { source }),
       },
       {
         icon: 'list-checks',
-        label: 'Résumer',
-        prompt: `Résume les points clés trouvés dans ${sourceLabel} sur [votre sujet], avec les sources utiles.`,
+        label: this.i18n.t('chat.prompt.summarize.label'),
+        prompt: this.i18n.t('chat.prompt.summarize.prompt', { source }),
       },
     ];
   }
 
   private sessionDocSuggestions(): SuggestionCard[] {
-    const mode = this.sessionDocsMode();
-    const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
+    const combine = this.sessionDocsMode() === 'combine';
+    const source = this.scopeLabel(this.activeKnowledgeScope());
     return [
       {
         icon: 'list-checks',
-        label: 'Résumer les fichiers',
-        prompt: mode === 'combine'
-          ? `Résume les fichiers ajoutés et complète avec ${sourceLabel} si utile, en citant les sources.`
-          : 'Résume les fichiers ajoutés et cite les noms de fichiers utilisés.',
+        label: this.i18n.t('chat.prompt.files_summarize.label'),
+        prompt: combine
+          ? this.i18n.t('chat.prompt.files_summarize.prompt_combine', { source })
+          : this.i18n.t('chat.prompt.files_summarize.prompt'),
       },
       {
         icon: 'search',
-        label: 'Question aux fichiers',
-        prompt: 'Réponds à ma question à partir des fichiers ajoutés, avec les sources utiles.',
+        label: this.i18n.t('chat.prompt.files_ask.label'),
+        prompt: this.i18n.t('chat.prompt.files_ask.prompt'),
       },
       {
         icon: 'split',
-        label: 'Comparer',
-        prompt: mode === 'combine'
-          ? `Compare les fichiers ajoutés avec ${sourceLabel} sur [votre sujet].`
-          : 'Compare les informations disponibles dans les fichiers ajoutés sur [votre sujet].',
+        label: this.i18n.t('chat.prompt.compare.label'),
+        prompt: combine
+          ? this.i18n.t('chat.prompt.files_compare.prompt_combine', { source })
+          : this.i18n.t('chat.prompt.files_compare.prompt'),
       },
       {
         icon: 'file-text',
-        label: 'Préparer une note',
-        prompt: 'Prépare une note courte à partir des fichiers ajoutés, avec les sources à vérifier.',
+        label: this.i18n.t('chat.prompt.files_note.label'),
+        prompt: this.i18n.t('chat.prompt.files_note.prompt'),
       },
     ];
   }
@@ -5981,6 +5783,11 @@ export class ChatPanelComponent implements AfterViewInit {
           });
         },
       });
+  }
+
+  /** Where the tracker polls from — shown as raw detail under the progress bar. */
+  deepTrackerPath(info: NonNullable<ChatMessage['retrievalInfo']>): string {
+    return this.deepRetrievalJobPath(info, String(info.deepJobId || ''));
   }
 
   private deepRetrievalJobPath(

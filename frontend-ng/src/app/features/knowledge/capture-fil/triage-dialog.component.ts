@@ -7,6 +7,7 @@ import {
   computed,
   inject,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import type { CaptureSessionDocument, CaptureShareLevelItem } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from './capture-engine';
@@ -37,20 +38,21 @@ interface TriageRow {
     @if (open) {
       <div style="display:flex; flex-direction:column; gap:0;">
         <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-          Fin de séance · étape légère
+          {{ i18n.t('capture.triage.eyebrow') }}
         </span>
         <h2 style="margin:10px 0 8px; font-size:24px; font-weight:680; color:var(--ck-fg-1); letter-spacing:-0.01em;">
-          Pièces jointes de la séance
+          {{ i18n.t('capture.triage.heading') }}
         </h2>
         <p style="margin:0; font-size:14px; line-height:1.55; color:var(--ck-fg-3); max-width:580px;">
-          Chaque document attaché est partagé <b style="color:var(--ck-fg-2);">en entier</b> : cité dans le rapport et
-          indexé en totalité pour la recherche.
+          {{ i18n.t('capture.triage.share_lead') }}
+          <b style="color:var(--ck-fg-2);">{{ i18n.t('capture.triage.in_full') }}</b>
+          {{ i18n.t('capture.triage.share_tail') }}
         </p>
 
         <div style="margin-top:24px; display:flex; flex-direction:column; gap:10px;">
           @if (rows().length === 0) {
             <div style="padding:16px; border:1px dashed var(--ck-stroke-3); border-radius:var(--ck-radius-md); color:var(--ck-fg-5); font-size:13px;">
-              Aucun document attaché à cette séance.
+              {{ i18n.t('capture.triage.empty') }}
             </div>
           }
           @for (row of rows(); track row.key) {
@@ -71,7 +73,7 @@ interface TriageRow {
                 style="flex:none; display:inline-flex; align-items:center; gap:6px; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-signal-pos);"
               >
                 <span style="width:5px; height:5px; border-radius:50%; background:var(--ck-signal-pos);"></span>
-                Entier
+                {{ i18n.t('capture.triage.full') }}
               </span>
             </div>
           }
@@ -82,9 +84,9 @@ interface TriageRow {
         >
           <ck-glyph name="layers" [size]="16" color="var(--ck-signal-violet)" />
           <span style="font-size:12.5px; line-height:1.5; color:var(--ck-fg-3);">
-            L'<b style="color:var(--ck-fg-2);">indexation lourde</b> (extraction + vectorisation) démarre en arrière-plan
-            <b style="color:var(--ck-fg-2);">dès l'ouverture du rapport</b>. Vous lisez immédiatement ; les sources
-            deviennent cliquables au fil de l'indexation.
+            {{ i18n.t('capture.triage.indexing_lead') }}
+            <b style="color:var(--ck-fg-2);">{{ i18n.t('capture.triage.indexing_strong') }}</b>
+            {{ i18n.t('capture.triage.indexing_tail') }}
           </span>
         </div>
 
@@ -95,10 +97,10 @@ interface TriageRow {
             style="display:inline-flex; align-items:center; gap:7px; padding:11px 18px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-size:14px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
           >
             <ck-glyph name="arrow-right" [size]="14" color="currentColor" />
-            Ouvrir le rapport
+            {{ i18n.t('capture.triage.open_report') }}
           </button>
           <span style="font-size:12.5px; color:var(--ck-fg-4);">
-            {{ rows().length }} document{{ rows().length > 1 ? 's' : '' }} partagé{{ rows().length > 1 ? 's' : '' }} en entier · indexation en file
+            {{ i18n.t('capture.triage.recap', { count: rows().length }) }}
           </span>
         </div>
       </div>
@@ -106,6 +108,8 @@ interface TriageRow {
   `,
 })
 export class CaptureTriageDialogComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
 
   /** Host-controlled visibility (the finalize surface owns this step). */
@@ -122,8 +126,10 @@ export class CaptureTriageDialogComponent {
         doc,
         pointed,
         reason: pointed
-          ? `Pointé ${doc.referenced_views_count}× pendant la séance`
-          : 'Pièce de contexte',
+          ? this.i18n.t('capture.triage.pointed_count', {
+              count: doc.referenced_views_count ?? 0,
+            })
+          : this.i18n.t('capture.triage.context_piece'),
       };
     }),
   );

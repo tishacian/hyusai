@@ -6,6 +6,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 import { Subject, of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import {
   WorkspaceService,
@@ -70,6 +71,7 @@ test('workspace switch closes the drawer, revokes its blob and ignores later pre
   const injector = Injector.create({
     providers: [
       AssistantDraftDrawerComponent,
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: WorkspaceService, useValue: workspace },
       {
         provide: ApiService,

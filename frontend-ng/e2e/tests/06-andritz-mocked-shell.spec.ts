@@ -3467,7 +3467,9 @@ test.describe('Andritz mocked browser smoke', () => {
       const loopArmed: unknown[] = [];
       let resetCount = 0;
       let startCount = 0;
-      let capturedConfig: Record<string, any> | null = null;
+      // Assigned only from inside the stub below, so control-flow analysis
+      // narrows a `| null` initialiser to `null` and `?.` degrades to `never`.
+      let capturedConfig: Record<string, any> = {};
 
       component.voiceTransport.set('backend_ws');
       component.voiceConversationActive.set(true);
@@ -3491,7 +3493,7 @@ test.describe('Andritz mocked browser smoke', () => {
       const started = await component.startVoiceTurn(true);
       component.ttsSpeaking.set(true);
       component.ttsPaused.set(false);
-      capturedConfig?.onSpeechStart?.();
+      capturedConfig['onSpeechStart']?.();
 
       return {
         started,

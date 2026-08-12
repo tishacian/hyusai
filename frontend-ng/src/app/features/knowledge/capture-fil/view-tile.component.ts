@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  inject,
+} from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import type { CapturePinnedView, CaptureViewReference } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
@@ -94,7 +102,7 @@ type TileSize = 'sm' | 'md' | 'xl';
             >
               <span class="ck-live-dot" [style.width.px]="5" [style.height.px]="5" [style.background]="tint()"></span>
               <span class="ck-mono" [style.fontSize.px]="8.5" [style.letterSpacing]="'0.1em'" [style.color]="tint()" [style.fontWeight]="700">
-                EN SCÈNE
+                {{ i18n.t('capture.scene.on_stage') }}
               </span>
             </span>
           }
@@ -133,6 +141,8 @@ type TileSize = 'sm' | 'md' | 'xl';
   `,
 })
 export class ViewTileComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() view?: TilePiece;
   @Input() size: TileSize = 'md';
   @Input() active = false;
@@ -153,10 +163,13 @@ export class ViewTileComponent {
     return this.view ? toneVar(viewTone(this.view)) : 'var(--ck-signal-cool)';
   }
   protected title(): string {
-    return this.view ? viewTitle(this.view) : 'Pièce';
+    const fallback = this.i18n.t('capture.piece.fallback');
+    return this.view ? viewTitle(this.view, fallback) : fallback;
   }
   protected location(): string {
-    return this.view ? viewLocation(this.view) : '';
+    return this.view
+      ? viewLocation(this.view, (index) => this.i18n.t('capture.view.snapshot', { index }))
+      : '';
   }
   protected isImage(): boolean {
     return !!this.view && this.view.image_index != null;

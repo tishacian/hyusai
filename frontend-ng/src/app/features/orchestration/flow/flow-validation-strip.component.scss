@@ -108,20 +108,15 @@
   }
 }
 
+/* A full sentence, so it wraps rather than being cut at the ellipsis: the
+   second half is the part that says what to do about it. The list scrolls. */
 .ck-vstrip__msg {
   flex: 1 1 auto;
+  min-width: 0;
   font-size: 11.5px;
   line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ck-vstrip__code {
-  flex-shrink: 0;
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  color: var(--ck-fg-4, #7b8391);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .ck-vstrip__tag {

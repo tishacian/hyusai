@@ -7,6 +7,8 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
  * Hypervisor).
  *
  * Content projection slots:
+ *   - `<… titleHelp>` sits right after the title — where a `<ck-help>` on the
+ *     screen's main concept belongs (first occurrence of a lexicon term)
  *   - `<… actions>`  right-aligned action buttons beside the title row
  *   - `<… sub>`      bleeds below the header (tab row, sub-nav)
  *   - default        main body
@@ -43,6 +45,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
                   [style.color]="'var(--ck-fg-1)'"
                   [style.margin]="'0'"
                 >{{ title }}</h1>
+                <ng-content select="[titleHelp]"></ng-content>
                 @if (status) {
                   <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.14em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-4)'">{{ status }}</span>
                 }

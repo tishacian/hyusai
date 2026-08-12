@@ -55,6 +55,65 @@
   border: 1px solid var(--ck-stroke-2);
 }
 
+/* ---------- Accent ---------- */
+/* The cockpit's one accent colour, for an icon or an inline link. Replaces
+   `text-cyan-400`, which had no light value and vanished on paper. */
+.ck-accent { color: var(--ck-signal-cool); }
+
+/* ---------- Semantic tones ---------- */
+/* Colour only — the caller keeps its own shape. Replaces the hard-coded
+   `bg-emerald-500/10 text-emerald-300 ring-emerald-500/25` triplets, which
+   only ever had a dark value. Pair with `.ck-pill` for the canonical
+   uppercase status chip, or use alone on a chip that has its own metrics. */
+.ck-tone-ok      { color: var(--ck-status-ok-fg);      background: var(--ck-status-ok-bg);      border: 1px solid var(--ck-status-ok-line); }
+.ck-tone-warn    { color: var(--ck-status-warn-fg);    background: var(--ck-status-warn-bg);    border: 1px solid var(--ck-status-warn-line); }
+.ck-tone-neg     { color: var(--ck-status-neg-fg);     background: var(--ck-status-neg-bg);     border: 1px solid var(--ck-status-neg-line); }
+.ck-tone-info    { color: var(--ck-status-info-fg);    background: var(--ck-status-info-bg);    border: 1px solid var(--ck-status-info-line); }
+.ck-tone-neutral { color: var(--ck-status-neutral-fg); background: var(--ck-status-neutral-bg); border: 1px solid var(--ck-status-neutral-line); }
+.ck-tone-preview { color: var(--ck-status-preview-fg); background: var(--ck-status-preview-bg); border: 1px solid var(--ck-status-preview-line); }
+
+.ck-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--ck-radius-sm);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- Buttons ---------- */
+/* `ck-cta` is the one filled action per screen, `ck-btn-accent` a secondary
+   accent action, `ck-btn-quiet` everything else. They replace
+   `bg-cyan-500 text-white` and `bg-white/5 text-gray-200`, which read as a
+   white-on-pale-cyan smear and an invisible ghost on paper. */
+.ck-cta {
+  background: var(--ck-cta-bg);
+  color: var(--ck-cta-fg);
+  border: 1px solid transparent;
+  transition: background var(--ck-dur-fast) var(--ck-ease-out);
+}
+.ck-cta:hover { background: var(--ck-cta-bg-hover); }
+
+.ck-btn-quiet {
+  background: var(--ck-tint-faint);
+  color: var(--ck-fg-2);
+  border: 1px solid var(--ck-stroke-2);
+  transition: background var(--ck-dur-fast) var(--ck-ease-out);
+}
+.ck-btn-quiet:hover { background: var(--ck-tint-soft); color: var(--ck-fg-1); }
+
+.ck-btn-accent {
+  color: var(--ck-status-info-fg);
+  background: var(--ck-status-info-bg);
+  border: 1px solid var(--ck-status-info-line);
+  transition: border-color var(--ck-dur-fast) var(--ck-ease-out);
+}
+.ck-btn-accent:hover { border-color: var(--ck-stroke-hot); }
+
 /* ---------- Hero ambient — touches Concept B ---------- */
 /* Subtle radial gradient reserved for executive surfaces (Hypervisor hero,
    Steering header, balance-sheet net-value tile). Never apply to dense

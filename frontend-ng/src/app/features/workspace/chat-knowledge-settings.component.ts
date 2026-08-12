@@ -10,6 +10,7 @@ import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -2020,6 +2021,7 @@ export class ChatKnowledgeSettingsComponent {
   protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(ApiService);
   protected readonly workspace = inject(WorkspaceService);
+  protected readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
@@ -2144,8 +2146,8 @@ export class ChatKnowledgeSettingsComponent {
     const configured = this.str(this.effectiveChatConfig()['title']);
     if (configured) return configured;
     const profile = this.activeAssistantProfile();
-    if (profile?.label) return `Interroger ${profile.label}`;
-    return 'Posez votre question';
+    if (profile?.label) return this.i18n.t('chat.ask.title_scoped', { name: profile.label });
+    return this.i18n.t('chat.ask.title');
   });
 
   readonly effectiveChatSubtitle = computed(() => {
@@ -2153,14 +2155,14 @@ export class ChatKnowledgeSettingsComponent {
     if (configured) return configured;
     const scope = this.effectiveScopeLabel();
     return scope && scope !== 'workspace'
-      ? `Posez une question sur le contexte ${scope}.`
-      : 'Posez une question sur le contexte du workspace. La réponse cite les sources utilisées.';
+      ? this.i18n.t('chat.ask.subtitle_scoped', { scope })
+      : this.i18n.t('chat.ask.subtitle');
   });
 
   readonly effectiveChatPlaceholder = computed(() => {
     const configured = this.str(this.effectiveChatConfig()['placeholder']);
     if (configured) return configured;
-    return 'Posez votre question...';
+    return this.i18n.t('chat.ask.placeholder');
   });
 
   readonly effectivePromptCards = computed<PromptCardDraft[]>(() => {
@@ -2270,8 +2272,8 @@ export class ChatKnowledgeSettingsComponent {
       ...this.chatDraft.prompt_pack,
       {
         icon: 'search',
-        label: 'Poser une question',
-        prompt: 'Que disent les documents sélectionnés sur [votre sujet] ? Cite les sources utilisées.',
+        label: this.i18n.t('chat.prompt.ask.label'),
+        prompt: this.i18n.t('chat.prompt.ask.prompt_selected'),
         scope_key: '',
         context_mode: 'any',
       },
@@ -3449,36 +3451,19 @@ export class ChatKnowledgeSettingsComponent {
   }
 
   private generatedKnowledgePrompts(sourceLabel: string): PromptCardDraft[] {
-    const label = sourceLabel || 'contexte du workspace';
+    const source = sourceLabel || this.i18n.t('chat.ask.source_fallback');
+    const card = (icon: string, kind: string): PromptCardDraft => ({
+      icon,
+      label: this.i18n.t(`chat.prompt.${kind}.label`),
+      prompt: this.i18n.t(`chat.prompt.${kind}.prompt`, { source }),
+      scope_key: '',
+      context_mode: 'any',
+    });
     return [
-      {
-        icon: 'search',
-        label: 'Poser une question',
-        prompt: `Que disent les documents ${label} sur [votre sujet] ? Cite les sources utilisées.`,
-        scope_key: '',
-        context_mode: 'any',
-      },
-      {
-        icon: 'file-search',
-        label: 'Retrouver un passage',
-        prompt: `Retrouve dans ${label} le passage, la procédure ou la section qui explique [votre sujet].`,
-        scope_key: '',
-        context_mode: 'any',
-      },
-      {
-        icon: 'split',
-        label: 'Comparer',
-        prompt: `Compare les informations disponibles dans ${label} sur [votre sujet].`,
-        scope_key: '',
-        context_mode: 'any',
-      },
-      {
-        icon: 'list-checks',
-        label: 'Résumer',
-        prompt: `Résume les points clés trouvés dans ${label} sur [votre sujet], avec les sources utiles.`,
-        scope_key: '',
-        context_mode: 'any',
-      },
+      card('search', 'ask'),
+      card('file-search', 'find'),
+      card('split', 'compare'),
+      card('list-checks', 'summarize'),
     ];
   }
 
@@ -3491,7 +3476,7 @@ export class ChatKnowledgeSettingsComponent {
   private cleanSourceLabel(label: string): string {
     const cleaned = label
       .replace(/\bknowledge\s+experiment\b/gi, '')
-      .replace(/\bworkspace\s+Knowledge\b/g, 'contexte du workspace')
+      .replace(/\bworkspace\s+Knowledge\b/g, this.i18n.t('chat.ask.source_fallback'))
       .replace(/\s{2,}/g, ' ')
       .replace(/[\s·,:-]+$/g, '')
       .trim();

@@ -25,6 +25,8 @@ import {
   signal,
 } from '@angular/core';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
+import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit/runtime-status-badge.component';
+import { I18nService } from '@app/core/i18n.service';
 import type { FlowManifestField } from '@app/core/canonical-api.service';
 import {
   FlowSerializerService,
@@ -146,7 +148,7 @@ function humanize(key: string): string {
   selector: 'app-manifest-fields',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [GlyphComponent, RuntimeStatusBadgeComponent],
   styleUrl: './manifest-fields.component.scss',
   template: `
     @if (node(); as n) {
@@ -154,13 +156,14 @@ function humanize(key: string): string {
         <section class="ck-mf">
           @if (unit(); as u) {
             <header class="ck-mf__head">
-              <span class="ck-mf__label">Runtime parameters</span>
+              <span class="ck-mf__label">{{ i18n.t('flow.params.title') }}</span>
               <span
                 class="ck-mf__status"
                 [attr.data-status]="u.runtime_status ?? 'manifest_only'"
                 [title]="
-                  (u.operational ? 'Configured — drives a live surface' : 'Not fully configured') +
-                  ' (' + (u.runtime_status ?? 'manifest_only') + ')'
+                  u.operational
+                    ? i18n.t('flow.params.configured.hint')
+                    : i18n.t('flow.params.not_configured.hint')
                 "
               >
                 <ck-glyph
@@ -168,25 +171,32 @@ function humanize(key: string): string {
                   [size]="11"
                   color="currentColor"
                 />
-                {{ u.operational ? 'Configured' : 'Not configured' }}
+                {{
+                  u.operational
+                    ? i18n.t('flow.params.configured')
+                    : i18n.t('flow.params.not_configured')
+                }}
               </span>
+              <!-- The API verdict itself, on the shared badge rather than
+                   buried in a tooltip parenthesis. -->
+              <ck-runtime-status [status]="u.runtime_status ?? 'manifest_only'" />
             </header>
 
             @if (u.runtime_ref || u.skill_slug) {
               <dl class="ck-mf__refs">
                 @if (u.skill_slug) {
-                  <dt>Skill</dt>
+                  <dt>{{ i18n.t('flow.params.skill') }}</dt>
                   <dd class="mono">{{ u.skill_slug }}</dd>
                 }
                 @if (u.runtime_ref) {
-                  <dt>Runtime</dt>
+                  <dt>{{ i18n.t('flow.params.runtime') }}</dt>
                   <dd class="mono">{{ u.runtime_ref }}</dd>
                 }
               </dl>
             }
           } @else {
             <header class="ck-mf__head">
-              <span class="ck-mf__label">Input variables</span>
+              <span class="ck-mf__label">{{ i18n.t('flow.params.variables') }}</span>
             </header>
           }
 
@@ -199,7 +209,7 @@ function humanize(key: string): string {
                       {{ f.label }}
                       @if (f.required) {
                         <span class="ck-mf__req" aria-hidden="true">*</span>
-                        <span class="sr-only">required</span>
+                        <span class="sr-only">{{ i18n.t('flow.params.required') }}</span>
                       }
                     </span>
 
@@ -302,17 +312,12 @@ function humanize(key: string): string {
               }
             </div>
           } @else {
-            <p class="ck-mf__empty">
-              This node has no editable runtime parameters in the manifest.
-            </p>
+            <p class="ck-mf__empty">{{ i18n.t('flow.params.empty') }}</p>
           }
         </section>
       } @else if (loaded()) {
         <section class="ck-mf">
-          <p class="ck-mf__empty">
-            No runtime manifest unit matched this node — it is not yet wired to a
-            live runtime contract.
-          </p>
+          <p class="ck-mf__empty">{{ i18n.t('flow.params.no_unit') }}</p>
         </section>
       }
     }
@@ -321,6 +326,7 @@ function humanize(key: string): string {
 export class ManifestFieldsComponent {
   private readonly store = inject(FlowStore);
   private readonly manifest = inject(FlowManifestService);
+  readonly i18n = inject(I18nService);
   private readonly serializer = inject(FlowSerializerService);
 
   private readonly errors = signal<Record<string, string>>({});
@@ -439,7 +445,7 @@ export class ManifestFieldsComponent {
       this.clearError(field);
       this.writeField(field, parsed);
     } catch {
-      this.setError(field, 'Invalid JSON — value not saved.');
+      this.setError(field, this.i18n.t('flow.params.error.json'));
     }
   }
 
@@ -467,11 +473,16 @@ export class ManifestFieldsComponent {
     current: unknown,
   ): FieldVM {
     const compatible = filterCompatibleCandidates(candidates, port.schema);
-    const options: VariableOption[] = [{ value: '', label: '— unbound —' }];
+    const options: VariableOption[] = [
+      { value: '', label: this.i18n.t('flow.params.variable.none') },
+    ];
     let value = '';
 
     if (typeof current === 'string') {
-      options.push({ value: LEGACY_VARIABLE_VALUE, label: `legacy: ${current}` });
+      options.push({
+        value: LEGACY_VARIABLE_VALUE,
+        label: this.i18n.t('flow.params.variable.legacy', { path: current }),
+      });
       value = LEGACY_VARIABLE_VALUE;
     }
 
@@ -498,7 +509,11 @@ export class ManifestFieldsComponent {
     for (const c of rejected) {
       options.push({
         value: encodeCandidateValue(c.node_id, c.port),
-        label: `${c.label} · ${c.schema} — not a ${port.schema}`,
+        label: this.i18n.t('flow.params.variable.incompatible', {
+          label: c.label,
+          schema: c.schema,
+          expected: port.schema,
+        }),
         disabled: true,
       });
     }
@@ -506,8 +521,8 @@ export class ManifestFieldsComponent {
     const diagnostic = compatible.length > 0
       ? null
       : candidates.length === 0
-        ? 'Nothing upstream produces a value yet — connect a node into this one first.'
-        : `No upstream output is a ${port.schema}. Bind a compatible output, or read the value on a Decision as a named input.`;
+        ? this.i18n.t('flow.params.variable.no_upstream')
+        : this.i18n.t('flow.params.variable.no_match', { expected: port.schema });
 
     return {
       key: port.name,
@@ -518,7 +533,10 @@ export class ManifestFieldsComponent {
       description:
         diagnostic ??
         port.description ??
-        `Bind input "${port.name}" (${port.schema}) to an upstream output.`,
+        this.i18n.t('flow.params.variable.describe', {
+          name: port.name,
+          schema: port.schema,
+        }),
       options: [],
       source: 'node.inputs_map',
       runtimeReadPath: `nodes.${nodeId}.config.inputs_map.${port.name}`,
@@ -552,7 +570,7 @@ export class ManifestFieldsComponent {
     const unsatisfied = requiredParamUnsatisfied(field, value, inputsMap);
     const empty = value === undefined || value === null || value === '';
     const boundNote = required && empty && !unsatisfied
-      ? `Supplied at runtime by the upstream binding on “${field.key}”.`
+      ? this.i18n.t('flow.params.variable.supplied', { name: field.key })
       : null;
     return {
       key: field.key,

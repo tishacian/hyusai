@@ -9,6 +9,7 @@ import {
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { MaritimeTrackingService } from '@app/core/maritime-tracking.service';
 import { WorkspaceExperienceShadowService } from '@app/core/workspace-experience-shadow.service';
@@ -111,6 +112,7 @@ function createHarness(options: {
   const injector = Injector.create({
     providers: [
       MissionRoomComponent,
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: WorkspaceService, useValue: workspace },
       { provide: ApiService, useValue: api },
       { provide: ActivatedRoute, useValue: { paramMap: of(paramMap), queryParamMap: of(queryParamMap) } },

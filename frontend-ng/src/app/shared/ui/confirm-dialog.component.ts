@@ -23,10 +23,8 @@ import { IconComponent } from './icon.component';
           <div class="flex items-start gap-4">
             <div
               class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
-              [class.bg-red-500\\/15]="tone === 'danger'"
-              [class.text-red-400]="tone === 'danger'"
-              [class.bg-cyan-500\\/15]="tone !== 'danger'"
-              [class.text-cyan-400]="tone !== 'danger'"
+              [class.ck-tone-neg]="tone === 'danger'"
+              [class.ck-tone-info]="tone !== 'danger'"
             >
               <app-icon [name]="icon" [size]="20" />
             </div>
@@ -41,7 +39,7 @@ import { IconComponent } from './icon.component';
           @if (confirmPhrase) {
             <div class="mt-5 space-y-2">
               <label class="block text-xs text-gray-400">
-                Type <span class="font-mono text-red-400 font-semibold">{{ confirmPhrase }}</span> to confirm:
+                Type <span class="font-mono font-semibold" [style.color]="'var(--ck-status-neg-fg)'">{{ confirmPhrase }}</span> to confirm:
               </label>
               <input
                 [(ngModel)]="typed"
@@ -64,11 +62,10 @@ import { IconComponent } from './icon.component';
               type="button"
               (click)="onConfirm()"
               [disabled]="!canConfirm()"
-              class="px-4 py-2 text-sm font-medium text-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-              [class.bg-red-600]="tone === 'danger'"
-              [class.hover:bg-red-700]="tone === 'danger'"
-              [class.bg-cyan-500]="tone !== 'danger'"
-              [class.hover:bg-cyan-600]="tone !== 'danger'"
+              class="px-4 py-2 text-sm font-medium rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+              [class.ck-cta]="tone !== 'danger'"
+              [style.background]="tone === 'danger' ? 'var(--ck-signal-neg)' : null"
+              [style.color]="tone === 'danger' ? 'var(--ck-on-signal)' : null"
             >
               {{ confirmLabel }}
             </button>

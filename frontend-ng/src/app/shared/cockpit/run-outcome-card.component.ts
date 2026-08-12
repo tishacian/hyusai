@@ -123,7 +123,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
       @if (run.error) {
         <div
           class="ck-mono"
-          style="font-size:11px; color:var(--ck-signal-neg); background:rgba(248, 113, 113, 0.08); padding:8px 10px; border-radius:4px;"
+          style="font-size:11px; color:var(--ck-status-neg-fg); background:var(--ck-status-neg-bg); padding:8px 10px; border-radius:4px;"
         >
           ERROR · {{ run.error }}
         </div>

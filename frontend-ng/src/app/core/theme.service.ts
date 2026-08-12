@@ -1,62 +1,59 @@
 import { Injectable, computed, effect, signal } from '@angular/core';
+import {
+  LEGACY_BUSINESS_THEME_KEY,
+  THEME_CYCLE,
+  THEME_KEY,
+  resolveStoredThemeMode,
+  type ThemeMode,
+} from './theme-preference';
 
-const THEME_KEY = 'agentium_theme';
-const BUSINESS_THEME_KEY = 'agentium_business_theme';
+export type { ThemeMode } from './theme-preference';
 
-type ThemeMode = 'dark' | 'light' | 'system';
-
-/** Business-shell theme preference. `system` follows `prefers-color-scheme`. */
-export type BusinessTheme = 'system' | 'light' | 'dark';
+/** @deprecated Historical name of `ThemeMode`; the preference is global now. */
+export type BusinessTheme = ThemeMode;
 
 /**
- * Theme facade. The global `html` is pinned to dark mode until the light
- * palette has enough contrast for demos, so cockpit admin chrome stays dark.
+ * Theme facade: one tri-state preference for the whole app.
  *
- * The business shell (Recherche / Capture / Client360) is the exception: it
- * scopes a `data-theme` attribute onto its own subtree so business end users
- * can flip system/light/dark without touching the global dark pin.
+ * The mode resolves to a concrete `light`/`dark` that is applied to `html` as
+ * both `data-theme` (the `--ck-*` token switch) and the `.dark` class Tailwind
+ * keys its `dark:` variants on. The business shell and NAWA read the same
+ * preference; NAWA keeps its own `--nawa-*` palette on top of it.
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  readonly mode = signal<ThemeMode>('dark');
-  readonly isDark = signal(true);
-
-  /** Business-shell preference, persisted to `agentium_business_theme`. */
-  readonly businessTheme = signal<BusinessTheme>(this.readBusinessTheme());
+  readonly mode = signal<ThemeMode>(this.readStoredMode());
 
   /** Tracks the OS `prefers-color-scheme: dark` media query for `system`. */
   private readonly systemPrefersDark = signal(this.matchSystemDark());
 
-  /** The concrete theme applied to the business subtree (`light` | `dark`). */
-  readonly businessResolved = computed<'light' | 'dark'>(() => {
-    const theme = this.businessTheme();
-    if (theme === 'system') {
-      return this.systemPrefersDark() ? 'dark' : 'light';
-    }
-    return theme;
+  /** The concrete theme on screen. */
+  readonly resolved = computed<'light' | 'dark'>(() => {
+    const mode = this.mode();
+    if (mode === 'system') return this.systemPrefersDark() ? 'dark' : 'light';
+    return mode;
   });
 
+  readonly isDark = computed(() => this.resolved() === 'dark');
+
+  /** @deprecated Use {@link mode}; the preference is no longer shell-scoped. */
+  readonly businessTheme = this.mode;
+  /** @deprecated Use {@link resolved}. */
+  readonly businessResolved = this.resolved;
+
   constructor() {
-    // Global dark pin — do NOT relax this; the cockpit admin chrome relies on it.
     effect(() => {
       const root = document.documentElement;
-      root.classList.add('dark');
-      root.setAttribute('data-theme', 'dark');
+      const resolved = this.resolved();
+      root.classList.toggle('dark', resolved === 'dark');
+      root.setAttribute('data-theme', resolved);
     });
 
     effect(() => {
+      const mode = this.mode();
       try {
-        localStorage.setItem(THEME_KEY, 'dark');
-      } catch {
-        // Ignore quota/privacy errors.
-      }
-    });
-
-    // Persist the business-shell preference on every change.
-    effect(() => {
-      const theme = this.businessTheme();
-      try {
-        localStorage.setItem(BUSINESS_THEME_KEY, theme);
+        localStorage.setItem(THEME_KEY, mode);
+        localStorage.removeItem(LEGACY_BUSINESS_THEME_KEY);
       } catch {
         // Ignore quota/privacy errors.
       }
@@ -65,25 +62,28 @@ export class ThemeService {
     this.watchSystemPreference();
   }
 
+  setMode(mode: ThemeMode): void {
+    this.mode.set(mode);
+  }
+
+  /** Flip between the two concrete themes, leaving `system` behind. */
   toggle(): void {
-    this.setMode('dark');
+    this.setMode(this.resolved() === 'dark' ? 'light' : 'dark');
   }
 
-  setMode(_mode: ThemeMode): void {
-    this.mode.set('dark');
-    this.isDark.set(true);
+  /** Cycle the preference: system → light → dark → system. */
+  cycle(): void {
+    this.setMode(THEME_CYCLE[(THEME_CYCLE.indexOf(this.mode()) + 1) % THEME_CYCLE.length]);
   }
 
-  /** @deprecated use {@link setMode} instead. */
-  setDark(_dark: boolean): void {
-    this.setMode('dark');
-  }
-
-  /** Cycle the business-shell theme: system → light → dark → system. */
+  /** @deprecated Use {@link cycle}. */
   cycleBusinessTheme(): void {
-    const order: BusinessTheme[] = ['system', 'light', 'dark'];
-    const next = order[(order.indexOf(this.businessTheme()) + 1) % order.length];
-    this.businessTheme.set(next);
+    this.cycle();
+  }
+
+  /** @deprecated Use {@link setMode}. */
+  setDark(dark: boolean): void {
+    this.setMode(dark ? 'dark' : 'light');
   }
 
   private watchSystemPreference(): void {
@@ -103,15 +103,14 @@ export class ThemeService {
     }
   }
 
-  private readBusinessTheme(): BusinessTheme {
+  private readStoredMode(): ThemeMode {
     try {
-      const stored = localStorage.getItem(BUSINESS_THEME_KEY);
-      if (stored === 'light' || stored === 'dark' || stored === 'system') {
-        return stored;
-      }
+      return resolveStoredThemeMode(
+        localStorage.getItem(THEME_KEY),
+        localStorage.getItem(LEGACY_BUSINESS_THEME_KEY),
+      );
     } catch {
-      // Ignore quota/privacy errors.
+      return 'system';
     }
-    return 'system';
   }
 }

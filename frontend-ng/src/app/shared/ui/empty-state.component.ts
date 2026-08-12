@@ -25,7 +25,7 @@ export type EmptyStateSize = 'sm' | 'md' | 'lg';
       }"
     >
       <div
-        class="rounded-2xl flex items-center justify-center bg-cyan-500/10 ring-1 ring-cyan-500/20 text-cyan-400 shadow-glow-sm mb-3"
+        class="ck-tone-info rounded-2xl flex items-center justify-center mb-3"
         [ngClass]="{
           'w-10 h-10': size === 'sm',
           'w-16 h-16': size === 'md',
@@ -35,7 +35,8 @@ export type EmptyStateSize = 'sm' | 'md' | 'lg';
         <app-icon [name]="icon" [size]="iconSize()" />
       </div>
       <h3
-        class="font-semibold text-gray-900 dark:text-white mb-1"
+        class="font-semibold mb-1"
+        [style.color]="'var(--ck-fg-1)'"
         [ngClass]="{
           'text-sm': size === 'sm',
           'text-base': size === 'md',
@@ -46,7 +47,8 @@ export type EmptyStateSize = 'sm' | 'md' | 'lg';
       </h3>
       @if (description) {
         <p
-          class="text-gray-500 dark:text-gray-400 max-w-sm mb-3"
+          class="max-w-sm mb-3"
+          [style.color]="'var(--ck-fg-4)'"
           [ngClass]="{
             'text-[11px] leading-relaxed': size === 'sm',
             'text-sm': size === 'md' || size === 'lg'

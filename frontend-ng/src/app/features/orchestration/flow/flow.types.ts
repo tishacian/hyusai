@@ -274,7 +274,7 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     type: 'sink',
     kind: 'sink',
     label: 'Output',
-    description: 'Flow output / sink',
+    description: 'Where the Flow delivers its result',
     icon: 'flag',
     tone: 'emerald',
     inputs: [{ name: 'result', schema: 'object' }],

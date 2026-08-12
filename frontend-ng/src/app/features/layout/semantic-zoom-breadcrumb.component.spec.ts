@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { EN_DICT } from '@app/core/i18n.dict';
+import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService, type ZoomGraphNode } from '@app/core/zoom-context.service';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 
@@ -33,13 +35,23 @@ test('breadcrumb renders only graph-proven nodes with their canonical labels and
           navigateByUrl: (url: string) => navigations.push(url),
         },
       },
+      // The portfolio rung takes its label from the dictionary, not the graph,
+      // so the breadcrumb needs a resolving translator. Pinned to EN to match
+      // the English node labels this fixture feeds it.
+      {
+        provide: I18nService,
+        useValue: {
+          locale: () => 'en',
+          t: (key: string) => EN_DICT[key as keyof typeof EN_DICT] ?? key,
+        },
+      },
     ],
   });
   const breadcrumb = injector.get(SemanticZoomBreadcrumbComponent);
   assert.deepEqual(
     breadcrumb.levels().map((level) => [level.key, level.label, level.active]),
     [
-      ['portfolio', 'Portfolio', false],
+      ['portfolio', EN_DICT['nav.zoom.portfolio'], false],
       ['capability', 'Contract Risk', false],
       ['system', 'Contract Risk Copilot', false],
       ['run', 'Run · run-1', true],

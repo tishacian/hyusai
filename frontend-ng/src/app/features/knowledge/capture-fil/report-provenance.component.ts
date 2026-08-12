@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { firstValueFrom } from 'rxjs';
 import {
   ApiService,
@@ -86,7 +87,7 @@ interface ReportSource {
             <button
               type="button"
               (click)="scrollToQuestions()"
-              [title]="'Aller au panneau de gestion des questions ouvertes'"
+              [title]="i18n.t('capture.report.goto_questions_panel')"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-warn) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 10%, transparent); color:var(--ck-signal-warn); font-size:11.5px; font-weight:600;"
             >
               <ck-glyph name="warn" [size]="12" color="currentColor" />
@@ -114,7 +115,7 @@ interface ReportSource {
           <div style="flex:none; padding:11px 24px; border-bottom:1px solid var(--ck-stroke-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span
               style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);"
-              [title]="'Statut de la proposition'"
+              [title]="i18n.t('capture.report.status_hint')"
             >
               <ck-glyph name="pulse" [size]="12" [color]="statusColor()" />
               <span class="ck-mono" style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase;" [style.color]="statusColor()">{{ statusLabel() }}</span>
@@ -126,7 +127,7 @@ interface ReportSource {
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
             >
               <ck-glyph [name]="editMode() ? 'layers' : 'bolt'" [size]="13" color="currentColor" />
-              {{ editMode() ? 'Voir la fiche' : 'Éditer le markdown' }}
+              {{ editMode() ? i18n.t('capture.report.view_record') : i18n.t('capture.report.edit_markdown') }}
             </button>
 
             @if (editMode()) {
@@ -135,7 +136,7 @@ interface ReportSource {
                 (click)="save()"
                 style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 14%, transparent); color:var(--ck-signal-cool); font-size:12px; font-weight:600;"
               >
-                <ck-glyph name="check" [size]="13" color="currentColor" /> Enregistrer
+                <ck-glyph name="check" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.save') }}
               </button>
             }
 
@@ -143,24 +144,24 @@ interface ReportSource {
               <input
                 #instr
                 type="text"
-                placeholder="Instruction IA (ex. resserrer la synthèse)…"
+                [placeholder]="i18n.t('capture.report.instruction_placeholder')"
                 (keydown.enter)="applyInstr(instr.value); instr.value=''"
                 style="width:230px; max-width:40vw; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-1); font-size:12px;"
               />
               <button
                 type="button"
                 (click)="applyInstr(instr.value); instr.value=''"
-                [title]="'Appliquer une instruction IA au rapport'"
+                [title]="i18n.t('capture.report.instruction_hint')"
                 style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
               >
-                <ck-glyph name="bolt" [size]="13" color="var(--ck-signal-violet)" /> Appliquer
+                <ck-glyph name="bolt" [size]="13" color="var(--ck-signal-violet)" /> {{ i18n.t('capture.report.apply') }}
               </button>
             </span>
 
             <button
               type="button"
               (click)="exportReport()"
-              [title]="'Exporter le rapport en Markdown'"
+              [title]="i18n.t('capture.report.export_markdown')"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
             >
               <ck-glyph name="arrow-down" [size]="13" color="currentColor" /> Markdown
@@ -169,17 +170,17 @@ interface ReportSource {
               type="button"
               (click)="downloadBrandedExport('pdf')"
               [disabled]="!!brandedExportBusy()"
-              [title]="'Exporter le rapport PDF brandé Andritz'"
+              [title]="i18n.t('capture.report.export_pdf_hint')"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 10%, transparent); color:var(--ck-signal-cool); font-size:12px; font-weight:600;"
             >
               <ck-glyph name="ledger" [size]="13" color="currentColor" />
-              {{ brandedExportBusy() === 'pdf' ? 'PDF…' : 'PDF Andritz' }}
+              {{ brandedExportBusy() === 'pdf' ? i18n.t('capture.report.exporting_pdf') : i18n.t('capture.report.export_pdf') }}
             </button>
             <button
               type="button"
               (click)="downloadBrandedExport('docx')"
               [disabled]="!!brandedExportBusy()"
-              [title]="'Exporter le rapport DOCX brandé Andritz'"
+              [title]="i18n.t('capture.report.export_docx_hint')"
               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:12px;"
             >
               <ck-glyph name="ledger" [size]="13" color="currentColor" />
@@ -193,31 +194,35 @@ interface ReportSource {
               type="button"
               (click)="requestChanges()"
               [disabled]="changesRequested() || reviewBusy()"
-              [title]="'Marque la fiche « à retravailler » : corrections à apporter (jointes en notes), ni acceptée ni rejetée. Utile pour la reprendre plus tard ou la repasser à quelqu\\'un.'"
+              [title]="i18n.t('capture.report.rework_hint')"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-warn) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 12%, transparent); color:var(--ck-signal-warn);"
               [style.cursor]="changesRequested() ? 'default' : 'pointer'"
               [style.opacity]="changesRequested() ? '0.55' : '1'"
             >
-              <ck-glyph name="layers" [size]="13" color="currentColor" /> À retravailler
+              <ck-glyph name="layers" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.rework') }}
             </button>
 
             <button
               type="button"
               (click)="reject()"
               [disabled]="rejected() || reviewBusy()"
-              [title]="'Rejeter la fiche : écartée et non publiable (motif en notes)'"
+              [title]="i18n.t('capture.report.reject_hint')"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-neg) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-neg) 12%, transparent); color:var(--ck-signal-neg);"
               [style.cursor]="rejected() ? 'default' : 'pointer'"
               [style.opacity]="rejected() ? '0.55' : '1'"
             >
-              <ck-glyph name="x" [size]="13" color="currentColor" /> Rejeter
+              <ck-glyph name="x" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.reject') }}
             </button>
 
             <button
               type="button"
               (click)="accept()"
               [disabled]="accepted() || reviewBusy()"
-              [title]="accepted() ? 'Rapport déjà accepté' : 'Accepter le rapport (requis avant publication)'"
+              [title]="
+                accepted()
+                  ? i18n.t('capture.report.already_accepted')
+                  : i18n.t('capture.report.accept_hint')
+              "
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); font-size:12px; font-weight:650;"
               [style.cursor]="accepted() ? 'default' : 'pointer'"
               [style.opacity]="accepted() ? '0.55' : '1'"
@@ -225,17 +230,17 @@ interface ReportSource {
               [style.background]="'color-mix(in oklab, var(--ck-signal-pos) ' + (accepted() ? '10' : '18') + '%, transparent)'"
               [style.color]="'var(--ck-signal-pos)'"
             >
-              <ck-glyph name="check" [size]="13" color="currentColor" /> Accepter le rapport
+              <ck-glyph name="check" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.accept') }}
             </button>
 
             @if (accepted()) {
               <button
                 type="button"
                 (click)="publish.emit()"
-                [title]="'Publier la fiche acceptée vers la base de connaissances'"
+                [title]="i18n.t('capture.report.publish_hint')"
                 style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); font-size:12px; font-weight:650; border:1px solid color-mix(in oklab, var(--ck-signal-cool) 55%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
               >
-                <ck-glyph name="arrow-right" [size]="13" color="currentColor" /> Publier vers la base de connaissances
+                <ck-glyph name="arrow-right" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.publish') }}
               </button>
             }
 
@@ -244,15 +249,18 @@ interface ReportSource {
               [value]="reviewNotes()"
               (input)="onReviewNotes($event)"
               rows="1"
-              placeholder="Notes de revue (jointes au rejet ou au marquage « à retravailler »)…"
+              [placeholder]="i18n.t('capture.report.review_notes_placeholder')"
               style="flex-basis:100%; resize:vertical; min-height:34px; max-height:120px; margin-top:2px; padding:7px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:12px; line-height:1.5;"
             ></textarea>
 
             <!-- legend: what each review verb does (the verbs were unclear) -->
             <p style="flex-basis:100%; margin:2px 0 0; font-size:11px; line-height:1.5; color:var(--ck-fg-4);">
-              <b style="color:var(--ck-signal-pos);">Accepter</b> : prête à publier vers la base de connaissances ·
-              <b style="color:var(--ck-signal-warn);">À retravailler</b> : corrections à apporter (statut + notes), reprise possible plus tard ·
-              <b style="color:var(--ck-signal-neg);">Rejeter</b> : écartée, non publiable. Vous pouvez aussi corriger directement (Éditer le markdown / instruction IA).
+              <b style="color:var(--ck-signal-pos);">{{ i18n.t('capture.report.accept') }}</b>
+              {{ i18n.t('capture.report.legend_accept') }}
+              <b style="color:var(--ck-signal-warn);">{{ i18n.t('capture.report.rework') }}</b>
+              {{ i18n.t('capture.report.legend_rework') }}
+              <b style="color:var(--ck-signal-neg);">{{ i18n.t('capture.report.reject') }}</b>
+              {{ i18n.t('capture.report.legend_reject') }}
             </p>
 
             <!-- decision feedback: makes accept/reject/à-retravailler outcomes visible (never silent) -->
@@ -278,9 +286,9 @@ interface ReportSource {
               <div style="display:flex; flex-direction:column; align-items:center; gap:14px; max-width:360px;">
                 <ck-live-dot tone="violet" />
                 <ck-glyph name="pulse" [size]="26" color="var(--ck-fg-4)" />
-                <div style="font-size:15px; font-weight:600; color:var(--ck-fg-2);">Rapport en cours de génération…</div>
+                <div style="font-size:15px; font-weight:600; color:var(--ck-fg-2);">{{ i18n.t('capture.report.generating') }}</div>
                 <div class="ck-mono" style="font-size:11px; line-height:1.6; color:var(--ck-fg-4);">
-                  La fiche structurée et ses sources apparaîtront ici dès que la synthèse de séance est prête.
+                  {{ i18n.t('capture.report.generating_hint') }}
                 </div>
               </div>
             </div>
@@ -289,7 +297,7 @@ interface ReportSource {
               <!-- edit mode: raw markdown -->
               @if (editMode()) {
                 <h2 class="ck-mono" style="margin:0 0 12px; font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-cool);">
-                  Markdown du rapport
+                  {{ i18n.t('capture.report.markdown_title') }}
                 </h2>
                 <textarea
                   [value]="draft()"
@@ -300,7 +308,7 @@ interface ReportSource {
               } @else {
                 <!-- read mode: structured fiche -->
                 <h2 class="ck-mono" style="margin:0 0 16px; font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-cool);">
-                  {{ template() ? 'Fiche intervention FSE' : 'Fiche structurée' }}
+                  {{ template() ? i18n.t('capture.report.record_intervention') : i18n.t('capture.report.record_structured') }}
                 </h2>
 
                 @if (template() && (interventionType() || publicationNamePreview())) {
@@ -454,7 +462,7 @@ interface ReportSource {
                                 <button
                                   type="button"
                                   (click)="jumpToQuestion(q)"
-                                  [title]="'Voir cette question dans le panneau de gestion'"
+                                  [title]="i18n.t('capture.report.view_question_in_panel')"
                                   style="appearance:none; cursor:pointer; background:none; border:none; padding:0; text-align:left; font-size:12px; line-height:1.55; color:var(--ck-fg-2); text-decoration:underline dotted color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); text-underline-offset:3px;"
                                 >
                                   {{ q.text }}
@@ -503,7 +511,7 @@ interface ReportSource {
                             <button
                               type="button"
                               (click)="jumpToQuestion(q)"
-                              [title]="'Voir cette question dans le panneau de gestion'"
+                              [title]="i18n.t('capture.report.view_question_in_panel')"
                               style="appearance:none; cursor:pointer; background:none; border:none; padding:0; text-align:left; font-size:12.5px; line-height:1.55; color:var(--ck-fg-2); text-decoration:underline dotted color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); text-underline-offset:3px;"
                             >
                               {{ q.text }}
@@ -530,7 +538,7 @@ interface ReportSource {
                 @if (unassigned().length) {
                   <article style="margin:0 0 16px; border:1px dashed var(--ck-stroke-2); border-radius:var(--ck-radius-lg); background:var(--ck-bg-panel); padding:13px 16px; display:flex; flex-direction:column; gap:7px;">
                     <h3 class="ck-mono" style="margin:0 0 2px; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-fg-4); display:flex; align-items:center; gap:7px;">
-                      <ck-glyph name="layers" [size]="13" color="var(--ck-fg-4)" /> Hors plan
+                      <ck-glyph name="layers" [size]="13" color="var(--ck-fg-4)" /> {{ i18n.t('capture.report.off_plan') }}
                     </h3>
                     @for (fact of unassigned(); track $index) {
                       <p style="margin:0; display:flex; gap:8px; font-size:13px; line-height:1.6; color:var(--ck-fg-3);">
@@ -543,7 +551,7 @@ interface ReportSource {
 
                 @if (!fiche().length && !unassigned().length) {
                   <p style="font-size:13px; color:var(--ck-fg-4); font-style:italic; margin:0 0 16px;">
-                    Aucune section structurée pour ce rapport. Basculez en édition pour rédiger le markdown.
+                    {{ i18n.t('capture.report.no_sections') }}
                   </p>
                 }
 
@@ -555,7 +563,7 @@ interface ReportSource {
                      avoids the "raw transcript + reformulation" duplication. -->
                 <section style="margin:18px 0 0; border-top:1px solid var(--ck-stroke-2); padding-top:16px;">
                   <h3 class="ck-mono" style="margin:0 0 11px; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-cool); display:flex; align-items:center; gap:7px;">
-                    <ck-glyph name="crosshair" [size]="13" color="var(--ck-signal-cool)" /> Sources pointées ({{ sources().length }})
+                    <ck-glyph name="crosshair" [size]="13" color="var(--ck-signal-cool)" /> {{ i18n.t('capture.report.pointed_sources', { count: sources().length }) }}
                   </h3>
                   @if (sources().length) {
                     <div style="display:flex; flex-wrap:wrap; gap:6px;">
@@ -579,12 +587,12 @@ interface ReportSource {
                     @if (selected(); as sel) {
                       @if (sectionRefsFor(sel).length) {
                         <div style="margin-top:9px; display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
-                          <span class="ck-mono" style="font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-fg-5);">Référencée dans</span>
+                          <span class="ck-mono" style="font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ck-fg-5);">{{ i18n.t('capture.report.referenced_in') }}</span>
                           @for (section of sectionRefsFor(sel); track section.key) {
                             <button
                               type="button"
                               (click)="scrollToSection(section.key)"
-                              [title]="'Aller à la section « ' + section.title + ' »'"
+                              [title]="i18n.t('capture.report.go_to_section', { title: section.title })"
                               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:3px 9px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-cool) 40%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-signal-cool); font-size:11px;"
                             >
                               <ck-glyph name="arrow-up" [size]="10" color="currentColor" />
@@ -596,8 +604,7 @@ interface ReportSource {
                     }
                   } @else {
                     <p style="font-size:13px; color:var(--ck-fg-4); font-style:italic;">
-                      Aucune source pointée pour cette séance. Les affirmations sourcées apparaissent ici à mesure que des pièces sont
-                      pointées pendant la séance.
+                      {{ i18n.t('capture.report.no_pointed_sources') }}
                     </p>
                   }
                 </section>
@@ -606,7 +613,7 @@ interface ReportSource {
                 @if (openQuestions().length) {
                   <section id="kc-oq-panel" style="margin:22px 0 0; border-top:1px solid var(--ck-stroke-2); padding-top:16px; display:flex; flex-direction:column; gap:10px; scroll-margin-top:70px;">
                     <h3 class="ck-mono" style="margin:0; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-warn); display:flex; align-items:center; gap:7px;">
-                      <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" /> Questions ouvertes ({{ openQuestions().length }})
+                      <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" /> {{ i18n.t('capture.report.open_questions', { count: openQuestions().length }) }}
                     </h3>
                     @for (q of openQuestions(); track $index) {
                       <div
@@ -621,8 +628,8 @@ interface ReportSource {
                             <span
                               class="ck-mono"
                               style="flex:none; font-size:9px; letter-spacing:0.06em; text-transform:uppercase; padding:2px 7px; border-radius:999px; font-weight:700; color:var(--ck-signal-warn); border:1px solid color-mix(in oklab, var(--ck-signal-warn) 55%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 12%, transparent);"
-                              title="Repris du rapport N-1"
-                            >N-1</span>
+                              [title]="i18n.t('capture.report.from_previous_hint')"
+                            >{{ i18n.t('capture.report.from_previous') }}</span>
                           }
                           @if (criticalityBadge(q); as crit) {
                             <span
@@ -643,7 +650,7 @@ interface ReportSource {
                             <input
                               #ans
                               type="text"
-                              placeholder="Répondre…"
+                              [placeholder]="i18n.t('capture.report.answer_placeholder')"
                               (keydown.enter)="answer(q, ans.value); ans.value=''"
                               style="flex:1; min-width:160px; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-1); font-size:12px;"
                             />
@@ -651,27 +658,31 @@ interface ReportSource {
                               type="button"
                               (click)="answer(q, ans.value); ans.value=''"
                               [disabled]="!questionId(q)"
-                              [title]="questionId(q) ? 'Répondre à la question' : 'Question non adressable (id manquant)'"
+                              [title]="
+                                questionId(q)
+                                  ? i18n.t('capture.report.answer_hint')
+                                  : i18n.t('capture.report.answer_disabled')
+                              "
                               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-pos) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-pos) 12%, transparent); color:var(--ck-signal-pos); font-size:12px;"
                               [style.opacity]="questionId(q) ? '1' : '0.5'"
                             >
-                              <ck-glyph name="check" [size]="12" color="currentColor" /> Répondre
+                              <ck-glyph name="check" [size]="12" color="currentColor" /> {{ i18n.t('capture.report.answer') }}
                             </button>
                             <button
                               type="button"
                               (click)="defer(q)"
-                              [title]="'Différer la question'"
+                              [title]="i18n.t('capture.report.defer_hint')"
                               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-3); font-size:12px;"
                             >
-                              <ck-glyph name="arrow-right" [size]="12" color="currentColor" /> Différer
+                              <ck-glyph name="arrow-right" [size]="12" color="currentColor" /> {{ i18n.t('capture.report.defer') }}
                             </button>
                             <button
                               type="button"
                               (click)="invalidate(q)"
-                              [title]="'Invalider la question'"
+                              [title]="i18n.t('capture.report.invalidate_hint')"
                               style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-4); font-size:12px;"
                             >
-                              <ck-glyph name="x" [size]="12" color="currentColor" /> Invalider
+                              <ck-glyph name="x" [size]="12" color="currentColor" /> {{ i18n.t('capture.report.invalidate') }}
                             </button>
                           </div>
                         }
@@ -690,7 +701,7 @@ interface ReportSource {
         <div style="flex:none; padding:14px 18px; border-bottom:1px solid var(--ck-stroke-2); display:flex; align-items:center; gap:8px;">
           <ck-glyph name="focus" [size]="15" color="var(--ck-fg-3)" />
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-            Source & provenance
+            {{ i18n.t('capture.report.inspector') }}
           </span>
         </div>
 
@@ -721,7 +732,7 @@ interface ReportSource {
                     style="position:absolute; top:-9px; left:-1px; padding:1px 7px; border-radius:3px; font-size:8.5px; font-weight:700; white-space:nowrap; color:var(--ck-on-signal);"
                     [style.background]="tintOf(sel)"
                   >
-                    ZONE POINTÉE
+                    {{ i18n.t('capture.report.pointed_zone') }}
                   </span>
                 </div>
               </div>
@@ -733,22 +744,22 @@ interface ReportSource {
                 <span class="ck-mono" style="font-size:12px; color:var(--ck-fg-1);">{{ viewTitleOf(sel) }}</span>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <span class="prov-pill"><span class="prov-k">Vue</span><span class="prov-v">{{ locationOf(sel) }}</span></span>
-                <span class="prov-pill"><span class="prov-k">Objet</span><span class="prov-v">{{ statementOf(sel) }}</span></span>
+                <span class="prov-pill"><span class="prov-k">{{ i18n.t('capture.report.pill_view') }}</span><span class="prov-v">{{ locationOf(sel) }}</span></span>
+                <span class="prov-pill"><span class="prov-k">{{ i18n.t('capture.report.pill_subject') }}</span><span class="prov-v">{{ statementOf(sel) }}</span></span>
                 <span class="prov-pill">
-                  <span class="prov-k">Index</span>
+                  <span class="prov-k">{{ i18n.t('capture.report.pill_index') }}</span>
                   <span class="prov-v" [style.color]="indexTone(sel)">{{ indexLabel(sel) }}</span>
                 </span>
               </div>
               <!-- reverse provenance: fiche sections citing this anchor -->
               @if (sectionRefsFor(sel).length) {
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                  <span class="ck-mono" style="font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ck-fg-5);">Citée dans</span>
+                  <span class="ck-mono" style="font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ck-fg-5);">{{ i18n.t('capture.report.cited_in') }}</span>
                   @for (section of sectionRefsFor(sel); track section.key) {
                     <button
                       type="button"
                       (click)="scrollToSection(section.key)"
-                      [title]="'Aller à la section « ' + section.title + ' »'"
+                      [title]="i18n.t('capture.report.go_to_section', { title: section.title })"
                       style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; align-self:flex-start; max-width:100%; padding:4px 10px; border-radius:999px; border:1px solid color-mix(in oklab, var(--ck-signal-cool) 40%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-signal-cool); font-size:11.5px;"
                     >
                       <ck-glyph name="arrow-up" [size]="11" color="currentColor" />
@@ -766,9 +777,9 @@ interface ReportSource {
             >
               <ck-glyph name="arrow-up" [size]="15" color="var(--ck-signal-cool)" />
               <span style="flex:1;">
-                <span style="display:block; font-size:12px; color:var(--ck-fg-1);">Revoir l'instant capté</span>
+                <span style="display:block; font-size:12px; color:var(--ck-fg-1);">{{ i18n.t('capture.report.revisit') }}</span>
                 <span class="ck-mono" style="display:block; font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
-                  dit à {{ momentOf(sel) }} pendant la séance
+                  {{ i18n.t('capture.report.said_at', { at: momentOf(sel) }) }}
                 </span>
               </span>
               <ck-glyph name="arrow-right" [size]="14" color="currentColor" />
@@ -780,18 +791,17 @@ interface ReportSource {
                 (click)="openPreview(url, sel)"
                 style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:7px; align-self:flex-start; padding:7px 12px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-2); font-size:12px;"
               >
-                <ck-glyph name="zoom-in" [size]="13" color="currentColor" /> Voir le document
+                <ck-glyph name="zoom-in" [size]="13" color="currentColor" /> {{ i18n.t('capture.report.view_document') }}
               </button>
             }
 
             <p style="margin:0; font-size:11.5px; line-height:1.5; color:var(--ck-fg-4);">
-              Provenance bidirectionnelle : du rapport vers la pièce <i>et</i> vers le moment exact de la séance où l'expert l'a
-              pointée.
+              {{ i18n.t('capture.report.provenance_note') }}
             </p>
           </div>
         } @else {
           <div style="flex:1; display:grid; place-items:center; color:var(--ck-fg-5); font-size:12.5px; padding:24px; text-align:center;">
-            Cliquez une source dans le rapport.
+            {{ i18n.t('capture.report.select_source') }}
           </div>
         }
       </div>
@@ -801,7 +811,7 @@ interface ReportSource {
       [open]="previewOpen()"
       [previewUrl]="previewUrl()"
       [title]="previewTitle()"
-      [subtitle]="'Source pointée'"
+      [subtitle]="i18n.t('capture.report.pointed_source')"
       [page]="previewPage()"
       [highlight]="previewHighlight()"
       (closed)="previewOpen.set(false)"
@@ -839,6 +849,8 @@ interface ReportSource {
   ],
 })
 export class ReportProvenanceComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
   private readonly api = inject(ApiService);
 
@@ -884,7 +896,9 @@ export class ReportProvenanceComponent {
     this.reviewBusy.set(false);
     this.reviewFeedback.set({
       ok,
-      message: ok ? okMessage : this.engine.lastError() || 'Échec de la décision — réessayez.',
+      message: ok
+        ? okMessage
+        : this.engine.lastError() || this.i18n.t('capture.report.decision_failed'),
     });
   }
 
@@ -969,19 +983,21 @@ export class ReportProvenanceComponent {
     return { byEvent, byStatement };
   });
 
-  private static readonly STATUS_DISPLAY: Record<string, { label: string; tone: CaptureTone | 'neutral' }> = {
-    draft: { label: 'Brouillon', tone: 'cool' },
-    pending: { label: 'En attente', tone: 'warn' },
-    pending_review: { label: 'En revue', tone: 'warn' },
-    in_review: { label: 'En revue', tone: 'warn' },
-    changes_requested: { label: 'Corrections demandées', tone: 'warn' },
-    accepted: { label: 'Accepté', tone: 'pos' },
-    rejected: { label: 'Rejeté', tone: 'neg' },
-    published: { label: 'Publié', tone: 'pos' },
+  /** Review-workflow status → dictionary key + tone (static: no injector here). */
+  private static readonly STATUS_DISPLAY: Record<string, { labelKey: string; tone: CaptureTone | 'neutral' }> = {
+    draft: { labelKey: 'capture.report.status.draft', tone: 'cool' },
+    pending: { labelKey: 'capture.report.status.pending', tone: 'warn' },
+    pending_review: { labelKey: 'capture.report.status.in_review', tone: 'warn' },
+    in_review: { labelKey: 'capture.report.status.in_review', tone: 'warn' },
+    changes_requested: { labelKey: 'capture.report.status.changes_requested', tone: 'warn' },
+    accepted: { labelKey: 'capture.report.status.accepted', tone: 'pos' },
+    rejected: { labelKey: 'capture.report.status.rejected', tone: 'neg' },
+    published: { labelKey: 'capture.report.status.published', tone: 'pos' },
   };
   protected readonly statusLabel = computed(() => {
     const raw = (this.engine.proposal()?.status ?? '').toLowerCase();
-    return ReportProvenanceComponent.STATUS_DISPLAY[raw]?.label ?? (raw || '—');
+    const entry = ReportProvenanceComponent.STATUS_DISPLAY[raw];
+    return entry ? this.i18n.t(entry.labelKey) : raw || '—';
   });
   protected readonly statusColor = computed(() => {
     const raw = (this.engine.proposal()?.status ?? '').toLowerCase();
@@ -1021,7 +1037,9 @@ export class ReportProvenanceComponent {
       const ref = headerValueAsDisplay(this.engine.headerFields()['reference']);
       if (ref) return ref;
     }
-    return proposal ? `proposition ${proposal}` : sessionId ? `séance ${sessionId}` : '—';
+    if (proposal) return this.i18n.t('capture.report.reference_proposal', { id: proposal });
+    if (sessionId) return this.i18n.t('capture.report.reference_session', { id: sessionId });
+    return '—';
   });
   // ---- background-index banner (D5 / §5.4) -------------------------------
   private readonly shareable = computed(() =>
@@ -1070,7 +1088,7 @@ export class ReportProvenanceComponent {
 
   protected accept(): void {
     if (this.accepted()) return;
-    void this.runReview('accepted', 'Fiche acceptée — prête à publier.');
+    void this.runReview('accepted', this.i18n.t('capture.report.accepted_ok'));
   }
 
   /** Whether the operator has demanded changes (workflow state). */
@@ -1083,11 +1101,11 @@ export class ReportProvenanceComponent {
   );
 
   protected requestChanges(): void {
-    void this.runReview('changes_requested', 'Fiche marquée « à retravailler ».');
+    void this.runReview('changes_requested', this.i18n.t('capture.report.rework_ok'));
   }
 
   protected reject(): void {
-    void this.runReview('rejected', 'Fiche rejetée — non publiable.');
+    void this.runReview('rejected', this.i18n.t('capture.report.rejected_ok'));
   }
 
   protected onReviewNotes(event: Event): void {
@@ -1216,15 +1234,23 @@ export class ReportProvenanceComponent {
   /** Criticality badge: blocking (red), high priority (warn) — per-item scale
    * inferred defensively (values > 1 read on the 0-3 scale, else 0..1). */
   protected criticalityBadge(q: ProposalOpenQuestion): { label: string; color: string } | null {
-    if (q.blocking) return { label: 'Bloquante', color: 'var(--ck-signal-neg)' };
+    if (q.blocking) {
+      return { label: this.i18n.t('capture.fil.priority_blocking'), color: 'var(--ck-signal-neg)' };
+    }
     const p = this.priorityOf(q);
     const high = p > 1 ? p >= 2 : p >= 0.7;
-    return high ? { label: 'Priorité haute', color: 'var(--ck-signal-warn)' } : null;
+    return high
+      ? { label: this.i18n.t('capture.fil.priority_high'), color: 'var(--ck-signal-warn)' }
+      : null;
   }
 
   protected questionText(q: ProposalOpenQuestion): string {
     return String(
-      (q as Record<string, unknown>)['text'] || q.follow_up || q.reason || q.gap_id || 'Question ouverte',
+      (q as Record<string, unknown>)['text']
+        || q.follow_up
+        || q.reason
+        || q.gap_id
+        || this.i18n.t('capture.report.question_fallback'),
     ).trim();
   }
   protected questionId(q: ProposalOpenQuestion): string {
@@ -1238,10 +1264,12 @@ export class ReportProvenanceComponent {
   }
   protected questionStatusLabel(q: ProposalOpenQuestion): string {
     const s = this.questionStatus(q);
-    if (s === 'answered') return 'Répondue';
-    if (s === 'invalid' || s === 'dismissed') return 'Invalide';
-    if (s === 'deferred') return 'Différée';
-    return 'Ouverte';
+    if (s === 'answered') return this.i18n.t('capture.report.question_status.answered');
+    if (s === 'invalid' || s === 'dismissed') {
+      return this.i18n.t('capture.report.question_status.invalid');
+    }
+    if (s === 'deferred') return this.i18n.t('capture.report.question_status.deferred');
+    return this.i18n.t('capture.report.question_status.open');
   }
   protected questionStatusColor(q: ProposalOpenQuestion): string {
     const s = this.questionStatus(q);
@@ -1269,13 +1297,13 @@ export class ReportProvenanceComponent {
   }
 
   protected statementOf(ref: CaptureViewReference): string {
-    return ref.statement ?? ref.trigger_phrase ?? viewTitle(ref);
+    return ref.statement ?? ref.trigger_phrase ?? this.viewTitleOf(ref);
   }
   protected viewTitleOf(ref: CaptureViewReference): string {
-    return viewTitle(ref);
+    return viewTitle(ref, this.i18n.t('capture.piece.fallback'));
   }
   protected locationOf(ref: CaptureViewReference): string {
-    return viewLocation(ref);
+    return viewLocation(ref, (index) => this.i18n.t('capture.view.snapshot', { index }));
   }
   protected tintOf(ref: CaptureViewReference): string {
     return toneVar(viewTone(ref));
@@ -1289,7 +1317,10 @@ export class ReportProvenanceComponent {
   }
   protected indexLabel(ref: CaptureViewReference): string {
     const doc = this.docFor(ref);
-    return doc ? INDEX_STATE_DISPLAY[indexStatusOf(doc)].label : 'Référencé';
+    const key = doc
+      ? INDEX_STATE_DISPLAY[indexStatusOf(doc)].labelKey
+      : 'capture.index.referenced';
+    return this.i18n.t(key);
   }
   protected indexTone(ref: CaptureViewReference): string {
     const doc = this.docFor(ref);
@@ -1324,7 +1355,7 @@ export class ReportProvenanceComponent {
 
   protected openPreview(url: string, ref: CaptureViewReference): void {
     this.previewUrl.set(url);
-    this.previewTitle.set(viewTitle(ref));
+    this.previewTitle.set(this.viewTitleOf(ref));
     this.previewPage.set(ref.page ?? null);
     this.previewHighlight.set(this.highlightFor(ref));
     this.previewOpen.set(true);

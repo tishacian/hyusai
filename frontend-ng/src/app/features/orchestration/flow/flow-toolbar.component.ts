@@ -8,6 +8,11 @@
  * pill, Save / Export / Import, Share, and scratchpad → System promotion.
  * Manual save (Save button, Ctrl·Cmd+S) and debounced autosave both go
  * through that one service — there is no separate save path on the shell.
+ *
+ * Three registers, left to right: what the graph *is* (count, save state,
+ * revisions), what you *do* to it (author group), and what you do *with* it
+ * (Operate / More disclosures). Content fingerprints are never a primary
+ * label — they are the `title` of the revision pill that carries them.
  */
 import {
   ChangeDetectionStrategy,
@@ -18,14 +23,19 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowPersistenceService, type SaveState } from './flow-persistence.service';
+
+/** What the save pill says, once the two autosave holds are folded in. */
+type PillState = SaveState | 'hold';
 
 @Component({
   selector: 'app-flow-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, HelpTooltipComponent],
   // FlowPersistenceService is provided one level up by FlowBuilderComponent so
   // the builder shell + the validation strip share the SAME instance (and
   // thus its `serverIssues` signal). The toolbar still injects it here.
@@ -35,43 +45,71 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
       class="ck-flow-toolbar"
       [class.is-compact]="compact()"
       role="toolbar"
-      aria-label="Flow canvas tools"
+      [attr.aria-label]="i18n.t('flow.toolbar.aria')"
     >
       <div class="ck-flow-toolbar__group">
-        <span class="ck-flow-toolbar__meta">{{ nodeCount() }} nodes</span>
-        @let state = persistence.saveState();
+        <span class="ck-flow-toolbar__meta">{{
+          i18n.t('flow.toolbar.nodes', { count: nodeCount() })
+        }}</span>
+        @let pill = pillState();
         <span
           class="ck-flow-toolbar__state"
-          [class.is-saved]="state === 'saved'"
-          [class.is-unsaved]="state === 'unsaved'"
-          [class.is-saving]="state === 'saving'"
-          [class.is-error]="state === 'error'"
+          [class.is-saved]="pill === 'saved'"
+          [class.is-unsaved]="pill === 'unsaved'"
+          [class.is-saving]="pill === 'saving'"
+          [class.is-error]="pill === 'error'"
+          [class.is-hold]="pill === 'hold'"
           role="status"
           aria-live="polite"
-          [title]="stateTitle(state)"
+          [title]="stateTitle(pill)"
         >
-          @switch (state) {
+          @switch (pill) {
             @case ('saving') {
-              <app-icon name="loader-2" [size]="11" /><span>Saving…</span>
+              <app-icon name="loader-2" [size]="11" /><span>{{
+                i18n.t('flow.toolbar.state.saving')
+              }}</span>
+            }
+            @case ('hold') {
+              <app-icon name="pause" [size]="11" /><span>{{
+                i18n.t('flow.toolbar.state.hold')
+              }}</span>
             }
             @case ('unsaved') {
-              <span>Unsaved</span>
+              <span>{{ i18n.t('flow.toolbar.state.unsaved') }}</span>
             }
             @case ('error') {
-              <app-icon name="alert-triangle" [size]="11" /><span>Save failed</span>
+              <app-icon name="alert-triangle" [size]="11" /><span>{{
+                i18n.t('flow.toolbar.state.error')
+              }}</span>
             }
             @default {
-              <app-icon name="check" [size]="11" /><span>Saved</span>
+              <app-icon name="check" [size]="11" /><span>{{
+                i18n.t('flow.toolbar.state.saved')
+              }}</span>
             }
           }
         </span>
         @if (persistence.publicationMode()) {
-          <span class="ck-flow-toolbar__revision" data-kind="draft">
-            Draft r{{ persistence.draftRevision() }} · {{ shortHash(persistence.savedFlowSha256()) }}
+          <!-- Version is the label; the content fingerprint is the tooltip. -->
+          <span
+            class="ck-flow-toolbar__revision"
+            data-kind="draft"
+            [title]="fingerprintTitle(persistence.savedFlowSha256())"
+          >
+            {{ i18n.t('flow.toolbar.version.draft', { revision: persistence.draftRevision() ?? '' }) }}
           </span>
-          <span class="ck-flow-toolbar__revision" data-kind="published">
-            Published v{{ persistence.publishedVersionNumber() }} · {{ shortHash(persistence.publishedFlowSha256()) }}
+          <span
+            class="ck-flow-toolbar__revision"
+            data-kind="published"
+            [title]="fingerprintTitle(persistence.publishedFlowSha256())"
+          >
+            {{
+              i18n.t('flow.toolbar.version.published', {
+                version: persistence.publishedVersionNumber() ?? '',
+              })
+            }}
           </span>
+          <ck-help id="concept.published" />
         }
       </div>
 
@@ -86,8 +124,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           [disabled]="!hydrationReady() || focusMode()"
           (click)="togglePalette.emit()"
           [attr.aria-pressed]="paletteOpen() && !focusMode()"
-          [title]="paletteOpen() ? 'Collapse node palette' : 'Expand node palette'"
-          aria-label="Toggle node palette"
+          [title]="
+            paletteOpen()
+              ? i18n.t('flow.toolbar.palette.collapse')
+              : i18n.t('flow.toolbar.palette.expand')
+          "
+          [attr.aria-label]="i18n.t('flow.toolbar.palette.aria')"
         >
           <app-icon name="panel-left" [size]="14" />
         </button>
@@ -98,8 +140,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           [disabled]="!hydrationReady() || focusMode() || (!canInspect() && !inspectorOpen())"
           (click)="toggleInspector.emit()"
           [attr.aria-pressed]="inspectorOpen() && !focusMode()"
-          [title]="inspectorOpen() ? 'Collapse node inspector' : 'Expand node inspector'"
-          aria-label="Toggle node inspector"
+          [title]="
+            inspectorOpen()
+              ? i18n.t('flow.toolbar.inspector.collapse')
+              : i18n.t('flow.toolbar.inspector.expand')
+          "
+          [attr.aria-label]="i18n.t('flow.toolbar.inspector.aria')"
         >
           <app-icon name="panel-right" [size]="14" />
         </button>
@@ -111,8 +157,8 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           class="ck-flow-toolbar__btn"
           [disabled]="controlsDisabled() || !canUndo()"
           (click)="undo.emit()"
-          title="Undo (Ctrl/Cmd+Z)"
-          aria-label="Undo"
+          [title]="i18n.t('flow.toolbar.undo')"
+          [attr.aria-label]="i18n.t('flow.toolbar.undo.aria')"
         >
           <app-icon name="undo-2" [size]="14" />
         </button>
@@ -121,25 +167,55 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           class="ck-flow-toolbar__btn"
           [disabled]="controlsDisabled() || !canRedo()"
           (click)="redo.emit()"
-          title="Redo (Ctrl/Cmd+Shift+Z)"
-          aria-label="Redo"
+          [title]="i18n.t('flow.toolbar.redo')"
+          [attr.aria-label]="i18n.t('flow.toolbar.redo.aria')"
         >
           <app-icon name="redo-2" [size]="14" />
         </button>
 
         <span class="ck-flow-toolbar__sep"></span>
 
-        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomIn.emit()" [disabled]="controlsDisabled()" title="Zoom in" aria-label="Zoom in">
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          (click)="zoomIn.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.zoom_in')"
+          [attr.aria-label]="i18n.t('flow.toolbar.zoom_in')"
+        >
           <app-icon name="zoom-in" [size]="14" />
         </button>
-        <button type="button" class="ck-flow-toolbar__btn" (click)="zoomOut.emit()" [disabled]="controlsDisabled()" title="Zoom out" aria-label="Zoom out">
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          (click)="zoomOut.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.zoom_out')"
+          [attr.aria-label]="i18n.t('flow.toolbar.zoom_out')"
+        >
           <app-icon name="zoom-out" [size]="14" />
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="fit.emit()" [disabled]="controlsDisabled()" title="Fit to view" aria-label="Fit to view">
-          <app-icon name="maximize" [size]="14" /><span>Fit</span>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          (click)="fit.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.fit.aria')"
+          [attr.aria-label]="i18n.t('flow.toolbar.fit.aria')"
+        >
+          <app-icon name="maximize" [size]="14" /><span>{{ i18n.t('flow.toolbar.fit') }}</span>
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" [disabled]="controlsDisabled()" title="Auto-arrange — repositions all nodes (Ctrl/Cmd+Z to undo)" aria-label="Auto-arrange all nodes">
-          <app-icon name="layout-grid" [size]="14" /><span>Arrange</span>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          (click)="autoLayout.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.arrange.hint')"
+          [attr.aria-label]="i18n.t('flow.toolbar.arrange.aria')"
+        >
+          <app-icon name="layout-grid" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.arrange')
+          }}</span>
         </button>
 
         <span class="ck-flow-toolbar__sep"></span>
@@ -157,13 +233,17 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             "
             [title]="
               persistence.serverValidationState() === 'validating'
-                ? 'Validating the current Flow revision…'
-                : 'Validate the current Flow revision on the server'
+                ? i18n.t('flow.toolbar.validate.hint.busy')
+                : i18n.t('flow.toolbar.validate.hint')
             "
-            aria-label="Validate current flow"
+            [attr.aria-label]="i18n.t('flow.toolbar.validate.aria')"
           >
             <app-icon name="shield-check" [size]="14" />
-            <span>{{ persistence.serverValidationState() === 'validating' ? 'Validating…' : 'Validate' }}</span>
+            <span>{{
+              persistence.serverValidationState() === 'validating'
+                ? i18n.t('flow.toolbar.validate.busy')
+                : i18n.t('flow.toolbar.validate')
+            }}</span>
           </button>
         }
         <button
@@ -177,15 +257,19 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           "
           [title]="
             persistence.saveValidationBlocked()
-              ? 'Fix the current server validation errors before saving'
+              ? i18n.t('flow.toolbar.save.blocked')
               : persistence.systemId()
-              ? 'Save flow to System (Ctrl/Cmd+S)'
-              : 'Save scratchpad draft locally (Ctrl/Cmd+S)'
+              ? i18n.t('flow.toolbar.save.system')
+              : i18n.t('flow.toolbar.save.scratch')
           "
-          aria-label="Save flow"
+          [attr.aria-label]="i18n.t('flow.toolbar.save.aria')"
         >
           <app-icon name="save" [size]="14" />
-          <span>{{ persistence.saveState() === 'saving' ? 'Saving…' : 'Save' }}</span>
+          <span>{{
+            persistence.saveState() === 'saving'
+              ? i18n.t('flow.toolbar.save.busy')
+              : i18n.t('flow.toolbar.save')
+          }}</span>
         </button>
         @if (persistence.publicationMode()) {
           <button
@@ -194,13 +278,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             (click)="persistence.openPublicationReview()"
             [disabled]="controlsDisabled() || !persistence.canReviewPublication()"
             [title]="
-              persistence.publicationBlockReason() ||
-              'Review the semantic diff and publish an immutable version (does not activate the System)'
+              persistence.publicationBlockReason() || i18n.t('flow.toolbar.publish.hint')
             "
-            aria-label="Review and publish server draft"
+            [attr.aria-label]="i18n.t('flow.toolbar.publish.aria')"
           >
             <app-icon name="upload-cloud" [size]="14" />
-            <span>Publish</span>
+            <span>{{ i18n.t('flow.toolbar.publish') }}</span>
           </button>
         }
         @if (!persistence.systemId()) {
@@ -209,11 +292,15 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
             class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
             (click)="persistence.promoteToSystem()"
             [disabled]="controlsDisabled() || persistence.promoting()"
-            title="Save this scratchpad draft as a real System"
-            aria-label="Save as System"
+            [title]="i18n.t('flow.toolbar.promote.hint')"
+            [attr.aria-label]="i18n.t('flow.toolbar.promote.aria')"
           >
             <app-icon name="rocket" [size]="14" />
-            <span>{{ persistence.promoting() ? 'Saving…' : 'To System' }}</span>
+            <span>{{
+              persistence.promoting()
+                ? i18n.t('flow.toolbar.promote.busy')
+                : i18n.t('flow.toolbar.promote')
+            }}</span>
           </button>
         }
 
@@ -227,10 +314,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           (click)="operateOpen.set(!operateOpen())"
           [attr.aria-expanded]="operateOpen()"
           aria-controls="ck-flow-toolbar-operate"
-          aria-label="Operate"
-          title="Run, debug, replay and test this Flow"
+          [attr.aria-label]="i18n.t('flow.toolbar.operate')"
+          [title]="i18n.t('flow.toolbar.operate.hint')"
         >
-          <app-icon name="play-circle" [size]="14" /><span>Operate</span>
+          <app-icon name="play-circle" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.operate')
+          }}</span>
         </button>
         <button
           type="button"
@@ -239,10 +328,12 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           (click)="moreOpen.set(!moreOpen())"
           [attr.aria-expanded]="moreOpen()"
           aria-controls="ck-flow-toolbar-more"
-          aria-label="More actions"
-          title="View options, import / export, share and clear"
+          [attr.aria-label]="i18n.t('flow.toolbar.more.aria')"
+          [title]="i18n.t('flow.toolbar.more.hint')"
         >
-          <app-icon name="more-horizontal" [size]="14" /><span>More</span>
+          <app-icon name="more-horizontal" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.more')
+          }}</span>
         </button>
       </div>
 
@@ -254,7 +345,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         class="ck-flow-toolbar__panel"
         [class.is-open]="operateOpen()"
         role="group"
-        aria-label="Operate"
+        [attr.aria-label]="i18n.t('flow.toolbar.operate')"
       >
         <ng-content select="[flowToolbarActions]" />
         <button
@@ -266,13 +357,13 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           [attr.aria-pressed]="workbenchOpen()"
           [title]="
             workbenchAvailable()
-              ? 'Test the exact local Flow without saving or publishing it'
-              : 'Promote this scratchpad to a System before running previews'
+              ? i18n.t('flow.toolbar.workbench.hint')
+              : i18n.t('flow.toolbar.workbench.blocked')
           "
-          aria-label="Toggle local Flow workbench"
+          [attr.aria-label]="i18n.t('flow.toolbar.workbench.aria')"
         >
           <app-icon name="message-square" [size]="14" />
-          <span>Workbench</span>
+          <span>{{ i18n.t('flow.toolbar.workbench') }}</span>
         </button>
       </div>
 
@@ -281,7 +372,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         class="ck-flow-toolbar__panel"
         [class.is-open]="moreOpen()"
         role="group"
-        aria-label="More actions"
+        [attr.aria-label]="i18n.t('flow.toolbar.more.aria')"
       >
         <button
           type="button"
@@ -290,11 +381,17 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           [disabled]="!hydrationReady()"
           (click)="toggleFocus.emit()"
           [attr.aria-pressed]="focusMode()"
-          [title]="focusMode() ? 'Exit canvas focus / fullscreen' : 'Focus canvas in fullscreen'"
-          aria-label="Toggle canvas focus mode"
+          [title]="
+            focusMode()
+              ? i18n.t('flow.toolbar.focus.exit.hint')
+              : i18n.t('flow.toolbar.focus.hint')
+          "
+          [attr.aria-label]="i18n.t('flow.toolbar.focus.aria')"
         >
           <app-icon [name]="focusMode() ? 'x' : 'maximize'" [size]="14" />
-          <span>{{ focusMode() ? 'Exit focus' : 'Focus' }}</span>
+          <span>{{
+            focusMode() ? i18n.t('flow.toolbar.focus.exit') : i18n.t('flow.toolbar.focus')
+          }}</span>
         </button>
         <button
           type="button"
@@ -302,12 +399,23 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           [class.is-active]="compact()"
           (click)="toggleCompact.emit()"
           [attr.aria-pressed]="compact()"
-          [title]="compact() ? 'Expand toolbar labels' : 'Compact toolbar'"
-          aria-label="Toggle compact toolbar"
+          [title]="
+            compact()
+              ? i18n.t('flow.toolbar.compact.expand')
+              : i18n.t('flow.toolbar.compact.collapse')
+          "
+          [attr.aria-label]="i18n.t('flow.toolbar.compact.aria')"
         >
           <app-icon [name]="compact() ? 'chevron-down' : 'chevron-up'" [size]="14" />
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [disabled]="controlsDisabled()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          (click)="cycleRouting.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.routing', { mode: routingLabel() })"
+          [attr.aria-label]="i18n.t('flow.toolbar.routing.aria')"
+        >
           <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
         </button>
 
@@ -318,30 +426,34 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="persistence.exportJson()"
           [disabled]="controlsDisabled()"
-          title="Export flow as JSON"
-          aria-label="Export flow"
+          [title]="i18n.t('flow.toolbar.export.hint')"
+          [attr.aria-label]="i18n.t('flow.toolbar.export.aria')"
         >
-          <app-icon name="download" [size]="14" /><span>Export</span>
+          <app-icon name="download" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.export')
+          }}</span>
         </button>
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="importInput.click()"
           [disabled]="controlsDisabled()"
-          title="Import flow JSON (round-trip)"
-          aria-label="Import flow"
+          [title]="i18n.t('flow.toolbar.import.hint')"
+          [attr.aria-label]="i18n.t('flow.toolbar.import.aria')"
         >
-          <app-icon name="upload" [size]="14" /><span>Import</span>
+          <app-icon name="upload" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.import')
+          }}</span>
         </button>
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="persistence.shareLink()"
           [disabled]="controlsDisabled()"
-          title="Copy a shareable link to this flow"
-          aria-label="Share flow"
+          [title]="i18n.t('flow.toolbar.share.hint')"
+          [attr.aria-label]="i18n.t('flow.toolbar.share.aria')"
         >
-          <app-icon name="link-2" [size]="14" /><span>Share</span>
+          <app-icon name="link-2" [size]="14" /><span>{{ i18n.t('flow.toolbar.share') }}</span>
         </button>
 
         <span class="ck-flow-toolbar__sep"></span>
@@ -351,8 +463,8 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--danger"
           (click)="clear.emit()"
           [disabled]="controlsDisabled()"
-          title="Clear canvas"
-          aria-label="Clear canvas"
+          [title]="i18n.t('flow.toolbar.clear')"
+          [attr.aria-label]="i18n.t('flow.toolbar.clear.aria')"
         >
           <app-icon name="trash-2" [size]="14" />
         </button>
@@ -372,6 +484,7 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
 export class FlowToolbarComponent {
   /** P4 persistence brain — shares the builder's FlowStore (component-scoped). */
   protected readonly persistence = inject(FlowPersistenceService);
+  readonly i18n = inject(I18nService);
 
   readonly nodeCount = input(0);
   readonly canUndo = input(false);
@@ -397,6 +510,18 @@ export class FlowToolbarComponent {
   protected readonly controlsDisabled = computed(
     () => this.persistence.actionsDisabled() || !this.hydrationReady(),
   );
+
+  /**
+   * The workbench hold used to be invisible: the pill said "Unsaved" while the
+   * builder had deliberately stopped autosaving, so the wait never ended and
+   * nothing said why. Surface it as its own state, but only when there is
+   * something at stake — with a clean graph, held or not, nothing is pending.
+   */
+  protected readonly pillState = computed<PillState>(() => {
+    const state = this.persistence.saveState();
+    if (state === 'unsaved' && this.persistence.workbenchAutosaveHeld()) return 'hold';
+    return state;
+  });
 
   readonly undo = output<void>();
   readonly redo = output<void>();
@@ -431,26 +556,31 @@ export class FlowToolbarComponent {
     input.value = '';
   }
 
-  protected stateTitle(state: SaveState): string {
+  protected stateTitle(state: PillState): string {
     if (this.persistence.reviewRequired()) {
-      return 'Review required — autosave is paused until you explicitly save or discard this replacement';
+      return this.i18n.t('flow.toolbar.state.title.review');
     }
     if (this.persistence.autosavePaused()) {
-      return 'Autosave paused — review these changes, then press Save explicitly';
+      return this.i18n.t('flow.toolbar.state.title.paused');
     }
     switch (state) {
+      case 'hold':
+        return this.i18n.t('flow.builder.autosave.hold.hint');
       case 'saving':
-        return 'Saving…';
+        return this.i18n.t('flow.toolbar.state.title.saving');
       case 'unsaved':
-        return 'Unsaved changes — autosaves, or press Ctrl/Cmd+S';
+        return this.i18n.t('flow.toolbar.state.title.unsaved');
       case 'error':
-        return 'Last save failed — edit again to retry';
+        return this.i18n.t('flow.toolbar.state.title.error');
       default:
-        return 'All changes saved';
+        return this.i18n.t('flow.toolbar.state.title.saved');
     }
   }
 
-  protected shortHash(value: string | null): string {
-    return value ? value.slice(0, 8) : '—';
+  /** Fingerprints identify a revision but never label it. */
+  protected fingerprintTitle(value: string | null): string {
+    return this.i18n.t('flow.toolbar.version.fingerprint', {
+      hash: value ? value.slice(0, 8) : '—',
+    });
   }
 }

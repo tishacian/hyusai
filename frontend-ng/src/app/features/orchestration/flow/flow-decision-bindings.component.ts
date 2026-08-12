@@ -6,8 +6,8 @@
  * works if something binds `line_manager_approved`. The inspector previously
  * offered exactly one picker, for the declared `in` port, and that port is
  * typed `object` — so a `string` upstream (the Trigger's `goal`) was filtered
- * out and the picker read "— unbound —" with nothing to choose and no reason
- * given.
+ * out and the picker read as having no source, with nothing to choose and no
+ * reason given.
  *
  * A named binding sidesteps that: it is a key in `config.inputs_map` with no
  * declared port and therefore no port type to clash with. It appears in the
@@ -42,6 +42,7 @@ import {
   type VariableCandidate,
 } from './flow-variable.service';
 import { conditionNames } from './flow-contract-bindings.vm';
+import { I18nService } from '@app/core/i18n.service';
 
 interface BindingRow {
   name: string;
@@ -66,7 +67,7 @@ interface ReferenceRow {
   template: `
     <div class="ck-dbind">
       <div class="ck-dbind__head">
-        <span class="ck-dbind__title">Named inputs</span>
+        <span class="ck-dbind__title">{{ i18n.t('flow.bindings.title') }}</span>
         <button
           type="button"
           class="ck-dbind__btn"
@@ -74,18 +75,15 @@ interface ReferenceRow {
           [disabled]="candidates().length === 0"
           (click)="addBinding()"
         >
-          + Named input
+          {{ i18n.t('flow.bindings.add') }}
         </button>
       </div>
 
-      <p class="ck-dbind__hint">
-        Each name below is readable by the conditions above, exactly as spelled.
-      </p>
+      <p class="ck-dbind__hint">{{ i18n.t('flow.bindings.hint') }}</p>
 
       @if (candidates().length === 0) {
         <p class="ck-dbind__hint ck-dbind__hint--warn">
-          Nothing upstream produces a value yet. Connect a node into this
-          Decision before naming what it reads.
+          {{ i18n.t('flow.bindings.no_candidates') }}
         </p>
       }
 
@@ -96,21 +94,27 @@ interface ReferenceRow {
             type="text"
             spellcheck="false"
             autocomplete="off"
-            aria-label="Binding name"
+            [attr.aria-label]="i18n.t('flow.bindings.name.aria')"
             [value]="row.name"
             (change)="renameBinding(row.name, $event)"
           />
           <select
             class="ck-dbind__select"
-            aria-label="Bound upstream output"
+            [attr.aria-label]="i18n.t('flow.bindings.source.aria')"
             [value]="row.value"
             (change)="rebind(row.name, $event)"
           >
             <option value="">
-              {{ row.legacy ? 'legacy path: ' + row.legacy : '— pick an upstream output —' }}
+              {{
+                row.legacy
+                  ? i18n.t('flow.bindings.source.legacy', { path: row.legacy })
+                  : i18n.t('flow.bindings.source.none')
+              }}
             </option>
             @if (row.orphanLabel; as orphan) {
-              <option [value]="row.value" selected>{{ orphan }} (missing)</option>
+              <option [value]="row.value" selected>
+                {{ i18n.t('flow.bindings.source.missing', { name: orphan }) }}
+              </option>
             }
             @for (candidate of candidates(); track candidate.node_id + candidate.port) {
               <option [value]="encode(candidate)">
@@ -121,7 +125,7 @@ interface ReferenceRow {
           <button
             type="button"
             class="ck-dbind__btn ck-dbind__btn--danger"
-            aria-label="Remove this named input"
+            [attr.aria-label]="i18n.t('flow.bindings.remove')"
             (click)="removeBinding(row.name)"
           >
             ×
@@ -130,19 +134,17 @@ interface ReferenceRow {
       }
 
       @if (references().length > 0) {
-        <p class="ck-dbind__hint">Your conditions read:</p>
+        <p class="ck-dbind__hint">{{ i18n.t('flow.bindings.reads') }}</p>
         <div class="ck-dbind__refs" data-testid="decision-condition-refs">
           @for (ref of references(); track ref.name) {
             <span class="ck-dbind__ref" [attr.data-bound]="ref.bound">
-              {{ ref.name }}{{ ref.bound ? '' : ' · not bound' }}
+              {{ ref.name }}@if (!ref.bound) { · {{ i18n.t('flow.bindings.not_bound') }} }
             </span>
           }
         </div>
-        @if (unboundCount() > 0) {
+        @if (unsourcedCount() > 0) {
           <p class="ck-dbind__hint ck-dbind__hint--warn" role="status">
-            An unbound name reads as null: an equality test silently never
-            matches, a comparison errors the Run. Bind it above, or correct the
-            spelling in the condition.
+            {{ i18n.t('flow.bindings.warning') }}
           </p>
         }
       }
@@ -153,6 +155,7 @@ export class FlowDecisionBindingsComponent {
   private readonly store = inject(FlowStore);
   private readonly manifest = inject(FlowManifestService);
   private readonly serializer = inject(FlowSerializerService);
+  readonly i18n = inject(I18nService);
 
   private readonly node = this.store.selectedNode;
 
@@ -230,8 +233,8 @@ export class FlowDecisionBindingsComponent {
   /** Only strict resolution makes the readable name set decidable here: it
    *  keeps `passthrough_inputs` from the predecessor merge and overlays
    *  `inputs_map`. Overlay merges the whole accumulated context, so the names
-   *  are listed but never called unbound — same scoping as the backend's
-   *  `decision_condition_unbound`. */
+   *  are listed but never reported as missing a source — same scoping as the
+   *  backend's own check. */
   private readonly strict = computed(() => this.store.meta().io_mode === 'strict');
 
   private readonly boundNames = computed(() => {
@@ -259,7 +262,7 @@ export class FlowDecisionBindingsComponent {
       .map((name) => ({ name, bound: !strict || bound.has(name) }));
   });
 
-  protected readonly unboundCount = computed(
+  protected readonly unsourcedCount = computed(
     () => this.references().filter((ref) => !ref.bound).length,
   );
 

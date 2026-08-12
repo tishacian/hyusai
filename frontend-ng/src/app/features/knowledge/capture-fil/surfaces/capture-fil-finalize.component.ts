@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Output, computed, inject, signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import type { CaptureShareLevelItem, ProposalOpenQuestion } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from '../capture-engine';
@@ -65,11 +66,11 @@ import {
                   <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
                     <thead>
                       <tr style="background:var(--ck-bg-inset); text-align:left;">
-                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Équipement</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">{{ i18n.t('capture.finalize.col_equipment') }}</th>
                         <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3); width:72px;">%</th>
-                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Problème / risque</th>
-                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Mesure</th>
-                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">Responsable</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">{{ i18n.t('capture.finalize.col_issue') }}</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">{{ i18n.t('capture.finalize.col_measure') }}</th>
+                        <th style="padding:8px 10px; font-weight:600; color:var(--ck-fg-3);">{{ i18n.t('capture.finalize.col_owner') }}</th>
                         <th style="padding:8px 6px; width:36px;"></th>
                       </tr>
                     </thead>
@@ -92,7 +93,13 @@ import {
                             <input [value]="row.responsible || ''" (input)="patchEquipment(field.key, i, 'responsible', $any($event.target).value)" style="width:100%; border:1px solid var(--ck-stroke-2); border-radius:6px; background:var(--ck-bg-inset); color:var(--ck-fg-1); padding:6px 8px; font-size:12.5px;" />
                           </td>
                           <td style="padding:4px 6px; text-align:center;">
-                            <button type="button" (click)="removeEquipmentRow(field.key, i)" title="Supprimer" style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:14px;">×</button>
+                            <button
+                              type="button"
+                              (click)="removeEquipmentRow(field.key, i)"
+                              [attr.aria-label]="i18n.t('capture.finalize.remove_row', { index: i + 1 })"
+                              [title]="i18n.t('capture.finalize.remove_row', { index: i + 1 })"
+                              style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:14px;"
+                            >×</button>
                           </td>
                         </tr>
                       }
@@ -104,7 +111,7 @@ import {
                   (click)="addEquipmentRow(field.key)"
                   style="align-self:flex-start; border:1px dashed var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); border-radius:var(--ck-radius-sm); padding:5px 10px; cursor:pointer; font-size:12px;"
                 >
-                  + Ajouter une ligne
+                  + {{ i18n.t('capture.finalize.add_row') }}
                 </button>
               } @else if (field.kind === 'checkbox_group') {
                 <div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset);">
@@ -122,7 +129,7 @@ import {
                     <input
                       [value]="checkboxDescription(field.key)"
                       (input)="setCheckboxDescription(field.key, $any($event.target).value)"
-                      placeholder="Description des modifications *"
+                      [placeholder]="i18n.t('capture.finalize.change_description_placeholder')"
                       style="margin-top:4px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-base); color:var(--ck-fg-1); font-size:13px; padding:8px 10px;"
                     />
                   }
@@ -154,8 +161,7 @@ import {
           @if (incompleteRequired()) {
             <div style="display:flex; flex-direction:column; gap:8px; padding-top:8px; border-top:1px solid var(--ck-stroke-2);">
               <div style="font-size:12.5px; color:var(--ck-signal-warn); line-height:1.45;">
-                Des champs obligatoires manquent. Vous pouvez tout de même générer le rapport (soft-block) —
-                les trous resteront visibles en revue.
+                {{ i18n.t('capture.finalize.missing_required') }}
               </div>
               <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--ck-fg-2);">
                 <input
@@ -163,7 +169,7 @@ import {
                   [checked]="forceGenerate()"
                   (change)="forceGenerate.set($any($event.target).checked)"
                 />
-                Générer malgré les champs incomplets
+                {{ i18n.t('capture.finalize.force_generate') }}
               </label>
             </div>
           }
@@ -177,11 +183,11 @@ import {
         >
           <span class="ck-live-dot violet"></span>
           <div style="font-size:16px; font-weight:600; color:var(--ck-fg-1);">
-            Fin de séance · génération du rapport…
+            {{ i18n.t('capture.finalize.generating') }}
           </div>
           <div style="font-size:13px; color:var(--ck-fg-4); max-width:48ch; line-height:1.5;">
-            {{ engine.finalizeStage().message || 'Restructuration de la séance en fiche de connaissance.' }}
-            L'indexation lourde démarrera en arrière-plan à l'ouverture du rapport.
+            {{ engine.finalizeStage().message || i18n.t('capture.finalize.generating_hint') }}
+            {{ i18n.t('capture.finalize.indexing_note') }}
           </div>
           @if (error()) {
             <div style="display:flex; align-items:center; gap:8px; color:var(--ck-signal-neg); font-size:12.5px; margin-top:6px;">
@@ -191,7 +197,7 @@ import {
                 (click)="retry()"
                 style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-2); border-radius:var(--ck-radius-sm); padding:4px 10px; cursor:pointer; font-size:12px;"
               >
-                Réessayer
+                {{ i18n.t('capture.retry') }}
               </button>
             </div>
           }
@@ -201,7 +207,7 @@ import {
       } @else {
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:24px; display:flex; flex-direction:column; gap:12px;">
           <div style="font-size:14px; color:var(--ck-fg-2); line-height:1.5;">
-            Complétez les champs ci-dessus ou cochez « Générer malgré les champs incomplets » pour ouvrir le triage.
+            {{ i18n.t('capture.finalize.blocked_hint') }}
           </div>
         </div>
       }
@@ -209,6 +215,8 @@ import {
   `,
 })
 export class CaptureFilFinalizeComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
 
   /** Emitted once the proposal (report) is ready — the shell opens the review fiche. */
@@ -373,7 +381,7 @@ export class CaptureFilFinalizeComponent {
 
   private async run(): Promise<void> {
     if (!this.canOpenTriage()) {
-      this.error.set('Complétez les champs obligatoires ou confirmez la génération incomplète.');
+      this.error.set(this.i18n.t('capture.finalize.blocked_error'));
       return;
     }
     this.finalizing.set(true);
@@ -389,6 +397,6 @@ export class CaptureFilFinalizeComponent {
       this.finalized.emit();
       return;
     }
-    this.error.set(this.engine.lastError() || 'La génération du rapport a échoué.');
+    this.error.set(this.engine.lastError() || this.i18n.t('capture.finalize.failed'));
   }
 }

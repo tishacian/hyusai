@@ -8,7 +8,7 @@
     "build": "ng build",
     "build:prod": "ng build -c production",
     "check:ui-chrome": "node scripts/check-ui-chrome.mjs",
-    "check:i18n": "node scripts/check-i18n-nav.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "lint": "ng lint",
     "test": "ng test",
     "test:unit": "node scripts/run-unit.mjs",

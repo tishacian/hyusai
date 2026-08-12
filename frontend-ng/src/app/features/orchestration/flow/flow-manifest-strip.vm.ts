@@ -12,6 +12,12 @@ import type { FlowRuntimeManifest } from '@app/core/canonical-api.service';
 
 export type ManifestChipTone = 'neutral' | 'cool' | 'pos' | 'warn' | 'neg';
 
+/**
+ * The dictionary lookup, injected rather than imported, so the projection stays
+ * Angular-free and the spec can assert on keys instead of on copy.
+ */
+export type Translate = (key: string, params?: Record<string, string | number>) => string;
+
 /** One compact metric pill in the strip. */
 export interface ManifestStripChip {
   key: 'units' | 'source' | 'config' | 'retrieval';
@@ -42,48 +48,61 @@ function shortValue(value: unknown): string {
   return str.length > 48 ? str.slice(0, 48) + '…' : str;
 }
 
-function prettyMode(mode: string): string {
-  switch (mode) {
-    case 'chat_runtime':
-      return 'chat';
-    case 'run_engine_dag':
-      return 'DAG';
-    case 'dag_strict':
-      return 'STRICT DAG';
-    case 'dag_overlay':
-      return 'DAG · OVERLAY COMPAT';
-    case 'sequential_legacy':
-      return 'LEGACY · SEQUENTIAL';
-    default:
-      return mode;
-  }
+/**
+ * Engine mode → the key that names it in plain words. `STRICT DAG` and its
+ * siblings were the raw dispatcher verdicts, printed as-is on the chip; they
+ * are the execution-mode jargon the lexicon replaces. The raw mode stays in
+ * the chip's `title`, which is where a technical term belongs.
+ *
+ * The three canonical modes share their wording with the toolbar badge in
+ * `flow-manifest.service.ts`; the other two are dispatcher identities with no
+ * lexicon term of their own, so they borrow the closest plain phrase.
+ */
+const MODE_KEYS: Record<string, string> = {
+  dag_strict: 'flow.runtime.mode.dag_strict',
+  dag_overlay: 'flow.runtime.mode.dag_overlay',
+  sequential_legacy: 'flow.runtime.mode.sequential_legacy',
+  run_engine_dag: 'flow.runtime.mode.dag_strict',
+  chat_runtime: 'flow.runtime.mode.chat',
+};
+
+function modeLabel(mode: string, t: Translate): string {
+  const key = MODE_KEYS[mode];
+  return key ? t(key) : mode;
 }
 
-function effectiveConfig(cfg: Record<string, unknown> | undefined | null): { value: string; title: string } {
+function effectiveConfig(
+  cfg: Record<string, unknown> | undefined | null,
+  t: Translate,
+): { value: string; title: string } {
   const keys = cfg ? Object.keys(cfg) : [];
   if (keys.length === 0) {
-    return { value: '—', title: 'No effective config resolved' };
+    return { value: '—', title: t('flow.manifest.config.none') };
   }
   const title = keys
     .slice(0, 12)
     .map((k) => `${k} = ${shortValue(cfg![k])}`)
     .join('\n');
   return {
-    value: `${keys.length} ${keys.length === 1 ? 'key' : 'keys'}`,
-    title: keys.length > 12 ? `${title}\n… (+${keys.length - 12} more)` : title,
+    value: t('flow.manifest.config.keys', { count: keys.length }),
+    title:
+      keys.length > 12
+        ? `${title}\n${t('flow.manifest.more', { count: keys.length - 12 })}`
+        : title,
   };
 }
 
 function retrievalChip(
   lrd: FlowRuntimeManifest['latest_retrieval_decision'],
+  t: Translate,
 ): ManifestStripChip {
   if (!lrd) {
     return {
       key: 'retrieval',
-      label: 'Retrieval',
-      value: 'none yet',
+      label: t('flow.manifest.chip.retrieval'),
+      value: t('flow.manifest.retrieval.none'),
       tone: 'neutral',
-      title: 'No retrieval decision recorded for this System yet',
+      title: t('flow.manifest.retrieval.none_recorded'),
     };
   }
   const trace = lrd.trace;
@@ -97,10 +116,10 @@ function retrievalChip(
   if (lrd.run_id) lines.push(`run ${lrd.run_id.slice(0, 8)}`);
   return {
     key: 'retrieval',
-    label: 'Retrieval',
+    label: t('flow.manifest.chip.retrieval'),
     value: String(route),
     tone: lrd.status === 'failed' ? 'neg' : 'pos',
-    title: lines.length > 0 ? lines.join('\n') : 'Latest retrieval decision',
+    title: lines.length > 0 ? lines.join('\n') : t('flow.manifest.retrieval.latest'),
   };
 }
 
@@ -110,6 +129,7 @@ function retrievalChip(
  */
 export function manifestToStripVm(
   manifest: FlowRuntimeManifest | null | undefined,
+  t: Translate,
 ): ManifestStripVm | null {
   if (!manifest) return null;
 
@@ -118,20 +138,24 @@ export function manifestToStripVm(
   const skillUnits = manifest.summary?.skill_units ?? 0;
   const source = manifest.source ?? '—';
   const mode = manifest.runtime_mode ?? manifest.execution_mode ?? null;
-  const config = effectiveConfig(manifest.effective_config);
+  const config = effectiveConfig(manifest.effective_config, t);
 
   const chips: ManifestStripChip[] = [
     {
       key: 'units',
-      label: 'Units',
-      value: `${operational}/${totalUnits} live`,
+      label: t('flow.manifest.chip.units'),
+      value: t('flow.manifest.units.value', { live: operational, total: totalUnits }),
       tone: totalUnits === 0 ? 'neutral' : operational > 0 ? 'pos' : 'warn',
-      title: `${totalUnits} unit(s) · ${operational} operational · ${skillUnits} skill unit(s)`,
+      title: t('flow.manifest.units.title', {
+        total: totalUnits,
+        live: operational,
+        skills: skillUnits,
+      }),
     },
     {
       key: 'source',
-      label: 'Source',
-      value: mode ? `${source} · ${prettyMode(mode)}` : String(source),
+      label: t('flow.manifest.chip.source'),
+      value: mode ? `${source} · ${modeLabel(mode, t)}` : String(source),
       tone: 'cool',
       title: [
         `flow_definition source: ${source}`,
@@ -144,12 +168,12 @@ export function manifestToStripVm(
     },
     {
       key: 'config',
-      label: 'Config',
+      label: t('flow.manifest.chip.config'),
       value: config.value,
       tone: config.value === '—' ? 'neutral' : 'cool',
       title: config.title,
     },
-    retrievalChip(manifest.latest_retrieval_decision),
+    retrievalChip(manifest.latest_retrieval_decision, t),
   ];
 
   return {

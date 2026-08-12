@@ -1,0 +1,200 @@
+/* `<ck-schema-builder>` — own namespace and own tokens: the host's emulated
+   encapsulation does not reach a child component's DOM, and every colour here
+   is a `--ck-*` token so light and dark come for free. */
+:host {
+  display: block;
+}
+
+.ck-sb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ck-sb__label {
+  font: 600 10px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3);
+}
+
+.ck-sb__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3);
+
+  &--error {
+    color: var(--ck-signal-danger, var(--ck-neg));
+  }
+}
+
+.ck-sb__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.ck-sb__tab {
+  padding: 5px 10px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+
+  &--on {
+    color: var(--ck-fg-1);
+    background: var(--ck-bg-inset);
+    border-color: var(--ck-stroke-strong);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, var(--ck-fg-2));
+    outline-offset: 2px;
+  }
+}
+
+.ck-sb__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-soft);
+  border-radius: var(--ck-radius-sm, 4px);
+}
+
+.ck-sb__grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ck-sb__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 140px;
+  min-width: 0;
+
+  &--wide {
+    flex: 2 1 260px;
+  }
+  &--tight {
+    flex: 0 0 auto;
+    align-items: flex-start;
+  }
+}
+
+.ck-sb__cell-label {
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+.ck-sb__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--ck-fg-1);
+  background: var(--ck-bg-base, var(--ck-bg-inset));
+  border: 1px solid var(--ck-stroke-soft);
+  border-radius: var(--ck-radius-sm, 4px);
+
+  &:focus {
+    outline: none;
+    border-color: var(--ck-stroke-strong);
+  }
+}
+
+.ck-sb__check {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--ck-signal-cool, var(--ck-fg-2));
+}
+
+.ck-sb__nest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--ck-hair, var(--ck-stroke-soft));
+}
+
+.ck-sb__locked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-soft);
+  border-radius: var(--ck-radius-sm, 4px);
+}
+
+.ck-sb__locked-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.ck-sb__reasons {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3);
+}
+
+.ck-sb__editor {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 140px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ck-fg-1);
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-soft);
+  border-radius: var(--ck-radius-sm, 4px);
+
+  &:focus {
+    outline: none;
+    border-color: var(--ck-stroke-strong);
+  }
+  &[aria-invalid='true'] {
+    border-color: var(--ck-signal-danger, var(--ck-neg));
+  }
+}
+
+.ck-sb__btn {
+  align-self: flex-start;
+  padding: 5px 9px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ck-fg-2);
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-soft);
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ck-stroke-strong);
+    color: var(--ck-fg-1);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, var(--ck-fg-2));
+    outline-offset: 2px;
+  }
+  &--danger:hover {
+    color: var(--ck-neg);
+    border-color: var(--ck-neg);
+  }
+}

@@ -24,6 +24,10 @@
   --ck-stroke-2:     rgba(255, 255, 255, 0.08);
   --ck-stroke-3:     rgba(255, 255, 255, 0.14);
   --ck-stroke-hot:   rgba(125, 211, 252, 0.32);
+  /* Alias kept because a dozen call sites already reference it; without a
+     definition the whole `border:` declaration was invalid and no border
+     rendered at all. It means "the default hairline". */
+  --ck-stroke-soft:  var(--ck-stroke-2);
 
   /* ---- TEXT ---- */
   --ck-fg-1:         #f2f5f8;
@@ -39,6 +43,44 @@
   --ck-signal-cool:   #7dd3fc;
   --ck-signal-violet: #a78bfa;
   --ck-signal-ice:    #e0f2fe;
+
+  /* ---- STATUS TRIOS (semantic, theme-aware) ----
+     One trio per meaning: `-fg` for text and icons, `-bg` for the soft pill
+     behind them, `-line` for its ring. This is what replaces the hard-coded
+     `bg-emerald-500/10 text-emerald-300 ring-emerald-500/25` triplets: those
+     literals only ever had a dark value, so a light theme inherited a wash
+     nobody had chosen. Use `--ck-signal-*` for a bare accent colour, a status
+     trio whenever the colour carries a state. */
+  --ck-status-ok-fg:        #34d399;
+  --ck-status-ok-bg:        rgba(52, 211, 153, 0.10);
+  --ck-status-ok-line:      rgba(52, 211, 153, 0.25);
+
+  --ck-status-warn-fg:      #f5b84a;
+  --ck-status-warn-bg:      rgba(245, 184, 74, 0.10);
+  --ck-status-warn-line:    rgba(245, 184, 74, 0.25);
+
+  --ck-status-neg-fg:       #ef5a6f;
+  --ck-status-neg-bg:       rgba(239, 90, 111, 0.10);
+  --ck-status-neg-line:     rgba(239, 90, 111, 0.25);
+
+  --ck-status-info-fg:      #7dd3fc;
+  --ck-status-info-bg:      rgba(125, 211, 252, 0.10);
+  --ck-status-info-line:    rgba(125, 211, 252, 0.25);
+
+  /* Maturity, not health: a capability shipped as beta / preview. Violet so it
+     never reads as "ready" (info) nor as "degraded" (warn). */
+  --ck-status-preview-fg:   #a78bfa;
+  --ck-status-preview-bg:   rgba(167, 139, 250, 0.10);
+  --ck-status-preview-line: rgba(167, 139, 250, 0.25);
+
+  --ck-status-neutral-fg:   var(--ck-fg-3);
+  --ck-status-neutral-bg:   var(--ck-tint-faint);
+  --ck-status-neutral-line: var(--ck-stroke-2);
+
+  /* ---- CALL TO ACTION (the one filled button per screen) ---- */
+  --ck-cta-bg:       #00bcd4;
+  --ck-cta-bg-hover: #00a0b4;
+  --ck-cta-fg:       #ffffff;
 
   /* ---- GLOWS (touches Concept B: generous halos on live surfaces) ---- */
   --ck-glow-cool:    0 0 32px rgba(125, 211, 252, 0.32);
@@ -57,6 +99,10 @@
   --ck-shadow-card:    0 6px 18px rgba(0, 0, 0, 0.35);
   /* Scrim beneath overlays (panels, modals, palette). */
   --ck-scrim:          rgba(0, 0, 0, 0.45);
+  /* Blocking modals (publish, run input) sit above the whole builder, so they
+     dim harder and lift higher than a popover. */
+  --ck-scrim-strong:   rgba(2, 5, 9, 0.70);
+  --ck-shadow-modal:   0 24px 76px rgba(0, 0, 0, 0.55);
 
   /* Text color to render on top of a saturated signal background
      (ck-tag variant="solid", primary signal buttons). Dark theme →
@@ -93,6 +139,31 @@
 
   /* ---- ICONS (Phosphor duotone secondary layer) ---- */
   --ck-icon-duotone-secondary: 0.2;
+
+  /* ---- ALIASES ----
+     Names that call sites invented and that were never declared here. An
+     undefined custom property makes the whole declaration invalid, so those
+     rules were silently dropping their background, border or colour. Mapping
+     them onto the canonical token is what they always meant; prefer the
+     canonical name in new code. */
+  --ck-hair:           var(--ck-stroke-2);
+  --ck-stroke:         var(--ck-stroke-2);
+  --ck-stroke-strong:  var(--ck-stroke-3);
+  --ck-bg-0:           var(--ck-bg-void);
+  --ck-bg-1:           var(--ck-bg-base);
+  --ck-bg-2:           var(--ck-bg-panel);
+  --ck-bg-surface:     var(--ck-bg-panel);
+  --ck-bg-canvas:      var(--ck-bg-base);
+  --ck-bg-raised:      var(--ck-bg-panel-hi);
+  --ck-bg-focus:       var(--ck-bg-panel-hi);
+  --ck-bg-sunken:      var(--ck-bg-inset);
+  --ck-accent:         var(--ck-signal-cool);
+  --ck-pos:            var(--ck-signal-pos);
+  --ck-neg:            var(--ck-signal-neg);
+  --ck-warn:           var(--ck-signal-warn);
+  --ck-fg-warn:        var(--ck-signal-warn);
+  --ck-signal-warm:    var(--ck-signal-warn);
+  --ck-signal-danger:  var(--ck-signal-neg);
 }
 
 /* ============================================================================
@@ -127,6 +198,34 @@ html:not(.dark),
   --ck-signal-violet: #7c3aed;
   --ck-signal-ice:    #0c4a6e;
 
+  /* Status trios on paper: the tint stays at the same weight, the foreground
+     drops to the dark-saturated tone so text keeps AA on a light pill. */
+  --ck-status-ok-fg:     #0e9f6e;
+  --ck-status-ok-bg:     rgba(14, 159, 110, 0.10);
+  --ck-status-ok-line:   rgba(14, 159, 110, 0.28);
+
+  --ck-status-warn-fg:   #a35c00;
+  --ck-status-warn-bg:   rgba(194, 120, 3, 0.12);
+  --ck-status-warn-line: rgba(194, 120, 3, 0.30);
+
+  --ck-status-neg-fg:    #c22a41;
+  --ck-status-neg-bg:    rgba(217, 58, 82, 0.10);
+  --ck-status-neg-line:  rgba(217, 58, 82, 0.28);
+
+  --ck-status-info-fg:   #0e7490;
+  --ck-status-info-bg:   rgba(14, 116, 144, 0.10);
+  --ck-status-info-line: rgba(14, 116, 144, 0.28);
+
+  --ck-status-preview-fg:   #6d28d9;
+  --ck-status-preview-bg:   rgba(124, 58, 237, 0.10);
+  --ck-status-preview-line: rgba(124, 58, 237, 0.28);
+
+  /* Cyan-500 on white paper fails AA under white text; the CTA darkens
+     instead of flipping to dark text, which would read as disabled. */
+  --ck-cta-bg:       #0e7490;
+  --ck-cta-bg-hover: #0b5c73;
+  --ck-cta-fg:       #ffffff;
+
   /* Glows are noisy on light surfaces — disable them by default. */
   --ck-glow-cool:    0 0 0 transparent;
   --ck-glow-pos:     0 0 0 transparent;
@@ -141,6 +240,8 @@ html:not(.dark),
   --ck-shadow-card:    0 4px 12px rgba(17, 24, 39, 0.08);
   /* Scrim — stays dark-ish so the overlay reads as "modal" even on paper. */
   --ck-scrim:          rgba(17, 24, 39, 0.28);
+  --ck-scrim-strong:   rgba(17, 24, 39, 0.42);
+  --ck-shadow-modal:   0 24px 60px rgba(17, 24, 39, 0.18), 0 2px 8px rgba(17, 24, 39, 0.10);
 
   /* On light the signal tones are already dark-saturated (see the
      --ck-signal-* block above — #0e9f6e, #0e7490…), so white text on

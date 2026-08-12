@@ -74,10 +74,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 <span class="inline-flex h-10 w-10 items-center justify-center rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-400/20">
                   <app-icon [name]="connector.icon" [size]="18" />
                 </span>
-                <span
-                  class="rounded px-2 py-1 text-[10px] uppercase tracking-wider ring-1"
-                  [ngClass]="statusClass(connector)"
-                >
+                <span class="ck-pill" [ngClass]="statusClass(connector)">
                   {{ connectorStatus(connector) }}
                 </span>
               </div>
@@ -295,13 +292,10 @@ export class ConnectorsPageComponent {
   }
 
   statusClass(connector: ConnectorDef): string {
-    if (this.isConnectedOrConfigured(connector)) {
-      return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
-    }
-    if (connector.status === 'active') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
-    if (connector.status === 'beta') return 'bg-violet-500/10 text-violet-200 ring-violet-500/20';
-    if (connector.status === 'available') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
-    return 'bg-amber-500/10 text-amber-300 ring-amber-500/20';
+    if (this.isConnectedOrConfigured(connector)) return 'ck-tone-ok';
+    if (connector.status === 'beta') return 'ck-tone-preview';
+    if (connector.status === 'active' || connector.status === 'available') return 'ck-tone-info';
+    return 'ck-tone-warn';
   }
 
   isConfigured(id: string): boolean {

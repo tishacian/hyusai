@@ -751,15 +751,11 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   @if (c.status === 'active' || isConfigured(c.id)) {
                     <app-status-pulse tone="success" label="connected" />
                   } @else if (c.status === 'beta') {
-                    <span class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20">
-                      Beta
-                    </span>
+                    <span class="ck-pill ck-tone-preview">Beta</span>
                   } @else if (c.status === 'available') {
                     <app-status-pulse tone="accent" label="available" />
                   } @else {
-                    <span class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
-                      Soon
-                    </span>
+                    <span class="ck-pill ck-tone-warn">Soon</span>
                   }
                 </div>
                 <h4 class="text-sm font-semibold text-white mb-1">{{ c.name }}</h4>

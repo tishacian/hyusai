@@ -19,6 +19,7 @@ import {
   type VesselPosition,
 } from '@app/core/maritime-tracking.service';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
 
@@ -105,7 +106,7 @@ const ABIDJAN_CAMERA = {
       <div class="panel-heading-row">
         <div>
           <span class="eyebrow">{{ displayLabel() }}</span>
-          <h2>{{ isOctocityMode() ? 'Territory and signals' : 'Territoire et signaux' }}</h2>
+          <h2>{{ i18n.t('mission.map.preview_title') }}</h2>
         </div>
         <a
           [routerLink]="context.route || '/hypervisor/mission-room/strategie'"
@@ -114,12 +115,12 @@ const ABIDJAN_CAMERA = {
           (click)="openMap.emit()"
         >
           <ck-glyph name="sliders" [size]="14" />
-          <span>{{ isOctocityMode() ? 'Open map' : 'Ouvrir carte' }}</span>
+          <span>{{ i18n.t('mission.map.open') }}</span>
         </a>
       </div>
       <div class="map-layout">
         <div class="map-canvas-host">
-          <div class="map-canvas-wrap" aria-label="Aperçu carte fusionnée">
+          <div class="map-canvas-wrap" [attr.aria-label]="i18n.t('mission.map.preview_aria')">
             <app-workspace-map
               [compact]="true"
               [previewMode]="true"
@@ -138,10 +139,10 @@ const ABIDJAN_CAMERA = {
           </div>
 
           @if (vesselsEnabled && !isOctocityMode() && vessels.length) {
-            <div class="vessels-overlay-controls" aria-label="Contrôles couche maritime">
+            <div class="vessels-overlay-controls" [attr.aria-label]="i18n.t('mission.map.maritime_controls')">
               <span class="vessel-count-chip" aria-live="polite">
                 <span class="vessel-count-dot" aria-hidden="true"></span>
-                {{ vessels.length }} navires AIS · Abidjan / Vridi
+                {{ i18n.t('mission.map.ais_vessels', { count: vessels.length }) }} · Abidjan / Vridi
               </span>
               <button
                 type="button"
@@ -151,18 +152,18 @@ const ABIDJAN_CAMERA = {
                 (click)="toggleVesselZoom($event)"
               >
                 @if (vesselZoomMode === 'country') {
-                  Zoom Abidjan
+                  {{ i18n.t('mission.map.zoom_city', { city: 'Abidjan' }) }}
                 } @else {
-                  Vue pays
+                  {{ i18n.t('mission.map.country_view') }}
                 }
               </button>
             </div>
           }
         </div>
-        <aside class="zone-scores" aria-label="Scores par zone">
+        <aside class="zone-scores" [attr.aria-label]="i18n.t('mission.map.zone_scores')">
           @if (!context.geoPreview.zone_scores.length) {
             <div class="zone-empty" role="status">
-              <small>Scores en cours de collecte…</small>
+              <small>{{ i18n.t('mission.map.zone_scores_loading') }}</small>
             </div>
           }
           @for (zone of context.geoPreview.zone_scores; track zone.id || zone.name) {
@@ -181,10 +182,10 @@ const ABIDJAN_CAMERA = {
           }
         </aside>
       </div>
-      <footer class="map-legend" aria-label="Légende carte">
-        <span class="legend-item critical"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Critical' : 'Tendu' }}</span>
-        <span class="legend-item elevated"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Watch' : 'Surveillance' }}</span>
-        <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
+      <footer class="map-legend" [attr.aria-label]="i18n.t('mission.map.legend')">
+        <span class="legend-item critical"><span class="legend-dot"></span>{{ i18n.t('mission.map.legend.critical') }}</span>
+        <span class="legend-item elevated"><span class="legend-dot"></span>{{ i18n.t('mission.map.legend.watch') }}</span>
+        <span class="legend-item stable"><span class="legend-dot"></span>{{ i18n.t('mission.map.legend.stable') }}</span>
         @if (vesselsEnabled && !isOctocityMode()) {
           <button
             type="button"
@@ -196,12 +197,12 @@ const ABIDJAN_CAMERA = {
             (click)="toggleMaritimeLayer($event)"
           >
             <span class="legend-dot maritime-dot" aria-hidden="true"></span>
-            Maritime · AIS · {{ vessels.length }} navires
+            {{ i18n.t('mission.map.maritime_toggle', { count: vessels.length }) }}
           </button>
           <button
             type="button"
             class="legend-item port-webcam"
-            aria-label="Ouvrir la webcam port demo APM Apapa"
+            [attr.aria-label]="i18n.t('mission.map.open_port_webcam')"
             (click)="openDemoPortWebcam($event)"
           >
             <span class="legend-dot port-dot" aria-hidden="true"></span>
@@ -211,23 +212,23 @@ const ABIDJAN_CAMERA = {
       </footer>
 
       @if (webcamDrawerOpen && activeWebcam) {
-        <div class="webcam-drawer" role="dialog" aria-modal="true" aria-label="Webcam port plein écran">
+        <div class="webcam-drawer" role="dialog" aria-modal="true" [attr.aria-label]="i18n.t('mission.map.webcam_fullscreen')">
           <button
             type="button"
             class="webcam-drawer-backdrop"
-            aria-label="Fermer la vue webcam"
+            [attr.aria-label]="i18n.t('common.close')"
             (click)="closeWebcamDrawer()"
           ></button>
           <div class="webcam-drawer-card">
             <header class="webcam-drawer-head">
               <div>
-                <span class="eyebrow">Vignette port plein écran</span>
+                <span class="eyebrow">{{ i18n.t('mission.map.webcam_fullscreen') }}</span>
                 <h3>{{ activeWebcam.label || activeWebcam.source_id }}</h3>
               </div>
               <button
                 type="button"
                 class="webcam-drawer-close"
-                aria-label="Fermer la webcam"
+                [attr.aria-label]="i18n.t('common.close')"
                 (click)="closeWebcamDrawer()"
               >
                 ×
@@ -235,15 +236,17 @@ const ABIDJAN_CAMERA = {
             </header>
             <img
               [src]="webcamDisplayUrl(activeWebcam)"
-              [attr.alt]="activeWebcam.label || 'Snapshot webcam port'"
+              [attr.alt]="activeWebcam.label || i18n.t('mission.map.webcam_alt')"
               class="webcam-drawer-image"
               referrerpolicy="no-referrer"
             />
             <footer class="webcam-drawer-foot">
               <small *ngIf="activeWebcam.label_disclaimer">{{ activeWebcam.label_disclaimer }}</small>
-              <small *ngIf="activeWebcam.attribution">Attribution : {{ activeWebcam.attribution }}</small>
+              <small *ngIf="activeWebcam.attribution"
+                >{{ i18n.t('mission.map.attribution_label') }} {{ activeWebcam.attribution }}</small
+              >
               <small *ngIf="activeWebcam.vessel_name">
-                Référence vessel : {{ activeWebcam.vessel_name }}<ng-container *ngIf="activeWebcam.vessel_mmsi"> · MMSI {{ activeWebcam.vessel_mmsi }}</ng-container>
+                {{ i18n.t('mission.map.vessel_reference') }} {{ activeWebcam.vessel_name }}<ng-container *ngIf="activeWebcam.vessel_mmsi"> · MMSI {{ activeWebcam.vessel_mmsi }}</ng-container>
               </small>
             </footer>
           </div>
@@ -254,27 +257,28 @@ const ABIDJAN_CAMERA = {
         <aside
           class="vessels-info-strip"
           [class.has-error]="vesselError && !vessels.length"
-          aria-label="Détail couche maritime AIS"
+          [attr.aria-label]="i18n.t('mission.map.maritime_detail')"
         >
           <header class="vessels-info-head">
             <div>
-              <span class="eyebrow">Couche maritime · {{ vesselProviderLabel }}</span>
-              <h3>Navires (AIS) · Abidjan / Vridi</h3>
+              <span class="eyebrow">{{ i18n.t('mission.map.maritime_layer') }} · {{ vesselProviderLabel }}</span>
+              <h3>{{ i18n.t('mission.map.vessels_title') }} · Abidjan / Vridi</h3>
             </div>
             <span class="vessels-meta" *ngIf="vesselsResponse">
-              {{ vessels.length }}/{{ vesselsResponse.vessels?.length || 0 }} navires
+              {{ vessels.length }}/{{ vesselsResponse.vessels?.length || 0 }}
+              {{ i18n.t('mission.map.vessels_unit') }}
             </span>
           </header>
 
           @if (vessels.length) {
-            <ul class="vessel-legend" aria-label="Légende navires">
-              <li [style.color]="vesselColor('cargo')"><span class="dot"></span>Cargo</li>
-              <li [style.color]="vesselColor('tanker')"><span class="dot"></span>Tanker</li>
-              <li [style.color]="vesselColor('roro')"><span class="dot"></span>Ro-Ro</li>
-              <li [style.color]="vesselColor('passenger')"><span class="dot"></span>Passager</li>
-              <li [style.color]="vesselColor('fishing')"><span class="dot"></span>Pêche</li>
-              <li [style.color]="vesselColor('other')"><span class="dot"></span>Autre</li>
-              <li class="highlighted" [style.color]="HIGHLIGHT_VIOLET"><span class="dot"></span>Cargo lié projet</li>
+            <ul class="vessel-legend" [attr.aria-label]="i18n.t('mission.map.vessel_legend')">
+              <li [style.color]="vesselColor('cargo')"><span class="dot"></span>{{ i18n.t('mission.vessel.cargo') }}</li>
+              <li [style.color]="vesselColor('tanker')"><span class="dot"></span>{{ i18n.t('mission.vessel.tanker') }}</li>
+              <li [style.color]="vesselColor('roro')"><span class="dot"></span>{{ i18n.t('mission.vessel.roro') }}</li>
+              <li [style.color]="vesselColor('passenger')"><span class="dot"></span>{{ i18n.t('mission.vessel.passenger') }}</li>
+              <li [style.color]="vesselColor('fishing')"><span class="dot"></span>{{ i18n.t('mission.vessel.fishing') }}</li>
+              <li [style.color]="vesselColor('other')"><span class="dot"></span>{{ i18n.t('mission.vessel.other') }}</li>
+              <li class="highlighted" [style.color]="HIGHLIGHT_VIOLET"><span class="dot"></span>{{ i18n.t('mission.vessel.linked_cargo') }}</li>
             </ul>
 
             @if (selectedVessel; as vessel) {
@@ -282,27 +286,27 @@ const ABIDJAN_CAMERA = {
                 <strong>{{ vessel.name }}</strong>
                 <span class="vessel-meta">MMSI {{ vessel.mmsi }}<ng-container *ngIf="vessel.imo"> · IMO {{ vessel.imo }}</ng-container></span>
                 <span class="vessel-meta" *ngIf="vessel.destination">→ {{ vessel.destination }}<ng-container *ngIf="vessel.eta"> · ETA {{ vessel.eta }}</ng-container></span>
-                <span class="vessel-meta tiny">{{ vesselProviderLabel }} · {{ vessel.vessel_type || 'navire' }}</span>
+                <span class="vessel-meta tiny">{{ vesselProviderLabel }} · {{ vessel.vessel_type || i18n.t('mission.vessel.default') }}</span>
                 @if (vessel.linked_cargo_id) {
-                  <span class="aya-badge">Cargo lié au projet Centre Drones Napié</span>
+                  <span class="aya-badge">{{ i18n.t('mission.vessel.linked_cargo_project') }}</span>
                 }
               </div>
             }
 
             @if (activeWebcam; as webcam) {
-              <aside class="vessel-webcam" aria-label="Vignette webcam port">
+              <aside class="vessel-webcam" [attr.aria-label]="i18n.t('mission.map.webcam_thumb')">
                 <header class="vessel-webcam-head">
                   <span class="eyebrow">
                     @if (webcam.origin === 'auto_select') {
-                      Auto-sélection AYA · vignette port
+                      {{ i18n.t('mission.map.webcam_auto', { name: assistantName }) }}
                     } @else {
-                      Vignette port (clic marker)
+                      {{ i18n.t('mission.map.webcam_manual') }}
                     }
                   </span>
                   <button
                     type="button"
                     class="webcam-close"
-                    aria-label="Fermer la vignette webcam"
+                    [attr.aria-label]="i18n.t('common.close')"
                     (click)="closeWebcamVignette()"
                   >
                     ×
@@ -311,18 +315,18 @@ const ABIDJAN_CAMERA = {
                 <button
                   type="button"
                   class="webcam-thumb-button"
-                  aria-label="Ouvrir la webcam port en grand"
+                  [attr.aria-label]="i18n.t('mission.map.webcam_open_large')"
                   (click)="openWebcamDrawer()"
                 >
                   <img
                     [src]="webcamDisplayUrl(webcam)"
-                    [attr.alt]="webcam.label || 'Snapshot webcam port'"
+                    [attr.alt]="webcam.label || i18n.t('mission.map.webcam_alt')"
                     class="webcam-thumb"
                     loading="lazy"
                     decoding="async"
                     referrerpolicy="no-referrer"
                   />
-                  <span class="webcam-label">{{ webcam.label || 'Webcam port' }}</span>
+                  <span class="webcam-label">{{ webcam.label || i18n.t('mission.map.webcam_label') }}</span>
                 </button>
                 <p class="webcam-disclaimer" *ngIf="webcam.label_disclaimer || webcam.attribution">
                   <ng-container *ngIf="webcam.label_disclaimer">{{ webcam.label_disclaimer }}</ng-container>
@@ -963,10 +967,12 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   @Output() zoneSelected = new EventEmitter<VpZoneScore>();
   @Output() vesselSelected = new EventEmitter<VesselPosition>();
 
+  readonly i18n = inject(I18nService);
+
   vesselsResponse: MaritimeVesselsResponse | null = null;
   vessels: VesselPosition[] = [];
   vesselError = false;
-  vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+  vesselErrorMessage = '';
   selectedVessel: VesselPosition | null = null;
   activeWebcam: ActiveWebcam | null = null;
   activeWebcamImageUrl: string | null = null;
@@ -1019,8 +1025,8 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   }
 
   displayLabel(): string {
-    if (this.isOctocityMode()) return 'France operating map';
-    return this.context.label || 'Carte fusionnée';
+    if (this.isOctocityMode()) return this.i18n.t('mission.map.label_octocity');
+    return this.context.label || this.i18n.t('mission.map.label_default');
   }
 
   mapQueryParams(): Record<string, string> {
@@ -1318,7 +1324,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
             (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
           );
           if (!this.vessels.length) {
-            this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+            this.vesselErrorMessage = this.i18n.t('mission.map.ais_unavailable');
           }
           this.cdr.markForCheck();
         },
@@ -1326,7 +1332,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
           this.vesselError = true;
           this.vesselsResponse = null;
           this.vessels = [];
-          this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+          this.vesselErrorMessage = this.i18n.t('mission.map.ais_unavailable');
           this.cdr.markForCheck();
         },
       });

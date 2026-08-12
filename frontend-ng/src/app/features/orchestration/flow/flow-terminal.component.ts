@@ -3,7 +3,7 @@
  *
  * Restored from the deleted `flow-terminal.component.ts`, re-skinned to the
  * `--ck-*` token system and split clean from any orchestration: it renders the
- * live run log, the HITL approval card (`hitl_pending` → Accept / Reject) and
+ * live run log, the human-approval card (`hitl_pending` → Accept / Reject) and
  * the debugger-paused card (`debug_pending` → Stop / Continue / Step, with a
  * last-output + context-snapshot preview). All state arrives as inputs from
  * `FlowRunService`; all user intents leave as outputs. It performs no graph or
@@ -19,6 +19,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
+import { inject } from '@angular/core';
 import type {
   RunDebugPayload,
   RunHitlPayload,
@@ -32,32 +34,34 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
   imports: [IconComponent],
   styleUrl: './flow-terminal.component.scss',
   template: `
-    <section class="ck-term" aria-label="Execution terminal">
+    <section class="ck-term" [attr.aria-label]="i18n.t('flow.terminal.aria')">
       <header class="ck-term__head">
         <span class="ck-term__eyebrow">
           <app-icon name="terminal" [size]="12" />
-          Execution terminal
+          {{ i18n.t('flow.terminal.title') }}
         </span>
         <span class="ck-term__status" [attr.data-status]="status()">{{ statusLabel() }}</span>
         <span class="ck-term__spacer"></span>
         @if (entries().length > 0) {
-          <span class="ck-term__count">{{ entries().length }} lines</span>
+          <span class="ck-term__count">{{
+            i18n.t('flow.terminal.lines', { count: entries().length })
+          }}</span>
         }
         <button
           type="button"
           class="ck-term__tool"
           (click)="clear.emit()"
-          title="Clear log"
-          aria-label="Clear log"
+          [title]="i18n.t('flow.terminal.clear')"
+          [attr.aria-label]="i18n.t('flow.terminal.clear')"
         >
-          Clear
+          {{ i18n.t('flow.terminal.clear') }}
         </button>
         <button
           type="button"
           class="ck-term__tool ck-term__tool--icon"
           (click)="close.emit()"
-          title="Collapse terminal"
-          aria-label="Collapse terminal"
+          [title]="i18n.t('flow.terminal.collapse')"
+          [attr.aria-label]="i18n.t('flow.terminal.collapse')"
         >
           <app-icon name="chevron-down" [size]="14" />
         </button>
@@ -65,36 +69,43 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
       <div class="ck-term__body" #body>
         @if (hitl(); as h) {
-          <div class="ck-term__card" data-tone="hitl" role="alertdialog" aria-label="Human approval required">
+          <div
+            class="ck-term__card"
+            data-tone="approval"
+            role="alertdialog"
+            [attr.aria-label]="i18n.t('flow.terminal.approval.title')"
+          >
             <div class="ck-term__card-head">
               <app-icon name="user-check" [size]="14" />
-              <span>Human approval required</span>
-              <span class="ck-term__pill" data-tone="warn">PAUSED</span>
+              <span>{{ i18n.t('flow.terminal.approval.title') }}</span>
+              <span class="ck-term__pill" data-tone="warn">{{
+                i18n.t('flow.terminal.approval.paused')
+              }}</span>
             </div>
             <p class="ck-term__card-prompt">
-              {{ h.prompt || 'An operator must approve this step to continue.' }}
+              {{ h.prompt || i18n.t('flow.terminal.approval.prompt') }}
             </p>
             @if (h.node_id) {
               <div class="ck-term__card-meta">
-                <span>Node</span><code>{{ h.node_id }}</code>
+                <span>{{ i18n.t('flow.terminal.approval.node') }}</span><code>{{ h.node_id }}</code>
               </div>
             }
             @if (h.expires_at || (h.inbox_count ?? 0) > 0 || h.memory) {
               <div class="ck-term__card-meta" data-tone="gate-ttl">
                 @if (h.seconds_remaining != null) {
-                  <span>TTL</span>
+                  <span>{{ i18n.t('flow.terminal.approval.ttl') }}</span>
                   <code>{{ formatRemaining(h.seconds_remaining) }}</code>
                   @if (h.expiry_action) {
                     <span class="ck-term__pill" data-tone="warn">{{ h.expiry_action }}</span>
                   }
                 }
                 @if ((h.inbox_count ?? 0) > 0) {
-                  <span>Buffered</span>
+                  <span>{{ i18n.t('flow.terminal.approval.buffered') }}</span>
                   <code>{{ h.inbox_count }} txn{{ h.inbox_count === 1 ? '' : 's' }}</code>
                 }
                 @if (h.memory; as mem) {
                   @if (mem.event_count) {
-                    <span>Memory</span>
+                    <span>{{ i18n.t('flow.terminal.approval.memory') }}</span>
                     <code>v{{ mem.version ?? 1 }} · {{ mem.event_count }} evt</code>
                   }
                 }
@@ -107,7 +118,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 [disabled]="hitlResolving()"
                 (click)="resolveHitl.emit('reject')"
               >
-                <app-icon name="x" [size]="12" /> Reject
+                <app-icon name="x" [size]="12" /> {{ i18n.t('flow.terminal.approval.reject') }}
               </button>
               <button
                 type="button"
@@ -115,26 +126,37 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 [disabled]="hitlResolving()"
                 (click)="resolveHitl.emit('accept')"
               >
-                <app-icon name="check" [size]="12" /> Approve
+                <app-icon name="check" [size]="12" /> {{ i18n.t('flow.terminal.approval.accept') }}
               </button>
             </div>
           </div>
         }
 
         @if (debug(); as d) {
-          <div class="ck-term__card" data-tone="debug" role="alertdialog" aria-label="Debugger paused">
+          <div
+            class="ck-term__card"
+            data-tone="debug"
+            role="alertdialog"
+            [attr.aria-label]="i18n.t('flow.terminal.debug.title')"
+          >
             <div class="ck-term__card-head">
               <app-icon name="bug" [size]="14" />
-              <span>Debugger paused</span>
+              <span>{{ i18n.t('flow.terminal.debug.title') }}</span>
               <span class="ck-term__pill" data-tone="cool">{{ d.debug_mode || 'step' }}</span>
             </div>
             <p class="ck-term__card-prompt">
-              Paused after <code>{{ d.node_id || 'node' }}</code> — inspect context and advance.
+              {{ i18n.t('flow.terminal.debug.prompt') }}
+              <code>{{ d.node_id || 'node' }}</code>
+              {{ i18n.t('flow.terminal.debug.prompt.tail') }}
             </p>
             <div class="ck-term__snap">
-              <span class="ck-term__snap-label">Last output</span>
+              <span class="ck-term__snap-label">{{
+                i18n.t('flow.terminal.debug.last_output')
+              }}</span>
               <pre class="ck-term__snap-body">{{ previewJson(d.last_output) }}</pre>
-              <span class="ck-term__snap-label">Context snapshot</span>
+              <span class="ck-term__snap-label">{{
+                i18n.t('flow.terminal.debug.context')
+              }}</span>
               <pre class="ck-term__snap-body">{{ previewJson(d.ctx_snapshot) }}</pre>
             </div>
             <div class="ck-term__actions">
@@ -144,7 +166,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 [disabled]="debugStepping()"
                 (click)="debugAction.emit('stop')"
               >
-                <app-icon name="square" [size]="12" /> Stop
+                <app-icon name="square" [size]="12" /> {{ i18n.t('flow.terminal.debug.stop') }}
               </button>
               <button
                 type="button"
@@ -152,7 +174,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 [disabled]="debugStepping()"
                 (click)="debugAction.emit('continue')"
               >
-                <app-icon name="play" [size]="12" /> Continue
+                <app-icon name="play" [size]="12" /> {{ i18n.t('flow.terminal.debug.continue') }}
               </button>
               <button
                 type="button"
@@ -160,7 +182,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 [disabled]="debugStepping()"
                 (click)="debugAction.emit('step')"
               >
-                <app-icon name="chevron-right" [size]="12" /> Step
+                <app-icon name="chevron-right" [size]="12" /> {{ i18n.t('flow.terminal.debug.step') }}
               </button>
             </div>
           </div>
@@ -169,7 +191,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
         @if (entries().length === 0 && !hitl() && !debug()) {
           <div class="ck-term__empty">
             <span class="ck-term__caret">›</span>
-            Simulate for a client-side dry run, or Execute to run on the backend and stream live output here.
+            {{ i18n.t('flow.terminal.empty') }}
           </div>
         }
 
@@ -185,6 +207,8 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
   `,
 })
 export class FlowTerminalComponent {
+  readonly i18n = inject(I18nService);
+
   readonly entries = input<RunLogEntry[]>([]);
   readonly status = input<RunUiStatus>('idle');
   readonly hitl = input<RunHitlPayload | null>(null);
@@ -210,22 +234,11 @@ export class FlowTerminalComponent {
   }
 
   protected statusLabel(): string {
-    switch (this.status()) {
-      case 'running':
-        return 'Running';
-      case 'paused':
-        return 'Paused';
-      case 'done':
-        return 'Done';
-      case 'error':
-        return 'Error';
-      default:
-        return 'Idle';
-    }
+    return this.i18n.t(`flow.terminal.status.${this.status()}`);
   }
 
   protected previewJson(value: unknown): string {
-    if (value === undefined || value === null) return '— no data —';
+    if (value === undefined || value === null) return this.i18n.t('flow.terminal.no_data');
     try {
       const json = JSON.stringify(value, null, 2);
       return json.length > 1400 ? json.slice(0, 1400) + '\n… (truncated)' : json;

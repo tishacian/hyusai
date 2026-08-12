@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
@@ -15,7 +16,7 @@ import { composePublicationName } from '../capture-templates';
 
 interface CategoryOption {
   id: string;
-  label: string;
+  labelKey: string;
 }
 
 const CUSTOM_DESTINATION = '__custom__';
@@ -41,21 +42,19 @@ const CUSTOM_DESTINATION = '__custom__';
           Capture · Publication
         </span>
         <h2 style="margin:6px 0 4px; font-size:22px; font-weight:680; color:var(--ck-fg-1);">
-          Publier vers la base de connaissances
+          {{ i18n.t('capture.publish.cta') }}
         </h2>
         <p style="margin:0; font-size:13.5px; color:var(--ck-fg-3); line-height:1.55; max-width:62ch;">
           @if (engine.template(); as tpl) {
-            Publication du {{ tpl.label }}
-            @if (engine.interventionType(); as it) {
-              · {{ it.label }}
-              <span class="ck-mono" style="color:var(--ck-fg-4);"> ({{ it.doc_ref }})</span>
-            }
-            vers
-            <strong>{{ tpl.publication.collection }}</strong>
-            (source_type {{ tpl.publication.source_type }}). Vous pouvez encore ajuster titre et destination.
+            {{
+              i18n.t('capture.publish.template_intro', {
+                subject: templateSubject(),
+                collection: tpl.publication.collection,
+                sourceType: tpl.publication.source_type,
+              })
+            }}
           } @else {
-            La fiche acceptée devient un document indexé. Choisissez le titre final, la catégorie et la
-            collection de destination, puis publiez.
+            {{ i18n.t('capture.publish.intro') }}
           }
         </p>
       </div>
@@ -66,9 +65,9 @@ const CUSTOM_DESTINATION = '__custom__';
           style="border-radius:var(--ck-radius-lg); padding:32px 28px; display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center;"
         >
           <ck-glyph name="check" [size]="26" color="var(--ck-signal-pos)" />
-          <div style="font-size:16px; font-weight:600; color:var(--ck-fg-1);">Fiche publiée</div>
+          <div style="font-size:16px; font-weight:600; color:var(--ck-fg-1);">{{ i18n.t('capture.publish.published') }}</div>
           <div style="font-size:13px; color:var(--ck-fg-4); max-width:48ch; line-height:1.5;">
-            « {{ published()?.final_title || finalTitle() }} » est désormais dans la base de connaissances
+            {{ i18n.t('capture.publish.published_body', { title: published()?.final_title || finalTitle() }) }}
             @if (published()?.destination_scope) {
               <span> · collection <strong>{{ published()?.destination_scope }}</strong></span>
             }
@@ -81,7 +80,7 @@ const CUSTOM_DESTINATION = '__custom__';
               rel="noopener"
               style="display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ck-signal-cool); text-decoration:none;"
             >
-              <ck-glyph name="zoom-in" [size]="14" color="currentColor" /> Ouvrir la fiche publiée
+              <ck-glyph name="zoom-in" [size]="14" color="currentColor" /> {{ i18n.t('capture.publish.open') }}
             </a>
           }
           @if (engine.proposalId()) {
@@ -93,7 +92,7 @@ const CUSTOM_DESTINATION = '__custom__';
                 style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 10%, transparent); color:var(--ck-signal-cool); font-size:13px; font-weight:600; cursor:pointer;"
               >
                 <ck-glyph name="ledger" [size]="13" color="currentColor" />
-                {{ exportBusy() === 'pdf' ? 'PDF…' : 'Exporter PDF Andritz' }}
+                {{ exportBusy() === 'pdf' ? i18n.t('capture.publish.exporting_pdf') : i18n.t('capture.publish.export_pdf') }}
               </button>
               <button
                 type="button"
@@ -102,7 +101,7 @@ const CUSTOM_DESTINATION = '__custom__';
                 style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:13px; font-weight:600; cursor:pointer;"
               >
                 <ck-glyph name="ledger" [size]="13" color="currentColor" />
-                {{ exportBusy() === 'docx' ? 'DOCX…' : 'Exporter DOCX' }}
+                {{ exportBusy() === 'docx' ? i18n.t('capture.publish.exporting_docx') : i18n.t('capture.publish.export_docx') }}
               </button>
             </div>
             @if (exportError()) {
@@ -114,17 +113,17 @@ const CUSTOM_DESTINATION = '__custom__';
             (click)="done.emit()"
             style="display:inline-flex; align-items:center; gap:7px; padding:10px 16px; margin-top:6px; border-radius:var(--ck-radius-md); border:none; font-size:14px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal); cursor:pointer;"
           >
-            <ck-glyph name="arrow-right" [size]="14" color="currentColor" /> Retour au tableau de bord
+            <ck-glyph name="arrow-right" [size]="14" color="currentColor" /> {{ i18n.t('capture.publish.back_dashboard') }}
           </button>
         </div>
       } @else {
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:20px; display:flex; flex-direction:column; gap:16px;">
           <label style="display:flex; flex-direction:column; gap:6px;">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Titre final</span>
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.publish.final_title') }}</span>
             <input
               [value]="finalTitle()"
               (input)="finalTitle.set($any($event.target).value)"
-              placeholder="Titre de la fiche publiée"
+              [placeholder]="i18n.t('capture.publish.final_title_placeholder')"
               style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
             />
             @if (publicationNamePreview(); as pubName) {
@@ -135,27 +134,27 @@ const CUSTOM_DESTINATION = '__custom__';
                   (click)="finalTitle.set(pubName)"
                   style="margin-left:8px; border:none; background:transparent; color:var(--ck-signal-cool); cursor:pointer; font-size:11px; padding:0;"
                 >
-                  utiliser
+                  {{ i18n.t('capture.publish.use') }}
                 </button>
               </span>
             }
           </label>
 
           <label style="display:flex; flex-direction:column; gap:6px; max-width:320px;">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Catégorie</span>
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.publish.category') }}</span>
             <select
               [value]="category()"
               (change)="category.set($any($event.target).value)"
               style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
             >
               @for (c of categories; track c.id) {
-                <option [value]="c.id">{{ c.label }}</option>
+                <option [value]="c.id">{{ i18n.t(c.labelKey) }}</option>
               }
             </select>
           </label>
 
           <div style="display:flex; flex-direction:column; gap:6px; max-width:420px;">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">Destination</span>
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">{{ i18n.t('capture.publish.destination') }}</span>
             <div style="display:flex; align-items:center; gap:8px;">
               <ck-glyph name="layers" [size]="14" color="var(--ck-fg-4)" />
               <select
@@ -166,14 +165,14 @@ const CUSTOM_DESTINATION = '__custom__';
                 @for (col of destinationOptions(); track col) {
                   <option [value]="col">{{ col }}</option>
                 }
-                <option [value]="custom">personnalisé…</option>
+                <option [value]="custom">{{ i18n.t('capture.publish.custom') }}</option>
               </select>
             </div>
             @if (destination() === custom) {
               <input
                 [value]="customDestination()"
                 (input)="customDestination.set($any($event.target).value)"
-                placeholder="Slug de collection (ex. methodes-geotechnique)"
+                [placeholder]="i18n.t('capture.publish.custom_placeholder')"
                 style="margin-top:4px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-mono); font-size:13.5px; padding:9px 12px;"
               />
             }
@@ -185,7 +184,7 @@ const CUSTOM_DESTINATION = '__custom__';
               [checked]="includeUnresolved()"
               (change)="includeUnresolved.set($any($event.target).checked)"
             />
-            <span style="font-size:13px; color:var(--ck-fg-2);">Inclure les questions non résolues</span>
+            <span style="font-size:13px; color:var(--ck-fg-2);">{{ i18n.t('capture.publish.include_unresolved') }}</span>
           </label>
         </div>
 
@@ -197,7 +196,7 @@ const CUSTOM_DESTINATION = '__custom__';
               (click)="submit()"
               style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-2); border-radius:var(--ck-radius-sm); padding:4px 10px; cursor:pointer; font-size:12px;"
             >
-              Réessayer
+              {{ i18n.t('capture.retry') }}
             </button>
           </div>
         }
@@ -212,7 +211,7 @@ const CUSTOM_DESTINATION = '__custom__';
             [style.cursor]="!canSubmit() || busy() ? 'not-allowed' : 'pointer'"
           >
             <ck-glyph name="bolt" [size]="14" color="currentColor" />
-            {{ busy() ? 'Publication…' : 'Publier vers la base de connaissances' }}
+            {{ busy() ? i18n.t('capture.publish.publishing') : i18n.t('capture.publish.cta') }}
           </button>
         </div>
       }
@@ -220,6 +219,8 @@ const CUSTOM_DESTINATION = '__custom__';
   `,
 })
 export class CaptureFilPublishComponent {
+  readonly i18n = inject(I18nService);
+
   protected readonly engine = inject(CaptureEngine);
   private readonly api = inject(ApiService);
 
@@ -229,12 +230,24 @@ export class CaptureFilPublishComponent {
   protected readonly custom = CUSTOM_DESTINATION;
 
   protected readonly categories: CategoryOption[] = [
-    { id: 'technique', label: 'Technique' },
-    { id: 'commercial', label: 'Commercial' },
-    { id: 'processus', label: 'Processus' },
-    { id: 'securite', label: 'Sécurité' },
-    { id: 'autre', label: 'Autre' },
+    { id: 'technique', labelKey: 'capture.publish.category.technique' },
+    { id: 'commercial', labelKey: 'capture.publish.category.commercial' },
+    { id: 'processus', labelKey: 'capture.publish.category.processus' },
+    { id: 'securite', labelKey: 'capture.publish.category.securite' },
+    { id: 'autre', labelKey: 'capture.publish.category.autre' },
   ];
+
+  /**
+   * What is being published, as one interpolated value: the template label,
+   * qualified by the intervention type and its document reference when the
+   * session carries one. Assembling it here keeps the intro a single sentence
+   * in the dictionary instead of a chain of translated fragments.
+   */
+  protected readonly templateSubject = computed(() => {
+    const label = this.engine.template()?.label ?? '';
+    const type = this.engine.interventionType();
+    return type ? `${label} · ${type.label} (${type.doc_ref})` : label;
+  });
 
   protected readonly publicationNamePreview = computed(() => {
     if (!this.engine.template()) return '';
@@ -331,7 +344,9 @@ export class CaptureFilPublishComponent {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      this.exportError.set(`Export ${format.toUpperCase()} impossible. Réessayez.`);
+      this.exportError.set(
+        this.i18n.t('capture.publish.export_failed', { format: format.toUpperCase() }),
+      );
     } finally {
       this.exportBusy.set(null);
     }

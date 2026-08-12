@@ -28,6 +28,8 @@ import {
   input,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { I18nService } from '@app/core/i18n.service';
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { FlowStore } from './flow.store';
 import { FlowIngressAvailabilityService } from './flow-ingress-availability.service';
 import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
@@ -38,33 +40,20 @@ import {
   type IngressKind,
 } from './flow-contract-bindings.vm';
 
-const KIND_LABELS: Record<IngressKind, string> = {
-  manual: 'Manual — Execute, or an API call',
-  chat: 'Chat — the System conversation surface',
-  http: 'HTTP — inbound webhook',
-  schedule: 'Schedule — cron',
-  event: 'Event — internal (SFTP arrival, deposit promoted)',
-};
-
-const KIND_NOTES: Record<IngressKind, string> = {
-  manual: 'Runs start from Execute or from a run request. The payload is the Run input.',
-  chat: 'Runs start from a chat turn on this System.',
-  http: 'Runs start on an inbound call. Register the webhook below before it can fire.',
-  schedule: 'Runs start on a cron tick. Register the schedule below before it can fire.',
-  event: 'Runs start on an internal event emitted by the platform.',
-};
-
 @Component({
   selector: 'app-flow-ingress-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, FlowSchemaEditorComponent],
+  imports: [RouterLink, FlowSchemaEditorComponent, HelpTooltipComponent],
   styleUrl: './flow-ingress-editor.component.scss',
   template: `
     @if (node(); as n) {
       <div class="ck-ingress">
         <label class="ck-ingress__field">
-          <span class="ck-ingress__label">Entry kind</span>
+          <span class="ck-ingress__label">
+            {{ i18n.t('flow.entry.kind') }}
+            <ck-help id="concept.entry-point" />
+          </span>
           <select
             class="ck-ingress__select"
             data-testid="ingress-kind-select"
@@ -72,7 +61,11 @@ const KIND_NOTES: Record<IngressKind, string> = {
             (change)="onKind($event)"
           >
             <option value="">
-              Derived at publication{{ derived() ? ' — ' + derived() : '' }}
+              {{
+                derived()
+                  ? i18n.t('flow.entry.kind.derived.value', { name: labelFor(derived()!) })
+                  : i18n.t('flow.entry.kind.derived')
+              }}
             </option>
             @for (kind of kinds; track kind) {
               <option [value]="kind" [selected]="kind === declaredKind()">
@@ -88,14 +81,13 @@ const KIND_NOTES: Record<IngressKind, string> = {
           @if (kind === 'event') {
             @if (!systemId()) {
               <p class="ck-ingress__note ck-ingress__note--warn" role="status">
-                Event delivery cannot be checked until this Flow is saved into a
-                System.
+                {{ i18n.t('flow.entry.event.unsaved') }}
               </p>
             } @else if (availability.state() === 'loading') {
-              <p class="ck-ingress__note">Checking event delivery…</p>
+              <p class="ck-ingress__note">{{ i18n.t('flow.entry.event.checking') }}</p>
             } @else if (availability.state() === 'error') {
               <p class="ck-ingress__note ck-ingress__note--warn" role="status">
-                Event delivery could not be read for this System.
+                {{ i18n.t('flow.entry.event.unreadable') }}
               </p>
             } @else if (!availability.eventsEnabled()) {
               <p
@@ -103,39 +95,40 @@ const KIND_NOTES: Record<IngressKind, string> = {
                 role="status"
                 data-testid="ingress-event-unavailable"
               >
-                Event triggers are switched off for this workspace. Publishing is
-                allowed, but no event will start a Run until an administrator
-                enables them.
+                {{ i18n.t('flow.entry.event.off') }}
               </p>
             } @else if (availability.mode() === 'dry_run') {
               <p class="ck-ingress__note ck-ingress__note--warn" role="status">
-                Event triggers are enabled but in dry-run: a matching event is
-                recorded without starting a Run. Switch to live below.
+                {{ i18n.t('flow.entry.event.dry_run') }}
               </p>
             } @else {
               <p class="ck-ingress__note ck-ingress__note--ok" role="status">
-                Event triggers are live for this System.
+                {{ i18n.t('flow.entry.event.live') }}
               </p>
             }
           }
 
           @if (kind === 'http' || kind === 'schedule') {
             <p class="ck-ingress__note">
-              A declared kind is not a registration. Create the
-              {{ kind === 'http' ? 'webhook' : 'schedule' }} in the Triggers
-              panel below, or under
-              <a class="ck-ingress__link" routerLink="/orchestration/triggers">
-                Triggers</a>.
+              {{
+                kind === 'http'
+                  ? i18n.t('flow.entry.registration.http')
+                  : i18n.t('flow.entry.registration.schedule')
+              }}
+              <a class="ck-ingress__link" routerLink="/orchestration/triggers">{{
+                i18n.t('flow.entry.registration.link')
+              }}</a
+              >.
             </p>
           }
         }
 
         <app-flow-schema-editor
           configKey="input_schema"
-          label="Entry payload schema"
+          [label]="i18n.t('flow.entry.schema.label')"
           deriveFrom="outputs"
           [hint]="schemaHint()"
-          fallbackHint="No schema declared — publication derives one from this node's output ports and accepts any extra field."
+          [fallbackHint]="i18n.t('flow.entry.schema.fallback')"
         />
       </div>
     }
@@ -144,6 +137,7 @@ const KIND_NOTES: Record<IngressKind, string> = {
 export class FlowIngressEditorComponent {
   private readonly store = inject(FlowStore);
   protected readonly availability = inject(FlowIngressAvailabilityService);
+  readonly i18n = inject(I18nService);
 
   readonly systemId = input<string | null>(null);
 
@@ -165,9 +159,11 @@ export class FlowIngressEditorComponent {
   );
 
   protected readonly schemaHint = computed(() =>
-    this.effectiveKind() === 'manual'
-      ? 'Validated against every Run input before the Run is accepted — this is what the Run input dialog has to satisfy.'
-      : 'Validated against every incoming payload before the Run is accepted.',
+    this.i18n.t(
+      this.effectiveKind() === 'manual'
+        ? 'flow.entry.schema.hint.manual'
+        : 'flow.entry.schema.hint.other',
+    ),
   );
 
   constructor() {
@@ -178,11 +174,11 @@ export class FlowIngressEditorComponent {
   }
 
   protected labelFor(kind: IngressKind): string {
-    return KIND_LABELS[kind];
+    return this.i18n.t(`flow.entry.kind.${kind}`);
   }
 
   protected noteFor(kind: IngressKind): string {
-    return KIND_NOTES[kind];
+    return this.i18n.t(`flow.entry.note.${kind}`);
   }
 
   protected onKind(event: Event): void {

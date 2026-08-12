@@ -51,7 +51,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
         actions
         type="button"
         (click)="specPanelOpen.set(true)"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
         Raw spec
       </button>
@@ -64,23 +64,23 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
     >
       <ck-tab id="overview" label="Overview">
         <section class="ck-surface t-elevated rounded-md p-5 space-y-3">
-          <h3 class="text-sm font-semibold text-white">About this skill</h3>
-          <p class="text-xs text-gray-400">
+          <h3 class="text-sm font-semibold" style="color:var(--ck-fg-1);">About this skill</h3>
+          <p class="text-xs" style="color:var(--ck-fg-3);">
             {{ skill()?.description ?? 'Skill description will appear once the catalog is wired.' }}
           </p>
           <div class="flex items-center gap-2 flex-wrap text-xs">
-            <a routerLink="/skills" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
+            <a routerLink="/skills" class="ck-btn-quiet px-3 py-1.5 rounded">
               Back to catalog
             </a>
           </div>
-          <p class="text-[11px] text-gray-500">
-            Lens: <span class="font-mono text-cyan-300">{{ lens() }}</span>
+          <p class="text-[11px]" style="color:var(--ck-fg-4);">
+            Lens: <span class="font-mono" style="color:var(--ck-signal-cool);">{{ lens() }}</span>
           </p>
         </section>
       </ck-tab>
 
       <ck-tab id="invocations" label="Invocations">
-        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-sm" style="color:var(--ck-fg-3);">
           Recent invocations (runs) that executed this skill — with latency,
           cost, and outcome verdict. Wires to the "runs" collection filtered by skill id.
         </div>
@@ -88,13 +88,13 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
       <ck-tab id="spec" label="Spec">
         <div class="ck-surface rounded-md p-5">
-          <h3 class="text-sm font-semibold text-white mb-3">Input / Output contract</h3>
-          <pre class="font-mono text-[11px] text-gray-300 overflow-x-auto whitespace-pre-wrap m-0">{{ specPreview() }}</pre>
+          <h3 class="text-sm font-semibold mb-3" style="color:var(--ck-fg-1);">Input / Output contract</h3>
+          <pre class="font-mono text-[11px] overflow-x-auto whitespace-pre-wrap m-0" style="color:var(--ck-fg-2);">{{ specPreview() }}</pre>
         </div>
       </ck-tab>
 
       <ck-tab id="knowledge" label="Knowledge">
-        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-sm" style="color:var(--ck-fg-3);">
           Knowledge bases bound to this skill. RAG presets, confidence floors,
           and refresh cadence.
         </div>
@@ -109,7 +109,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
       title="Raw spec"
       width="540px"
     >
-      <pre class="font-mono text-[11px] text-gray-300 whitespace-pre-wrap m-0">{{ specPreview() }}</pre>
+      <pre class="font-mono text-[11px] whitespace-pre-wrap m-0" style="color:var(--ck-fg-2);">{{ specPreview() }}</pre>
     </ck-panel>
   `,
 })

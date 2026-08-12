@@ -570,6 +570,9 @@ test('clone → edit → validate → save → input → execute → result → 
   await page.addInitScript(({ token, workspaceSlug }) => {
     localStorage.setItem('agentium_token', token);
     localStorage.setItem('agentium_workspace_slug', workspaceSlug);
+    // The accessible names below come from the EN dictionary. Pin the locale so
+    // the contract does not depend on the runner's navigator.language.
+    localStorage.setItem('agentium_locale', 'en');
   }, { token: TOKEN, workspaceSlug: WORKSPACE_SLUG });
 
   // Establish the local origin without booting Angular, then clone the fixture
@@ -604,7 +607,7 @@ test('clone → edit → validate → save → input → execute → result → 
 
   await page.goto(`/systems/${SYSTEM_ID}/flow`);
   await expect(page.getByRole('heading', { name: 'Flow authoring contract clone' })).toBeVisible();
-  await expect(page.getByText('Server Draft r7')).toBeVisible();
+  await expect(page.getByText('Server draft r7')).toBeVisible();
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect.poll(() => events.includes('api:validate:initial')).toBe(true);
 
@@ -654,7 +657,12 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(workbench).toContainText('Unsaved preview result');
   await expect(workbench).toContainText('local_snapshot');
   events.push('ui:preview-result');
-  await expect(page.locator('app-flow-toolbar .ck-flow-toolbar__state')).toContainText('Unsaved');
+  // The workbench is open, so the pill names the hold instead of the generic
+  // "Unsaved" — same fact, said out loud. The revision and hash below are what
+  // actually pin "the preview ran on the dirty snapshot and saved nothing".
+  const statePill = page.locator('app-flow-toolbar .ck-flow-toolbar__state');
+  await expect(statePill).toHaveClass(/is-hold/);
+  await expect(statePill).toContainText('Autosave paused');
   expect(draftRevision).toBe(7);
   expect(draftHash).toBe(INITIAL_HASH);
 
@@ -666,9 +674,12 @@ test('clone → edit → validate → save → input → execute → result → 
   const saveButton = page.getByRole('button', { name: 'Save flow' });
   await expect(saveButton).toBeEnabled();
   await saveButton.click();
-  await expect(
-    page.locator('.flow-builder__publication-boundary').getByText('Server Draft r8', { exact: true }),
-  ).toBeVisible();
+  // The revision label now shares its element with the Draft ck-help trigger,
+  // so `exact` no longer matches the element text; the anchored regex keeps r8
+  // from matching an r80.
+  await expect(page.locator('.flow-builder__publication-boundary')).toContainText(
+    /Server draft r8\b/,
+  );
   await expect(page.locator('.flow-builder__publication-boundary')).toContainText('Published v2');
   await expect(page.locator('app-flow-toolbar .ck-flow-toolbar__state')).toContainText('Saved');
 
@@ -702,9 +713,9 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(restoreButton).toBeEnabled();
   await restoreButton.click();
 
-  await expect(
-    page.locator('.flow-builder__publication-boundary').getByText('Server Draft r9', { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator('.flow-builder__publication-boundary')).toContainText(
+    /Server draft r9\b/,
+  );
   await expect(page.locator('.flow-builder__publication-boundary')).toContainText('Published v2');
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect(page.locator('app-flow-node').filter({ hasText: EDITED_LABEL })).toHaveCount(0);

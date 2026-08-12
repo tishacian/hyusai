@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import {
   isRunnableWorkbenchSkillNode,
   parseWorkbenchGoldenSet,
@@ -110,34 +111,45 @@ test('isolated-node affordance accepts only task nodes with one coherent Skill s
 });
 
 test('workbench panel exposes the three preview modes and the unsaved boundary', () => {
-  const requiredContracts = [
-    'aria-label="Local Flow workbench"',
+  const structuralContracts = [
     'role="tablist"',
     "tab() === 'chat'",
     "tab() === 'node'",
     "tab() === 'golden'",
-    // The badge wall became one status line plus an on-demand detail list.
-    // Every warning the badges shouted is still stated, in full sentences.
-    'your unsaved canvas',
-    'Nothing is saved or published',
-    'so are their side effects',
-    'What this run touches',
-    'Autosave stays paused for as long as this panel is open.',
-    'Never published. The published version and the ingress serving it do',
-    'Real Skills run. Whatever they write, send or call outside Agentium',
-    'I understand this preview invokes real Skills and may cause external side effects.',
-    'Confirmation is valid only for the current Flow revision.',
-    'Additional input_ref (JSON)',
-    'Send preview',
-    'Run selected node',
-    'Run golden set',
-    'Expected',
-    'Actual output_ref',
     'event.preventDefault()',
   ];
 
-  for (const contract of requiredContracts) {
+  for (const contract of structuralContracts) {
     assert.match(PANEL_SOURCE, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+
+  // The copy moved into the dictionary. The contract is unchanged: the panel
+  // binds the key, and the key still carries the warning it used to shout.
+  const boundCopy: readonly [keyof typeof FLOW_EN, string][] = [
+    ['flow.workbench.aria', 'Local Flow workbench'],
+    ['flow.workbench.status.dirty', 'your unsaved canvas'],
+    ['flow.workbench.status.dirty', 'Nothing is saved or published'],
+    ['flow.workbench.status.dirty', 'so are their side effects'],
+    ['flow.workbench.detail.toggle', 'What this run touches'],
+    ['flow.workbench.detail.saving.body', 'Autosave stays paused for as long as this panel is open.'],
+    ['flow.workbench.detail.publishing.body', 'Never published. The published version and the entry point serving it do'],
+    ['flow.workbench.detail.effects.body', 'Real Skills run. Whatever they write, send or call outside'],
+    ['flow.workbench.consent', 'I understand this preview invokes real Skills and may cause external side effects.'],
+    ['flow.workbench.consent', 'Confirmation is valid only for the current Flow revision.'],
+    ['flow.workbench.chat.context', 'Additional input_ref (JSON)'],
+    ['flow.workbench.chat.send', 'Send preview'],
+    ['flow.workbench.node.run', 'Run selected node'],
+    ['flow.workbench.golden.run', 'Run golden set'],
+    ['flow.workbench.golden.expected', 'Expected'],
+    ['flow.workbench.golden.actual', 'Actual output'],
+  ];
+
+  for (const [key, phrase] of boundCopy) {
+    assert.ok(
+      PANEL_SOURCE.includes(`i18n.t('${key}')`),
+      `${key} is bound by the panel`,
+    );
+    assert.ok(FLOW_EN[key].includes(phrase), `${key} still states: ${phrase}`);
   }
   assert.doesNotMatch(
     PANEL_SOURCE,

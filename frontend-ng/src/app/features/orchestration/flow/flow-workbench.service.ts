@@ -22,6 +22,8 @@ import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
+import { type I18nKey } from '@app/core/i18n.dict';
 import { FlowStore } from './flow.store';
 import { ingressInputSchema } from './flow-ingress-prefill';
 import {
@@ -33,14 +35,14 @@ import { flowValidationFingerprint } from './flow-validation.service';
 export interface FlowWorkbenchPollPolicy {
   intervalMs: number;
   maxAttempts: number;
-  timeoutLabel: string;
+  timeoutLabelKey: I18nKey;
 }
 
 /** Interactive chat/node previews retain the existing two-minute budget. */
 export const FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY: FlowWorkbenchPollPolicy = Object.freeze({
   intervalMs: 500,
   maxAttempts: 240,
-  timeoutLabel: 'The workbench Run',
+  timeoutLabelKey: 'flow.workbench.timeout.interactive',
 });
 
 /** FastAPI executes golden BackgroundTasks sequentially. Polling follows the
@@ -50,7 +52,7 @@ export const FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY: FlowWorkbenchPollPolicy = O
 export const FLOW_WORKBENCH_GOLDEN_POLL_POLICY: FlowWorkbenchPollPolicy = Object.freeze({
   intervalMs: 3_000,
   maxAttempts: 1_200,
-  timeoutLabel: 'The golden Run',
+  timeoutLabelKey: 'flow.workbench.timeout.golden',
 });
 const TERMINAL_STATUSES = new Set<Run['status']>([
   'completed',
@@ -120,8 +122,8 @@ interface ValidatedOperation extends OperationContext {
 class WorkbenchContextChangedError extends Error {
   override readonly name = 'WorkbenchContextChangedError';
 
-  constructor() {
-    super('The Flow or workspace changed while the preview was running. Run it again on the current snapshot.');
+  constructor(message: string) {
+    super(message);
   }
 }
 
@@ -135,7 +137,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export type FlowWorkbenchChatInput =
   | { ok: true; value: Record<string, unknown>; messageField: string }
-  | { ok: false; message: string };
+  | { ok: false; messageKey: I18nKey; params?: Record<string, string | number> };
 
 const CHAT_TEXT_FIELDS = ['query', 'message', 'prompt', 'text', 'input'] as const;
 
@@ -160,7 +162,7 @@ export function buildFlowWorkbenchChatInput(
 ): FlowWorkbenchChatInput {
   const source = flow.nodes.find((node) => node.id === ingressId && node.kind === 'source');
   if (!source) {
-    return { ok: false, message: 'The selected ingress no longer exists in the current Flow.' };
+    return { ok: false, messageKey: 'flow.workbench.error.entry_missing' };
   }
   // A port-derived schema states no `additionalProperties`, which every test
   // below reads as open — the same reading publication gives it.
@@ -185,7 +187,7 @@ export function buildFlowWorkbenchChatInput(
   if (!messageField) {
     return {
       ok: false,
-      message: 'The selected ingress has no text field. Add a query, message, prompt, text or input string to its input schema.',
+      messageKey: 'flow.workbench.error.entry_no_text',
     };
   }
 
@@ -197,7 +199,8 @@ export function buildFlowWorkbenchChatInput(
     if (unknownKeys.length > 0) {
       return {
         ok: false,
-        message: `The selected ingress does not accept: ${unknownKeys.join(', ')}.`,
+        messageKey: 'flow.workbench.error.entry_rejects',
+        params: { keys: unknownKeys.join(', ') },
       };
     }
   }
@@ -210,7 +213,8 @@ export function buildFlowWorkbenchChatInput(
   if (missing.length > 0) {
     return {
       ok: false,
-      message: `The selected ingress also requires: ${missing.join(', ')}. Add them to input_ref JSON.`,
+      messageKey: 'flow.workbench.error.entry_requires',
+      params: { keys: missing.join(', ') },
     };
   }
 
@@ -254,19 +258,20 @@ function executionMetadata(run: Run): Record<string, unknown> {
   return isRecord(input['execution']) ? input['execution'] : {};
 }
 
-function outputText(output: Record<string, unknown>): string {
+function outputText(output: Record<string, unknown>, fallback: string): string {
   for (const key of ['answer', 'message', 'text', 'result']) {
     if (typeof output[key] === 'string' && output[key]) return output[key] as string;
   }
   try {
     return JSON.stringify(output, null, 2);
   } catch {
-    return '[Result is not serialisable]';
+    return fallback;
   }
 }
 
 @Injectable()
 export class FlowWorkbenchService {
+  private readonly i18n = inject(I18nService);
   private readonly store = inject(FlowStore);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService, { optional: true });
@@ -348,7 +353,7 @@ export class FlowWorkbenchService {
   ): Promise<FlowWorkbenchRun | null> {
     const normalizedMessage = message.trim();
     if (!normalizedMessage) {
-      this.error.set('Enter a message before running the local preview.');
+      this.error.set(this.i18n.t('flow.workbench.error.message'));
       return null;
     }
     if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
@@ -365,7 +370,9 @@ export class FlowWorkbenchService {
         normalizedMessage,
         additionalInputRef,
       );
-      if (!shapedInput.ok) throw new WorkbenchRejectedError(shapedInput.message);
+      if (!shapedInput.ok) throw new WorkbenchRejectedError(
+          this.i18n.t(shapedInput.messageKey, shapedInput.params),
+        );
       const initial = await this.awaitRequest(
         this.canonical.triggerSystemFlowWorkbenchPreviewRun(validated.systemId, {
           acknowledge_real_side_effects: true,
@@ -384,7 +391,7 @@ export class FlowWorkbenchService {
         role: failed ? 'system' : 'assistant',
         content: failed
           ? run.error || `Preview stopped with status ${run.status}.`
-          : outputText(output),
+          : outputText(output, this.i18n.t('flow.workbench.error.unserialisable')),
         runId: run.id,
         status: run.status,
         output,
@@ -405,7 +412,7 @@ export class FlowWorkbenchService {
   ): Promise<FlowWorkbenchRun | null> {
     const normalizedNodeId = nodeId.trim();
     if (!normalizedNodeId) {
-      this.error.set('Select a Skill node before running it in isolation.');
+      this.error.set(this.i18n.t('flow.workbench.error.node'));
       return null;
     }
     if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
@@ -458,12 +465,12 @@ export class FlowWorkbenchService {
     acknowledgeRealSideEffects = false,
   ): Promise<FlowWorkbenchGoldenResult[] | null> {
     if (cases.length < 1 || cases.length > 20) {
-      this.error.set('A golden set must contain between 1 and 20 cases.');
+      this.error.set(this.i18n.t('flow.workbench.error.golden_size'));
       return null;
     }
     const ids = cases.map((item) => item.id);
     if (ids.some((id) => !id || id !== id.trim()) || new Set(ids).size !== ids.length) {
-      this.error.set('Golden case ids must be unique, non-empty, trimmed strings.');
+      this.error.set(this.i18n.t('flow.workbench.error.golden_ids'));
       return null;
     }
     if (!this.requireRealSideEffectsAcknowledgement(acknowledgeRealSideEffects)) return null;
@@ -486,7 +493,7 @@ export class FlowWorkbenchService {
       );
       this.assertCurrent(validated);
       if (batch.flow_sha256 !== validated.flowSha256 || batch.runs.length !== capturedCases.length) {
-        throw new WorkbenchRejectedError('The golden batch response does not match the validated Flow and case set.');
+        throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.golden_mismatch'));
       }
 
       const casesById = new Map(capturedCases.map((item) => [item.id, item]));
@@ -494,7 +501,7 @@ export class FlowWorkbenchService {
         this.assertInitialRun(run, validated, 'golden_preview');
         const caseId = executionMetadata(run)['golden_case_id'];
         if (typeof caseId !== 'string' || !casesById.has(caseId)) {
-          throw new WorkbenchRejectedError('A golden Run is missing its server-owned case identity.');
+          throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.golden_identity'));
         }
         const goldenCase = casesById.get(caseId)!;
         return {
@@ -514,7 +521,7 @@ export class FlowWorkbenchService {
         };
       });
       if (new Set(queued.map((item) => item.result.caseId)).size !== capturedCases.length) {
-        throw new WorkbenchRejectedError('The golden batch contains duplicate or missing case identities.');
+        throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.golden_duplicates'));
       }
       this.goldenResults.set(queued.map((item) => item.result));
 
@@ -533,8 +540,9 @@ export class FlowWorkbenchService {
           actual: output,
           passed,
           error: run.status === 'completed'
-            ? (passed ? null : 'Output did not match the expected deep-partial value.')
-            : run.error || `Run stopped with status ${run.status}.`,
+            ? (passed ? null : this.i18n.t('flow.workbench.error.golden_diff'))
+            : run.error
+              || this.i18n.t('flow.workbench.error.run_status', { status: run.status }),
         });
       }
       return this.goldenResults();
@@ -549,12 +557,12 @@ export class FlowWorkbenchService {
   private beginOperation(fenceIngress: boolean): OperationContext | null {
     if (this.disposed) return null;
     if (this.busy()) {
-      this.error.set('Wait for the current workbench run to finish.');
+      this.error.set(this.i18n.t('flow.workbench.error.busy'));
       return null;
     }
     const systemId = this.systemId();
     if (!systemId) {
-      this.error.set('The workbench is not bound to a hydrated System.');
+      this.error.set(this.i18n.t('flow.workbench.error.no_system'));
       return null;
     }
     const flow = this.store.snapshot();
@@ -588,20 +596,18 @@ export class FlowWorkbenchService {
       requireExecutable
       && (!response.valid || response.issues.some((issue) => issue.level === 'error'))
     ) {
-      throw new WorkbenchRejectedError('The current Flow has blocking server diagnostics.');
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.diagnostics'));
     }
     if (!/^[0-9a-f]{64}$/.test(response.flow_sha256)) {
-      throw new WorkbenchRejectedError('The server did not return a valid canonical Flow digest.');
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.digest'));
     }
     const mode = runtimeMode(response.runtime_mode);
     if (!mode) {
-      throw new WorkbenchRejectedError('The server returned an unsupported Flow runtime mode.');
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.runtime_unsupported'));
     }
     this.runtimeMode.set(mode);
     if (mode === 'sequential_legacy') {
-      throw new WorkbenchRejectedError(
-        'Workbench execution requires a DAG runtime. LEGACY · SEQUENTIAL does not execute the edited graph topology.',
-      );
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.runtime_legacy'));
     }
     return {
       ...operation,
@@ -616,7 +622,7 @@ export class FlowWorkbenchService {
   } {
     const options = draftTestIngressOptions(operation.flow);
     if (options.length === 0) {
-      throw new WorkbenchRejectedError('The current Flow has no executable ingress.');
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.no_entry'));
     }
     const selected = operation.selectedIngressId
       ? options.find((option) => option.ingress_id === operation.selectedIngressId)
@@ -624,8 +630,8 @@ export class FlowWorkbenchService {
     if (!selected) {
       throw new WorkbenchRejectedError(
         options.length > 1
-          ? `Choose one of the ${options.length} Flow ingresses before running the workbench.`
-          : 'The selected Flow ingress no longer exists.',
+          ? this.i18n.t('flow.workbench.error.choose_entry', { count: options.length })
+          : this.i18n.t('flow.workbench.error.entry_gone'),
       );
     }
     return { ingress_id: selected.ingress_id, kind: selected.kind };
@@ -646,7 +652,7 @@ export class FlowWorkbenchService {
       || !mode
       || mode === 'sequential_legacy'
     ) {
-      throw new WorkbenchRejectedError('The Run evidence does not match the validated workbench request.');
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.evidence'));
     }
     this.runtimeMode.set(mode);
   }
@@ -663,7 +669,7 @@ export class FlowWorkbenchService {
       this.assertCurrent(operation);
       if (projected) {
         if (projected.id !== initial.id || projected.system_id !== operation.systemId) {
-          throw new WorkbenchRejectedError('The polled Run identity changed unexpectedly.');
+          throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.poll_identity'));
         }
         const merged = {
           ...initial,
@@ -679,7 +685,10 @@ export class FlowWorkbenchService {
     }
     const timeoutMinutes = Math.round((policy.intervalMs * policy.maxAttempts) / 60_000);
     throw new WorkbenchRejectedError(
-      `${policy.timeoutLabel} did not finish within ${timeoutMinutes} minutes. Its durable Run may still be queued or running.`,
+      this.i18n.t('flow.workbench.error.timeout', {
+        label: this.i18n.t(policy.timeoutLabelKey),
+        minutes: timeoutMinutes,
+      }),
     );
   }
 
@@ -697,7 +706,9 @@ export class FlowWorkbenchService {
         && !this.workspace.isRequestScopeCurrent(operation.workspaceScope)
       )
     ) {
-      throw new WorkbenchContextChangedError();
+      throw new WorkbenchContextChangedError(
+        this.i18n.t('flow.workbench.error.context_changed'),
+      );
     }
   }
 
@@ -728,11 +739,11 @@ export class FlowWorkbenchService {
       const detail = isRecord(error.error) ? error.error['detail'] : null;
       if (isRecord(detail) && typeof detail['message'] === 'string') return detail['message'];
       if (typeof detail === 'string' && detail) return detail;
-      return `The workbench request failed (HTTP ${error.status || 'network'}).`;
+      return this.i18n.t('flow.workbench.error.http', { status: error.status || 'network' });
     }
     return error instanceof Error && error.message
       ? error.message
-      : 'The workbench request failed.';
+      : this.i18n.t('flow.workbench.error.failed');
   }
 
   private appendChat(message: Omit<FlowWorkbenchChatMessage, 'id'>): void {
@@ -759,9 +770,7 @@ export class FlowWorkbenchService {
 
   private requireRealSideEffectsAcknowledgement(acknowledged: boolean): acknowledged is true {
     if (acknowledged === true) return true;
-    this.error.set(
-      'Acknowledge that this Workbench run invokes real Skills and may cause external side effects.',
-    );
+    this.error.set(this.i18n.t('flow.workbench.error.consent'));
     return false;
   }
 

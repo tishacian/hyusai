@@ -5,8 +5,10 @@ import {
   HostListener,
   Input,
   Output,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 
 export interface TroopsTrack {
   id?: string;
@@ -67,33 +69,33 @@ export interface TroopsSahelSnapshot {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (snapshot && (embedded || open)) {
-      <div [class]="embedded ? 'troops-embedded-root' : 'troops-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Théâtre Sahel">
+      <div [class]="embedded ? 'troops-embedded-root' : 'troops-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" [attr.aria-label]="theaterLabel()">
         @if (!embedded) {
           <button
             type="button"
             class="troops-drawer-backdrop"
-            aria-label="Fermer le théâtre Sahel"
+            [attr.aria-label]="i18n.t('common.close')"
             (click)="closed.emit()"
           ></button>
         }
         <aside [class]="embedded ? 'troops-embedded-panel' : 'troops-drawer-panel'">
           <header class="troops-drawer-head">
             <div class="troops-drawer-head-copy">
-              <span class="mission-status-badge is-advisory">advisory only</span>
-              <small class="publisher-badge">ADS-B advisory</small>
+              <span class="mission-status-badge is-advisory">{{ i18n.t('mission.security.advisory_only') }}</span>
+              <small class="publisher-badge">{{ i18n.t('mission.security.adsb_rail') }}</small>
               @if (snapshot.source_badge) {
                 <small class="publisher-badge" [class.live]="snapshot.live" [class.baseline]="!snapshot.live">
                   {{ snapshot.source_badge }}
                 </small>
               }
-              <h2>{{ snapshot.theater_label || 'Théâtre Sahel' }}</h2>
+              <h2>{{ theaterLabel() }}</h2>
               <p class="troops-drawer-summary">{{ snapshot.disclaimer || defaultDisclaimer }}</p>
             </div>
             @if (!embedded) {
               <button
                 type="button"
                 class="troops-drawer-close"
-                aria-label="Fermer"
+                [attr.aria-label]="i18n.t('common.close')"
                 (click)="closed.emit()"
               >
                 ×
@@ -102,42 +104,42 @@ export interface TroopsSahelSnapshot {
           </header>
 
           <div class="troops-drawer-body">
-            <section class="troops-stats" aria-label="Indicateurs théâtre">
+            <section class="troops-stats" [attr.aria-label]="i18n.t('mission.troops.stats')">
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">traces actives</span>
+                <span class="stat-label">{{ i18n.t('mission.troops.active_tracks') }}</span>
                 <strong>{{ tracks().length }}</strong>
-                <small>snapshot {{ capturedAtLabel() }}</small>
+                <small>{{ i18n.t('mission.troops.snapshot_at', { time: capturedAtLabel() }) }}</small>
               </article>
               <article class="stat-card mission-metric-tile is-watch warn">
-                <span class="stat-label">zones surveillance</span>
+                <span class="stat-label">{{ i18n.t('mission.troops.watch_zones') }}</span>
                 <strong>{{ watchZones().length }}</strong>
-                <small>OSINT public</small>
+                <small>{{ i18n.t('mission.troops.public_osint') }}</small>
               </article>
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">bases CEDEAO</span>
+                <span class="stat-label">{{ i18n.t('mission.troops.ecowas_bases') }}</span>
                 <strong>{{ cedeaoBases().length }}</strong>
-                <small>alerte standard</small>
+                <small>{{ i18n.t('mission.troops.standard_alert') }}</small>
               </article>
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">altitude moy.</span>
+                <span class="stat-label">{{ i18n.t('mission.troops.avg_altitude') }}</span>
                 <strong>{{ averageAltitude() }}</strong>
-                <small>ft (advisory)</small>
+                <small>{{ i18n.t('mission.troops.feet_advisory') }}</small>
               </article>
             </section>
 
             <section class="troops-section">
-              <span class="eyebrow">Traces aériennes advisory (snapshot ADS-B)</span>
+              <span class="eyebrow">{{ i18n.t('mission.troops.air_tracks') }}</span>
               @if (tracks().length) {
                 <div class="track-table-wrap">
                   <table class="track-table">
                     <thead>
                       <tr>
-                        <th scope="col">Callsign</th>
-                        <th scope="col">Type</th>
-                        <th scope="col">Route</th>
-                        <th scope="col" class="num">Alt (ft)</th>
-                        <th scope="col" class="num">Vit (kt)</th>
-                        <th scope="col">Statut</th>
+                        <th scope="col">{{ i18n.t('mission.troops.col.callsign') }}</th>
+                        <th scope="col">{{ i18n.t('mission.troops.col.kind') }}</th>
+                        <th scope="col">{{ i18n.t('mission.troops.col.route') }}</th>
+                        <th scope="col" class="num">{{ i18n.t('mission.troops.col.altitude') }}</th>
+                        <th scope="col" class="num">{{ i18n.t('mission.troops.col.speed') }}</th>
+                        <th scope="col">{{ i18n.t('mission.troops.col.status') }}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -170,13 +172,13 @@ export interface TroopsSahelSnapshot {
                   </table>
                 </div>
               } @else {
-                <p class="empty">Pas de trace ADS-B dans le snapshot.</p>
+                <p class="empty">{{ i18n.t('mission.troops.no_tracks') }}</p>
               }
             </section>
 
             @if (watchZones().length) {
               <section class="troops-section">
-                <span class="eyebrow">Zones de surveillance</span>
+                <span class="eyebrow">{{ i18n.t('mission.troops.watch_zones_title') }}</span>
                 <div class="zone-grid">
                   @for (zone of watchZones(); track zone.id) {
                     <article class="zone-card" [class]="'tone-' + (zone.tone || 'watch')">
@@ -198,7 +200,7 @@ export interface TroopsSahelSnapshot {
 
             @if (cedeaoBases().length) {
               <section class="troops-section">
-                <span class="eyebrow">Bases CEDEAO en alerte standard</span>
+                <span class="eyebrow">{{ i18n.t('mission.troops.bases_title') }}</span>
                 <div class="base-grid">
                   @for (base of cedeaoBases(); track base.id) {
                     <article class="base-card" [class]="'tone-' + (base.tone || 'stable')">
@@ -216,10 +218,10 @@ export interface TroopsSahelSnapshot {
 
           <footer class="troops-drawer-foot mission-action-footer">
             <span class="foot-disclaimer">
-              ADS-B public, advisory only · sources publiques et baseline démo
+              {{ i18n.t('mission.troops.disclaimer_foot') }}
             </span>
             <button type="button" class="action-link muted" (click)="closed.emit()">
-              Fermer
+              {{ i18n.t('common.close') }}
             </button>
           </footer>
         </aside>
@@ -618,14 +620,22 @@ export interface TroopsSahelSnapshot {
   ],
 })
 export class VpTroopsTheaterDrawerComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() embedded = false;
   @Input() open = false;
   @Input() snapshot: TroopsSahelSnapshot | null = null;
   @Output() closed = new EventEmitter<void>();
   @Output() trackSelected = new EventEmitter<TroopsTrack>();
 
-  readonly defaultDisclaimer =
-    'ADS-B advisory only — snapshot scénario, aucune donnée opérationnelle classifiée.';
+  get defaultDisclaimer(): string {
+    return this.i18n.t('mission.troops.disclaimer');
+  }
+
+  /** The theatre name is scenario data; the fallback names the demo theatre. */
+  theaterLabel(): string {
+    return this.snapshot?.theater_label || 'Théâtre Sahel';
+  }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -666,21 +676,21 @@ export class VpTroopsTheaterDrawerComponent {
 
   statusLabel(tone?: string): string {
     const key = (tone || 'stable').toLowerCase();
-    if (key === 'watch') return 'À suivre';
-    if (key === 'critical') return 'Tendu';
-    return 'Stable';
+    if (key === 'watch') return this.i18n.t('mission.troops.tone.watch');
+    if (key === 'critical') return this.i18n.t('mission.troops.tone.critical');
+    return this.i18n.t('mission.troops.tone.stable');
   }
 
   zoneSource(zone: TroopsWatchZone): string {
     if (zone.source) return zone.source;
-    return 'OSINT public';
+    return this.i18n.t('mission.troops.public_osint');
   }
 
   alertLabel(zone: TroopsWatchZone): string {
     if (zone.alert_level) return zone.alert_level;
     const tone = (zone.tone || 'watch').toLowerCase();
-    if (tone === 'critical') return 'Niveau élevé';
-    if (tone === 'stable')   return 'Niveau standard';
-    return 'À suivre';
+    if (tone === 'critical') return this.i18n.t('mission.troops.alert.high');
+    if (tone === 'stable') return this.i18n.t('mission.troops.alert.standard');
+    return this.i18n.t('mission.troops.tone.watch');
   }
 }

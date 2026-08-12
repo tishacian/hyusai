@@ -6,9 +6,11 @@ import {
   Input,
   Output,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { I18nService } from '@app/core/i18n.service';
 
 export interface SocialTweet {
   id?: string;
@@ -59,20 +61,20 @@ interface BucketDescriptor {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (snapshot && (embedded || open)) {
-      <div [class]="embedded ? 'social-embedded-root' : 'social-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Pulsation sociale">
+      <div [class]="embedded ? 'social-embedded-root' : 'social-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" [attr.aria-label]="i18n.t('mission.social.title')">
         @if (!embedded) {
           <button
             type="button"
             class="social-drawer-backdrop"
-            aria-label="Fermer la pulsation sociale"
+            [attr.aria-label]="i18n.t('common.close')"
             (click)="closed.emit()"
           ></button>
         }
         <aside [class]="embedded ? 'social-embedded-panel' : 'social-drawer-panel'">
           <header class="social-drawer-head">
             <div class="social-drawer-head-copy">
-              <span class="mission-status-badge is-advisory">Démo-safe</span>
-              <small class="publisher-badge">Pulsation sociale · {{ cityFocus() }}</small>
+              <span class="mission-status-badge is-advisory">{{ i18n.t('mission.social.demo_safe') }}</span>
+              <small class="publisher-badge">{{ i18n.t('mission.social.title') }} · {{ cityFocus() }}</small>
               <h2>{{ headerTitle() }}</h2>
               <p class="social-drawer-summary">{{ summarySentence() }}</p>
             </div>
@@ -80,7 +82,7 @@ interface BucketDescriptor {
               <button
                 type="button"
                 class="social-drawer-close"
-                aria-label="Fermer"
+                [attr.aria-label]="i18n.t('common.close')"
                 (click)="closed.emit()"
               >
                 ×
@@ -89,46 +91,46 @@ interface BucketDescriptor {
           </header>
 
           <div class="social-drawer-body">
-            <section class="social-stats" aria-label="Indicateurs snapshot">
+            <section class="social-stats" [attr.aria-label]="i18n.t('mission.social.stats')">
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">tweets</span>
+                <span class="stat-label">{{ i18n.t('mission.social.stat.posts') }}</span>
                 <strong>{{ totals().tweets ?? tweets().length }}</strong>
-                <small>séquence jour</small>
+                <small>{{ i18n.t('mission.social.stat.day_sequence') }}</small>
               </article>
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">vérifiés</span>
+                <span class="stat-label">{{ i18n.t('mission.social.stat.verified') }}</span>
                 <strong>{{ totals().officiel ?? bucketCount('officiel') }}</strong>
-                <small>institutionnel + presse</small>
+                <small>{{ i18n.t('mission.social.stat.verified_hint') }}</small>
               </article>
               <article class="stat-card mission-metric-tile">
-                <span class="stat-label">citoyens</span>
+                <span class="stat-label">{{ i18n.t('mission.social.stat.citizens') }}</span>
                 <strong>{{ totals().citoyen ?? bucketCount('citoyen') }}</strong>
-                <small>pseudonymisés</small>
+                <small>{{ i18n.t('mission.social.stat.pseudonymised') }}</small>
               </article>
               <article class="stat-card mission-metric-tile is-watch warn">
-                <span class="stat-label">rumeur</span>
+                <span class="stat-label">{{ i18n.t('mission.social.stat.rumor') }}</span>
                 <strong>{{ totals().rumeur ?? bucketCount('rumeur') }}</strong>
-                <small>frontière Nord</small>
+                <small>{{ i18n.t('mission.social.stat.rumor_hint') }}</small>
               </article>
             </section>
 
-            <section class="social-sentiment" aria-label="Tonalité globale">
-              <span class="eyebrow">Tonalité globale</span>
+            <section class="social-sentiment" [attr.aria-label]="i18n.t('mission.social.tone')">
+              <span class="eyebrow">{{ i18n.t('mission.social.tone') }}</span>
               <div class="sentiment-bar" role="img" [attr.aria-label]="sentimentAriaLabel()">
                 <span class="sb-positive" [style.flex]="sentimentMix().positive"></span>
                 <span class="sb-neutral" [style.flex]="sentimentMix().neutral"></span>
                 <span class="sb-negative" [style.flex]="sentimentMix().negative"></span>
               </div>
               <ul class="sentiment-legend">
-                <li class="positive"><span>positif</span><strong>{{ sentimentMix().positive }}</strong></li>
-                <li class="neutral"><span>neutre</span><strong>{{ sentimentMix().neutral }}</strong></li>
-                <li class="negative"><span>négatif</span><strong>{{ sentimentMix().negative }}</strong></li>
-                <li class="engagement"><span>engagement</span><strong>{{ engagementTotal() }}</strong></li>
+                <li class="positive"><span>{{ sentimentLabel('positive') }}</span><strong>{{ sentimentMix().positive }}</strong></li>
+                <li class="neutral"><span>{{ sentimentLabel('neutral') }}</span><strong>{{ sentimentMix().neutral }}</strong></li>
+                <li class="negative"><span>{{ sentimentLabel('negative') }}</span><strong>{{ sentimentMix().negative }}</strong></li>
+                <li class="engagement"><span>{{ i18n.t('mission.social.engagement') }}</span><strong>{{ engagementTotal() }}</strong></li>
               </ul>
             </section>
 
-            <section class="social-cluster" aria-label="Cluster géographique">
-              <span class="eyebrow">Cluster Abidjan · quartiers actifs</span>
+            <section class="social-cluster" [attr.aria-label]="i18n.t('mission.social.cluster')">
+              <span class="eyebrow">{{ i18n.t('mission.social.cluster_title', { city: cityFocus() }) }}</span>
               <svg class="cluster-svg" viewBox="0 0 320 140" preserveAspectRatio="none" aria-hidden="true">
                 <rect class="cluster-bg" x="0" y="0" width="320" height="140" rx="6"></rect>
                 @for (point of clusterPoints(); track point.id) {
@@ -185,8 +187,8 @@ interface BucketDescriptor {
                           <span class="sentiment-chip" [class]="'sentiment-' + (tweet.sentiment || 'neutral')">
                             {{ sentimentLabel(tweet.sentiment) }}
                           </span>
-                          <span class="tweet-engagement" title="Engagement total">
-                            {{ tweet.engagement || 0 }} eng.
+                          <span class="tweet-engagement" [title]="i18n.t('mission.social.engagement_total')">
+                            {{ tweet.engagement || 0 }} {{ i18n.t('mission.social.engagement_short') }}
                           </span>
                           @if (tweet.geo?.label) {
                             <span class="tweet-geo">· {{ tweet.geo?.label }}</span>
@@ -205,10 +207,10 @@ interface BucketDescriptor {
 
           <footer class="social-drawer-foot mission-action-footer">
             <button type="button" class="action-link primary" (click)="askAya.emit()">
-              Envoyer à AYA
+              {{ i18n.t('mission.social.send_to', { name: assistantName }) }}
             </button>
             <button type="button" class="action-link muted" (click)="closed.emit()">
-              Fermer
+              {{ i18n.t('common.close') }}
             </button>
           </footer>
         </aside>
@@ -661,8 +663,11 @@ interface BucketDescriptor {
   ],
 })
 export class VpSocialPulseDrawerComponent {
+  readonly i18n = inject(I18nService);
+
   @Input() embedded = false;
   @Input() open = false;
+  @Input() assistantName = 'AYA';
   @Input() snapshot: SocialSnapshot | null = null;
   @Output() closed = new EventEmitter<void>();
   @Output() askAya = new EventEmitter<void>();
@@ -673,11 +678,25 @@ export class VpSocialPulseDrawerComponent {
     rumeur: false,
   });
 
-  private readonly buckets: BucketDescriptor[] = [
-    { key: 'officiel', label: 'Canaux vérifiés', helper: 'institutionnels + presse vérifiée' },
-    { key: 'citoyen',  label: 'Comptes citoyens',  helper: 'pseudonymisés, géolocalisés Abidjan' },
-    { key: 'rumeur',   label: 'Rumeur frontière Nord', helper: 'pseudonymisée, surveillance OSINT' },
-  ];
+  private get buckets(): BucketDescriptor[] {
+    return [
+      {
+        key: 'officiel',
+        label: this.i18n.t('mission.social.bucket.official'),
+        helper: this.i18n.t('mission.social.bucket.official_hint'),
+      },
+      {
+        key: 'citoyen',
+        label: this.i18n.t('mission.social.bucket.citizen'),
+        helper: this.i18n.t('mission.social.bucket.citizen_hint', { city: this.cityFocus() }),
+      },
+      {
+        key: 'rumeur',
+        label: this.i18n.t('mission.social.bucket.rumor'),
+        helper: this.i18n.t('mission.social.bucket.rumor_hint'),
+      },
+    ];
+  }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -689,7 +708,7 @@ export class VpSocialPulseDrawerComponent {
   }
 
   headerTitle(): string {
-    const window = this.snapshot?.window_label || 'Pulsation sociale — séquence 08h30-14h25';
+    const window = this.snapshot?.window_label || this.i18n.t('mission.social.window_fallback');
     const captured = this.formatTime(this.snapshot?.captured_at);
     return captured ? `${window} (${captured})` : window;
   }
@@ -739,7 +758,11 @@ export class VpSocialPulseDrawerComponent {
 
   sentimentAriaLabel(): string {
     const mix = this.sentimentMix();
-    return `${mix.positive} positifs, ${mix.neutral} neutres, ${mix.negative} négatifs`;
+    return this.i18n.t('mission.social.tone_aria', {
+      positive: mix.positive,
+      neutral: mix.neutral,
+      negative: mix.negative,
+    });
   }
 
   bucketsWithTweets(): { descriptor: BucketDescriptor; tweets: SocialTweet[] }[] {
@@ -766,16 +789,16 @@ export class VpSocialPulseDrawerComponent {
   }
 
   kindLabel(kind?: string): string {
-    if (kind === 'officiel') return 'Officiel';
-    if (kind === 'rumeur')   return 'Rumeur';
-    return 'Citoyen';
+    if (kind === 'officiel') return this.i18n.t('mission.social.kind.official');
+    if (kind === 'rumeur') return this.i18n.t('mission.social.kind.rumor');
+    return this.i18n.t('mission.social.kind.citizen');
   }
 
   sentimentLabel(sentiment?: string): string {
     const key = (sentiment || 'neutral').toLowerCase();
-    if (key.includes('positi')) return 'positif';
-    if (key.includes('negati')) return 'négatif';
-    return 'neutre';
+    if (key.includes('positi')) return this.i18n.t('mission.social.sentiment.positive');
+    if (key.includes('negati')) return this.i18n.t('mission.social.sentiment.negative');
+    return this.i18n.t('mission.social.sentiment.neutral');
   }
 
   formatTime(value?: string | null): string {
@@ -793,7 +816,12 @@ export class VpSocialPulseDrawerComponent {
     const officiels = totals.officiel ?? this.bucketCount('officiel');
     const citoyens = totals.citoyen ?? this.bucketCount('citoyen');
     const rumeur = totals.rumeur ?? this.bucketCount('rumeur');
-    return `Snapshot demo-safe : ${total} tweets — ${officiels} canaux vérifiés, ${citoyens} citoyens pseudonymisés, ${rumeur} rumeurs frontière Nord.`;
+    return this.i18n.t('mission.social.summary', {
+      total,
+      verified: officiels,
+      citizens: citoyens,
+      rumors: rumeur,
+    });
   }
 
   readonly clusterPoints = computed(() => {

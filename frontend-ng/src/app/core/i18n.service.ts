@@ -24,10 +24,12 @@ const LOCALES: readonly Locale[] = ['fr', 'en'] as const;
  *   any component that calls it via `i18n.t('…')` re-renders the
  *   moment the user flips the switcher in the account menu.
  *
- * Missing keys fall back through FR then to the key itself — so
- * English holes stay visible in the UI during the progressive
- * translation pass, and FR (first-class) never breaks even when a
- * key lives only in `en.json`.
+ * Missing keys fall back through FR then to the key itself. FR/EN parity
+ * is now enforced at compile time by each `core/i18n/<domain>.dict.ts`
+ * module and by `npm run check:i18n`, so this fallback only fires for keys
+ * assembled at runtime from an API value (`'runs.status.' + status`) — and
+ * returning the key verbatim is what makes a typo visible on screen.
+ * See `core/i18n/CONVENTION.md`.
  *
  * Interpolation is minimalist: `{name}` placeholders, no pluralisation
  * (we don't have any plural-sensitive surface yet; if one shows up we
