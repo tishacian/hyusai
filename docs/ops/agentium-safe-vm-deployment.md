@@ -3399,3 +3399,90 @@ au-delà des six canaris.
 - **Messages de `capture-engine`** : résolus au moment de l'événement puis
   stockés en signal, ils ne se retraduisent pas si l'utilisateur change de
   langue en cours de session.
+
+## Itération du 12/08 (après-midi) — déployée sur `5b51f5fc`, dette de libellés monolingues soldée
+
+Suite directe de `ec934d64`, par la boucle courte. Le ratchet de dette i18n
+passe de **douze entrées à deux** : `knowledge-capture.component.ts` livrait à
+lui seul 282 libellés en français uniquement, et le panneau de chat, Client360,
+la base de connaissances et la moitié template de mission-room étaient dans le
+même cas. Le dictionnaire passe de ~2 940 à **3 200 clés**, chacune dans les
+deux langues — la contrainte de type `Record<keyof typeof X_FR, string>` rend la
+parité vérifiable par `tsc`, pas seulement par la garde.
+
+**Incrément purement frontend.** Ni migration, ni dépendance nouvelle :
+`alembic current` rend `084_decision_condition_repair` avant et après. Les trois
+images sont tout de même reconstruites, parce que le tag est commun aux cinq
+services et que `build-info` doit refléter le SHA réellement déployé.
+
+### Portails locaux
+
+| Portail | Observé |
+|---|---|
+| `npm run check:i18n` | sortie 0 — **3 200** clés, 11 domaines, 172 templates, 206 fichiers de code, 20 règles de lexique |
+| `npm run check:ui-chrome` | sortie 0 |
+| Unitaires front | **857/857** |
+| `tsc -p tsconfig.app.json --noEmit` | sortie 0 |
+| Build AOT | réussi, seuls les avertissements préexistants |
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `4f61d0be` → `5b51f5fc` |
+| Ancre + worktree | `pull --ff-only` sur l'ancre, worktree de build détaché sur le même SHA |
+| Build | trois images au tag `5b51f5fc0e9b`, `AGENTIUM_IMAGE_REVISION` en 40-hex (~8 min) |
+| Dump | **aucun** — ni schéma ni graphes stockés ne bougent |
+| `storage-check` | sortie 0, rejoué dans `up` |
+| `up` | cinq services recréés, `RestartCount=0` sur tous |
+| `build-info` | `revision: 5b51f5fc0e9b7c1fda9aa207fdfd280fd3962504`, `revision_verified: true` |
+| Alembic | `084_decision_condition_repair` avant **et** après |
+| Conteneurs | **13**, sains **9** — compte nominal inchangé |
+| Logs | **0** `ERROR`, **0** `Traceback` depuis la bascule |
+| Canaris carakai | **6/6 vertes** au premier passage, artefacts `/tmp/iteration-canaries-20260812T160213Z.I0RAO6` |
+| Alias | `demo-agentic` déplacé sur `5b51f5fc0e9b` après les canaris |
+
+### Ce que la fenêtre apprend sur la dette elle-même
+
+Une part importante du travail n'a pas été de traduire mais de **câbler** : tout
+le bloc campagnes de Client360 existait déjà, écrit dans les deux langues, sans
+aucun site d'appel. C'est le troisième incrément consécutif où ce motif
+apparaît. Une clé écrite mais jamais lue ne déclenche aucune alerte — ni la
+garde de parité, ni le typage ne voient l'absence d'appel — donc cette forme de
+dette est invisible jusqu'à ce qu'on ouvre l'écran.
+
+Deux littéraux de `knowledge-capture` sont reclassés en DATA plutôt qu'en dette :
+`isRuntimeCapturePrompt()` teste `pour l'objectif` et `quelle décision experte`
+dans des prompts produits par le backend, pour reconnaître une relance générée à
+l'exécution. Ce sont des aiguilles de détection, jamais du texte affiché ; les
+traduire casserait la reconnaissance, exactement comme pour la table
+d'anonymisation de mission-room.
+
+Une régression rencontrée en chemin mérite d'être notée : injecter
+`I18nService` dans `SseService` cassait deux specs qui construisent un injecteur
+isolé. L'injection est devenue optionnelle avec repli sur la clé, si bien que le
+transport reste constructible hors racine — corrigé sans toucher à une seule
+assertion.
+
+### Termes internes retirés de l'écran
+
+« V2V » devient « Assistant transversal, écrit et vocal » ; « oracle de
+contexte » devient « repères de contexte » ; « Drill du sentiment » devient
+« Détail du sentiment » ; « fallback HTTP » devient « mode de secours ». Les
+noms `LiveKit` et `WebSocket` sortent des bascules de transport vocal au profit
+de « pont temps réel » et « session vocale continue ».
+
+Restent exposés, déjà listés dans l'allowlist de lexique : « HITL » en libellé
+principal dans `capabilities`, `steering` et `system-builder`, et « ingress »
+dans `flow-runner`.
+
+### Dette relevée, non traitée
+
+La paire mission-room est le seul DEBT restant : `mission-room.component.ts`
+(73 littéraux) et `mission-control-monitor.component.ts` (31). Les deux mêlent,
+dans le même corps de classe, du contenu de scénario semé — documents sécurité,
+articles de presse, verbatims AYA, noms propres de zones et de personas — et de
+la vraie chrome. Relever la chrome ligne à ligne laisserait ses voisines sans
+accent (`Reputation`, `Presse`, `Explorer`) en dur juste à côté, invisibles aux
+sondes. Le ratchet reste donc à sa valeur mesurée plutôt que déclaré DATA en
+bloc : ce qu'il faut ici est un découpage fixture/chrome, pas un relevé.
