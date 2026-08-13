@@ -3757,3 +3757,31 @@ disclaimer ; brouillon témoin mono-opportunité `ai_assisted` (gpt-5,
   `customer_key` persistés.
 - La campagne S35 reste en `draft` avec 0 brouillon (bascule auto vers
   `active` au premier brouillon de lot).
+
+## Itération du 13/08 (soir) — déployée sur `e678d21a`, page de connexion split-screen
+
+Un commit frontend-only sur `demo/agentic` (`a86bd5c6` → `e678d21a`). La carte
+centrée cède la place à un panneau instrument (orbe `ck-thinking-orb` vivant
+dans des anneaux orbitaux, graphe générique Objectif → Restitution) et une
+colonne d'accès. Formulaire, MFA et erreurs passent par i18n ; le contrat
+`signin-experience` (profil Sentinel) reste hors dictionnaire.
+
+Deux commits Client360 (`283fd586`, `ba3b224b`) ont atterri sur le tip après
+le push de cette itération ; **ils ne sont pas dans les images servies**.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Garde-fou | diff `a86bd5c6..e678d21a` : 3 fichiers (`auth-shell`, `signin`, `chrome.dict`) — rien sur livekit/realm/thème Keycloak |
+| Ancre + worktree | `pull --ff-only` et `fetch` + `merge --ff-only FETCH_HEAD`, les deux sur `e678d21a` au moment du build |
+| Build | trois images au tag `e678d21aa76b` en ~8 min, révision 40-hex vérifiée sur les trois |
+| Dump | **aucun** — frontend-only, ni schéma ni graphes stockés ne changent |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés, backend et frontend `healthy`, `agentium-sftp` intouché (Up 6 days) |
+| `build-info` | `revision: e678d21aa76bffbb07a75d6e478eaaa311bd3992`, `revision_verified: true` |
+| Alembic | `085_nawa_brand_light_emblem` avant **et** après — aucune migration |
+| Logs | 0 `error`/`traceback`/`exception` backend depuis la bascule |
+| Canaris carakai | **6/6 vertes** en 57,5 s au premier passage, artefacts `/tmp/iteration-canaries-20260813T152250Z.al600y` (`candidate_sha e678d21a…`, `result: passed`) |
+| Piège bundle | rejoué : carakai ne connaissait pas `e678d21a` — bundle incrémental `664e68b7..demo/agentic` (sha256 `76c8fe8a…` identique des deux côtés), `cat-file -e` avant lancement. Le checkout runner reste à `8fbf440b` |
+| Alias | `demo-agentic` déplacé sur `e678d21aa76b` (ids identiques sur les trois) ; rollback : `AGENTIUM_IMAGE_TAG=664e68b760de` puis `up` |
