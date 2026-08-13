@@ -295,6 +295,9 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "part_description": part_desc or None,
             "sales_known_qty": qty,
             "sales_known_value": net_value,
+            # Explicit per-line unit price ("Net Price"): the only listed price
+            # in the SPL feeds, kept for reference-level valuation downstream.
+            "sales_unit_price": net_price,
             "currency": _safe_text(_pick(row, "Currency", "Document Currency")) or "EUR",
             "offering": offering or None,
             "document_date": _safe_text(doc_date) or None,
@@ -350,6 +353,21 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
         part_ref = _safe_text(_pick(row, "Number", "Material", "part_reference"))
         part_desc = _safe_text(_pick(row, "Title", "Description", "part_description"))
         qty = _safe_float(_pick(row, "Quantity", "installed_quantity", "Qty"))
+        purchase_unit_price = _safe_non_negative_float(
+            _pick(
+                row,
+                "Purchase Unit Price",
+                "Purchase price",
+                "Prix d'achat",
+                "Prix achat",
+                "Unit cost",
+                "Buying Price",
+                "purchase_unit_price",
+                "unit_cost",
+                "Net Price",
+                "SPI",
+            )
+        )
         country = _safe_text(_pick(row, "Country", "Country Key", "country"))
         if not customer and not part_ref:
             return None
@@ -360,6 +378,7 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             "part_reference": part_ref or None,
             "part_description": part_desc or None,
             "installed_quantity": qty,
+            "purchase_unit_price": purchase_unit_price,
             "machine_label": _safe_text(_pick(row, "Machine", "Equipment", "machine_label"))
             or None,
             "technology": _safe_text(_pick(row, "technology", "Object Description")) or None,
@@ -442,15 +461,29 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
         material = _safe_text(_pick(row, "Material", "part_reference"))
         if not material:
             return None
-        unit_cost = _safe_non_negative_float(
+        order_line_value = _safe_non_negative_float(
             _pick(
                 row,
                 "(EUR) Net order value",
                 "Net order value",
                 "Net Order Value",
-                "unit_cost",
+                "order_line_value_avg",
             )
         )
+        order_qty = _safe_non_negative_float(
+            _pick(
+                row,
+                "Order Quantity",
+                "Order Qty",
+                "Quantity",
+                "PO Quantity",
+                "Qty",
+                "order_quantity",
+            )
+        )
+        unit_cost = None
+        if order_line_value is not None and order_qty is not None and order_qty > 0:
+            unit_cost = round(order_line_value / order_qty, 6)
         delivery_raw = _safe_float(
             _pick(
                 row,
@@ -467,6 +500,8 @@ def map_row_for_role(role: str, row: dict[str, Any]) -> dict[str, Any] | None:
             )
             or None,
             "unit_cost": unit_cost,
+            "order_line_value_avg": order_line_value,
+            "order_quantity": order_qty,
             "currency": _safe_text(_pick(row, "Currency", "Document Currency")) or "EUR",
             "delivery_time_weeks": delivery_raw,
             "project_code": _safe_text(_pick(row, "Project definition", "Project Definition"))
@@ -517,6 +552,16 @@ def aggregate_purchase_history_records(
             for cost in (_safe_non_negative_float(row.get("unit_cost")) for row in rows)
             if cost is not None and cost > 0
         ]
+        line_values = [
+            value
+            for value in (_safe_non_negative_float(row.get("order_line_value_avg")) for row in rows)
+            if value is not None and value >= 0
+        ]
+        qtys = [
+            qty
+            for qty in (_safe_non_negative_float(row.get("order_quantity")) for row in rows)
+            if qty is not None and qty > 0
+        ]
         leads = [
             lead
             for lead in (_safe_float(row.get("delivery_time_weeks")) for row in rows)
@@ -534,6 +579,10 @@ def aggregate_purchase_history_records(
                 "part_reference": part_ref,
                 "part_description": description or last.get("part_description"),
                 "unit_cost": round(sum(costs) / len(costs), 4) if costs else None,
+                "order_line_value_avg": (
+                    round(sum(line_values) / len(line_values), 4) if line_values else None
+                ),
+                "order_quantity": round(sum(qtys), 4) if qtys else None,
                 "currency": _safe_text(last.get("currency")) or "EUR",
                 "delivery_time_weeks": float(statistics.median(leads)) if leads else None,
                 "po_count": len(rows),
@@ -706,6 +755,17 @@ def aggregate_sales_orders_records(
             for value in (_safe_non_negative_float(row.get("sales_known_value")) for row in rows)
             if value is not None
         ]
+        # Qty-weighted average of the explicit "Net Price" column (weight 1 when
+        # the line has a price but no usable quantity).
+        price_weighted = 0.0
+        price_weight = 0.0
+        for row in rows:
+            price = _safe_non_negative_float(row.get("sales_unit_price"))
+            if price is None:
+                continue
+            weight = _safe_non_negative_float(row.get("sales_known_qty")) or 1.0
+            price_weighted += price * weight
+            price_weight += weight
         descriptions = [
             text for text in (_safe_text(row.get("part_description")) for row in rows) if text
         ]
@@ -727,6 +787,9 @@ def aggregate_sales_orders_records(
                 ),
                 "sales_known_qty": round(sum(qtys), 4) if qtys else None,
                 "sales_known_value": round(sum(values), 4) if values else None,
+                "sales_unit_price": (
+                    round(price_weighted / price_weight, 4) if price_weight > 0 else None
+                ),
                 "currency": _safe_text(last.get("currency")) or "EUR",
                 "offering": last.get("offering"),
                 "last_document_date": latest_row.get("document_date"),
@@ -772,6 +835,19 @@ def aggregate_spc_records(
             for qty in (_safe_float(row.get("installed_quantity")) for row in rows)
             if qty is not None and qty > 0
         ]
+        weighted_purchase_total = 0.0
+        weighted_purchase_qty = 0.0
+        for row in rows:
+            row_qty = _safe_float(row.get("installed_quantity"))
+            row_price = _safe_non_negative_float(
+                row.get("purchase_unit_price")
+                if row.get("purchase_unit_price") is not None
+                else row.get("unit_cost")
+            )
+            if row_qty is None or row_qty <= 0 or row_price is None:
+                continue
+            weighted_purchase_total += row_qty * row_price
+            weighted_purchase_qty += row_qty
         descriptions = [
             text for text in (_safe_text(row.get("part_description")) for row in rows) if text
         ]
@@ -799,6 +875,11 @@ def aggregate_spc_records(
                     Counter(descriptions).most_common(1)[0][0] if descriptions else None
                 ),
                 "installed_quantity": round(sum(qtys), 4) if qtys else None,
+                "purchase_unit_price": (
+                    round(weighted_purchase_total / weighted_purchase_qty, 6)
+                    if weighted_purchase_qty > 0
+                    else None
+                ),
                 "machine_label": last.get("machine_label"),
                 "technology": last.get("technology"),
                 "role": "spc",

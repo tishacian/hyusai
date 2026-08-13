@@ -118,10 +118,12 @@ def test_map_machine_and_spc_and_sales() -> None:
             "Title": "Injector Strip",
             "Quantity": 8,
             "Country Key": "GR",
+            "Purchase price": 0.74,
         },
     )
     assert spc["part_reference"] == "PDR-100"
     assert spc["installed_quantity"] == 8
+    assert spc["purchase_unit_price"] == pytest.approx(0.74)
 
     sales = map_row_for_role(
         "sales_by_country",
@@ -299,6 +301,49 @@ def test_aggregate_sales_orders_groups_legal_name_variants() -> None:
     assert aggregated[0]["last_purchase_date"] == "2023-05-10"
 
 
+def test_sales_orders_row_keeps_explicit_net_price() -> None:
+    record = map_row_for_role(
+        "sales_orders",
+        {
+            "Sold-To Party Name": "Septona S.A.",
+            "Material": "131978144",
+            "Order Quantity": 4,
+            "Net Price": 0.74,
+            "Net Value": 2.96,
+        },
+    )
+    assert record is not None
+    assert record["sales_unit_price"] == pytest.approx(0.74)
+
+
+def test_aggregate_sales_orders_weights_explicit_net_price_by_qty() -> None:
+    rows = [
+        map_row_for_role(
+            "sales_orders",
+            {
+                "Sold-To Party Name": "Septona S.A.",
+                "Material": "131978144",
+                "Order Quantity": 4,
+                "Net Price": 0.74,
+                "Document Date": "2023-01-01",
+            },
+        ),
+        map_row_for_role(
+            "sales_orders",
+            {
+                "Sold-To Party Name": "Septona S.A.",
+                "Material": "131978144",
+                "Order Quantity": 1,
+                "Net Price": 1.24,
+                "Document Date": "2024-01-01",
+            },
+        ),
+    ]
+    aggregated, _meta = aggregate_sales_orders_records(rows)
+    assert len(aggregated) == 1
+    assert aggregated[0]["sales_unit_price"] == pytest.approx((0.74 * 4 + 1.24 * 1) / 5.0)
+
+
 def test_aggregate_spc_joins_registry_country_via_legal_name_variant() -> None:
     registry_row = map_row_for_role(
         "project_registry",
@@ -467,6 +512,7 @@ def test_aggregate_spc_joins_registry_country() -> None:
                 "part_reference": "PDR-1",
                 "part_description": "Strip",
                 "installed_quantity": 2,
+                "purchase_unit_price": 0.5,
                 "country": None,
             },
             {
@@ -475,6 +521,7 @@ def test_aggregate_spc_joins_registry_country() -> None:
                 "part_reference": "PDR-1",
                 "part_description": "Strip",
                 "installed_quantity": 3,
+                "purchase_unit_price": 1.0,
                 "country": None,
             },
             {
@@ -492,6 +539,7 @@ def test_aggregate_spc_joins_registry_country() -> None:
     assert len(aggregated) == 1
     assert aggregated[0]["part_reference"] == "PDR-1"
     assert aggregated[0]["installed_quantity"] == pytest.approx(5.0)
+    assert aggregated[0]["purchase_unit_price"] == pytest.approx(0.8)
     assert aggregated[0]["country"] == "Greece"
     assert meta["registry_country_joins"] == 1
 
@@ -572,7 +620,9 @@ def test_map_purchase_history_has_no_sales_or_customer_fields() -> None:
     )
     assert mapped is not None
     assert mapped["part_reference"] == "MAT-PH-1"
-    assert mapped["unit_cost"] == 120.0
+    assert mapped["unit_cost"] is None
+    assert mapped["order_line_value_avg"] == 120.0
+    assert mapped["order_quantity"] is None
     assert mapped["delivery_time_weeks"] == 6
     assert mapped["vendor_country"] == "FR"
     assert "country" not in mapped
@@ -581,6 +631,21 @@ def test_map_purchase_history_has_no_sales_or_customer_fields() -> None:
     assert "customer_name" not in mapped
     assert "customer_key" not in mapped
     assert "installed_quantity" not in mapped
+
+
+def test_map_purchase_history_computes_unit_cost_from_value_and_quantity() -> None:
+    mapped = map_row_for_role(
+        "purchase_history",
+        {
+            "Material": "MAT-PH-2",
+            "(EUR) Net order value": 150.0,
+            "Order Quantity": 3,
+        },
+    )
+    assert mapped is not None
+    assert mapped["unit_cost"] == pytest.approx(50.0)
+    assert mapped["order_line_value_avg"] == pytest.approx(150.0)
+    assert mapped["order_quantity"] == pytest.approx(3.0)
 
 
 def test_aggregate_purchase_history_by_material() -> None:
@@ -711,6 +776,7 @@ def _purchase_history_xlsx(tmp_path: Path) -> Path:
             "Material",
             "Material Description",
             "(EUR) Net order value",
+            "Order Quantity",
             "Currency",
             "Planned Deliv# Time",
             "Project definition",
@@ -721,13 +787,49 @@ def _purchase_history_xlsx(tmp_path: Path) -> Path:
         ]
     )
     sheet.append(
-        ["MAT-PH-1", "Injector strip", 100.0, "EUR", 4, "P1", "Proj A", "W1", "Vendor", "FR"]
+        [
+            "MAT-PH-1",
+            "Injector strip",
+            100.0,
+            2,
+            "EUR",
+            4,
+            "P1",
+            "Proj A",
+            "W1",
+            "Vendor",
+            "FR",
+        ]
     )
     sheet.append(
-        ["MAT-PH-1", "Injector strip", 200.0, "EUR", 8, "P2", "Proj B", "W2", "Vendor", "FR"]
+        [
+            "MAT-PH-1",
+            "Injector strip",
+            200.0,
+            4,
+            "EUR",
+            8,
+            "P2",
+            "Proj B",
+            "W2",
+            "Vendor",
+            "FR",
+        ]
     )
     sheet.append(
-        ["MAT-PH-1", "Injector strip", 150.0, "EUR", 6, "P3", "Proj C", "W3", "Vendor", "DE"]
+        [
+            "MAT-PH-1",
+            "Injector strip",
+            150.0,
+            3,
+            "EUR",
+            6,
+            "P3",
+            "Proj C",
+            "W3",
+            "Vendor",
+            "DE",
+        ]
     )
     path = tmp_path / "Histo_Achat_Pieces_Machines_Montbonnot.xlsx"
     workbook.save(path)
@@ -853,7 +955,9 @@ def test_sync_include_purchase_history_upserts_other(
     records = upserted["metadata"]["records"]
     assert len(records) == 1
     assert records[0]["part_reference"] == "MAT-PH-1"
-    assert records[0]["unit_cost"] == pytest.approx(150.0)
+    assert records[0]["unit_cost"] == pytest.approx(50.0)
+    assert records[0]["order_line_value_avg"] == pytest.approx(150.0)
+    assert records[0]["order_quantity"] == pytest.approx(9.0)
     assert records[0]["delivery_time_weeks"] == pytest.approx(6.0)
     assert "sales_known_qty" not in records[0]
     assert "sales_known_value" not in records[0]

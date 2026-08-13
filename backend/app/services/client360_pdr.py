@@ -79,6 +79,13 @@ PILOT_COUNTRIES = ("Greece", "Turkey")
 PILOT_CUSTOMERS = ("Septona",)
 CLIENT360_MAIL_PROMPT_VERSION = "client360_pdr_mail_v2"
 CLIENT360_SUMMARY_PROMPT_VERSION = "client360_pdr_customer_summary_v1"
+PRICING_MIN_SAMPLE_QTY = 5.0
+COUNTRY_CANONICAL_MAP = {
+    "gr": "Greece",
+    "greece": "Greece",
+    "tr": "Turkey",
+    "turkey": "Turkey",
+}
 KNOWN_LLM_PROVIDERS = {
     "anthropic",
     "azure_openai",
@@ -192,6 +199,20 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "purchase cost",
         "achat",
         "cout unitaire",
+    ),
+    "purchase_unit_price": (
+        "purchase unit price",
+        "purchase price",
+        "prix d'achat",
+        "prix achat",
+        "buying price",
+    ),
+    "sales_unit_price": (
+        "sales unit price",
+        "net price",
+        "prix unitaire",
+        "prix de vente",
+        "list price",
     ),
     "sales_known_qty": (
         "sales qty",
@@ -574,8 +595,16 @@ def _coerce_record_value(field: str, raw_value: Any, numeric_value: Any = None) 
         "delivery_time_weeks",
     }:
         return _safe_float(numeric_value if numeric_value is not None else raw_value)
-    if field in {"sales_known_qty", "sales_known_value", "unit_cost"}:
+    if field in {
+        "sales_known_qty",
+        "sales_known_value",
+        "unit_cost",
+        "purchase_unit_price",
+        "sales_unit_price",
+    }:
         return _safe_non_negative_float(numeric_value if numeric_value is not None else raw_value)
+    if field == "country":
+        return _canonical_country(raw_value) or (_safe_text(raw_value) or None)
     if field == "next_due_at":
         try:
             parsed = _parse_datetime(raw_value)
@@ -677,7 +706,7 @@ def _scope_skip_reason(record: dict[str, Any], scope: dict[str, Any]) -> str | N
     if _safe_text(scope.get("scope_mode")).lower() != "all":
         countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
         customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
-        country = _normalize_token(record.get("country"))
+        country = _normalize_token(_canonical_country(record.get("country")) or record.get("country"))
         customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
         if country and countries and country not in countries and customer not in customers:
             return "country_out_of_pilot_scope"
@@ -868,6 +897,27 @@ def _source_status(value: str | None) -> str:
     if status in {"queued", "ingesting", "received", "candidate"}:
         return "candidate"
     return "needs_review"
+
+
+def _canonical_country(value: Any) -> str | None:
+    text = _safe_text(value)
+    if not text:
+        return None
+    return COUNTRY_CANONICAL_MAP.get(_normalize_token(text), text)
+
+
+def _country_aliases(value: Any) -> set[str]:
+    canonical = _canonical_country(value)
+    if not canonical:
+        return set()
+    token = _normalize_token(canonical)
+    aliases = {canonical, token.upper(), token.capitalize()}
+    for key, mapped in COUNTRY_CANONICAL_MAP.items():
+        if mapped == canonical:
+            aliases.add(key)
+            aliases.add(key.upper())
+            aliases.add(key.capitalize())
+    return {item for item in aliases if item}
 
 
 def _serialize_data_source(row: Client360DataSource) -> dict[str, Any]:
@@ -1137,7 +1187,9 @@ def list_opportunities(
             | (Client360Opportunity.customer_key.ilike(like))
         )
     if country:
-        query = query.filter(Client360Opportunity.country == country)
+        aliases = sorted(_country_aliases(country))
+        if aliases:
+            query = query.filter(Client360Opportunity.country.in_(aliases))
     if hub:
         query = query.filter(Client360Opportunity.hub == hub)
     if technology:
@@ -1710,6 +1762,10 @@ def _raw_source_records_by_roles(
             item = dict(raw)
             item["role"] = role
             item.setdefault("source_type", source.source_type)
+            # Source attribution so downstream readers (e.g. the chat installed
+            # base intent) can cite the originating file without re-querying.
+            item.setdefault("source_id", source.id)
+            item.setdefault("source_filename", source.filename or source.label)
             item.setdefault("customer_key", _customer_key_for(item.get("customer_key") or item.get("customer_name")))
             records.append(item)
     return records
@@ -2022,12 +2078,12 @@ def list_customers(
             continue
         bucket = _ensure(customer_key, record.get("customer_name"))
         if record.get("country"):
-            bucket["countries"].add(record["country"])
+            bucket["countries"].add(_canonical_country(record["country"]) or record["country"])
         project = {
             "project_code": record.get("project_code"),
             "sap_reference": record.get("sap_reference"),
             "wbs_element": record.get("wbs_element"),
-            "country": record.get("country"),
+            "country": _canonical_country(record.get("country")) or record.get("country"),
         }
         if any(project.get(field) for field in ("project_code", "sap_reference", "wbs_element")):
             if project not in bucket["projects"]:
@@ -2047,14 +2103,14 @@ def list_customers(
         if opp.get("currency"):
             bucket["currency"] = opp["currency"]
         if opp.get("country"):
-            bucket["countries"].add(opp["country"])
+            bucket["countries"].add(_canonical_country(opp["country"]) or opp["country"])
         if opp.get("hub"):
             bucket["hubs"].add(opp["hub"])
         if opp.get("technology"):
             bucket["technologies"].add(opp["technology"])
 
     query = _normalize_token(q)
-    country_filter = _safe_text(country)
+    country_filter_aliases = _country_aliases(country) if country else set()
     technology_filter = _safe_text(technology)
     items: list[dict[str, Any]] = []
     facet_countries: set[str] = set()
@@ -2068,7 +2124,7 @@ def list_customers(
             facet_countries.add(value)
         for value in technologies:
             facet_technologies.add(value)
-        if country_filter and country_filter not in countries:
+        if country_filter_aliases and not any(item in countries for item in country_filter_aliases):
             continue
         if technology_filter and technology_filter not in technologies:
             continue
@@ -2221,9 +2277,21 @@ def customer_payload(
     )
     countries = sorted(
         {
-            *(item["country"] for item in opportunities if item.get("country")),
-            *(item["country"] for item in projects if item.get("country")),
-            *(item["country"] for item in machines if item.get("country")),
+            *(
+                _canonical_country(item["country"]) or item["country"]
+                for item in opportunities
+                if item.get("country")
+            ),
+            *(
+                _canonical_country(item["country"]) or item["country"]
+                for item in projects
+                if item.get("country")
+            ),
+            *(
+                _canonical_country(item["country"]) or item["country"]
+                for item in machines
+                if item.get("country")
+            ),
         }
     )
     hubs = sorted({item["hub"] for item in opportunities if item.get("hub")})
@@ -2416,11 +2484,24 @@ def _canonicalize_source_record(
             "last_document_date",
             "document_date",
             "construction_year",
+            "purchase_unit_price",
+            "sales_unit_price",
+            "order_line_value_avg",
+            "order_quantity",
         }:
-            if key in {"po_count", "cost_sum"}:
+            if key in {
+                "po_count",
+                "cost_sum",
+                "purchase_unit_price",
+                "sales_unit_price",
+                "order_line_value_avg",
+                "order_quantity",
+            }:
                 out[key] = _safe_float(value)
             else:
                 out[key] = _safe_text(value) or None
+    if out.get("country"):
+        out["country"] = _canonical_country(out.get("country")) or out.get("country")
     if not out.get("customer_key") and out.get("customer_name"):
         out["customer_key"] = normalize_customer_key(out.get("customer_name"))
     if not out.get("source_part_reference") and out.get("part_reference"):
@@ -2432,15 +2513,30 @@ def _canonicalize_source_record(
 
 def _records_from_data_sources(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    rows = (
+    all_rows = (
         db.query(Client360DataSource)
         .filter(
             Client360DataSource.workspace_id == workspace.id,
             Client360DataSource.status != "archived",
         )
+        .order_by(Client360DataSource.updated_at.desc())
         .all()
     )
-    for source in rows:
+    selected_rows: list[Client360DataSource] = []
+    seen_source_keys: set[tuple[str, str]] = set()
+    for source in all_rows:
+        metadata = _as_dict(source.meta_data)
+        role = _normalize_token(metadata.get("role") or metadata.get("spl_role"))
+        raw_name = _safe_text(source.filename or source.label or metadata.get("origin_file"))
+        basename = _normalize_token(raw_name.replace("\\", "/").split("/")[-1] if raw_name else "")
+        if role and basename:
+            dedupe_key = (role, basename)
+            if dedupe_key in seen_source_keys:
+                continue
+            seen_source_keys.add(dedupe_key)
+        selected_rows.append(source)
+
+    for source in selected_rows:
         metadata = _as_dict(source.meta_data)
         source_role = _safe_text(metadata.get("role") or metadata.get("spl_role")) or None
         raw_rows = _as_list(
@@ -2784,6 +2880,57 @@ def _index_pricing(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[st
     return {"family": family, "family_technology": family_technology}
 
 
+def _index_reference_prices(
+    records: list[dict[str, Any]],
+    material_families: dict[str, set[str]],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Explicit listed prices ("Net Price" column) by reference and by family.
+
+    Unlike the value÷qty ratios of :func:`_index_pricing`, these come from an
+    explicit unit-price column, so no minimum-sample guard applies.
+
+    - ``by_ref``: qty-weighted average of ``sales_unit_price`` per material.
+    - ``by_family``: park-mix price — each family is valued at the average of
+      its member references' explicit prices weighted by the *installed*
+      quantities (a family gap is a park-replacement need, so the park mix,
+      not the sales mix, is the honest weighting). Family membership comes
+      from ``material_families`` plus the record's own family when present.
+    """
+    by_ref: dict[str, dict[str, float]] = {}
+    for record in records:
+        price = _safe_non_negative_float(record.get("sales_unit_price"))
+        ref_key = _normalize_token(record.get("part_reference"))
+        if price is None or price <= 0 or not ref_key:
+            continue
+        weight = _safe_non_negative_float(record.get("sales_known_qty")) or 1.0
+        bucket = by_ref.setdefault(ref_key, {"value": 0.0, "qty": 0.0})
+        bucket["value"] += price * weight
+        bucket["qty"] += weight
+
+    by_family: dict[str, dict[str, float]] = {}
+    for record in records:
+        installed = _safe_non_negative_float(record.get("installed_quantity"))
+        ref_key = _normalize_token(record.get("part_reference"))
+        if not installed or installed <= 0 or not ref_key:
+            continue
+        ref_price = _bucket_unit_price(by_ref.get(ref_key))
+        if ref_price is None:
+            continue
+        families = set(material_families.get(ref_key) or ())
+        own_family = _record_family(record)
+        if own_family:
+            families.add(own_family)
+        for family in families:
+            family_key = _mapping_key(family)
+            if not family_key:
+                continue
+            bucket = by_family.setdefault(family_key, {"value": 0.0, "qty": 0.0})
+            bucket["value"] += ref_price * installed
+            bucket["qty"] += installed
+
+    return {"by_ref": by_ref, "by_family": by_family}
+
+
 def _is_purchase_history_record(record: dict[str, Any]) -> bool:
     role = _normalize_token(record.get("role"))
     if role == "purchase history" or role == "purchase_history":
@@ -2857,35 +3004,83 @@ def _estimate_unit_price(
     record: dict[str, Any], pricing_index: dict[str, Any]
 ) -> tuple[Optional[float], dict[str, Any]]:
     currency = _safe_text(record.get("currency")) or None
+    role = _normalize_token(record.get("role"))
+    if role not in {"purchase_history", "purchase history"}:
+        installed_base_purchase = _safe_non_negative_float(record.get("purchase_unit_price"))
+        if installed_base_purchase is None and record.get("source_type") == "installed_base":
+            installed_base_purchase = _safe_non_negative_float(record.get("unit_cost"))
+        if installed_base_purchase is not None:
+            return installed_base_purchase, {
+                "source": "installed_base_purchase_price",
+                "unit_price": installed_base_purchase,
+                "currency": currency,
+            }
+
+    # Explicit listed prices (VA05 "Net Price") — trusted without a sample
+    # threshold because they are prices, not derived value÷qty ratios.
+    reference_index = _as_dict(pricing_index.get("reference_sales"))
+    ref_key = _normalize_token(record.get("part_reference"))
+    if ref_key:
+        ref_bucket = _as_dict(_as_dict(reference_index.get("by_ref")).get(ref_key))
+        ref_price = _bucket_unit_price(ref_bucket)
+        if ref_price is not None:
+            return ref_price, {
+                "source": "reference_sales_price",
+                "unit_price": ref_price,
+                "currency": currency,
+                "bucket_qty": _safe_float(ref_bucket.get("qty")),
+            }
+    record_family = _record_family(record)
+    family_mix_bucket = _as_dict(
+        _as_dict(reference_index.get("by_family")).get(_mapping_key(record_family))
+    )
+    family_mix_price = _bucket_unit_price(family_mix_bucket)
+    if family_mix_price is not None:
+        return family_mix_price, {
+            "source": "family_installed_mix_price",
+            "unit_price": family_mix_price,
+            "currency": currency,
+            "bucket_qty": _safe_float(family_mix_bucket.get("qty")),
+        }
+
     direct = _unit_price_from_value_qty(
         record.get("sales_known_value"), record.get("sales_known_qty")
     )
-    if direct is not None:
+    direct_qty = _safe_float(record.get("sales_known_qty"))
+    if direct is not None and direct_qty is not None and direct_qty >= PRICING_MIN_SAMPLE_QTY:
         return direct, {
             "source": "direct",
             "unit_price": direct,
             "currency": currency,
             "sales_known_value": _safe_non_negative_float(record.get("sales_known_value")),
-            "sales_known_qty": _safe_float(record.get("sales_known_qty")),
+            "sales_known_qty": direct_qty,
         }
-    family = _record_family(record)
-    family_index = _as_dict(pricing_index.get("family"))
-    family_price = _bucket_unit_price(family_index.get(_mapping_key(family)))
-    if family_price is not None:
-        return family_price, {
-            "source": "family_average",
-            "unit_price": family_price,
-            "currency": currency,
-        }
+    family = record_family
     family_tech_index = _as_dict(pricing_index.get("family_technology"))
-    family_tech_price = _bucket_unit_price(
+    family_tech_bucket = _as_dict(
         family_tech_index.get(_mapping_key(family, record.get("technology")))
     )
-    if family_tech_price is not None:
+    family_tech_price = _bucket_unit_price(family_tech_bucket)
+    if (
+        family_tech_price is not None
+        and float(family_tech_bucket.get("qty") or 0.0) >= PRICING_MIN_SAMPLE_QTY
+    ):
         return family_tech_price, {
             "source": "family_technology_average",
             "unit_price": family_tech_price,
             "currency": currency,
+            "bucket_qty": _safe_float(family_tech_bucket.get("qty")),
+        }
+
+    family_index = _as_dict(pricing_index.get("family"))
+    family_bucket = _as_dict(family_index.get(_mapping_key(family)))
+    family_price = _bucket_unit_price(family_bucket)
+    if family_price is not None and float(family_bucket.get("qty") or 0.0) >= PRICING_MIN_SAMPLE_QTY:
+        return family_price, {
+            "source": "family_average",
+            "unit_price": family_price,
+            "currency": currency,
+            "bucket_qty": _safe_float(family_bucket.get("qty")),
         }
     purchase_index = _as_dict(pricing_index.get("purchase_cost"))
     by_ref = _as_dict(purchase_index.get("by_part_reference"))
@@ -2954,9 +3149,16 @@ def _opportunity_unit_price(
     stored = _safe_non_negative_float(pricing.get("unit_price"))
     if stored is not None:
         return stored, _safe_text(pricing.get("source")) or "meta_data"
-    direct = _unit_price_from_value_qty(opportunity.sales_known_value, opportunity.sales_known_qty)
-    if direct is not None:
-        return direct, "direct"
+    # Same sample guard as the engine cascade: a value÷qty ratio derived from a
+    # couple of invoice lines must not resurface at read time after the engine
+    # refused to price the record.
+    direct_qty = _safe_float(opportunity.sales_known_qty)
+    if direct_qty is not None and direct_qty >= PRICING_MIN_SAMPLE_QTY:
+        direct = _unit_price_from_value_qty(
+            opportunity.sales_known_value, opportunity.sales_known_qty
+        )
+        if direct is not None:
+            return direct, "direct"
     return None, None
 
 
@@ -3012,7 +3214,7 @@ def _build_opportunity_payload(
         customer_key=_record_customer_key(record),
         customer_name=customer_name,
         site_name=_safe_text(record.get("site_name")) or None,
-        country=_safe_text(record.get("country")) or None,
+        country=_canonical_country(record.get("country")) or _safe_text(record.get("country")) or None,
         hub=_safe_text(record.get("hub")) or None,
         technology=_safe_text(record.get("technology")) or None,
         line_label=_safe_text(record.get("line_label")) or None,
@@ -3143,6 +3345,9 @@ def run_opportunity_engine(
     purchase_cost_index = _index_purchase_costs(mapped_records)
     purchase_lead_index = _index_purchase_lead_times(mapped_records)
     pricing_index["purchase_cost"] = purchase_cost_index
+    pricing_index["reference_sales"] = _index_reference_prices(
+        mapped_records, material_family_index
+    )
     conversion_rate = _observed_conversion_rate(db, workspace)
     opportunity_records: list[dict[str, Any]] = []
     for record in mapped_records:
@@ -3207,7 +3412,22 @@ def run_opportunity_engine(
 
     created = 0
     updated = 0
+    purged_obsolete_customer_keys = 0
     preview: list[dict[str, Any]] = []
+    if not dry_run:
+        existing_rows = (
+            db.query(Client360Opportunity)
+            .filter(Client360Opportunity.workspace_id == workspace.id)
+            .all()
+        )
+        for existing in existing_rows:
+            expected_key = normalize_customer_key(existing.customer_name)
+            current_key = _safe_text(existing.customer_key)
+            if expected_key and current_key and expected_key != current_key:
+                db.delete(existing)
+                purged_obsolete_customer_keys += 1
+        if purged_obsolete_customer_keys:
+            db.flush()
     for payload in by_key.values():
         preview.append(payload)
         if dry_run:
@@ -3245,6 +3465,7 @@ def run_opportunity_engine(
         "opportunities_detected": len(by_key),
         "created": created,
         "updated": updated,
+        "purged_obsolete_customer_keys": purged_obsolete_customer_keys,
         "skipped": skipped,
         "preview": [
             serialize_opportunity(Client360Opportunity(workspace_id=workspace.id, **payload))
@@ -4215,7 +4436,7 @@ def opportunity_facets(db: DBSession, workspace: Workspace) -> dict[str, list[st
     }
     for country, hub, technology, part_family, status, confidence in rows:
         if country:
-            result["countries"].add(country)
+            result["countries"].add(_canonical_country(country) or country)
         if hub:
             result["hubs"].add(hub)
         if technology:

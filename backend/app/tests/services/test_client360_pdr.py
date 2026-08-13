@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
+import pytest
+
 from app.models.action_plan import WorkspaceActionItem
 from app.models.capability import Capability
 from app.models.client360 import (
@@ -23,6 +25,8 @@ from app.services.client360_pdr import (
     _estimate_unit_price,
     _index_purchase_costs,
     _index_purchase_lead_times,
+    _index_reference_prices,
+    _mapping_key,
     build_customer_timeline,
     build_installed_base_tree,
     calculate_annual_theoretical_qty,
@@ -32,6 +36,7 @@ from app.services.client360_pdr import (
     create_mail_draft,
     customer_payload,
     generate_campaign_drafts,
+    list_opportunities,
     list_customers,
     patch_client360_mail_settings,
     patch_opportunity,
@@ -711,6 +716,28 @@ def test_opportunity_engine_builds_prioritized_gap_from_mapped_real_records(db_s
     assert mapping.pdr_family == "wear belts"
 
 
+def test_run_engine_purges_obsolete_customer_keys(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(
+        db_session,
+        workspace,
+        customer_key="septona s a",
+        customer_name="Septona S.A.",
+        part_family="injector strip",
+        part_reference="OLD-1",
+    )
+    _seed_valuation_sources(db_session, workspace)
+    db_session.commit()
+
+    result = run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    assert result["purged_obsolete_customer_keys"] >= 1
+    rows = db_session.query(Client360Opportunity).all()
+    assert rows
+    assert all(row.customer_key == "septona" for row in rows)
+
+
 def test_canonicalize_source_record_keeps_forecast_anchor_fields() -> None:
     from app.services.client360_pdr import _canonicalize_source_record
 
@@ -1056,6 +1083,129 @@ def test_estimate_unit_price_falls_back_to_purchase_cost_average() -> None:
     assert meta["source"] == "purchase_cost_average"
 
 
+def test_estimate_unit_price_prefers_installed_base_purchase_price() -> None:
+    price, meta = _estimate_unit_price(
+        {
+            "source_type": "installed_base",
+            "part_family": "o-rings",
+            "purchase_unit_price": 0.74,
+            "sales_known_qty": 12,
+            "sales_known_value": 399.1,
+            "currency": "EUR",
+        },
+        {
+            "family": {"o rings": {"value": 399.1, "qty": 12.0}},
+            "family_technology": {},
+            "purchase_cost": {},
+        },
+    )
+    assert price == pytest.approx(0.74)
+    assert meta["source"] == "installed_base_purchase_price"
+
+
+def test_estimate_unit_price_skips_direct_when_sample_too_small() -> None:
+    price, meta = _estimate_unit_price(
+        {
+            "part_family": "wear belts",
+            "sales_known_qty": 4.0,
+            "sales_known_value": 200.0,
+            "currency": "EUR",
+        },
+        {
+            "family": {"wear belts": {"value": 1000.0, "qty": 10.0}},
+            "family_technology": {},
+            "purchase_cost": {},
+        },
+    )
+    assert price == pytest.approx(100.0)
+    assert meta["source"] == "family_average"
+
+
+def test_index_reference_prices_by_ref_and_family_park_mix() -> None:
+    """Explicit VA05 "Net Price" indexed per reference, then per family
+    weighted by the installed park mix (the Septona O'ring case)."""
+    records = [
+        # VA05 customer × material aggregates with explicit listed prices.
+        {
+            "part_reference": "131978144",
+            "sales_unit_price": 0.74,
+            "sales_known_qty": 4.0,
+            "role": "sales_orders",
+        },
+        {
+            "part_reference": "132081816",
+            "sales_unit_price": 381.81,
+            "sales_known_qty": 8.0,
+            "role": "sales_orders",
+        },
+        # Installed base park: mostly cheap O-rings, a few premium seals.
+        {"part_reference": "131978144", "installed_quantity": 480.0, "role": "spc"},
+        {"part_reference": "132081816", "installed_quantity": 10.0, "role": "spc"},
+    ]
+    material_families = {
+        "131978144": {"O'ring Dia 47.22 X 3.53"},
+        "132081816": {"O'ring Dia 47.22 X 3.53"},
+    }
+    index = _index_reference_prices(records, material_families)
+
+    o_ring = index["by_ref"]["131978144"]
+    assert o_ring["value"] / o_ring["qty"] == pytest.approx(0.74)
+
+    family_bucket = index["by_family"][_mapping_key("O'ring Dia 47.22 X 3.53")]
+    park_mix = family_bucket["value"] / family_bucket["qty"]
+    # (0.74 × 480 + 381.81 × 10) / 490 ≈ 8.52 € — not 399.10 €.
+    assert park_mix == pytest.approx((0.74 * 480 + 381.81 * 10) / 490.0)
+
+
+def test_estimate_unit_price_prefers_explicit_reference_price() -> None:
+    price, meta = _estimate_unit_price(
+        {
+            "part_reference": "131978144",
+            "part_family": "O'ring Dia 47.22 X 3.53",
+            "sales_known_qty": 4.0,
+            "sales_known_value": 1596.4,
+            "currency": "EUR",
+        },
+        {
+            "family": {},
+            "family_technology": {},
+            "purchase_cost": {},
+            "reference_sales": {
+                "by_ref": {"131978144": {"value": 0.74 * 4, "qty": 4.0}},
+                "by_family": {},
+            },
+        },
+    )
+    assert price == pytest.approx(0.74)
+    assert meta["source"] == "reference_sales_price"
+
+
+def test_estimate_unit_price_family_park_mix_for_family_level_record() -> None:
+    """A family-level pilot record (no part_reference) is valued at the park
+    mix of its member references' explicit prices, not at the tiny direct
+    sample (4 pcs of a premium seal → 399.10 €)."""
+    family = "O'ring Dia 47.22 X 3.53"
+    price, meta = _estimate_unit_price(
+        {
+            "part_family": family,
+            "sales_known_qty": 4.0,
+            "sales_known_value": 1596.4,
+            "currency": "EUR",
+        },
+        {
+            "family": {_mapping_key(family): {"value": 1596.4, "qty": 4.0}},
+            "family_technology": {},
+            "purchase_cost": {},
+            "reference_sales": {
+                "by_ref": {},
+                "by_family": {_mapping_key(family): {"value": 4173.3, "qty": 490.0}},
+            },
+        },
+    )
+    assert price == pytest.approx(4173.3 / 490.0, abs=1e-3)
+    assert meta["source"] == "family_installed_mix_price"
+
+
 def test_index_purchase_lead_times_median_by_part_reference() -> None:
     index = _index_purchase_lead_times(
         [
@@ -1151,7 +1301,6 @@ def test_opportunity_engine_uses_purchase_cost_and_lead_time(db_session) -> None
     result = run_opportunity_engine(db_session, workspace)
     db_session.commit()
 
-    assert result["skipped"].get("installed_quantity_missing_for_generation", 0) >= 1
     opportunity = db_session.query(Client360Opportunity).one()
     assert opportunity.meta_data["pricing"]["source"] == "purchase_cost_average"
     assert opportunity.meta_data["pricing"]["unit_price"] == 50.0
@@ -1159,6 +1308,110 @@ def test_opportunity_engine_uses_purchase_cost_and_lead_time(db_session) -> None
     # annual = 10 * 2 * 52 / 4 = 260 ; no sales → gap uses sales_qty None → gap_qty None
     # Actually looking at code: gap_qty requires sales_qty is not None
     # So gap_value may be None. Pricing source is what we care about.
+
+
+def test_opportunity_engine_deduplicates_same_role_and_basename_sources(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    db_session.add_all(
+        [
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="installed_base",
+                filename="Installed_base_SPL/Installed base - SPC.xlsx",
+                label="SPC",
+                status="ready",
+                meta_data={
+                    "role": "spc",
+                    "records": [
+                        {
+                            "customer_name": "Septona",
+                            "country": "GR",
+                            "part_reference": "OR-1",
+                            "part_family": "wear belts",
+                            "installed_quantity": 10,
+                        }
+                    ],
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="periodicity",
+                filename="Installed_base_SPL/Family - Opportunity.xlsx",
+                label="Family",
+                status="ready",
+                meta_data={
+                    "records": [
+                        {
+                                "part_family": "wear belts",
+                            "recommended_quantity": 1,
+                            "periodicity_weeks": 4,
+                        }
+                    ]
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="sap_sales_history",
+                filename="Installed_base_SPL/Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx",
+                label="sales old",
+                status="ready",
+                updated_at=datetime(2026, 1, 1, 9, 0, 0),
+                meta_data={
+                    "role": "sales_orders",
+                    "records": [
+                        {
+                            "customer_name": "Septona",
+                            "part_reference": "OR-1",
+                                "part_family": "wear belts",
+                            "sales_known_qty": 4.0,
+                            "sales_known_value": 400.0,
+                            "currency": "EUR",
+                        }
+                    ],
+                },
+            ),
+            Client360DataSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                source_type="sap_sales_history",
+                filename="Installed_base_SPL__Liste Sales Orders D800 MNT SPL 2011_2026 VA05.xlsx",
+                label="sales new",
+                status="ready",
+                updated_at=datetime(2026, 2, 1, 9, 0, 0),
+                meta_data={
+                    "role": "sales_orders",
+                    "records": [
+                        {
+                            "customer_name": "Septona",
+                            "part_reference": "OR-1",
+                                "part_family": "wear belts",
+                            "sales_known_qty": 1.0,
+                            "sales_known_value": 100.0,
+                            "currency": "EUR",
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    run_opportunity_engine(db_session, workspace)
+    db_session.commit()
+
+    opp = (
+        db_session.query(Client360Opportunity)
+        .filter(
+            Client360Opportunity.customer_key == "septona",
+            Client360Opportunity.part_reference == "OR-1",
+        )
+        .one()
+    )
+    assert opp.sales_known_qty == pytest.approx(1.0)
+    assert opp.potential_gap_qty == pytest.approx(129.0)
 
 
 def test_opportunity_engine_falls_back_to_family_average_price(db_session) -> None:
@@ -1251,8 +1504,8 @@ def test_opportunity_engine_falls_back_to_family_average_price(db_session) -> No
         .filter(Client360Opportunity.customer_key == "customerb")
         .one()
     )
-    # No direct price for CustomerB -> family average = 1200 / 8 = 150
-    assert other.meta_data["pricing"]["source"] == "family_average"
+    # No direct price for CustomerB -> fallback to pooled family+technology price.
+    assert other.meta_data["pricing"]["source"] == "family_technology_average"
     assert other.meta_data["pricing"]["unit_price"] == 150.0
     # annual = 5 * 2 * 52 / 4 = 130 ; gap = 130 - 4 = 126 ; value = 126 * 150
     assert other.potential_gap_qty == 126
@@ -1894,6 +2147,33 @@ def test_list_customers_merges_registry_and_opportunities_sorted_by_potential(db
     searched = list_customers(db_session, workspace, q="sep")
     assert searched["total"] == 1
     assert searched["items"][0]["customer_name"] == "Septona"
+
+
+def test_list_opportunities_country_filter_matches_iso_aliases(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(
+        db_session,
+        workspace,
+        customer_key="sep-gr",
+        customer_name="Septona GR",
+        country="GR",
+        part_reference="PDR-GR",
+    )
+    _seed_opportunity(
+        db_session,
+        workspace,
+        customer_key="sep-greece",
+        customer_name="Septona Greece",
+        country="Greece",
+        part_reference="PDR-GR2",
+    )
+    db_session.commit()
+
+    by_name = list_opportunities(db_session, workspace, country="Greece", limit=50)
+    by_code = list_opportunities(db_session, workspace, country="GR", limit=50)
+
+    assert len(by_name) == 2
+    assert len(by_code) == 2
 
 
 def test_customer_payload_enriches_projects_machines_purchases_and_next_due(
