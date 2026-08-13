@@ -60,7 +60,9 @@ def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_enti
         titles = "; ".join(a.get("title") or "Untitled" for a in focus[:3])
         summary = f"{len(articles)} articles analyses. {high_count} signal(s) haut risque. Priorite: {titles}."
     else:
-        summary = "Aucun article analyse pour l'instant. Declencher une analyse RSS pour produire la synthese de reference."
+        summary = (
+            "No articles analysed yet. Trigger an RSS analysis to produce the reference synthesis."
+        )
     return {
         "title": "Synthese de veille RSS",
         "summary": summary,

@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
@@ -52,9 +53,9 @@ interface WorkspaceAppsResponse {
   ],
   template: `
     <ck-object-header
-      eyebrow="Govern · Apps"
-      title="Apps & integrations"
-      subtitle="Packaged extensions and integrations the orchestrator can plug into any system — not to be confused with /skills, the atomic registry."
+      [eyebrow]="i18n.t('apps.eyebrow')"
+      [title]="i18n.t('apps.title')"
+      [subtitle]="i18n.t('apps.subtitle')"
       [kpis]="headerKpis()"
     >
       <a
@@ -62,7 +63,7 @@ interface WorkspaceAppsResponse {
         href="mailto:product@agentium.papai.ai?subject=App%20runtime%20wiring%20request"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
       >
-        <app-icon name="send" [size]="14" /> Request wiring
+        <app-icon name="send" [size]="14" /> {{ i18n.t('apps.request_wiring') }}
       </a>
     </ck-object-header>
 
@@ -74,10 +75,9 @@ interface WorkspaceAppsResponse {
             Catalog only · no runtime wiring yet
           </div>
           <p class="text-[11px] text-amber-200/80 leading-relaxed">
-            These apps advertise orchestrator integrations but are not yet bound to a backend runtime.
-            Toggling them surfaces them in the Builder wizard but does not connect to a live service.
-            Use <span class="font-semibold">Request wiring</span> to prioritise one. For atomic
-            skill primitives, head to <span class="font-mono">/skills</span>.
+            {{ i18n.t('apps.banner.catalog.lead') }}
+            <span class="font-semibold">{{ i18n.t('apps.request_wiring') }}</span>
+            {{ i18n.t('apps.banner.catalog.tail') }} <span class="font-mono">/skills</span>.
           </p>
         </div>
       </div>
@@ -86,11 +86,14 @@ interface WorkspaceAppsResponse {
         <app-icon name="plug" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
         <div class="flex-1">
           <div class="text-[11px] uppercase tracking-wider font-semibold text-cyan-300 mb-0.5">
-            Runtime wiring active
+            {{ i18n.t('apps.banner.wired.title') }}
           </div>
           <p class="text-[11px] text-cyan-200/80 leading-relaxed">
-            {{ wiredEnabledCount() }} wired app{{ wiredEnabledCount() === 1 ? '' : 's' }} enabled —
-            skills and connectors are synced server-side. Catalog-only cards remain intent flags until wired.
+            {{
+              wiredEnabledCount() === 1
+                ? i18n.t('apps.banner.wired.one')
+                : i18n.t('apps.banner.wired.many', { count: wiredEnabledCount() })
+            }}
           </p>
         </div>
       </div>
@@ -112,7 +115,7 @@ interface WorkspaceAppsResponse {
             ? 'bg-cyan-500 text-white shadow-glow-sm'
             : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'"
         >
-          {{ f.label }}
+          {{ i18n.t(f.labelKey) }}
           <span
             class="ml-1 text-[9px] font-mono px-1 rounded"
             [class.bg-white\\/15]="filter() === f.id"
@@ -145,14 +148,16 @@ interface WorkspaceAppsResponse {
               @if (a.wiring === 'wired') {
                 <span
                   class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-cyan-500/10 text-cyan-300 ring-cyan-500/30"
-                  title="Bound to a backend skill and connector"
+                  [title]="i18n.t('apps.badge.wired.hint')"
                 >
-                  wired
+                  {{ i18n.t('apps.badge.wired') }}
                 </span>
               } @else {
+                <!-- Raw status label: "catalog only" is lexicon-allowlisted for
+                     this file only, so it stays out of the dictionary. -->
                 <span
                   class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
-                  title="Listed in the catalog but not yet bound to a runtime"
+                  [title]="i18n.t('apps.badge.catalog.hint')"
                 >
                   catalog only
                 </span>
@@ -176,19 +181,19 @@ interface WorkspaceAppsResponse {
           <div>
             <div class="text-sm font-semibold text-white">{{ a.name }}</div>
             <p class="text-[11px] text-gray-400 leading-relaxed mt-0.5">
-              {{ a.description }}
+              {{ appDescription(a) }}
             </p>
           </div>
           <div class="flex items-center justify-between gap-2 mt-auto pt-2 border-t border-white/5">
             <div class="text-[10px] font-mono text-gray-500">
-              ID: {{ a.id }}
+              {{ i18n.t('apps.card.id', { id: a.id }) }}
             </div>
             @if (a.wiring === 'wired' && a.connectorRoute) {
               <a
                 [routerLink]="a.connectorRoute"
                 class="text-[10px] text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1"
               >
-                Configure <app-icon name="arrow-right" [size]="10" />
+                {{ i18n.t('connectors.action.configure') }} <app-icon name="arrow-right" [size]="10" />
               </a>
             }
           </div>
@@ -199,9 +204,9 @@ interface WorkspaceAppsResponse {
     <div class="mt-6 rounded-md p-4 bg-cyan-500/5 ring-1 ring-cyan-500/20 flex items-start gap-3 max-w-2xl">
       <app-icon name="lightbulb" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
       <p class="text-[11px] text-cyan-200/90 leading-relaxed">
-        Enabling a <span class="font-semibold">wired</span> app syncs its skills into the workspace
-        catalog and exposes the connector in the Builder. Catalog-only toggles remain intent flags
-        until a backend connector ships.
+        {{ i18n.t('apps.footer.lead') }}
+        <span class="font-semibold">{{ i18n.t('apps.footer.wired_word') }}</span>
+        {{ i18n.t('apps.footer.tail') }}
       </p>
     </div>
   `,
@@ -210,6 +215,7 @@ export class AppsPageComponent implements OnInit {
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
 
   readonly APPS = APPS;
   readonly filter = signal<Filter>('all');
@@ -220,12 +226,14 @@ export class AppsPageComponent implements OnInit {
   /** Server-authoritative enabled ids. */
   private readonly enabledIds = signal<Set<string>>(new Set());
 
+  /** Label keys resolved with t() in the template so the pills react to
+   * locale changes (a label frozen here would not). */
   readonly filters = [
-    { id: 'all' as Filter, label: 'All', count: () => APPS.length },
-    { id: 'enabled' as Filter, label: 'Enabled', count: () => this.enabledCount() },
-    { id: 'wired' as Filter, label: 'Wired', count: () => this.wiredCount() },
-    { id: 'ready' as Filter, label: 'Ready', count: () => this.readyCount() },
-    { id: 'beta' as Filter, label: 'Beta', count: () => this.betaCount() },
+    { id: 'all' as Filter, labelKey: 'common.all', count: () => APPS.length },
+    { id: 'enabled' as Filter, labelKey: 'apps.filter.enabled', count: () => this.enabledCount() },
+    { id: 'wired' as Filter, labelKey: 'apps.filter.wired', count: () => this.wiredCount() },
+    { id: 'ready' as Filter, labelKey: 'apps.filter.ready', count: () => this.readyCount() },
+    { id: 'beta' as Filter, labelKey: 'apps.filter.beta', count: () => this.betaCount() },
   ];
 
   readonly filtered = computed<AppDef[]>(() => {
@@ -261,21 +269,24 @@ export class AppsPageComponent implements OnInit {
   readonly showCatalogBanner = computed(() => this.wiredCount() === 0);
 
   readonly headerKpis = computed<CkObjectKpi[]>(() => [
-    { label: 'Total apps', value: String(APPS.length) },
+    { label: this.i18n.t('apps.kpi.total'), value: String(APPS.length) },
     {
-      label: 'Enabled',
+      label: this.i18n.t('apps.kpi.enabled'),
       value: String(this.enabledCount()),
-      hint: this.enabledCount() > 0 ? 'Ready to be used' : 'Turn some on',
+      hint:
+        this.enabledCount() > 0
+          ? this.i18n.t('apps.kpi.enabled.hint_on')
+          : this.i18n.t('apps.kpi.enabled.hint_off'),
       tone: this.enabledCount() > 0 ? 'pos' : 'neutral',
     },
     {
-      label: 'Wired',
+      label: this.i18n.t('apps.kpi.wired'),
       value: String(this.wiredEnabledCount()),
-      hint: `${this.wiredCount()} available`,
+      hint: this.i18n.t('apps.kpi.wired.hint', { count: this.wiredCount() }),
       tone: this.wiredEnabledCount() > 0 ? 'cool' : 'neutral',
     },
     {
-      label: 'In beta',
+      label: this.i18n.t('apps.kpi.beta'),
       value: String(this.betaCount()),
       tone: this.betaCount() > 0 ? 'warn' : 'neutral',
     },
@@ -288,6 +299,15 @@ export class AppsPageComponent implements OnInit {
   isEnabled(id: string): boolean {
     this.version();
     return this.enabledIds().has(id);
+  }
+
+  /** Static catalog entries are translated at render time by stable id, with a
+   * fallback to the raw description (rpa_bridge has no key on purpose: its
+   * wording is lexicon-restricted, so the source text shows as-is). */
+  appDescription(app: AppDef): string {
+    const key = `resources.catalog.${app.id}.description`;
+    const label = this.i18n.t(key);
+    return label === key ? app.description : label;
   }
 
   toggle(id: string): void {
@@ -310,8 +330,10 @@ export class AppsPageComponent implements OnInit {
           const app = appById(id);
           if (app) {
             this.toast.success(
-              wasEnabled ? `${app.name} disabled` : `${app.name} enabled`,
-              'Apps',
+              this.i18n.t(wasEnabled ? 'apps.toast.disabled' : 'apps.toast.enabled', {
+                name: app.name,
+              }),
+              this.i18n.t('apps.toast.title'),
             );
           }
         },
@@ -319,8 +341,8 @@ export class AppsPageComponent implements OnInit {
           this.saving.set(false);
           const detail = err?.error?.detail;
           this.toast.error(
-            typeof detail === 'string' ? detail : 'Could not update apps',
-            'Apps',
+            typeof detail === 'string' ? detail : this.i18n.t('apps.toast.update_failed'),
+            this.i18n.t('apps.toast.title'),
           );
         },
       });
@@ -352,7 +374,7 @@ export class AppsPageComponent implements OnInit {
             .filter(([, on]) => on)
             .map(([id]) => id),
         );
-        this.loadError.set('Could not load workspace apps from server — showing local cache.');
+        this.loadError.set(this.i18n.t('apps.load_error'));
         this.loading.set(false);
       },
     });

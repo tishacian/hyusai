@@ -47,6 +47,7 @@ import {
   paletteItemUsage,
   searchPaletteItems,
   summariseUnavailable,
+  UNCARRIED_CAPABILITY_SLUG,
   type PaletteCapabilityGroup,
   type PaletteInsertContext,
 } from './flow-palette.vm';
@@ -198,8 +199,8 @@ const MOST_USED_LIMIT = 5;
             <button type="button" class="ck-flow-palette__back" (click)="closeCapability()">
               <app-icon name="chevron-left" [size]="11" /> {{ i18n.t('flow.palette.back') }}
             </button>
-            @if (group.hint) {
-              <p class="ck-flow-palette__group-hint">{{ group.hint }}</p>
+            @if (groupHint(group)) {
+              <p class="ck-flow-palette__group-hint">{{ groupHint(group) }}</p>
             }
             @for (item of group.items; track itemKey(item)) {
               <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
@@ -290,12 +291,12 @@ const MOST_USED_LIMIT = 5;
               <button
                 type="button"
                 class="ck-flow-palette__row ck-flow-palette__row--group"
-                [title]="group.hint || group.name"
+                [title]="groupHint(group) || groupName(group)"
                 (click)="openCapability(group.slug)"
               >
                 <app-icon class="ck-flow-palette__row-icon" name="boxes" set="phosphor" [size]="13" />
-                <span class="ck-flow-palette__row-name">{{ group.name }}</span>
-                <span class="ck-flow-palette__row-intent">{{ group.hint }}</span>
+                <span class="ck-flow-palette__row-name">{{ groupName(group) }}</span>
+                <span class="ck-flow-palette__row-intent">{{ groupHint(group) }}</span>
                 <span class="ck-flow-palette__count">{{ group.items.length }}</span>
                 <app-icon name="chevron-right" [size]="11" />
               </button>
@@ -446,7 +447,7 @@ export class FlowPaletteComponent {
     if (this.context()) return this.i18n.t('flow.palette.heading.context');
     if (this.query().trim()) return this.i18n.t('flow.palette.heading.matches');
     const group = this.openGroup();
-    if (group) return group.name;
+    if (group) return this.groupName(group);
     return this.i18n.t(
       this.level() === 'advanced' ? 'flow.palette.heading.all' : 'flow.palette.heading.add',
     );
@@ -552,7 +553,7 @@ export class FlowPaletteComponent {
   }
 
   protected detail(item: PaletteItem): string {
-    return paletteItemDetail(item);
+    return paletteItemDetail(item, this.describe(item));
   }
 
   /** One line: name plus intention. An unusable row states its lever instead. */
@@ -565,7 +566,32 @@ export class FlowPaletteComponent {
       );
     }
     const slug = paletteItemSlug(item);
-    return item.description && item.description !== slug ? item.description : '';
+    const description = this.describe(item);
+    return description && description !== slug ? description : '';
+  }
+
+  /** Structural primitive descriptions are chrome: resolve them by `type`
+   * (`flow.palette.desc.<type>`, dots kept), falling back to the raw
+   * description — which is what every catalog Skill (type `skill`, no key
+   * declared) keeps, because its copy is data, not chrome. */
+  private describe(item: PaletteItem): string {
+    const key = `flow.palette.desc.${item.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? item.description : label;
+  }
+
+  /** The VM's sentinel "uncarried" bucket is chrome; real Capability names
+   * and descriptions are backend data and render as-is. */
+  protected groupName(group: PaletteCapabilityGroup): string {
+    return group.slug === UNCARRIED_CAPABILITY_SLUG
+      ? this.i18n.t('flow.palette.uncarried.name')
+      : group.name;
+  }
+
+  protected groupHint(group: PaletteCapabilityGroup): string {
+    return group.slug === UNCARRIED_CAPABILITY_SLUG
+      ? this.i18n.t('flow.palette.uncarried.hint')
+      : group.hint;
   }
 
   protected isInFlow(item: PaletteItem): boolean {

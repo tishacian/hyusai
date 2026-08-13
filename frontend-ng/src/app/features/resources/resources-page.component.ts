@@ -14,6 +14,7 @@ import { ToastrService } from 'ngx-toastr';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -81,10 +82,10 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   ],
   template: `
     <app-section-header
-      breadcrumb="Configure"
-      title="Resources"
+      [breadcrumb]="i18n.t('resources.breadcrumb')"
+      [title]="i18n.t('resources.title')"
       icon="plug"
-      [subtitle]="isDemoMode() ? 'Connectors and apps available to your systems.' : 'Models, connectors and apps available to your systems.'"
+      [subtitle]="isDemoMode() ? i18n.t('resources.subtitle.demo') : i18n.t('resources.subtitle')"
     >
       <button
         type="button"
@@ -93,38 +94,46 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         [disabled]="loading()"
       >
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
+        {{ i18n.t('common.refresh') }}
       </button>
     </app-section-header>
 
     <!-- KPIs -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       @if (isDemoMode()) {
-        <ck-stat-readout variant="tile" label="Runtime" value="Managed" icon="shield-check" />
-      } @else {
-        <ck-stat-readout variant="tile" label="Models" [value]="models().length" icon="cpu" />
         <ck-stat-readout variant="tile"
-          label="Providers"
+          [label]="i18n.t('resources.kpi.runtime')"
+          [value]="i18n.t('resources.kpi.runtime.value')"
+          icon="shield-check"
+        />
+      } @else {
+        <ck-stat-readout variant="tile"
+          [label]="i18n.t('resources.kpi.models')"
+          [value]="models().length"
+          icon="cpu"
+        />
+        <ck-stat-readout variant="tile"
+          [label]="i18n.t('resources.kpi.providers')"
           [value]="showPortalTabs() ? liveProviders().length : providers().length"
           icon="server"
         />
       }
       <ck-stat-readout variant="tile"
-        label="Connectors"
+        [label]="i18n.t('resources.kpi.connectors')"
         [value]="connectorsAvailable()"
         icon="plug"
-        [hint]="connectorsActive() + ' configured · ' + connectorsComingSoon() + ' coming'"
+        [hint]="i18n.t('resources.kpi.connectors.hint', { configured: connectorsActive(), coming: connectorsComingSoon() })"
       />
       <a
         routerLink="/apps"
         class="block group"
-        [title]="'Manage packaged apps &amp; integrations — catalog of ' + APPS.length + ' entries'"
+        [title]="i18n.t('resources.kpi.apps.title', { count: APPS.length })"
       >
         <ck-stat-readout variant="tile"
-          label="Apps enabled"
+          [label]="i18n.t('resources.kpi.apps')"
           [value]="appsEnabled()"
           icon="sparkles"
-          [hint]="'Go to /apps · ' + APPS.length + ' available'"
+          [hint]="i18n.t('resources.kpi.apps.hint', { count: APPS.length })"
           [interactive]="true"
         />
       </a>
@@ -161,9 +170,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <div class="w-12 h-12 rounded-md bg-cyan-500/10 ring-1 ring-cyan-500/30 text-cyan-300 flex items-center justify-center mx-auto mb-3">
             <app-icon name="shield-check" [size]="20" />
           </div>
-          <h3 class="text-sm font-semibold text-white mb-2">Managed runtime</h3>
+          <h3 class="text-sm font-semibold text-white mb-2">{{ i18n.t('resources.models.managed.title') }}</h3>
           <p class="text-xs text-gray-400 max-w-md mx-auto">
-            Provider and model catalog details are hidden by demo-safe presentation.
+            {{ i18n.t('resources.models.managed.description') }}
           </p>
         </section>
       } @else {
@@ -171,10 +180,10 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="cpu" [size]="16" class="text-cyan-400" />
-            Available models
+            {{ i18n.t('resources.models.title') }}
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-            {{ models().length }} / {{ providers().length }} providers
+            {{ i18n.t('resources.models.count', { models: models().length, providers: providers().length }) }}
           </span>
         </div>
 
@@ -189,8 +198,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         } @else if (models().length === 0) {
           <app-empty-state
             icon="cpu"
-            title="No models configured"
-            description="Configure a provider in backend settings or start an Ollama instance."
+            [title]="i18n.t('resources.models.empty.title')"
+            [description]="i18n.t('resources.models.empty.description')"
           />
         } @else {
           <ul class="divide-y divide-white/5">
@@ -221,7 +230,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   @if (usageCount(m) > 0) {
                     <span
                       class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20"
-                      [title]="'Pinned by: ' + (systemUsage()[modelKey(m)] || systemUsage()[modelName(m)] || []).join(', ')"
+                      [title]="i18n.t('resources.models.pinned_by', { systems: (systemUsage()[modelKey(m)] || systemUsage()[modelName(m)] || []).join(', ') })"
                     >
                       {{ usageLabel(m) }}
                     </span>
@@ -230,7 +239,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   }
                 </div>
                 <div class="col-span-1 text-right">
-                  <app-status-pulse tone="success" label="ready" />
+                  <app-status-pulse tone="success" [label]="i18n.t('resources.models.status.ready')" />
                 </div>
               </li>
             }
@@ -254,12 +263,12 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <div>
             <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
               <app-icon name="git-branch" [size]="16" class="text-cyan-400" />
-              Workspace routing
+              {{ i18n.t('resources.providers.routing.title') }}
             </h3>
             <p class="text-[11px] text-gray-500 mt-1">
-              Primary provider/model and fallback chain for this workspace.
+              {{ i18n.t('resources.providers.routing.description') }}
               @if (routing()?.source) {
-                <span class="font-mono text-gray-400"> · source {{ routing()?.source }}</span>
+                <span class="font-mono text-gray-400"> · {{ i18n.t('resources.providers.routing.source', { value: routing()?.source || '' }) }}</span>
               }
             </p>
           </div>
@@ -271,7 +280,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </header>
         <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="saveRouting()">
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Provider</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.provider') }}</span>
             <select
               [(ngModel)]="routingDraft.provider"
               name="routeProvider"
@@ -283,7 +292,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             </select>
           </label>
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Default model</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.model') }}</span>
             <input
               [(ngModel)]="routingDraft.model"
               name="routeModel"
@@ -292,7 +301,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             />
           </label>
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Fallback chain</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.fallback') }}</span>
             <input
               [(ngModel)]="routingDraft.fallback"
               name="routeFallback"
@@ -307,7 +316,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
             >
               <app-icon name="save" [size]="14" />
-              {{ configBusy() === 'routing' ? 'Saving…' : 'Save routing' }}
+              {{ configBusy() === 'routing' ? i18n.t('resources.providers.routing.saving') : i18n.t('resources.providers.routing.save') }}
             </button>
           </div>
         </form>
@@ -359,7 +368,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               }
               @if (p.api_key_set) {
                 <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
-                  key set
+                  {{ i18n.t('resources.providers.key_set') }}
                 </span>
               }
               @for (model of p.models.slice(0, 8); track model) {
@@ -382,7 +391,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
                 <label class="block">
                   <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                    API key {{ p.api_key_set ? '(leave blank to keep)' : '' }}
+                    {{ i18n.t('resources.providers.api_key') }} {{ p.api_key_set ? i18n.t('resources.providers.api_key.keep') : '' }}
                   </span>
                   <input
                     type="password"
@@ -428,7 +437,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     [disabled]="configBusy() === 'cred:' + p.key"
                     class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-200 text-[11px] font-medium ring-1 ring-cyan-400/30 hover:bg-cyan-500/30 disabled:opacity-40"
                   >
-                    Save key
+                    {{ i18n.t('resources.providers.save_key') }}
                   </button>
                   @if (p.api_key_set && p.credential_source === 'workspace') {
                     <button
@@ -437,7 +446,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                       [disabled]="configBusy() === 'cred:' + p.key"
                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-red-300/90 text-[11px] hover:bg-red-500/10 disabled:opacity-40"
                     >
-                      Clear
+                      {{ i18n.t('resources.providers.clear_key') }}
                     </button>
                   }
                 </div>
@@ -448,8 +457,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           @if (!loading()) {
             <app-empty-state
               icon="cloud"
-              title="No providers reported"
-              description="Provider status will appear once the model plane API is available."
+              [title]="i18n.t('resources.providers.empty.title')"
+              [description]="i18n.t('resources.providers.empty.description')"
             />
           }
         }
@@ -460,7 +469,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3 flex-wrap">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="bar-chart-3" [size]="16" class="text-cyan-400" />
-            Routing distribution
+            {{ i18n.t('resources.providers.distribution.title') }}
           </h3>
           <div class="flex items-center gap-1 p-0.5 bg-white/5 ring-1 ring-white/10 rounded">
             @for (w of distWindows; track w) {
@@ -481,8 +490,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <app-empty-state
             size="sm"
             icon="bar-chart-3"
-            title="No distribution data"
-            description="Invocation counts appear after routed traffic is recorded."
+            [title]="i18n.t('resources.providers.distribution.empty.title')"
+            [description]="i18n.t('resources.providers.distribution.empty.description')"
           />
         } @else {
           <ul class="divide-y divide-white/5 px-5 py-2">
@@ -525,15 +534,15 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         <header class="mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="plug" [size]="16" class="text-cyan-400" />
-            Attach serving node
+            {{ i18n.t('resources.serving.attach.title') }}
           </h3>
           <p class="text-[11px] text-gray-500 mt-1">
-            Point this workspace at an omnirag-llm-portal host. Token is stored encrypted and never echoed.
+            {{ i18n.t('resources.serving.attach.description') }}
           </p>
         </header>
         <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="attachServingNode()">
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Name</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.name') }}</span>
             <input
               [(ngModel)]="nodeDraft.name"
               name="nodeName"
@@ -543,7 +552,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             />
           </label>
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Base URL</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.url') }}</span>
             <input
               [(ngModel)]="nodeDraft.base_url"
               name="nodeUrl"
@@ -553,13 +562,13 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             />
           </label>
           <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Portal token</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.token') }}</span>
             <input
               type="password"
               [(ngModel)]="nodeDraft.token"
               name="nodeToken"
               autocomplete="new-password"
-              placeholder="shared secret"
+              [placeholder]="i18n.t('resources.serving.attach.token.placeholder')"
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
             />
           </label>
@@ -570,7 +579,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
             >
               <app-icon name="plus" [size]="14" />
-              {{ configBusy() === 'attach-node' ? 'Attaching…' : 'Attach node' }}
+              {{ configBusy() === 'attach-node' ? i18n.t('resources.serving.attach.busy') : i18n.t('resources.serving.attach.submit') }}
             </button>
           </div>
         </form>
@@ -579,8 +588,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       @if (servingNodes().length === 0 && !loading()) {
         <app-empty-state
           icon="server"
-          title="No serving node attached"
-          description="Attach an omnirag-llm-portal host above to manage local GPU / Ollama serving from here."
+          [title]="i18n.t('resources.serving.empty.title')"
+          [description]="i18n.t('resources.serving.empty.description')"
         />
       } @else {
         @for (node of servingNodes(); track nodeId(node)) {
@@ -589,7 +598,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <div class="min-w-0">
                 <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
                   <app-icon name="server" [size]="16" class="text-cyan-400" />
-                  {{ node.name || node.key || 'Serving node' }}
+                  {{ node.name || node.key || i18n.t('resources.serving.node.fallback') }}
                 </h3>
                 <p class="text-[11px] text-gray-500 font-mono mt-0.5">
                   {{ nodeId(node) }}
@@ -604,7 +613,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   (click)="openCreateInstance(node)"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30 transition"
                 >
-                  <app-icon name="plus" [size]="12" /> Create instance
+                  <app-icon name="plus" [size]="12" /> {{ i18n.t('resources.serving.create') }}
                 </button>
                 <button
                   type="button"
@@ -612,7 +621,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   [disabled]="configBusy() === 'detach:' + nodeId(node)"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-red-300 hover:bg-red-500/10 ring-1 ring-red-400/20 transition disabled:opacity-40"
                 >
-                  Detach
+                  {{ i18n.t('resources.serving.detach') }}
                 </button>
               </div>
             </div>
@@ -629,14 +638,14 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                   </span>
                 }
                 @if (gpu.utilization != null) {
-                  <span class="font-mono tabular-nums">{{ gpu.utilization }}% util</span>
+                  <span class="font-mono tabular-nums">{{ i18n.t('resources.serving.gpu.util', { value: gpu.utilization }) }}</span>
                 }
               </div>
             }
 
             @if (!node.instances?.length) {
               <div class="px-5 py-6 text-center text-xs text-gray-500">
-                No instances on this node yet.
+                {{ i18n.t('resources.serving.instances.empty') }}
               </div>
             } @else {
               <ul class="divide-y divide-white/5">
@@ -660,12 +669,12 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     </div>
                     <app-status-pulse
                       [tone]="instancePulseTone(inst)"
-                      [label]="inst.status || 'unknown'"
+                      [label]="inst.status || i18n.t('resources.serving.instance.status_unknown')"
                     />
                     <div class="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        title="Start"
+                        [title]="i18n.t('resources.serving.instance.start')"
                         (click)="startInstance(node, inst)"
                         [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition"
@@ -674,7 +683,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                       </button>
                       <button
                         type="button"
-                        title="Stop"
+                        [title]="i18n.t('resources.serving.instance.stop')"
                         (click)="stopInstance(node, inst)"
                         [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-amber-300 hover:bg-amber-500/10 disabled:opacity-40 transition"
@@ -683,7 +692,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                       </button>
                       <button
                         type="button"
-                        title="Delete"
+                        [title]="i18n.t('common.delete')"
                         (click)="deleteInstance(node, inst)"
                         [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-red-300 hover:bg-red-500/10 disabled:opacity-40 transition"
@@ -706,18 +715,19 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
         <div class="flex-1">
           <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
-            Configuration only · most connectors are catalog placeholders
+            {{ i18n.t('resources.connectors.banner.title') }}
           </div>
           <p class="text-[11px] text-amber-200/80 leading-relaxed">
-            Only connectors marked <span class="font-semibold text-emerald-300">connected</span> (green pulse) are wired
-            end-to-end. Others store configuration locally for the roadmap — no runtime calls are made.
+            {{ i18n.t('resources.connectors.banner.before') }}
+            <span class="font-semibold text-emerald-300">{{ i18n.t('resources.connectors.banner.connected') }}</span>
+            {{ i18n.t('resources.connectors.banner.after') }}
           </p>
         </div>
         <a
           href="mailto:product@agentium.papai.ai?subject=Connector%20wiring%20request"
           class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
         >
-          <app-icon name="send" [size]="12" /> Request
+          <app-icon name="send" [size]="12" /> {{ i18n.t('resources.connectors.banner.request') }}
         </a>
       </div>
       @for (cat of categories; track cat.id) {
@@ -725,7 +735,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <header class="flex items-center gap-2 mb-3">
             <app-icon [name]="cat.icon" [size]="14" class="text-cyan-400" />
             <h3 class="text-[10px] uppercase tracking-[0.16em] font-semibold text-gray-400">
-              {{ cat.label }}
+              {{ categoryLabel(cat) }}
             </h3>
             <span class="text-[9px] font-mono text-gray-500">
               {{ connectorsInCategory(cat.id).length }}
@@ -749,23 +759,23 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     <app-icon [name]="c.icon" [size]="18" />
                   </div>
                   @if (c.status === 'active' || isConfigured(c.id)) {
-                    <app-status-pulse tone="success" label="connected" />
+                    <app-status-pulse tone="success" [label]="i18n.t('connectors.status.connected')" />
                   } @else if (c.status === 'beta') {
-                    <span class="ck-pill ck-tone-preview">Beta</span>
+                    <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.beta') }}</span>
                   } @else if (c.status === 'available') {
-                    <app-status-pulse tone="accent" label="available" />
+                    <app-status-pulse tone="accent" [label]="i18n.t('connectors.status.available')" />
                   } @else {
-                    <span class="ck-pill ck-tone-warn">Soon</span>
+                    <span class="ck-pill ck-tone-warn">{{ i18n.t('connectors.status.soon') }}</span>
                   }
                 </div>
                 <h4 class="text-sm font-semibold text-white mb-1">{{ c.name }}</h4>
                 <p class="text-[11px] text-gray-400 leading-relaxed line-clamp-2">
-                  {{ c.description }}
+                  {{ catalogDescription(c) }}
                 </p>
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
                   <span class="text-[10px] font-mono text-gray-500">{{ c.version }}</span>
                   <span class="text-[10px] font-medium flex items-center gap-1 text-cyan-400 group-hover:gap-1.5 transition-all">
-                    Configure <app-icon name="arrow-right" [size]="10" />
+                    {{ i18n.t('connectors.action.configure') }} <app-icon name="arrow-right" [size]="10" />
                   </span>
                 </div>
               </button>
@@ -778,7 +788,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     <!-- Connector config drawer -->
     <app-drawer
       [open]="drawerOpen()"
-      [title]="active()?.name ?? 'Connector'"
+      [title]="active()?.name ?? i18n.t('connectors.drawer.fallback_title')"
       [subtitle]="active()?.version ?? ''"
       [icon]="active()?.icon ?? 'plug'"
       [width]="440"
@@ -786,31 +796,29 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     >
       @if (active(); as c) {
         <div class="space-y-5">
-          <p class="text-xs text-gray-400 leading-relaxed">{{ c.description }}</p>
+          <p class="text-xs text-gray-400 leading-relaxed">{{ catalogDescription(c) }}</p>
 
           @if (c.backendPrefix) {
             <div class="rounded-md bg-emerald-500/5 ring-1 ring-emerald-500/20 p-3 flex items-start gap-2">
               <app-icon name="check-circle-2" [size]="14" class="text-emerald-400 mt-0.5 shrink-0" />
               <div class="text-[11px] text-emerald-200/90 leading-relaxed">
-                Backend endpoint live at
+                {{ i18n.t('connectors.drawer.live.before') }}
                 <span class="font-mono text-emerald-300">/api/v1/{{ c.backendPrefix }}</span>.
-                Save configuration then hit <span class="font-semibold">Test connection</span>.
+                {{ i18n.t('connectors.drawer.live.after') }} <span class="font-semibold">{{ i18n.t('connectors.drawer.live.test') }}</span>.
               </div>
             </div>
           } @else if (c.status === 'coming-soon') {
             <div class="rounded-md bg-amber-500/5 ring-1 ring-amber-500/20 p-3 flex items-start gap-2">
               <app-icon name="clock" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
               <div class="text-[11px] text-amber-200/90 leading-relaxed">
-                Backend adapter not shipped yet — configuration is saved locally so you can
-                pre-fill it and migrate later.
+                {{ i18n.t('connectors.drawer.coming') }}
               </div>
             </div>
           } @else {
             <div class="rounded-md bg-cyan-500/5 ring-1 ring-cyan-500/20 p-3 flex items-start gap-2">
               <app-icon name="info" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
               <div class="text-[11px] text-cyan-200/90 leading-relaxed">
-                Configuration is stored locally. Backend adapter will pick it up automatically
-                once registered.
+                {{ i18n.t('connectors.drawer.local') }}
               </div>
             </div>
           }
@@ -840,21 +848,21 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 type="submit"
                 class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition"
               >
-                <app-icon name="save" [size]="14" /> Save
+                <app-icon name="save" [size]="14" /> {{ i18n.t('common.save') }}
               </button>
               <button
                 type="button"
                 (click)="testConnector()"
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-sm ring-1 ring-white/10 transition"
               >
-                <app-icon name="zap" [size]="14" /> Test
+                <app-icon name="zap" [size]="14" /> {{ i18n.t('connectors.action.test') }}
               </button>
               <button
                 type="button"
                 (click)="clearConnector()"
                 class="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded text-red-300 hover:bg-red-500/10 text-sm transition"
               >
-                <app-icon name="trash-2" [size]="14" /> Clear
+                <app-icon name="trash-2" [size]="14" /> {{ i18n.t('connectors.action.clear') }}
               </button>
             </div>
           </form>
@@ -865,7 +873,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     <!-- Create serving instance drawer -->
     <app-drawer
       [open]="createOpen()"
-      title="Create instance"
+      [title]="i18n.t('resources.serving.create')"
       [subtitle]="createNodeLabel()"
       icon="server"
       [width]="420"
@@ -874,7 +882,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       <form (ngSubmit)="submitCreateInstance()" class="space-y-4">
         <div>
           <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-            Engine
+            {{ i18n.t('resources.serving.create.engine') }}
           </label>
           <select
             [(ngModel)]="createDraft.engine"
@@ -890,20 +898,20 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </div>
         <div>
           <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-            Model <span class="text-red-400">*</span>
+            {{ i18n.t('resources.serving.create.model') }} <span class="text-red-400">*</span>
           </label>
           <input
             type="text"
             [(ngModel)]="createDraft.model"
             name="model"
             required
-            placeholder="e.g. llama3.2:3b"
+            [placeholder]="i18n.t('resources.serving.create.model.placeholder')"
             class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 text-sm font-mono"
           />
         </div>
         <div>
           <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-            Port <span class="text-red-400">*</span>
+            {{ i18n.t('resources.serving.create.port') }} <span class="text-red-400">*</span>
           </label>
           <input
             type="number"
@@ -920,14 +928,14 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             [disabled]="!createDraft.model.trim() || !createPortValid() || lifecycleBusy() === 'create'"
             class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
           >
-            <app-icon name="plus" [size]="14" /> Create
+            <app-icon name="plus" [size]="14" /> {{ i18n.t('common.create') }}
           </button>
           <button
             type="button"
             (click)="closeCreate()"
             class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-sm ring-1 ring-white/10 transition"
           >
-            Cancel
+            {{ i18n.t('common.cancel') }}
           </button>
         </div>
       </form>
@@ -940,6 +948,7 @@ export class ResourcesPageComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
@@ -1016,7 +1025,7 @@ export class ResourcesPageComponent implements OnInit {
 
   readonly createNodeLabel = computed(() => {
     const n = this.createNode();
-    return n ? nodeKey(n) || 'node' : '';
+    return n ? nodeKey(n) || this.i18n.t('resources.serving.node.short') : '';
   });
 
   readonly visibleConnectors = computed(() =>
@@ -1040,11 +1049,13 @@ export class ResourcesPageComponent implements OnInit {
     return Object.values(t).filter(Boolean).length;
   });
 
+  /** Labels resolved inside the computed: `t()` reads the locale signal, so
+   * the tab row re-renders when the user flips languages. */
   readonly tabs = computed(() => {
     const items: Array<{ id: Tab; label: string; icon: string; count: () => number }> = [
       {
         id: 'models',
-        label: 'Models',
+        label: this.i18n.t('resources.tab.models'),
         icon: 'cpu',
         count: () => (this.isDemoMode() ? 0 : this.models().length),
       },
@@ -1053,13 +1064,13 @@ export class ResourcesPageComponent implements OnInit {
       items.push(
         {
           id: 'providers',
-          label: 'Providers',
+          label: this.i18n.t('resources.tab.providers'),
           icon: 'cloud',
           count: () => this.liveProviders().length,
         },
         {
           id: 'serving',
-          label: 'Serving',
+          label: this.i18n.t('resources.tab.serving'),
           icon: 'server',
           count: () => this.servingNodes().length,
         },
@@ -1067,7 +1078,7 @@ export class ResourcesPageComponent implements OnInit {
     }
     items.push({
       id: 'connectors',
-      label: 'Connectors',
+      label: this.i18n.t('resources.tab.connectors'),
       icon: 'plug',
       count: () => this.visibleConnectors().length,
     });
@@ -1128,7 +1139,7 @@ export class ResourcesPageComponent implements OnInit {
     forkJoin({
       providers: this.api.get<ProvidersResponse>('/models/providers').pipe(
         catchError((err) => {
-          this.notePortalError(err, 'providers');
+          this.notePortalError(err, this.i18n.t('resources.tab.providers').toLowerCase());
           return of({ providers: [] } as ProvidersResponse);
         }),
       ),
@@ -1192,7 +1203,10 @@ export class ResourcesPageComponent implements OnInit {
     const provider = this.routingDraft.provider.trim();
     const model = this.routingDraft.model.trim();
     if (!provider || !model) {
-      this.toast.error('Provider and model are required', 'Routing');
+      this.toast.error(
+        this.i18n.t('resources.toast.routing.required'),
+        this.i18n.t('resources.toast.routing'),
+      );
       return;
     }
     const fallback_chain = this.routingDraft.fallback
@@ -1222,11 +1236,17 @@ export class ResourcesPageComponent implements OnInit {
             source: 'workspace',
           });
           this.syncRoutingDraft(this.routing());
-          this.toast.success('Workspace routing saved', 'Routing');
+          this.toast.success(
+            this.i18n.t('resources.toast.routing.saved'),
+            this.i18n.t('resources.toast.routing'),
+          );
         },
         error: (err) => {
           this.configBusy.set(null);
-          this.toast.error(err?.error?.detail || 'Failed to save routing', 'Routing');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('resources.toast.routing.save_failed'),
+            this.i18n.t('resources.toast.routing'),
+          );
         },
       });
   }
@@ -1241,7 +1261,10 @@ export class ResourcesPageComponent implements OnInit {
       if (draft.api_version?.trim()) body['api_version'] = draft.api_version.trim();
     }
     if (!Object.keys(body).length) {
-      this.toast.info('Enter a value to save', 'Credentials');
+      this.toast.info(
+        this.i18n.t('resources.toast.credentials.empty'),
+        this.i18n.t('resources.toast.credentials'),
+      );
       return;
     }
     this.configBusy.set('cred:' + provider);
@@ -1252,12 +1275,18 @@ export class ResourcesPageComponent implements OnInit {
           ...this.credentialDrafts,
           [provider]: { ...draft, api_key: '' },
         };
-        this.toast.success(`${provider} credentials saved`, 'Credentials');
+        this.toast.success(
+          this.i18n.t('resources.toast.credentials.saved', { provider }),
+          this.i18n.t('resources.toast.credentials'),
+        );
         this.loadPortalData();
       },
       error: (err) => {
         this.configBusy.set(null);
-        this.toast.error(err?.error?.detail || 'Failed to save credentials', 'Credentials');
+        this.toast.error(
+          err?.error?.detail || this.i18n.t('resources.toast.credentials.save_failed'),
+          this.i18n.t('resources.toast.credentials'),
+        );
       },
     });
   }
@@ -1269,12 +1298,18 @@ export class ResourcesPageComponent implements OnInit {
       .subscribe({
         next: () => {
           this.configBusy.set(null);
-          this.toast.success(`${provider} workspace key cleared`, 'Credentials');
+          this.toast.success(
+            this.i18n.t('resources.toast.credentials.cleared', { provider }),
+            this.i18n.t('resources.toast.credentials'),
+          );
           this.loadPortalData();
         },
         error: (err) => {
           this.configBusy.set(null);
-          this.toast.error(err?.error?.detail || 'Failed to clear credentials', 'Credentials');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('resources.toast.credentials.clear_failed'),
+            this.i18n.t('resources.toast.credentials'),
+          );
         },
       });
   }
@@ -1283,7 +1318,10 @@ export class ResourcesPageComponent implements OnInit {
     const name = this.nodeDraft.name.trim();
     const base_url = this.nodeDraft.base_url.trim();
     if (!name || !base_url) {
-      this.toast.error('Name and base URL are required', 'Serving');
+      this.toast.error(
+        this.i18n.t('resources.toast.serving.required'),
+        this.i18n.t('resources.toast.serving'),
+      );
       return;
     }
     const body: Record<string, unknown> = { name, base_url };
@@ -1293,12 +1331,18 @@ export class ResourcesPageComponent implements OnInit {
       next: () => {
         this.configBusy.set(null);
         this.nodeDraft = { name: '', base_url: '', token: '' };
-        this.toast.success('Serving node attached', 'Serving');
+        this.toast.success(
+          this.i18n.t('resources.toast.serving.attached'),
+          this.i18n.t('resources.toast.serving'),
+        );
         this.loadPortalData();
       },
       error: (err) => {
         this.configBusy.set(null);
-        this.toast.error(err?.error?.detail || 'Failed to attach node', 'Serving');
+        this.toast.error(
+          err?.error?.detail || this.i18n.t('resources.toast.serving.attach_failed'),
+          this.i18n.t('resources.toast.serving'),
+        );
       },
     });
   }
@@ -1310,19 +1354,25 @@ export class ResourcesPageComponent implements OnInit {
     this.api.delete(`/models/nodes/${encodeURIComponent(key)}`).subscribe({
       next: () => {
         this.configBusy.set(null);
-        this.toast.success('Serving node detached', 'Serving');
+        this.toast.success(
+          this.i18n.t('resources.toast.serving.detached'),
+          this.i18n.t('resources.toast.serving'),
+        );
         this.loadPortalData();
       },
       error: (err) => {
         this.configBusy.set(null);
-        this.toast.error(err?.error?.detail || 'Failed to detach node', 'Serving');
+        this.toast.error(
+          err?.error?.detail || this.i18n.t('resources.toast.serving.detach_failed'),
+          this.i18n.t('resources.toast.serving'),
+        );
       },
     });
   }
 
   private notePortalError(err: { status?: number; error?: { detail?: string } }, label: string): void {
     if (err?.status === 403) {
-      this.portalError.set('Model portal is not available for this workspace (403).');
+      this.portalError.set(this.i18n.t('resources.portal.forbidden'));
       return;
     }
     if (err?.status === 404) {
@@ -1334,7 +1384,7 @@ export class ResourcesPageComponent implements OnInit {
       this.portalError.set(detail);
       return;
     }
-    this.portalError.set(`Failed to load ${label}`);
+    this.portalError.set(this.i18n.t('resources.portal.load_failed', { label }));
   }
 
   setDistWindow(w: DistributionWindow): void {
@@ -1374,7 +1424,24 @@ export class ResourcesPageComponent implements OnInit {
   usageLabel(m: ModelInfo): string {
     const n = this.usageCount(m);
     if (n === 0) return '';
-    return n === 1 ? '1 system' : `${n} systems`;
+    return n === 1
+      ? this.i18n.t('resources.models.usage.one')
+      : this.i18n.t('resources.models.usage.many', { count: n });
+  }
+
+  /** Static catalog entries are translated at render time by stable id, with a
+   * fallback to the raw description (entries excluded from the dict — e.g.
+   * lexicon-restricted wording — keep their source text). */
+  catalogDescription(c: ConnectorDef): string {
+    const key = `resources.catalog.${c.id}.description`;
+    const label = this.i18n.t(key);
+    return label === key ? c.description : label;
+  }
+
+  categoryLabel(cat: { id: string; label: string }): string {
+    const key = `connectors.category.${cat.id.replace(/-/g, '_')}`;
+    const label = this.i18n.t(key);
+    return label === key ? cat.label : label;
   }
 
   connectorsInCategory(id: string): ConnectorDef[] {
@@ -1428,7 +1495,10 @@ export class ResourcesPageComponent implements OnInit {
     if (!c) return;
     writeConnectorConfig(this.workspace.currentSlug(), c.id, this.draftValues);
     this.connectorsVersion.update((v) => v + 1);
-    this.toast.success(`${c.name} configuration saved`, 'Connector');
+    this.toast.success(
+      this.i18n.t('connectors.toast.saved', { name: c.name }),
+      this.i18n.t('connectors.toast.title'),
+    );
     this.drawerOpen.set(false);
   }
 
@@ -1437,23 +1507,37 @@ export class ResourcesPageComponent implements OnInit {
     if (!c) return;
     if (c.backendPrefix === 'sharepoint' || c.backendPrefix === 'sftp') {
       this.api.get(`/${c.backendPrefix}/health`).subscribe({
-        next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
+        next: () =>
+          this.toast.success(
+            this.i18n.t('connectors.toast.reachable', { name: c.name }),
+            this.i18n.t('connectors.toast.connection_test'),
+          ),
         error: () =>
-          this.toast.error(`${c.name} is unreachable — check the backend`, 'Connection test'),
+          this.toast.error(
+            this.i18n.t('connectors.toast.unreachable', { name: c.name }),
+            this.i18n.t('connectors.toast.connection_test'),
+          ),
       });
       return;
     }
     if (c.backendPrefix === 'hana' || c.backendPrefix === 'rpa') {
       this.api.post(`/${c.backendPrefix}/test`, {}).subscribe({
-        next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
+        next: () =>
+          this.toast.success(
+            this.i18n.t('connectors.toast.reachable', { name: c.name }),
+            this.i18n.t('connectors.toast.connection_test'),
+          ),
         error: () =>
-          this.toast.error(`${c.name} is unreachable — check the backend`, 'Connection test'),
+          this.toast.error(
+            this.i18n.t('connectors.toast.unreachable', { name: c.name }),
+            this.i18n.t('connectors.toast.connection_test'),
+          ),
       });
       return;
     }
     this.toast.info(
-      `${c.name} doesn't have a live adapter yet. Config is stored locally.`,
-      'Simulated test',
+      this.i18n.t('connectors.toast.no_adapter', { name: c.name }),
+      this.i18n.t('connectors.toast.simulated'),
     );
   }
 
@@ -1463,7 +1547,10 @@ export class ResourcesPageComponent implements OnInit {
     this.draftValues = {};
     writeConnectorConfig(this.workspace.currentSlug(), c.id, {});
     this.connectorsVersion.update((v) => v + 1);
-    this.toast.info(`${c.name} configuration cleared`, 'Connector');
+    this.toast.info(
+      this.i18n.t('connectors.toast.cleared', { name: c.name }),
+      this.i18n.t('connectors.toast.title'),
+    );
   }
 
   modelName(m: ModelInfo): string {
@@ -1586,13 +1673,19 @@ export class ResourcesPageComponent implements OnInit {
     this.api.post(`/models/nodes/${encodeURIComponent(key)}/instances`, body).subscribe({
       next: () => {
         this.lifecycleBusy.set(null);
-        this.toast.success('Instance created', 'Serving');
+        this.toast.success(
+          this.i18n.t('resources.toast.instance.created'),
+          this.i18n.t('resources.toast.serving'),
+        );
         this.closeCreate();
         this.loadPortalData();
       },
       error: (err) => {
         this.lifecycleBusy.set(null);
-        this.toast.error(err?.error?.detail || 'Failed to create instance', 'Serving');
+        this.toast.error(
+          err?.error?.detail || this.i18n.t('resources.toast.instance.create_failed'),
+          this.i18n.t('resources.toast.serving'),
+        );
       },
     });
   }
@@ -1614,12 +1707,18 @@ export class ResourcesPageComponent implements OnInit {
       .subscribe({
         next: () => {
           this.lifecycleBusy.set(null);
-          this.toast.success('Instance deleted', 'Serving');
+          this.toast.success(
+            this.i18n.t('resources.toast.instance.deleted'),
+            this.i18n.t('resources.toast.serving'),
+          );
           this.loadPortalData();
         },
         error: (err) => {
           this.lifecycleBusy.set(null);
-          this.toast.error(err?.error?.detail || 'Failed to delete instance', 'Serving');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('resources.toast.instance.delete_failed'),
+            this.i18n.t('resources.toast.serving'),
+          );
         },
       });
   }
@@ -1636,12 +1735,27 @@ export class ResourcesPageComponent implements OnInit {
       .subscribe({
         next: () => {
           this.lifecycleBusy.set(null);
-          this.toast.success(`Instance ${action === 'start' ? 'started' : 'stopped'}`, 'Serving');
+          this.toast.success(
+            this.i18n.t(
+              action === 'start'
+                ? 'resources.toast.instance.started'
+                : 'resources.toast.instance.stopped',
+            ),
+            this.i18n.t('resources.toast.serving'),
+          );
           this.loadPortalData();
         },
         error: (err) => {
           this.lifecycleBusy.set(null);
-          this.toast.error(err?.error?.detail || `Failed to ${action} instance`, 'Serving');
+          this.toast.error(
+            err?.error?.detail ||
+              this.i18n.t(
+                action === 'start'
+                  ? 'resources.toast.instance.start_failed'
+                  : 'resources.toast.instance.stop_failed',
+              ),
+            this.i18n.t('resources.toast.serving'),
+          );
         },
       });
   }

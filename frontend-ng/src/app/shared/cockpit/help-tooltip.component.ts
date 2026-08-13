@@ -22,6 +22,7 @@ import {
   type LocalizedText,
   type Persona,
 } from '@app/core/help.service';
+import { I18nService } from '@app/core/i18n.service';
 
 /**
  * `<ck-help [id]="..." />` — persona-aware help affordance.
@@ -51,7 +52,7 @@ import {
         class="ck-help-button"
         (click)="toggleOpen()"
         [attr.aria-expanded]="open()"
-        [attr.aria-label]="'Help about ' + (titleText() || id())"
+        [attr.aria-label]="i18n.t('common.help.about', { name: titleText() || id() })"
       >
         ?
       </button>
@@ -98,14 +99,14 @@ import {
                     </button>
                   }
                 </div>
-                <div class="ck-help-personas" aria-label="Help language">
+                <div class="ck-help-personas" [attr.aria-label]="i18n.t('common.help.language')">
                   @for (lang of languages; track lang) {
                     <button
                       type="button"
                       class="ck-help-persona"
                       [class.ck-help-persona-active]="help.language() === lang"
                       (click)="switchLanguage(lang)"
-                      [attr.aria-label]="'Switch help language to ' + help.languageLabelOf(lang)"
+                      [attr.aria-label]="i18n.t('common.help.switch_language', { name: help.languageLabelOf(lang) })"
                     >
                       {{ help.languageLabelOf(lang) }}
                     </button>
@@ -303,6 +304,8 @@ import {
 })
 export class HelpTooltipComponent {
   readonly help = inject(HelpService);
+  /** UI-locale chrome only (aria labels); panel copy follows `help.language()`. */
+  readonly i18n = inject(I18nService);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly id = input.required<string>();

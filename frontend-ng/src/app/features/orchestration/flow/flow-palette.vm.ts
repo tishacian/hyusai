@@ -286,14 +286,17 @@ export function summariseUnavailable(
     .join('; ');
 }
 
-/** Hover detail: the operational metadata that used to occupy every row. */
-export function paletteItemDetail(item: PaletteItem): string {
+/** Hover detail: the operational metadata that used to occupy every row.
+ * `description` lets the component pass the locale-resolved copy for
+ * structural primitives (`flow.palette.desc.<type>`); it defaults to the raw
+ * one so pure callers and catalog Skills are untouched. */
+export function paletteItemDetail(item: PaletteItem, description = item.description): string {
   const parts = [item.label, paletteItemSlug(item)];
   if (item.runtimeStatus) parts.push(`runtime ${item.runtimeStatus.replace(/_/g, ' ')}`);
   const usage = paletteItemUsage(item);
   if (usage > 0) parts.push(`${usage} workspace call${usage === 1 ? '' : 's'}`);
-  if (item.description && item.description !== paletteItemSlug(item)) {
-    parts.push(item.description);
+  if (description && description !== paletteItemSlug(item)) {
+    parts.push(description);
   }
   if (item.unavailableReason) {
     parts.push(

@@ -960,6 +960,30 @@ export const FLOW_FR = {
   'flow.triggers.piloting.breaker.armed': 'Coupe-circuit armé',
   'flow.triggers.piloting.runs': 'Voir les exécutions déclenchées',
   'flow.triggers.piloting.failed': 'La mise à jour du déclencheur a échoué.',
+
+  // --- palette · descriptions des primitives structurelles (P3) -----------
+  // Clé construite au rendu depuis le `type` de l’entrée
+  // (`flow.palette.desc.<type>`), avec repli sur la description brute :
+  // les skills du catalogue backend (type 'skill') sont des données et ne
+  // sont jamais mappées ici. Voir flow-palette.component.ts.
+  'flow.palette.desc.source': 'Entrée / objectif du Flow',
+  'flow.palette.desc.source.collection': 'Collection de connaissances comme source de données',
+  'flow.palette.desc.source.sftp_arrival':
+    'Déclencheur à l’arrivée de fichiers (clôture de staging / réconciliation)',
+  'flow.palette.desc.source.deposit_promoted':
+    'Se déclenche quand un opérateur promeut des fichiers du dépôt vers une collection',
+  'flow.palette.desc.source.schedule':
+    'Déclencheur planifié par cron (géré dans le panneau Déclencheurs)',
+  'flow.palette.desc.source.webhook': 'Déclencheur webhook entrant signé HMAC',
+  'flow.palette.desc.decision': 'Branche selon une condition',
+  'flow.palette.desc.fork': 'Déploie des branches parallèles',
+  'flow.palette.desc.join': 'Rassemble des branches parallèles',
+  'flow.palette.desc.loop': 'Répète jusqu’à un budget ou une condition',
+  'flow.palette.desc.sink': 'Là où le Flow livre son résultat',
+  // Groupe sentinelle de la palette : skills visibles sans Capability porteuse
+  // (nom/indice fabriqués par la VM, traduits au rendu via le slug sentinelle).
+  'flow.palette.uncarried.name': 'Sans Capability',
+  'flow.palette.uncarried.hint': 'Visibles ici sans Capability pour les porter',
 } as const satisfies Record<string, string>;
 
 /**
@@ -1897,4 +1921,27 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.triggers.piloting.breaker.armed': 'Circuit armed',
   'flow.triggers.piloting.runs': 'See the triggered runs',
   'flow.triggers.piloting.failed': 'Updating the trigger failed.',
+
+  // --- palette · structural primitive descriptions (P3) -------------------
+  // Key built at render time from the entry `type`
+  // (`flow.palette.desc.<type>`), falling back to the raw description:
+  // backend catalog skills (type 'skill') are data and are never mapped
+  // here. See flow-palette.component.ts.
+  'flow.palette.desc.source': 'Flow input / objective',
+  'flow.palette.desc.source.collection': 'Knowledge collection as a data source',
+  'flow.palette.desc.source.sftp_arrival':
+    'File-arrival trigger (staging close / reconciliation)',
+  'flow.palette.desc.source.deposit_promoted':
+    'Trigger when an operator promotes deposit files to a collection',
+  'flow.palette.desc.source.schedule': 'Cron-driven trigger (managed in Triggers panel)',
+  'flow.palette.desc.source.webhook': 'HMAC inbound webhook trigger',
+  'flow.palette.desc.decision': 'Branch on a condition',
+  'flow.palette.desc.fork': 'Fan out parallel branches',
+  'flow.palette.desc.join': 'Fan in parallel branches',
+  'flow.palette.desc.loop': 'Repeat until a budget or condition',
+  'flow.palette.desc.sink': 'Where the Flow delivers its result',
+  // Palette sentinel group: skills visible without a carrying Capability
+  // (name/hint built by the VM, translated at render via the sentinel slug).
+  'flow.palette.uncarried.name': 'No capability',
+  'flow.palette.uncarried.hint': 'Visible here without a capability carrying them',
 };
