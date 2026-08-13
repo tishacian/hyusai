@@ -13,6 +13,7 @@ import {
   CanonicalApiService,
   type SkillInvocation,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import {
@@ -45,18 +46,18 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
   ],
   template: `
     <ck-object-header
-      eyebrow="Runs · Skill invocation"
+      [eyebrow]="i18n.t('runs.invocation.eyebrow')"
       [title]="title()"
-      subtitle="One concrete execution of a catalog Skill inside a Run."
+      [subtitle]="i18n.t('runs.invocation.subtitle')"
       [kpis]="kpis()"
     >
       <div actions class="inline-flex items-center gap-2">
         <a [routerLink]="['/runs', runId()]" [queryParams]="{ lens: activeLens() }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
-          Back to Run
+          {{ i18n.t('runs.invocation.back') }}
         </a>
         @if (invocation()?.skill_slug) {
           <a [routerLink]="['/skills', invocation()!.skill_slug]" [queryParams]="{ lens: 'build', runId: runId() }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
-            Open catalog Skill
+            {{ i18n.t('runs.invocation.open_skill') }}
           </a>
         }
       </div>
@@ -64,21 +65,21 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
 
     @if (!projectionEnabled()) {
       <div class="ck-surface rounded-md p-6 text-center text-sm text-gray-400" data-testid="skill-invocation-projection-disabled">
-        SkillInvocation perspectives are not enabled for this workspace.
+        {{ i18n.t('runs.invocation.projection_disabled') }}
       </div>
     } @else {
-      <ck-tabs [active]="activeTab()" (activeChange)="onTabChange($event)" ariaLabel="Skill invocation facets">
-        <ck-tab id="overview" label="Overview">
-          <ck-object-perspective objectLabel="SkillInvocation" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
+      <ck-tabs [active]="activeTab()" (activeChange)="onTabChange($event)" [ariaLabel]="i18n.t('runs.invocation.facets_aria')">
+        <ck-tab id="overview" [label]="i18n.t('runs.invocation.tab.overview')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
-        <ck-tab id="io" label="I/O">
-          <ck-object-perspective objectLabel="SkillInvocation" [lens]="activeLens()" facet="io" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
+        <ck-tab id="io" [label]="i18n.t('runs.invocation.tab.io')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="io" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
-        <ck-tab id="runtime" label="Runtime">
-          <ck-object-perspective objectLabel="SkillInvocation" [lens]="activeLens()" facet="runtime" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
+        <ck-tab id="runtime" [label]="i18n.t('runs.invocation.tab.runtime')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="runtime" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
-        <ck-tab id="governance" label="Governance">
-          <ck-object-perspective objectLabel="SkillInvocation" [lens]="activeLens()" facet="governance" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
+        <ck-tab id="governance" [label]="i18n.t('runs.invocation.tab.governance')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="governance" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
       </ck-tabs>
     }
@@ -91,6 +92,7 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   private readonly lensService = inject(LensService);
   private readonly store = inject(ObjectPerspectiveStore);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   private routeSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private invocationSubscription: Subscription | null = null;
@@ -118,14 +120,16 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     return isObjectLens(lens) ? lens : 'build';
   });
   readonly activePerspective = computed(() => this.perspectives()[this.activeLens()] ?? null);
-  readonly title = computed(() => this.invocation()?.skill_slug || this.invocation()?.skill_id || `Invocation ${this.invocationId().slice(0, 12)}`);
+  readonly title = computed(() => this.invocation()?.skill_slug
+    || this.invocation()?.skill_id
+    || this.i18n.t('runs.invocation.title', { id: this.invocationId().slice(0, 12) }));
   readonly kpis = computed<CkObjectKpi[]>(() => {
     const header = this.perspectives()['build']?.header;
     return [
-      { label: 'Status', value: this.factValue(header?.['status']) },
-      { label: 'Latency', value: this.factValue(header?.['latency'], ' ms') },
-      { label: 'Cost', value: this.factValue(header?.['cost']) },
-      { label: 'Skill version', value: this.factValue(header?.['skill_version']) },
+      { label: this.i18n.t('runs.invocation.kpi.status'), value: this.factValue(header?.['status']) },
+      { label: this.i18n.t('runs.invocation.kpi.latency'), value: this.msFactValue(header?.['latency']) },
+      { label: this.i18n.t('runs.invocation.kpi.cost'), value: this.factValue(header?.['cost']) },
+      { label: this.i18n.t('runs.invocation.kpi.skill_version'), value: this.factValue(header?.['skill_version']) },
     ];
   });
 
@@ -294,6 +298,17 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
       return `${value}${suffix}`;
     }
     return String(fact.value);
+  }
+
+  /**
+   * Millisecond facts arrive as raw floats ("652.8888740576804 ms" reached
+   * production); operators read whole milliseconds.
+   */
+  private msFactValue(fact: { state?: string; value?: unknown } | undefined): string {
+    if (!fact || fact.state !== 'available' || fact.value == null) return '—';
+    const ms = typeof fact.value === 'number' ? fact.value : Number(fact.value);
+    if (!Number.isFinite(ms)) return String(fact.value);
+    return `${Math.round(ms)} ms`;
   }
 }
 

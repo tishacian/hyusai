@@ -14,6 +14,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { TabShortcutService } from '@app/core/tab-shortcut.service';
 import { GlyphComponent } from './glyph.component';
 
@@ -74,7 +75,7 @@ export class CkTabComponent {
   template: `
     <div
       role="tablist"
-      [attr.aria-label]="ariaLabel"
+      [attr.aria-label]="ariaLabel || i18n.t('common.tabs.aria')"
       [style.display]="'flex'"
       [style.alignItems]="'stretch'"
       [style.gap.px]="2"
@@ -140,9 +141,9 @@ export class CkTabComponent {
             [style.display]="'inline-flex'"
             [style.alignItems]="'center'"
             [style.gap.px]="4"
-            title="More tabs"
+            [title]="i18n.t('common.tabs.more_title')"
           >
-            More
+            {{ i18n.t('common.tabs.more') }}
             <ck-glyph name="arrow-down" [size]="10" color="var(--ck-fg-4)" />
           </button>
           @if (overflowOpen()) {
@@ -195,8 +196,11 @@ export class CkTabComponent {
 })
 export class CkTabsComponent implements AfterContentInit, OnDestroy {
   @ContentChildren(CkTabComponent) private readonly tabQuery!: QueryList<CkTabComponent>;
-  @Input() ariaLabel = 'Object facets';
+  /** Defaults to the translated 'Object facets' when consumers pass nothing. */
+  @Input() ariaLabel = '';
   @Input() maxVisible = 5;
+
+  protected readonly i18n = inject(I18nService);
 
   private _active: string | null = null;
   @Input()

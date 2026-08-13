@@ -17,6 +17,7 @@ import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.compon
 import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import {
@@ -46,14 +47,14 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
   template: `
     @if (projectionEnabled()) {
       <ck-object-header
-        eyebrow="Runs · Runtime execution"
+        [eyebrow]="i18n.t('runs.detail.eyebrow')"
         [title]="titleLabel()"
         [subtitle]="descriptionLabel()"
         [kpis]="perspectiveKpis()"
       >
         <div actions class="inline-flex items-center gap-2">
           <a routerLink="/runs" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
-            <app-icon name="arrow-left" [size]="12" /> All runs
+            <app-icon name="arrow-left" [size]="12" /> {{ i18n.t('runs.detail.all_runs') }}
           </a>
           @if (run()?.system_id) {
             <a
@@ -61,23 +62,23 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                 capabilityId: run()!.capability_id || navigation.capabilityId()
               })"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-            ><app-icon name="box" [size]="12" /> Open system</a>
+            ><app-icon name="box" [size]="12" /> {{ i18n.t('runs.detail.open_system') }}</a>
           }
           <button type="button" (click)="refresh(true)" [disabled]="loading()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
-            <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" /> Refresh
+            <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" /> {{ i18n.t('common.refresh') }}
           </button>
         </div>
       </ck-object-header>
 
-      <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" ariaLabel="Run facets">
-        <ck-tab id="overview" label="Overview">
-          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+      <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
+        <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
         </ck-tab>
-        <ck-tab id="invocations" label="Invocations">
-          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="invocations" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        <ck-tab id="invocations" [label]="i18n.t('runs.detail.tab.invocations')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="invocations" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
           @if (skillInvocationProjectionEnabled() && skillInvocations().length > 0) {
             <section class="ck-surface rounded-md p-4 mt-4" data-testid="run-skill-invocation-links">
-              <h3 class="text-xs font-semibold text-white mb-3">Runtime SkillInvocations</h3>
+              <h3 class="text-xs font-semibold text-white mb-3">{{ i18n.t('runs.detail.invocations.title') }}</h3>
               <div class="flex flex-col gap-2">
                 @for (inv of skillInvocations(); track inv.id || $index) {
                   @if (inv.id) {
@@ -91,7 +92,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                       class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
                     >
                       <span class="font-mono text-cyan-200">{{ inv.skill_slug || inv.skill_id || inv.id }}</span>
-                      <span class="text-gray-400">{{ inv.status || 'unknown' }}</span>
+                      <span class="text-gray-400">{{ statusLabel(inv.status || 'unknown') }}</span>
                     </a>
                   }
                 }
@@ -99,19 +100,19 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             </section>
           }
         </ck-tab>
-        <ck-tab id="payloads" label="Payloads">
-          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="payloads" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        <ck-tab id="payloads" [label]="i18n.t('runs.detail.tab.payloads')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="payloads" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
         </ck-tab>
-        <ck-tab id="checkpoints" label="Checkpoints">
-          <ck-object-perspective objectLabel="Run" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
+        <ck-tab id="checkpoints" [label]="i18n.t('runs.detail.checkpoints')">
+          <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
         </ck-tab>
       </ck-tabs>
     } @else {
     <ck-page-frame
-      eyebrow="Measure · Runs"
+      [eyebrow]="i18n.t('runs.list.eyebrow')"
       [title]="titleLabel()"
       [description]="descriptionLabel()"
-      [status]="run()?.status || ''"
+      [status]="statusLabel(run()?.status)"
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
         <a
@@ -119,7 +120,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
         >
           <app-icon name="arrow-left" [size]="12" />
-          All runs
+          {{ i18n.t('runs.detail.all_runs') }}
         </a>
         @if (run()?.system_id) {
           <a
@@ -129,7 +130,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
           >
             <app-icon name="box" [size]="12" />
-            Open system
+            {{ i18n.t('runs.detail.open_system') }}
           </a>
         }
         <button
@@ -139,7 +140,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
           [disabled]="loading()"
         >
           <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
-          Refresh
+          {{ i18n.t('common.refresh') }}
         </button>
         @if (rerunnable()) {
           <button
@@ -147,10 +148,10 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
             (click)="rerun()"
             [disabled]="rerunning()"
-            title="Re-execute this DAG with the same input and the flow as it stood then"
+            [title]="i18n.t('runs.detail.rerun_hint')"
           >
             <app-icon name="history" [size]="12" />
-            {{ rerunning() ? 'Rerunning…' : 'Rerun' }}
+            {{ rerunning() ? i18n.t('runs.detail.rerunning') : i18n.t('runs.detail.rerun') }}
           </button>
         }
       </div>
@@ -163,8 +164,8 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
       } @else if (!run()) {
         <app-empty-state
           icon="alert-triangle"
-          title="Run not found"
-          description="This run may have been purged, or the id is incorrect."
+          [title]="i18n.t('runs.detail.not_found.title')"
+          [description]="i18n.t('runs.detail.not_found.description')"
         />
       } @else {
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
@@ -177,7 +178,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             <div class="flex items-center gap-3 flex-wrap">
               <div class="flex items-center gap-2">
                 <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">
-                  VALUE SOURCE
+                  {{ i18n.t('runs.detail.value_source.label') }}
                 </span>
                 <span
                   class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded"
@@ -188,7 +189,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                   [class.text-gray-400]="!run()!.outcome?.value_source || run()!.outcome?.value_source === 'unset'"
                   [class.bg-white\\/5]="!run()!.outcome?.value_source || run()!.outcome?.value_source === 'unset'"
                 >
-                  {{ run()!.outcome?.value_source || 'unset' }}
+                  {{ valueSourceLabel() }}
                 </span>
               </div>
 
@@ -198,10 +199,10 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                   <button
                     type="button"
                     (click)="enableOverride()"
-                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition font-mono tracking-wider"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition font-mono tracking-wider uppercase"
                   >
                     <app-icon name="edit-3" [size]="11" />
-                    OVERRIDE VALUE
+                    {{ i18n.t('runs.detail.override.button') }}
                   </button>
                 </div>
               } @else {
@@ -211,7 +212,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                     step="0.01"
                     [value]="overrideValue()"
                     (input)="overrideValue.set(+asInput($event).value)"
-                    placeholder="Actual value"
+                    [placeholder]="i18n.t('runs.detail.override.value_placeholder')"
                     class="font-mono text-xs tabular-nums"
                     style="width:110px; padding:4px 8px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); border-radius:3px; color:var(--ck-fg-1);"
                   />
@@ -219,7 +220,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                     type="text"
                     [value]="overrideNote()"
                     (input)="overrideNote.set(asInput($event).value)"
-                    placeholder="Why this override?"
+                    [placeholder]="i18n.t('runs.detail.override.note_placeholder')"
                     class="font-mono text-xs"
                     style="min-width:200px; padding:4px 8px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); border-radius:3px; color:var(--ck-fg-1);"
                   />
@@ -227,25 +228,25 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                     type="button"
                     (click)="submitOverride()"
                     [disabled]="submittingOverride()"
-                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium font-mono tracking-wider"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium font-mono tracking-wider uppercase"
                     style="background:var(--ck-signal-pos); color:var(--ck-on-signal);"
                     [style.opacity]="submittingOverride() ? '0.4' : '1'"
                   >
-                    {{ submittingOverride() ? 'SAVING…' : 'SAVE' }}
+                    {{ submittingOverride() ? i18n.t('runs.detail.override.saving') : i18n.t('common.save') }}
                   </button>
                   <button
                     type="button"
                     (click)="cancelOverride()"
-                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 font-mono tracking-wider"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 font-mono tracking-wider uppercase"
                   >
-                    CANCEL
+                    {{ i18n.t('common.cancel') }}
                   </button>
                 </div>
               }
             </div>
             @if (run()!.outcome?.operator_value_note) {
               <p class="text-[11px] text-gray-400 mt-2 font-mono">
-                <span class="text-gray-500">NOTE:</span>
+                <span class="text-gray-500 uppercase">{{ i18n.t('runs.detail.override.note_label') }}</span>
                 {{ run()!.outcome!.operator_value_note }}
               </p>
             }
@@ -259,7 +260,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
               <app-icon name="alert-triangle" [size]="14" class="text-red-400 mt-0.5" />
               <div class="min-w-0">
                 <div class="text-xs font-semibold text-red-300 mb-1">
-                  Run failed
+                  {{ i18n.t('runs.detail.error.title') }}
                 </div>
                 <div class="text-xs font-mono text-red-200/80 break-all">
                   {{ run()!.error }}
@@ -274,7 +275,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             <header class="px-4 py-2.5 border-b border-emerald-400/10 flex items-center gap-2">
               <app-icon name="git-branch" [size]="14" class="text-emerald-300" />
               <h2 class="text-xs uppercase tracking-wider text-emerald-200 font-semibold">
-                Retrieval decision
+                {{ i18n.t('runs.detail.retrieval.title') }}
               </h2>
               <span class="ml-auto font-mono text-[10px] text-emerald-300/70">
                 {{ trace.trace_source || 'runtime' }}
@@ -282,35 +283,35 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
             </header>
             <div class="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-4">
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Route</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.route') }}</div>
                 <div class="mt-1 font-mono text-sm text-white">{{ routeLabel(trace) }}</div>
               </div>
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Query type</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.query_type') }}</div>
                 <div class="mt-1 font-mono text-sm text-gray-200">{{ trace.query_type || '—' }}</div>
               </div>
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Latency</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.latency') }}</div>
                 <div class="mt-1 font-mono text-sm text-gray-200">{{ trace.latency_profile || 'default' }}</div>
               </div>
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Controls</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.controls') }}</div>
                 <div class="mt-1 font-mono text-sm text-gray-200">{{ qualityLine(trace) }}</div>
               </div>
             </div>
             <div class="px-4 pb-3 grid gap-2 md:grid-cols-2">
               <div class="rounded border border-white/5 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Reason</div>
-                <p class="mt-1 text-sm text-gray-300">{{ trace.route_reason || trace.summary || 'Runtime route selected.' }}</p>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.reason') }}</div>
+                <p class="mt-1 text-sm text-gray-300">{{ trace.route_reason || trace.summary || i18n.t('runs.detail.retrieval.reason_fallback') }}</p>
               </div>
               <div class="rounded border border-white/5 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Tradeoff</div>
-                <p class="mt-1 text-sm text-gray-300">{{ trace.tradeoff || 'No tradeoff recorded.' }}</p>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ i18n.t('runs.detail.retrieval.tradeoff') }}</div>
+                <p class="mt-1 text-sm text-gray-300">{{ trace.tradeoff || i18n.t('runs.detail.retrieval.tradeoff_fallback') }}</p>
               </div>
             </div>
             <details class="mx-4 mb-4 rounded border border-white/5 bg-black/20">
               <summary class="cursor-pointer px-3 py-2 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
-                Decision JSON
+                {{ i18n.t('runs.detail.retrieval.json') }}
               </summary>
               <pre class="px-3 pb-3 text-[10px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ asJson(trace) }}</pre>
             </details>
@@ -322,15 +323,15 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
           <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
             <app-icon name="list-tree" [size]="14" class="text-cyan-400" />
             <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">
-              Skill trail
+              {{ i18n.t('runs.detail.trail.title') }}
             </h2>
             <span class="ml-auto font-mono text-[10px] text-gray-500">
-              {{ skillInvocations().length }} step{{ skillInvocations().length === 1 ? '' : 's' }}
+              {{ stepsLabel() }}
             </span>
           </header>
           @if (skillInvocations().length === 0) {
             <div class="px-4 py-8 text-center text-xs text-gray-500 font-mono">
-              No skill invocations captured for this run.
+              {{ i18n.t('runs.detail.trail.empty') }}
             </div>
           } @else {
             <ol class="divide-y divide-white/5">
@@ -350,7 +351,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                             systemId: run()!.system_id
                           }"
                           class="font-mono text-sm text-white truncate hover:text-cyan-300"
-                        >{{ inv.skill_slug || inv.skill_id || 'Skill invocation' }}</a>
+                        >{{ inv.skill_slug || inv.skill_id || i18n.t('runs.detail.trail.invocation_fallback') }}</a>
                       } @else if (inv.skill_slug) {
                         <a
                           [routerLink]="navigation.objectUrlTree('skill', inv.skill_slug, {
@@ -362,7 +363,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                         >{{ inv.skill_slug }}</a>
                       } @else {
                         <div class="font-mono text-sm text-white truncate">
-                          {{ inv.skill_id || 'skill' }}
+                          {{ inv.skill_id || i18n.t('runs.detail.trail.skill_fallback') }}
                         </div>
                       }
                       <div class="flex items-center gap-2 flex-shrink-0">
@@ -377,7 +378,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                           [class.text-gray-400]="inv.status === 'pending' || !inv.status"
                           [class.bg-white\\/5]="inv.status === 'pending' || !inv.status"
                         >
-                          {{ inv.status || 'pending' }}
+                          {{ statusLabel(inv.status || 'pending') }}
                         </span>
                         @if (inv.latency_ms != null) {
                           <span class="text-[10px] font-mono text-gray-400 tabular-nums">
@@ -404,7 +405,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                     @if (hasInvocationDetails(inv)) {
                       <details class="mt-2 rounded border border-white/5 bg-black/20">
                         <summary class="cursor-pointer px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
-                          Invocation audit
+                          {{ i18n.t('runs.detail.trail.audit') }}
                         </summary>
                         <pre class="px-2 pb-2 text-[10px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ invocationDetailsJson(inv) }}</pre>
                       </details>
@@ -421,14 +422,14 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
           <section class="rounded-lg border border-white/5 bg-white/[0.02]">
             <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
               <app-icon name="arrow-right-to-line" [size]="14" class="text-cyan-300" />
-              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">Input</h2>
+              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">{{ i18n.t('runs.detail.input') }}</h2>
             </header>
             <pre class="px-4 py-3 text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ inputJson() }}</pre>
           </section>
           <section class="rounded-lg border border-white/5 bg-white/[0.02]">
             <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
               <app-icon name="target" [size]="14" class="text-emerald-300" />
-              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">Outcome</h2>
+              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">{{ i18n.t('runs.detail.outcome') }}</h2>
             </header>
             <pre class="px-4 py-3 text-[11px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ outcomeJson() }}</pre>
           </section>
@@ -438,7 +439,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
           <section class="rounded-lg border border-white/5 bg-white/[0.02] mt-3">
             <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
               <app-icon name="bookmark" [size]="14" class="text-sky-300" />
-              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">Checkpoints</h2>
+              <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">{{ i18n.t('runs.detail.checkpoints') }}</h2>
               <span class="ml-auto font-mono text-[10px] text-gray-500">{{ checkpoints().length }}</span>
             </header>
             <ul class="divide-y divide-white/5">
@@ -463,6 +464,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   private readonly lensService = inject(LensService);
   private readonly perspectiveStore = inject(ObjectPerspectiveStore);
   protected readonly navigation = inject(ZoomContextService);
+  readonly i18n = inject(I18nService);
   private routeSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private loadSubscription: Subscription | null = null;
@@ -498,10 +500,10 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly perspectiveKpis = computed<CkObjectKpi[]>(() => {
     const header = this.perspectives()['build']?.header;
     return [
-      { label: 'Status', value: this.factValue(header?.['status']) },
-      { label: 'Duration', value: this.factValue(header?.['duration'], ' ms') },
-      { label: 'Invocations', value: this.factValue(header?.['invocation_count']) },
-      { label: 'Confidence', value: this.factValue(header?.['confidence']) },
+      { label: this.i18n.t('runs.detail.kpi.status'), value: this.factValue(header?.['status']) },
+      { label: this.i18n.t('runs.detail.kpi.duration'), value: this.msFactValue(header?.['duration']) },
+      { label: this.i18n.t('runs.detail.kpi.invocations'), value: this.factValue(header?.['invocation_count']) },
+      { label: this.i18n.t('runs.detail.kpi.confidence'), value: this.factValue(header?.['confidence']) },
     ];
   });
 
@@ -519,18 +521,27 @@ export class RunViewComponent implements OnInit, OnDestroy {
 
   readonly titleLabel = computed(() => {
     const id = this.runId();
-    if (!id) return 'Run';
-    return `Run ${id.slice(0, 12)}…`;
+    if (!id) return this.i18n.t('runs.detail.object_label');
+    return this.i18n.t('runs.detail.title', { id: id.slice(0, 12) });
   });
 
   readonly descriptionLabel = computed(() => {
     const r = this.run();
-    if (!r) return 'Drill-down on a single execution.';
+    if (!r) return this.i18n.t('runs.detail.description');
     const bits: string[] = [];
-    if (r.trigger) bits.push(`Trigger: ${r.trigger}`);
-    if (r.system_id) bits.push(`System: ${r.system_id}`);
-    if (r.started_at) bits.push(`Started: ${this.formatTime(r.started_at)}`);
-    return bits.join(' · ') || 'Drill-down on a single execution.';
+    if (r.trigger) bits.push(this.i18n.t('runs.detail.meta.trigger', { value: r.trigger }));
+    if (r.system_id) bits.push(this.i18n.t('runs.detail.meta.system', { value: r.system_id }));
+    if (r.started_at) bits.push(this.i18n.t('runs.detail.meta.started', { value: this.formatTime(r.started_at) }));
+    return bits.join(' · ') || this.i18n.t('runs.detail.description');
+  });
+
+  /** "5 steps" under the Skill trail header — singular and plural are two keys. */
+  readonly stepsLabel = computed(() => {
+    const count = this.skillInvocations().length;
+    return this.i18n.t(
+      count === 1 ? 'runs.detail.trail.step' : 'runs.detail.trail.steps',
+      { count },
+    );
   });
 
   readonly inputJson = computed(() => {
@@ -656,6 +667,26 @@ export class RunViewComponent implements OnInit, OnDestroy {
 
   private applyRequestedFacet(facet: string | null): void {
     this.activePerspectiveTab.set(isRunPerspectiveFacet(facet) ? facet : 'overview');
+  }
+
+  /**
+   * Translate a run or invocation status, falling back to the raw API value
+   * when the backend grows a status the dictionary hasn't caught up with — an
+   * unknown status must stay visible, not turn into a blank chip.
+   */
+  statusLabel(status: string | null | undefined): string {
+    if (!status) return '';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
+
+  /** Same fallback contract as {@link statusLabel}, for `outcome.value_source`. */
+  valueSourceLabel(): string {
+    const source = this.run()?.outcome?.value_source || 'unset';
+    const key = `runs.detail.value_source.${source}`;
+    const label = this.i18n.t(key);
+    return label === key ? source : label;
   }
 
   formatTime(ts: string | undefined): string {
@@ -895,6 +926,17 @@ export class RunViewComponent implements OnInit, OnDestroy {
       return `${value}${suffix}`;
     }
     return String(fact.value);
+  }
+
+  /**
+   * Millisecond facts arrive as raw floats ("652.8888740576804 ms" reached
+   * production); operators read whole milliseconds.
+   */
+  private msFactValue(fact: { state?: string; value?: unknown } | undefined): string {
+    if (!fact || fact.state !== 'available' || fact.value == null) return '—';
+    const ms = typeof fact.value === 'number' ? fact.value : Number(fact.value);
+    if (!Number.isFinite(ms)) return String(fact.value);
+    return `${Math.round(ms)} ms`;
   }
 
   private overrideIsCurrent(

@@ -24,12 +24,19 @@ import { CHAT_EN, CHAT_FR } from './i18n/chat.dict';
 import { CHROME_EN, CHROME_FR } from './i18n/chrome.dict';
 import { CLIENT360_EN, CLIENT360_FR } from './i18n/client360.dict';
 import { COMMON_EN, COMMON_FR } from './i18n/common.dict';
+import { CONTEXTS_EN, CONTEXTS_FR } from './i18n/contexts.dict';
+import { DEPOSIT_EN, DEPOSIT_FR } from './i18n/deposit.dict';
 import { FLOW_EN, FLOW_FR } from './i18n/flow.dict';
+import { GOVERNANCE_EN, GOVERNANCE_FR } from './i18n/governance.dict';
 import { HYPERVISOR_EN, HYPERVISOR_FR } from './i18n/hypervisor.dict';
+import { KNOWLEDGE_EN, KNOWLEDGE_FR } from './i18n/knowledge.dict';
 import { MISSION_EN, MISSION_FR } from './i18n/mission.dict';
+import { RESOURCES_EN, RESOURCES_FR } from './i18n/resources.dict';
 import { RUNS_EN, RUNS_FR } from './i18n/runs.dict';
+import { SETTINGS_EN, SETTINGS_FR } from './i18n/settings.dict';
 import { SKILLS_EN, SKILLS_FR } from './i18n/skills.dict';
 import { SYSTEMS_EN, SYSTEMS_FR } from './i18n/systems.dict';
+import { TASKS_EN, TASKS_FR } from './i18n/tasks.dict';
 
 /**
  * Domain registry — the single place that says which key prefixes belong to
@@ -56,6 +63,17 @@ export const I18N_DOMAINS = {
     fr: HYPERVISOR_FR,
     en: HYPERVISOR_EN,
   },
+  deposit: { prefixes: ['deposit'], fr: DEPOSIT_FR, en: DEPOSIT_EN },
+  knowledge: { prefixes: ['knowledge'], fr: KNOWLEDGE_FR, en: KNOWLEDGE_EN },
+  contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
+  governance: { prefixes: ['governance'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
+  settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
+  tasks: { prefixes: ['tasks'], fr: TASKS_FR, en: TASKS_EN },
+  resources: {
+    prefixes: ['resources', 'connectors', 'apps'],
+    fr: RESOURCES_FR,
+    en: RESOURCES_EN,
+  },
 } as const satisfies Record<
   string,
   { prefixes: readonly string[]; fr: Record<string, string>; en: Record<string, string> }
@@ -76,6 +94,13 @@ export const FR_DICT = {
   ...CLIENT360_FR,
   ...MISSION_FR,
   ...HYPERVISOR_FR,
+  ...DEPOSIT_FR,
+  ...KNOWLEDGE_FR,
+  ...CONTEXTS_FR,
+  ...GOVERNANCE_FR,
+  ...SETTINGS_FR,
+  ...TASKS_FR,
+  ...RESOURCES_FR,
 } as const satisfies Record<string, string>;
 
 export type I18nKey = keyof typeof FR_DICT;
@@ -93,4 +118,11 @@ export const EN_DICT: Record<I18nKey, string> = {
   ...CLIENT360_EN,
   ...MISSION_EN,
   ...HYPERVISOR_EN,
+  ...DEPOSIT_EN,
+  ...KNOWLEDGE_EN,
+  ...CONTEXTS_EN,
+  ...GOVERNANCE_EN,
+  ...SETTINGS_EN,
+  ...TASKS_EN,
+  ...RESOURCES_EN,
 };

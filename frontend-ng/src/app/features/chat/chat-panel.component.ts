@@ -355,12 +355,12 @@ interface ReasoningTemplate {
 type RagModeChoice = 'auto' | 'naive' | 'hybrid' | 'hah' | 'chah';
 type VoiceTransportChoice = 'batch_http' | 'backend_ws';
 
-const RAG_MODE_CHOICES: { slug: RagModeChoice; label: string; hint: string }[] = [
-  { slug: 'auto', label: 'Auto', hint: 'Use workspace default' },
-  { slug: 'naive', label: 'Naive', hint: 'Single-pass vector retrieval' },
-  { slug: 'hybrid', label: 'Hybrid', hint: 'Sparse + dense, budget-aware' },
-  { slug: 'hah', label: 'HAH', hint: 'Hierarchical Answer Harvesting' },
-  { slug: 'chah', label: 'C-HAH', hint: 'Composite HAH, budget-aware' },
+const RAG_MODE_CHOICES: { slug: RagModeChoice; labelKey: string; hintKey: string }[] = [
+  { slug: 'auto', labelKey: 'chat.controls.auto', hintKey: 'chat.rag.auto_hint' },
+  { slug: 'naive', labelKey: 'chat.rag.naive', hintKey: 'chat.rag.naive_hint' },
+  { slug: 'hybrid', labelKey: 'chat.rag.hybrid', hintKey: 'chat.rag.hybrid_hint' },
+  { slug: 'hah', labelKey: 'chat.rag.hah', hintKey: 'chat.rag.hah_hint' },
+  { slug: 'chah', labelKey: 'chat.rag.chah', hintKey: 'chat.rag.chah_hint' },
 ];
 
 const RAG_SLUG_TO_PRESET: Record<RagModeChoice, string> = {
@@ -386,7 +386,10 @@ const RAG_SLUG_TO_PRESET: Record<RagModeChoice, string> = {
  *    is shown in emerald.
  *  - ``fair``      — normalised threshold above which it's shown in amber;
  *    anything below drops to red.
- *  - ``description`` — operator-facing tooltip text.
+ *
+ * The operator-facing tooltip lives in the i18n dictionary under
+ * ``chat.metrics.desc.<key>`` (see ``metricDescription()``), so the guard
+ * can keep FR/EN copy in parity.
  *
  * Keep the keys in sync with ``backend/app/services/metrics/evaluator.py``
  * (and any future evaluator plugged in). Unknown keys fall back to the
@@ -397,7 +400,6 @@ interface MetricSpec {
   max: number;
   good: number;
   fair: number;
-  description: string;
 }
 
 const METRIC_REGISTRY: Record<string, MetricSpec> = {
@@ -406,21 +408,18 @@ const METRIC_REGISTRY: Record<string, MetricSpec> = {
     max: 1,
     good: 0.7,
     fair: 0.4,
-    description: 'Cosine similarity between query and response embeddings.',
   },
   factuality: {
     polarity: 'higher',
     max: 1,
     good: 0.7,
     fair: 0.4,
-    description: 'Max cosine similarity between response and retrieved chunks.',
   },
   coherence: {
     polarity: 'higher',
     max: 1,
     good: 0.7,
     fair: 0.4,
-    description: 'Mean cosine similarity between consecutive response sentences.',
   },
   hhem: {
     polarity: 'higher',
@@ -434,7 +433,6 @@ const METRIC_REGISTRY: Record<string, MetricSpec> = {
     max: 0.5,
     good: 0.55,
     fair: 0.25,
-    description: 'Grounding = mean_sim × factuality, squashed by 1/(1+mf). Higher = less hallucinated. Realistic band ~0.28–0.38.',
   },
   adv_hhem: {
     polarity: 'higher',
@@ -447,14 +445,12 @@ const METRIC_REGISTRY: Record<string, MetricSpec> = {
     max: 0.5,
     good: 0.3,
     fair: 0.1,
-    description: 'Compound grounding × coherence × relevance. Very penalising by design (product of 4 cosine scores). Realistic band ~0.10–0.20.',
   },
   hallucination_rate: {
     polarity: 'lower',
     max: 1,
     good: 0.7,
     fair: 0.4,
-    description: 'Share of claims that could not be grounded. Lower is better.',
   },
 };
 
@@ -463,7 +459,6 @@ const DEFAULT_METRIC_SPEC: MetricSpec = {
   max: 1,
   good: 0.7,
   fair: 0.4,
-  description: '',
 };
 
 const STEP_ICONS: Record<string, string> = {
@@ -617,10 +612,10 @@ const STEP_ICONS: Record<string, string> = {
         <div class="chat-control-main">
           <div
             class="chat-mode-chip"
-            title="Chat runtime used for answer generation. Provider details are hidden in demo-safe presentation."
+            [title]="i18n.t('chat.controls.runtime_hint')"
           >
             <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
-            <span>Chat</span>
+            <span>{{ i18n.t('chat.title') }}</span>
             <span class="chat-mode-model">{{ chatRuntimeLabel() }}</span>
           </div>
 
@@ -628,10 +623,10 @@ const STEP_ICONS: Record<string, string> = {
             <div class="source-picker" [title]="assistantScopeLabel()">
               <span class="source-picker-label">
                 <app-icon name="database" [size]="12" />
-                Sources
+                {{ i18n.t('chat.controls.sources') }}
                 <span
                   class="control-info-dot"
-                  title="Select the workspace source searched by retrieval. Auto uses the assistant profile default when available, otherwise the workspace context."
+                  [title]="i18n.t('chat.controls.sources_info')"
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -642,8 +637,8 @@ const STEP_ICONS: Record<string, string> = {
                   [ngModel]="selectedSource()"
                   (ngModelChange)="onSourceSelectionChange($event)"
                 >
-                  <option value="auto">Auto · {{ autoSourceLabel() }}</option>
-                  <option value="workspace_default">Default context</option>
+                  <option value="auto">{{ i18n.t('chat.controls.source_auto', { label: autoSourceLabel() }) }}</option>
+                  <option value="workspace_default">{{ i18n.t('chat.controls.source_default') }}</option>
                   @for (scope of knowledgeScopeOptions(); track scope.key) {
                     <option [value]="scope.key">{{ scope.label || scope.key }}</option>
                   }
@@ -655,13 +650,13 @@ const STEP_ICONS: Record<string, string> = {
           }
 
           @if (contextId()) {
-            <div class="session-doc-mode" title="Choose whether uploaded session documents replace or complement the selected workspace sources.">
+            <div class="session-doc-mode" [title]="i18n.t('chat.controls.session_docs_hint')">
               <span class="session-doc-label">
                 <app-icon name="files" [size]="12" />
-                Session docs
+                {{ i18n.t('chat.controls.session_docs') }}
                 <span
                   class="control-info-dot"
-                  title="Only searches uploaded session docs. + Sources searches session docs plus the selected workspace sources."
+                  [title]="i18n.t('chat.controls.session_docs_info')"
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -672,7 +667,7 @@ const STEP_ICONS: Record<string, string> = {
                 [class.session-doc-mode-active]="sessionDocsMode() === 'replace'"
                 (click)="setSessionDocsMode('replace')"
               >
-                Only
+                {{ i18n.t('chat.controls.session_docs_only') }}
               </button>
               <button
                 type="button"
@@ -680,7 +675,7 @@ const STEP_ICONS: Record<string, string> = {
                 [class.session-doc-mode-active]="sessionDocsMode() === 'combine'"
                 (click)="setSessionDocsMode('combine')"
               >
-                + Sources
+                {{ i18n.t('chat.controls.session_docs_combine') }}
               </button>
             </div>
             <span class="text-gray-600">·</span>
@@ -688,10 +683,10 @@ const STEP_ICONS: Record<string, string> = {
 
           <div class="mini-control" [title]="ragModeHint()">
             <span class="mini-control-label">
-              Retrieval
+              {{ i18n.t('chat.controls.retrieval') }}
               <span
                 class="control-info-dot"
-                title="Choose how {{ brand() }} searches indexed sources for this question. Auto follows workspace/source defaults."
+                [title]="i18n.t('chat.controls.retrieval_info')"
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -703,7 +698,7 @@ const STEP_ICONS: Record<string, string> = {
                 (ngModelChange)="ragModeOverride.set($event)"
               >
                 @for (m of ragModeChoices; track m.slug) {
-                  <option [value]="m.slug">{{ m.label }}</option>
+                  <option [value]="m.slug">{{ i18n.t(m.labelKey) }}</option>
                 }
               </select>
               <app-icon name="chevron-down" [size]="12" class="mini-select-chevron" />
@@ -715,10 +710,10 @@ const STEP_ICONS: Record<string, string> = {
 
           <div class="mini-control" [title]="promptTypeHint()">
             <span class="mini-control-label">
-              Reasoning
+              {{ i18n.t('chat.controls.reasoning') }}
               <span
                 class="control-info-dot"
-                title="Choose the answer framing. Auto lets {{ brand() }} infer the best reasoning template from the question."
+                [title]="i18n.t('chat.controls.reasoning_info')"
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -729,7 +724,7 @@ const STEP_ICONS: Record<string, string> = {
                 [ngModel]="promptType()"
                 (ngModelChange)="promptType.set($event)"
               >
-                <option value="auto">Auto</option>
+                <option value="auto">{{ i18n.t('chat.controls.auto') }}</option>
                 @for (t of reasoningTemplates(); track t.slug) {
                   <option [value]="t.slug">{{ t.label }}</option>
                 }
@@ -743,7 +738,7 @@ const STEP_ICONS: Record<string, string> = {
             <button
               type="button"
               class="p-1.5 rounded hover:bg-white/5 text-cyan-300 hover:text-cyan-200 transition"
-              [title]="ttsPaused() ? 'Resume voice playback' : 'Pause voice playback'"
+              [title]="ttsPaused() ? i18n.t('chat.voice.resume_playback') : i18n.t('chat.voice.pause_playback')"
               (click)="pauseResumeTts()"
             >
               <app-icon
@@ -756,7 +751,7 @@ const STEP_ICONS: Record<string, string> = {
             type="button"
             class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
             [class.text-cyan-400]="ttsEnabled()"
-            [title]="ttsEnabled() ? 'Voice output on' : 'Voice output off'"
+            [title]="ttsEnabled() ? i18n.t('chat.voice.output_on') : i18n.t('chat.voice.output_off')"
             (click)="toggleTTS()"
           >
             <app-icon [name]="ttsEnabled() ? 'volume-2' : 'volume-x'" [size]="14" />
@@ -764,7 +759,7 @@ const STEP_ICONS: Record<string, string> = {
           <button
             type="button"
             class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
-            title="Clear conversation"
+            [title]="i18n.t('chat.controls.clear')"
             (click)="clearConversation()"
           >
             <app-icon name="trash-2" [size]="14" />
@@ -814,8 +809,8 @@ const STEP_ICONS: Record<string, string> = {
       @if (isDemoMode() && !demoVoiceChipsDismissed() && demoVoiceChips().length) {
         <div class="demo-voice-chips">
           <div class="demo-voice-chips-head">
-            <span>Phrases demo (fallback voix)</span>
-            <button type="button" class="demo-voice-dismiss" (click)="demoVoiceChipsDismissed.set(true)">Masquer</button>
+            <span>{{ i18n.t('chat.demo.voice_chips') }}</span>
+            <button type="button" class="demo-voice-dismiss" (click)="demoVoiceChipsDismissed.set(true)">{{ i18n.t('chat.demo.voice_chips_hide') }}</button>
           </div>
           <div class="demo-voice-chip-row">
             @for (chip of demoVoiceChips(); track chip.action_id) {
@@ -837,8 +832,8 @@ const STEP_ICONS: Record<string, string> = {
         <div class="action-surface-bar">
           <span class="action-surface-label">
             <app-icon name="zap" [size]="12" />
-            Actions
-            <span class="control-info-dot" title="Workspace/system action manifests available to this chat. Voice can resolve the same safe commands from final transcripts.">
+            {{ i18n.t('chat.actions.title') }}
+            <span class="control-info-dot" [title]="i18n.t('chat.actions.info')">
               <app-icon name="info" [size]="10" />
             </span>
           </span>
@@ -851,7 +846,7 @@ const STEP_ICONS: Record<string, string> = {
             >
               {{ action.label }}
               @if (action.requires_confirmation) {
-                <span>confirm</span>
+                <span>{{ i18n.t('chat.actions.confirm_badge') }}</span>
               }
             </button>
           }
@@ -954,8 +949,10 @@ const STEP_ICONS: Record<string, string> = {
                       [size]="12"
                     />
                     <app-icon name="workflow" [size]="12" class="text-cyan-400" />
-                    Reasoning trail · {{ msg.decisionSteps.length }} step{{
-                      msg.decisionSteps.length > 1 ? 's' : ''
+                    {{
+                      msg.decisionSteps.length > 1
+                        ? i18n.t('chat.trail.toggle', { count: msg.decisionSteps.length })
+                        : i18n.t('chat.trail.toggle_one', { count: msg.decisionSteps.length })
                     }}
                   </button>
                   @if (isTrailOpen(msg.id)) {
@@ -984,12 +981,12 @@ const STEP_ICONS: Record<string, string> = {
                           <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
                               <span class="font-medium text-white truncate">{{
-                                step.title || step.type || 'Step'
+                                step.title || step.type || i18n.t('chat.trail.step')
                               }}</span>
                               @if (step.status === 'active') {
                                 <span
                                   class="text-[9px] uppercase tracking-wider text-cyan-400 font-semibold"
-                                  >running</span
+                                  >{{ i18n.t('chat.trail.running') }}</span
                                 >
                               }
                               @if (step.status === 'completed' && step.duration) {
@@ -1007,7 +1004,7 @@ const STEP_ICONS: Record<string, string> = {
                                 type="button"
                                 class="group mt-1 flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-200"
                                 (click)="toggleEval(msg.id, step.id)"
-                                [title]="isEvalOpen(msg.id, step.id) ? 'Collapse metrics' : 'Expand metrics'"
+                                [title]="isEvalOpen(msg.id, step.id) ? i18n.t('chat.metrics.collapse') : i18n.t('chat.metrics.expand')"
                               >
                                 <app-icon
                                   [name]="isEvalOpen(msg.id, step.id) ? 'chevron-down' : 'chevron-right'"
@@ -1015,7 +1012,7 @@ const STEP_ICONS: Record<string, string> = {
                                   class="text-gray-500 group-hover:text-gray-300"
                                 />
                                 <span class="font-mono">
-                                  {{ scoreSummary(step) || 'metrics' }}
+                                  {{ scoreSummary(step) || i18n.t('chat.metrics.label') }}
                                 </span>
                                 @for (m of latencyMetrics(step); track m.key) {
                                   <span class="text-gray-500">·</span>
@@ -1032,7 +1029,7 @@ const STEP_ICONS: Record<string, string> = {
                                     @let spec = metricSpec(m.key);
                                     <div
                                       class="grid grid-cols-[96px_1fr_auto] items-center gap-2 text-[11px]"
-                                      [title]="spec.description"
+                                      [title]="metricDescription(m.key)"
                                     >
                                       <!-- Label + polarity marker -->
                                       <div class="flex items-center gap-1.5 min-w-0">
@@ -1046,12 +1043,12 @@ const STEP_ICONS: Record<string, string> = {
                                         @if (spec.polarity === 'lower') {
                                           <span
                                             class="text-[9px] font-mono text-gray-500 shrink-0"
-                                            title="Lower is better"
+                                            [title]="i18n.t('chat.metrics.lower_better')"
                                           >↓</span>
                                         } @else if (spec.max < 1) {
                                           <span
                                             class="text-[9px] font-mono text-gray-500 shrink-0"
-                                            [title]="'Max ' + spec.max.toFixed(2)"
+                                            [title]="i18n.t('chat.metrics.max', { value: spec.max.toFixed(2) })"
                                           >·{{ spec.max.toFixed(2) }}</span>
                                         }
                                       </div>
@@ -1139,7 +1136,7 @@ const STEP_ICONS: Record<string, string> = {
                   } @else {
                     <span
                       class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
-                      [title]="'Source [' + tok.n + '] referenced by the model but not available'"
+                      [title]="i18n.t('chat.citation.unavailable', { n: tok.n })"
                     >
                       {{ tok.label || tok.n }}
                     </span>
@@ -1234,15 +1231,16 @@ const STEP_ICONS: Record<string, string> = {
                   >
                     <app-icon name="alert-triangle" [size]="13" class="mt-0.5 shrink-0 text-amber-400" />
                     <div class="leading-relaxed">
-                      The model referenced
+                      {{ i18n.t('chat.citations.missing_intro') }}
                       @for (n of missing; track n; let last = $last) {
                         <span class="font-mono text-amber-200">[{{ n }}]</span>{{ last ? '' : ', ' }}
                       }
-                      but
                       @if (!msg.sources || msg.sources.length === 0) {
-                        no retrieval source was returned for this answer.
+                        {{ i18n.t('chat.citations.missing_none') }}
+                      } @else if (msg.sources.length > 1) {
+                        {{ i18n.t('chat.citations.missing_partial', { count: msg.sources.length }) }}
                       } @else {
-                        only {{ msg.sources.length }} source{{ msg.sources.length > 1 ? 's were' : ' was' }} returned, so these citations are likely hallucinated.
+                        {{ i18n.t('chat.citations.missing_partial_one', { count: msg.sources.length }) }}
                       }
                     </div>
                   </div>
@@ -1262,7 +1260,7 @@ const STEP_ICONS: Record<string, string> = {
                       [size]="12"
                     />
                     <app-icon name="book-open" [size]="12" class="text-cyan-400" />
-                    Sources · {{ msg.sources.length }}
+                    {{ i18n.t('chat.sources.toggle', { count: msg.sources.length }) }}
                   </button>
                   @if (isSourcesOpen(msg.id)) {
                     <ol class="space-y-1.5 pl-1">
@@ -1272,7 +1270,7 @@ const STEP_ICONS: Record<string, string> = {
                           [class]="isSourceCited(msg, i + 1)
                             ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-cyan-500/10 ring-1 ring-cyan-500/25'
                             : 'rounded-md px-3 py-2 text-[12px] transition-all bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 opacity-70'"
-                          [attr.aria-label]="isSourceCited(msg, i + 1) ? 'Cited source' : 'Retrieved but not cited in answer'"
+                          [attr.aria-label]="isSourceCited(msg, i + 1) ? i18n.t('chat.sources.cited_aria') : i18n.t('chat.sources.uncited_aria')"
                         >
                           <div class="flex items-center gap-2 mb-0.5">
                             <span
@@ -1285,9 +1283,9 @@ const STEP_ICONS: Record<string, string> = {
                             @if (!isSourceCited(msg, i + 1)) {
                               <span
                                 class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
-                                title="This chunk was retrieved but the model did not cite it"
+                                [title]="i18n.t('chat.sources.uncited_hint')"
                               >
-                                not cited
+                                {{ i18n.t('chat.sources.uncited') }}
                               </span>
                             }
                             <span class="font-medium text-gray-900 dark:text-white truncate">
@@ -1320,7 +1318,7 @@ const STEP_ICONS: Record<string, string> = {
                                 type="button"
                                 class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-cyan-300 hover:bg-white/5 transition"
                                 [class.ml-auto]="src.score == null"
-                                title="Preview source document"
+                                [title]="i18n.t('chat.sources.preview')"
                                 (click)="previewSource(src); $event.stopPropagation()"
                               >
                                 <app-icon name="eye" [size]="12" />
@@ -1347,18 +1345,22 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   <app-icon name="circle-dot" [size]="11" class="text-cyan-400 shrink-0" />
                   <span class="font-medium">
-                    {{ msg.decisionSteps.length }} step{{ msg.decisionSteps.length > 1 ? 's' : '' }}
+                    {{
+                      msg.decisionSteps.length > 1
+                        ? i18n.t('chat.summary.steps', { count: msg.decisionSteps.length })
+                        : i18n.t('chat.summary.steps_one', { count: msg.decisionSteps.length })
+                    }}
                   </span>
                   @if (msg.durationMs) {
                     <span class="font-mono text-gray-500">· {{ msg.durationMs }}ms</span>
                   }
                   @if (msg.sources?.length) {
-                    <span class="font-mono text-gray-500">· {{ msg.sources!.length }} sources</span>
+                    <span class="font-mono text-gray-500">· {{ i18n.t('chat.summary.sources', { count: msg.sources!.length }) }}</span>
                   }
                   @if (msg.ragMode) {
                     <span
                       class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
-                      title="Retrieval mode override"
+                      [title]="i18n.t('chat.summary.rag_override_hint')"
                     >
                       {{ msg.ragMode!.toUpperCase() }}
                     </span>
@@ -1379,16 +1381,16 @@ const STEP_ICONS: Record<string, string> = {
                         [title]="decisionTraceTitle(trace)"
                       >
                         <app-icon name="git-branch" [size]="10" />
-                        Route: {{ decisionRouteLabel(trace) }}
+                        {{ i18n.t('chat.summary.route', { label: decisionRouteLabel(trace) }) }}
                       </span>
                     }
                     @if (sparseDegraded(retrieval)) {
                       <span
                         class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20"
-                        [title]="'Sparse layer ' + retrieval.sparseStatus + ' — hybrid retrieval degraded to dense-only for this turn.'"
+                        [title]="i18n.t('chat.summary.sparse_degraded_hint', { status: retrieval.sparseStatus || '' })"
                       >
                         <app-icon name="alert-triangle" [size]="10" />
-                        dense-only
+                        {{ i18n.t('chat.summary.dense_only') }}
                       </span>
                     }
                     @if (retrieval.deepJobId) {
@@ -1412,7 +1414,7 @@ const STEP_ICONS: Record<string, string> = {
                   @if (msg.promptType) {
                     <span
                       class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20"
-                      title="Reasoning template"
+                      [title]="i18n.t('chat.summary.reasoning_template_hint')"
                     >
                       {{ msg.promptType }}
                     </span>
@@ -1427,14 +1429,14 @@ const STEP_ICONS: Record<string, string> = {
                     class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="git-commit" [size]="11" />
-                    Runs
+                    {{ i18n.t('chat.summary.runs_link') }}
                   </a>
                   <a
                     routerLink="/observability"
                     class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="activity" [size]="11" />
-                    Quality
+                    {{ i18n.t('chat.summary.quality_link') }}
                   </a>
                 </div>
               }
@@ -1444,16 +1446,16 @@ const STEP_ICONS: Record<string, string> = {
                   class="ml-0 mt-1 rounded-md bg-emerald-500/5 ring-1 ring-emerald-500/15 text-[11px] text-gray-700 dark:text-gray-300"
                 >
                   <summary class="cursor-pointer select-none px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-300">
-                    Decision trace · {{ decisionRouteLabel(trace) }}
+                    {{ i18n.t('chat.decision.title') }} · {{ decisionRouteLabel(trace) }}
                   </summary>
                   <div class="grid gap-2 px-3 pb-3 md:grid-cols-2">
                     <div>
-                      <div class="text-[10px] uppercase tracking-wider text-gray-500">Reason</div>
-                      <div class="mt-0.5 text-gray-300">{{ trace.route_reason || trace.summary || 'Runtime route selected.' }}</div>
+                      <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('chat.decision.reason') }}</div>
+                      <div class="mt-0.5 text-gray-300">{{ trace.route_reason || trace.summary || i18n.t('chat.decision.reason_fallback') }}</div>
                     </div>
                     <div>
-                      <div class="text-[10px] uppercase tracking-wider text-gray-500">Tradeoff</div>
-                      <div class="mt-0.5 text-gray-300">{{ trace.tradeoff || 'No tradeoff recorded.' }}</div>
+                      <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('chat.decision.tradeoff') }}</div>
+                      <div class="mt-0.5 text-gray-300">{{ trace.tradeoff || i18n.t('chat.decision.tradeoff_fallback') }}</div>
                     </div>
                     <div class="font-mono text-[10px] text-gray-400">
                       {{ decisionTraceQualityLine(trace) }}
@@ -1485,10 +1487,10 @@ const STEP_ICONS: Record<string, string> = {
                   }
                   @if (deepInfo.deepSummary; as deep) {
                     @if (deep.chunksRetrieved != null) {
-                      <span class="font-mono text-gray-500">· {{ deep.chunksRetrieved }} passages</span>
+                      <span class="font-mono text-gray-500">· {{ i18n.t('chat.deep.passages', { count: deep.chunksRetrieved }) }}</span>
                     }
                     @if (deep.sourcesReturned != null) {
-                      <span class="font-mono text-gray-500">· {{ deep.sourcesReturned }} sources</span>
+                      <span class="font-mono text-gray-500">· {{ i18n.t('chat.summary.sources', { count: deep.sourcesReturned }) }}</span>
                     }
                     @if (deepTopSourceLabels(deep).length) {
                       <span class="truncate text-gray-500">
@@ -1509,7 +1511,7 @@ const STEP_ICONS: Record<string, string> = {
                       [name]="deepInfo.deepDetailsOpen ? 'chevron-down' : 'chevron-right'"
                       [size]="11"
                     />
-                    Details
+                    {{ i18n.t('chat.deep.details') }}
                   </button>
                   <div class="basis-full h-1 overflow-hidden rounded bg-sky-500/10">
                     <span
@@ -1532,7 +1534,7 @@ const STEP_ICONS: Record<string, string> = {
                     @if (deepInfo.deepDetailsLoading) {
                       <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-500">
                         <app-icon name="loader" [size]="12" class="animate-spin text-sky-300" />
-                        Loading deep retrieval passages
+                        {{ i18n.t('chat.deep.details_loading') }}
                       </div>
                     } @else if (deepInfo.deepDetailsError) {
                       <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-red-300">
@@ -1595,7 +1597,7 @@ const STEP_ICONS: Record<string, string> = {
                                     type="button"
                                     class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-sky-300 hover:bg-white/5 transition"
                                     [class.ml-auto]="src.score == null"
-                                    title="Preview source document"
+                                    [title]="i18n.t('chat.sources.preview')"
                                     (click)="previewSource(src); $event.stopPropagation()"
                                   >
                                     <app-icon name="eye" [size]="12" />
@@ -1612,7 +1614,7 @@ const STEP_ICONS: Record<string, string> = {
                         </ol>
                       } @else if (!deepInfo.deepAnswer) {
                         <div class="px-3 py-2 text-[11px] text-gray-500">
-                          Deep retrieval completed without displayable passages.
+                          {{ i18n.t('chat.deep.details_empty') }}
                         </div>
                       }
                     }
@@ -1626,7 +1628,7 @@ const STEP_ICONS: Record<string, string> = {
                   type="button"
                   class="p-1 rounded hover:bg-white/5 transition"
                   [class.text-emerald-400]="msg.feedback === 'up'"
-                  title="Helpful"
+                  [title]="i18n.t('chat.audit.helpful')"
                   (click)="rate(msg, 'up')"
                 >
                   <app-icon name="thumbs-up" [size]="12" />
@@ -1635,7 +1637,7 @@ const STEP_ICONS: Record<string, string> = {
                   type="button"
                   class="p-1 rounded hover:bg-white/5 transition"
                   [class.text-red-400]="msg.feedback === 'down'"
-                  title="Not helpful"
+                  [title]="i18n.t('chat.audit.not_helpful')"
                   (click)="rate(msg, 'down')"
                 >
                   <app-icon name="thumbs-down" [size]="12" />
@@ -1643,7 +1645,7 @@ const STEP_ICONS: Record<string, string> = {
                 <button
                   type="button"
                   class="p-1 rounded hover:bg-white/5 transition"
-                  title="Copy response"
+                  [title]="i18n.t('chat.audit.copy')"
                   (click)="copy(msg.content)"
                 >
                   <app-icon name="copy" [size]="12" />
@@ -1651,35 +1653,35 @@ const STEP_ICONS: Record<string, string> = {
                 <button
                   type="button"
                   class="p-1 rounded hover:bg-sky-500/10 transition flex items-center gap-1 text-sky-300 disabled:opacity-50"
-                  title="Launch persistent Deep Search for this answer"
+                  [title]="i18n.t('chat.audit.deep_search_hint')"
                   [disabled]="!!deepSearchTrackedJobId(msg) || deepSearchLaunchingId() === msg.id"
                   (click)="launchDeepSearch(msg)"
                 >
                   @if (deepSearchLaunchingId() === msg.id) {
                     <app-icon name="loader-2" [size]="12" class="animate-spin" />
-                    <span>Deep…</span>
+                    <span>{{ i18n.t('chat.audit.deep_launching') }}</span>
                   } @else if (deepSearchTrackedJobId(msg)) {
                     <app-icon name="check" [size]="12" />
-                    <span>Deep tracked</span>
+                    <span>{{ i18n.t('chat.audit.deep_tracked') }}</span>
                   } @else {
                     <app-icon name="search" [size]="12" />
-                    <span>Deep search</span>
+                    <span>{{ i18n.t('chat.audit.deep_search') }}</span>
                   }
                 </button>
                 @if (!isDemoMode()) {
                   <button
                     type="button"
                     class="p-1 rounded hover:bg-white/5 transition flex items-center gap-1"
-                    title="Fact-check with LLM-as-Judge"
+                    [title]="i18n.t('chat.audit.fact_check_hint')"
                     [disabled]="evaluatingId() === msg.id"
                     (click)="factCheck(msg)"
                   >
                     @if (evaluatingId() === msg.id) {
                       <app-icon name="loader-2" [size]="12" class="animate-spin" />
-                      <span>Scoring…</span>
+                      <span>{{ i18n.t('chat.audit.scoring') }}</span>
                     } @else {
                       <app-icon name="shield-check" [size]="12" />
-                      <span>Fact-check</span>
+                      <span>{{ i18n.t('chat.audit.fact_check') }}</span>
                     }
                   </button>
                 }
@@ -1697,7 +1699,7 @@ const STEP_ICONS: Record<string, string> = {
                 }
                 @if (!isDemoMode() && msg.evaluation) {
                   <span class="ml-auto font-mono text-[10px] text-emerald-400"
-                    >Score {{ msg.evaluation.composite_score.toFixed(1) }}</span
+                    >{{ i18n.t('chat.audit.score', { value: msg.evaluation.composite_score.toFixed(1) }) }}</span
                   >
                 }
               </div>
@@ -1713,7 +1715,7 @@ const STEP_ICONS: Record<string, string> = {
                     <button
                       type="button"
                       class="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-white/5 transition"
-                      title="Fermer"
+                      [title]="i18n.t('common.close')"
                       (click)="closeCorrection()"
                     >
                       <app-icon name="x" [size]="12" />
@@ -1880,7 +1882,7 @@ const STEP_ICONS: Record<string, string> = {
                   <div
                     class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1"
                   >
-                    Claim audit
+                    {{ i18n.t('chat.audit.claims') }}
                   </div>
                   @for (c of msg.evaluation!.claim_audit!.claims!; track $index) {
                     <div class="flex items-start gap-2 text-[11px]">
@@ -1938,7 +1940,7 @@ const STEP_ICONS: Record<string, string> = {
                       [class.animate-spin]="step.status === 'active'"
                     />
                     <span class="font-medium text-white">{{
-                      step.title || step.type || 'Step'
+                      step.title || step.type || i18n.t('chat.trail.step')
                     }}</span>
                     @if (step.status === 'completed' && step.duration) {
                       <span class="text-[10px] font-mono text-gray-500 ml-auto"
@@ -1946,7 +1948,7 @@ const STEP_ICONS: Record<string, string> = {
                       >
                     } @else if (step.status === 'active') {
                       <span class="text-[9px] uppercase tracking-wider text-cyan-400 ml-auto"
-                        >running</span
+                        >{{ i18n.t('chat.trail.running') }}</span
                       >
                     }
                   </div>
@@ -2066,7 +2068,7 @@ const STEP_ICONS: Record<string, string> = {
       [title]="sourcePreviewTitle()"
       [page]="sourcePreviewPage()"
       [highlight]="sourcePreviewHighlight()"
-      subtitle="Retrieval source"
+      [subtitle]="i18n.t('chat.preview.source_subtitle')"
       (closed)="closeSourcePreview()"
     />
   `,
@@ -3207,7 +3209,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	  readonly voicePartial = signal('');
 	  readonly voiceNotice = signal<string | null>(null);
 	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
-	  readonly voiceOracleMessage = signal('Batch mode: no persistent voice session is open.');
+	  readonly voiceOracleMessage = signal(this.i18n.t('chat.voice.oracle_batch'));
 
   // --- Inline expert correction ("Corriger / Compléter") composer state ---
   // Only one composer is open at a time, keyed by the assistant message id.
@@ -3252,7 +3254,9 @@ export class ChatPanelComponent implements AfterViewInit {
     !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
   );
   readonly chatRuntimeLabel = computed(() =>
-    this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
+    this.isDemoMode()
+      ? this.i18n.t('chat.controls.runtime_managed')
+      : this.settings.settings().defaultModel || '—',
   );
   readonly traceOpen = signal(false);
 
@@ -3273,8 +3277,9 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || this.brand());
   readonly workspaceContextLabel = computed(() => {
-    const name = String(this.workspace.current()?.name || this.workspace.current()?.slug || 'workspace').trim();
-    return name || 'workspace';
+    const fallback = this.i18n.t('chat.scope.workspace_fallback');
+    const name = String(this.workspace.current()?.name || this.workspace.current()?.slug || fallback).trim();
+    return name || fallback;
   });
   readonly groundingMode = computed<GroundingMode | null>(() => {
     const settings = this.workspace.current()?.settings;
@@ -3391,9 +3396,11 @@ export class ChatPanelComponent implements AfterViewInit {
   });
   readonly assistantScopeLabel = computed(() => {
     const label = this.scopeLabel(this.activeKnowledgeScope());
-    if (!this.contextId()) return `Sources : ${label}`;
-    if (this.sessionDocsMode() === 'combine') return `Session docs + ${label}`;
-    return 'Session docs only';
+    if (!this.contextId()) return this.i18n.t('chat.scope.sources', { label });
+    if (this.sessionDocsMode() === 'combine') {
+      return this.i18n.t('chat.scope.session_plus', { label });
+    }
+    return this.i18n.t('chat.scope.session_only');
   });
   readonly autoSourceLabel = computed(() => {
     const key = this.profileKnowledgeScope() || this.workspaceDefaultKnowledgeScope();
@@ -3402,9 +3409,11 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly sourceSelectionLabel = computed(() => {
     const selected = this.selectedSource();
     if (selected === 'auto') {
-      return this.profileKnowledgeScope() ? 'Profile default' : 'Default context';
+      return this.profileKnowledgeScope()
+        ? this.i18n.t('chat.scope.profile_default')
+        : this.i18n.t('chat.controls.source_default');
     }
-    if (selected === 'workspace_default') return 'Default context';
+    if (selected === 'workspace_default') return this.i18n.t('chat.controls.source_default');
     return this.scopeLabel(selected);
   });
 
@@ -3467,12 +3476,21 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     return this.i18n.t('chat.ask.placeholder_default');
   });
-  readonly sendLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'Interroger' : 'Send');
-  readonly streamingLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'En cours…' : 'Streaming');
+  readonly sendLabel = computed(() =>
+    this.isDemoMode() || this.executiveMode()
+      ? this.i18n.t('chat.input.ask')
+      : this.i18n.t('chat.input.send'),
+  );
+  readonly streamingLabel = computed(() =>
+    this.isDemoMode() || this.executiveMode()
+      ? this.i18n.t('chat.input.working')
+      : this.i18n.t('chat.input.streaming'),
+  );
 
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
-    return this.ragModeChoices.find((m) => m.slug === slug)?.hint ?? '';
+    const hintKey = this.ragModeChoices.find((m) => m.slug === slug)?.hintKey;
+    return hintKey ? this.i18n.t(hintKey) : '';
   });
 
   readonly ragModeRuntimeStatus = computed(() => {
@@ -3483,7 +3501,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   readonly promptTypeHint = computed(() => {
     const slug = this.promptType();
-    if (slug === 'auto') return 'Heuristic selector picks the template per query';
+    if (slug === 'auto') return this.i18n.t('chat.controls.reasoning_auto_hint');
     return this.reasoningTemplates().find((t) => t.slug === slug)?.description ?? '';
   });
 
@@ -3528,14 +3546,14 @@ export class ChatPanelComponent implements AfterViewInit {
 
   readonly voiceStatusLabel = computed<string>(() => {
     const runtime = this.selectedVoiceRuntime();
-    if (!runtime) return 'runtime unknown';
+    if (!runtime) return this.i18n.t('chat.voice.status.unknown');
     const notice = this.voiceNotice();
     if (notice) return notice;
     const status = runtime.status || 'unknown';
-    if (status === 'bound') return 'ready';
-    if (status === 'disabled') return 'disabled';
-    if (status === 'unconfigured') return 'fallback required';
-    if (status === 'experimental') return 'experimental';
+    if (status === 'bound') return this.i18n.t('chat.voice.status.ready');
+    if (status === 'disabled') return this.i18n.t('chat.voice.status.disabled');
+    if (status === 'unconfigured') return this.i18n.t('chat.voice.status.fallback_required');
+    if (status === 'experimental') return this.i18n.t('chat.voice.status.experimental');
     return status.replace(/_/g, ' ');
   });
 
@@ -3572,37 +3590,37 @@ export class ChatPanelComponent implements AfterViewInit {
 	    return [
 	      {
 	        stage: 'listening' as VoiceOracleStage,
-	        label: 'listening',
+	        label: this.i18n.t('chat.voice.timeline.listening'),
 	        icon: 'mic',
-	        detail: 'Microphone input is being recorded. Agent speech is paused to avoid overlap.',
+	        detail: this.i18n.t('chat.voice.timeline.listening_detail'),
 	        state: mkState(1, 'listening'),
 	      },
 	      {
 	        stage: 'thinking' as VoiceOracleStage,
-	        label: 'thinking',
+	        label: this.i18n.t('chat.voice.timeline.thinking'),
 	        icon: 'activity',
-	        detail: `${this.brand()} received a transcript and is updating the background oracle.`,
+	        detail: this.i18n.t('chat.voice.timeline.thinking_detail'),
 	        state: mkState(2, 'thinking'),
 	      },
 	      {
 	        stage: 'superseded' as VoiceOracleStage,
-	        label: 'refreshed',
+	        label: this.i18n.t('chat.voice.timeline.refreshed'),
 	        icon: 'refresh-cw',
-	        detail: 'A newer oracle signal replaced an older one using latest-wins semantics.',
+	        detail: this.i18n.t('chat.voice.timeline.refreshed_detail'),
 	        state: stage === 'superseded' ? 'active' : currentRank > 2 ? 'done' : 'pending',
 	      },
 	      {
 	        stage: 'fallback' as VoiceOracleStage,
-	        label: 'fallback',
+	        label: this.i18n.t('chat.voice.timeline.fallback'),
 	        icon: 'route',
-	        detail: 'The selected runtime used its fallback lane for this voice turn.',
+	        detail: this.i18n.t('chat.voice.timeline.fallback_detail'),
 	        state: stage === 'fallback' ? 'active' : 'pending',
 	      },
 	      {
 	        stage: 'committed' as VoiceOracleStage,
-	        label: 'committed',
+	        label: this.i18n.t('chat.voice.timeline.committed'),
 	        icon: 'check-circle-2',
-	        detail: 'The latest transcript/oracle decision is committed for the current turn.',
+	        detail: this.i18n.t('chat.voice.timeline.committed_detail'),
 	        state: mkState(3, 'committed'),
 	      },
 	    ];
@@ -3612,19 +3630,27 @@ export class ChatPanelComponent implements AfterViewInit {
 	    const runtime = this.selectedVoiceRuntime();
 	    const caps = runtime?.capabilities ?? {};
     const input = caps['streaming_transcription']
-      ? 'streaming STT'
+      ? this.i18n.t('chat.voice.detail.stt_streaming')
       : caps['batch_transcription']
-        ? 'batch STT'
+        ? this.i18n.t('chat.voice.detail.stt_batch')
         : this.hasCascadeFallback()
-          ? 'input fallback cascade'
-          : 'no STT';
-    const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
-	    const transport = this.voiceTransport() === 'backend_ws' ? `${this.brand()} voice channel` : 'HTTP batch';
-	    const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
+          ? this.i18n.t('chat.voice.detail.stt_cascade')
+          : this.i18n.t('chat.voice.detail.stt_none');
+    const output = caps['tts'] || caps['speech_to_speech']
+      ? this.i18n.t('chat.voice.detail.out_native')
+      : this.hasCascadeFallback()
+        ? this.i18n.t('chat.voice.detail.out_cascade')
+        : this.i18n.t('chat.voice.detail.out_none');
+	    const transport = this.voiceTransport() === 'backend_ws'
+	      ? this.i18n.t('chat.voice.detail.transport_channel')
+	      : this.i18n.t('chat.voice.detail.transport_http');
+	    const oracle = caps['oracle_injection'] || caps['background_tool_calls']
+	      ? this.i18n.t('chat.voice.detail.oracle_tandem')
+	      : this.i18n.t('chat.voice.detail.oracle_fallback');
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
 	      return this.isDemoMode()
-	        ? 'realtime · WebRTC required · not available in chat session yet'
-	        : `${runtime.slug.replace(/_/g, ' ')} · WebRTC required · chat session not wired yet`;
+	        ? this.i18n.t('chat.voice.detail.webrtc_demo')
+	        : this.i18n.t('chat.voice.detail.webrtc', { runtime: runtime.slug.replace(/_/g, ' ') });
 	    }
 	    if (this.isDemoMode()) {
 	      const mode = this.voiceRuntimeKind(runtime?.slug || this.voiceProvider()).toLowerCase();
@@ -3635,8 +3661,8 @@ export class ChatPanelComponent implements AfterViewInit {
 
 	  readonly voiceTandemOracleHint = computed(() =>
 	    this.isDemoMode()
-	      ? 'Realtime voice loop plus background Knowledge oracle. Provider details are hidden.'
-	      : 'Realtime loop + background oracle with latest-wins events: oracle.delta, oracle.superseded, oracle.action and oracle.commit.',
+	      ? this.i18n.t('chat.voice.oracle_panel_demo')
+	      : this.i18n.t('chat.voice.oracle_panel'),
 	  );
 
   recording = signal(false);
@@ -3858,7 +3884,7 @@ export class ChatPanelComponent implements AfterViewInit {
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.creatingChatSession = false;
-        this.toast.error('Could not create a chat session', 'Chat');
+        this.toast.error(this.i18n.t('chat.toast.create_failed'), this.i18n.t('chat.title'));
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
@@ -3909,7 +3935,7 @@ export class ChatPanelComponent implements AfterViewInit {
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
-        this.toast.error('Could not load chat session', 'Chat');
+        this.toast.error(this.i18n.t('chat.toast.load_failed'), this.i18n.t('chat.title'));
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
@@ -3931,7 +3957,7 @@ export class ChatPanelComponent implements AfterViewInit {
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
-        this.toast.error('Could not archive this conversation', 'Chat');
+        this.toast.error(this.i18n.t('chat.toast.archive_failed'), this.i18n.t('chat.title'));
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
@@ -3956,21 +3982,25 @@ export class ChatPanelComponent implements AfterViewInit {
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
-        this.toast.error('Could not delete this conversation', 'Chat');
+        this.toast.error(this.i18n.t('chat.toast.delete_failed'), this.i18n.t('chat.title'));
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   sessionTitle(session: ChatSessionSummary): string {
-    return (session.title || '').trim() || 'Nouvelle conversation';
+    return (session.title || '').trim() || this.i18n.t('chat.session.untitled');
   }
 
   sessionSubtitle(session: ChatSessionSummary): string {
     const count = session.message_count ?? 0;
     const when = session.last_activity ? new Date(session.last_activity) : null;
     const date = when && Number.isFinite(when.getTime()) ? when.toLocaleDateString() : '';
-    return `${count} message${count > 1 ? 's' : ''}${date ? ' · ' + date : ''}`;
+    const messages =
+      count > 1
+        ? this.i18n.t('chat.session.messages', { count })
+        : this.i18n.t('chat.session.messages_one', { count });
+    return `${messages}${date ? ' · ' + date : ''}`;
   }
 
   isActiveSession(session: ChatSessionSummary): boolean {
@@ -4317,15 +4347,15 @@ export class ChatPanelComponent implements AfterViewInit {
 	    const webRtcRequired = this.voiceRuntimeNeedsWebRtc(runtime);
 	    if (this.isDemoMode()) {
 	      const label = this.voiceRuntimeKind(runtime.slug);
-	      if (webRtcRequired) return `${label} · WebRTC required`;
+	      if (webRtcRequired) return this.i18n.t('chat.voice.title_webrtc_required', { label });
 	      if (runtime.status === 'bound') return label;
-	      if (runtime.status === 'disabled') return `${label} · unavailable`;
-	      if (runtime.status === 'unconfigured') return `${label} · not configured`;
-      if (runtime.status === 'experimental') return `${label} · experimental`;
+	      if (runtime.status === 'disabled') return this.i18n.t('chat.voice.title_unavailable', { label });
+	      if (runtime.status === 'unconfigured') return this.i18n.t('chat.voice.title_not_configured', { label });
+      if (runtime.status === 'experimental') return this.i18n.t('chat.voice.title_experimental', { label });
       return label;
 	    }
 	    const label = runtime.slug.replace(/_/g, ' ');
-	    if (webRtcRequired) return `${label} · WebRTC not wired in chat`;
+	    if (webRtcRequired) return this.i18n.t('chat.voice.title_webrtc_not_wired', { label });
 	    if (runtime.status === 'bound') return label;
 	    return `${label} · ${runtime.status}`;
 	  }
@@ -4334,24 +4364,30 @@ export class ChatPanelComponent implements AfterViewInit {
 	    const runtime = this.selectedVoiceRuntime();
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
 	      return this.isDemoMode()
-	        ? 'Realtime voice requires the WebRTC lane, which is not wired into this chat control yet.'
-	        : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses ${this.brand()} backend WebSocket sessions.`;
+	        ? this.i18n.t('chat.voice.realtime_requires_webrtc')
+	        : this.i18n.t('chat.voice.runtime_requires_webrtc', {
+	            runtime: runtime.slug.replace(/_/g, ' '),
+	          });
 	    }
-	    if (this.isDemoMode()) return `${this.voiceRuntimeKind(this.voiceProvider())} runtime. Provider and model details are hidden in demo-safe presentation.`;
+	    if (this.isDemoMode()) {
+	      return this.i18n.t('chat.voice.runtime_demo_hint', {
+	        kind: this.voiceRuntimeKind(this.voiceProvider()),
+	      });
+	    }
 	    return runtime?.description || this.voiceRuntimeDetail();
 	  }
 
 	  onVoiceProviderChange(slug: string): void {
 	    const runtime = this.voiceRuntimeOptions().find((item) => item.slug === slug);
 	    if (runtime && !this.isVoiceRuntimeSelectableInChat(runtime)) {
-	      this.toast.info(`Realtime voice requires the WebRTC lane; this chat surface uses ${this.brand()} voice sessions for now.`, 'Voice');
+	      this.toast.info(this.i18n.t('chat.voice.realtime_toast'), this.i18n.t('chat.voice.title'));
 	      return;
 	    }
 	    this.voiceProvider.set(slug || 'cascade_openai');
 	    this.voicePartial.set('');
 	    this.voiceNotice.set(null);
 	    this.voiceOracleStage.set('idle');
-	    this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
+	    this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_batch'));
 	    this.stopConversationLoop();
 	    this.closeVoiceSession();
 	    if (!this.canUseVoiceSession()) {
@@ -4370,10 +4406,10 @@ export class ChatPanelComponent implements AfterViewInit {
 	      this.stopConversationLoop();
 	      this.closeVoiceSession();
 	      this.voiceOracleStage.set('idle');
-	      this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_batch'));
 	    } else {
 	      this.voiceOracleStage.set('idle');
-	      this.voiceOracleMessage.set(`Session mode: ${this.brand()} will emit transcript, oracle and runtime events for each voice turn.`);
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_session'));
 	    }
 	  }
 
@@ -4386,28 +4422,30 @@ export class ChatPanelComponent implements AfterViewInit {
 	  }
 
 	  voiceTransportHint(): string {
-	    return `Batch records one audio segment over HTTP. Session opens a persistent ${this.brand()} voice channel; Cascade still finalizes by segment. Full realtime speech requires WebRTC.`;
+	    return this.i18n.t('chat.voice.transport_hint');
 	  }
 
 	  voiceSessionButtonTitle(): string {
 	    const runtime = this.selectedVoiceRuntime();
 	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
-	      return 'Realtime voice requires WebRTC; this chat session control is not wired to WebRTC yet.';
+	      return this.i18n.t('chat.voice.realtime_webrtc_not_wired');
 	    }
-	    if (!this.canUseVoiceSession()) return `This voice runtime does not expose the ${this.brand()} voice session path.`;
-	    return `Use the ${this.brand()} voice session: text.partial, text.final, oracle events and runtime metrics.`;
+	    if (!this.canUseVoiceSession()) return this.i18n.t('chat.voice.session_path_unavailable');
+	    return this.i18n.t('chat.voice.session_button_hint');
 	  }
 
 	  voiceRealtimeBlockedHint(): string | null {
 	    const runtime = this.selectedVoiceRuntime();
 	    if (!runtime || !this.voiceRuntimeNeedsWebRtc(runtime)) return null;
 	    return this.isDemoMode()
-	      ? `Realtime voice requires the WebRTC lane. This chat control currently uses ${this.brand()} voice sessions.`
-	      : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses ${this.brand()} backend WebSocket sessions.`;
+	      ? this.i18n.t('chat.voice.realtime_webrtc_uses_brand')
+	      : this.i18n.t('chat.voice.runtime_requires_webrtc', {
+	          runtime: runtime.slug.replace(/_/g, ' '),
+	        });
 	  }
 
 	  voiceOraclePanelHint(): string {
-	    return 'The session panel shows the voice turn lifecycle: listening, background oracle update, latest-wins refreshes, fallback and commit.';
+	    return this.i18n.t('chat.voice.tandem_hint');
 	  }
 
   voiceMicTitle(): string {
@@ -4416,16 +4454,27 @@ export class ChatPanelComponent implements AfterViewInit {
       return this.i18n.t('chat.voice.stop_no_rearm_title');
     }
     if (!this.canTranscribeVoice() && !this.voiceStopAvailable())
-      return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
+      return this.isDemoMode()
+        ? this.i18n.t('chat.voice.mic_cannot_demo')
+        : this.i18n.t('chat.voice.mic_cannot');
     if (this.ttsSpeaking()) return this.i18n.t('chat.voice.cut_playback_title');
-    if (this.transcribing()) return this.isDemoMode() ? 'Transcribing…' : `Transcribing with ${this.voiceInputProvider()}…`;
+    if (this.transcribing())
+      return this.isDemoMode()
+        ? this.i18n.t('chat.voice.transcribing')
+        : this.i18n.t('chat.voice.transcribing_with', { provider: this.voiceInputProvider() });
     if (this.recording()) {
       return this.voiceAutoEndpoint() && this.voiceTransport() === 'backend_ws'
-        ? 'Listening. Silence submits this turn.'
-        : 'Stop recording';
+        ? this.i18n.t('chat.voice.mic_listening')
+        : this.i18n.t('chat.voice.mic_stop');
     }
-    if (this.isDemoMode()) return `Record voice · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
-    return `Record voice · ${this.voiceInputProvider()} · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
+    const mode = this.voiceTransport() === 'backend_ws'
+      ? this.i18n.t('chat.voice.mode_session')
+      : this.i18n.t('chat.voice.mode_batch');
+    if (this.isDemoMode()) return this.i18n.t('chat.voice.mic_record', { mode });
+    return this.i18n.t('chat.voice.mic_record_provider', {
+      provider: this.voiceInputProvider(),
+      mode,
+    });
   }
 
   private voiceRuntimeNotice(label: string, provider?: string | null): string {
@@ -4435,11 +4484,11 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private voiceRuntimeKind(slug: string): string {
     const normalized = (slug || '').toLowerCase();
-    if (normalized === 'cascade' || normalized === 'cascade_openai') return 'Cascade';
-    if (normalized.includes('realtime') || normalized === 'realtime_gpu') return 'Realtime';
-    if (normalized.includes('stt')) return 'Transcription';
-    if (normalized.includes('tts')) return 'Speech output';
-    return 'Voice runtime';
+    if (normalized === 'cascade' || normalized === 'cascade_openai') return this.i18n.t('chat.voice.kind.cascade');
+    if (normalized.includes('realtime') || normalized === 'realtime_gpu') return this.i18n.t('chat.voice.kind.realtime');
+    if (normalized.includes('stt')) return this.i18n.t('chat.voice.kind.stt');
+    if (normalized.includes('tts')) return this.i18n.t('chat.voice.kind.tts');
+    return this.i18n.t('chat.voice.kind.generic');
   }
 
   private hasCascadeFallback(): boolean {
@@ -4545,6 +4594,17 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   /**
+   * Operator-facing tooltip for a metric, resolved from the i18n dictionary
+   * (``chat.metrics.desc.<key>``). Unknown metrics get an empty tooltip,
+   * mirroring the old ``DEFAULT_METRIC_SPEC.description`` behaviour.
+   */
+  metricDescription(key: string): string {
+    const dictKey = `chat.metrics.desc.${key}`;
+    const label = this.i18n.t(dictKey);
+    return label === dictKey ? '' : label;
+  }
+
+  /**
    * Normalise a raw metric value into a "quality in [0..1]" where 1 means
    * "as good as it gets". This is what drives both the bar width and the
    * color bucket, so metrics with different ranges/polarities remain
@@ -4633,10 +4693,10 @@ export class ChatPanelComponent implements AfterViewInit {
       buckets[this.scoreTone(m.key, m.value).label] += 1;
     }
     const parts: string[] = [];
-    if (buckets.good) parts.push(`${buckets.good} good`);
-    if (buckets.fair) parts.push(`${buckets.fair} fair`);
-    if (buckets.poor) parts.push(`${buckets.poor} poor`);
-    if (buckets.null) parts.push(`${buckets.null} null`);
+    if (buckets.good) parts.push(this.i18n.t('chat.metrics.good', { count: buckets.good }));
+    if (buckets.fair) parts.push(this.i18n.t('chat.metrics.fair', { count: buckets.fair }));
+    if (buckets.poor) parts.push(this.i18n.t('chat.metrics.poor', { count: buckets.poor }));
+    if (buckets.null) parts.push(this.i18n.t('chat.metrics.none', { count: buckets.null }));
     return parts.join(' · ');
   }
 
@@ -4656,7 +4716,7 @@ export class ChatPanelComponent implements AfterViewInit {
    * label can be matched to a returned source.
    */
   renderAnswer(content: string | undefined | null, sources?: Source[] | null): AnswerToken[] {
-    if (!content) return [{ kind: 'text', value: '(no response)' }];
+    if (!content) return [{ kind: 'text', value: this.i18n.t('chat.answer.empty') }];
     const tokens: AnswerToken[] = [];
     const re = /\[([^\]\n]{1,180})\]/g;
     let last = 0;
@@ -4681,7 +4741,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   renderMarkdownAnswer(content: string | undefined | null, sources?: Source[] | null): AnswerBlock[] {
-    const text = this.normalizeAnswerMarkdown(content || '(no response)').replace(/\r\n?/g, '\n');
+    const text = this.normalizeAnswerMarkdown(content || this.i18n.t('chat.answer.empty')).replace(/\r\n?/g, '\n');
     const lines = text.split('\n');
     const blocks: AnswerBlock[] = [];
     let paragraph: string[] = [];
@@ -4754,7 +4814,7 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     flushParagraph();
     flushList();
-    return blocks.length ? blocks : [{ kind: 'paragraph', tokens: [{ kind: 'text', value: '(no response)' }] }];
+    return blocks.length ? blocks : [{ kind: 'paragraph', tokens: [{ kind: 'text', value: this.i18n.t('chat.answer.empty') }] }];
   }
 
   /**
@@ -4928,7 +4988,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   citationTooltipForSources(sources: Source[] | undefined | null, n: number): string {
     const src = sources?.[n - 1];
-    if (!src) return `Source [${n}] — not available`;
+    if (!src) return this.i18n.t('chat.citation.missing', { n });
     const title = this.sourceTitle(src);
     const loc = this.sourceLocator(src);
     return loc ? `${title} · ${loc.label}` : title;
@@ -5136,7 +5196,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   mapCommandLabel(command: Record<string, unknown>): string {
-    const label = command['target_label'] || command['target'] || 'vue territoriale mise a jour';
+    const label = command['target_label'] || command['target'] || this.i18n.t('chat.map.command_fallback');
     return String(label);
   }
 
@@ -5168,27 +5228,36 @@ export class ChatPanelComponent implements AfterViewInit {
         parts.push(cellRange);
       } else if (rowStart !== undefined && rowStart !== null) {
         const end = rowEnd !== undefined && rowEnd !== null && `${rowEnd}` !== `${rowStart}` ? `-${rowEnd}` : '';
-        parts.push(`row ${rowStart}${end}`);
+        parts.push(this.i18n.t('chat.source.locator_row', { range: `${rowStart}${end}` }));
       }
       return {
         label: parts.join(' · '),
-        tooltip: `Spreadsheet locator: ${parts.join(' · ')}`,
+        tooltip: this.i18n.t('chat.source.locator_sheet', { label: parts.join(' · ') }),
       };
     }
     const page = (src.page as number | string | undefined) ?? (meta['page'] as number | string | undefined);
     if (page !== undefined && page !== null && `${page}`.trim() !== '') {
-      return { label: `p. ${page}`, tooltip: `Page ${page}` };
+      return {
+        label: this.i18n.t('chat.source.locator_page', { page }),
+        tooltip: this.i18n.t('chat.source.locator_page_hint', { page }),
+      };
     }
     const chunkIdx =
       (src['chunk_index'] as number | undefined) ??
       (meta['chunk_index'] as number | undefined) ??
       (meta['chunk_id'] as number | undefined);
     if (typeof chunkIdx === 'number' && Number.isFinite(chunkIdx)) {
-      return { label: `chunk ${chunkIdx}`, tooltip: `Chunk index ${chunkIdx}` };
+      return {
+        label: this.i18n.t('chat.source.locator_chunk', { index: chunkIdx }),
+        tooltip: this.i18n.t('chat.source.locator_chunk_hint', { index: chunkIdx }),
+      };
     }
     const docId = (src.document_id as string | undefined) ?? (meta['document_id'] as string | undefined);
     if (docId && typeof docId === 'string' && docId.length >= 6) {
-      return { label: `#${docId.slice(0, 6)}`, tooltip: `Document id ${docId}` };
+      return {
+        label: `#${docId.slice(0, 6)}`,
+        tooltip: this.i18n.t('chat.source.locator_doc_hint', { id: docId }),
+      };
     }
     return null;
   }
@@ -5287,7 +5356,11 @@ export class ChatPanelComponent implements AfterViewInit {
   stageActionPrompt(action: ActionManifest): void {
     const phrase = action.phrases?.[0] || action.label;
     this.userInput = phrase;
-    this.voiceOracleMessage.set(action.requires_confirmation ? `Action proposed: ${action.label}. Confirmation will be requested if it changes data.` : `Action ready: ${action.label}.`);
+    this.voiceOracleMessage.set(
+      action.requires_confirmation
+        ? this.i18n.t('chat.actions.proposed', { label: action.label })
+        : this.i18n.t('chat.actions.ready', { label: action.label }),
+    );
     this.cdr.markForCheck();
     this.focusComposer();
   }
@@ -5552,24 +5625,35 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   decisionTraceTitle(trace: RetrievalDecisionTrace | null | undefined): string {
-    if (!trace) return 'Retrieval decision trace';
+    if (!trace) return this.i18n.t('chat.decision.trace_fallback');
     return [trace.summary, trace.route_reason, trace.tradeoff]
       .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      .join(' · ') || 'Retrieval decision trace';
+      .join(' · ') || this.i18n.t('chat.decision.trace_fallback');
   }
 
   decisionTraceQualityLine(trace: RetrievalDecisionTrace | null | undefined): string {
     const quality = this.isRecord(trace?.quality_controls) ? trace!.quality_controls! : {};
-    const sparse = quality['sparse_status'] ? `Sparse ${quality['sparse_status']}` : null;
-    const cross = quality['cross_encoder_status'] ? `Cross-encoder ${quality['cross_encoder_status']}` : null;
-    const latency = trace?.latency_profile ? `Latency ${trace.latency_profile}` : null;
-    const queryType = trace?.query_type ? `Type ${trace.query_type}` : null;
-    return [queryType, latency, sparse, cross].filter(Boolean).join(' · ') || 'Quality controls not recorded';
+    const sparse = quality['sparse_status']
+      ? this.i18n.t('chat.decision.sparse', { status: String(quality['sparse_status']) })
+      : null;
+    const cross = quality['cross_encoder_status']
+      ? this.i18n.t('chat.decision.cross_encoder', { status: String(quality['cross_encoder_status']) })
+      : null;
+    const latency = trace?.latency_profile
+      ? this.i18n.t('chat.decision.latency', { profile: trace.latency_profile })
+      : null;
+    const queryType = trace?.query_type
+      ? this.i18n.t('chat.decision.query_type', { type: trace.query_type })
+      : null;
+    return (
+      [queryType, latency, sparse, cross].filter(Boolean).join(' · ') ||
+      this.i18n.t('chat.decision.quality_fallback')
+    );
   }
 
   decisionTraceSourcesLine(trace: RetrievalDecisionTrace | null | undefined): string {
     const sources = Array.isArray(trace?.selected_sources) ? trace!.selected_sources! : [];
-    if (!sources.length) return 'Sources: none selected in trace';
+    if (!sources.length) return this.i18n.t('chat.decision.sources_none');
     const labels = sources
       .map((source) => {
         if (!this.isRecord(source)) return null;
@@ -5577,7 +5661,9 @@ export class ChatPanelComponent implements AfterViewInit {
       })
       .filter((label): label is string => !!label)
       .slice(0, 3);
-    return labels.length ? `Sources: ${labels.join(' · ')}` : `${sources.length} source(s) selected`;
+    return labels.length
+      ? this.i18n.t('chat.decision.sources_line', { labels: labels.join(' · ') })
+      : this.i18n.t('chat.decision.sources_count', { count: sources.length });
   }
 
   private groundingDefaultMode(value: unknown): GroundingMode | null {
@@ -5587,7 +5673,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   scopeLabel(scopeKey: string | null | undefined): string {
-    if (!scopeKey) return 'workspace';
+    if (!scopeKey) return this.i18n.t('chat.scope.workspace_fallback');
     const scope = this.knowledgeScopeOptions().find((item) => item.key === scopeKey);
     return this.cleanSourceLabel(scope?.label || scopeKey);
   }
@@ -5642,15 +5728,15 @@ export class ChatPanelComponent implements AfterViewInit {
   retrievalPolicyLabel(info: NonNullable<ChatMessage['retrievalInfo']>): string {
     const budget = this.retrievalBudgetShortLabel(info);
     const scope = this.retrievalScopeChipLabel(info.retrievalScope);
-    if (info.deepJobId) return 'Refine';
-    let label = 'Retrieval';
+    if (info.deepJobId) return this.i18n.t('chat.retrieval_policy.refine');
+    let label = this.i18n.t('chat.retrieval_policy.retrieval');
     const policy = info.densePolicy || '';
-    if (policy === 'catalogue_inventory') label = 'Catalogue';
-    else if (policy === 'deep_hierarchical_dense') label = 'Deep';
-    else if (policy === 'fast_scoped_dense_auto') label = 'Guardrail';
-    else if (policy.startsWith('fast_scoped_dense')) label = 'Auto scoped';
-    else if (info.latencyProfile === 'fast') label = 'Fast';
-    else if (info.latencyProfile === 'balanced') label = 'Balanced';
+    if (policy === 'catalogue_inventory') label = this.i18n.t('chat.retrieval_policy.catalogue');
+    else if (policy === 'deep_hierarchical_dense') label = this.i18n.t('chat.retrieval_policy.deep');
+    else if (policy === 'fast_scoped_dense_auto') label = this.i18n.t('chat.retrieval_policy.guardrail');
+    else if (policy.startsWith('fast_scoped_dense')) label = this.i18n.t('chat.retrieval_policy.auto_scoped');
+    else if (info.latencyProfile === 'fast') label = this.i18n.t('chat.retrieval_policy.fast');
+    else if (info.latencyProfile === 'balanced') label = this.i18n.t('chat.retrieval_policy.balanced');
     return [label, scope, budget].filter(Boolean).join(' · ');
   }
 
@@ -5667,17 +5753,21 @@ export class ChatPanelComponent implements AfterViewInit {
     if (info.deepStatus === 'completed') {
       const count = info.deepSummary?.chunksRetrieved;
       if (this.deepRetrievalPartial(info)) {
-        return typeof count === 'number' ? `Deep partial · ${count}` : 'Deep partial';
+        return typeof count === 'number'
+          ? this.i18n.t('chat.deep.state.partial_count', { count })
+          : this.i18n.t('chat.deep.state.partial');
       }
-      return typeof count === 'number' ? `Deep done · ${count}` : 'Deep done';
+      return typeof count === 'number'
+        ? this.i18n.t('chat.deep.state.done_count', { count })
+        : this.i18n.t('chat.deep.state.done');
     }
-    if (info.deepStatus === 'failed') return 'Deep failed';
-    if (info.deepStatus === 'cancelled') return 'Deep stopped';
+    if (info.deepStatus === 'failed') return this.i18n.t('chat.deep.state.failed');
+    if (info.deepStatus === 'cancelled') return this.i18n.t('chat.deep.state.stopped');
     if (typeof info.deepProgress === 'number' && info.deepProgress > 0) {
-      return `Deep ${Math.round(info.deepProgress)}%`;
+      return this.i18n.t('chat.deep.state.progress', { percent: Math.round(info.deepProgress) });
     }
-    if (info.deepStatus === 'queued') return 'Deep queued';
-    return info.deepStage ? 'Deep running' : 'Deep';
+    if (info.deepStatus === 'queued') return this.i18n.t('chat.deep.state.queued');
+    return info.deepStage ? this.i18n.t('chat.deep.state.running') : this.i18n.t('chat.deep.state.plain');
   }
 
   deepRetrievalTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {
@@ -5774,7 +5864,7 @@ export class ChatPanelComponent implements AfterViewInit {
               error: () => {
                 this.patchMessageRetrievalInfo(msg.id, {
                   deepDetailsLoading: false,
-                  deepDetailsError: 'Could not load deep retrieval details.',
+                  deepDetailsError: this.i18n.t('chat.deep.details_error'),
                 });
               },
             });
@@ -5782,7 +5872,7 @@ export class ChatPanelComponent implements AfterViewInit {
         error: () => {
           this.patchMessageRetrievalInfo(msg.id, {
             deepDetailsLoading: false,
-            deepDetailsError: 'Could not load deep retrieval details.',
+            deepDetailsError: this.i18n.t('chat.deep.details_error'),
           });
         },
       });
@@ -5932,7 +6022,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (timingSummary) parts.push(timingSummary);
     const countSummary = this.retrievalCountSummary(info.candidateCounts);
     if (countSummary) parts.push(countSummary);
-    return parts.join(' · ') || 'System-inferred retrieval policy';
+    return parts.join(' · ') || this.i18n.t('chat.retrieval_policy.title_fallback');
   }
 
   private retrievalScopeSummary(scope: Record<string, unknown> | null | undefined): string | null {
@@ -6121,7 +6211,7 @@ export class ChatPanelComponent implements AfterViewInit {
           error: () => {
             if (!this.isChatContinuationCurrent(scope, generation)) return;
             this.creatingChatSession = false;
-            this.toast.error('Could not create a chat session', 'Chat');
+            this.toast.error(this.i18n.t('chat.toast.create_failed'), this.i18n.t('chat.title'));
           },
         });
       this.chatWorkspaceSubscriptions.add(subscription);
@@ -6418,7 +6508,7 @@ export class ChatPanelComponent implements AfterViewInit {
         },
         error: () => {
           if (!this.isChatContinuationCurrent(streamScope, streamGeneration)) return;
-          this.toast.error('Connection lost while streaming', 'Chat');
+          this.toast.error(this.i18n.t('chat.toast.stream_lost'), this.i18n.t('chat.title'));
           this.streaming.set(false);
           this.streamBuffer.set('');
           this.liveSteps.set([]);
@@ -6506,7 +6596,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (msg.role !== 'assistant' || this.deepSearchTrackedJobId(msg) || this.deepSearchLaunchingId() === msg.id) return;
     const query = this.previousUserQueryFor(msg.id);
     if (!query) {
-      this.toast.error('Could not find the source question for this Deep Search.', 'Deep Search');
+      this.toast.error(this.i18n.t('chat.deep.no_source_question'), this.i18n.t('chat.deep.title'));
       return;
     }
     const s = this.settings.settings();
@@ -6585,7 +6675,7 @@ export class ChatPanelComponent implements AfterViewInit {
         error: () => {
           if (!this.isChatContinuationCurrent(scope, generation)) return;
           this.deepSearchLaunchingId.set(null);
-          this.toast.error('Could not launch Deep Search.', 'Deep Search');
+          this.toast.error(this.i18n.t('chat.deep.launch_failed'), this.i18n.t('chat.deep.title'));
         },
       });
     this.chatWorkspaceSubscriptions.add(subscription);
@@ -6926,11 +7016,11 @@ export class ChatPanelComponent implements AfterViewInit {
     // in demo-safe workspaces never see this.
     if (!this.isDemoMode()) {
       const metricList = reasons.slice(0, 3).join(', ');
-      const title = 'Reply flagged by auto-QA';
+      const title = this.i18n.t('chat.qa.flagged_title');
       const scoreLabel = score != null ? `${score}` : '—';
       const msg = metricList
-        ? `Composite ${scoreLabel}/100 · breaches: ${metricList} · tap to review`
-        : `Composite ${scoreLabel}/100 · tap to review`;
+        ? this.i18n.t('chat.qa.flagged_breaches', { score: scoreLabel, metrics: metricList })
+        : this.i18n.t('chat.qa.flagged_review', { score: scoreLabel });
       const t: ActiveToast<unknown> = this.toast.warning(msg, title, {
         timeOut: 10000,
         closeButton: true,
@@ -6979,7 +7069,12 @@ export class ChatPanelComponent implements AfterViewInit {
     this.messages.update((msgs) =>
       msgs.map((m) => (m.id === msg.id ? { ...m, feedback: verdict } : m)),
     );
-    this.toast.success(verdict === 'up' ? 'Marked as helpful' : 'Feedback recorded', 'Thanks');
+    this.toast.success(
+      verdict === 'up'
+        ? this.i18n.t('chat.feedback.helpful')
+        : this.i18n.t('chat.feedback.recorded'),
+      this.i18n.t('chat.correction.thanks'),
+    );
     this.logAudit('chat_feedback', {
       message_id: msg.id,
       agent_id: this.systemId(),
@@ -6990,8 +7085,8 @@ export class ChatPanelComponent implements AfterViewInit {
   copy(text: string): void {
     navigator.clipboard
       .writeText(text)
-      .then(() => this.toast.info('Copied to clipboard'))
-      .catch(() => this.toast.error('Copy failed'));
+      .then(() => this.toast.info(this.i18n.t('chat.toast.copied')))
+      .catch(() => this.toast.error(this.i18n.t('chat.toast.copy_failed')));
   }
 
   // --- Inline expert correction ("Corriger / Compléter") -------------------
@@ -7389,7 +7484,10 @@ export class ChatPanelComponent implements AfterViewInit {
             this.cdr.markForCheck();
             return;
           }
-          this.toast.error(err?.error?.detail ?? 'Envoi de la correction impossible.', 'Correction');
+          this.toast.error(
+            err?.error?.detail ?? this.i18n.t('chat.correction.send_failed'),
+            this.i18n.t('chat.correction.title'),
+          );
           this.cdr.markForCheck();
         },
       });
@@ -7428,7 +7526,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (this.evaluatingId()) return;
     const user = this.lastUserMessageBefore(msg.id);
     if (!user) {
-      this.toast.warning('No matching query found for this response');
+      this.toast.warning(this.i18n.t('chat.audit.no_query'));
       return;
     }
     this.evaluatingId.set(msg.id);
@@ -7444,8 +7542,10 @@ export class ChatPanelComponent implements AfterViewInit {
             msgs.map((m) => (m.id === msg.id ? { ...m, evaluation: res } : m)),
           );
           this.toast.success(
-            `Composite score ${Number(res?.composite_score ?? 0).toFixed(1)}/100`,
-            'Fact-check',
+            this.i18n.t('chat.audit.fact_check_score', {
+              score: Number(res?.composite_score ?? 0).toFixed(1),
+            }),
+            this.i18n.t('chat.audit.fact_check'),
           );
           this.logAudit('evaluation_run', {
             message_id: msg.id,
@@ -7456,7 +7556,10 @@ export class ChatPanelComponent implements AfterViewInit {
           this.evaluatingId.set(null);
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail ?? 'Evaluation failed', 'Fact-check');
+          this.toast.error(
+            err?.error?.detail ?? this.i18n.t('chat.audit.evaluation_failed'),
+            this.i18n.t('chat.audit.fact_check'),
+          );
           this.evaluatingId.set(null);
         },
       });
@@ -7465,11 +7568,20 @@ export class ChatPanelComponent implements AfterViewInit {
   toggleTTS(): void {
     const next = !this.ttsEnabled();
     if (next && !this.voiceOutputProvider()) {
-      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot synthesize speech.' : 'Selected voice provider cannot synthesize speech.', 'Voice');
+      this.toast.error(
+        this.isDemoMode()
+          ? this.i18n.t('chat.voice.tts_cannot_demo')
+          : this.i18n.t('chat.voice.tts_cannot'),
+        this.i18n.t('chat.voice.title'),
+      );
       return;
     }
     this.ttsEnabled.set(next);
-    this.toast.info(next ? this.voiceRuntimeNotice('Voice output enabled', this.voiceOutputProvider()) : 'Voice output disabled');
+    this.toast.info(
+      next
+        ? this.voiceRuntimeNotice(this.i18n.t('chat.voice.output_enabled'), this.voiceOutputProvider())
+        : this.i18n.t('chat.voice.output_disabled'),
+    );
     if (!next) {
       // Stop any playing audio and drop queued chunks so the user isn't
       // surprised by lagging TTS coming through after they muted.
@@ -7591,9 +7703,14 @@ export class ChatPanelComponent implements AfterViewInit {
 
   voiceCaptureModeHint(): string {
     const config = this.resolvedVoiceCaptureConfig();
-    if (config.capture_mode === 'manual_safe') return 'Auto endpoint disabled; use manual stop for degraded microphones.';
-    if (config.capture_mode === 'robust') return `Robust capture: silence ${config.silence_ms} ms, min speech ${config.min_speech_ms} ms.`;
-    return 'Normal capture uses workspace voice settings.';
+    if (config.capture_mode === 'manual_safe') return this.i18n.t('chat.voice.capture_manual');
+    if (config.capture_mode === 'robust') {
+      return this.i18n.t('chat.voice.capture_robust', {
+        silence: config.silence_ms,
+        speech: config.min_speech_ms,
+      });
+    }
+    return this.i18n.t('chat.voice.capture_normal');
   }
 
   setVoiceCaptureMode(mode: VoiceCaptureMode | string): void {
@@ -7611,7 +7728,7 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     if (next === 'manual_safe' && this.recording()) {
       this.voiceLoop.disableAutoEndpoint();
-      this.voiceNotice.set('Manual capture mode enabled for the current turn.');
+      this.voiceNotice.set(this.i18n.t('chat.voice.capture_manual_enabled'));
     }
   }
 
@@ -7643,8 +7760,10 @@ export class ChatPanelComponent implements AfterViewInit {
   private async startVoiceTurn(fromConversationLoop: boolean): Promise<boolean> {
     if (!this.canTranscribeVoice()) {
       this.toast.error(
-        this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.',
-        'Voice',
+        this.isDemoMode()
+          ? this.i18n.t('chat.voice.stt_cannot_demo')
+          : this.i18n.t('chat.voice.stt_cannot'),
+        this.i18n.t('chat.voice.title'),
       );
       return false;
     }
@@ -7657,7 +7776,7 @@ export class ChatPanelComponent implements AfterViewInit {
         this.voiceConnection?.bargeIn();
         this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
         this.resetTtsPipeline();
-        this.voiceNotice.set('Voice output stopped for listening');
+        this.voiceNotice.set(this.i18n.t('chat.voice.output_stopped_listening'));
       }
 
       const captureConfig = this.resolvedVoiceCaptureConfig();
@@ -7676,9 +7795,9 @@ export class ChatPanelComponent implements AfterViewInit {
       this.voiceOracleMessage.set(
         autoEndpoint
           ? captureConfig.capture_mode === 'robust'
-            ? 'Listening: robust capture will wait for a stable silence.'
-            : 'Listening: the assistant will end this voice turn after a short silence.'
-          : 'Listening: press the microphone again to end this voice turn.',
+            ? this.i18n.t('chat.voice.listening_robust')
+            : this.i18n.t('chat.voice.listening_auto')
+          : this.i18n.t('chat.voice.listening_manual'),
       );
 
       // Stream audio chunks to the gateway (live) when the conversation loop is
@@ -7728,7 +7847,7 @@ export class ChatPanelComponent implements AfterViewInit {
         onState: (state) => this.syncVoiceLoopState(state),
         onSpeechStart: () => {
           this.voiceOracleStage.set('listening');
-          this.voiceOracleMessage.set('Speech detected. The assistant will submit after silence.');
+          this.voiceOracleMessage.set(this.i18n.t('chat.voice.speech_detected'));
           if (this.ttsSpeaking() && this.voiceLoopBargeInEnabled()) {
             this.voiceConnection?.bargeIn();
             this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
@@ -7740,9 +7859,9 @@ export class ChatPanelComponent implements AfterViewInit {
           this.recording.set(false);
           if (reason === 'no_speech') {
             this.voiceLastEndpointReason = null;
-            this.voiceNotice.set('No speech detected');
+            this.voiceNotice.set(this.i18n.t('chat.voice.no_speech_short'));
             this.voiceOracleStage.set('idle');
-            this.voiceOracleMessage.set('No voice turn was submitted. The microphone will reopen automatically.');
+            this.voiceOracleMessage.set(this.i18n.t('chat.voice.no_turn_submitted'));
             this.scheduleVoiceLoopRearm();
             this.cdr.markForCheck();
             return;
@@ -7750,7 +7869,7 @@ export class ChatPanelComponent implements AfterViewInit {
           this.voiceLastEndpointReason = reason;
           this.voiceNotice.set(this.voiceEndpointNotice(reason));
           this.voiceOracleStage.set('thinking');
-          this.voiceOracleMessage.set('Voice turn ended; transcribing final audio.');
+          this.voiceOracleMessage.set(this.i18n.t('chat.voice.turn_ended_transcribing'));
           if (this.voiceTurnStreaming && this.voiceFramesStreamed) {
             void this.finishStreamingVoiceTurn(reason);
           } else {
@@ -7761,7 +7880,7 @@ export class ChatPanelComponent implements AfterViewInit {
           this.recording.set(false);
           this.voiceOracleStage.set('error');
           this.voiceOracleMessage.set(message);
-          this.toast.error(message, 'Voice');
+          this.toast.error(message, this.i18n.t('chat.voice.title'));
         },
       });
       this.recording.set(started);
@@ -7769,7 +7888,7 @@ export class ChatPanelComponent implements AfterViewInit {
       return started;
     } catch {
       this.recording.set(false);
-      this.toast.error('Microphone access denied', 'Voice');
+      this.toast.error(this.i18n.t('chat.voice.mic_denied'), this.i18n.t('chat.voice.title'));
       if (fromConversationLoop) this.stopConversationLoop('microphone_denied');
       return false;
     }
@@ -7778,8 +7897,10 @@ export class ChatPanelComponent implements AfterViewInit {
   async startConversationLoop(): Promise<void> {
     if (!this.canUseVoiceSession()) {
       this.toast.error(
-        this.isDemoMode() ? 'Voice session loop is not available for this runtime.' : `Selected runtime cannot open the ${this.brand()} voice session.`,
-        'Voice',
+        this.isDemoMode()
+          ? this.i18n.t('chat.voice.loop_unavailable')
+          : this.i18n.t('chat.voice.session_unsupported'),
+        this.i18n.t('chat.voice.title'),
       );
       return;
     }
@@ -7806,9 +7927,9 @@ export class ChatPanelComponent implements AfterViewInit {
       max_turn_ms: this.voiceEndpointMaxTurnMs(),
       barge_in: this.voiceLoopBargeInEnabled(),
     });
-    this.voiceNotice.set('Conversation loop starting');
+    this.voiceNotice.set(this.i18n.t('chat.voice.loop_starting'));
     this.voiceOracleStage.set('listening');
-    this.voiceOracleMessage.set('Conversation loop armed. Speak after the microphone opens.');
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.loop_armed'));
     const started = await this.startVoiceTurn(true);
     if (!started && this.voiceConversationActive() && !this.voiceConversationPaused()) {
       this.scheduleVoiceLoopRearm();
@@ -7821,9 +7942,9 @@ export class ChatPanelComponent implements AfterViewInit {
     this.clearVoiceLoopRearmTimer();
     if (this.recording()) this.voiceLoop.pause();
     this.voiceConnection?.loopPause({ surface: 'chat' });
-    this.voiceNotice.set('Conversation paused');
+    this.voiceNotice.set(this.i18n.t('chat.voice.conversation_paused'));
     this.voiceOracleStage.set('idle');
-    this.voiceOracleMessage.set('Conversation loop is paused. Resume to reopen the microphone.');
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.loop_paused_msg'));
     this.cdr.markForCheck();
   }
 
@@ -7831,8 +7952,8 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!this.voiceConversationActive()) return;
     this.voiceConversationPaused.set(false);
     this.voiceConnection?.loopResume({ surface: 'chat' });
-    this.voiceNotice.set('Conversation resuming');
-    this.voiceOracleMessage.set('Conversation loop is rearming the microphone.');
+    this.voiceNotice.set(this.i18n.t('chat.voice.conversation_resuming'));
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.loop_rearming'));
     void this.armConversationLoopTurn();
   }
 
@@ -7852,9 +7973,15 @@ export class ChatPanelComponent implements AfterViewInit {
     this.voiceLastEndpointReason = null;
     this.voiceConnection?.loopStop({ surface: 'chat', reason });
     this.closeVoiceSession();
-    this.voiceNotice.set(reason === 'user_stop' ? 'Conversation stopped' : `Conversation stopped · ${reason.replace(/_/g, ' ')}`);
+    this.voiceNotice.set(
+      reason === 'user_stop'
+        ? this.i18n.t('chat.voice.conversation_stopped')
+        : this.i18n.t('chat.voice.conversation_stopped_reason', {
+            reason: reason.replace(/_/g, ' '),
+          }),
+    );
     this.voiceOracleStage.set('idle');
-    this.voiceOracleMessage.set('Conversation loop stopped. Batch voice turns remain available.');
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.loop_stopped_msg'));
     this.cdr.markForCheck();
   }
 
@@ -7869,8 +7996,8 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!this.voiceLoopAutoRearmEnabled()) return;
     if (this.recording() || this.transcribing() || this.streaming()) return;
     this.clearVoiceLoopRearmTimer();
-    this.voiceNotice.set('Conversation rearming');
-    this.voiceOracleMessage.set('Answer complete. The microphone will reopen automatically.');
+    this.voiceNotice.set(this.i18n.t('chat.voice.conversation_rearming'));
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.answer_complete'));
     this.voiceLoopRearmTimer = setTimeout(() => {
       this.voiceLoopRearmTimer = null;
       void this.armConversationLoopTurn();
@@ -7903,7 +8030,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.voicePartial.set('');
     this.voiceNotice.set(null);
     this.voiceOracleStage.set('idle');
-    this.voiceOracleMessage.set('Voice session reset for workspace change.');
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.session_reset'));
     this.voiceLastEndpointReason = null;
     this.voiceTurnId = null;
     this.voiceTurnChunks = [];
@@ -7917,7 +8044,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private syncVoiceLoopState(state: VoiceLoopState): void {
     if (state === 'arming') {
-      this.voiceNotice.set('Arming microphone');
+      this.voiceNotice.set(this.i18n.t('chat.voice.arming_mic'));
       return;
     }
     if (state === 'listening') {
@@ -7926,7 +8053,7 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     if (state === 'endpointing') {
       this.voiceOracleStage.set('thinking');
-      this.voiceOracleMessage.set('Endpoint detected; closing the voice turn.');
+      this.voiceOracleMessage.set(this.i18n.t('chat.voice.endpoint_detected'));
       return;
     }
     if (state === 'transcribing' || state === 'thinking') {
@@ -7936,7 +8063,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (state === 'paused') {
       this.recording.set(false);
       this.voiceOracleStage.set('idle');
-      this.voiceOracleMessage.set('Conversation loop paused.');
+      this.voiceOracleMessage.set(this.i18n.t('chat.voice.loop_paused_short'));
       return;
     }
     if (state === 'idle') {
@@ -7949,12 +8076,12 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private voiceEndpointNotice(reason: VoiceLoopEndpointReason): string {
-    if (reason === 'silence') return 'Silence detected';
-    if (reason === 'max_turn') return 'Max voice turn reached';
-    if (reason === 'no_speech') return 'No speech detected';
-    if (reason === 'pause') return 'Voice turn paused';
-    if (reason === 'stop') return 'Voice turn stopped';
-    return 'Voice turn ended';
+    if (reason === 'silence') return this.i18n.t('chat.voice.endpoint.silence');
+    if (reason === 'max_turn') return this.i18n.t('chat.voice.endpoint.max_turn');
+    if (reason === 'no_speech') return this.i18n.t('chat.voice.no_speech_short');
+    if (reason === 'pause') return this.i18n.t('chat.voice.endpoint.pause');
+    if (reason === 'stop') return this.i18n.t('chat.voice.endpoint.stop');
+    return this.i18n.t('chat.voice.endpoint.ended');
   }
 
   private handleFinalVoiceTranscript(
@@ -7965,7 +8092,7 @@ export class ChatPanelComponent implements AfterViewInit {
     // The final transcript supersedes the live preview.
     this.voicePartial.set('');
     if (!text) {
-      this.toast.info('No speech detected in the recording', 'Voice');
+      this.toast.info(this.i18n.t('chat.voice.no_speech_recording'), this.i18n.t('chat.voice.title'));
       this.scheduleVoiceLoopRearm();
       return true;
     }
@@ -7979,7 +8106,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const autoSendNow = (this.voiceConversationActive() || this.voiceAutoSend()) && !this.streaming();
     if (autoSendNow) {
       if (this.userInput.trim()) {
-        this.toast.info('Existing draft replaced by the final voice transcript before auto-send.', 'Voice');
+        this.toast.info(this.i18n.t('chat.voice.draft_replaced'), this.i18n.t('chat.voice.title'));
       }
       this.userInput = text;
     } else {
@@ -7987,8 +8114,8 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     this.voiceNotice.set(
       options.fallbackUsed
-        ? this.voiceRuntimeNotice('Transcript ready · fallback used', options.provider || this.voiceInputProvider())
-        : this.voiceRuntimeNotice('Transcript ready', options.provider || this.voiceInputProvider()),
+        ? this.voiceRuntimeNotice(this.i18n.t('chat.voice.transcript_ready_fallback'), options.provider || this.voiceInputProvider())
+        : this.voiceRuntimeNotice(this.i18n.t('chat.voice.transcript_ready'), options.provider || this.voiceInputProvider()),
     );
     this.cdr.markForCheck();
     if (autoSendNow && this.userInput.trim()) {
@@ -8006,7 +8133,9 @@ export class ChatPanelComponent implements AfterViewInit {
     this.voicePartial.set('');
     this.transcribing.set(false);
     this.voiceOracleStage.set('committed');
-    this.voiceOracleMessage.set(`Voice command committed: ${command.replace(/_/g, ' ')}.`);
+    this.voiceOracleMessage.set(
+      this.i18n.t('chat.voice.command_committed', { command: command.replace(/_/g, ' ') }),
+    );
 
     if (command === 'stop') {
       this.stopConversationLoop('voice_command');
@@ -8022,14 +8151,14 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     if (command === 'cancel') {
       this.userInput = '';
-      this.voiceNotice.set('Voice draft cancelled');
+      this.voiceNotice.set(this.i18n.t('chat.voice.draft_cancelled'));
       this.scheduleVoiceLoopRearm();
       return true;
     }
     if (command === 'repeat') {
       const last = this.lastAssistantMessage();
       if (!last?.content?.trim()) {
-        this.toast.info('No assistant answer to repeat yet', 'Voice');
+        this.toast.info(this.i18n.t('chat.voice.no_answer_repeat'), this.i18n.t('chat.voice.title'));
         this.scheduleVoiceLoopRearm();
         return true;
       }
@@ -8044,7 +8173,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (command === 'rephrase') {
       const last = this.lastAssistantMessage();
       if (!last?.content?.trim()) {
-        this.toast.info('No assistant answer to rephrase yet', 'Voice');
+        this.toast.info(this.i18n.t('chat.voice.no_answer_rephrase'), this.i18n.t('chat.voice.title'));
         this.scheduleVoiceLoopRearm();
         return true;
       }
@@ -8053,7 +8182,7 @@ export class ChatPanelComponent implements AfterViewInit {
       return true;
     }
     if (command === 'next_question' || command === 'validate') {
-      this.toast.info('This voice command is available in Knowledge Capture sessions.', 'Voice');
+      this.toast.info(this.i18n.t('chat.voice.command_capture_only'), this.i18n.t('chat.voice.title'));
       this.scheduleVoiceLoopRearm();
       return true;
     }
@@ -8081,7 +8210,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.transcribing.set(true);
     const generation = this.voiceWorkspaceGeneration;
     const provider = this.voiceInputProvider();
-    this.voiceNotice.set(this.voiceRuntimeNotice('Transcribing', provider));
+    this.voiceNotice.set(this.voiceRuntimeNotice(this.i18n.t('chat.voice.transcribing'), provider));
     this.api.transcribeAudio(blob, 'recording.webm', provider).subscribe({
       next: (res) => {
         if (generation !== this.voiceWorkspaceGeneration) return;
@@ -8097,8 +8226,8 @@ export class ChatPanelComponent implements AfterViewInit {
         this.transcribing.set(false);
         this.voiceNotice.set(
           res?.fallback
-            ? this.voiceRuntimeNotice('Fallback used', res.provider || provider)
-            : this.voiceRuntimeNotice('Transcript ready', res.provider || provider),
+            ? this.voiceRuntimeNotice(this.i18n.t('chat.voice.fallback_used'), res.provider || provider)
+            : this.voiceRuntimeNotice(this.i18n.t('chat.voice.transcript_ready'), res.provider || provider),
         );
         this.cdr.markForCheck();
       },
@@ -8107,8 +8236,8 @@ export class ChatPanelComponent implements AfterViewInit {
         this.transcribing.set(false);
         this.voiceNotice.set(null);
         this.cdr.markForCheck();
-        const detail = this.voiceErrorMessage(err, 'Transcription failed');
-        this.toast.error(detail, 'Voice');
+        const detail = this.voiceErrorMessage(err, this.i18n.t('chat.voice.transcription_failed'));
+        this.toast.error(detail, this.i18n.t('chat.voice.title'));
       },
     });
   }
@@ -8117,9 +8246,9 @@ export class ChatPanelComponent implements AfterViewInit {
 	    const generation = this.voiceWorkspaceGeneration;
 	    this.transcribing.set(true);
 	    this.voicePartial.set('');
-	    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
+	    this.voiceNotice.set(this.voiceRuntimeNotice(this.i18n.t('chat.voice.session_notice'), this.voiceInputProvider()));
 	    this.voiceOracleStage.set('thinking');
-	    this.voiceOracleMessage.set('Audio segment sent to the voice session; waiting for transcript.');
+	    this.voiceOracleMessage.set(this.i18n.t('chat.voice.segment_sent'));
 	    const connection = this.ensureVoiceSession();
     if (!connection) {
       this.voiceTransport.set('batch_http');
@@ -8140,7 +8269,10 @@ export class ChatPanelComponent implements AfterViewInit {
       if (generation !== this.voiceWorkspaceGeneration) return;
       this.transcribing.set(false);
       this.voiceNotice.set(null);
-      this.toast.error(this.voiceErrorMessage(err, 'Voice session failed'), 'Voice');
+      this.toast.error(
+        this.voiceErrorMessage(err, this.i18n.t('chat.voice.session_failed')),
+        this.i18n.t('chat.voice.title'),
+      );
       this.closeVoiceSession();
       this.cdr.markForCheck();
     }
@@ -8226,8 +8358,8 @@ export class ChatPanelComponent implements AfterViewInit {
     const generation = this.voiceWorkspaceGeneration;
     this.transcribing.set(true);
     this.voiceOracleStage.set('thinking');
-    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
-    this.voiceOracleMessage.set('Finalising the streamed voice turn; waiting for the transcript.');
+    this.voiceNotice.set(this.voiceRuntimeNotice(this.i18n.t('chat.voice.session_notice'), this.voiceInputProvider()));
+    this.voiceOracleMessage.set(this.i18n.t('chat.voice.finalising_turn'));
     const connection = this.voiceConnection;
     if (!connection) {
       this.voiceTurnStreaming = false;
@@ -8288,8 +8420,8 @@ export class ChatPanelComponent implements AfterViewInit {
     if (event.session_id && event.session_id !== this.chatVoiceSessionId) return;
     const payload = event.payload || {};
 	    if (event.type === 'session.ready') {
-	      this.voiceNotice.set('Voice session ready');
-	      this.voiceOracleMessage.set('Session channel ready. Record a voice turn to start oracle tracking.');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.session_ready'));
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.channel_ready'));
 	      return;
 	    }
 	    if (event.type === 'text.partial' || event.type === 'transcript.partial') {
@@ -8298,7 +8430,13 @@ export class ChatPanelComponent implements AfterViewInit {
 	      const text = String(payload['text'] || '').trim();
 	      if (text) this.voicePartial.set(text);
 	      this.voiceOracleStage.set('thinking');
-	      this.voiceOracleMessage.set(text ? `Transcript received: “${text.slice(0, 90)}${text.length > 90 ? '…' : ''}”` : 'Transcript received; oracle is updating.');
+	      this.voiceOracleMessage.set(
+	        text
+	          ? this.i18n.t('chat.voice.transcript_received', {
+	              text: `${text.slice(0, 90)}${text.length > 90 ? '…' : ''}`,
+	            })
+	          : this.i18n.t('chat.voice.transcript_received_updating'),
+	      );
 	      this.cdr.markForCheck();
 	      return;
 	    }
@@ -8314,76 +8452,92 @@ export class ChatPanelComponent implements AfterViewInit {
 	        this.cdr.markForCheck();
 	        return;
 	      }
-	      this.voiceNotice.set(payload['fallback_used'] ? 'Transcript ready · fallback used' : 'Transcript ready');
+	      this.voiceNotice.set(
+	        payload['fallback_used']
+	          ? this.i18n.t('chat.voice.transcript_ready_fallback')
+	          : this.i18n.t('chat.voice.transcript_ready'),
+	      );
 	      this.voiceOracleStage.set(payload['fallback_used'] ? 'fallback' : 'committed');
 	      this.voiceOracleMessage.set(
 	        payload['fallback_used']
-	          ? 'Transcript produced through fallback; final voice text is ready.'
-	          : 'Final transcript committed for this voice turn.',
+	          ? this.i18n.t('chat.voice.transcript_fallback_done')
+	          : this.i18n.t('chat.voice.transcript_committed'),
 	      );
 	      this.cdr.markForCheck();
 	      return;
 	    }
 	    if (event.type === 'loop.start' || event.type === 'loop.resume' || event.type === 'loop.armed') {
-	      this.voiceNotice.set(event.type === 'loop.armed' ? 'Conversation armed' : 'Conversation loop ready');
+	      this.voiceNotice.set(
+	        event.type === 'loop.armed'
+	          ? this.i18n.t('chat.voice.conversation_armed')
+	          : this.i18n.t('chat.voice.loop_ready'),
+	      );
 	      return;
 	    }
 	    if (event.type === 'loop.pause' || event.type === 'loop.stop') {
-	      this.voiceNotice.set(event.type === 'loop.pause' ? 'Conversation paused' : 'Conversation stopped');
+	      this.voiceNotice.set(
+	        event.type === 'loop.pause'
+	          ? this.i18n.t('chat.voice.conversation_paused')
+	          : this.i18n.t('chat.voice.conversation_stopped'),
+	      );
 	      return;
 	    }
 	    if (event.type === 'tts.started') {
-	      this.voiceNotice.set('Speaking');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.speaking'));
 	      return;
 	    }
 	    if (event.type === 'tts.ended') {
-	      this.voiceNotice.set('Voice output complete');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.output_complete'));
 	      this.scheduleVoiceLoopRearm();
 	      return;
 	    }
 	    if (event.type === 'tts.interrupted') {
-	      this.voiceNotice.set('Voice output interrupted');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.output_interrupted'));
 	      return;
 	    }
 	    if (event.type === 'voice.command') {
 	      const command = String(payload['command'] || '').trim();
-	      if (command) this.voiceNotice.set(`Voice command · ${command.replace(/_/g, ' ')}`);
+	      if (command) {
+	        this.voiceNotice.set(
+	          this.i18n.t('chat.voice.command', { command: command.replace(/_/g, ' ') }),
+	        );
+	      }
 	      return;
 	    }
 	    if (event.type === 'runtime.metric') {
 	      const provider = payload['provider'];
 	      if (payload['metric'] === 'micro_turn') {
-	        this.voiceNotice.set('Tandem oracle tracking micro-turns');
+	        this.voiceNotice.set(this.i18n.t('chat.voice.oracle_micro_turns'));
 	        this.voiceOracleStage.set('thinking');
-	        this.voiceOracleMessage.set('Micro-turn tracked; background oracle is following the conversation.');
+	        this.voiceOracleMessage.set(this.i18n.t('chat.voice.micro_turn_tracked'));
 	      } else if (provider) {
-	        this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
+	        this.voiceNotice.set(this.voiceRuntimeNotice(this.i18n.t('chat.voice.session_notice'), String(provider)));
 	      }
 	      return;
 	    }
 	    if (event.type === 'oracle.delta') {
-	      this.voiceNotice.set('Tandem oracle updating');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.oracle_updating'));
 	      this.voiceOracleStage.set('thinking');
-	      this.voiceOracleMessage.set('Oracle delta received; the background context is updating.');
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_delta'));
 	      return;
 	    }
 	    if (event.type === 'oracle.superseded') {
-	      this.voiceNotice.set('Tandem oracle refreshed');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.oracle_refreshed'));
 	      this.voiceOracleStage.set('superseded');
-	      this.voiceOracleMessage.set('Older oracle signal superseded by a newer transcript state.');
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_superseded_msg'));
 	      return;
 	    }
 	    if (event.type === 'oracle.action') {
 	      const action = String(payload['action'] || 'action').replace(/_/g, ' ');
-	      this.voiceNotice.set(`Oracle action · ${action}`);
+	      this.voiceNotice.set(this.i18n.t('chat.voice.oracle_action', { action }));
 	      this.voiceOracleStage.set('committed');
-	      this.voiceOracleMessage.set(`Oracle action ready: ${action}.`);
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_action_ready', { action }));
 	      return;
 	    }
 	    if (event.type === 'oracle.commit') {
-	      this.voiceNotice.set('Oracle committed latest turn');
+	      this.voiceNotice.set(this.i18n.t('chat.voice.oracle_committed'));
 	      this.voiceOracleStage.set('committed');
-	      this.voiceOracleMessage.set('Latest oracle state committed for this turn.');
+	      this.voiceOracleMessage.set(this.i18n.t('chat.voice.oracle_committed_msg'));
 	      return;
 	    }
 	    if (event.type === 'session.error') {
@@ -8391,8 +8545,11 @@ export class ChatPanelComponent implements AfterViewInit {
 	      this.voicePartial.set('');
 	      this.voiceNotice.set(null);
 	      this.voiceOracleStage.set('error');
-	      this.voiceOracleMessage.set(String(payload['message'] || 'Voice session failed.'));
-	      this.toast.error(String(payload['message'] || 'Voice session failed'), 'Voice');
+	      this.voiceOracleMessage.set(String(payload['message'] || this.i18n.t('chat.voice.session_failed_msg')));
+	      this.toast.error(
+	        String(payload['message'] || this.i18n.t('chat.voice.session_failed')),
+	        this.i18n.t('chat.voice.title'),
+	      );
       this.closeVoiceSession();
       this.cdr.markForCheck();
     }
@@ -8430,7 +8587,7 @@ export class ChatPanelComponent implements AfterViewInit {
           latency_profile: metric.latency_profile,
           time_to_first_audio_ms: metric.time_to_first_audio_ms,
         });
-        this.voiceNotice.set('Speaking.');
+        this.voiceNotice.set(this.i18n.t('chat.voice.speaking'));
       },
       onEnded: (metric) => {
         this.voiceConnection?.ttsEnded({

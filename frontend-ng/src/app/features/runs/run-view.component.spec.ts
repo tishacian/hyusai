@@ -5,6 +5,7 @@ import { Injector, signal } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { BehaviorSubject, Subject, of } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import {
   ObjectPerspectiveStore,
@@ -93,6 +94,7 @@ test('Run facets track history, merge tab changes and refresh can force store in
       { provide: ObjectPerspectiveStore, useValue: store },
       { provide: LensService, useValue: { lens: () => 'operate' } },
       { provide: ZoomContextService, useValue: {} },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   const view = injector.get(RunViewComponent);
@@ -148,6 +150,7 @@ test('Run loads its projection when the effective gate activates in the same wor
       },
       { provide: LensService, useValue: { lens: () => 'operate' } },
       { provide: ZoomContextService, useValue: {} },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   const view = injector.get(RunViewComponent);

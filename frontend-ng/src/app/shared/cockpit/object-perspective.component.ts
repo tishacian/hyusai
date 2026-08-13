@@ -1,17 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import type { ObjectLens } from '@app/core/navigation.catalog';
 import type {
   ObjectPerspectiveFact,
   ObjectPerspectiveResponse,
 } from './object-perspective.models';
-
-const STATE_LABELS: Record<ObjectPerspectiveFact['state'], string> = {
-  available: 'Available',
-  not_measured: 'Not measured',
-  not_configured: 'Not configured',
-  restricted: 'Access restricted',
-  unavailable: 'Unavailable',
-};
 
 @Component({
   selector: 'ck-object-perspective',
@@ -27,11 +20,11 @@ const STATE_LABELS: Record<ObjectPerspectiveFact['state'], string> = {
     >
       @if (loading()) {
         <div class="perspective-state" data-testid="object-perspective-loading">
-          Loading the {{ lens() }} projection…
+          {{ i18n.t('common.perspective.loading', { lens: lens() }) }}
         </div>
       } @else if (error()) {
         <div class="perspective-state perspective-state-error" data-testid="object-perspective-error">
-          This projection is temporarily unavailable.
+          {{ i18n.t('common.perspective.error') }}
         </div>
       } @else if (perspective(); as payload) {
         <header class="perspective-heading">
@@ -40,7 +33,7 @@ const STATE_LABELS: Record<ObjectPerspectiveFact['state'], string> = {
             <h2>{{ lensTitle() }}</h2>
           </div>
           <span class="perspective-snapshot" [title]="payload.generated_at">
-            Snapshot {{ shortSnapshot(payload.snapshot_id) }}
+            {{ i18n.t('common.perspective.snapshot', { id: shortSnapshot(payload.snapshot_id) }) }}
           </span>
         </header>
 
@@ -83,7 +76,7 @@ const STATE_LABELS: Record<ObjectPerspectiveFact['state'], string> = {
             </article>
           } @empty {
             <div class="perspective-state" data-testid="object-perspective-empty">
-              No block is configured for this facet.
+              {{ i18n.t('common.perspective.empty') }}
             </div>
           }
         </div>
@@ -115,6 +108,8 @@ const STATE_LABELS: Record<ObjectPerspectiveFact['state'], string> = {
   `],
 })
 export class ObjectPerspectiveComponent {
+  protected readonly i18n = inject(I18nService);
+
   readonly objectLabel = input.required<string>();
   readonly lens = input.required<ObjectLens>();
   readonly facet = input.required<string>();
@@ -125,21 +120,19 @@ export class ObjectPerspectiveComponent {
   readonly blocks = computed(() => this.perspective()?.facets?.[this.facet()]?.blocks ?? []);
 
   lensTitle(): string {
-    const titles: Record<ObjectLens, string> = {
-      build: `How this ${this.objectLabel()} is built`,
-      operate: `How this ${this.objectLabel()} is operating`,
-      steer: `What should be optimized`,
-      govern: `Who can act and what changed`,
-    };
-    return titles[this.lens()];
+    return this.i18n.t(`common.perspective.title.${this.lens()}`, { name: this.objectLabel() });
   }
 
-  stateLabel(state: ObjectPerspectiveFact['state']): string { return STATE_LABELS[state]; }
+  stateLabel(state: ObjectPerspectiveFact['state']): string {
+    return this.i18n.t(`common.perspective.state.${state}`);
+  }
   shortSnapshot(value: string): string { return value.length > 10 ? value.slice(0, 10) : value; }
 
   formatValue(value: unknown): string {
-    if (value == null) return 'Unavailable';
-    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (value == null) return this.i18n.t('common.perspective.state.unavailable');
+    if (typeof value === 'boolean') {
+      return value ? this.i18n.t('common.perspective.yes') : this.i18n.t('common.perspective.no');
+    }
     if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
     if (typeof value === 'string') return value;
     if (Array.isArray(value)) return value.map((item) => this.simpleValue(item)).join(' · ');

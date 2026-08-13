@@ -5,6 +5,7 @@ import { Injector, signal } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { BehaviorSubject, Subject, of } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { ObjectPerspectiveStore } from '@app/core/object-perspective.store';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
@@ -81,6 +82,7 @@ test('SkillInvocation facets follow validated deep links and preserve query cont
       { provide: WorkspaceService, useValue: new WorkspaceStub() },
       { provide: ObjectPerspectiveStore, useValue: { loadAll: () => of(emptyBundle()) } },
       { provide: LensService, useValue: { lens: () => 'govern' } },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   const view = injector.get(SkillInvocationViewComponent);
@@ -135,6 +137,7 @@ test('SkillInvocation loads its projection when the effective gate activates in 
         },
       },
       { provide: LensService, useValue: { lens: () => 'operate' } },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   const view = injector.get(SkillInvocationViewComponent);

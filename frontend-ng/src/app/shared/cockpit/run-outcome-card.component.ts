@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, Input, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, computed, inject, signal } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { MicroBarComponent } from './micro-bar.component';
 import { StatReadoutComponent } from './stat-readout.component';
 import { TagComponent } from './tag.component';
@@ -23,9 +24,9 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
     <div class="ck-surface rounded-md" style="padding: 16px 18px; display:flex; flex-direction:column; gap:14px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <ck-tag [tone]="statusTone()" variant="soft">{{ run.status || 'pending' }}</ck-tag>
+          <ck-tag [tone]="statusTone()" variant="soft">{{ statusLabel() }}</ck-tag>
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-            RUN · {{ shortId() }}
+            {{ i18n.t('runs.outcome.run') }} · {{ shortId() }}
           </span>
           @if (run.trigger) {
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
@@ -40,31 +41,31 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
 
       <div style="display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:18px;">
         <ck-stat-readout
-          label="DECISION"
+          [label]="i18n.t('runs.outcome.decision')"
           [value]="decisionLabel()"
           [tone]="decisionTone()"
           [size]="18"
         />
         <ck-stat-readout
-          label="CONFIDENCE"
+          [label]="i18n.t('runs.outcome.confidence')"
           [value]="percentage(outcome.confidence)"
           [tone]="confidenceTone()"
           [size]="18"
         />
         <ck-stat-readout
-          label="VALUE"
+          [label]="i18n.t('runs.outcome.value')"
           [value]="currency(outcome.value_estimated)"
           tone="pos"
           [size]="18"
         />
         <ck-stat-readout
-          label="COST"
+          [label]="i18n.t('runs.outcome.cost')"
           [value]="currency(outcome.cost_internal)"
           tone="cool"
           [size]="18"
         />
         <ck-stat-readout
-          label="EFFICIENCY"
+          [label]="i18n.t('runs.outcome.efficiency')"
           [value]="efficiencyLabel(outcome.efficiency)"
           [tone]="efficiencyTone()"
           [size]="18"
@@ -73,7 +74,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
 
       @if (outcome.confidence !== null && outcome.confidence !== undefined) {
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); min-width:78px;">CONFIDENCE</span>
+          <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); min-width:78px;">{{ i18n.t('runs.outcome.confidence') }}</span>
           <ck-micro-bar
             [value]="confidenceRatio() * 100"
             [max]="100"
@@ -94,7 +95,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
             class="ck-mono"
             style="cursor:pointer; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3); list-style:none;"
           >
-            SKILL LEDGER · {{ run.skill_invocations.length }}
+            {{ i18n.t('runs.outcome.skill_ledger') }} · {{ run.skill_invocations.length }}
           </summary>
           <ul style="margin-top:10px; display:flex; flex-direction:column; gap:4px; list-style:none; padding:0;">
             @for (inv of run.skill_invocations; track inv.id || inv.skill_slug || $index) {
@@ -125,7 +126,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
           class="ck-mono"
           style="font-size:11px; color:var(--ck-status-neg-fg); background:var(--ck-status-neg-bg); padding:8px 10px; border-radius:4px;"
         >
-          ERROR · {{ run.error }}
+          {{ i18n.t('runs.outcome.error').toUpperCase() }} · {{ run.error }}
         </div>
       }
     </div>
@@ -133,6 +134,8 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
 })
 export class RunOutcomeCardComponent {
   @Input({ required: true }) run!: Run;
+
+  protected readonly i18n = inject(I18nService);
 
   protected readonly expanded = signal(false);
 
@@ -156,9 +159,20 @@ export class RunOutcomeCardComponent {
 
   protected decisionLabel = computed(() => {
     const d = this.outcome?.decision;
-    if (!d) return this.run?.status === 'failed' ? 'BLOCKED' : '—';
+    if (!d) return this.run?.status === 'failed' ? this.i18n.t('runs.outcome.blocked').toUpperCase() : '—';
     return String(d).toUpperCase();
   });
+
+  /**
+   * Translate the run status chip, falling back to the raw API value when the
+   * backend grows a status the dictionary hasn't caught up with.
+   */
+  protected statusLabel(): string {
+    const status = this.run?.status || 'pending';
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
 
   protected decisionTone = computed(() => {
     const d = (this.outcome?.decision || '').toLowerCase();
