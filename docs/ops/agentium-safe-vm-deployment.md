@@ -3616,3 +3616,81 @@ de produire son run à 07:00 UTC (`951c838a…` le 13/08, `e5668f9e…` le 12/08
 
 Le script présentateur à jour est
 `docs/demo-runs/2026-08-13-nawa-po-invoice-recon-v2/DEMO-SCRIPT.md`.
+
+## Itération du 13/08 (midi) — déployée sur `0a3534f2`, vague de résorption i18n P0→P3
+
+Quatre commits sur `demo/agentic` (`981c3b46` → `0a3534f2`), un par palier de la
+QA visuelle bilingue du matin sur la prod. La dette anglaise-en-FR relevée sur
+onze familles de surfaces est soldée : détail de run et chrome du chat (P0),
+portail de dépôt, base de connaissances, shell du chat workspace et feed
+hyperviseur (P1), Steer/contexts/suite Govern/workspace/compte/presets/missions
+(P2), catalogues resources/connectors/apps, palette Flow, aria de l'aide et
+résumé RSS backend (P3). Le dictionnaire passe à **5 219 clés sur 18 domaines**
+(7 nouveaux : contexts, deposit, governance, knowledge, resources, settings,
+tasks), parité FR/EN garantie par contrat de type + garde + spec de parité des
+placeholders.
+
+Décisions notables de la vague :
+
+- **Feed hyperviseur** : les titres backend à motifs fixes (« Run failed · … »,
+  « High-yield outcome · ROI … ») sont mappés motif→clé côté frontend avec
+  interpolation ; tout titre non reconnu (raisons d'auto-éval, recommandations)
+  s'affiche verbatim — la donnée reste de la donnée.
+- **Surface-map Govern** : traduction au rendu par clé dérivée de l'id d'entrée,
+  repli sur le catalogue de routes non modifié ; les entrées au wording banni
+  (« jobs ») ou aux noms propres de tenant restent en repli assumé.
+- **Chrome partagée sans propriétaire** : `run-outcome-card` (SKILL LEDGER,
+  DECISION…), `ck-tabs` (More) et `ck-object-perspective` (états de facts,
+  titres de lens) migrés vers `runs.outcome.*` et `common.perspective/tabs.*`.
+  Les titres de lens FR utilisent une apposition neutre (« Comment cet objet
+  ({name}) est construit ») : les libellés d'objet sont de genres mêlés.
+- **Backend** : le résumé RSS de repli de `batch.py` perd son français sans
+  accents servi dans les deux langues au profit d'un anglais propre.
+- **Ratchet** : budget hardcodedText de `chat-knowledge-settings` resserré de
+  7 à 4 — ne restent que les exemples de données FR que l'admin saisit.
+
+### Portails locaux
+
+| Portail | Observé |
+|---|---|
+| Garde i18n | sortie 0 — 5 219 clés, 18 domaines, 20 règles de lexique, aucune note de ratchet restante |
+| Unitaires front | **863/863** (specs touchés dotés du provider `I18nService`, motif NG0201) |
+| Build AOT | `npx ng build -c production` vert, seuls les warnings CommonJS préexistants |
+| E2E palette | `16-flow-builder-authoring-contract` et `17-flow-palette-density` verts contre le build local (`E2E_BASE_URL=http://localhost:4200`) — obligatoires, la palette rend désormais ses descriptions traduites |
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Garde-fou | diff `92b32ce4..0a3534f2` **vide** sur `agentium-livekit.yaml`, `realm-export.json`, thème Keycloak |
+| Push | `demo/agentic` en fast-forward `3c029d06` → `0a3534f2` |
+| Ancre + worktree | `pull --ff-only` et `fetch` + `merge --ff-only FETCH_HEAD`, les deux sur `0a3534f2`, statut vierge |
+| Build | trois images au tag `0a3534f2a14d` (~7,8 min), révision 40-hex vérifiée sur les trois |
+| Dump | **aucun** — ni schéma ni graphes stockés ne changent (frontend + une chaîne backend) |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés, backend et frontend `healthy` |
+| `build-info` | `revision: 0a3534f2a14d655a285ea8755b5b876e5dab317c`, `revision_verified: true` |
+| Alembic | `085_nawa_brand_light_emblem` avant **et** après — aucune migration |
+| Logs | 0 `error`/`traceback`/`exception` backend depuis la bascule |
+| Canaris carakai | **6/6 vertes** en 57,8 s au premier passage, artefacts `/tmp/iteration-canaries-20260813T111445Z.IO043H` (`candidate_sha 0a3534f2…`, `result: passed`) |
+| Alias | `demo-agentic` déplacé sur `0a3534f2a14d` pour les trois images (ids identiques vérifiés) ; rollback : `AGENTIUM_IMAGE_TAG=92b32ce4d067` |
+
+Piège rejoué : l'`origin` du checkout carakai est un bundle `/tmp` périmé — le
+`fetch` « réussit » sans apprendre le nouveau SHA, et le premier bundle
+incrémental a échoué sur prérequis (`3c029d06` inconnu de carakai, le tip y
+était `b0ce840a`). Bundle refait depuis `b0ce840a..demo/agentic`, sha256
+identique des deux côtés, `cat-file -e` vérifié avant les canaris.
+
+### Dette relevée, non traitée
+
+- `hypervisor.col.capability` = « CAPACITÉ » en FR alors que le lexique impose
+  « Capability » (la nouvelle clé `hypervisor.scope.capability` est conforme) —
+  clé préexistante, à corriger dans une passe dédiée.
+- Les mots bannis sous allowlist lexique restent à l'écran en attendant la
+  passe flow-clarity : « catalog only » (apps), « Pipeline mode » (presets),
+  « HITL » (capabilities, steering, system-*), « ingress » (flow-runner).
+- `rpa_bridge` (connecteur et app) reste en repli brut : son wording tiers
+  contient « jobs ».
+- Le catalogue bilingue backend (`seed.py`, descriptions skills/capabilities)
+  reste un choix produit ouvert — les descriptions de skills dynamiques
+  s'affichent telles quelles dans la palette, par conception.
