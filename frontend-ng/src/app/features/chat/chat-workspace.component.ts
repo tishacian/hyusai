@@ -101,7 +101,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       <header class="t-header">
         @if (businessSurface()) {
           <div class="t-header-left">
-            <ck-tag tone="pos" variant="solid">Recherche</ck-tag>
+            <ck-tag tone="pos" variant="solid">{{ i18n.t('chat.workspace.mode.search') }}</ck-tag>
             <span class="t-header-hint">{{ i18n.t('chat.context.workspace_search_hint') }}</span>
           </div>
           <div class="t-header-right">
@@ -122,7 +122,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 type="button"
                 class="t-flow-link"
                 (click)="openFlowBuilder()"
-                title="Open this workspace chat system in Flow Builder"
+                [title]="i18n.t('chat.workspace.open_flow_builder')"
               >
                 <app-icon name="workflow" [size]="13" />
                 Flow
@@ -137,10 +137,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           <div class="t-header-right">
             <div class="t-system-control">
               <span class="t-picker-label">
-                Context
+                {{ i18n.t('chat.workspace.context_label') }}
                 <span
                   class="t-info-dot"
-                  title="Choose a System when you need a scoped assistant. Quick ask uses the workspace context."
+                  [title]="i18n.t('chat.workspace.context_hint')"
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -151,7 +151,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                   [ngModel]="selectedSystemId()"
                   (ngModelChange)="onSystemChange($event)"
                 >
-                  <option [ngValue]="null">Quick ask</option>
+                  <option [ngValue]="null">{{ i18n.t('chat.workspace.mode.quick_ask') }}</option>
                   @for (s of systems(); track s.id) {
                     <option [ngValue]="s.id">{{ s.name }}</option>
                   }
@@ -164,7 +164,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 type="button"
                 class="t-flow-link"
                 (click)="openFlowBuilder()"
-                title="Open this workspace chat system in Flow Builder"
+                [title]="i18n.t('chat.workspace.open_flow_builder')"
               >
                 <app-icon name="workflow" [size]="13" />
                 Flow
@@ -181,10 +181,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
         <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
           <div class="t-sidebar-head">
             <span class="ck-mono t-sidebar-eyebrow">
-              Session docs
+              {{ i18n.t('chat.workspace.session_docs') }}
               <span
                 class="t-info-dot"
-                title="Drop documents here to create a temporary chat context. In the chat controls, choose whether these docs replace or complement workspace sources."
+                [title]="i18n.t('chat.workspace.session_docs_hint')"
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -194,7 +194,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 type="button"
                 class="t-mini-btn"
                 (click)="dropOpen.set(!dropOpen())"
-                [title]="dropOpen() ? 'Collapse dropzone' : 'Expand dropzone'"
+                [title]="dropOpen() ? i18n.t('chat.workspace.dropzone_collapse') : i18n.t('chat.workspace.dropzone_expand')"
               >
                 <app-icon [name]="dropOpen() ? 'chevron-up' : 'chevron-down'" [size]="12" />
               </button>
@@ -223,13 +223,13 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 <app-icon name="cloud-upload" [size]="18" />
               </div>
               <div class="t-drop-text">
-                Drop files <span class="t-drop-accent">or click</span>
+                {{ i18n.t('chat.workspace.drop_files') }} <span class="t-drop-accent">{{ i18n.t('chat.workspace.or_click') }}</span>
               </div>
               <div class="t-drop-hint">PDF · DOCX · XLSX · CSV · TXT · MD · JSON</div>
               @if (uploading()) {
                 <div class="t-drop-progress">
-                  <ck-thinking-orb state="shaping" [size]="20" label="Indexing" />
-                  Indexing {{ uploadingCount() }}…
+                  <ck-thinking-orb state="shaping" [size]="20" [label]="i18n.t('chat.workspace.indexing')" />
+                  {{ i18n.t('chat.workspace.indexing_count', { count: uploadingCount() }) }}
                 </div>
               }
             </div>
@@ -243,7 +243,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               <div class="t-docs">
                 <div class="t-docs-head">
                   <span class="ck-mono t-docs-count">
-                    {{ sessionDocs().length }} file(s)
+                    {{ i18n.t(sessionDocs().length === 1 ? 'chat.workspace.files_one' : 'chat.workspace.files_many', { count: sessionDocs().length }) }}
                   </span>
                   @if (ephemeralContextId()) {
                     <button
@@ -251,10 +251,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                       class="t-persist-btn"
                       (click)="persistContext()"
                       [disabled]="persisting()"
-                      title="Keep this session context permanently"
+                      [title]="i18n.t('chat.persist.hint')"
                     >
                       <app-icon [name]="persisting() ? 'loader-2' : 'save'" [size]="11" [class.animate-spin]="persisting()" />
-                      Persist
+                      {{ i18n.t('chat.persist') }}
                     </button>
                   }
                 </div>
@@ -274,8 +274,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                           class="t-doc-remove"
                           (click)="detachSessionDoc(d)"
                           [disabled]="detachingDocKey() === docKey(d)"
-                          [title]="'Remove from this chat session: ' + displayTitle(d)"
-                          [attr.aria-label]="'Remove from this chat session: ' + displayTitle(d)"
+                          [title]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
+                          [attr.aria-label]="i18n.t('chat.workspace.remove_doc', { name: displayTitle(d) })"
                         >
                           <app-icon [name]="detachingDocKey() === docKey(d) ? 'loader-2' : 'x'" [size]="10" [class.animate-spin]="detachingDocKey() === docKey(d)" />
                         </button>
@@ -289,22 +289,22 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                           <div class="t-doc-stats">
                             @if (pageCount(d); as p) {
                               <span class="t-doc-stat">
-                                {{ p }} page{{ p === 1 ? '' : 's' }}
+                                {{ i18n.t(p === 1 ? 'chat.workspace.pages_one' : 'chat.workspace.pages_many', { count: p }) }}
                               </span>
                             }
                             @if (d.meta.document_token_count !== undefined) {
                               <span class="t-doc-stat">
-                                {{ formatTokens(d.meta.document_token_count) }} tokens
+                                {{ i18n.t('chat.workspace.tokens', { count: formatTokens(d.meta.document_token_count) }) }}
                               </span>
                             }
                             @if (d.meta.chunks_count !== undefined && d.meta.chunks_count !== null) {
                               <span class="t-doc-stat">
-                                {{ d.meta.chunks_count }} chunks
+                                {{ i18n.t('chat.workspace.chunks', { count: d.meta.chunks_count }) }}
                               </span>
                             }
                           </div>
                           @if (d.meta.document_author) {
-                            <div class="t-doc-author">by {{ d.meta.document_author }}</div>
+                            <div class="t-doc-author">{{ i18n.t('chat.workspace.by_author', { name: d.meta.document_author }) }}</div>
                           }
                           @if (topKeywords(d).length > 0) {
                             <div class="t-doc-keywords">
@@ -321,8 +321,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               </div>
             } @else {
               <div class="t-empty-hint">
-                No docs yet. Drop PDFs, spreadsheets, or click browse to ground
-                answers on your own files.
+                {{ i18n.t('chat.workspace.no_docs') }}
               </div>
             }
           }
@@ -923,10 +922,10 @@ export class ChatWorkspaceComponent implements OnInit {
   );
 
   readonly modeLabel = computed<string>(() => {
-    if (this.businessSurface()) return 'Recherche';
-    if (this.ephemeralContextId()) return 'Drop-and-ask';
-    if (this.selectedSystem()) return 'System chat';
-    return 'Quick ask';
+    if (this.businessSurface()) return this.i18n.t('chat.workspace.mode.search');
+    if (this.ephemeralContextId()) return this.i18n.t('chat.workspace.mode.drop_ask');
+    if (this.selectedSystem()) return this.i18n.t('chat.workspace.mode.system');
+    return this.i18n.t('chat.workspace.mode.quick_ask');
   });
 
   readonly modeTone = computed<'cool' | 'violet' | 'pos'>(() => {
@@ -938,13 +937,13 @@ export class ChatWorkspaceComponent implements OnInit {
 
   readonly modeHint = computed<string>(() => {
     if (this.businessSurface()) return this.i18n.t('chat.context.workspace_sources');
-    if (this.ephemeralContextId()) return 'Session docs ground the answer';
+    if (this.ephemeralContextId()) return this.i18n.t('chat.workspace.hint.session_docs');
     const selected = this.selectedSystem();
     if (selected) {
-      return selected.objective || 'Scoped to selected system';
+      return selected.objective || this.i18n.t('chat.workspace.hint.scoped');
     }
     const chatSystem = this.workspaceChatSystem();
-    if (chatSystem) return chatSystem.objective || 'Fast workspace chat flow';
+    if (chatSystem) return chatSystem.objective || this.i18n.t('chat.workspace.hint.fast');
     return this.i18n.t('chat.context.workspace');
   });
 
@@ -1115,13 +1114,22 @@ export class ChatWorkspaceComponent implements OnInit {
           );
           if (res.failed > 0) {
             this.toast.warning(
-              `${res.successful}/${res.total} indexed · ${res.failed} failed`,
-              'Drop-and-ask',
+              this.i18n.t('chat.workspace.toast.partial', {
+                ok: res.successful,
+                total: res.total,
+                failed: res.failed,
+              }),
+              this.i18n.t('chat.workspace.mode.drop_ask'),
             );
           } else {
             this.toast.success(
-              `${res.successful} file(s) indexed — ask anything.`,
-              'Drop-and-ask',
+              this.i18n.t(
+                res.successful === 1
+                  ? 'chat.workspace.toast.indexed_one'
+                  : 'chat.workspace.toast.indexed_many',
+                { count: res.successful },
+              ),
+              this.i18n.t('chat.workspace.mode.drop_ask'),
             );
           }
         },
@@ -1129,8 +1137,8 @@ export class ChatWorkspaceComponent implements OnInit {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
           this.toast.error(
-            err?.error?.detail || 'Failed to upload',
-            'Drop-and-ask',
+            err?.error?.detail || this.i18n.t('chat.workspace.toast.upload_failed'),
+            this.i18n.t('chat.workspace.mode.drop_ask'),
           );
         },
       });
@@ -1239,8 +1247,8 @@ export class ChatWorkspaceComponent implements OnInit {
             if (ctx) return;
             this.removeSessionDocsByFilename(newDocs);
             this.toast.error(
-              'Could not attach the file to this chat session.',
-              'Drop-and-ask',
+              this.i18n.t('chat.workspace.toast.attach_failed'),
+              this.i18n.t('chat.workspace.mode.drop_ask'),
             );
           },
         });
@@ -1265,8 +1273,8 @@ export class ChatWorkspaceComponent implements OnInit {
           }
           this.removeSessionDocsByFilename(newDocs);
           this.toast.error(
-            'Could not create a temporary chat context.',
-            'Drop-and-ask',
+            this.i18n.t('chat.workspace.toast.context_failed'),
+            this.i18n.t('chat.workspace.mode.drop_ask'),
           );
         },
       });
@@ -1306,7 +1314,10 @@ export class ChatWorkspaceComponent implements OnInit {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           if (!ctx) {
             this.detachingDocKey.set(null);
-            this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
+            this.toast.error(
+              this.i18n.t('chat.workspace.toast.remove_failed'),
+              this.i18n.t('chat.workspace.mode.drop_ask'),
+            );
             return;
           }
           this.sessionDocs.set(nextDocs);
@@ -1316,7 +1327,10 @@ export class ChatWorkspaceComponent implements OnInit {
         error: () => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.detachingDocKey.set(null);
-          this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
+          this.toast.error(
+            this.i18n.t('chat.workspace.toast.remove_failed'),
+            this.i18n.t('chat.workspace.mode.drop_ask'),
+          );
         },
       });
     this.workspaceSubscriptions.add(subscription);
@@ -1334,17 +1348,23 @@ export class ChatWorkspaceComponent implements OnInit {
         this.persisting.set(false);
         if (ctx) {
           this.toast.success(
-            `Saved as "${ctx.name}"`,
-            'Session persisted',
+            this.i18n.t('chat.workspace.toast.persisted', { name: ctx.name }),
+            this.i18n.t('chat.workspace.toast.persisted_title'),
           );
         } else {
-          this.toast.error('Failed to persist session', 'Drop-and-ask');
+          this.toast.error(
+            this.i18n.t('chat.workspace.toast.persist_failed'),
+            this.i18n.t('chat.workspace.mode.drop_ask'),
+          );
         }
       },
       error: () => {
         if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.persisting.set(false);
-        this.toast.error('Failed to persist session', 'Drop-and-ask');
+        this.toast.error(
+          this.i18n.t('chat.workspace.toast.persist_failed'),
+          this.i18n.t('chat.workspace.mode.drop_ask'),
+        );
       },
     });
     this.workspaceSubscriptions.add(subscription);

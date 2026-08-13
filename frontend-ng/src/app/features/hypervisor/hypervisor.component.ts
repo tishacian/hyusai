@@ -35,13 +35,21 @@ import { summarizePortfolioValueLoop } from './hypervisor-value-loop';
 
 type PeriodKey = 'wtd' | 'mtd' | 'qtd' | 'rolling_30d' | 'rolling_90d';
 
-const PERIOD_LABELS: Record<PeriodKey, string> = {
-  wtd: 'W',
-  mtd: 'M',
-  qtd: 'Q',
-  rolling_30d: '30d',
-  rolling_90d: '90d',
-};
+const PERIOD_KEYS: readonly PeriodKey[] = ['wtd', 'mtd', 'qtd', 'rolling_30d', 'rolling_90d'];
+
+/**
+ * The fixed English patterns the backend assembles in `_signal_label`
+ * (backend/app/api/v1/endpoints/hypervisor.py, `GET /hypervisor/balance-sheet`).
+ * The variable tail (error, ROI figure, decision value, raw status) is data
+ * and is re-emitted as a `{param}`; anything that matches no pattern renders
+ * verbatim — auto-eval review titles and recommendation titles are data.
+ */
+const SIGNAL_PATTERNS: readonly { re: RegExp; key: string; param: string }[] = [
+  { re: /^Run failed · (.*)$/, key: 'hypervisor.signals.run_failed', param: 'reason' },
+  { re: /^High-yield outcome · ROI (.*)$/, key: 'hypervisor.signals.high_yield', param: 'roi' },
+  { re: /^Run completed · decision (.*)$/, key: 'hypervisor.signals.run_completed', param: 'decision' },
+];
+const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
 
 @Component({
   selector: 'app-hypervisor',
@@ -68,7 +76,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
         <!-- Period selector -->
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1 ck-surface rounded-md" style="padding:4px;">
-            @for (p of periods; track p.id) {
+            @for (p of periods(); track p.id) {
               <button
                 type="button"
                 (click)="setPeriod(p.id)"
@@ -238,7 +246,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                       style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-fg-2);"
                     >
                       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ scenario.objective }}</span>
-                      <span style="color:var(--ck-signal-cool);">{{ scenario.status }}</span>
+                      <span style="color:var(--ck-signal-cool);">{{ scenarioStatusLabel(scenario.status) }}</span>
                     </a>
                   }
                 }
@@ -266,8 +274,8 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                 } @else {
                   @for (decision of valueLoop()!.arbitrations.items.slice(0, 4); track decision.id) {
                     <div class="ck-mono" style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-fg-2);">
-                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ decision.title }}</span>
-                      <span style="color:var(--ck-signal-cool);">{{ decision.status }}</span>
+                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ backendTitle(decision.title) }}</span>
+                      <span style="color:var(--ck-signal-cool);">{{ decisionStatusLabel(decision.status) }}</span>
                     </div>
                   }
                 }
@@ -325,9 +333,9 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                 {{ i18n.t('hypervisor.capabilities.empty_hint') }}
               </div>
               <div style="display:inline-flex; gap:8px; margin-top:14px;">
-                <a routerLink="/observability" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">OBSERVABILITY</a>
-                <a routerLink="/chat" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">CHAT</a>
-                <a routerLink="/runs" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">RUNS</a>
+                <a routerLink="/observability" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.observability') }}</a>
+                <a routerLink="/chat" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.chat') }}</a>
+                <a routerLink="/runs" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.runs') }}</a>
               </div>
             </div>
           } @else {
@@ -366,7 +374,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                       </div>
                     </td>
                     <td style="padding:10px;">
-                      <ck-tag [tone]="tierTone(c.tier)" variant="soft">{{ c.tier || '—' }}</ck-tag>
+                      <ck-tag [tone]="tierTone(c.tier)" variant="soft">{{ tierLabel(c.tier) }}</ck-tag>
                     </td>
                     <td class="ck-mono ck-tnum" style="padding:10px; font-size:12px; text-align:right; color:var(--ck-fg-2);">
                       {{ c.runs_count ?? 0 }}
@@ -443,7 +451,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                       style="width:6px; height:6px; border-radius:999px; justify-self:center;"
                     ></span>
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                      {{ s.label }}
+                      {{ backendTitle(s.label) }}
                     </span>
                     <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                       {{ formatTime(s.timestamp) }}
@@ -484,7 +492,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                 @for (r of recommendations(); track r.id) {
                   <li class="ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset); display:flex; flex-direction:column; gap:4px;">
                     <div class="flex items-center gap-2">
-                      <ck-tag [tone]="recoTone(r.status)" variant="outline">{{ r.status || 'pending' }}</ck-tag>
+                      <ck-tag [tone]="recoTone(r.status)" variant="outline">{{ decisionStatusLabel(r.status || 'pending') }}</ck-tag>
                       <span class="text-sm text-white" style="font-weight:500;">{{ r.title }}</span>
                     </div>
                     @if (r.impact_estimate && objectKeys(r.impact_estimate).length > 0) {
@@ -510,7 +518,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
             <div class="flex items-center gap-2">
               <ck-glyph name="ledger" [size]="14" />
               <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
-                DECISIONS
+                {{ i18n.t('hypervisor.decisions.title') }}
               </h3>
               <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                 {{ decisions().length }}/{{ decisionsTotal() }}
@@ -549,10 +557,10 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                   (click)="openDecision(d.id)"
                 >
                   <div class="flex items-center gap-2 mb-1">
-                    <ck-tag [tone]="decisionTone(d.status)" variant="soft">{{ d.status }}</ck-tag>
-                    <ck-tag tone="cool" variant="outline">{{ d.kind }}</ck-tag>
-                    <ck-tag tone="violet" variant="outline">{{ d.scope }}</ck-tag>
-                    <span class="text-sm text-white font-medium truncate">{{ d.title }}</span>
+                    <ck-tag [tone]="decisionTone(d.status)" variant="soft">{{ decisionStatusLabel(d.status) }}</ck-tag>
+                    <ck-tag tone="cool" variant="outline">{{ decisionKindLabel(d.kind) }}</ck-tag>
+                    <ck-tag tone="violet" variant="outline">{{ scopeLabel(d.scope) }}</ck-tag>
+                    <span class="text-sm text-white font-medium truncate">{{ backendTitle(d.title) }}</span>
                     <span class="ml-auto ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                       {{ formatRelative(d.created_at) }}
                     </span>
@@ -626,11 +634,11 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                   {{ i18n.t('common.close') }}
                 </button>
               </div>
-              <h2 class="text-lg font-semibold text-white mb-1">{{ d.title }}</h2>
+              <h2 class="text-lg font-semibold text-white mb-1">{{ backendTitle(d.title) }}</h2>
               <div class="flex items-center gap-2 mb-4">
-                <ck-tag [tone]="decisionTone(d.status)" variant="soft">{{ d.status }}</ck-tag>
-                <ck-tag tone="cool" variant="outline">{{ d.kind }}</ck-tag>
-                <ck-tag tone="violet" variant="outline">{{ d.scope }}</ck-tag>
+                <ck-tag [tone]="decisionTone(d.status)" variant="soft">{{ decisionStatusLabel(d.status) }}</ck-tag>
+                <ck-tag tone="cool" variant="outline">{{ decisionKindLabel(d.kind) }}</ck-tag>
+                <ck-tag tone="violet" variant="outline">{{ scopeLabel(d.scope) }}</ck-tag>
               </div>
               @if (d.impact_estimate && objectKeys(d.impact_estimate).length > 0) {
                 <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-3); margin-bottom:12px;">
@@ -712,13 +720,9 @@ export class HypervisorComponent implements OnInit {
     this.router.navigate(['/capabilities'], { queryParams: { focus: c.capability_id } });
   }
 
-  readonly periods: { id: PeriodKey; label: string }[] = [
-    { id: 'wtd', label: 'W' },
-    { id: 'mtd', label: 'M' },
-    { id: 'qtd', label: 'Q' },
-    { id: 'rolling_30d', label: '30D' },
-    { id: 'rolling_90d', label: '90D' },
-  ];
+  readonly periods = computed<{ id: PeriodKey; label: string }[]>(() =>
+    PERIOD_KEYS.map((id) => ({ id, label: this.i18n.t(`hypervisor.period.${id}`) })),
+  );
 
   readonly period = signal<PeriodKey>('qtd');
   readonly loading = signal(true);
@@ -783,7 +787,7 @@ export class HypervisorComponent implements OnInit {
     return value >= 0 ? this.i18n.t('hypervisor.hero.surplus') : this.i18n.t('hypervisor.hero.deficit');
   });
 
-  readonly periodLabel = computed(() => PERIOD_LABELS[this.period()]);
+  readonly periodLabel = computed(() => this.i18n.t(`hypervisor.period.${this.period()}`));
 
   readonly roiTone = computed(() => {
     const r = this.portfolio()?.roi;
@@ -977,10 +981,66 @@ export class HypervisorComponent implements OnInit {
     if (!ts) return '—';
     const d = new Date(ts);
     const diffSec = Math.max(0, (Date.now() - d.getTime()) / 1000);
-    if (diffSec < 60) return `${Math.round(diffSec)}s ago`;
-    if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
-    return `${Math.round(diffSec / 86400)}d ago`;
+    if (diffSec < 60) return this.i18n.t('hypervisor.time.seconds_ago', { n: Math.round(diffSec) });
+    if (diffSec < 3600) return this.i18n.t('hypervisor.time.minutes_ago', { n: Math.round(diffSec / 60) });
+    if (diffSec < 86400) return this.i18n.t('hypervisor.time.hours_ago', { n: Math.round(diffSec / 3600) });
+    return this.i18n.t('hypervisor.time.days_ago', { n: Math.round(diffSec / 86400) });
+  }
+
+  /**
+   * Localise one backend feed title. The balance-sheet signal labels are the
+   * four fixed patterns of `_signal_label`; decision titles from
+   * `/hypervisor/decisions` and the value-loop arbitrations are stored data
+   * with mixed provenance (auto-eval reviews, HITL approvals, value-loop
+   * arbitrations), so everything that matches no pattern renders verbatim.
+   */
+  protected backendTitle(label: string | null | undefined): string {
+    if (!label) return '';
+    for (const { re, key, param } of SIGNAL_PATTERNS) {
+      const match = re.exec(label);
+      if (match) return this.i18n.t(key, { [param]: match[1] });
+    }
+    const status = SIGNAL_RUN_STATUS.exec(label);
+    if (status) {
+      return this.i18n.t('hypervisor.signals.run_status', {
+        status: this.runStatusLabel(status[1]),
+      });
+    }
+    return label;
+  }
+
+  /** `runs.status.<status>` lookup, lowercased mid-sentence; raw value on miss. */
+  private runStatusLabel(status: string): string {
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label.toLocaleLowerCase();
+  }
+
+  /** Map an API value through `<prefix><value>`, falling back to the raw value. */
+  private apiValueLabel(prefix: string, value: string): string {
+    const key = prefix + value;
+    const label = this.i18n.t(key);
+    return label === key ? value : label;
+  }
+
+  protected decisionStatusLabel(status: string): string {
+    return this.apiValueLabel('hypervisor.decisions.status.', status);
+  }
+
+  protected decisionKindLabel(kind: string): string {
+    return this.apiValueLabel('hypervisor.decisions.kind.', kind);
+  }
+
+  protected scopeLabel(scope: string): string {
+    return this.apiValueLabel('hypervisor.scope.', scope);
+  }
+
+  protected tierLabel(tier: string | undefined): string {
+    return tier ? this.apiValueLabel('hypervisor.tier.', tier) : '—';
+  }
+
+  protected scenarioStatusLabel(status: string): string {
+    return this.apiValueLabel('hypervisor.scenario.status.', status);
   }
 
   protected confidenceToneFor(v: number | null | undefined): 'pos' | 'cool' | 'warn' | 'neg' | 'neutral' {

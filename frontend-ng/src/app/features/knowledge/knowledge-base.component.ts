@@ -84,9 +84,9 @@ interface SearchResult {
   ],
   template: `
     <ck-object-header
-      eyebrow="Build · Knowledge"
-      title="Knowledge"
-      subtitle="Ingest documents and give every system fresh context."
+      [eyebrow]="i18n.t('knowledge.header.eyebrow')"
+      [title]="i18n.t('knowledge.title')"
+      [subtitle]="i18n.t('knowledge.header.subtitle')"
       [kpis]="headerKpis()"
     >
       <button
@@ -95,7 +95,7 @@ interface SearchResult {
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         (click)="openGlobalSearch()"
       >
-        <app-icon name="search" [size]="14" /> Search
+        <app-icon name="search" [size]="14" /> {{ i18n.t('common.search') }}
       </button>
       <a
         actions
@@ -103,7 +103,7 @@ interface SearchResult {
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         [title]="i18n.t('capture.kb.start_capture_title')"
       >
-        <app-icon name="mic" [size]="14" /> Capture
+        <app-icon name="mic" [size]="14" /> {{ i18n.t('knowledge.header.capture') }}
       </a>
       <button
         actions
@@ -114,7 +114,7 @@ interface SearchResult {
         [disabled]="!!collectionsError()"
         (click)="openCreateCollection()"
       >
-        <app-icon name="folder-plus" [size]="14" /> New collection
+        <app-icon name="folder-plus" [size]="14" /> {{ i18n.t('knowledge.collections.new') }}
       </button>
       <button
         actions
@@ -125,7 +125,7 @@ interface SearchResult {
         [disabled]="!!collectionsError()"
         class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
       >
-        <app-icon name="cloud-upload" [size]="14" /> Upload
+        <app-icon name="cloud-upload" [size]="14" /> {{ i18n.t('knowledge.header.upload') }}
       </button>
     </ck-object-header>
 
@@ -162,9 +162,9 @@ interface SearchResult {
         </div>
         <div class="text-left">
           <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
-            Drop files here or
-            <span style="color:var(--ck-signal-cool);">click to browse</span>
-            <span class="ml-2" style="color:var(--ck-fg-4);">→ target: </span>
+            {{ i18n.t('knowledge.dropzone.prefix') }}
+            <span style="color:var(--ck-signal-cool);">{{ i18n.t('knowledge.dropzone.browse') }}</span>
+            <span class="ml-2" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.dropzone.target') }} </span>
             <select
               class="ck-field-select ck-field-select-inline ml-1"
               [(ngModel)]="uploadTarget"
@@ -179,7 +179,7 @@ interface SearchResult {
               }
             </select>
           </div>
-          <p class="text-xs mt-0.5" style="color:var(--ck-fg-4);">PDF · TXT · MD · DOCX · CSV · JSON</p>
+          <p class="text-xs mt-0.5" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.dropzone.formats') }}</p>
         </div>
       </div>
 
@@ -189,7 +189,7 @@ interface SearchResult {
           style="color:var(--ck-signal-cool);"
         >
           <app-icon name="loader-2" [size]="14" class="animate-spin" />
-          Ingesting {{ uploadCount() }} file(s)…
+          {{ i18n.t('knowledge.upload.progress', { count: uploadCount() }) }}
         </div>
       }
     </div>
@@ -233,7 +233,7 @@ interface SearchResult {
       <div class="ck-surface rounded-md">
         <app-empty-state
           icon="circle-alert"
-          title="Unable to load collections"
+          [title]="i18n.t('knowledge.collections.error.title')"
           [description]="collectionsError()!"
         >
           <button
@@ -241,7 +241,7 @@ interface SearchResult {
             class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             (click)="loadCollections()"
           >
-            <app-icon name="refresh-cw" [size]="14" /> Retry
+            <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.retry') }}
           </button>
         </app-empty-state>
       </div>
@@ -249,8 +249,8 @@ interface SearchResult {
       <div class="ck-surface rounded-md">
         <app-empty-state
           icon="database"
-          title="No collections yet"
-          description="Upload your first document or create a collection to get started."
+          [title]="i18n.t('knowledge.collections.empty.title')"
+          [description]="i18n.t('knowledge.collections.empty.description')"
         />
       </div>
     } @else {
@@ -269,43 +269,43 @@ interface SearchResult {
                 <div class="text-xs mt-0.5 flex items-center gap-3" style="color:var(--ck-fg-4);">
                   <span class="flex items-center gap-1">
                     <app-icon name="file-text" [size]="11" />
-                    {{ doc.docs }} docs
+                    {{ i18n.t('knowledge.collections.docs_count', { count: doc.docs }) }}
                   </span>
                   <span class="flex items-center gap-1">
                     <app-icon name="braces" [size]="11" />
-                    {{ doc.chunks }} chunks
+                    {{ i18n.t('knowledge.collections.chunks_count', { count: doc.chunks }) }}
                   </span>
                 </div>
               </div>
             </div>
 
             <div class="flex items-center justify-between">
-              <app-status-pulse tone="success" label="Indexed" />
+              <app-status-pulse tone="success" [label]="i18n.t('knowledge.collections.indexed')" />
               <div class="flex items-center gap-1">
                 <a
                   [routerLink]="['/knowledge', doc.slug]"
                   class="ck-ghost-icon p-1.5 rounded inline-flex items-center"
-                  title="Open collection detail"
+                  [title]="i18n.t('knowledge.collections.open_detail')"
                 >
                   <app-icon name="external-link" [size]="14" />
                 </a>
                 <button
                   class="ck-ghost-icon p-1.5 rounded"
-                  title="Browse documents"
+                  [title]="i18n.t('knowledge.collections.browse')"
                   (click)="openBrowse(doc.slug)"
                 >
                   <app-icon name="folder" [size]="14" />
                 </button>
                 <button
                   class="ck-ghost-icon p-1.5 rounded"
-                  title="Search in this collection"
+                  [title]="i18n.t('knowledge.collections.search_in')"
                   (click)="openSearchIn(doc.slug)"
                 >
                   <app-icon name="search" [size]="14" />
                 </button>
                 <button
                   class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
-                  title="Delete collection"
+                  [title]="i18n.t('knowledge.collections.delete')"
                   (click)="requestDeleteCollection(doc.slug)"
                 >
                   <app-icon name="trash-2" [size]="14" />
@@ -320,8 +320,8 @@ interface SearchResult {
     <!-- Search drawer -->
     <app-drawer
       [open]="searchOpen()"
-      title="Search knowledge"
-      [subtitle]="searchCollection() || 'All collections'"
+      [title]="i18n.t('knowledge.search.title')"
+      [subtitle]="searchCollection() || i18n.t('knowledge.search.all_collections')"
       icon="search"
       (close)="closeSearch()"
     >
@@ -332,7 +332,7 @@ interface SearchResult {
             name="scoll"
             class="ck-field-select px-2.5 py-2 text-xs"
           >
-            <option value="">All</option>
+            <option value="">{{ i18n.t('common.all') }}</option>
             @for (c of collections(); track c.slug) {
               <option [value]="c.slug">{{ c.name }}</option>
             }
@@ -341,7 +341,7 @@ interface SearchResult {
             [(ngModel)]="searchQuery"
             name="sq"
             type="text"
-            placeholder="Ask semantic question…"
+            [placeholder]="i18n.t('knowledge.search.placeholder')"
             class="ck-field-input flex-1 rounded px-3 py-2 text-sm"
             autocomplete="off"
           />
@@ -351,23 +351,27 @@ interface SearchResult {
             [disabled]="!searchQuery.trim() || searching()"
           >
             <app-icon [name]="searching() ? 'loader-2' : 'search'" [size]="14" [class.animate-spin]="searching()" />
-            Search
+            {{ i18n.t('common.search') }}
           </button>
         </div>
         <label class="flex items-center gap-2 text-xs mt-2 cursor-pointer" style="color:var(--ck-fg-3);">
           <input type="checkbox" [(ngModel)]="useHybrid" name="sh" style="accent-color:var(--ck-signal-cool);" />
-          Use hybrid (sparse + vector)
+          {{ i18n.t('knowledge.search.hybrid') }}
         </label>
       </form>
 
       @if (searchError() && !searching()) {
         <app-empty-state
           icon="circle-alert"
-          title="Unable to search knowledge"
+          [title]="i18n.t('knowledge.search.error.title')"
           [description]="searchError()!"
         />
       } @else if (searchResults().length === 0 && !searching() && searchAttempted()) {
-        <app-empty-state icon="search" title="No results" description="Try a different query or disable hybrid." />
+        <app-empty-state
+          icon="search"
+          [title]="i18n.t('knowledge.search.empty.title')"
+          [description]="i18n.t('knowledge.search.empty.description')"
+        />
       }
 
       <ul class="space-y-2">
@@ -376,7 +380,7 @@ interface SearchResult {
             <div class="flex items-center justify-between mb-1">
               <div class="text-[11px] truncate flex items-center gap-1" style="color:var(--ck-fg-4);">
                 <app-icon name="file-text" [size]="11" />
-                {{ r.metadata?.filename ?? 'unknown' }}
+                {{ r.metadata?.filename ?? i18n.t('knowledge.search.unknown_file') }}
               </div>
               @if (isNum(r.score)) {
                 <span
@@ -398,7 +402,7 @@ interface SearchResult {
     <!-- Browse drawer -->
     <app-drawer
       [open]="browseOpen()"
-      title="Documents"
+      [title]="i18n.t('knowledge.browse.title')"
       [subtitle]="browseCollection()"
       icon="folder"
       (close)="browseOpen.set(false)"
@@ -412,7 +416,7 @@ interface SearchResult {
       } @else if (browseError()) {
         <app-empty-state
           icon="circle-alert"
-          title="Unable to load documents"
+          [title]="i18n.t('knowledge.browse.error.title')"
           [description]="browseError()!"
         >
           <button
@@ -420,11 +424,15 @@ interface SearchResult {
             class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             (click)="loadBrowsePage(browseOffset())"
           >
-            <app-icon name="refresh-cw" [size]="14" /> Retry
+            <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.retry') }}
           </button>
         </app-empty-state>
       } @else if (browseDocs().length === 0) {
-        <app-empty-state icon="file-text" title="Empty collection" description="Upload documents to this collection." />
+        <app-empty-state
+          icon="file-text"
+          [title]="i18n.t('knowledge.browse.empty.title')"
+          [description]="i18n.t('knowledge.browse.empty.description')"
+        />
       } @else {
         <div class="mb-3 flex items-center justify-between gap-2 text-xs" style="color:var(--ck-fg-3);">
           <span class="font-mono">
@@ -433,8 +441,8 @@ interface SearchResult {
           <div class="flex items-center gap-1.5">
             <button
               type="button"
-              title="Previous page"
-              aria-label="Previous page"
+              [title]="i18n.t('knowledge.browse.prev_page')"
+              [attr.aria-label]="i18n.t('knowledge.browse.prev_page')"
               class="ck-iconbtn h-7 w-7"
               [disabled]="browseLoading() || browseOffset() === 0"
               (click)="loadBrowsePage(browseOffset() > browsePageSize ? browseOffset() - browsePageSize : 0)"
@@ -443,8 +451,8 @@ interface SearchResult {
             </button>
             <button
               type="button"
-              title="Next page"
-              aria-label="Next page"
+              [title]="i18n.t('knowledge.browse.next_page')"
+              [attr.aria-label]="i18n.t('knowledge.browse.next_page')"
               class="ck-iconbtn h-7 w-7"
               [disabled]="browseLoading() || !browseHasMore()"
               (click)="loadBrowsePage(browseOffset() + browsePageSize)"
@@ -462,7 +470,7 @@ interface SearchResult {
               <div class="flex-1 min-w-0">
                 <div class="truncate">{{ d.filename }}</div>
                 <div class="text-[11px] font-mono" style="color:var(--ck-fg-4);">
-                  {{ d.chunk_count ?? 0 }} chunks
+                  {{ i18n.t('knowledge.collections.chunks_count', { count: d.chunk_count ?? 0 }) }}
                   @if (d.mime_type) {
                     <span class="mx-1">·</span>{{ d.mime_type }}
                   }
@@ -471,14 +479,14 @@ interface SearchResult {
               <div class="flex items-center gap-0.5 shrink-0 opacity-70 group-hover:opacity-100">
                 <button
                   class="ck-ghost-icon p-1.5 rounded"
-                  title="Preview"
+                  [title]="i18n.t('knowledge.browse.preview')"
                   (click)="previewDoc(d)"
                 >
                   <app-icon name="eye" [size]="13" />
                 </button>
                 <button
                   class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
-                  title="Delete document"
+                  [title]="i18n.t('knowledge.browse.delete_doc')"
                   (click)="requestDeleteDoc(d)"
                 >
                   <app-icon name="trash-2" [size]="13" />
@@ -494,7 +502,7 @@ interface SearchResult {
     <app-drawer
       [open]="previewOpen()"
       [title]="previewDocItem()?.filename ?? ''"
-      subtitle="Document preview"
+      [subtitle]="i18n.t('knowledge.preview.subtitle')"
       icon="eye"
       (close)="previewOpen.set(false)"
     >
@@ -508,7 +516,7 @@ interface SearchResult {
         <div class="text-sm" style="color:var(--ck-signal-neg);">{{ previewError() }}</div>
       } @else if (previewDownloadUrl()) {
         <div class="text-sm mb-3" style="color:var(--ck-fg-2);">
-          This document is a binary file. Open or download it to view.
+          {{ i18n.t('knowledge.preview.binary') }}
         </div>
         <a
           [href]="previewDownloadUrl()!"
@@ -516,7 +524,7 @@ interface SearchResult {
           rel="noreferrer"
           class="ck-btn-primary inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         >
-          <app-icon name="external-link" [size]="14" /> Open file
+          <app-icon name="external-link" [size]="14" /> {{ i18n.t('knowledge.preview.open_file') }}
         </a>
       } @else {
         <pre
@@ -542,16 +550,16 @@ interface SearchResult {
               <app-icon name="folder-plus" [size]="20" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold mb-1" style="color:var(--ck-fg-1);">New collection</h2>
+              <h2 class="text-base font-semibold mb-1" style="color:var(--ck-fg-1);">{{ i18n.t('knowledge.collections.new') }}</h2>
               <p class="text-sm" style="color:var(--ck-fg-3);">
-                Collections isolate your documents. Names are workspace-scoped.
+                {{ i18n.t('knowledge.create.description') }}
               </p>
             </div>
           </div>
           <input
             type="text"
             [(ngModel)]="newCollectionDraftValue"
-            placeholder="e.g. policies, research"
+            [placeholder]="i18n.t('knowledge.create.placeholder')"
             class="ck-field-input w-full px-3 py-2 rounded text-sm"
             (keyup.enter)="createCollection()"
             autofocus
@@ -562,7 +570,7 @@ interface SearchResult {
               (click)="createOpen.set(false)"
               class="ck-btn-ghost px-4 py-2 text-sm rounded"
             >
-              Cancel
+              {{ i18n.t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -575,7 +583,7 @@ interface SearchResult {
                 [size]="14"
                 [class.animate-spin]="creating()"
               />
-              Create
+              {{ i18n.t('common.create') }}
             </button>
           </div>
         </div>
@@ -584,10 +592,11 @@ interface SearchResult {
 
     <app-confirm-dialog
       [open]="deleteCollectionTarget() !== null"
-      [title]="'Delete collection ' + (deleteCollectionTarget() ?? '')"
-      description="All documents and chunks in this collection will be deleted. This cannot be undone."
+      [title]="i18n.t('knowledge.delete_collection.title', { name: deleteCollectionTarget() ?? '' })"
+      [description]="i18n.t('knowledge.delete_collection.description')"
       [confirmPhrase]="deleteCollectionTarget() ?? ''"
-      confirmLabel="Delete collection"
+      [confirmLabel]="i18n.t('knowledge.collections.delete')"
+      [cancelLabel]="i18n.t('common.cancel')"
       tone="danger"
       (confirm)="confirmDeleteCollection()"
       (cancel)="deleteCollectionTarget.set(null)"
@@ -595,9 +604,10 @@ interface SearchResult {
 
     <app-confirm-dialog
       [open]="deleteDocTarget() !== null"
-      [title]="'Delete ' + (deleteDocTarget()?.filename ?? '')"
-      description="This document and its chunks will be removed from the collection."
-      confirmLabel="Delete"
+      [title]="i18n.t('knowledge.delete_document.title', { name: deleteDocTarget()?.filename ?? '' })"
+      [description]="i18n.t('knowledge.delete_document.description')"
+      [confirmLabel]="i18n.t('common.delete')"
+      [cancelLabel]="i18n.t('common.cancel')"
       tone="danger"
       (confirm)="confirmDeleteDoc()"
       (cancel)="deleteDocTarget.set(null)"
@@ -799,30 +809,32 @@ export class KnowledgeBaseComponent implements OnInit {
     this.collections().reduce((acc, c) => acc + (c.chunks || 0), 0),
   );
   readonly indexingLabel = computed(() =>
-    this.loadingCollections() ? 'indexing…' : 'ready',
+    this.loadingCollections() ? this.i18n.t('knowledge.kpi.indexing') : this.i18n.t('knowledge.kpi.ready'),
   );
 
+  // `i18n.t` reads the locale signal, so this computed re-emits — and the
+  // header re-renders — when the user flips languages.
   readonly headerKpis = computed<CkObjectKpi[]>(() => [
     {
-      label: 'Collections',
+      label: this.i18n.t('knowledge.kpi.collections'),
       value: String(this.collections().length),
       tone: 'cool',
-      hint: 'Total number of collections in this workspace.',
+      hint: this.i18n.t('knowledge.kpi.collections_hint'),
     },
     {
-      label: 'Documents',
+      label: this.i18n.t('knowledge.kpi.documents'),
       value: String(this.totalDocs()),
       tone: 'neutral',
-      hint: 'Aggregate document count across all collections.',
+      hint: this.i18n.t('knowledge.kpi.documents_hint'),
     },
     {
-      label: 'Chunks',
+      label: this.i18n.t('knowledge.kpi.chunks'),
       value: String(this.totalChunks()),
       tone: 'neutral',
-      hint: 'Aggregate chunk count — the indexing unit.',
+      hint: this.i18n.t('knowledge.kpi.chunks_hint'),
     },
     {
-      label: 'Vector DB',
+      label: this.i18n.t('knowledge.kpi.vector_db'),
       value: this.vectorDbType() || '—',
       tone: 'violet',
       hint: this.indexingLabel(),
@@ -869,7 +881,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.collections.set([]);
           this.vectorDbType.set('');
           this.collectionsError.set(
-            err?.error?.detail || 'Collections could not be loaded. Retry before creating, deleting or uploading documents.',
+            err?.error?.detail || this.i18n.t('knowledge.collections.error.description'),
           );
           this.loadingCollections.set(false);
         },
@@ -901,7 +913,7 @@ export class KnowledgeBaseComponent implements OnInit {
 
   private uploadFiles(files: FileList): void {
     if (this.collectionsError()) {
-      this.toast.error('Retry loading collections before uploading documents.', 'Knowledge');
+      this.toast.error(this.i18n.t('knowledge.toast.retry_before_upload'), this.i18n.t('knowledge.title'));
       return;
     }
     this.uploading.set(true);
@@ -918,24 +930,34 @@ export class KnowledgeBaseComponent implements OnInit {
         this.uploading.set(false);
         if (res.failed > 0) {
           this.toast.warning(
-            `${res.successful}/${res.total} ingested · ${res.failed} failed`,
-            'Upload partial',
+            this.i18n.t('knowledge.toast.upload_partial', {
+              successful: res.successful,
+              total: res.total,
+              failed: res.failed,
+            }),
+            this.i18n.t('knowledge.toast.upload_partial_title'),
           );
         } else {
-          this.toast.success(`${res.successful} file(s) ingested`, 'Upload complete');
+          this.toast.success(
+            this.i18n.t('knowledge.toast.upload_success', { count: res.successful }),
+            this.i18n.t('knowledge.toast.upload_complete_title'),
+          );
         }
         this.loadCollections();
       },
       error: (err) => {
         this.uploading.set(false);
-        this.toast.error(err?.error?.detail || 'Failed to upload', 'Upload error');
+        this.toast.error(
+          err?.error?.detail || this.i18n.t('knowledge.toast.upload_failed'),
+          this.i18n.t('knowledge.toast.upload_error_title'),
+        );
       },
     });
   }
 
   createCollection(): void {
     if (this.collectionsError()) {
-      this.toast.error('Retry loading collections before creating a collection.', 'Knowledge');
+      this.toast.error(this.i18n.t('knowledge.toast.retry_before_create'), this.i18n.t('knowledge.title'));
       return;
     }
     const name = this.newCollectionDraftValue.trim();
@@ -948,14 +970,20 @@ export class KnowledgeBaseComponent implements OnInit {
       )
       .subscribe({
         next: () => {
-          this.toast.success(`Collection "${name}" created`, 'Knowledge');
+          this.toast.success(
+            this.i18n.t('knowledge.toast.collection_created', { name }),
+            this.i18n.t('knowledge.title'),
+          );
           this.creating.set(false);
           this.createOpen.set(false);
           this.newCollectionDraftValue = '';
           this.loadCollections();
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail || 'Failed to create', 'Knowledge');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('knowledge.toast.create_failed'),
+            this.i18n.t('knowledge.title'),
+          );
           this.creating.set(false);
         },
       });
@@ -963,7 +991,7 @@ export class KnowledgeBaseComponent implements OnInit {
 
   openCreateCollection(): void {
     if (this.collectionsError()) {
-      this.toast.error('Retry loading collections before creating a collection.', 'Knowledge');
+      this.toast.error(this.i18n.t('knowledge.toast.retry_before_create'), this.i18n.t('knowledge.title'));
       return;
     }
     this.newCollectionDraft.set('');
@@ -972,7 +1000,7 @@ export class KnowledgeBaseComponent implements OnInit {
 
   openFilePicker(input: HTMLInputElement): void {
     if (this.collectionsError()) {
-      this.toast.error('Retry loading collections before uploading documents.', 'Knowledge');
+      this.toast.error(this.i18n.t('knowledge.toast.retry_before_upload'), this.i18n.t('knowledge.title'));
       return;
     }
     input.click();
@@ -989,12 +1017,18 @@ export class KnowledgeBaseComponent implements OnInit {
       .delete<{ status: string }>(`${this.base}/collections/${encodeURIComponent(name)}`)
       .subscribe({
         next: () => {
-          this.toast.success(`Collection "${name}" deleted`, 'Knowledge');
+          this.toast.success(
+            this.i18n.t('knowledge.toast.collection_deleted', { name }),
+            this.i18n.t('knowledge.title'),
+          );
           this.deleteCollectionTarget.set(null);
           this.loadCollections();
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail || 'Failed to delete', 'Knowledge');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('knowledge.toast.delete_failed'),
+            this.i18n.t('knowledge.title'),
+          );
           this.deleteCollectionTarget.set(null);
         },
       });
@@ -1036,7 +1070,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.browseOffset.set(safeOffset);
           this.browseHasMore.set(false);
           this.browseError.set(
-            err?.error?.detail || 'Documents could not be loaded. Retry before previewing or deleting files.',
+            err?.error?.detail || this.i18n.t('knowledge.browse.error.description'),
           );
           this.browseLoading.set(false);
         },
@@ -1062,7 +1096,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.previewLoading.set(false);
         },
         error: (err) => {
-          this.previewError.set(err?.error?.detail ?? 'Could not load preview');
+          this.previewError.set(err?.error?.detail ?? this.i18n.t('knowledge.preview.error'));
           this.previewLoading.set(false);
         },
       });
@@ -1082,13 +1116,19 @@ export class KnowledgeBaseComponent implements OnInit {
       )
       .subscribe({
         next: () => {
-          this.toast.success(`"${d.filename}" deleted`, 'Knowledge');
+          this.toast.success(
+            this.i18n.t('knowledge.toast.document_deleted', { name: d.filename }),
+            this.i18n.t('knowledge.title'),
+          );
           this.browseDocs.update((list) => list.filter((x) => x.document_id !== d.document_id));
           this.deleteDocTarget.set(null);
           this.loadCollections();
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail || 'Failed to delete', 'Knowledge');
+          this.toast.error(
+            err?.error?.detail || this.i18n.t('knowledge.toast.delete_failed'),
+            this.i18n.t('knowledge.title'),
+          );
           this.deleteDocTarget.set(null);
         },
       });
@@ -1144,10 +1184,10 @@ export class KnowledgeBaseComponent implements OnInit {
           this.searching.set(false);
         },
         error: (err) => {
-          const message = err?.error?.detail || 'Search failed. Retry before using results.';
+          const message = err?.error?.detail || this.i18n.t('knowledge.search.error.description');
           this.searchResults.set([]);
           this.searchError.set(message);
-          this.toast.error(message, 'Knowledge');
+          this.toast.error(message, this.i18n.t('knowledge.title'));
           this.searching.set(false);
         },
       });
