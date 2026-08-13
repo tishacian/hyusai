@@ -3571,3 +3571,48 @@ normalement après la bascule. Ne pas le lire comme une migration ratée.
 **`/tmp` n'est pas inscriptible sur la VM**, même via `sudo sh -c`. Un dump doit
 être écrit directement dans son répertoire de fenêtre sous `/srv/agentium-data`.
 Le rôle PostgreSQL est `agentium`, pas `postgres`.
+
+## Itération du 13/08 (matin) — déployée sur `92b32ce4`, quatre correctifs pré-démo flow builder
+
+Frontend uniquement, aucune migration, pas de dump. Les quatre correctifs
+répondent aux plaintes de la passe QA du 11/08 avant la démo :
+
+1. **Scratchpad silencieux** — `/orchestration` s'ouvre vide (le guide premier
+   Flow remplace le gabarit Objective/Retrieve/Generate/Output qui levait deux
+   avertissements de validation avant tout geste utilisateur).
+2. **Barre auteur allégée** — la ligne auteur ne garde que la boucle d'édition ;
+   zoom avant/arrière, Ranger et Vérifier passent sous « Plus ».
+3. **Retour System unifié** — le lien verrouillé du system-builder mène à
+   `/systems/:id/flow` au lieu de `/orchestration?systemId=…`.
+4. **Contrat de sortie sans jargon** — le repli de l'inspecteur abandonne
+   « fige le schéma catalogue » pour une formulation en langage clair (FR+EN).
+
+Deux tests e2e ont dû suivre l'UI : `17-flow-palette-density` pré-sème
+désormais son flow dans `localStorage` (il comptait sur le gabarit disparu), et
+`16-flow-builder-authoring-contract` ouvre « Plus » avant de cliquer Vérifier.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `0da237b6` → `92b32ce4` |
+| Build | trois images au tag `92b32ce4d067` |
+| `storage-check` | sortie 0 |
+| `up` | services recréés sans migration |
+| `build-info` | `revision: 92b32ce4d06726dbaa0beedc275ecd69381a8d28`, `revision_verified: true` (revérifié le 13/08 à 08:30 UTC) |
+| Canaris carakai | **6/6 vertes**, artefacts `/tmp/iteration-canaries-20260813T081120Z.W52OlZ` (`playwright-runtime.json` : `candidate_sha 92b32ce4…`, `result: passed`) |
+| Alias | `demo-agentic` sur `92b32ce4d067` pour les trois images (ids identiques vérifiés) |
+
+### Répétition navigateur sur la prod (13/08, 08:15–08:25 UTC)
+
+Les trois actes de la démo ont été rejoués au navigateur sur
+`https://agentium.papai.ai` : scratchpad vide, barre épurée + « Plus » complet,
+retour Skills → System sans perte de contexte, copy de l'inspecteur adoucie,
+wizard « + New skill » (4 étapes, 3 presets, aides BRD), et un test de brouillon
+réel `{"collection_slug": "po-invoice-recon-demo"}` — run
+`4648085f-bf68-44e4-85fa-70a81790604d` (surface `draft_test`) completed en ~1 s,
+verdict Needs Review, audit `938e5860…`, 0 appel LLM. Le cron quotidien continue
+de produire son run à 07:00 UTC (`951c838a…` le 13/08, `e5668f9e…` le 12/08).
+
+Le script présentateur à jour est
+`docs/demo-runs/2026-08-13-nawa-po-invoice-recon-v2/DEMO-SCRIPT.md`.
