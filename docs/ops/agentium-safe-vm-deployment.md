@@ -3694,3 +3694,66 @@ identique des deux côtés, `cat-file -e` vérifié avant les canaris.
 - Le catalogue bilingue backend (`seed.py`, descriptions skills/capabilities)
   reste un choix produit ouvert — les descriptions de skills dynamiques
   s'affichent telles quelles dans la palette, par conception.
+
+## Itération du 13/08 (après-midi) — déployée sur `664e68b7`, fiabilisation chat Client360
+
+Un commit backend-only sur `demo/agentic` (`0a3534f2` → `664e68b7`), issu de la
+QA de préparation de la démo Client360 andritz. Deux flakes bloquants pour une
+démo corrigés dans `client360_chat.py` :
+
+- **Résolution client non déterministe** : le vocabulaire envoyé au LLM de
+  traduction NL ne contient pas les noms de clients ; quand le modèle omettait
+  le filtre `customer`, son résultat (même vide) court-circuitait l'extraction
+  déterministe qui, elle, trouvait le client dans les facettes. « audite
+  Septona » échouait donc aléatoirement. L'extraction déterministe comble
+  désormais toute facette omise par le LLM (le LLM garde la priorité sur ce
+  qu'il a résolu).
+- **Pont forecast jamais branché** : `_call_forecast_helper` sondait des noms
+  de fonctions (`customer_forecast`, `forecast_customer`…) qui n'ont jamais
+  existé dans `client360_forecast` — l'intent répondait « moteur forecast
+  indisponible » depuis sa création. Il appelle désormais le vrai point
+  d'entrée `customer_next_due` (signature keyword-only `customer_key`,
+  normalisation via `normalize_customer_key`).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Garde-fou | diff `0a3534f2..664e68b7` : 3 fichiers (`client360_chat.py`, son test, ce runbook) — rien sur livekit/realm/thème Keycloak |
+| Ancre + worktree | `pull --ff-only` (ancre) et `fetch` + `merge --ff-only FETCH_HEAD` (worktree), les deux sur `664e68b7`, statuts vierges |
+| Build | trois images au tag `664e68b760de` en 7 min 43 s, révision 40-hex vérifiée sur les trois |
+| Dump | **aucun** — backend-only, ni schéma ni graphes stockés ne changent |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés (12:32:25Z), backend et frontend `healthy`, `agentium-sftp` intouché |
+| `build-info` | `revision: 664e68b760dea9eed596edf6610c59eff94f001a`, `revision_verified: true` |
+| Alembic | `085_nawa_brand_light_emblem` avant **et** après — aucune migration |
+| Logs | 0 `error`/`traceback`/`exception` backend depuis la bascule, y compris pendant la QA |
+| Canaris carakai | **6/6 vertes** en 56,7 s au premier passage, artefacts `/tmp/iteration-canaries-20260813T123653Z.bg7kvH` (`candidate_sha 664e68b7…`, `result: passed`) |
+| Piège bundle | rejoué : carakai ne connaissait pas `664e68b7` — bundle incrémental `0a3534f2..demo/agentic`, sha256 identique des deux côtés, `cat-file -e` avant lancement |
+| Alias | `demo-agentic` déplacé sur `664e68b760de` (ids identiques sur les trois) ; rollback : `AGENTIUM_IMAGE_TAG=0a3534f2a14d` puis `up` |
+
+Vérification post-bascule sur le workspace `andritz`, trois processus
+indépendants par requête : « audite Septona » → `customer_audit` stable (260
+opportunités, 2,14 M€) ; « quelles pièces à prévoir chez Septona ? » →
+`forecast` avec 2 échéances déterministes (plus jamais « indisponible ») ;
+« hello » → `help`, 0 source. QA campagne : campagne « Relance échéances PDR —
+S35 » créée (`c0faeb3e…`, ciblage `status=detected` + 5 clés clients), stats
+374 opportunités / potentiel 2 316 421,78 € / expected_value 295 343,78 € avec
+disclaimer ; brouillon témoin mono-opportunité `ai_assisted` (gpt-5,
+`prompt_hash` présent, action de validation créée). Aucun envoi SMTP.
+
+### Dette relevée, non traitée
+
+- **Aucune opportunité ne porte d'email de contact** (`metadata.contact.email`
+  vide sur les 402) : la génération de brouillons en lot sort à 0
+  (`missing_contact_email: 374`). Le dédoublonnage fonctionne, mais l'onglet
+  Campagnes ne peut pas produire de lot tant que les données sources n'ont pas
+  d'emails — la voie mono-brouillon depuis la fiche opportunité reste la voie
+  démontrable.
+- **Clés clients dupliquées** (vestige de deux normalisations) : `septona s a`
+  / `septona`, `karafiber tekstil` / `…sanayi ve ticaret`, etc. Conséquence
+  cosmétique : `targeted_customers=5` pour 3 clients réels. Le chat agrège
+  correctement ; à résorber par une passe de re-normalisation des
+  `customer_key` persistés.
+- La campagne S35 reste en `draft` avec 0 brouillon (bascule auto vers
+  `active` au premier brouillon de lot).
