@@ -103,6 +103,65 @@ const workspace = {
   app_entitlements: [],
 };
 
+/** The scratchpad opens empty by design, so the graph this spec measures
+ * against (and clicks for contextual insertion) is pinned as a restored
+ * workspace draft — the same envelope `flow-draft.storage.ts` persists. */
+const SCRATCH_DRAFT = {
+  v: 1,
+  workspace_slug: WORKSPACE_SLUG,
+  saved_at: 1754660000000,
+  flow: {
+    source: 'flow',
+    extended: false,
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'flow.start',
+        type: 'source',
+        kind: 'source',
+        label: 'Objective',
+        data: { description: 'User objective' },
+        outputs: [{ name: 'goal', schema: 'string' }],
+        position: { x: 80, y: 160 },
+      },
+      {
+        id: 'flow.retrieve',
+        type: 'retrieve',
+        kind: 'task',
+        label: 'Retrieve',
+        data: { description: 'Ground with knowledge' },
+        inputs: [{ name: 'query', schema: 'string' }],
+        outputs: [{ name: 'context', schema: 'object' }],
+        position: { x: 380, y: 160 },
+      },
+      {
+        id: 'flow.generate',
+        type: 'llm',
+        kind: 'task',
+        label: 'Generate',
+        data: { description: 'LLM answer' },
+        inputs: [{ name: 'context', schema: 'object' }],
+        outputs: [{ name: 'answer', schema: 'string' }],
+        position: { x: 680, y: 160 },
+      },
+      {
+        id: 'flow.output',
+        type: 'sink',
+        kind: 'sink',
+        label: 'Output',
+        data: { description: 'Flow result' },
+        inputs: [{ name: 'result', schema: 'object' }],
+        position: { x: 980, y: 160 },
+      },
+    ],
+    edges: [
+      { from: 'flow.start', to: 'flow.retrieve', kind: 'data' },
+      { from: 'flow.retrieve', to: 'flow.generate', kind: 'data' },
+      { from: 'flow.generate', to: 'flow.output', kind: 'data' },
+    ],
+  },
+};
+
 function json(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({
     status,
@@ -208,10 +267,14 @@ test('the palette opens on capabilities, one line per entry, and stays inside it
     return json(route, {}, 202);
   });
 
-  await page.addInitScript(({ token, workspaceSlug }) => {
+  await page.addInitScript(({ token, workspaceSlug, scratchDraft }) => {
     localStorage.setItem('agentium_token', token);
     localStorage.setItem('agentium_workspace_slug', workspaceSlug);
-  }, { token: TOKEN, workspaceSlug: WORKSPACE_SLUG });
+    localStorage.setItem(
+      `agentium.flow.draft.scratch:${workspaceSlug}`,
+      JSON.stringify(scratchDraft),
+    );
+  }, { token: TOKEN, workspaceSlug: WORKSPACE_SLUG, scratchDraft: SCRATCH_DRAFT });
 
   await page.goto('/orchestration');
   const palette = page.locator('app-flow-palette');

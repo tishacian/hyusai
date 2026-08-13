@@ -58,7 +58,7 @@ import {
   flowValidationFingerprint,
 } from './flow-validation.service';
 import { blocksFlowDeleteShortcut } from './flow-keyboard-target.vm';
-import { defaultScratchFlow } from './flow.types';
+import { emptyScratchFlow } from './flow.types';
 import {
   clearWorkspaceFlowDraft,
   persistWorkspaceFlowDraft,
@@ -349,7 +349,7 @@ export class FlowPersistenceService {
       // a pending/manual save can never copy A's graph into B's slot.
       if (!this.systemId()) {
         const nextDraft = this.readDraftRecord(transition.nextSlug);
-        this.store.load(nextDraft?.flow ?? defaultScratchFlow());
+        this.store.load(nextDraft?.flow ?? emptyScratchFlow());
         this.baselineFlow = cloneFlow(this.store.snapshot());
         this.hydrationReady.set(true);
         this.hydrationError.set(null);
@@ -421,7 +421,7 @@ export class FlowPersistenceService {
     const shared = this.readShareLink();
     const draft = this.readDraftRecord(this.workspace.currentSlug());
     this.sharePayloadPending = shared !== null;
-    this.store.load(draft?.flow ?? defaultScratchFlow());
+    this.store.load(draft?.flow ?? emptyScratchFlow());
     this.baselineFlow = cloneFlow(this.store.snapshot());
     this.lastSavedAt.set(draft?.savedAt ?? null);
     this.draftAvailable.set(draft !== null);

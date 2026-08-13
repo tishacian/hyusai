@@ -177,26 +177,6 @@ type PillState = SaveState | 'hold';
 
         <button
           type="button"
-          class="ck-flow-toolbar__btn"
-          (click)="zoomIn.emit()"
-          [disabled]="controlsDisabled()"
-          [title]="i18n.t('flow.toolbar.zoom_in')"
-          [attr.aria-label]="i18n.t('flow.toolbar.zoom_in')"
-        >
-          <app-icon name="zoom-in" [size]="14" />
-        </button>
-        <button
-          type="button"
-          class="ck-flow-toolbar__btn"
-          (click)="zoomOut.emit()"
-          [disabled]="controlsDisabled()"
-          [title]="i18n.t('flow.toolbar.zoom_out')"
-          [attr.aria-label]="i18n.t('flow.toolbar.zoom_out')"
-        >
-          <app-icon name="zoom-out" [size]="14" />
-        </button>
-        <button
-          type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="fit.emit()"
           [disabled]="controlsDisabled()"
@@ -205,47 +185,11 @@ type PillState = SaveState | 'hold';
         >
           <app-icon name="maximize" [size]="14" /><span>{{ i18n.t('flow.toolbar.fit') }}</span>
         </button>
-        <button
-          type="button"
-          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
-          (click)="autoLayout.emit()"
-          [disabled]="controlsDisabled()"
-          [title]="i18n.t('flow.toolbar.arrange.hint')"
-          [attr.aria-label]="i18n.t('flow.toolbar.arrange.aria')"
-        >
-          <app-icon name="layout-grid" [size]="14" /><span>{{
-            i18n.t('flow.toolbar.arrange')
-          }}</span>
-        </button>
 
         <span class="ck-flow-toolbar__sep"></span>
 
         <!-- P4 persistence controls — single source of truth via
              FlowPersistenceService (manual save also bound to Ctrl/Cmd+S). -->
-        @if (persistence.systemId()) {
-          <button
-            type="button"
-            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
-            (click)="persistence.validateNow()"
-            [disabled]="
-              controlsDisabled() ||
-              persistence.serverValidationState() === 'validating'
-            "
-            [title]="
-              persistence.serverValidationState() === 'validating'
-                ? i18n.t('flow.toolbar.validate.hint.busy')
-                : i18n.t('flow.toolbar.validate.hint')
-            "
-            [attr.aria-label]="i18n.t('flow.toolbar.validate.aria')"
-          >
-            <app-icon name="shield-check" [size]="14" />
-            <span>{{
-              persistence.serverValidationState() === 'validating'
-                ? i18n.t('flow.toolbar.validate.busy')
-                : i18n.t('flow.toolbar.validate')
-            }}</span>
-          </button>
-        }
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
@@ -418,9 +362,65 @@ type PillState = SaveState | 'hold';
         >
           <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
         </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          (click)="zoomIn.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.zoom_in')"
+          [attr.aria-label]="i18n.t('flow.toolbar.zoom_in')"
+        >
+          <app-icon name="zoom-in" [size]="14" />
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn"
+          (click)="zoomOut.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.zoom_out')"
+          [attr.aria-label]="i18n.t('flow.toolbar.zoom_out')"
+        >
+          <app-icon name="zoom-out" [size]="14" />
+        </button>
+        <button
+          type="button"
+          class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+          (click)="autoLayout.emit()"
+          [disabled]="controlsDisabled()"
+          [title]="i18n.t('flow.toolbar.arrange.hint')"
+          [attr.aria-label]="i18n.t('flow.toolbar.arrange.aria')"
+        >
+          <app-icon name="layout-grid" [size]="14" /><span>{{
+            i18n.t('flow.toolbar.arrange')
+          }}</span>
+        </button>
 
         <span class="ck-flow-toolbar__sep"></span>
 
+        @if (persistence.systemId()) {
+          <button
+            type="button"
+            class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
+            (click)="persistence.validateNow()"
+            [disabled]="
+              controlsDisabled() ||
+              persistence.serverValidationState() === 'validating'
+            "
+            [title]="
+              persistence.serverValidationState() === 'validating'
+                ? i18n.t('flow.toolbar.validate.hint.busy')
+                : i18n.t('flow.toolbar.validate.hint')
+            "
+            [attr.aria-label]="i18n.t('flow.toolbar.validate.aria')"
+          >
+            <app-icon name="shield-check" [size]="14" />
+            <span>{{
+              persistence.serverValidationState() === 'validating'
+                ? i18n.t('flow.toolbar.validate.busy')
+                : i18n.t('flow.toolbar.validate')
+            }}</span>
+          </button>
+        }
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"

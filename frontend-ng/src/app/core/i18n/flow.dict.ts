@@ -434,7 +434,7 @@ export const FLOW_FR = {
   'flow.inspector.output_contract.fallback.output':
     'Aucun schéma déclaré — la publication en dérive un depuis les entrées de ce nœud et accepte tout champ supplémentaire.',
   'flow.inspector.output_contract.fallback.task':
-    'Aucun schéma déclaré — la publication fige le schéma catalogue de la Skill liée, tel qu’il est à cet instant.',
+    'Aucun schéma déclaré : à la publication, cette étape reprend le contrat de sortie de la Skill liée et le conserve tel quel pour cette version.',
   'flow.inspector.section.trigger': 'Déclencheur',
   'flow.inspector.trigger.sftp': 'Ouvrir le dépôt SFTP',
   'flow.inspector.trigger.unavailable':
@@ -1378,7 +1378,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.output_contract.fallback.output':
     'No schema declared — publication derives one from this node’s input ports and accepts any extra field.',
   'flow.inspector.output_contract.fallback.task':
-    'No schema declared — publication freezes the bound Skill’s catalogue schema, whatever it says at that moment.',
+    'No schema declared: when published, this step adopts the bound Skill’s output contract and keeps it as-is for this version.',
   'flow.inspector.section.trigger': 'Trigger',
   'flow.inspector.trigger.sftp': 'Open the SFTP deposit',
   'flow.inspector.trigger.unavailable':

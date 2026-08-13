@@ -666,10 +666,14 @@ test('clone → edit → validate → save → input → execute → result → 
   expect(draftRevision).toBe(7);
   expect(draftHash).toBe(INITIAL_HASH);
 
+  // Validate lives one disclosure away: the author bar keeps only the
+  // constant edit loop, everything occasional sits under "More".
+  await page.getByRole('button', { name: 'More actions' }).click();
   const validateButton = page.getByRole('button', { name: 'Validate current flow' });
   await expect(validateButton).toBeEnabled();
   await validateButton.click();
   await expect.poll(() => events.includes('api:validate:edited')).toBe(true);
+  await page.getByRole('button', { name: 'More actions' }).click();
 
   const saveButton = page.getByRole('button', { name: 'Save flow' });
   await expect(saveButton).toBeEnabled();

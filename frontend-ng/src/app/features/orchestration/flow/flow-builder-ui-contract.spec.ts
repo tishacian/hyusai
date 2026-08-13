@@ -109,16 +109,14 @@ test('authoring is the default toolbar surface and operating is one disclosure a
     /id="ck-flow-toolbar-more"[\s\S]*?\n      <\/div>/,
   )?.[0] ?? '';
 
+  // The always-visible author bar is the short list a builder reaches for
+  // between two edits; every occasional control lives one disclosure away.
   for (const key of [
     'flow.toolbar.palette.aria',
     'flow.toolbar.inspector.aria',
     'flow.toolbar.undo.aria',
     'flow.toolbar.redo.aria',
-    'flow.toolbar.zoom_in',
-    'flow.toolbar.zoom_out',
     'flow.toolbar.fit.aria',
-    'flow.toolbar.arrange.aria',
-    'flow.toolbar.validate.aria',
     'flow.toolbar.save.aria',
     'flow.toolbar.publish.aria',
     'flow.toolbar.promote.aria',
@@ -135,6 +133,10 @@ test('authoring is the default toolbar surface and operating is one disclosure a
     'flow.toolbar.focus.aria',
     'flow.toolbar.compact.aria',
     'flow.toolbar.routing.aria',
+    'flow.toolbar.zoom_in',
+    'flow.toolbar.zoom_out',
+    'flow.toolbar.arrange.aria',
+    'flow.toolbar.validate.aria',
     'flow.toolbar.export.aria',
     'flow.toolbar.import.aria',
     'flow.toolbar.share.aria',

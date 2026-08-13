@@ -245,8 +245,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     Edited in Flow — re-open this section from the flow builder to adjust it.
                   </div>
                   <a
-                    [routerLink]="['/orchestration']"
-                    [queryParams]="{ systemId: editingSystemId() }"
+                    [routerLink]="['/systems', editingSystemId(), 'flow']"
                     class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded"
                     style="border:1px solid currentColor; pointer-events:auto;"
                   >

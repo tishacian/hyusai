@@ -464,56 +464,15 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   };
 }
 
-/** A starter graph for the scratchpad (no System bound). */
-export function defaultScratchFlow(): CanonicalFlow {
+/** The scratchpad opens empty (no System bound): the First-Flow guide on the
+ *  empty canvas teaches the shape of a Flow, instead of a pre-wired template
+ *  that raised checklist warnings before the user had done anything. */
+export function emptyScratchFlow(): CanonicalFlow {
   return {
     source: 'flow',
     extended: false,
     schema_version: 3,
-    nodes: [
-      {
-        id: 'flow.start',
-        type: 'source',
-        kind: 'source',
-        label: 'Objective',
-        data: { description: 'User objective' },
-        outputs: [{ name: 'goal', schema: 'string' }],
-        position: { x: 80, y: 160 },
-      },
-      {
-        id: 'flow.retrieve',
-        type: 'retrieve',
-        kind: 'task',
-        label: 'Retrieve',
-        data: { description: 'Ground with knowledge' },
-        inputs: [{ name: 'query', schema: 'string' }],
-        outputs: [{ name: 'context', schema: 'object' }],
-        position: { x: 380, y: 160 },
-      },
-      {
-        id: 'flow.generate',
-        type: 'llm',
-        kind: 'task',
-        label: 'Generate',
-        data: { description: 'LLM answer' },
-        inputs: [{ name: 'context', schema: 'object' }],
-        outputs: [{ name: 'answer', schema: 'string' }],
-        position: { x: 680, y: 160 },
-      },
-      {
-        id: 'flow.output',
-        type: 'sink',
-        kind: 'sink',
-        label: 'Output',
-        data: { description: 'Flow result' },
-        inputs: [{ name: 'result', schema: 'object' }],
-        position: { x: 980, y: 160 },
-      },
-    ],
-    edges: [
-      { from: 'flow.start', to: 'flow.retrieve', kind: 'data' },
-      { from: 'flow.retrieve', to: 'flow.generate', kind: 'data' },
-      { from: 'flow.generate', to: 'flow.output', kind: 'data' },
-    ],
+    nodes: [],
+    edges: [],
   };
 }
