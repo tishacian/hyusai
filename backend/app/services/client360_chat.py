@@ -416,6 +416,7 @@ async def translate_query_to_filters(
     bounded to the existing filter vocabulary regardless of translation method.
     """
     facets = _build_facets(db, workspace, items)
+    deterministic = _deterministic_filters(query, facets)
     try:
         llm_result = await _llm_filters(db, workspace, query, facets)
     except Exception:  # noqa: BLE001 - degrade to deterministic extraction.
@@ -424,8 +425,11 @@ async def translate_query_to_filters(
         )
         llm_result = None
     if llm_result is not None:
-        return llm_result, "llm"
-    return _deterministic_filters(query, facets), "deterministic"
+        # The LLM vocabulary does not include customer names, so the model may
+        # omit that filter. Deterministic extraction fills any facet the LLM
+        # missed; the LLM keeps precedence on facets it did resolve.
+        return {**deterministic, **llm_result}, "llm"
+    return deterministic, "deterministic"
 
 
 _GREETING_TOKENS = {
@@ -958,6 +962,23 @@ def _call_forecast_helper(
         from app.services import client360_forecast as forecast_mod
     except ImportError:
         return None
+
+    # Canonical Phase-4 entry point: keyword-only customer_key signature.
+    next_due_fn = getattr(forecast_mod, "customer_next_due", None)
+    if callable(next_due_fn) and customer:
+        from app.services.client360_pdr import normalize_customer_key
+
+        try:
+            items = next_due_fn(
+                db,
+                workspace,
+                customer_key=normalize_customer_key(customer),
+                customer_name=str(customer),
+            )
+            return _normalize_forecast_result(items)
+        except Exception:  # noqa: BLE001
+            _logger.warning("client360_forecast customer_next_due failed", exc_info=True)
+            return None
 
     fn = None
     for name in (

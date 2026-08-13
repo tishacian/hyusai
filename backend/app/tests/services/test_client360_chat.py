@@ -433,6 +433,43 @@ def test_handler_forecast_uses_helper_when_available(db_session, monkeypatch) ->
     assert result["evidence_refs"]
 
 
+def test_handler_forecast_uses_real_forecast_module(db_session) -> None:
+    """No monkeypatch: the chat bridge must reach client360_forecast.customer_next_due."""
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace, next_due_at=datetime(2026, 8, 15, 9, 0, 0))
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="quelles pièces à prévoir chez Septona ?",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "forecast"
+    assert result["result"].get("stub") is not True
+    items = result["result"]["items"]
+    assert items and str(items[0]["next_due_at"]).startswith("2026-08-15")
+    assert "indisponible" not in result["content"]
+
+
+def test_translation_merges_deterministic_when_llm_omits_customer(db_session, monkeypatch) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+
+    async def llm_returns_empty(db, ws, query, facets):
+        return {}
+
+    monkeypatch.setattr(client360_chat, "_llm_filters", llm_returns_empty)
+    items = client360_pdr.list_opportunities(db_session, workspace, limit=10)
+    filters, method = _run(
+        client360_chat.translate_query_to_filters(db_session, workspace, "audite Septona", items)
+    )
+    assert method == "llm"
+    assert filters.get("customer") == "Septona"
+
+
 def test_handler_navigation_intent_attaches_cta(db_session) -> None:
     workspace = _seed_workspace(db_session)
     _seed_opportunity(db_session, workspace)
