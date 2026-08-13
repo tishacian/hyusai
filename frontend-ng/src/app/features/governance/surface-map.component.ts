@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { WorkspaceService } from '@app/core/workspace.service';
 import { catchError, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   AGENTIUM_SURFACE_ROUTES,
   type AgentiumSurfaceRoute,
@@ -40,15 +40,15 @@ interface EndpointCatalog {
     <section class="surface-page">
       <header class="surface-head">
         <div>
-          <p class="eyebrow">Governance · Surface Map</p>
-          <h1>{{ brand() }} surface map</h1>
+          <p class="eyebrow">{{ i18n.t('governance.surface.eyebrow') }}</p>
+          <h1>{{ i18n.t('governance.surface.title') }}</h1>
           <p class="lead">
-            UI routes, canonical API prefixes and compatibility surfaces in one place.
+            {{ i18n.t('governance.surface.lead') }}
           </p>
         </div>
         <button type="button" class="ghost" (click)="load()">
           <ck-glyph name="pulse" [size]="14" />
-          Refresh
+          {{ i18n.t('common.refresh') }}
         </button>
       </header>
 
@@ -58,19 +58,19 @@ interface EndpointCatalog {
 
       <div class="kpi-grid">
         <div class="kpi">
-          <span>UI surfaces</span>
+          <span>{{ i18n.t('governance.surface.kpi.ui') }}</span>
           <strong>{{ uiRoutes.length }}</strong>
         </div>
         <div class="kpi">
-          <span>API operations</span>
+          <span>{{ i18n.t('governance.surface.kpi.api') }}</span>
           <strong>{{ catalog()?.entries?.length ?? 0 }}</strong>
         </div>
         <div class="kpi">
-          <span>Compatibility</span>
+          <span>{{ i18n.t('governance.surface.kpi.compatibility') }}</span>
           <strong>{{ compatibilityCount() }}</strong>
         </div>
         <div class="kpi" [class.kpi-warn]="(catalog()?.uncataloged?.length ?? 0) > 0">
-          <span>Uncataloged</span>
+          <span>{{ i18n.t('governance.surface.kpi.uncataloged') }}</span>
           <strong>{{ catalog()?.uncataloged?.length ?? 0 }}</strong>
         </div>
       </div>
@@ -78,10 +78,10 @@ interface EndpointCatalog {
       <div class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Mental model alignment</p>
-            <h2>UI route ↔ API prefix</h2>
+            <p class="eyebrow">{{ i18n.t('governance.surface.alignment.eyebrow') }}</p>
+            <h2>{{ i18n.t('governance.surface.alignment.title') }}</h2>
           </div>
-          <span class="version">catalog {{ catalog()?.version ?? 'loading' }}</span>
+          <span class="version">{{ catalogVersionLabel() }}</span>
         </div>
 
         <div class="surface-table">
@@ -89,8 +89,8 @@ interface EndpointCatalog {
             <article class="surface-row">
               <div class="route-main">
                 <span [class]="'status ' + statusClass(route.status)">{{ route.status }}</span>
-                <h3>{{ route.label }}</h3>
-                <p>{{ route.description }}</p>
+                <h3>{{ routeTitle(route) }}</h3>
+                <p>{{ routeDescription(route) }}</p>
                 <code>{{ route.route }}</code>
               </div>
               <div class="route-meta">
@@ -100,7 +100,7 @@ interface EndpointCatalog {
               </div>
               <div class="route-api">
                 <code>{{ route.apiPrefix }}</code>
-                <small>{{ apiEntriesByPrefix(route.apiPrefix).length }} operations</small>
+                <small>{{ i18n.t('governance.surface.operations', { count: apiEntriesByPrefix(route.apiPrefix).length }) }}</small>
               </div>
             </article>
           }
@@ -110,8 +110,8 @@ interface EndpointCatalog {
       <div class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Backend catalog</p>
-            <h2>Compatibility and legacy surfaces</h2>
+            <p class="eyebrow">{{ i18n.t('governance.surface.backend.eyebrow') }}</p>
+            <h2>{{ i18n.t('governance.surface.backend.title') }}</h2>
           </div>
         </div>
 
@@ -126,7 +126,7 @@ interface EndpointCatalog {
               }
             </article>
           } @empty {
-            <div class="empty">No compatibility or deprecated endpoints in the loaded catalog.</div>
+            <div class="empty">{{ i18n.t('governance.surface.backend.empty') }}</div>
           }
         </div>
       </div>
@@ -330,9 +330,8 @@ interface EndpointCatalog {
   ],
 })
 export class SurfaceMapComponent implements OnInit {
-  /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
 
   readonly uiRoutes = AGENTIUM_SURFACE_ROUTES;
   readonly catalog = signal<EndpointCatalog | null>(null);
@@ -350,6 +349,13 @@ export class SurfaceMapComponent implements OnInit {
     ),
   );
 
+  readonly catalogVersionLabel = computed(() => {
+    const version = this.catalog()?.version;
+    return version
+      ? this.i18n.t('governance.surface.catalog_version', { version })
+      : this.i18n.t('governance.surface.catalog_loading');
+  });
+
   ngOnInit(): void {
     this.load();
   }
@@ -360,13 +366,34 @@ export class SurfaceMapComponent implements OnInit {
       .get<EndpointCatalog>('/catalog/endpoints')
       .pipe(
         catchError((error: unknown) => {
-          this.error.set(error instanceof Error ? error.message : 'Unable to load endpoint catalog');
+          this.error.set(
+            error instanceof Error ? error.message : this.i18n.t('governance.surface.error.load'),
+          );
           return of(null);
         }),
       )
       .subscribe((catalog) => {
         if (catalog) this.catalog.set(catalog);
       });
+  }
+
+  /**
+   * Catalog entries live in navigation.catalog.ts (outside this screen); they
+   * are translated at render time through `governance.surface.<id>.title` /
+   * `.description`. When a key is deliberately absent (seeded tenant names,
+   * descriptions carrying the catalog's own allowlisted vocabulary) the raw
+   * catalog value is shown unchanged.
+   */
+  routeTitle(route: AgentiumSurfaceRoute): string {
+    const key = `governance.surface.${route.id}.title`;
+    const label = this.i18n.t(key);
+    return label === key ? route.label : label;
+  }
+
+  routeDescription(route: AgentiumSurfaceRoute): string {
+    const key = `governance.surface.${route.id}.description`;
+    const label = this.i18n.t(key);
+    return label === key ? route.description : label;
   }
 
   apiEntriesByPrefix(prefix: string): EndpointCatalogEntry[] {

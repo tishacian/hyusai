@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import {
   type BlueprintEntitlementPolicy,
@@ -51,17 +52,17 @@ type WorkspaceBlueprint = Record<string, any>;
     <section class="blueprint-page">
       <header class="page-head">
         <div>
-          <p class="eyebrow">Governance · Workspace Blueprint</p>
-          <h1>Workspace Blueprints</h1>
+          <p class="eyebrow">{{ i18n.t('governance.blueprints.eyebrow') }}</p>
+          <h1>{{ i18n.t('governance.blueprints.title') }}</h1>
           <p class="lead">
-            Export and recreate workspace structure, systems, IAM flags and knowledge collection metadata without moving members, secrets, files or vectors.
+            {{ i18n.t('governance.blueprints.lead') }}
           </p>
         </div>
         <div class="actions">
-          <button type="button" class="ghost" (click)="load()" [disabled]="loading()">Refresh export</button>
-          <button type="button" class="ghost" (click)="download()" [disabled]="!blueprint()">Download JSON</button>
-          <button type="button" class="primary" (click)="validate()" [disabled]="loading()">Dry run</button>
-          <button type="button" class="danger" (click)="apply()" [disabled]="loading() || !canApply()">Apply</button>
+          <button type="button" class="ghost" (click)="load()" [disabled]="loading()">{{ i18n.t('governance.blueprints.refresh') }}</button>
+          <button type="button" class="ghost" (click)="download()" [disabled]="!blueprint()">{{ i18n.t('governance.blueprints.download') }}</button>
+          <button type="button" class="primary" (click)="validate()" [disabled]="loading()">{{ i18n.t('governance.blueprints.dry_run') }}</button>
+          <button type="button" class="danger" (click)="apply()" [disabled]="loading() || !canApply()">{{ i18n.t('governance.blueprints.apply') }}</button>
         </div>
       </header>
 
@@ -74,19 +75,19 @@ type WorkspaceBlueprint = Record<string, any>;
 
       <div class="kpi-grid">
         <div class="kpi">
-          <span>Systems</span>
+          <span>{{ i18n.t('governance.blueprints.kpi.systems') }}</span>
           <strong>{{ summary().systems }}</strong>
         </div>
         <div class="kpi">
-          <span>Capabilities</span>
+          <span>{{ i18n.t('governance.blueprints.kpi.capabilities') }}</span>
           <strong>{{ summary().capabilities }}</strong>
         </div>
         <div class="kpi">
-          <span>Contexts</span>
+          <span>{{ i18n.t('governance.blueprints.kpi.contexts') }}</span>
           <strong>{{ summary().contexts }}</strong>
         </div>
         <div class="kpi">
-          <span>Collections</span>
+          <span>{{ i18n.t('governance.blueprints.kpi.collections') }}</span>
           <strong>{{ summary().collections }}</strong>
         </div>
       </div>
@@ -95,27 +96,27 @@ type WorkspaceBlueprint = Record<string, any>;
         <section class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">Portable contract</p>
-              <h2>Blueprint JSON</h2>
+              <p class="eyebrow">{{ i18n.t('governance.blueprints.contract.eyebrow') }}</p>
+              <h2>{{ i18n.t('governance.blueprints.contract.title') }}</h2>
             </div>
-            <span class="badge">{{ blueprint()?.['kind'] || 'not loaded' }}</span>
+            <span class="badge">{{ blueprint()?.['kind'] || i18n.t('governance.blueprints.not_loaded') }}</span>
           </div>
           <textarea
             [(ngModel)]="importText"
             spellcheck="false"
-            aria-label="Workspace blueprint JSON"
+            [attr.aria-label]="i18n.t('governance.blueprints.json_aria')"
           ></textarea>
         </section>
 
         <aside class="side">
           <section class="panel">
-            <p class="eyebrow">Data policy</p>
-            <h2>Portable experience policy</h2>
-            <label class="field-label" for="experience-policy">Experience merge</label>
+            <p class="eyebrow">{{ i18n.t('governance.blueprints.policy.eyebrow') }}</p>
+            <h2>{{ i18n.t('governance.blueprints.policy.title') }}</h2>
+            <label class="field-label" for="experience-policy">{{ i18n.t('governance.blueprints.policy.merge') }}</label>
             <select id="experience-policy" [(ngModel)]="experiencePolicy">
-              <option value="preserve_target">Preserve target (inspect only)</option>
-              <option value="merge_missing">Merge missing portable settings</option>
-              <option value="replace_portable">Replace portable settings</option>
+              <option value="preserve_target">{{ i18n.t('governance.blueprints.policy.preserve') }}</option>
+              <option value="merge_missing">{{ i18n.t('governance.blueprints.policy.merge_missing') }}</option>
+              <option value="replace_portable">{{ i18n.t('governance.blueprints.policy.replace') }}</option>
             </select>
             <label class="check-row">
               <input
@@ -123,60 +124,60 @@ type WorkspaceBlueprint = Record<string, any>;
                 [checked]="entitlementPolicy === 'grant_all_existing_members'"
                 (change)="setEntitlementBackfill($any($event.target).checked)"
               />
-              <span>Explicitly grant required apps to every existing target member</span>
+              <span>{{ i18n.t('governance.blueprints.policy.grant_apps') }}</span>
             </label>
             <label class="check-row">
               <input type="checkbox" [(ngModel)]="activateSystems" />
-              <span>Restore source System statuses instead of creating drafts</span>
+              <span>{{ i18n.t('governance.blueprints.policy.restore_status') }}</span>
             </label>
-            <h2 class="policy-subhead">Excluded by design</h2>
+            <h2 class="policy-subhead">{{ i18n.t('governance.blueprints.excluded.title') }}</h2>
             <ul>
-              <li>Workspace members and Keycloak identities</li>
-              <li>Secure Deposit links, passwords and staged files</li>
-              <li>Raw Knowledge documents and vector payloads</li>
-              <li>Run history and audit evidence</li>
-              <li>Runtime action state, migration markers and provider credentials</li>
+              <li>{{ i18n.t('governance.blueprints.excluded.members') }}</li>
+              <li>{{ i18n.t('governance.blueprints.excluded.deposit') }}</li>
+              <li>{{ i18n.t('governance.blueprints.excluded.documents') }}</li>
+              <li>{{ i18n.t('governance.blueprints.excluded.runs') }}</li>
+              <li>{{ i18n.t('governance.blueprints.excluded.runtime') }}</li>
             </ul>
           </section>
 
           <section class="panel">
-            <p class="eyebrow">Import report</p>
-            <h2>{{ report()?.dry_run ? 'Dry-run result' : 'Last apply result' }}</h2>
+            <p class="eyebrow">{{ i18n.t('governance.blueprints.report.eyebrow') }}</p>
+            <h2>{{ report()?.dry_run ? i18n.t('governance.blueprints.report.dry_run_result') : i18n.t('governance.blueprints.report.apply_result') }}</h2>
             @if (report(); as r) {
               <div class="report-grid">
                 <div>
-                  <span>Created</span>
+                  <span>{{ i18n.t('governance.blueprints.report.created') }}</span>
                   <strong>{{ total(r.created) }}</strong>
                 </div>
                 <div>
-                  <span>Reused</span>
+                  <span>{{ i18n.t('governance.blueprints.report.reused') }}</span>
                   <strong>{{ total(r.reused) }}</strong>
                 </div>
                 <div>
-                  <span>Skipped</span>
+                  <span>{{ i18n.t('governance.blueprints.report.skipped') }}</span>
                   <strong>{{ r.skipped.length }}</strong>
                 </div>
                 <div>
-                  <span>Unresolved skills</span>
+                  <span>{{ i18n.t('governance.blueprints.report.unresolved') }}</span>
                   <strong>{{ r.unresolved_skills.length }}</strong>
                 </div>
                 <div>
-                  <span>Experience conflicts</span>
+                  <span>{{ i18n.t('governance.blueprints.report.conflicts') }}</span>
                   <strong>{{ r.experience.conflicts.length }}</strong>
                 </div>
                 <div>
-                  <span>{{ r.dry_run ? 'App grants planned' : 'App grants created' }}</span>
+                  <span>{{ r.dry_run ? i18n.t('governance.blueprints.report.grants_planned') : i18n.t('governance.blueprints.report.grants_created') }}</span>
                   <strong>{{ r.dry_run ? r.experience.app_access.grants_planned : r.experience.app_access.grants_created }}</strong>
                 </div>
               </div>
               <p class="plan-binding">
-                Plan bound to <code>{{ r.workspace.slug }}</code>
-                · schema v{{ r.blueprint.schema_version }}
-                · {{ r.can_apply ? 'applicable' : 'blocked' }}
+                {{ i18n.t('governance.blueprints.report.bound') }} <code>{{ r.workspace.slug }}</code>
+                · {{ i18n.t('governance.blueprints.report.schema', { version: r.blueprint.schema_version }) }}
+                · {{ r.can_apply ? i18n.t('governance.blueprints.report.applicable') : i18n.t('governance.blueprints.report.blocked') }}
               </p>
               @if (r.experience.legacy_ignored.length) {
                 <p class="warning">
-                  Legacy fields intentionally ignored: {{ r.experience.legacy_ignored.join(', ') }}.
+                  {{ i18n.t('governance.blueprints.report.legacy_ignored', { fields: r.experience.legacy_ignored.join(', ') }) }}
                 </p>
               }
               @if (r.experience.conflicts.length) {
@@ -190,11 +191,11 @@ type WorkspaceBlueprint = Record<string, any>;
                 @for (action of r.actions.slice(0, 18); track $index) {
                   <code>{{ actionLine(action) }}</code>
                 } @empty {
-                  <p class="muted">No actions yet.</p>
+                  <p class="muted">{{ i18n.t('governance.blueprints.report.no_actions') }}</p>
                 }
               </div>
             } @else {
-              <p class="muted">Run a dry-run before applying a pasted blueprint.</p>
+              <p class="muted">{{ i18n.t('governance.blueprints.report.hint') }}</p>
             }
           </section>
         </aside>
@@ -427,6 +428,7 @@ type WorkspaceBlueprint = Record<string, any>;
 export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly blueprint = signal<WorkspaceBlueprint | null>(null);
   readonly report = signal<BlueprintReport | null>(null);
@@ -477,7 +479,7 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
           ? currentSlug !== targetSlug
           : Boolean(currentSlug && responseSlug && currentSlug !== responseSlug);
         if (contextChanged) {
-          this.error.set('The workspace changed while the export was in flight. Refresh it again.');
+          this.error.set(this.i18n.t('governance.blueprints.error.workspace_changed_export'));
           this.loading.set(false);
           return;
         }
@@ -485,7 +487,7 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
         this.importText = JSON.stringify(blueprint, null, 2);
         this.validatedPlan = null;
         this.report.set(null);
-        this.status.set('Current workspace blueprint loaded.');
+        this.status.set(this.i18n.t('governance.blueprints.status.loaded'));
         this.loading.set(false);
       },
       error: (err) => {
@@ -526,11 +528,11 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
         ) {
           this.validatedPlan = null;
           this.report.set(null);
-          this.error.set('The workspace changed while the dry-run was in flight. Run it again.');
+          this.error.set(this.i18n.t('governance.blueprints.error.workspace_changed_dry_run'));
           this.status.set(null);
         }
         if (this.validatedPlan) {
-          this.status.set('Dry-run completed. No workspace objects were written.');
+          this.status.set(this.i18n.t('governance.blueprints.status.dry_run_done'));
         }
         this.loading.set(false);
       },
@@ -565,7 +567,7 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
           this.validatedPlan = null;
           this.report.set(null);
           this.error.set(
-            `Blueprint applied to ${report.workspace.slug}, but the active workspace changed before the response arrived.`,
+            this.i18n.t('governance.blueprints.error.applied_elsewhere', { slug: report.workspace.slug }),
           );
           this.status.set(null);
           this.loading.set(false);
@@ -575,8 +577,8 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
         this.validatedPlan = null;
         this.status.set(
           report.activate_systems
-            ? 'Blueprint applied. Source System statuses were restored.'
-            : 'Blueprint applied. Imported systems were created as drafts.',
+            ? this.i18n.t('governance.blueprints.status.applied_restored')
+            : this.i18n.t('governance.blueprints.status.applied_drafts'),
         );
         this.loading.set(false);
       },
@@ -640,7 +642,7 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
     try {
       return JSON.parse(this.importText || '{}') as WorkspaceBlueprint;
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Invalid JSON');
+      this.error.set(err instanceof Error ? err.message : this.i18n.t('governance.blueprints.error.invalid_json'));
       return null;
     }
   }
@@ -650,6 +652,6 @@ export class WorkspaceBlueprintsComponent implements OnInit, OnDestroy {
     if (typeof detail === 'string') return detail;
     if (detail?.message) return detail.message;
     if (detail?.code) return detail.code;
-    return err?.message || 'Blueprint request failed.';
+    return err?.message || this.i18n.t('governance.blueprints.error.request');
   }
 }

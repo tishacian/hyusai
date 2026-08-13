@@ -5,6 +5,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import {
   WorkspaceMemberDetail,
   WorkspaceService,
@@ -40,9 +41,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                 <app-icon name="shield-check" [size]="18" />
               </div>
               <div>
-                <h2 class="text-base font-semibold text-white">Workspace IAM</h2>
+                <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.members.iam.title') }}</h2>
                 <p class="text-sm text-gray-400 mt-0.5">
-                  Manage role templates, ABAC labels, Capture flags and the effective permission matrix.
+                  {{ i18n.t('workspace.members.iam.description') }}
                 </p>
               </div>
             </div>
@@ -51,7 +52,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-400 text-white transition"
             >
               <app-icon name="sliders-horizontal" [size]="14" />
-              Open IAM console
+              {{ i18n.t('workspace.members.iam.open') }}
             </a>
           </div>
         </section>
@@ -62,9 +63,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               <app-icon name="user-plus" [size]="18" />
             </div>
             <div>
-              <h2 class="text-base font-semibold text-white">Invite member</h2>
+              <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.members.invite.title') }}</h2>
               <p class="text-sm text-gray-400 mt-0.5">
-                Invite anyone by email. Existing {{ brand() }} users are added instantly; new addresses are provisioned in Keycloak and receive a password-setup email.
+                {{ i18n.t('workspace.members.invite.description') }}
               </p>
             </div>
           </div>
@@ -82,13 +83,13 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               name="role"
               class="workspace-select"
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
+              <option value="member">{{ i18n.t('workspace.role.member') }}</option>
+              <option value="admin">{{ i18n.t('workspace.role.admin') }}</option>
             </select>
             @if (appEntitlementsEnabled()) {
               <fieldset class="w-full rounded-md border border-white/10 bg-black/15 px-3 py-2">
                 <legend class="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                  Application access
+                  {{ i18n.t('workspace.members.invite.app_access') }}
                 </legend>
                 <div class="flex flex-wrap gap-x-5 gap-y-2">
                   @for (app of inviteAppOptions(); track app.key) {
@@ -111,7 +112,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
             >
               <app-icon name="send" [size]="14" />
-              {{ inviting() ? 'Inviting…' : 'Invite' }}
+              {{ inviting() ? i18n.t('workspace.members.invite.inviting') : i18n.t('workspace.members.invite.cta') }}
             </button>
           </form>
         </section>
@@ -121,7 +122,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
         <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between">
           <h2 class="text-base font-semibold text-white flex items-center gap-2">
             <app-icon name="users" [size]="16" class="text-cyan-400" />
-            Members <span class="text-gray-500 font-normal">· {{ members().length }}</span>
+            {{ i18n.t('workspace.members') }} <span class="text-gray-500 font-normal">· {{ members().length }}</span>
           </h2>
         </div>
 
@@ -132,7 +133,11 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <app-skeleton height="56px" />
           </div>
         } @else if (members().length === 0) {
-          <app-empty-state icon="users" title="No members yet" description="Invite teammates to get started." />
+          <app-empty-state
+            icon="users"
+            [title]="i18n.t('workspace.members.empty.title')"
+            [description]="i18n.t('workspace.members.empty.description')"
+          />
         } @else {
           <div class="divide-y divide-white/5">
             @for (m of members(); track m.user_id) {
@@ -153,24 +158,24 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                     </span>
                     @if (m.is_current_user) {
                       <span class="text-[9px] px-1.5 py-0.5 bg-white/10 text-gray-300 rounded uppercase tracking-wider font-semibold">
-                        You
+                        {{ i18n.t('workspace.members.badge.you') }}
                       </span>
                     }
                     @if (isPending(m)) {
                       <span class="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold inline-flex items-center gap-1 bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30">
                         <app-icon name="mail" [size]="9" />
-                        Pending invite
+                        {{ i18n.t('workspace.members.badge.pending') }}
                       </span>
                     } @else {
                       <span class="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
                         <app-icon name="check" [size]="9" />
-                        Active
+                        {{ i18n.t('workspace.status.active') }}
                       </span>
                     }
                   </div>
                   <div class="text-sm text-gray-400 truncate">{{ m.email }}</div>
                   @if (appEntitlementsEnabled()) {
-                    <div class="mt-1 flex flex-wrap gap-1" aria-label="Application access">
+                    <div class="mt-1 flex flex-wrap gap-1" [attr.aria-label]="i18n.t('workspace.members.invite.app_access')">
                       @for (app of memberAppOptions(m); track app.key) {
                         @if ((m.app_entitlements || []).includes(app.key)) {
                           <span class="rounded border border-cyan-400/20 bg-cyan-500/[0.07] px-1.5 py-0.5 text-[10px] text-cyan-200">
@@ -183,9 +188,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                   <div class="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1">
                     <app-icon name="clock" [size]="11" />
                     @if (isPending(m)) {
-                      Invited {{ m.joined_at | date: 'mediumDate' }} · awaiting first sign-in
+                      {{ i18n.t('workspace.members.joined.invited', { date: (m.joined_at | date: 'mediumDate') || '' }) }}
                     } @else {
-                      Joined {{ m.joined_at | date: 'mediumDate' }}
+                      {{ i18n.t('workspace.members.joined.joined', { date: (m.joined_at | date: 'mediumDate') || '' }) }}
                     }
                   </div>
                 </div>
@@ -198,8 +203,8 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                       [disabled]="savingMember() === m.user_id"
                       class="workspace-select workspace-select-sm"
                     >
-                      <option value="admin">Admin</option>
-                      <option value="member">Member</option>
+                      <option value="admin">{{ i18n.t('workspace.role.admin') }}</option>
+                      <option value="member">{{ i18n.t('workspace.role.member') }}</option>
                     </select>
                   } @else {
                     <span
@@ -213,7 +218,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                       } @else {
                         <app-icon name="user-round" [size]="11" />
                       }
-                      {{ roleLabel(m) }}
+                      {{ roleName(roleLabel(m)) }}
                     </span>
                   }
                 </div>
@@ -224,7 +229,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                     (click)="requestRemove(m)"
                     [disabled]="savingMember() === m.user_id"
                     class="text-red-400 hover:bg-red-500/10 p-2 rounded transition"
-                    title="Remove member"
+                    [title]="i18n.t('workspace.members.remove.tooltip')"
                   >
                     <app-icon name="trash-2" [size]="14" />
                   </button>
@@ -238,9 +243,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
 
     <app-confirm-dialog
       [open]="!!pendingRemove()"
-      title="Remove member?"
-      [description]="pendingRemove() ? 'Remove ' + (pendingRemove()?.email || pendingRemove()?.username) + ' from this workspace? They will lose access to all data.' : ''"
-      confirmLabel="Remove member"
+      [title]="i18n.t('workspace.members.remove.confirm_title')"
+      [description]="pendingRemove() ? i18n.t('workspace.members.remove.confirm_description', { name: pendingRemove()?.email || pendingRemove()?.username || '' }) : ''"
+      [confirmLabel]="i18n.t('workspace.members.remove.confirm_cta')"
       tone="danger"
       icon="trash-2"
       (cancel)="pendingRemove.set(null)"
@@ -283,8 +288,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   `],
 })
 export class WorkspaceMembersComponent {
-  /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
+  readonly i18n = inject(I18nService);
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly toastr = inject(ToastrService);
@@ -357,12 +361,16 @@ export class WorkspaceMembersComponent {
     this.workspaceService.inviteMember(slug, email, this.inviteRole, appEntitlements).subscribe({
       next: (res) => {
         this.inviting.set(false);
+        const role = this.roleName(this.inviteRole).toLocaleLowerCase();
         if (res?.invitation_email_sent) {
-          this.toastr.success(`${email} is now ${this.inviteRole}.`, 'Invitation email sent');
+          this.toastr.success(
+            this.i18n.t('workspace.members.toast.invited', { email, role }),
+            this.i18n.t('workspace.members.toast.invited_title'),
+          );
         } else {
           this.toastr.success(
-            `${email} is now ${this.inviteRole}. If they do not receive an email, they can sign in or use password reset.`,
-            'Member added'
+            this.i18n.t('workspace.members.toast.added', { email, role }),
+            this.i18n.t('workspace.members.toast.added_title'),
           );
         }
         this.inviteEmail = '';
@@ -372,12 +380,18 @@ export class WorkspaceMembersComponent {
       error: (err) => {
         this.inviting.set(false);
         if (err?.status === 409 && err?.error?.detail === 'User is already a member') {
-          this.toastr.info(`${email} already has access to this workspace.`, 'Already a member');
+          this.toastr.info(
+            this.i18n.t('workspace.members.toast.already', { email }),
+            this.i18n.t('workspace.members.toast.already_title'),
+          );
           this.inviteEmail = '';
           this.load(slug);
           return;
         }
-        this.toastr.error(err?.error?.detail || 'Failed to invite', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.members.toast.invite_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -412,12 +426,21 @@ export class WorkspaceMembersComponent {
     this.workspaceService.updateMemberRole(slug, member.user_id, newRole).subscribe({
       next: () => {
         this.savingMember.set(null);
-        this.toastr.success(`${member.email || member.username} is now ${newRole}`, 'Role updated');
+        this.toastr.success(
+          this.i18n.t('workspace.members.toast.role', {
+            name: member.email || member.username,
+            role: this.roleName(newRole).toLocaleLowerCase(),
+          }),
+          this.i18n.t('workspace.members.toast.role_title'),
+        );
         this.load(slug);
       },
       error: (err) => {
         this.savingMember.set(null);
-        this.toastr.error(err?.error?.detail || 'Failed to update role', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.members.toast.role_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -436,12 +459,18 @@ export class WorkspaceMembersComponent {
     this.workspaceService.removeMember(slug, member.user_id).subscribe({
       next: () => {
         this.savingMember.set(null);
-        this.toastr.success(`${label} removed`, 'Member removed');
+        this.toastr.success(
+          this.i18n.t('workspace.members.toast.removed', { name: label }),
+          this.i18n.t('workspace.members.toast.removed_title'),
+        );
         this.load(slug);
       },
       error: (err) => {
         this.savingMember.set(null);
-        this.toastr.error(err?.error?.detail || 'Failed to remove member', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.members.toast.remove_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -475,6 +504,13 @@ export class WorkspaceMembersComponent {
     if (this.isOwner(member)) return 'owner';
     if (this.isAdmin(member)) return 'admin';
     return 'member';
+  }
+
+  /** Role values come from the API — translate with a fallback to the raw value. */
+  roleName(role: string): string {
+    const key = 'workspace.role.' + role;
+    const label = this.i18n.t(key);
+    return label === key ? role : label;
   }
 
   isPending(member: WorkspaceMemberDetail): boolean {

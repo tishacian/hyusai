@@ -20,6 +20,7 @@ import {
   RagPresetService,
   type RagPreset,
 } from '@app/core/rag-preset.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   WorkspaceRequestInvalidatedError,
   WorkspaceService,
@@ -28,26 +29,22 @@ import type { AppSettings } from '@app/core/settings.service';
 
 type PresetTab = 'generation' | 'retrieval' | 'chunking' | 'experience';
 
+// Vendor names are data, not chrome — they stay literal.
 const PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'ollama', label: 'Ollama' },
 ];
 
-const PIPELINE_MODES = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'naive', label: 'Naive' },
-  { value: 'hybrid', label: 'Hybrid' },
-  { value: 'hah', label: 'HAH' },
-  { value: 'chah', label: 'CHAH' },
-];
+// Labels come from `presets.mode.<value>` / `presets.chunking.<value>`.
+const PIPELINE_MODES = ['auto', 'naive', 'hybrid', 'hah', 'chah'] as const;
 
 const CHUNKING_METHODS = [
-  { value: 'recursive_character', label: 'Recursive character' },
-  { value: 'sentence', label: 'Sentence' },
-  { value: 'markdown', label: 'Markdown-aware' },
-  { value: 'semantic', label: 'Semantic' },
-];
+  'recursive_character',
+  'sentence',
+  'markdown',
+  'semantic',
+] as const;
 
 /**
  * Detail page for a single RAG Preset.
@@ -80,12 +77,12 @@ const CHUNKING_METHODS = [
       <div status class="flex items-center gap-2">
         @if (preset()?.is_default) {
           <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/40">
-            Default
+            {{ i18n.t('presets.badge.default') }}
           </span>
         }
         @if (dirty()) {
           <span class="text-[10px] uppercase tracking-wider text-gray-400">
-            Unsaved
+            {{ i18n.t('presets.view.unsaved') }}
           </span>
         }
       </div>
@@ -95,7 +92,7 @@ const CHUNKING_METHODS = [
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
         (click)="impactPanelOpen.set(true)"
       >
-        Impact preview
+        {{ i18n.t('presets.view.impact.cta') }}
       </button>
       @if (!preset()?.is_default) {
         <button
@@ -104,7 +101,7 @@ const CHUNKING_METHODS = [
           class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
           (click)="setAsDefault()"
         >
-          Set default
+          {{ i18n.t('presets.action.default') }}
         </button>
       }
       <button
@@ -114,40 +111,40 @@ const CHUNKING_METHODS = [
         (click)="save()"
         [disabled]="!dirty() || saving()"
       >
-        {{ saving() ? 'Saving…' : 'Save changes' }}
+        {{ saving() ? i18n.t('presets.saving') : i18n.t('presets.view.save.cta') }}
       </button>
     </ck-object-header>
 
     @if (loading()) {
       <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
-        Loading preset…
+        {{ i18n.t('presets.view.loading') }}
       </div>
     } @else if (!preset()) {
       <div class="ck-surface rounded-md p-8 text-center">
-        <h3 class="text-sm font-semibold text-white mb-2">Preset not found</h3>
+        <h3 class="text-sm font-semibold text-white mb-2">{{ i18n.t('presets.view.notfound.title') }}</h3>
         <a routerLink="/presets" class="text-xs text-cyan-300 hover:underline">
-          Back to catalog
+          {{ i18n.t('presets.view.notfound.back') }}
         </a>
       </div>
     } @else {
       <ck-tabs
         [active]="activeTab()"
         (activeChange)="onTabChange($event)"
-        ariaLabel="Preset facets"
+        [ariaLabel]="i18n.t('presets.view.tabs.aria')"
       >
-        <ck-tab id="generation" label="Generation">
+        <ck-tab id="generation" [label]="i18n.t('presets.tab.generation')">
           <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             @if (isDemoMode()) {
               <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
-                <div class="text-sm font-semibold text-white">Managed runtime</div>
+                <div class="text-sm font-semibold text-white">{{ i18n.t('presets.view.managed.title') }}</div>
                 <p class="text-xs text-gray-400 mt-2">
-                  Provider and model names are hidden by demo-safe presentation.
+                  {{ i18n.t('presets.view.managed.body') }}
                 </p>
               </div>
             } @else {
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Provider
+                  {{ i18n.t('presets.field.provider') }}
                 </label>
                 <div class="grid grid-cols-3 gap-1.5 mt-1.5">
                   @for (p of providers; track p.value) {
@@ -169,21 +166,21 @@ const CHUNKING_METHODS = [
               </div>
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Model
+                  {{ i18n.t('presets.field.model') }}
                 </label>
                 <input
                   type="text"
                   [ngModel]="draft().defaultModel"
                   (ngModelChange)="patch({ defaultModel: $event })"
                   class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
-                  placeholder="e.g. gpt-4o-mini"
+                  [placeholder]="i18n.t('presets.field.model.placeholder')"
                 />
               </div>
             }
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Temperature
+                  {{ i18n.t('presets.field.temperature') }}
                 </label>
                 <input
                   type="number"
@@ -195,7 +192,7 @@ const CHUNKING_METHODS = [
               </div>
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Max tokens
+                  {{ i18n.t('presets.field.tokens') }}
                 </label>
                 <input
                   type="number"
@@ -209,26 +206,26 @@ const CHUNKING_METHODS = [
           </section>
         </ck-tab>
 
-        <ck-tab id="retrieval" label="Retrieval">
+        <ck-tab id="retrieval" [label]="i18n.t('presets.tab.retrieval')">
           <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             <div>
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
                 Pipeline mode
               </label>
               <div class="flex flex-wrap gap-1.5 mt-1.5">
-                @for (m of pipelineModes; track m.value) {
+                @for (m of pipelineModes; track m) {
                   <button
                     type="button"
                     class="px-3 py-1.5 rounded text-xs font-medium ring-1 transition"
-                    [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m.value"
-                    [class.text-cyan-200]="draft().ragPipelineMode === m.value"
-                    [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m.value"
-                    [class.bg-white\\/5]="draft().ragPipelineMode !== m.value"
-                    [class.text-gray-300]="draft().ragPipelineMode !== m.value"
-                    [class.ring-white\\/10]="draft().ragPipelineMode !== m.value"
-                    (click)="patch({ ragPipelineMode: $any(m.value) })"
+                    [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m"
+                    [class.text-cyan-200]="draft().ragPipelineMode === m"
+                    [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m"
+                    [class.bg-white\\/5]="draft().ragPipelineMode !== m"
+                    [class.text-gray-300]="draft().ragPipelineMode !== m"
+                    [class.ring-white\\/10]="draft().ragPipelineMode !== m"
+                    (click)="patch({ ragPipelineMode: m })"
                   >
-                    {{ m.label }}
+                    {{ modeLabel(m) }}
                   </button>
                 }
               </div>
@@ -236,7 +233,7 @@ const CHUNKING_METHODS = [
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Top-K
+                  {{ i18n.t('presets.field.topk') }}
                 </label>
                 <input
                   type="number"
@@ -248,7 +245,7 @@ const CHUNKING_METHODS = [
               </div>
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Similarity threshold
+                  {{ i18n.t('presets.field.similarity') }}
                 </label>
                 <input
                   type="number"
@@ -266,13 +263,13 @@ const CHUNKING_METHODS = [
                 (change)="patch({ ragUseHybridSearch: $any($event.target).checked })"
                 class="accent-cyan-500"
               />
-              Use hybrid search (sparse + dense)
+              {{ i18n.t('presets.retrieval.hybrid') }}
             </label>
             @if (draft().ragUseHybridSearch) {
               <div class="grid grid-cols-2 gap-4">
                 <div>
                   <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                    Vector weight
+                    {{ i18n.t('presets.retrieval.weight.vector') }}
                   </label>
                   <input
                     type="number"
@@ -284,7 +281,7 @@ const CHUNKING_METHODS = [
                 </div>
                 <div>
                   <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                    Sparse weight
+                    {{ i18n.t('presets.retrieval.weight.sparse') }}
                   </label>
                   <input
                     type="number"
@@ -299,26 +296,26 @@ const CHUNKING_METHODS = [
           </section>
         </ck-tab>
 
-        <ck-tab id="chunking" label="Chunking">
+        <ck-tab id="chunking" [label]="i18n.t('presets.tab.chunking')">
           <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             <div>
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                Method
+                {{ i18n.t('presets.chunking.method') }}
               </label>
               <div class="grid grid-cols-2 gap-1.5 mt-1.5">
-                @for (m of chunkingMethods; track m.value) {
+                @for (m of chunkingMethods; track m) {
                   <button
                     type="button"
                     class="px-3 py-2 rounded text-xs font-medium ring-1 transition text-left"
-                    [class.bg-cyan-500\\/15]="draft()['ragChunkingMethod'] === m.value"
-                    [class.text-cyan-200]="draft()['ragChunkingMethod'] === m.value"
-                    [class.ring-cyan-500\\/40]="draft()['ragChunkingMethod'] === m.value"
-                    [class.bg-white\\/5]="draft()['ragChunkingMethod'] !== m.value"
-                    [class.text-gray-300]="draft()['ragChunkingMethod'] !== m.value"
-                    [class.ring-white\\/10]="draft()['ragChunkingMethod'] !== m.value"
-                    (click)="patch({ ragChunkingMethod: m.value })"
+                    [class.bg-cyan-500\\/15]="draft()['ragChunkingMethod'] === m"
+                    [class.text-cyan-200]="draft()['ragChunkingMethod'] === m"
+                    [class.ring-cyan-500\\/40]="draft()['ragChunkingMethod'] === m"
+                    [class.bg-white\\/5]="draft()['ragChunkingMethod'] !== m"
+                    [class.text-gray-300]="draft()['ragChunkingMethod'] !== m"
+                    [class.ring-white\\/10]="draft()['ragChunkingMethod'] !== m"
+                    (click)="patch({ ragChunkingMethod: m })"
                   >
-                    {{ m.label }}
+                    {{ chunkingLabel(m) }}
                   </button>
                 }
               </div>
@@ -326,7 +323,7 @@ const CHUNKING_METHODS = [
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Chunk size
+                  {{ i18n.t('presets.chunking.size') }}
                 </label>
                 <input
                   type="number"
@@ -338,7 +335,7 @@ const CHUNKING_METHODS = [
               </div>
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                  Chunk overlap
+                  {{ i18n.t('presets.chunking.overlap') }}
                 </label>
                 <input
                   type="number"
@@ -352,7 +349,7 @@ const CHUNKING_METHODS = [
           </section>
         </ck-tab>
 
-        <ck-tab id="experience" label="Experience">
+        <ck-tab id="experience" [label]="i18n.t('presets.tab.experience')">
           <section class="ck-surface t-elevated rounded-md p-5 space-y-3">
             <label class="flex items-center gap-2 text-xs text-gray-200 cursor-pointer">
               <input
@@ -361,7 +358,7 @@ const CHUNKING_METHODS = [
                 (change)="patch({ enableStreaming: $any($event.target).checked })"
                 class="accent-cyan-500"
               />
-              Enable streaming responses
+              {{ i18n.t('presets.experience.streaming') }}
             </label>
             <label class="flex items-center gap-2 text-xs text-gray-200 cursor-pointer">
               <input
@@ -370,7 +367,7 @@ const CHUNKING_METHODS = [
                 (change)="patch({ showReasoningTraces: $any($event.target).checked })"
                 class="accent-cyan-500"
               />
-              Show reasoning traces by default
+              {{ i18n.t('presets.experience.reasoning') }}
             </label>
             <label class="flex items-center gap-2 text-xs text-gray-200 cursor-pointer">
               <input
@@ -379,7 +376,7 @@ const CHUNKING_METHODS = [
                 (change)="patch({ showSources: $any($event.target).checked })"
                 class="accent-cyan-500"
               />
-              Always show sources
+              {{ i18n.t('presets.experience.sources') }}
             </label>
             <label class="flex items-center gap-2 text-xs text-gray-200 cursor-pointer">
               <input
@@ -388,7 +385,7 @@ const CHUNKING_METHODS = [
                 (change)="patch({ autoExpandReasoning: $any($event.target).checked })"
                 class="accent-cyan-500"
               />
-              Auto-expand reasoning panel
+              {{ i18n.t('presets.experience.expand') }}
             </label>
           </section>
         </ck-tab>
@@ -399,14 +396,12 @@ const CHUNKING_METHODS = [
       [open]="impactPanelOpen()"
       (openChange)="impactPanelOpen.set($event)"
       position="side"
-      eyebrow="Preset · impact"
-      title="Impact preview"
+      [eyebrow]="i18n.t('presets.view.impact.eyebrow')"
+      [title]="i18n.t('presets.view.impact.cta')"
       width="420px"
     >
       <p class="text-xs text-gray-400 mb-3">
-        Diff vs the workspace default. This preview is a placeholder — a
-        future wave will replay a canonical Run under this preset to show
-        the measurable delta (latency, token cost, citation quality).
+        {{ i18n.t('presets.view.impact.description') }}
       </p>
       <ul class="space-y-2 text-xs">
         @for (row of impactRows(); track row.key) {
@@ -418,7 +413,7 @@ const CHUNKING_METHODS = [
           </li>
         } @empty {
           <li class="text-gray-500 text-xs">
-            This preset matches the workspace default.
+            {{ i18n.t('presets.view.impact.empty') }}
           </li>
         }
       </ul>
@@ -431,6 +426,7 @@ export class PresetViewComponent implements OnInit {
   private readonly service = inject(RagPresetService);
   private readonly toastr = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly providers = PROVIDERS;
@@ -451,42 +447,76 @@ export class PresetViewComponent implements OnInit {
     return JSON.stringify(p.config ?? {}) !== JSON.stringify(this.draft());
   });
 
-  readonly title = computed(() => this.preset()?.name ?? 'Preset');
+  readonly title = computed(
+    () => this.preset()?.name ?? this.i18n.t('presets.view.title.fallback'),
+  );
 
   readonly eyebrow = computed(() => {
     const p = this.preset();
-    if (!p) return 'Govern · Preset';
-    return `Govern · Preset · ${p.scope}`;
+    if (!p) return this.i18n.t('presets.view.eyebrow');
+    return this.i18n.t('presets.view.eyebrow.scoped', { scope: this.scopeShortLabel(p.scope) });
   });
 
   readonly subtitle = computed(() => {
     const p = this.preset();
     if (!p) return '';
-    const scopeBit = p.scope === 'workspace'
-      ? 'Applies workspace-wide when no capability or system preset matches.'
+    return p.scope === 'workspace'
+      ? this.i18n.t('presets.view.subtitle.workspace')
       : p.scope === 'capability'
-        ? 'Overrides the workspace default for runs tied to a specific capability.'
-        : 'Overrides everything for runs of one specific system.';
-    return scopeBit;
+        ? this.i18n.t('presets.view.subtitle.capability')
+        : this.i18n.t('presets.view.subtitle.system');
   });
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
     const cfg = this.draft();
     return [
-      { label: this.isDemoMode() ? 'Runtime' : 'Provider', value: this.isDemoMode() ? 'Managed' : String(cfg.defaultProvider ?? '—') },
       {
-        label: 'Mode',
+        label: this.isDemoMode()
+          ? this.i18n.t('presets.field.runtime')
+          : this.i18n.t('presets.field.provider'),
+        value: this.isDemoMode()
+          ? this.i18n.t('presets.value.managed')
+          : String(cfg.defaultProvider ?? '—'),
+      },
+      {
+        label: this.i18n.t('presets.field.mode'),
         value: String(cfg.ragPipelineMode ?? (cfg.ragUseHybridSearch ? 'hybrid' : 'vector')),
         tone: 'cool',
       },
-      { label: 'Top-K', value: String(cfg.ragTopK ?? '—'), tone: 'violet' },
+      { label: this.i18n.t('presets.field.topk'), value: String(cfg.ragTopK ?? '—'), tone: 'violet' },
       {
-        label: 'Hybrid',
-        value: cfg.ragUseHybridSearch ? 'On' : 'Off',
+        label: this.i18n.t('presets.field.hybrid'),
+        value: cfg.ragUseHybridSearch
+          ? this.i18n.t('presets.state.on')
+          : this.i18n.t('presets.state.off'),
         tone: cfg.ragUseHybridSearch ? 'pos' : 'neutral',
       },
     ];
   });
+
+  /**
+   * Short scope name (`presets.scope.<value>`), falling back to the raw
+   * value if the backend ever grows a scope the dictionary doesn't know.
+   */
+  scopeShortLabel(scope: string): string {
+    const key = `presets.scope.${scope}`;
+    const label = this.i18n.t(key);
+    return label === key ? scope : label;
+  }
+
+  /** Display name of a retrieval mode, falling back to the raw value. */
+  modeLabel(mode: string): string {
+    const key = `presets.mode.${mode}`;
+    const label = this.i18n.t(key);
+    return label === key ? mode : label;
+  }
+
+  /** Display name of a chunking method, falling back to the raw value. */
+  chunkingLabel(method: string): string {
+    const key = `presets.chunking.${method}`;
+    const label = this.i18n.t(key);
+    return label === key ? method : label;
+  }
 
   readonly impactRows = computed<{ key: string; base: string; next: string }[]>(() => {
     const base = this.defaultPreset()?.config ?? {};
@@ -571,11 +601,11 @@ export class PresetViewComponent implements OnInit {
       .then((updated) => {
         this.preset.set(updated);
         this.draft.set({ ...(updated.config ?? {}) });
-        this.toastr.success('Preset saved');
+        this.toastr.success(this.i18n.t('presets.toast.save.success'));
       })
       .catch((error: unknown) => {
         if (!(error instanceof WorkspaceRequestInvalidatedError)) {
-          this.toastr.error('Failed to save preset');
+          this.toastr.error(this.i18n.t('presets.toast.save.error'));
         }
       })
       .finally(() => this.saving.set(false));
@@ -588,11 +618,11 @@ export class PresetViewComponent implements OnInit {
       .setDefault(p.id)
       .then((updated) => {
         this.preset.set(updated);
-        this.toastr.success('Preset is now default');
+        this.toastr.success(this.i18n.t('presets.view.toast.default'));
       })
       .catch((error: unknown) => {
         if (!(error instanceof WorkspaceRequestInvalidatedError)) {
-          this.toastr.error('Failed to elect default');
+          this.toastr.error(this.i18n.t('presets.view.toast.default.error'));
         }
       });
   }

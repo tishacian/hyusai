@@ -1,13 +1,14 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
 interface AccountLink {
-  label: string;
+  labelKey: string;
   icon: string;
   route: string;
-  description: string;
+  descriptionKey: string;
 }
 
 @Component({
@@ -17,10 +18,10 @@ interface AccountLink {
   template: `
     <div class="max-w-5xl mx-auto">
       <app-section-header
-        breadcrumb="Account"
-        title="My account"
+        [breadcrumb]="i18n.t('account.shell.breadcrumb')"
+        [title]="i18n.t('account.shell.title')"
         icon="user-round"
-        subtitle="Manage your profile, security and preferences."
+        [subtitle]="i18n.t('account.shell.subtitle')"
       />
 
       <div class="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 md:gap-8">
@@ -34,9 +35,9 @@ interface AccountLink {
             >
               <div class="flex items-center gap-2.5">
                 <app-icon [name]="link.icon" [size]="16" class="text-cyan-400" />
-                <span class="font-medium">{{ link.label }}</span>
+                <span class="font-medium">{{ i18n.t(link.labelKey) }}</span>
               </div>
-              <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ link.description }}</div>
+              <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ i18n.t(link.descriptionKey) }}</div>
             </a>
           }
         </aside>
@@ -49,11 +50,38 @@ interface AccountLink {
   `,
 })
 export class AccountShellComponent {
+  readonly i18n = inject(I18nService);
+
   links: AccountLink[] = [
-    { label: 'Profile', icon: 'user-round', route: 'profile', description: 'Name, phone, company' },
-    { label: 'Password', icon: 'key-round', route: 'password', description: 'Change your password' },
-    { label: 'Security', icon: 'shield', route: 'security', description: 'Two-factor auth' },
-    { label: 'Sessions', icon: 'laptop', route: 'sessions', description: 'Active sign-ins' },
-    { label: 'Danger zone', icon: 'shield-alert', route: 'danger', description: 'Delete account' },
+    {
+      labelKey: 'account.profile',
+      icon: 'user-round',
+      route: 'profile',
+      descriptionKey: 'account.shell.profile.description',
+    },
+    {
+      labelKey: 'account.password',
+      icon: 'key-round',
+      route: 'password',
+      descriptionKey: 'account.shell.password.description',
+    },
+    {
+      labelKey: 'account.security',
+      icon: 'shield',
+      route: 'security',
+      descriptionKey: 'account.shell.security.description',
+    },
+    {
+      labelKey: 'account.sessions',
+      icon: 'laptop',
+      route: 'sessions',
+      descriptionKey: 'account.shell.sessions.description',
+    },
+    {
+      labelKey: 'account.danger',
+      icon: 'shield-alert',
+      route: 'danger',
+      descriptionKey: 'account.shell.danger.description',
+    },
   ];
 }

@@ -25,6 +25,7 @@ import {
   type Capability,
   type System,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   WorkspaceRequestInvalidatedError,
   WorkspaceService,
@@ -62,9 +63,9 @@ type DraftState = {
   ],
   template: `
     <ck-object-header
-      eyebrow="Govern · Presets"
-      title="RAG Presets"
-      subtitle="Multi-scope retrieval + generation configuration. The most specific preset wins at run time: system > capability > workspace."
+      [eyebrow]="i18n.t('presets.list.eyebrow')"
+      [title]="i18n.t('presets.list.title')"
+      [subtitle]="i18n.t('presets.list.description')"
       [kpis]="kpis()"
     >
       <button
@@ -73,14 +74,14 @@ type DraftState = {
         (click)="openResolvePanel()"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
-        Resolve preset
+        {{ i18n.t('presets.list.resolve.cta') }}
       </button>
       <a
         actions
         routerLink="/presets/evaluation"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-500/30 transition"
       >
-        Evaluation thresholds
+        {{ i18n.t('presets.list.evaluation.cta') }}
       </a>
       <button
         actions
@@ -88,30 +89,30 @@ type DraftState = {
         (click)="openNewPanel()"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
       >
-        + New preset
+        {{ i18n.t('presets.list.new.cta') }}
       </button>
     </ck-object-header>
 
     @if (loading()) {
       <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
-        Loading presets…
+        {{ i18n.t('presets.list.loading') }}
       </div>
     } @else if (presets().length === 0) {
       <div class="ck-surface rounded-md p-8 text-center">
-        <h3 class="text-sm font-semibold text-white mb-2">No preset yet</h3>
+        <h3 class="text-sm font-semibold text-white mb-2">{{ i18n.t('presets.list.empty.title') }}</h3>
         <p class="text-xs text-gray-400 mb-4">
-          This page lists RAG presets. The showcase evaluation loop lives under
-          <a routerLink="/presets/evaluation" class="text-cyan-300 hover:text-cyan-200">Evaluation thresholds</a>.
-          Use
-          <span class="font-semibold">New preset</span> above to create one,
-          or keep using the workspace default.
+          {{ i18n.t('presets.list.empty.body1') }}
+          <a routerLink="/presets/evaluation" class="text-cyan-300 hover:text-cyan-200">{{ i18n.t('presets.list.evaluation.cta') }}</a>.
+          {{ i18n.t('presets.list.empty.body2') }}
+          <span class="font-semibold">{{ i18n.t('presets.list.empty.new') }}</span>
+          {{ i18n.t('presets.list.empty.body3') }}
         </p>
         <button
           type="button"
           (click)="openNewPanel()"
           class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
-          Create workspace default
+          {{ i18n.t('presets.list.empty.cta') }}
         </button>
       </div>
     } @else {
@@ -121,7 +122,7 @@ type DraftState = {
             <header class="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/10">
               <div>
                 <div class="text-[10px] uppercase tracking-[0.14em] text-gray-500 font-semibold">
-                  Scope
+                  {{ i18n.t('presets.field.scope') }}
                 </div>
                 <h3 class="text-sm font-semibold text-white">
                   {{ scopeLabel(group.scope) }}
@@ -129,14 +130,16 @@ type DraftState = {
               </div>
               <div class="flex items-center gap-3">
                 <span class="text-[11px] text-gray-500">
-                  {{ group.items.length }} preset{{ group.items.length === 1 ? '' : 's' }}
+                  {{ group.items.length === 1
+                    ? i18n.t('presets.list.count.one', { count: group.items.length })
+                    : i18n.t('presets.list.count.other', { count: group.items.length }) }}
                 </span>
                 <button
                   type="button"
                   class="text-[11px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
                   (click)="openNewPanelForScope(group.scope)"
                 >
-                  + Add
+                  {{ i18n.t('presets.list.add.cta') }}
                 </button>
               </div>
             </header>
@@ -148,7 +151,7 @@ type DraftState = {
                       class="mt-1 inline-block w-2 h-2 rounded-full shrink-0"
                       [class.bg-cyan-400]="p.is_default"
                       [class.bg-gray-600]="!p.is_default"
-                      [title]="p.is_default ? 'Default preset for this scope' : 'Secondary preset'"
+                      [title]="p.is_default ? i18n.t('presets.list.default.title') : i18n.t('presets.list.secondary.title')"
                     ></span>
                     <div class="min-w-0">
                       <div class="flex items-center gap-2 flex-wrap">
@@ -160,7 +163,7 @@ type DraftState = {
                         </a>
                         @if (p.is_default) {
                           <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/40">
-                            Default
+                            {{ i18n.t('presets.badge.default') }}
                           </span>
                         }
                         @if (p.scope_id) {
@@ -184,7 +187,7 @@ type DraftState = {
                         class="px-2.5 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
                         (click)="setDefault(p.id)"
                       >
-                        Set default
+                        {{ i18n.t('presets.action.default') }}
                       </button>
                     }
                     <button
@@ -192,22 +195,22 @@ type DraftState = {
                       class="px-2.5 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
                       (click)="openCloneFrom(p)"
                     >
-                      Clone…
+                      {{ i18n.t('presets.action.clone') }}
                     </button>
                     <button
                       type="button"
                       class="px-2.5 py-1 text-[11px] rounded bg-white/5 hover:bg-red-500/15 ring-1 ring-white/10 hover:ring-red-500/40 text-gray-300 hover:text-red-200 transition disabled:opacity-40 disabled:hover:bg-white/5 disabled:hover:text-gray-300"
                       [disabled]="p.is_default && p.scope === 'workspace'"
-                      [title]="p.is_default && p.scope === 'workspace' ? 'The workspace default cannot be deleted' : 'Delete preset'"
+                      [title]="p.is_default && p.scope === 'workspace' ? i18n.t('presets.delete.locked') : i18n.t('presets.delete.title')"
                       (click)="confirmDelete(p)"
                     >
-                      Delete
+                      {{ i18n.t('common.delete') }}
                     </button>
                     <a
                       [routerLink]="['/presets', p.id]"
                       class="px-2.5 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
                     >
-                      Open →
+                      {{ i18n.t('presets.list.open.cta') }}
                     </a>
                   </div>
                 </li>
@@ -223,46 +226,46 @@ type DraftState = {
       [open]="newPanelOpen()"
       (openChange)="newPanelOpen.set($event)"
       position="side"
-      eyebrow="Presets · new"
+      [eyebrow]="i18n.t('presets.panel.new.eyebrow')"
       [title]="newPanelTitle()"
       width="460px"
     >
       <p class="text-xs text-gray-400 mb-4">
-        {{ draftBase() ? 'Clone this preset into a new scope — the new preset keeps the source configuration and can diverge independently.' : 'Create a new preset. Pick a scope (workspace, capability, or system) and a base to inherit values from.' }}
+        {{ draftBase() ? i18n.t('presets.panel.clone.description') : i18n.t('presets.panel.new.description') }}
       </p>
 
       <div class="space-y-4">
         <div>
           <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-            Name
+            {{ i18n.t('presets.field.name') }}
           </label>
           <input
             type="text"
             [ngModel]="draft().name"
             (ngModelChange)="patchDraft({ name: $event })"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
-            placeholder="e.g. EU-West high-recall"
+            [placeholder]="i18n.t('presets.field.name.placeholder')"
           />
         </div>
 
         <div>
           <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-            Scope
+            {{ i18n.t('presets.field.scope') }}
           </label>
           <div class="grid grid-cols-3 gap-1.5 mt-1.5">
-            @for (s of scopeChoices; track s.value) {
+            @for (s of scopeChoices; track s) {
               <button
                 type="button"
                 class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                [class.bg-cyan-500\\/15]="draft().scope === s.value"
-                [class.text-cyan-200]="draft().scope === s.value"
-                [class.ring-cyan-500\\/40]="draft().scope === s.value"
-                [class.bg-white\\/5]="draft().scope !== s.value"
-                [class.text-gray-300]="draft().scope !== s.value"
-                [class.ring-white\\/10]="draft().scope !== s.value"
-                (click)="selectScope(s.value)"
+                [class.bg-cyan-500\\/15]="draft().scope === s"
+                [class.text-cyan-200]="draft().scope === s"
+                [class.ring-cyan-500\\/40]="draft().scope === s"
+                [class.bg-white\\/5]="draft().scope !== s"
+                [class.text-gray-300]="draft().scope !== s"
+                [class.ring-white\\/10]="draft().scope !== s"
+                (click)="selectScope(s)"
               >
-                {{ s.label }}
+                {{ scopeShortLabel(s) }}
               </button>
             }
           </div>
@@ -271,14 +274,14 @@ type DraftState = {
         @if (draft().scope === 'capability') {
           <div>
             <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-              Anchor capability
+              {{ i18n.t('presets.panel.new.anchor.capability') }}
             </label>
             <select
               [ngModel]="draft().scopeId"
               (ngModelChange)="patchDraft({ scopeId: $event })"
               class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
             >
-              <option [ngValue]="null" disabled>— Select a capability —</option>
+              <option [ngValue]="null" disabled>{{ i18n.t('presets.panel.new.pick.capability') }}</option>
               @for (c of capabilities(); track c.id) {
                 <option [ngValue]="c.id">{{ c.name }}</option>
               }
@@ -287,14 +290,14 @@ type DraftState = {
         } @else if (draft().scope === 'system') {
           <div>
             <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-              Anchor system
+              {{ i18n.t('presets.panel.new.anchor.system') }}
             </label>
             <select
               [ngModel]="draft().scopeId"
               (ngModelChange)="patchDraft({ scopeId: $event })"
               class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
             >
-              <option [ngValue]="null" disabled>— Select a system —</option>
+              <option [ngValue]="null" disabled>{{ i18n.t('presets.panel.new.pick.system') }}</option>
               @for (s of systems(); track s.id) {
                 <option [ngValue]="s.id">{{ s.name }}</option>
               }
@@ -304,17 +307,17 @@ type DraftState = {
 
         <div>
           <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-            Seed configuration from
+            {{ i18n.t('presets.panel.new.seed') }}
           </label>
           <select
             [ngModel]="draft().baseId"
             (ngModelChange)="patchDraft({ baseId: $event })"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
-            <option [ngValue]="null">Empty config (use backend defaults)</option>
+            <option [ngValue]="null">{{ i18n.t('presets.panel.new.seed.empty') }}</option>
             @for (p of presets(); track p.id) {
               <option [ngValue]="p.id">
-                {{ p.name }} ({{ scopeLabel(p.scope) }}{{ p.is_default ? ' · default' : '' }})
+                {{ p.name }} ({{ scopeLabel(p.scope) }}{{ p.is_default ? ' · ' + i18n.t('presets.list.marker.default') : '' }})
               </option>
             }
           </select>
@@ -327,7 +330,7 @@ type DraftState = {
             (change)="onIsDefaultChange($event)"
             class="accent-cyan-500"
           />
-          Set as default for this scope
+          {{ i18n.t('presets.panel.new.default') }}
         </label>
       </div>
 
@@ -337,7 +340,7 @@ type DraftState = {
           class="px-3 py-2 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
           (click)="newPanelOpen.set(false)"
         >
-          Cancel
+          {{ i18n.t('common.cancel') }}
         </button>
         <button
           type="button"
@@ -345,7 +348,7 @@ type DraftState = {
           [disabled]="!canSubmit() || creating()"
           (click)="submitNew()"
         >
-          {{ creating() ? 'Creating…' : (draftBase() ? 'Clone preset' : 'Create preset') }}
+          {{ creating() ? i18n.t('presets.panel.new.creating') : (draftBase() ? i18n.t('presets.panel.new.submit.clone') : i18n.t('presets.panel.new.submit.create')) }}
         </button>
       </div>
     </ck-panel>
@@ -355,25 +358,25 @@ type DraftState = {
       [open]="resolvePanelOpen()"
       (openChange)="resolvePanelOpen.set($event)"
       position="side"
-      eyebrow="Presets · resolve"
-      title="Effective preset resolver"
+      [eyebrow]="i18n.t('presets.panel.resolve.eyebrow')"
+      [title]="i18n.t('presets.panel.resolve.title')"
       width="420px"
     >
       <p class="text-xs text-gray-400 mb-4">
-        Simulate which preset the backend would pick for a given
-        (capability, system) pair. The rule is <span class="ck-mono">system &gt; capability &gt; workspace</span>.
+        {{ i18n.t('presets.panel.resolve.description') }}
+        <span class="ck-mono">system &gt; capability &gt; workspace</span>.
       </p>
 
       <div class="space-y-4">
         <div>
           <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-            Capability (optional)
+            {{ i18n.t('presets.panel.resolve.capability') }}
           </label>
           <select
             [(ngModel)]="resolveCap"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
-            <option [ngValue]="null">— None —</option>
+            <option [ngValue]="null">{{ i18n.t('presets.option.none') }}</option>
             @for (c of capabilities(); track c.id) {
               <option [ngValue]="c.id">{{ c.name }}</option>
             }
@@ -381,13 +384,13 @@ type DraftState = {
         </div>
         <div>
           <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-            System (optional)
+            {{ i18n.t('presets.panel.resolve.system') }}
           </label>
           <select
             [(ngModel)]="resolveSys"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
-            <option [ngValue]="null">— None —</option>
+            <option [ngValue]="null">{{ i18n.t('presets.option.none') }}</option>
             @for (s of systems(); track s.id) {
               <option [ngValue]="s.id">{{ s.name }}</option>
             }
@@ -399,14 +402,14 @@ type DraftState = {
           [disabled]="resolving()"
           (click)="runResolve()"
         >
-          {{ resolving() ? 'Resolving…' : 'Resolve effective preset' }}
+          {{ resolving() ? i18n.t('presets.panel.resolve.pending') : i18n.t('presets.panel.resolve.cta') }}
         </button>
 
         @if (resolveResult(); as r) {
           <div class="rounded-md ring-1 ring-white/10 bg-white/5 p-3 space-y-2">
             <div class="flex items-center justify-between">
               <span class="text-[10px] uppercase tracking-[0.14em] text-gray-500 font-semibold">
-                Winning scope
+                {{ i18n.t('presets.panel.resolve.winner') }}
               </span>
               <span class="text-[11px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-500/40 uppercase tracking-wider">
                 {{ r.scope_hint }}
@@ -414,20 +417,20 @@ type DraftState = {
             </div>
             <dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               @if (isDemoMode()) {
-                <dt class="text-gray-500">Runtime</dt>
-                <dd class="text-gray-100 ck-mono">Managed</dd>
+                <dt class="text-gray-500">{{ i18n.t('presets.field.runtime') }}</dt>
+                <dd class="text-gray-100 ck-mono">{{ i18n.t('presets.value.managed') }}</dd>
               } @else {
-                <dt class="text-gray-500">Provider</dt>
+                <dt class="text-gray-500">{{ i18n.t('presets.field.provider') }}</dt>
                 <dd class="text-gray-100 ck-mono">{{ r.config.defaultProvider ?? '—' }}</dd>
-                <dt class="text-gray-500">Model</dt>
+                <dt class="text-gray-500">{{ i18n.t('presets.field.model') }}</dt>
                 <dd class="text-gray-100 ck-mono">{{ r.config.defaultModel ?? '—' }}</dd>
               }
-              <dt class="text-gray-500">Mode</dt>
+              <dt class="text-gray-500">{{ i18n.t('presets.field.mode') }}</dt>
               <dd class="text-gray-100 ck-mono">{{ r.config.ragPipelineMode ?? '—' }}</dd>
-              <dt class="text-gray-500">Top-K</dt>
+              <dt class="text-gray-500">{{ i18n.t('presets.field.topk') }}</dt>
               <dd class="text-gray-100 ck-mono">{{ r.config.ragTopK ?? '—' }}</dd>
-              <dt class="text-gray-500">Hybrid</dt>
-              <dd class="text-gray-100 ck-mono">{{ r.config.ragUseHybridSearch ? 'on' : 'off' }}</dd>
+              <dt class="text-gray-500">{{ i18n.t('presets.field.hybrid') }}</dt>
+              <dd class="text-gray-100 ck-mono">{{ r.config.ragUseHybridSearch ? i18n.t('presets.value.on') : i18n.t('presets.value.off') }}</dd>
             </dl>
           </div>
         }
@@ -440,6 +443,7 @@ export class PresetsListComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly toastr = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly presets = signal<RagPreset[]>([]);
@@ -459,11 +463,7 @@ export class PresetsListComponent implements OnInit {
   resolveCap: string | null = null;
   resolveSys: string | null = null;
 
-  readonly scopeChoices: { value: RagPresetScope; label: string }[] = [
-    { value: 'workspace', label: 'Workspace' },
-    { value: 'capability', label: 'Capability' },
-    { value: 'system', label: 'System' },
-  ];
+  readonly scopeChoices: RagPresetScope[] = ['workspace', 'capability', 'system'];
 
   readonly draft = signal<DraftState>({
     name: '',
@@ -480,7 +480,9 @@ export class PresetsListComponent implements OnInit {
   });
 
   readonly newPanelTitle = computed(() =>
-    this.draftBase() ? 'Clone preset to new scope' : 'New preset',
+    this.draftBase()
+      ? this.i18n.t('presets.panel.clone.title')
+      : this.i18n.t('presets.panel.new.title'),
   );
 
   readonly canSubmit = computed(() => {
@@ -497,10 +499,10 @@ export class PresetsListComponent implements OnInit {
     const capability = list.filter((p) => p.scope === 'capability').length;
     const system = list.filter((p) => p.scope === 'system').length;
     return [
-      { label: 'Total', value: String(total) },
-      { label: 'Workspace', value: String(workspace), tone: 'cool' },
-      { label: 'Capability', value: String(capability), tone: 'violet' },
-      { label: 'System', value: String(system), tone: 'pos' },
+      { label: this.i18n.t('presets.kpi.total'), value: String(total) },
+      { label: this.i18n.t('presets.scope.workspace'), value: String(workspace), tone: 'cool' },
+      { label: this.i18n.t('presets.scope.capability'), value: String(capability), tone: 'violet' },
+      { label: this.i18n.t('presets.scope.system'), value: String(system), tone: 'pos' },
     ];
   });
 
@@ -528,19 +530,30 @@ export class PresetsListComponent implements OnInit {
     this.service
       .list()
       .then((list) => this.presets.set(list))
-      .catch((error: unknown) => this.reportRequestError(error, 'Unable to load presets'))
+      .catch((error: unknown) =>
+        this.reportRequestError(error, this.i18n.t('presets.toast.load.error')))
       .finally(() => this.loading.set(false));
   }
 
   scopeLabel(scope: RagPresetScope): string {
     switch (scope) {
       case 'workspace':
-        return 'Workspace defaults';
+        return this.i18n.t('presets.list.group.workspace');
       case 'capability':
-        return 'Capability overrides';
+        return this.i18n.t('presets.list.group.capability');
       case 'system':
-        return 'System overrides';
+        return this.i18n.t('presets.list.group.system');
     }
+  }
+
+  /**
+   * Short scope name (`presets.scope.<value>`), falling back to the raw
+   * value if the backend ever grows a scope the dictionary doesn't know.
+   */
+  scopeShortLabel(scope: RagPresetScope): string {
+    const key = `presets.scope.${scope}`;
+    const label = this.i18n.t(key);
+    return label === key ? scope : label;
   }
 
   scopeAnchorLabel(p: RagPreset): string {
@@ -558,16 +571,17 @@ export class PresetsListComponent implements OnInit {
 
   summarize(p: RagPreset): string {
     const cfg = p.config ?? {};
-    if (this.isDemoMode()) {
-      const topK = cfg.ragTopK ?? '—';
-      const mode = cfg.ragPipelineMode ?? (cfg.ragUseHybridSearch ? 'hybrid' : 'vector');
-      return `Runtime managed · Top-K ${topK} · Mode ${mode}`;
-    }
-    const provider = cfg.defaultProvider ?? '—';
-    const model = cfg.defaultModel ?? '—';
-    const topK = cfg.ragTopK ?? '—';
+    const topk = cfg.ragTopK ?? '—';
     const mode = cfg.ragPipelineMode ?? (cfg.ragUseHybridSearch ? 'hybrid' : 'vector');
-    return `Provider ${provider} · Model ${model} · Top-K ${topK} · Mode ${mode}`;
+    if (this.isDemoMode()) {
+      return this.i18n.t('presets.summary.managed', { topk, mode });
+    }
+    return this.i18n.t('presets.summary.full', {
+      provider: cfg.defaultProvider ?? '—',
+      model: cfg.defaultModel ?? '—',
+      topk,
+      mode,
+    });
   }
 
   patchDraft(patch: Partial<DraftState>): void {
@@ -583,10 +597,11 @@ export class PresetsListComponent implements OnInit {
     this.service
       .setDefault(id)
       .then(() => {
-        this.toastr.success('Preset elected as default');
+        this.toastr.success(this.i18n.t('presets.toast.default.success'));
         this.refresh();
       })
-      .catch((error: unknown) => this.reportRequestError(error, 'Failed to update default preset'));
+      .catch((error: unknown) =>
+        this.reportRequestError(error, this.i18n.t('presets.toast.default.error')));
   }
 
   // -- New / Clone panel ----------------------------------------------------
@@ -653,11 +668,12 @@ export class PresetsListComponent implements OnInit {
         is_default: d.isDefault,
       })
       .then(() => {
-        this.toastr.success('Preset created');
+        this.toastr.success(this.i18n.t('presets.toast.create.success'));
         this.newPanelOpen.set(false);
         this.refresh();
       })
-      .catch((error: unknown) => this.reportRequestError(error, 'Failed to create preset'))
+      .catch((error: unknown) =>
+        this.reportRequestError(error, this.i18n.t('presets.toast.create.error')))
       .finally(() => this.creating.set(false));
   }
 
@@ -672,20 +688,21 @@ export class PresetsListComponent implements OnInit {
 
   confirmDelete(p: RagPreset): void {
     if (p.is_default && p.scope === 'workspace') {
-      this.toastr.warning('The workspace default cannot be deleted.');
+      this.toastr.warning(this.i18n.t('presets.toast.delete.locked'));
       return;
     }
     const ok = typeof window !== 'undefined'
-      ? window.confirm(`Delete preset "${p.name}"? This cannot be undone.`)
+      ? window.confirm(this.i18n.t('presets.confirm.delete', { name: p.name }))
       : true;
     if (!ok) return;
     this.service
       .remove(p.id)
       .then(() => {
-        this.toastr.success('Preset deleted');
+        this.toastr.success(this.i18n.t('presets.toast.delete.success'));
         this.refresh();
       })
-      .catch((error: unknown) => this.reportRequestError(error, 'Failed to delete preset'));
+      .catch((error: unknown) =>
+        this.reportRequestError(error, this.i18n.t('presets.toast.delete.error')));
   }
 
   // -- Resolve panel --------------------------------------------------------
@@ -700,7 +717,8 @@ export class PresetsListComponent implements OnInit {
     this.service
       .resolve({ capability_id: this.resolveCap, system_id: this.resolveSys })
       .then((res) => this.resolveResult.set(res))
-      .catch((error: unknown) => this.reportRequestError(error, 'Failed to resolve preset'))
+      .catch((error: unknown) =>
+        this.reportRequestError(error, this.i18n.t('presets.toast.resolve.error')))
       .finally(() => this.resolving.set(false));
   }
 

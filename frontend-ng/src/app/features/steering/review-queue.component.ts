@@ -24,6 +24,7 @@ import {
   PageFrameComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import { I18nService } from '@app/core/i18n.service';
 
 /**
  * Steering · Review queue — Vague E / E1.
@@ -52,9 +53,9 @@ import {
   imports: [FormsModule, RouterLink, PageFrameComponent, GlyphComponent, TagComponent],
   template: `
     <ck-page-frame
-      eyebrow="Steering · Review queue"
-      title="Evaluation review queue"
-      description="Runs flagged by the auto-eval loop for manual review. Accept clears the decision (false positive); Reject keeps it for retraining signal."
+      [eyebrow]="i18n.t('steering.review.eyebrow')"
+      [title]="i18n.t('steering.review.title')"
+      [description]="i18n.t('steering.review.description')"
     >
       <div class="flex flex-col gap-5">
         <!-- Filters -->
@@ -64,13 +65,13 @@ import {
               class="ck-mono"
               style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);"
             >
-              STATUS
+              {{ i18n.t('steering.review.status_label') }}
             </span>
             <div
               class="flex items-center gap-1 ck-surface rounded"
               style="padding:3px; background:var(--ck-bg-inset);"
             >
-              @for (opt of statusOptions; track opt.value) {
+              @for (opt of statusOptions(); track opt.value) {
                 <button
                   type="button"
                   (click)="setStatus(opt.value)"
@@ -85,18 +86,18 @@ import {
             </div>
             @if (componentFilter(); as component) {
               <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-cool); padding:4px 8px; border:1px solid var(--ck-signal-cool); border-radius:3px;">
-                COMPONENT · {{ component.toUpperCase() }}
+                {{ i18n.t('steering.review.component_chip', { component: component.toUpperCase() }) }}
               </span>
               <a
                 routerLink="/steering/review-queue"
                 class="ck-mono"
                 style="font-size:10px; color:var(--ck-fg-4); text-decoration:underline;"
               >
-                CLEAR
+                {{ i18n.t('steering.review.clear') }}
               </a>
             }
             <span class="ml-auto ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-              {{ items().length }} ITEMS
+              {{ i18n.t('steering.review.items_count', { count: items().length }) }}
             </span>
             <button
               type="button"
@@ -105,14 +106,14 @@ import {
               style="padding:4px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset);"
               [disabled]="loading()"
             >
-              {{ loading() ? 'LOADING…' : 'REFRESH' }}
+              {{ loading() ? i18n.t('common.loading') : i18n.t('common.refresh') }}
             </button>
             <a
               routerLink="/presets/evaluation"
               class="ck-mono"
               style="padding:4px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none;"
             >
-              THRESHOLDS
+              {{ i18n.t('steering.review.thresholds') }}
             </a>
           </div>
         </section>
@@ -124,7 +125,7 @@ import {
               class="ck-mono"
               style="font-size:11px; padding:48px; text-align:center; color:var(--ck-fg-4);"
             >
-              LOADING QUEUE…
+              {{ i18n.t('steering.review.loading') }}
             </div>
           } @else if (!items().length) {
             <div
@@ -133,12 +134,12 @@ import {
             >
               @if (status() === 'proposed') {
                 @if (componentFilter()) {
-                  NO OPEN REVIEWS FOR COMPONENT "{{ componentFilter()?.toUpperCase() }}"
+                  {{ i18n.t('steering.review.empty.component', { component: componentFilter()?.toUpperCase() ?? '' }) }}
                 } @else {
-                  NO OPEN REVIEWS — EVAL LOOP IS CLEAN
+                  {{ i18n.t('steering.review.empty.clean') }}
                 }
               } @else {
-                NO ITEMS AT STATUS "{{ status().toUpperCase() }}"
+                {{ i18n.t('steering.review.empty.status', { status: status().toUpperCase() }) }}
               }
             </div>
           } @else {
@@ -174,16 +175,16 @@ import {
                         class="ck-mono"
                         style="font-size:8px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);"
                       >
-                        COMPOSITE
+                        {{ i18n.t('steering.review.composite') }}
                       </span>
                     </div>
 
                     <!-- Main content -->
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2 mb-1">
-                        <ck-tag tone="warn" variant="soft">REVIEW</ck-tag>
+                        <ck-tag tone="warn" variant="soft">{{ i18n.t('steering.review.badge') }}</ck-tag>
                         <ck-tag [tone]="statusTone(item.decision.status)" variant="outline">
-                          {{ item.decision.status.toUpperCase() }}
+                          {{ decisionStatusLabel(item.decision.status) }}
                         </ck-tag>
                         <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                           {{ formatTimestamp(item.decision.created_at) }}
@@ -217,7 +218,7 @@ import {
                           class="ck-mono"
                           style="font-size:11px; color:var(--ck-fg-3); line-height:1.5; margin-bottom:4px;"
                         >
-                          <span style="color:var(--ck-fg-4);">Q·</span>
+                          <span style="color:var(--ck-fg-4);">{{ i18n.t('steering.review.query_marker') }}</span>
                           {{ truncate(runQuery(item), 180) }}
                         </div>
                       }
@@ -226,7 +227,7 @@ import {
                           class="ck-mono"
                           style="font-size:11px; color:var(--ck-fg-2); line-height:1.5; white-space:pre-wrap;"
                         >
-                          <span style="color:var(--ck-fg-4);">A·</span>
+                          <span style="color:var(--ck-fg-4);">{{ i18n.t('steering.review.answer_marker') }}</span>
                           {{ truncate(runResponse(item), 400) }}
                         </div>
                       }
@@ -247,9 +248,9 @@ import {
                           style="font-size:11px; color:var(--ck-fg-2); margin-top:8px; padding:8px 10px; background:var(--ck-bg-inset); border-radius:3px; border-left:2px solid var(--ck-signal-warm); line-height:1.55;"
                         >
                           <div style="color:var(--ck-signal-warm); letter-spacing:0.12em; text-transform:uppercase; font-size:10px;">
-                            ACTIVE SUGGESTION · {{ (active.source || 'fallback').toUpperCase() }}
+                            {{ i18n.t('steering.review.active_suggestion', { source: (active.source || 'fallback').toUpperCase() }) }}
                           </div>
-                          <div style="color:var(--ck-fg-1); margin-top:3px;">{{ active.title || 'Apply remediation' }}</div>
+                          <div style="color:var(--ck-fg-1); margin-top:3px;">{{ active.title || i18n.t('steering.review.apply_remediation') }}</div>
                           @if (active.rationale) {
                             <div style="color:var(--ck-fg-3); margin-top:3px;">{{ truncate(active.rationale, 220) }}</div>
                           }
@@ -270,9 +271,9 @@ import {
                           class="ck-mono"
                           style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal); font-weight:500;"
                           [style.opacity]="pendingId() === item.decision.id ? '0.5' : '1'"
-                          title="Mark as false positive — the response was actually fine"
+                          [title]="i18n.t('steering.review.accept_hint')"
                         >
-                          ACCEPT
+                          {{ i18n.t('hypervisor.decisions.accept') }}
                         </button>
                         <button
                           type="button"
@@ -281,15 +282,15 @@ import {
                           class="ck-mono"
                           style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
                           [style.opacity]="pendingId() === item.decision.id ? '0.5' : '1'"
-                          title="Confirm the response is bad — kept for retraining signal"
+                          [title]="i18n.t('steering.review.reject_hint')"
                         >
-                          REJECT
+                          {{ i18n.t('hypervisor.decisions.reject') }}
                         </button>
                       }
                       @if (item.run) {
                         @if (activeSuggestion(item) && item.decision.status === 'proposed') {
                           <span class="ck-mono" style="font-size:9px; color:var(--ck-signal-warn); letter-spacing:0.1em;">
-                            AUTO-ACTUATOR NOT CONFIGURED
+                            {{ i18n.t('steering.review.auto_actuator_missing') }}
                           </span>
                         }
                         <button
@@ -299,16 +300,16 @@ import {
                           class="ck-mono"
                           style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-signal-cool); color:var(--ck-signal-cool); background:transparent;"
                           [style.opacity]="pendingId() === item.decision.id ? '0.5' : '1'"
-                          title="Re-run this query with operator overrides — see if a tweaked prompt or RAG mode produces a better answer"
+                          [title]="i18n.t('steering.review.rerun_hint')"
                         >
-                          RE-RUN
+                          {{ i18n.t('steering.review.rerun') }}
                         </button>
                         <a
                           [routerLink]="['/runs', item.run.id]"
                           class="ck-mono"
                           style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none; text-align:center;"
                         >
-                          OPEN RUN
+                          {{ i18n.t('steering.review.open_run') }}
                         </a>
                       }
                     </div>
@@ -338,10 +339,10 @@ import {
                   class="ck-mono"
                   style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);"
                 >
-                  REPLAY WITH OVERRIDE
+                  {{ i18n.t('steering.review.replay.title') }}
                 </div>
                 <div style="font-size:14px; color:var(--ck-fg-1); margin-top:2px;">
-                  Try a tweaked prompt, RAG mode, or model on the same question.
+                  {{ i18n.t('steering.review.replay.subtitle') }}
                 </div>
               </div>
               <button
@@ -349,7 +350,7 @@ import {
                 (click)="closeReplayModal()"
                 class="ck-icon-btn"
                 style="border:1px solid var(--ck-stroke-soft); padding:4px 8px; background:transparent; color:var(--ck-fg-3); border-radius:3px;"
-                title="Close"
+                [title]="i18n.t('common.close')"
               >
                 ✕
               </button>
@@ -357,7 +358,7 @@ import {
 
             <div style="display:flex; flex-direction:column; gap:12px;">
               <label class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);">
-                QUESTION
+                {{ i18n.t('steering.review.replay.question') }}
               </label>
               <textarea
                 [ngModel]="replayQuery()"
@@ -365,13 +366,13 @@ import {
                 rows="3"
                 class="ck-mono"
                 style="width:100%; padding:8px 10px; background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-soft); border-radius:3px; font-size:12px;"
-                placeholder="Edit the question to retry"
+                [placeholder]="i18n.t('steering.review.replay.question_placeholder')"
               ></textarea>
 
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <div>
                   <label class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);">
-                    RAG MODE
+                    {{ i18n.t('steering.review.replay.rag_mode') }}
                   </label>
                   <select
                     [ngModel]="replayMode()"
@@ -379,7 +380,7 @@ import {
                     class="ck-mono"
                     style="width:100%; padding:8px 10px; background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-soft); border-radius:3px; font-size:12px; margin-top:4px;"
                   >
-                    <option value="">— keep parent —</option>
+                    <option value="">{{ i18n.t('steering.review.replay.keep_parent') }}</option>
                     <option value="auto">auto</option>
                     <option value="naive">naive</option>
                     <option value="hybrid">hybrid</option>
@@ -389,13 +390,13 @@ import {
                 </div>
                 <div>
                   <label class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);">
-                    MODEL
+                    {{ i18n.t('steering.review.replay.model') }}
                   </label>
                   <input
                     [ngModel]="replayModel()"
                     (ngModelChange)="replayModel.set($event)"
                     type="text"
-                    placeholder="gpt-4.1, deepseek-r1, …"
+                    [placeholder]="i18n.t('steering.review.replay.model_placeholder')"
                     class="ck-mono"
                     style="width:100%; padding:8px 10px; background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-soft); border-radius:3px; font-size:12px; margin-top:4px;"
                   />
@@ -407,13 +408,13 @@ import {
                   class="ck-mono"
                   style="margin-top:8px; padding:10px 12px; background:var(--ck-bg-inset); border-radius:3px; border-left:2px solid var(--ck-signal-cool); font-size:11px; color:var(--ck-fg-2); line-height:1.6;"
                 >
-                  <div style="color:var(--ck-signal-cool);">REPLAY · {{ statusLabel(r.status) }}</div>
-                  <div>NEW RUN · <a [routerLink]="['/runs', r.run_id]" style="color:var(--ck-fg-1); text-decoration:underline;">{{ r.run_id.slice(0, 8) }}</a> · {{ r.duration_ms }}ms</div>
+                  <div style="color:var(--ck-signal-cool);">{{ i18n.t('steering.review.replay.status', { status: statusLabel(r.status) }) }}</div>
+                  <div>{{ i18n.t('steering.review.replay.new_run') }} · <a [routerLink]="['/runs', r.run_id]" style="color:var(--ck-fg-1); text-decoration:underline;">{{ r.run_id.slice(0, 8) }}</a> · {{ r.duration_ms }}ms</div>
                   @if (r.response_preview) {
                     <div style="margin-top:6px; color:var(--ck-fg-2); white-space:pre-wrap;">{{ truncate(r.response_preview, 400) }}</div>
                   }
                   @if (r.eval_pending) {
-                    <div style="margin-top:6px; color:var(--ck-fg-4);">Eval pending — open the run to see the score delta.</div>
+                    <div style="margin-top:6px; color:var(--ck-fg-4);">{{ i18n.t('steering.review.replay.eval_pending') }}</div>
                   }
                 </div>
               }
@@ -427,7 +428,7 @@ import {
                   style="padding:8px 14px; border-radius:3px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-cool); color:var(--ck-on-signal); font-weight:500; flex:0 0 auto;"
                   [style.opacity]="(replayPending() || !replayQuery().trim()) ? '0.5' : '1'"
                 >
-                  {{ replayPending() ? 'RUNNING…' : 'RUN' }}
+                  {{ replayPending() ? i18n.t('steering.review.replay.running') : i18n.t('steering.review.replay.run') }}
                 </button>
                 <button
                   type="button"
@@ -436,10 +437,10 @@ import {
                   class="ck-mono"
                   style="padding:8px 14px; border-radius:3px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); background:transparent;"
                 >
-                  CLOSE
+                  {{ i18n.t('common.close') }}
                 </button>
                 <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-left:auto;">
-                  parent · {{ replayItem.run?.id?.slice(0, 8) }}
+                  {{ i18n.t('steering.review.replay.parent') }} · {{ replayItem.run?.id?.slice(0, 8) }}
                 </span>
               </div>
             </div>
@@ -453,6 +454,7 @@ export class SteeringReviewQueueComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(ToastrService);
+  readonly i18n = inject(I18nService);
 
   readonly items = signal<ReviewQueueItem[]>([]);
   readonly loading = signal(false);
@@ -477,12 +479,12 @@ export class SteeringReviewQueueComponent implements OnInit {
    */
   readonly focusedDecisionId = signal<string | null>(null);
 
-  protected readonly statusOptions = [
-    { value: 'proposed' as const, label: 'OPEN' },
-    { value: 'accepted' as const, label: 'ACCEPTED' },
-    { value: 'rejected' as const, label: 'REJECTED' },
-    { value: 'all' as const, label: 'ALL' },
-  ];
+  protected readonly statusOptions = computed(() => [
+    { value: 'proposed' as const, label: this.i18n.t('steering.review.filter.open') },
+    { value: 'accepted' as const, label: this.i18n.t('hypervisor.decisions.status.accepted') },
+    { value: 'rejected' as const, label: this.i18n.t('hypervisor.decisions.status.rejected') },
+    { value: 'all' as const, label: this.i18n.t('common.all') },
+  ]);
 
   constructor() {
     // Pick up ?decision=<id> deeplinks coming from the chat auto-QA
@@ -620,8 +622,8 @@ export class SteeringReviewQueueComponent implements OnInit {
           this.replayPending.set(false);
           if (!res) {
             this.toast.error(
-              'Replay failed — see backend logs.',
-              'Replay error',
+              this.i18n.t('steering.review.toast.replay_failed_body'),
+              this.i18n.t('steering.review.toast.replay_error_title'),
               { timeOut: 6000 },
             );
             return;
@@ -629,23 +631,27 @@ export class SteeringReviewQueueComponent implements OnInit {
           this.replayResult.set(res);
           if (res.status === 'failed') {
             this.toast.warning(
-              'Replay completed with failure — open the run to inspect.',
-              'Replay failed',
+              this.i18n.t('steering.review.toast.replay_completed_failure'),
+              this.i18n.t('steering.review.toast.replay_failed_title'),
               { timeOut: 6000 },
             );
           } else {
             this.toast.success(
-              `Replay run ${res.run_id.slice(0, 8)} created — eval pending.`,
-              'Replay started',
+              this.i18n.t('steering.review.toast.replay_started_body', {
+                id: res.run_id.slice(0, 8),
+              }),
+              this.i18n.t('steering.review.toast.replay_started_title'),
               { timeOut: 5000 },
             );
           }
         },
         error: () => {
           this.replayPending.set(false);
-          this.toast.error('Replay request failed.', 'Replay error', {
-            timeOut: 6000,
-          });
+          this.toast.error(
+            this.i18n.t('steering.review.toast.replay_request_failed'),
+            this.i18n.t('steering.review.toast.replay_error_title'),
+            { timeOut: 6000 },
+          );
         },
       });
   }
@@ -728,8 +734,20 @@ export class SteeringReviewQueueComponent implements OnInit {
     return s.length > n ? s.slice(0, n) + '…' : s;
   }
 
+  /** Run status → localized label (uppercased to match chrome), verbatim fallback. */
   protected statusLabel(s: string | null | undefined): string {
-    return (s ?? '').toUpperCase();
+    const raw = s ?? '';
+    if (!raw) return '';
+    const key = 'runs.status.' + raw;
+    const label = this.i18n.t(key);
+    return (label === key ? raw : label).toUpperCase();
+  }
+
+  /** Decision status → localized label, verbatim fallback (uppercase via CSS). */
+  protected decisionStatusLabel(s: string): string {
+    const key = 'hypervisor.decisions.status.' + s;
+    const label = this.i18n.t(key);
+    return label === key ? s.toUpperCase() : label;
   }
 
   protected formatTimestamp(iso: string | null): string {
@@ -739,12 +757,12 @@ export class SteeringReviewQueueComponent implements OnInit {
       const now = new Date();
       const diff = now.getTime() - d.getTime();
       const mins = Math.round(diff / 60000);
-      if (mins < 1) return 'just now';
-      if (mins < 60) return `${mins}m ago`;
+      if (mins < 1) return this.i18n.t('hypervisor.time.now');
+      if (mins < 60) return this.i18n.t('hypervisor.time.minutes_ago', { n: mins });
       const hrs = Math.round(mins / 60);
-      if (hrs < 24) return `${hrs}h ago`;
+      if (hrs < 24) return this.i18n.t('hypervisor.time.hours_ago', { n: hrs });
       const days = Math.round(hrs / 24);
-      return `${days}d ago`;
+      return this.i18n.t('hypervisor.time.days_ago', { n: days });
     } catch {
       return iso;
     }

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { DatePipe, NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -43,10 +44,10 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
   ],
   template: `
     <app-section-header
-      breadcrumb="Govern"
-      title="Audit logs"
+      [breadcrumb]="i18n.t('governance.breadcrumb')"
+      [title]="i18n.t('governance.audit.title')"
       icon="scroll-text"
-      subtitle="Every meaningful action inside the workspace, immutably recorded."
+      [subtitle]="i18n.t('governance.audit.subtitle')"
     >
       <button
         type="button"
@@ -54,30 +55,30 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
         [disabled]="filteredLogs().length === 0"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition disabled:opacity-40"
       >
-        <app-icon name="download" [size]="14" /> Export CSV
+        <app-icon name="download" [size]="14" /> {{ i18n.t('governance.audit.export_csv') }}
       </button>
       <button
         type="button"
         (click)="reload()"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
       >
-        <app-icon name="refresh-cw" [size]="14" /> Refresh
+        <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.refresh') }}
       </button>
     </app-section-header>
 
     <div class="flex flex-wrap items-center gap-3 mb-4">
       <app-search-input
         [(value)]="query"
-        placeholder="Search event, actor, resource…"
+        [placeholder]="i18n.t('governance.audit.search.placeholder')"
         class="flex-1 min-w-[260px]"
       />
       <select
         [ngModel]="actorFilter()"
         (ngModelChange)="actorFilter.set($event)"
         class="audit-select"
-        title="Filter by actor"
+        [title]="i18n.t('governance.audit.filter.actor')"
       >
-        <option value="">All actors</option>
+        <option value="">{{ i18n.t('governance.audit.filter.actor.all') }}</option>
         @for (a of actors(); track a) {
           <option [value]="a">{{ a }}</option>
         }
@@ -86,9 +87,9 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
         [ngModel]="kindFilter()"
         (ngModelChange)="kindFilter.set($event)"
         class="audit-select"
-        title="Filter by event kind"
+        [title]="i18n.t('governance.audit.filter.kind')"
       >
-        <option value="">All kinds</option>
+        <option value="">{{ i18n.t('governance.audit.filter.kind.all') }}</option>
         @for (k of kinds(); track k) {
           <option [value]="k">{{ k }}</option>
         }
@@ -104,12 +105,12 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
             [class.text-gray-400]="severity() !== f.key"
             [class.hover:text-gray-200]="severity() !== f.key"
           >
-            {{ f.label }}
+            {{ i18n.t(f.labelKey) }}
           </button>
         }
       </div>
       <span class="text-[11px] text-gray-500 font-mono ml-auto">
-        {{ filteredLogs().length }} / {{ logs().length }} events
+        {{ i18n.t('governance.audit.count', { filtered: filteredLogs().length, total: logs().length }) }}
       </span>
     </div>
 
@@ -123,19 +124,19 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
       } @else if (filteredLogs().length === 0) {
         <app-empty-state
           icon="scroll-text"
-          title="No audit events"
-          description="Actions taken in this workspace will show up here."
+          [title]="i18n.t('governance.audit.empty.title')"
+          [description]="i18n.t('governance.audit.empty.description')"
         />
       } @else {
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-                <th class="px-5 py-3 font-semibold">Time</th>
-                <th class="px-5 py-3 font-semibold">Event</th>
-                <th class="px-5 py-3 font-semibold">Actor</th>
-                <th class="px-5 py-3 font-semibold">Resource</th>
-                <th class="px-5 py-3 font-semibold">Severity</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.time') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.event') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.actor') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.resource') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.audit.column.severity') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
@@ -161,7 +162,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
                       [ngClass]="severityClass(log.severity)"
                     >
                       <app-icon [name]="severityIcon(log.severity)" [size]="10" />
-                      {{ log.severity || 'info' }}
+                      {{ severityLabel(log.severity) }}
                     </span>
                   </td>
                 </tr>
@@ -172,14 +173,14 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
         @if (filteredLogs().length > pageLogs().length) {
           <div class="px-5 py-3 flex items-center justify-between border-t border-white/5">
             <span class="text-[11px] text-gray-500 font-mono">
-              Showing {{ pageLogs().length }} of {{ filteredLogs().length }}
+              {{ i18n.t('governance.audit.showing', { shown: pageLogs().length, total: filteredLogs().length }) }}
             </span>
             <button
               type="button"
               (click)="loadMore()"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
             >
-              <app-icon name="chevron-down" [size]="12" /> Load more
+              <app-icon name="chevron-down" [size]="12" /> {{ i18n.t('governance.load_more') }}
             </button>
           </div>
         }
@@ -217,6 +218,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
 })
 export class AuditLogsComponent implements OnInit {
   private readonly api = inject(ApiService);
+  readonly i18n = inject(I18nService);
 
   logs = signal<AuditLog[]>([]);
   loading = signal(true);
@@ -240,12 +242,12 @@ export class AuditLogsComponent implements OnInit {
     ).sort(),
   );
 
-  readonly severityFilters: { key: Severity | 'all'; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'info', label: 'Info' },
-    { key: 'warning', label: 'Warning' },
-    { key: 'error', label: 'Error' },
-    { key: 'critical', label: 'Critical' },
+  readonly severityFilters: { key: Severity | 'all'; labelKey: string }[] = [
+    { key: 'all', labelKey: 'governance.audit.severity.all' },
+    { key: 'info', labelKey: 'governance.audit.severity.info' },
+    { key: 'warning', labelKey: 'governance.audit.severity.warning' },
+    { key: 'error', labelKey: 'governance.audit.severity.error' },
+    { key: 'critical', labelKey: 'governance.audit.severity.critical' },
   ];
 
   readonly filteredLogs = computed(() => {
@@ -342,6 +344,14 @@ export class AuditLogsComponent implements OnInit {
     if (t.includes('role')) return 'key-round';
     if (t.includes('upload')) return 'cloud-upload';
     return 'circle-dot';
+  }
+
+  /** Severity comes from the API; translate known values, fall back to the raw one. */
+  severityLabel(severity?: string): string {
+    const value = severity || 'info';
+    const key = 'governance.audit.severity.' + value;
+    const label = this.i18n.t(key);
+    return label === key ? value : label;
   }
 
   severityIcon(severity?: string): string {

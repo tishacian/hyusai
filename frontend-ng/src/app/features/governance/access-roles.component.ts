@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import {
@@ -20,17 +21,17 @@ import {
   imports: [FormsModule, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
-      breadcrumb="Workspace · Access"
-      title="Workspace IAM"
+      [breadcrumb]="i18n.t('governance.access.breadcrumb')"
+      [title]="i18n.t('governance.access.title')"
       icon="shield-check"
-      subtitle="Workspace IAM templates, labels and effective Capture permissions."
+      [subtitle]="i18n.t('governance.access.subtitle')"
     >
       <button
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
         (click)="load()"
       >
-        <app-icon name="refresh-cw" [size]="14" /> Refresh
+        <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.refresh') }}
       </button>
     </app-section-header>
 
@@ -46,11 +47,11 @@ import {
           <section class="ck-surface rounded-md overflow-hidden">
             <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
               <div>
-                <h3 class="text-sm font-semibold text-white">Members</h3>
-                <p class="text-xs text-gray-500 mt-1">{{ iam.workspace.name }} · {{ iam.enforcement ? 'enforced' : 'dry-run' }}</p>
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('governance.access.members.title') }}</h3>
+                <p class="text-xs text-gray-500 mt-1">{{ iam.workspace.name }} · {{ iam.enforcement ? i18n.t('governance.access.enforcement.enforced') : i18n.t('governance.access.enforcement.dry_run') }}</p>
               </div>
               <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-                {{ iam.members.length }} members
+                {{ i18n.t('governance.access.members.count', { count: iam.members.length }) }}
               </span>
             </div>
             <div class="divide-y divide-white/5">
@@ -67,7 +68,7 @@ import {
                           <div class="truncate text-[11px] text-gray-500">
                             {{ member.username }}
                             @if (member.is_current_user) {
-                              · you
+                              · {{ i18n.t('governance.access.members.you') }}
                             }
                           </div>
                         </div>
@@ -75,7 +76,7 @@ import {
                     </div>
 
                     <label class="block min-w-0">
-                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Role template</span>
+                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">{{ i18n.t('governance.access.members.role') }}</span>
                       @if (canEditMemberRole(member)) {
                         <span class="ag-select-wrap">
                           <select
@@ -84,7 +85,7 @@ import {
                           >
                             @for (role of roleOptions; track role.value) {
                               <option [ngValue]="role.value" [disabled]="role.value === 'workspace_owner'">
-                                {{ role.label }}
+                                {{ i18n.t(role.labelKey) }}
                               </option>
                             }
                           </select>
@@ -106,13 +107,13 @@ import {
                     </label>
 
                     <label class="block min-w-0">
-                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Labels</span>
+                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">{{ i18n.t('governance.access.members.labels') }}</span>
                       <input
                         class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
                         [disabled]="!canEditMemberLabels(member)"
                         [ngModel]="labelsText(member)"
                         (ngModelChange)="setLabels(member, $event)"
-                        placeholder="domain:technical, pilot:true"
+                        [placeholder]="i18n.t('governance.access.members.labels.placeholder')"
                       />
                     </label>
 
@@ -122,7 +123,7 @@ import {
                       [disabled]="saving() || !canSaveMember(member)"
                       (click)="saveMember(member)"
                     >
-                      <app-icon name="save" [size]="14" /> Save
+                      <app-icon name="save" [size]="14" /> {{ i18n.t('common.save') }}
                     </button>
                   </div>
                   @if (!canEditMemberRole(member) && memberRoleTemplate(member) === 'workspace_owner') {
@@ -131,7 +132,7 @@ import {
                   @if (appEntitlementsEnabled()) {
                     <fieldset class="mt-3 rounded border border-white/[0.08] bg-black/10 px-3 py-2">
                       <legend class="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                        Application access
+                        {{ i18n.t('governance.access.members.apps') }}
                       </legend>
                       <div class="flex flex-wrap gap-x-5 gap-y-2">
                         @for (app of appOptions(); track app.key) {
@@ -157,19 +158,19 @@ import {
           <section class="ck-surface rounded-md overflow-hidden">
             <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
               <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-                <app-icon name="table-properties" [size]="16" class="text-cyan-400" /> Effective Capture matrix
+                <app-icon name="table-properties" [size]="16" class="text-cyan-400" /> {{ i18n.t('governance.access.matrix.title') }}
               </h3>
               <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-                {{ matrix()?.role_template || 'subject' }}
+                {{ matrix()?.role_template || i18n.t('governance.access.matrix.subject') }}
               </span>
             </div>
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead>
                   <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-                    <th class="px-5 py-3 font-semibold">Permission</th>
+                    <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.access.matrix.column.permission') }}</th>
                     @for (role of roleOptions; track role.value) {
-                      <th class="px-5 py-3 font-semibold text-center">{{ role.short }}</th>
+                      <th class="px-5 py-3 font-semibold text-center">{{ i18n.t(role.shortKey) }}</th>
                     }
                   </tr>
                 </thead>
@@ -201,10 +202,10 @@ import {
 
         <aside class="space-y-5">
           <section class="ck-surface rounded-md p-5 border border-cyan-500/25 bg-cyan-500/[0.04]">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Capture permissions</p>
-            <h3 class="text-sm font-semibold text-white mt-1">Capture de connaissances</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('governance.access.capture.eyebrow') }}</p>
+            <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('governance.access.capture.title') }}</h3>
             <p class="mt-3 text-xs text-gray-400 leading-relaxed">
-              This matrix controls the capture screen and the backend routes behind
+              {{ i18n.t('governance.access.capture.description') }}
               <span class="font-mono text-gray-200">expert_knowledge_capture</span>.
             </p>
             <div class="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
@@ -217,8 +218,8 @@ import {
           <section class="ck-surface rounded-md p-5">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">IAM config</p>
-                <h3 class="text-sm font-semibold text-white mt-1">Workspace flags</h3>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('governance.access.config.eyebrow') }}</p>
+                <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('governance.access.config.title') }}</h3>
               </div>
               <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                 v{{ iam.config.version }}
@@ -234,8 +235,8 @@ import {
                     (ngModelChange)="setFlag(flag.key, $event)"
                   />
                   <span>
-                    <span class="block text-xs text-gray-100 font-medium">{{ flag.label }}</span>
-                    <span class="block text-[11px] text-gray-500 mt-0.5">{{ flag.description }}</span>
+                    <span class="block text-xs text-gray-100 font-medium">{{ i18n.t(flag.labelKey) }}</span>
+                    <span class="block text-[11px] text-gray-500 mt-0.5">{{ i18n.t(flag.descriptionKey) }}</span>
                   </span>
                 </label>
               }
@@ -246,22 +247,22 @@ import {
               [disabled]="saving()"
               (click)="saveFlags()"
             >
-              <app-icon name="save" [size]="14" /> Save flags
+              <app-icon name="save" [size]="14" /> {{ i18n.t('governance.access.config.save') }}
             </button>
           </section>
 
           <section class="ck-surface rounded-md p-5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Current subject</p>
-            <h3 class="text-sm font-semibold text-white mt-1">{{ matrix()?.role_template || 'Unknown role' }}</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('governance.access.subject.eyebrow') }}</p>
+            <h3 class="text-sm font-semibold text-white mt-1">{{ matrix()?.role_template || i18n.t('governance.access.subject.unknown') }}</h3>
             <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-              Buttons in Capture use this matrix for client-side affordances. The backend remains the authority and emits IAM deny audit rows.
+              {{ i18n.t('governance.access.subject.description') }}
             </p>
           </section>
         </aside>
       </section>
     } @else {
       <section class="ck-surface rounded-md p-8 text-center text-gray-400">
-        {{ loading() ? 'Loading IAM configuration...' : 'Select a workspace to inspect IAM.' }}
+        {{ loading() ? i18n.t('governance.access.loading') : i18n.t('governance.access.select_workspace') }}
       </section>
     }
   `,
@@ -302,6 +303,7 @@ import {
 })
 export class AccessRolesComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly summary = signal<IamSummary | null>(null);
   readonly matrix = signal<IamMatrix | null>(null);
@@ -311,29 +313,29 @@ export class AccessRolesComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
 
-  readonly roleOptions: Array<{ value: RoleTemplate; label: string; short: string }> = [
-    { value: 'workspace_viewer', label: 'Viewer', short: 'Viewer' },
-    { value: 'workspace_contributor', label: 'Contributor', short: 'Contrib.' },
-    { value: 'workspace_reviewer', label: 'Reviewer', short: 'Reviewer' },
-    { value: 'workspace_admin', label: 'Admin', short: 'Admin' },
-    { value: 'workspace_owner', label: 'Owner', short: 'Owner' },
+  readonly roleOptions: Array<{ value: RoleTemplate; labelKey: string; shortKey: string }> = [
+    { value: 'workspace_viewer', labelKey: 'governance.access.role.workspace_viewer', shortKey: 'governance.access.role.short.workspace_viewer' },
+    { value: 'workspace_contributor', labelKey: 'governance.access.role.workspace_contributor', shortKey: 'governance.access.role.short.workspace_contributor' },
+    { value: 'workspace_reviewer', labelKey: 'governance.access.role.workspace_reviewer', shortKey: 'governance.access.role.short.workspace_reviewer' },
+    { value: 'workspace_admin', labelKey: 'governance.access.role.workspace_admin', shortKey: 'governance.access.role.short.workspace_admin' },
+    { value: 'workspace_owner', labelKey: 'governance.access.role.workspace_owner', shortKey: 'governance.access.role.short.workspace_owner' },
   ];
 
   readonly flagOptions = [
     {
       key: 'contributors_see_only_own_sessions',
-      label: 'Contributors see only own sessions',
-      description: 'Narrows Capture lists for contributors while reviewers and admins keep workspace scope.',
+      labelKey: 'governance.access.flag.contributors_see_only_own_sessions',
+      descriptionKey: 'governance.access.flag.contributors_see_only_own_sessions.description',
     },
     {
       key: 'require_second_eye_for_ingestion',
-      label: 'Require second eye for ingestion',
-      description: 'Prevents the author from triggering final ingestion approval when enabled.',
+      labelKey: 'governance.access.flag.require_second_eye_for_ingestion',
+      descriptionKey: 'governance.access.flag.require_second_eye_for_ingestion.description',
     },
     {
       key: 'reviewers_inherit_contributor',
-      label: 'Reviewers inherit contributor',
-      description: 'Lets reviewers create and execute their own capture sessions.',
+      labelKey: 'governance.access.flag.reviewers_inherit_contributor',
+      descriptionKey: 'governance.access.flag.reviewers_inherit_contributor.description',
     },
   ];
 
@@ -359,7 +361,7 @@ export class AccessRolesComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.error.set('Unable to load IAM summary. Admin role is required.');
+        this.error.set(this.i18n.t('governance.access.error.load'));
         this.loading.set(false);
       },
     });
@@ -383,7 +385,8 @@ export class AccessRolesComponent implements OnInit {
   }
 
   roleLabel(role: RoleTemplate): string {
-    return this.roleOptions.find((item) => item.value === role)?.label || 'Contributor';
+    const option = this.roleOptions.find((item) => item.value === role);
+    return this.i18n.t(option?.labelKey || 'governance.access.role.workspace_contributor');
   }
 
   roleBadgeClass(role: RoleTemplate): string {
@@ -420,9 +423,9 @@ export class AccessRolesComponent implements OnInit {
   }
 
   memberRoleLockedReason(member: WorkspaceMemberDetail): string {
-    if (member.is_current_user) return 'Your own owner role is managed through ownership transfer.';
-    if (!this.subjectIsOwner()) return 'Only a workspace owner can change another owner role.';
-    return 'At least one workspace owner must remain.';
+    if (member.is_current_user) return this.i18n.t('governance.access.role_locked.self');
+    if (!this.subjectIsOwner()) return this.i18n.t('governance.access.role_locked.not_owner');
+    return this.i18n.t('governance.access.role_locked.last_owner');
   }
 
   setLabels(member: WorkspaceMemberDetail, value: string): void {
@@ -467,7 +470,7 @@ export class AccessRolesComponent implements OnInit {
       },
       error: () => {
         this.saving.set(false);
-        this.error.set('Unable to save IAM flags.');
+        this.error.set(this.i18n.t('governance.access.error.save_flags'));
       },
     });
   }
@@ -475,7 +478,7 @@ export class AccessRolesComponent implements OnInit {
   saveMember(member: WorkspaceMemberDetail): void {
     const roleTemplate = (member.role_template || 'workspace_contributor') as RoleTemplate;
     if (roleTemplate === 'workspace_owner') {
-      this.error.set('Owner assignment is managed through ownership transfer.');
+      this.error.set(this.i18n.t('governance.access.error.owner_assignment'));
       return;
     }
     this.saving.set(true);
@@ -495,7 +498,7 @@ export class AccessRolesComponent implements OnInit {
         },
         error: () => {
           this.saving.set(false);
-          this.error.set('Unable to save member IAM settings.');
+          this.error.set(this.i18n.t('governance.access.error.save_member'));
         },
       });
   }

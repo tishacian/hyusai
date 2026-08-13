@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { SettingsService, AppSettings } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -8,6 +9,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
 
 interface ProviderOption {
   value: string;
+  /** Raw fallback only — the rendered name comes from `settings.provider.<value>`. */
   label: string;
   models: string[];
 }
@@ -18,13 +20,8 @@ const PROVIDERS: ProviderOption[] = [
   { value: 'ollama', label: 'Ollama (self-hosted)', models: ['deepseek-r1:14b', 'llama3.1:8b', 'qwen2.5:14b', 'mixtral'] },
 ];
 
-const RAG_MODES = [
-  { value: 'auto', label: 'Auto', desc: 'Planner-routed, budget-aware retrieval' },
-  { value: 'naive', label: 'Naive', desc: 'Dense vectors only' },
-  { value: 'hybrid', label: 'Hybrid', desc: 'Sparse + dense when budget allows' },
-  { value: 'hah', label: 'HAH', desc: 'Expert hierarchical retrieval' },
-  { value: 'chah', label: 'CHAH', desc: 'Expert composite hierarchical retrieval' },
-] as const;
+// Labels and descriptions come from `settings.mode.<value>` / `.desc`.
+const RAG_MODES = ['auto', 'naive', 'hybrid', 'hah', 'chah'] as const;
 
 @Component({
   selector: 'app-rag-settings',
@@ -33,13 +30,13 @@ const RAG_MODES = [
   imports: [FormsModule, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
-      breadcrumb="Configure"
-      title="Settings"
+      [breadcrumb]="i18n.t('settings.breadcrumb')"
+      [title]="i18n.t('settings.title')"
       icon="sliders-horizontal"
-      subtitle="Generation, retrieval and pipeline tuning shared across chat sessions."
+      [subtitle]="i18n.t('settings.description')"
     >
       <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mr-2">
-        {{ dirty() ? 'Unsaved changes' : 'Synced' }}
+        {{ dirty() ? i18n.t('settings.state.unsaved') : i18n.t('settings.state.synced') }}
       </span>
       <button
         type="button"
@@ -47,7 +44,7 @@ const RAG_MODES = [
         (click)="resetDraft()"
         [disabled]="!dirty()"
       >
-        <app-icon name="rotate-ccw" [size]="14" /> Reset
+        <app-icon name="rotate-ccw" [size]="14" /> {{ i18n.t('settings.reset.cta') }}
       </button>
       <button
         type="button"
@@ -56,7 +53,7 @@ const RAG_MODES = [
         [disabled]="!dirty() || saving()"
       >
         <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="14" [class.animate-spin]="saving()" />
-        {{ saving() ? 'Saving…' : 'Save changes' }}
+        {{ saving() ? i18n.t('settings.saving') : i18n.t('settings.save.cta') }}
       </button>
     </app-section-header>
 
@@ -65,7 +62,7 @@ const RAG_MODES = [
       <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
           <app-icon name="cpu" [size]="16" class="text-cyan-400" />
-          <h3 class="text-sm font-semibold text-white">{{ isDemoMode() ? 'Runtime & generation' : 'Model & generation' }}</h3>
+          <h3 class="text-sm font-semibold text-white">{{ isDemoMode() ? i18n.t('settings.generation.title.managed') : i18n.t('settings.generation.title') }}</h3>
         </div>
 
         <div class="space-y-4">
@@ -73,15 +70,15 @@ const RAG_MODES = [
             <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
               <div class="flex items-center gap-2 text-sm font-semibold text-white">
                 <app-icon name="shield-check" [size]="15" class="text-cyan-300" />
-                Managed runtime
+                {{ i18n.t('settings.generation.managed.title') }}
               </div>
               <p class="text-xs text-gray-400 mt-2 leading-relaxed">
-                Provider and model names are hidden by demo-safe presentation. Generation settings still apply, and backend policy remains authoritative.
+                {{ i18n.t('settings.generation.managed.body') }}
               </p>
             </div>
           } @else {
             <div>
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Provider</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.generation.provider') }}</label>
               <div class="grid grid-cols-3 gap-1.5 mt-1.5">
                 @for (p of providers; track p.value) {
                   <button
@@ -95,14 +92,14 @@ const RAG_MODES = [
                     [class.ring-white\\/10]="draft().defaultProvider !== p.value"
                     (click)="setProvider(p.value)"
                   >
-                    {{ p.label }}
+                    {{ providerLabel(p) }}
                   </button>
                 }
               </div>
             </div>
 
             <div>
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Model</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.generation.model') }}</label>
               <select
                 class="settings-select mt-1.5 w-full"
                 [ngModel]="draft().defaultModel"
@@ -118,7 +115,7 @@ const RAG_MODES = [
 
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Temperature</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.generation.temperature') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().temperature, 2) }}</span>
             </div>
             <input
@@ -131,12 +128,12 @@ const RAG_MODES = [
               (ngModelChange)="patch({ temperature: +$event })"
               name="temp"
             />
-            <p class="text-[10px] text-gray-500 mt-1">0 = deterministic · 1 = balanced · 2 = creative</p>
+            <p class="text-[10px] text-gray-500 mt-1">{{ i18n.t('settings.generation.temperature.hint') }}</p>
           </div>
 
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Max tokens</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.generation.tokens') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ draft().maxTokens }}</span>
             </div>
             <input
@@ -164,20 +161,20 @@ const RAG_MODES = [
           <div>
             <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Pipeline mode</label>
             <div class="grid grid-cols-5 gap-1.5 mt-1.5">
-              @for (m of ragModes; track m.value) {
+              @for (m of ragModes; track m) {
                 <button
                   type="button"
-                  [title]="m.desc"
+                  [title]="modeDesc(m)"
                   class="px-2 py-2 rounded text-xs font-semibold ring-1 transition"
-                  [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m.value"
-                  [class.text-cyan-200]="draft().ragPipelineMode === m.value"
-                  [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m.value"
-                  [class.bg-white\\/5]="draft().ragPipelineMode !== m.value"
-                  [class.text-gray-300]="draft().ragPipelineMode !== m.value"
-                  [class.ring-white\\/10]="draft().ragPipelineMode !== m.value"
-                  (click)="patch({ ragPipelineMode: m.value })"
+                  [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m"
+                  [class.text-cyan-200]="draft().ragPipelineMode === m"
+                  [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m"
+                  [class.bg-white\\/5]="draft().ragPipelineMode !== m"
+                  [class.text-gray-300]="draft().ragPipelineMode !== m"
+                  [class.ring-white\\/10]="draft().ragPipelineMode !== m"
+                  (click)="patch({ ragPipelineMode: m })"
                 >
-                  {{ m.label }}
+                  {{ modeLabel(m) }}
                 </button>
               }
             </div>
@@ -186,7 +183,7 @@ const RAG_MODES = [
 
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Top K</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.retrieval.topk') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ draft().ragTopK }}</span>
             </div>
             <input
@@ -199,12 +196,12 @@ const RAG_MODES = [
               (ngModelChange)="patch({ ragTopK: +$event })"
               name="topk"
             />
-            <p class="text-[10px] text-gray-500 mt-1">Number of chunks retrieved per query.</p>
+            <p class="text-[10px] text-gray-500 mt-1">{{ i18n.t('settings.retrieval.topk.hint') }}</p>
           </div>
 
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Similarity threshold</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.retrieval.similarity') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragSimilarityThreshold, 2) }}</span>
             </div>
             <input
@@ -217,13 +214,13 @@ const RAG_MODES = [
               (ngModelChange)="patch({ ragSimilarityThreshold: +$event })"
               name="sim"
             />
-            <p class="text-[10px] text-gray-500 mt-1">Chunks below this score are dropped before synthesis.</p>
+            <p class="text-[10px] text-gray-500 mt-1">{{ i18n.t('settings.retrieval.similarity.hint') }}</p>
           </div>
 
           <div class="flex items-center justify-between py-2 border-t border-white/5 pt-3">
             <div>
-              <div class="text-sm text-white font-medium">Hybrid search</div>
-              <div class="text-[11px] text-gray-500">Planner-bounded sparse + dense retrieval</div>
+              <div class="text-sm text-white font-medium">{{ i18n.t('settings.retrieval.hybrid') }}</div>
+              <div class="text-[11px] text-gray-500">{{ i18n.t('settings.retrieval.hybrid.hint') }}</div>
             </div>
             <button
               type="button"
@@ -243,7 +240,7 @@ const RAG_MODES = [
             <div class="grid grid-cols-2 gap-3 pt-1">
               <div>
                 <div class="flex justify-between items-baseline">
-                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Vector weight</label>
+                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.retrieval.weight.vector') }}</label>
                   <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragVectorWeight, 2) }}</span>
                 </div>
                 <input
@@ -259,7 +256,7 @@ const RAG_MODES = [
               </div>
               <div>
                 <div class="flex justify-between items-baseline">
-                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Sparse weight</label>
+                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.retrieval.weight.sparse') }}</label>
                   <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragBM25Weight, 2) }}</span>
                 </div>
                 <input
@@ -282,12 +279,12 @@ const RAG_MODES = [
       <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
           <app-icon name="boxes" [size]="16" class="text-cyan-400" />
-          <h3 class="text-sm font-semibold text-white">Chunking</h3>
+          <h3 class="text-sm font-semibold text-white">{{ i18n.t('settings.chunking.title') }}</h3>
         </div>
         <div class="space-y-4">
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Chunk size (chars)</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.chunking.size') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ draft().ragChunkSize }}</span>
             </div>
             <input
@@ -303,7 +300,7 @@ const RAG_MODES = [
           </div>
           <div>
             <div class="flex justify-between items-baseline">
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Chunk overlap (chars)</label>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{{ i18n.t('settings.chunking.overlap') }}</label>
               <span class="font-mono text-xs text-cyan-300">{{ draft().ragChunkOverlap }}</span>
             </div>
             <input
@@ -324,14 +321,14 @@ const RAG_MODES = [
       <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
           <app-icon name="eye" [size]="16" class="text-cyan-400" />
-          <h3 class="text-sm font-semibold text-white">Experience</h3>
+          <h3 class="text-sm font-semibold text-white">{{ i18n.t('settings.experience.title') }}</h3>
         </div>
         <div class="space-y-3">
           @for (t of toggles; track t.key) {
             <div class="flex items-center justify-between py-1.5">
               <div>
-                <div class="text-sm text-white font-medium">{{ t.label }}</div>
-                <div class="text-[11px] text-gray-500">{{ t.desc }}</div>
+                <div class="text-sm text-white font-medium">{{ i18n.t(t.labelKey) }}</div>
+                <div class="text-[11px] text-gray-500">{{ i18n.t(t.descKey) }}</div>
               </div>
               <button
                 type="button"
@@ -383,14 +380,16 @@ export class RagSettingsComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly providers = PROVIDERS;
   readonly ragModes = RAG_MODES;
-  readonly toggles: { key: keyof AppSettings; label: string; desc: string }[] = [
-    { key: 'enableStreaming', label: 'Streaming responses', desc: 'Stream tokens as they arrive' },
-    { key: 'showReasoningTraces', label: 'Show reasoning trail', desc: 'Expose orchestrator decision steps' },
-    { key: 'showSources', label: 'Show sources', desc: 'Attach citations to responses' },
-    { key: 'autoExpandReasoning', label: 'Auto-expand trail', desc: 'Open the reasoning panel by default' },
+  // Dict keys resolved with t() in the template, so labels follow language flips.
+  readonly toggles: { key: keyof AppSettings; labelKey: string; descKey: string }[] = [
+    { key: 'enableStreaming', labelKey: 'settings.experience.streaming', descKey: 'settings.experience.streaming.desc' },
+    { key: 'showReasoningTraces', labelKey: 'settings.experience.reasoning', descKey: 'settings.experience.reasoning.desc' },
+    { key: 'showSources', labelKey: 'settings.experience.sources', descKey: 'settings.experience.sources.desc' },
+    { key: 'autoExpandReasoning', labelKey: 'settings.experience.expand', descKey: 'settings.experience.expand.desc' },
   ];
 
   draft = signal<AppSettings>({ ...this.settings.settings() });
@@ -406,10 +405,27 @@ export class RagSettingsComponent implements OnInit {
     return p?.models ?? [];
   });
 
-  readonly currentModeDesc = computed(() => {
-    const m = this.ragModes.find((r) => r.value === this.draft().ragPipelineMode);
-    return m?.desc ?? '';
-  });
+  readonly currentModeDesc = computed(() => this.modeDesc(this.draft().ragPipelineMode ?? 'auto'));
+
+  /** `settings.mode.<value>` with a raw-value fallback for unknown API modes. */
+  modeLabel(mode: string): string {
+    const key = 'settings.mode.' + mode;
+    const label = this.i18n.t(key);
+    return label === key ? mode : label;
+  }
+
+  modeDesc(mode: string): string {
+    const key = 'settings.mode.' + mode + '.desc';
+    const label = this.i18n.t(key);
+    return label === key ? '' : label;
+  }
+
+  /** `settings.provider.<value>` with the seeded label as fallback. */
+  providerLabel(p: ProviderOption): string {
+    const key = 'settings.provider.' + p.value;
+    const label = this.i18n.t(key);
+    return label === key ? p.label : label;
+  }
 
   ngOnInit(): void {
     this.settings.refresh();
@@ -442,7 +458,7 @@ export class RagSettingsComponent implements OnInit {
     this.settings.update(patch);
     queueMicrotask(() => {
       this.saving.set(false);
-      this.toast.success('Settings saved', 'Preferences');
+      this.toast.success(this.i18n.t('settings.toast.saved'), this.i18n.t('settings.toast.title'));
     });
   }
 

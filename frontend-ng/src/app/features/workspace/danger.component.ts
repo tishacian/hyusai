@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
@@ -19,13 +20,13 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <app-icon name="log-out" [size]="18" />
           </div>
           <div>
-            <h2 class="text-base font-semibold text-white">Leave workspace</h2>
+            <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.danger.leave.title') }}</h2>
             <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
-              You will lose access to all data in this workspace. Other members keep working normally.
+              {{ i18n.t('workspace.danger.leave.description') }}
             </p>
             @if (isOwner()) {
               <p class="text-xs text-amber-400 mt-1.5">
-                As owner you must transfer ownership before leaving.
+                {{ i18n.t('workspace.danger.leave.owner_hint') }}
               </p>
             }
           </div>
@@ -37,7 +38,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
           class="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 rounded text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <app-icon name="log-out" [size]="14" />
-          {{ leaving() ? 'Leaving…' : 'Leave workspace' }}
+          {{ leaving() ? i18n.t('workspace.danger.leave.leaving') : i18n.t('workspace.danger.leave.title') }}
         </button>
       </section>
 
@@ -47,20 +48,20 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <app-icon name="shield-alert" [size]="18" />
           </div>
           <div>
-            <h2 class="text-base font-semibold text-red-400">Delete workspace</h2>
+            <h2 class="text-base font-semibold text-red-400">{{ i18n.t('workspace.danger.delete.title') }}</h2>
             <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
-              Archives it and removes it from every member's sidebar. Restore it within
-              <strong class="text-white">30 days</strong>. After that, all data is permanently purged.
+              {{ i18n.t('workspace.danger.delete.description_before') }}
+              <strong class="text-white">{{ i18n.t('workspace.danger.delete.description_days') }}</strong>{{ i18n.t('workspace.danger.delete.description_after') }}
             </p>
           </div>
         </div>
 
         @if (!isOwner()) {
-          <p class="text-sm text-gray-500 italic">Only the workspace owner can delete this workspace.</p>
+          <p class="text-sm text-gray-500 italic">{{ i18n.t('workspace.danger.owner_only') }}</p>
         } @else if (detail()?.deleted_at) {
           <div class="flex items-center gap-3 flex-wrap">
             <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-medium">
-              <app-icon name="archive" [size]="11" /> Archived
+              <app-icon name="archive" [size]="11" /> {{ i18n.t('workspace.status.archived') }}
             </span>
             <button
               type="button"
@@ -69,7 +70,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               class="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white rounded text-sm font-medium transition disabled:opacity-40"
             >
               <app-icon name="archive-restore" [size]="14" />
-              {{ restoring() ? 'Restoring…' : 'Restore workspace' }}
+              {{ restoring() ? i18n.t('workspace.danger.restore.restoring') : i18n.t('workspace.danger.restore.cta') }}
             </button>
           </div>
         } @else {
@@ -80,7 +81,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             class="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium transition disabled:opacity-40"
           >
             <app-icon name="trash-2" [size]="14" />
-            Delete workspace permanently
+            {{ i18n.t('workspace.danger.delete.cta') }}
           </button>
         }
       </section>
@@ -88,9 +89,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
 
     <app-confirm-dialog
       [open]="leaveOpen()"
-      title="Leave this workspace?"
-      description="You will lose access to its data."
-      confirmLabel="Leave"
+      [title]="i18n.t('workspace.danger.leave.confirm_title')"
+      [description]="i18n.t('workspace.danger.leave.confirm_description')"
+      [confirmLabel]="i18n.t('workspace.danger.leave.confirm_cta')"
       tone="danger"
       icon="log-out"
       (cancel)="leaveOpen.set(false)"
@@ -99,9 +100,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
 
     <app-confirm-dialog
       [open]="deleteOpen()"
-      title="Delete this workspace?"
-      description="This archives the workspace for 30 days before permanent deletion. Type the workspace name to confirm."
-      confirmLabel="Delete workspace"
+      [title]="i18n.t('workspace.danger.delete.confirm_title')"
+      [description]="i18n.t('workspace.danger.delete.confirm_description')"
+      [confirmLabel]="i18n.t('workspace.danger.delete.confirm_cta')"
       [confirmPhrase]="detail()?.name || ''"
       tone="danger"
       icon="trash-2"
@@ -111,6 +112,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   `,
 })
 export class WorkspaceDangerComponent {
+  readonly i18n = inject(I18nService);
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -152,12 +154,18 @@ export class WorkspaceDangerComponent {
     this.workspaceService.leaveWorkspace(slug).subscribe({
       next: () => {
         this.leaving.set(false);
-        this.toastr.success('You left the workspace', 'Left');
+        this.toastr.success(
+          this.i18n.t('workspace.danger.toast.left'),
+          this.i18n.t('workspace.danger.toast.left_title'),
+        );
         this.router.navigate(['/workspace']);
       },
       error: (err) => {
         this.leaving.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to leave', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.danger.toast.leave_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -171,12 +179,18 @@ export class WorkspaceDangerComponent {
     this.workspaceService.deleteWorkspace(slug, d.name).subscribe({
       next: () => {
         this.deleting.set(false);
-        this.toastr.success(`"${d.name}" archived`, 'Deleted');
+        this.toastr.success(
+          this.i18n.t('workspace.danger.toast.deleted', { name: d.name }),
+          this.i18n.t('workspace.danger.toast.deleted_title'),
+        );
         this.router.navigate(['/workspace']);
       },
       error: (err) => {
         this.deleting.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to delete', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.danger.toast.delete_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -190,11 +204,17 @@ export class WorkspaceDangerComponent {
         this.restoring.set(false);
         this.load(slug);
         this.workspaceService.loadWorkspaces().subscribe();
-        this.toastr.success('Workspace restored', 'Restored');
+        this.toastr.success(
+          this.i18n.t('workspace.danger.toast.restored'),
+          this.i18n.t('workspace.danger.toast.restored_title'),
+        );
       },
       error: (err) => {
         this.restoring.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to restore', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.danger.toast.restore_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }

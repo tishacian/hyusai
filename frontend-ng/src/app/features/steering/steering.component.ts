@@ -17,6 +17,7 @@ import {
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import { I18nService } from '@app/core/i18n.service';
 import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact';
 
 /**
@@ -45,16 +46,16 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
   ],
   template: `
     <ck-page-frame
-      eyebrow="Steering · Control plane"
-      title="Levers & policies"
-      description="Shape the behaviour of your portfolio in real time. Three canonical levers, projected impact before you commit."
+      [eyebrow]="i18n.t('steering.page.eyebrow')"
+      [title]="i18n.t('steering.page.title')"
+      [description]="i18n.t('steering.page.description')"
     >
       <div class="flex flex-col gap-6">
         <!-- Scope selector -->
         <section class="ck-surface rounded-md" style="padding:14px 22px;">
           <div class="flex items-center gap-4 flex-wrap">
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
-              SCOPE
+              {{ i18n.t('steering.scope.label') }}
             </span>
             <div class="flex items-center gap-1 ck-surface rounded" style="padding:3px; background:var(--ck-bg-inset);">
               <button
@@ -65,7 +66,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
                 [style.background]="!targetCapability() ? 'var(--ck-bg-raised)' : 'transparent'"
                 [style.color]="!targetCapability() ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
               >
-                PORTFOLIO
+                {{ i18n.t('hypervisor.scope.portfolio') }}
               </button>
               @for (c of capabilities(); track c.id) {
                 <button
@@ -81,7 +82,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
               }
             </div>
             <span class="ml-auto flex items-center gap-3">
-              <ck-live-dot [tone]="sim() ? 'cool' : 'warn'" [label]="sim() ? 'LIVE SIM' : 'NO DATA'" />
+              <ck-live-dot [tone]="sim() ? 'cool' : 'warn'" [label]="sim() ? i18n.t('steering.state.live_sim') : i18n.t('steering.state.no_data')" />
               <ck-kbd>⌘↵</ck-kbd>
             </span>
           </div>
@@ -310,12 +311,11 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
             <div class="flex items-center gap-2 mb-2">
               <ck-glyph name="shield" [size]="14" />
               <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.16em; color:var(--ck-fg-2);">
-                AUTHORITATIVE VALUE LOOP
+                {{ i18n.t('steering.value_loop.title') }}
               </h3>
             </div>
             <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
-              Portfolio levers are not configured. Open a System in Steer to create, simulate,
-              approve, act and measure a governed value scenario.
+              {{ i18n.t('steering.value_loop.not_configured') }}
             </p>
           </section>
         }
@@ -327,7 +327,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
               <div class="flex items-center gap-2">
                 <ck-glyph name="ledger" [size]="14" />
                 <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
-                  CONTROL POLICIES
+                  {{ i18n.t('steering.control.title') }}
                 </h3>
               </div>
               <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
@@ -336,22 +336,22 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
             </div>
             @if (!controlPolicies().length) {
               <div class="ck-mono" style="font-size:11px; padding:24px 0; text-align:center; color:var(--ck-fg-4);">
-                NO CONTROL POLICY — APPLY LEVERS ABOVE
+                {{ i18n.t('steering.control.empty') }}
               </div>
             } @else {
               <ul style="display:flex; flex-direction:column; gap:6px;">
                 @for (p of controlPolicies(); track p.id) {
                   <li class="ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset);">
                     <div class="flex items-center gap-2 mb-1">
-                      <ck-tag tone="cool" variant="soft">{{ p.scope }}</ck-tag>
+                      <ck-tag tone="cool" variant="soft">{{ scopeLabel(p.scope) }}</ck-tag>
                       <span class="text-sm text-white font-medium">{{ p.name }}</span>
                     </div>
                     <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-3); line-height:1.6;">
                       @if (p.max_cost_per_decision != null) {
-                        MAX COST <span class="ck-tnum" style="color:var(--ck-fg-1);">\${{ p.max_cost_per_decision.toFixed(2) }}</span> ·
+                        {{ i18n.t('steering.control.max_cost') }} <span class="ck-tnum" style="color:var(--ck-fg-1);">\${{ p.max_cost_per_decision.toFixed(2) }}</span> ·
                       }
                       @if (p.max_latency_ms != null) {
-                        MAX LATENCY <span class="ck-tnum" style="color:var(--ck-fg-1);">{{ p.max_latency_ms }} ms</span> ·
+                        {{ i18n.t('steering.control.max_latency') }} <span class="ck-tnum" style="color:var(--ck-fg-1);">{{ p.max_latency_ms }} ms</span> ·
                       }
                       @if (p.mandatory_hitl_if_confidence_below != null) {
                         HITL &lt; <span class="ck-tnum" style="color:var(--ck-fg-1);">{{ p.mandatory_hitl_if_confidence_below.toFixed(2) }}</span>
@@ -368,7 +368,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
               <div class="flex items-center gap-2">
                 <ck-glyph name="orbit" [size]="14" />
                 <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
-                  ADAPTIVE POLICIES
+                  {{ i18n.t('steering.adaptive.title') }}
                 </h3>
               </div>
               <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
@@ -377,7 +377,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
             </div>
             @if (!adaptivePolicies().length) {
               <div class="ck-mono" style="font-size:11px; padding:24px 0; text-align:center; color:var(--ck-fg-4);">
-                NO ADAPTIVE POLICY
+                {{ i18n.t('steering.adaptive.empty') }}
               </div>
             } @else {
               <ul style="display:flex; flex-direction:column; gap:6px;">
@@ -385,13 +385,13 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
                   <li class="ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset);">
                     <div class="flex items-center gap-2 mb-1">
                       <ck-tag [tone]="p.enabled ? 'pos' : 'neutral'" variant="soft">
-                        {{ p.enabled ? 'LIVE' : 'OFF' }}
+                        {{ p.enabled ? i18n.t('steering.policy.live') : i18n.t('steering.policy.off') }}
                       </ck-tag>
                       <ck-tag [tone]="adaptationTone(p.adaptation_level)" variant="outline">
-                        {{ p.adaptation_level }}
+                        {{ adaptationLabel(p.adaptation_level) }}
                       </ck-tag>
                       @if (p.scope) {
-                        <ck-tag tone="cool" variant="outline">{{ p.scope }}</ck-tag>
+                        <ck-tag tone="cool" variant="outline">{{ scopeLabel(p.scope) }}</ck-tag>
                       }
                       <span class="text-sm text-white font-medium">{{ p.name }}</span>
                       <span class="ml-auto flex items-center gap-1">
@@ -401,9 +401,9 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
                           [disabled]="pendingAdaptiveId() === p.id"
                           class="ck-mono"
                           style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-raised);"
-                          [title]="p.enabled ? 'Disable this policy' : 'Enable this policy'"
+                          [title]="p.enabled ? i18n.t('steering.policy.disable_hint') : i18n.t('steering.policy.enable_hint')"
                         >
-                          {{ p.enabled ? 'DISABLE' : 'ENABLE' }}
+                          {{ p.enabled ? i18n.t('steering.policy.disable') : i18n.t('steering.policy.enable') }}
                         </button>
                         <button
                           type="button"
@@ -411,15 +411,15 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
                           [disabled]="pendingAdaptiveId() === p.id"
                           class="ck-mono"
                           style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
-                          title="Delete this policy"
+                          [title]="i18n.t('steering.policy.delete_hint')"
                         >
-                          DEL
+                          {{ i18n.t('steering.policy.delete_short') }}
                         </button>
                       </span>
                     </div>
                     @if (p.allowed_actions?.length) {
                       <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-3);">
-                        ACTIONS <span class="ck-tnum" style="color:var(--ck-fg-1);">{{ p.allowed_actions?.join(' · ') }}</span>
+                        {{ i18n.t('steering.policy.actions') }} <span class="ck-tnum" style="color:var(--ck-fg-1);">{{ p.allowed_actions?.join(' · ') }}</span>
                       </div>
                     }
                   </li>
@@ -434,7 +434,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
                 class="ck-mono"
                 style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset);"
               >
-                {{ creatingAdaptive() ? 'CREATING…' : '+ ADD ADAPTIVE POLICY' }}
+                {{ creatingAdaptive() ? i18n.t('steering.adaptive.creating') : i18n.t('steering.adaptive.add') }}
               </button>
             </div>
           </div>
@@ -527,6 +527,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
   `,
 })
 export class SteeringComponent implements OnInit {
+  readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
 
   readonly capabilities = signal<Capability[]>([]);
@@ -739,6 +740,21 @@ export class SteeringComponent implements OnInit {
     }
   }
 
+  /** Map an API value through `<prefix><value>`, falling back to the raw value. */
+  private apiValueLabel(prefix: string, value: string): string {
+    const key = prefix + value;
+    const label = this.i18n.t(key);
+    return label === key ? value : label;
+  }
+
+  protected scopeLabel(scope: string): string {
+    return this.apiValueLabel('hypervisor.scope.', scope);
+  }
+
+  protected adaptationLabel(level: string): string {
+    return this.apiValueLabel('steering.adaptation.', level);
+  }
+
   toggleAdaptive(p: AdaptivePolicy): void {
     if (this.pendingAdaptiveId()) return;
     this.pendingAdaptiveId.set(p.id);
@@ -757,7 +773,7 @@ export class SteeringComponent implements OnInit {
 
   deleteAdaptive(p: AdaptivePolicy): void {
     if (this.pendingAdaptiveId()) return;
-    if (!confirm(`Delete adaptive policy “${p.name}”? This cannot be undone.`)) return;
+    if (!confirm(this.i18n.t('steering.policy.delete_confirm', { name: p.name }))) return;
     this.pendingAdaptiveId.set(p.id);
     this.canonical.deleteAdaptivePolicy(p.id).subscribe({
       next: (ok) => {

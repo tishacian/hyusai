@@ -15,6 +15,8 @@ import {
   type WorkspaceInfo,
   type WorkspaceMemberDetail,
 } from '@app/core/workspace.service';
+import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
+import { I18nService } from '@app/core/i18n.service';
 import { AccessRolesComponent } from '@app/features/governance/access-roles.component';
 import { WorkspaceMembersComponent } from './members.component';
 
@@ -69,6 +71,8 @@ test('Members displays and sends a manifest-defined non-Andritz entitlement on i
     currentSlug: () => WORKSPACE.slug,
     appEntitlementsEnabled: () => true,
     isAdmin: () => true,
+    // The real I18nService interpolates {brand} on every t() call.
+    brandName: () => DEFAULT_BRAND_NAME,
     listMembers: () => of([]),
     inviteMember: (...args: unknown[]) => {
       invitations.push(args);
@@ -80,6 +84,7 @@ test('Members displays and sends a manifest-defined non-Andritz entitlement on i
   };
   const injector = Injector.create({ providers: [
     WorkspaceMembersComponent,
+    I18nService,
     { provide: WorkspaceService, useValue: workspace },
     {
       provide: ActivatedRoute,
@@ -117,6 +122,8 @@ test('Governance toggle preserves a future active key and saves it unchanged', (
   const workspace = {
     current,
     appEntitlementsEnabled: () => true,
+    // The real I18nService interpolates {brand} on every t() call.
+    brandName: () => DEFAULT_BRAND_NAME,
     updateIamMember: (...args: unknown[]) => {
       updates.push(args);
       return NEVER;
@@ -126,7 +133,10 @@ test('Governance toggle preserves a future active key and saves it unchanged', (
   };
   const injector = Injector.create({ providers: [
     AccessRolesComponent,
+    I18nService,
     { provide: WorkspaceService, useValue: workspace },
+    { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
+    { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
   ] });
   const component = injector.get(AccessRolesComponent);
   const member = structuredClone(MEMBER);

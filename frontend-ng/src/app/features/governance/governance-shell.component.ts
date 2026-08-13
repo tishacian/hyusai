@@ -3,10 +3,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 interface Tab {
-  label: string;
+  /** Dictionary key rendered through `i18n.t()` so the strip follows the locale. */
+  labelKey: string;
   glyph: CkGlyphName;
   route: string;
   exact?: boolean;
@@ -60,7 +62,7 @@ interface Tab {
             [style.transition]="'background 120ms var(--ck-ease-out), color 120ms'"
           >
             <ck-glyph [name]="t.glyph" [size]="12" />
-            {{ t.label }}
+            {{ i18n.t(t.labelKey) }}
           </a>
         }
       </div>
@@ -72,6 +74,7 @@ interface Tab {
 export class GovernanceShellComponent {
   private readonly router = inject(Router);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   private readonly url = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -84,13 +87,13 @@ export class GovernanceShellComponent {
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
   readonly tabs: Tab[] = [
-    { label: 'Audit log',       glyph: 'ledger', route: '/governance/audit' },
-    { label: 'Chat history',    glyph: 'ledger', route: '/governance/chat-history', adminOnly: true },
-    { label: 'Canonical answers', glyph: 'focus', route: '/governance/canonical-answers' },
-    { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
-    { label: 'Blueprints',      glyph: 'layers', route: '/governance/blueprints' },
-    { label: 'Workspace Apps',  glyph: 'layers', route: '/governance/workspace-apps', adminOnly: true },
-    { label: 'Surface map',     glyph: 'layers', route: '/governance/surface-map' },
+    { labelKey: 'governance.shell.audit',        glyph: 'ledger', route: '/governance/audit' },
+    { labelKey: 'governance.shell.chat_history', glyph: 'ledger', route: '/governance/chat-history', adminOnly: true },
+    { labelKey: 'governance.shell.canonical',    glyph: 'focus',  route: '/governance/canonical-answers' },
+    { labelKey: 'governance.shell.access',       glyph: 'focus',  route: '/governance/access' },
+    { labelKey: 'governance.shell.blueprints',   glyph: 'layers', route: '/governance/blueprints' },
+    { labelKey: 'governance.shell.apps',         glyph: 'layers', route: '/governance/workspace-apps', adminOnly: true },
+    { labelKey: 'governance.shell.surface',      glyph: 'layers', route: '/governance/surface-map' },
   ];
 
   /** Hide admin-only tabs (e.g. Chat history) from non-admin members. */

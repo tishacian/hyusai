@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Injector, signal } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceAppGovernanceApi } from './workspace-app-governance.api';
 import { WorkspaceAppLifecycleComponent } from './workspace-app-lifecycle.component';
@@ -168,6 +169,7 @@ function harness(admin = true) {
       WorkspaceAppLifecycleComponent,
       { provide: WorkspaceAppGovernanceApi, useValue: api },
       { provide: WorkspaceService, useValue: workspace },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   return {
@@ -270,6 +272,7 @@ test('a delayed registry response from workspace A cannot replace the loaded wor
       WorkspaceAppLifecycleComponent,
       { provide: WorkspaceAppGovernanceApi, useValue: api },
       { provide: WorkspaceService, useValue: workspace },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
     ],
   });
   const component = injector.get(WorkspaceAppLifecycleComponent);

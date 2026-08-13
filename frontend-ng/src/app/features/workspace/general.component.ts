@@ -33,9 +33,9 @@ const FIELD =
             <app-icon name="settings" [size]="18" />
           </div>
           <div>
-            <h2 class="text-base font-semibold text-white">Identity</h2>
+            <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.general.identity.title') }}</h2>
             <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
-              The display name appears everywhere; the slug is a stable identifier used in URLs and API headers.
+              {{ i18n.t('workspace.general.identity.description') }}
             </p>
           </div>
         </div>
@@ -44,7 +44,7 @@ const FIELD =
           <div class="space-y-4">
             <div>
               <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
-                Workspace name
+                {{ i18n.t('workspace.general.name.label') }}
               </label>
               <div class="flex gap-2">
                 <input
@@ -61,16 +61,16 @@ const FIELD =
                   class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
                 >
                   <app-icon name="save" [size]="14" />
-                  {{ saving() ? 'Saving…' : 'Save' }}
+                  {{ saving() ? i18n.t('workspace.saving') : i18n.t('common.save') }}
                 </button>
               </div>
               @if (!canEdit()) {
-                <p class="text-xs text-gray-500 mt-1">Only owners and admins can rename the workspace.</p>
+                <p class="text-xs text-gray-500 mt-1">{{ i18n.t('workspace.general.name.admins_only') }}</p>
               }
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Slug</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('workspace.general.slug.label') }}</label>
               <div class="flex gap-2">
                 <input
                   [value]="d.slug"
@@ -83,10 +83,10 @@ const FIELD =
                   class="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-200 rounded text-sm inline-flex items-center gap-1.5 transition"
                 >
                   <app-icon [name]="copied() ? 'check' : 'copy'" [size]="14" />
-                  {{ copied() ? 'Copied' : 'Copy' }}
+                  {{ copied() ? i18n.t('common.copied') : i18n.t('common.copy') }}
                 </button>
               </div>
-              <p class="text-xs text-gray-500 mt-1">Slugs cannot be changed once created.</p>
+              <p class="text-xs text-gray-500 mt-1">{{ i18n.t('workspace.general.slug.hint') }}</p>
             </div>
           </div>
         } @else {
@@ -105,11 +105,11 @@ const FIELD =
             </div>
             <div class="flex-1">
               <h2 class="text-base font-semibold text-white flex items-center gap-2">
-                Mode
+                {{ i18n.t('workspace.general.mode.title') }}
                 <ck-help id="workspace.mode.switch" />
               </h2>
               <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
-                Progressive disclosure of menus and cockpit pages. Data never changes—only what you see. Switch at any time.
+                {{ i18n.t('workspace.general.mode.description') }}
               </p>
             </div>
           </div>
@@ -127,12 +127,12 @@ const FIELD =
               >
                 <div class="flex items-center gap-2 mb-2">
                   <app-icon [name]="m.icon" [size]="16" class="text-cyan-400" />
-                  <span class="text-sm font-semibold text-white">{{ m.label }}</span>
+                  <span class="text-sm font-semibold text-white">{{ i18n.t(m.labelKey) }}</span>
                   @if (currentMode() === m.key) {
-                    <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
+                    <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">{{ i18n.t('workspace.general.active_badge') }}</span>
                   }
                 </div>
-                <p class="text-xs text-gray-400 leading-relaxed">{{ m.description }}</p>
+                <p class="text-xs text-gray-400 leading-relaxed">{{ i18n.t(m.descriptionKey) }}</p>
               </button>
             }
           </div>
@@ -143,9 +143,9 @@ const FIELD =
                   <app-icon name="eye-off" [size]="16" />
                 </div>
                 <div>
-                  <h3 class="text-sm font-semibold text-white">Demo-safe presentation</h3>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.demo_safe.title') }}</h3>
                   <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                    Hides provider and model implementation details in Chat, Systems, Resources and Presets while keeping the selected workspace mode active.
+                    {{ i18n.t('workspace.general.demo_safe.description') }}
                   </p>
                 </div>
               </div>
@@ -158,7 +158,7 @@ const FIELD =
                 [class.ring-cyan-400\\/60]="demoSafeMode()"
                 [class.bg-white\\/5]="!demoSafeMode()"
                 [class.ring-white\\/10]="!demoSafeMode()"
-                [title]="demoSafeMode() ? 'Provider/model names are hidden' : 'Provider/model names are visible'"
+                [title]="demoSafeMode() ? i18n.t('workspace.general.demo_safe.tooltip_on') : i18n.t('workspace.general.demo_safe.tooltip_off')"
               >
                 <span
                   class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
@@ -173,9 +173,9 @@ const FIELD =
                   <app-icon name="cloud-upload" [size]="16" />
                 </div>
                 <div>
-                  <h3 class="text-sm font-semibold text-white">Document upload in chat</h3>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.chat_upload.title') }}</h3>
                   <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                    Allows drop-and-ask in the workspace chat: members can drop files to ground answers on them. Turn off to hide the chat dropzone.
+                    {{ i18n.t('workspace.general.chat_upload.description') }}
                   </p>
                 </div>
               </div>
@@ -188,7 +188,7 @@ const FIELD =
                 [class.ring-cyan-400\\/60]="chatUploadEnabled()"
                 [class.bg-white\\/5]="!chatUploadEnabled()"
                 [class.ring-white\\/10]="!chatUploadEnabled()"
-                [title]="chatUploadEnabled() ? 'Drop-and-ask is enabled in chat' : 'Drop-and-ask is disabled in chat'"
+                [title]="chatUploadEnabled() ? i18n.t('workspace.general.chat_upload.tooltip_on') : i18n.t('workspace.general.chat_upload.tooltip_off')"
               >
                 <span
                   class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
@@ -199,7 +199,7 @@ const FIELD =
             </div>
           </div>
           @if (!canEdit()) {
-            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the workspace mode.</p>
+            <p class="text-xs text-gray-500 mt-3">{{ i18n.t('workspace.general.mode.admins_only') }}</p>
           }
         </section>
 
@@ -209,9 +209,9 @@ const FIELD =
               <app-icon name="message-square" [size]="18" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold text-white">Expert knowledge correction</h2>
+              <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.general.expert.title') }}</h2>
               <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
-                Lets reviewers correct or complete chat answers inline. Validated corrections become expert fiches that ground future answers.
+                {{ i18n.t('workspace.general.expert.description') }}
               </p>
             </div>
           </div>
@@ -236,7 +236,7 @@ const FIELD =
               [class.ring-cyan-400\\/60]="expertCorrectionEnabled()"
               [class.bg-white\\/5]="!expertCorrectionEnabled()"
               [class.ring-white\\/10]="!expertCorrectionEnabled()"
-              [title]="expertCorrectionEnabled() ? 'Inline chat correction is enabled' : 'Inline chat correction is disabled'"
+              [title]="expertCorrectionEnabled() ? i18n.t('workspace.general.expert.tooltip_on') : i18n.t('workspace.general.expert.tooltip_off')"
             >
               <span
                 class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
@@ -252,9 +252,9 @@ const FIELD =
                   <app-icon name="eye" [size]="16" />
                 </div>
                 <div>
-                  <h3 class="text-sm font-semibold text-white">Require expert review</h3>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.expert_review.title') }}</h3>
                   <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                    When on, corrections wait in review before publication. Turn off to auto-publish validated corrections immediately.
+                    {{ i18n.t('workspace.general.expert_review.description') }}
                   </p>
                 </div>
               </div>
@@ -267,7 +267,7 @@ const FIELD =
                 [class.ring-cyan-400\\/60]="expertReviewRequired()"
                 [class.bg-white\\/5]="!expertReviewRequired()"
                 [class.ring-white\\/10]="!expertReviewRequired()"
-                [title]="expertReviewRequired() ? 'Corrections require review before publication' : 'Corrections are auto-published'"
+                [title]="expertReviewRequired() ? i18n.t('workspace.general.expert_review.tooltip_on') : i18n.t('workspace.general.expert_review.tooltip_off')"
               >
                 <span
                   class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
@@ -278,7 +278,7 @@ const FIELD =
             </div>
           }
           @if (!canEdit()) {
-            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change expert correction settings.</p>
+            <p class="text-xs text-gray-500 mt-3">{{ i18n.t('workspace.general.expert.admins_only') }}</p>
           }
         </section>
 
@@ -288,9 +288,9 @@ const FIELD =
               <app-icon name="panel-left" [size]="18" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold text-white">Navigation profile</h2>
+              <h2 class="text-base font-semibold text-white">{{ i18n.t('workspace.general.navigation.title') }}</h2>
               <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
-                Simplifies the workspace for business end users. Admins keep the full {{ brand() }} cockpit by default.
+                {{ i18n.t('workspace.general.navigation.description') }}
               </p>
             </div>
           </div>
@@ -307,12 +307,12 @@ const FIELD =
             >
               <div class="flex items-center gap-2 mb-2">
                 <app-icon name="layout-dashboard" [size]="16" class="text-cyan-400" />
-                <span class="text-sm font-semibold text-white">Standard</span>
+                <span class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.navigation.standard.label') }}</span>
                 @if (!navigationProfileEnabled()) {
-                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">{{ i18n.t('workspace.general.active_badge') }}</span>
                 }
               </div>
-              <p class="text-xs text-gray-400 leading-relaxed">Full cockpit: Systems, Runs, Observability, Governance and workspace tools.</p>
+              <p class="text-xs text-gray-400 leading-relaxed">{{ i18n.t('workspace.general.navigation.standard.description') }}</p>
             </button>
             <button
               type="button"
@@ -326,18 +326,18 @@ const FIELD =
             >
               <div class="flex items-center gap-2 mb-2">
                 <app-icon name="message-square" [size]="16" class="text-cyan-400" />
-                <span class="text-sm font-semibold text-white">Business end-user</span>
+                <span class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.navigation.business.label') }}</span>
                 @if (navigationProfileEnabled()) {
-                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">{{ i18n.t('workspace.general.active_badge') }}</span>
                 }
               </div>
-              <p class="text-xs text-gray-400 leading-relaxed">Business users see only Recherche and Capture de connaissances.</p>
+              <p class="text-xs text-gray-400 leading-relaxed">{{ i18n.t('workspace.general.navigation.business.description') }}</p>
             </button>
           </div>
           @if (navigationProfileEnabled() && canEdit()) {
             <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
               <p class="text-xs text-gray-400 max-w-2xl">
-                Preview shows the same mini-shell business users will see. The top bar contains a return button for admins.
+                {{ i18n.t('workspace.general.navigation.preview.description') }}
               </p>
               <button
                 type="button"
@@ -345,42 +345,42 @@ const FIELD =
                 class="inline-flex items-center gap-2 px-3 py-2 rounded bg-cyan-300 hover:bg-cyan-200 text-sm font-semibold text-black"
               >
                 <app-icon name="eye" [size]="14" />
-                Preview business shell
+                {{ i18n.t('workspace.general.navigation.preview.cta') }}
               </button>
             </div>
           }
           @if (!canEdit()) {
-            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the navigation profile.</p>
+            <p class="text-xs text-gray-500 mt-3">{{ i18n.t('workspace.general.navigation.admins_only') }}</p>
           }
         </section>
 
         <section class="ck-surface rounded-md p-6">
           <h2 class="text-base font-semibold text-white mb-4 flex items-center gap-2">
             <app-icon name="info" [size]="16" class="text-cyan-400" />
-            Metadata
+            {{ i18n.t('workspace.general.metadata.title') }}
           </h2>
           <dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Your role</dt>
-              <dd class="text-white capitalize font-medium">{{ d.role }}</dd>
+              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">{{ i18n.t('workspace.general.metadata.role') }}</dt>
+              <dd class="text-white capitalize font-medium">{{ roleName(d.role) }}</dd>
             </div>
             <div>
-              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Members</dt>
+              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">{{ i18n.t('workspace.members') }}</dt>
               <dd class="text-white font-medium">{{ d.member_count }}</dd>
             </div>
             <div>
-              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Created</dt>
+              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">{{ i18n.t('workspace.general.metadata.created') }}</dt>
               <dd class="text-white">{{ d.created_at | date: 'mediumDate' }}</dd>
             </div>
             <div>
-              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Status</dt>
+              <dt class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1">{{ i18n.t('workspace.general.metadata.status') }}</dt>
               <dd>
                 @if (d.is_active) {
-                  <app-status-pulse tone="success" label="Active" />
+                  <app-status-pulse tone="success" [label]="i18n.t('workspace.status.active')" />
                 } @else {
                   <span class="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
                     <app-icon name="archive" [size]="11" />
-                    Archived
+                    {{ i18n.t('workspace.status.archived') }}
                   </span>
                 }
               </dd>
@@ -392,9 +392,7 @@ const FIELD =
   `,
 })
 export class WorkspaceGeneralComponent {
-  /** Screen copy names the product by its brand in this workspace. */
   protected readonly i18n = inject(I18nService);
-  protected readonly brand = inject(WorkspaceService).brandName;
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly route = inject(ActivatedRoute);
@@ -418,24 +416,24 @@ export class WorkspaceGeneralComponent {
   readonly savingExpertReview = signal(false);
   readonly copied = signal(false);
 
-  readonly modes: { key: SelectableWorkspaceMode; label: string; icon: string; description: string }[] = [
+  readonly modes: { key: SelectableWorkspaceMode; labelKey: string; icon: string; descriptionKey: string }[] = [
     {
       key: 'builder',
-      label: 'Builder',
+      labelKey: 'workspace.general.mode.builder.label',
       icon: 'wrench',
-      description: 'Focus on System Builder: capability, skills, context, policy. Hypervisor/ROI hidden.',
+      descriptionKey: 'workspace.general.mode.builder.description',
     },
     {
       key: 'operator',
-      label: 'Operator',
+      labelKey: 'workspace.general.mode.operator.label',
       icon: 'activity',
-      description: 'Daily operations: runs, decisions, steering. Portfolio KPIs reduced.',
+      descriptionKey: 'workspace.general.mode.operator.description',
     },
     {
       key: 'executive',
-      label: 'Executive',
+      labelKey: 'workspace.general.mode.executive.label',
       icon: 'briefcase',
-      description: 'Full portfolio view with Hypervisor, ROI, balance sheet and capability ranking.',
+      descriptionKey: 'workspace.general.mode.executive.description',
     },
   ];
 
@@ -511,8 +509,25 @@ export class WorkspaceGeneralComponent {
         this.detail.set(d);
         this.name = d.name;
       },
-      error: (err) => this.toastr.error(err?.error?.detail || 'Failed to load workspace', 'Error'),
+      error: (err) =>
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.load_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        ),
     });
+  }
+
+  /** Role values come from the API — translate with a fallback to the raw value. */
+  roleName(role: string): string {
+    const key = 'workspace.role.' + role;
+    const label = this.i18n.t(key);
+    return label === key ? role : label;
+  }
+
+  private modeLabel(mode: SelectableWorkspaceMode): string {
+    const key = 'workspace.general.mode.' + mode + '.label';
+    const label = this.i18n.t(key);
+    return label === key ? mode : label;
   }
 
   saveName(): void {
@@ -526,11 +541,17 @@ export class WorkspaceGeneralComponent {
         this.saving.set(false);
         this.detail.set(updated);
         this.name = updated.name;
-        this.toastr.success(`Workspace renamed to "${updated.name}"`, 'Saved');
+        this.toastr.success(
+          this.i18n.t('workspace.general.toast.renamed', { name: updated.name }),
+          this.i18n.t('workspace.toast.saved_title'),
+        );
       },
       error: (err) => {
         this.saving.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to rename workspace', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.rename_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -543,11 +564,17 @@ export class WorkspaceGeneralComponent {
       next: (updated) => {
         this.savingMode.set(false);
         this.detail.set(updated);
-        this.toastr.success(`Workspace mode set to "${mode}"`, 'Saved');
+        this.toastr.success(
+          this.i18n.t('workspace.general.toast.mode_set', { mode: this.modeLabel(mode) }),
+          this.i18n.t('workspace.toast.saved_title'),
+        );
       },
       error: (err) => {
         this.savingMode.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update mode', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.mode_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -569,13 +596,18 @@ export class WorkspaceGeneralComponent {
         this.savingDemoSafe.set(false);
         this.detail.set(updated);
         this.toastr.success(
-          enabled ? 'Provider and model details are hidden.' : 'Provider and model details are visible.',
-          'Saved',
+          enabled
+            ? this.i18n.t('workspace.general.toast.demo_safe_on')
+            : this.i18n.t('workspace.general.toast.demo_safe_off'),
+          this.i18n.t('workspace.toast.saved_title'),
         );
       },
       error: (err) => {
         this.savingDemoSafe.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update presentation setting', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.demo_safe_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -595,13 +627,18 @@ export class WorkspaceGeneralComponent {
         this.savingChatUpload.set(false);
         this.detail.set(updated);
         this.toastr.success(
-          enabled ? 'Document upload in chat is enabled.' : 'Document upload in chat is disabled.',
-          'Saved',
+          enabled
+            ? this.i18n.t('workspace.general.toast.chat_upload_on')
+            : this.i18n.t('workspace.general.toast.chat_upload_off'),
+          this.i18n.t('workspace.toast.saved_title'),
         );
       },
       error: (err) => {
         this.savingChatUpload.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update chat upload setting', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.chat_upload_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -621,13 +658,18 @@ export class WorkspaceGeneralComponent {
         this.detail.set(updated);
         this.workspaceService.refreshCurrentWorkspace().subscribe();
         this.toastr.success(
-          enabled ? 'Expert chat correction is enabled.' : 'Expert chat correction is disabled.',
-          'Saved',
+          enabled
+            ? this.i18n.t('workspace.general.toast.expert_on')
+            : this.i18n.t('workspace.general.toast.expert_off'),
+          this.i18n.t('workspace.toast.saved_title'),
         );
       },
       error: (err) => {
         this.savingExpertCorrection.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update expert correction setting', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.expert_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -647,13 +689,18 @@ export class WorkspaceGeneralComponent {
         this.detail.set(updated);
         this.workspaceService.refreshCurrentWorkspace().subscribe();
         this.toastr.success(
-          required ? 'Expert corrections now require review.' : 'Expert corrections are auto-published.',
-          'Saved',
+          required
+            ? this.i18n.t('workspace.general.toast.review_on')
+            : this.i18n.t('workspace.general.toast.review_off'),
+          this.i18n.t('workspace.toast.saved_title'),
         );
       },
       error: (err) => {
         this.savingExpertReview.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update review setting', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.review_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }
@@ -674,13 +721,18 @@ export class WorkspaceGeneralComponent {
         this.savingNavigationProfile.set(false);
         this.detail.set(updated);
         this.toastr.success(
-          enabled ? 'Business navigation profile enabled.' : 'Standard navigation restored.',
-          'Saved',
+          enabled
+            ? this.i18n.t('workspace.general.toast.navigation_on')
+            : this.i18n.t('workspace.general.toast.navigation_off'),
+          this.i18n.t('workspace.toast.saved_title'),
         );
       },
       error: (err) => {
         this.savingNavigationProfile.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to update navigation profile', 'Error');
+        this.toastr.error(
+          err?.error?.detail || this.i18n.t('workspace.general.toast.navigation_failed'),
+          this.i18n.t('workspace.toast.error_title'),
+        );
       },
     });
   }

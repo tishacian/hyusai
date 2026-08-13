@@ -13,11 +13,18 @@ import {
   type EvaluationPresetConfig,
   type EvaluationPresetResponse,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   GlyphComponent,
   PageFrameComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+
+/** Deferred i18n lookup, so a stored validation error re-renders on language flip. */
+interface DimensionMinError {
+  key: string;
+  params?: Record<string, string | number>;
+}
 
 /**
  * Presets · Evaluation thresholds — Vague E / E1.
@@ -43,17 +50,17 @@ import {
   imports: [FormsModule, RouterLink, PageFrameComponent, GlyphComponent, TagComponent],
   template: `
     <ck-page-frame
-      eyebrow="Presets · Evaluation thresholds"
-      title="Auto-evaluation loop"
-      description="Enabled by default for every workspace. When a run completes, the LLM-as-judge scores it in the background; turn the switch off here to opt out."
+      [eyebrow]="i18n.t('presets.evaluation.eyebrow')"
+      [title]="i18n.t('presets.evaluation.title')"
+      [description]="i18n.t('presets.evaluation.description')"
     >
       <div class="flex flex-col gap-5" style="max-width:780px;">
         @if (loading()) {
           <div
             class="ck-mono"
-            style="font-size:11px; padding:48px; text-align:center; color:var(--ck-fg-4);"
+            style="font-size:11px; padding:48px; text-align:center; color:var(--ck-fg-4); text-transform:uppercase;"
           >
-            LOADING…
+            {{ i18n.t('common.loading') }}
           </div>
         } @else {
           <!-- Master switch -->
@@ -66,19 +73,15 @@ import {
                     class="ck-mono"
                     style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);"
                   >
-                    AUTO-EVALUATION
+                    {{ i18n.t('presets.evaluation.master.title') }}
                   </h3>
                   <ck-tag [tone]="enabled() ? 'pos' : 'neutral'" variant="soft">
-                    {{ enabled() ? 'ON' : 'OFF' }}
+                    {{ enabled() ? i18n.t('presets.state.on') : i18n.t('presets.state.off') }}
                   </ck-tag>
                 </div>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); line-height:1.6;">
-                  When enabled, each completed run is scored by the
-                  LLM judge after it returns to the user — never on
-                  the critical path. Low-score runs surface in the
-                  <a routerLink="/steering/review-queue" style="color:var(--ck-signal-cool);">review queue</a>.
-                  Turn this off to opt out for the whole workspace.
-                  Budget: ~1 GPT-4o call per eligible run.
+                  {{ i18n.t('presets.evaluation.master.body1') }}
+                  <a routerLink="/steering/review-queue" style="color:var(--ck-signal-cool);">{{ i18n.t('presets.evaluation.master.queue') }}</a>{{ i18n.t('presets.evaluation.master.body2') }}
                 </p>
               </div>
               <label
@@ -95,7 +98,7 @@ import {
                   class="ck-mono"
                   style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-1);"
                 >
-                  ENABLE
+                  {{ i18n.t('presets.evaluation.enable') }}
                 </span>
               </label>
             </div>
@@ -113,7 +116,7 @@ import {
                 class="ck-mono"
                 style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);"
               >
-                THRESHOLDS
+                {{ i18n.t('presets.evaluation.thresholds.title') }}
               </h3>
             </div>
 
@@ -121,7 +124,7 @@ import {
             <div class="mb-6">
               <div class="flex items-center justify-between mb-2">
                 <label class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">
-                  Composite score minimum
+                  {{ i18n.t('presets.evaluation.composite.label') }}
                 </label>
                 <span
                   class="ck-mono ck-tnum"
@@ -145,11 +148,11 @@ import {
                 class="flex justify-between ck-mono"
                 style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-top:4px;"
               >
-                <span>PERMISSIVE (0)</span>
-                <span>STRICT (100)</span>
+                <span>{{ i18n.t('presets.evaluation.scale.permissive') }}</span>
+                <span>{{ i18n.t('presets.evaluation.scale.strict') }}</span>
               </div>
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                Runs with a composite score below this number are flagged. Default 60.
+                {{ i18n.t('presets.evaluation.composite.hint') }}
               </p>
             </div>
 
@@ -157,7 +160,7 @@ import {
             <div class="mb-6">
               <div class="flex items-center justify-between mb-2">
                 <label class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">
-                  Max hallucination rate
+                  {{ i18n.t('presets.evaluation.hallucination.label') }}
                 </label>
                 <span
                   class="ck-mono ck-tnum"
@@ -181,11 +184,11 @@ import {
                 class="flex justify-between ck-mono"
                 style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-top:4px;"
               >
-                <span>STRICT (0%)</span>
-                <span>PERMISSIVE (100%)</span>
+                <span>{{ i18n.t('presets.evaluation.hallucination.strict') }}</span>
+                <span>{{ i18n.t('presets.evaluation.hallucination.permissive') }}</span>
               </div>
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                Fraction of claims unsupported by retrieved context. Default 30%.
+                {{ i18n.t('presets.evaluation.hallucination.hint') }}
               </p>
             </div>
 
@@ -193,7 +196,7 @@ import {
             <div class="mb-6">
               <div class="flex items-center justify-between mb-2">
                 <label class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">
-                  Sampling rate
+                  {{ i18n.t('presets.evaluation.sampling.label') }}
                 </label>
                 <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-1);">
                   {{ (sampleRate() * 100).toFixed(0) }}%
@@ -210,7 +213,7 @@ import {
                 class="w-full accent-cyan-400"
               />
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                Probability that any given run is evaluated. Lower to save judge budget on high-volume workloads. Default 100%.
+                {{ i18n.t('presets.evaluation.sampling.hint') }}
               </p>
             </div>
 
@@ -220,7 +223,7 @@ import {
                 class="ck-mono cursor-pointer"
                 style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);"
               >
-                DIMENSION MINIMUMS (JSON)
+                {{ i18n.t('presets.evaluation.dimensions.title') }}
               </summary>
               <textarea
                 [ngModel]="dimensionMinJson()"
@@ -233,11 +236,11 @@ import {
               ></textarea>
               @if (dimensionMinError()) {
                 <div class="ck-mono" style="font-size:10px; color:var(--ck-signal-neg); margin-top:4px;">
-                  {{ dimensionMinError() }}
+                  {{ dimensionMinErrorLabel() }}
                 </div>
               }
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                Per-dimension floors on the 12-axis LLM judge. Any dimension below its floor fails the check. Dimensions: task_success, relevance, instruction_following, coherence, hallucination, tone, conciseness, safety, policy, drift, manipulation, tool_use.
+                {{ i18n.t('presets.evaluation.dimensions.hint') }}
               </p>
             </details>
           </section>
@@ -248,13 +251,12 @@ import {
             style="padding:14px 22px; display:flex; align-items:center; gap:14px;"
           >
             @if (dirty()) {
-              <ck-tag tone="warn" variant="soft">UNSAVED CHANGES</ck-tag>
+              <ck-tag tone="warn" variant="soft">{{ i18n.t('presets.evaluation.tag.unsaved') }}</ck-tag>
             } @else {
-              <ck-tag tone="pos" variant="soft">SYNCED</ck-tag>
+              <ck-tag tone="pos" variant="soft">{{ i18n.t('presets.evaluation.tag.synced') }}</ck-tag>
             }
             <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-              Workspace scope — these thresholds apply to every run in this workspace
-              unless a system/capability-level override exists.
+              {{ i18n.t('presets.evaluation.scope.hint') }}
             </span>
             <span class="ml-auto flex items-center gap-2">
               <a
@@ -262,7 +264,7 @@ import {
                 class="ck-mono"
                 style="padding:6px 12px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none;"
               >
-                VIEW REVIEW QUEUE
+                {{ i18n.t('presets.evaluation.queue.cta') }}
               </a>
               <button
                 type="button"
@@ -272,7 +274,7 @@ import {
                 style="padding:8px 16px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal); font-weight:600;"
                 [style.opacity]="!dirty() || saving() || !!dimensionMinError() ? '0.4' : '1'"
               >
-                {{ saving() ? 'SAVING…' : 'SAVE THRESHOLDS' }}
+                {{ saving() ? i18n.t('presets.saving') : i18n.t('presets.evaluation.save.cta') }}
               </button>
             </span>
           </section>
@@ -283,6 +285,7 @@ import {
 })
 export class EvaluationPresetComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
+  readonly i18n = inject(I18nService);
 
   readonly loading = signal(true);
   readonly saving = signal(false);
@@ -293,7 +296,12 @@ export class EvaluationPresetComponent implements OnInit {
   readonly hallucination = signal(0.3);
   readonly sampleRate = signal(1);
   readonly dimensionMinJson = signal('{\n  "safety": 80.0,\n  "hallucination": 50.0\n}');
-  readonly dimensionMinError = signal<string | null>(null);
+  readonly dimensionMinError = signal<DimensionMinError | null>(null);
+
+  readonly dimensionMinErrorLabel = computed(() => {
+    const error = this.dimensionMinError();
+    return error ? this.i18n.t(error.key, error.params) : '';
+  });
 
   readonly compositeTone = computed(() => {
     const v = this.composite();
@@ -349,18 +357,24 @@ export class EvaluationPresetComponent implements OnInit {
     try {
       const parsed = JSON.parse(value || '{}');
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        this.dimensionMinError.set('Must be a JSON object');
+        this.dimensionMinError.set({ key: 'presets.evaluation.dimensions.error.object' });
         return;
       }
       for (const [k, v] of Object.entries(parsed)) {
         if (typeof v !== 'number') {
-          this.dimensionMinError.set(`"${k}" must be a number`);
+          this.dimensionMinError.set({
+            key: 'presets.evaluation.dimensions.error.number',
+            params: { key: k },
+          });
           return;
         }
       }
       this.dimensionMinError.set(null);
     } catch (e) {
-      this.dimensionMinError.set(`Invalid JSON: ${(e as Error).message}`);
+      this.dimensionMinError.set({
+        key: 'presets.evaluation.dimensions.error.json',
+        params: { message: (e as Error).message },
+      });
     }
   }
 

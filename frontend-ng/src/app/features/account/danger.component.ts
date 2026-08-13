@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService } from '@app/core/auth-api.service';
@@ -19,17 +19,17 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
           <app-icon name="shield-alert" [size]="18" />
         </div>
         <div>
-          <h2 class="text-base font-semibold text-red-400">Danger zone</h2>
+          <h2 class="text-base font-semibold text-red-400">{{ i18n.t('account.danger') }}</h2>
           <p class="text-sm text-gray-400 mt-0.5">
-            Deleting your account is permanent. You will lose access to your workspaces and all related data.
+            {{ i18n.t('account.danger.description') }}
           </p>
         </div>
       </div>
 
       <div class="rounded-md border border-red-500/20 bg-red-500/5 p-5">
-        <h3 class="font-semibold text-red-300">Delete my account</h3>
+        <h3 class="font-semibold text-red-300">{{ i18n.t('account.danger.delete.title') }}</h3>
         <p class="text-sm text-gray-400 mt-1 mb-4">
-          This removes your user from Keycloak and {{ brand() }}. Transfer workspace ownerships first.
+          {{ i18n.t('account.danger.delete.description') }}
         </p>
         <button
           type="button"
@@ -38,16 +38,16 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
           class="inline-flex items-center gap-2 px-4 py-2 rounded bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium transition"
         >
           <app-icon name="trash-2" [size]="14" />
-          @if (deleting()) { Deleting… } @else { Delete my account permanently }
+          @if (deleting()) { {{ i18n.t('account.danger.deleting') }} } @else { {{ i18n.t('account.danger.delete.cta') }} }
         </button>
       </div>
     </div>
 
     <app-confirm-dialog
       [open]="confirmOpen()"
-      title="Permanently delete your account?"
-      description="This removes your user and ends every session. Type DELETE below to confirm."
-      confirmLabel="Delete forever"
+      [title]="i18n.t('account.danger.confirm_title')"
+      [description]="i18n.t('account.danger.confirm_description')"
+      [confirmLabel]="i18n.t('account.danger.confirm_cta')"
       confirmPhrase="DELETE"
       tone="danger"
       icon="trash-2"
@@ -57,8 +57,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   `,
 })
 export class DangerComponent {
-  /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
+  readonly i18n = inject(I18nService);
   private readonly api = inject(AuthApiService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authStore = inject(AuthStore);
@@ -79,7 +78,10 @@ export class DangerComponent {
       },
       error: (err) => {
         this.deleting.set(false);
-        this.toastr.error(err.error?.detail || 'Failed to delete account', 'Error');
+        this.toastr.error(
+          err.error?.detail || this.i18n.t('account.danger.toast.failed'),
+          this.i18n.t('account.toast.error_title'),
+        );
       },
     });
   }

@@ -38,6 +38,7 @@ import {
   type Context,
   type System,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 
 type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
 
@@ -57,8 +58,8 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
   ],
   template: `
     <ck-object-header
-      eyebrow="Contexts · Context"
-      [title]="ctx()?.name || 'Context'"
+      [eyebrow]="i18n.t('contexts.view.eyebrow')"
+      [title]="ctx()?.name || i18n.t('contexts.view.title_fallback')"
       [subtitle]="subtitle()"
       [kpis]="kpis()"
     >
@@ -68,14 +69,14 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         (click)="impactPanelOpen.set(true)"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
-        <app-icon name="alert-triangle" [size]="14" /> Impact
+        <app-icon name="alert-triangle" [size]="14" /> {{ i18n.t('contexts.view.impact') }}
       </button>
       <a
         actions
         routerLink="/steering/contexts"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
-        <app-icon name="arrow-left" [size]="14" /> Back
+        <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('common.back') }}
       </a>
       <button
         actions
@@ -84,26 +85,26 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         [disabled]="saving()"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-500/30 text-red-300 transition"
       >
-        <app-icon name="trash-2" [size]="14" /> Delete
+        <app-icon name="trash-2" [size]="14" /> {{ i18n.t('common.delete') }}
       </button>
     </ck-object-header>
 
     @if (!ctx()) {
       <div class="ck-surface rounded-md p-8 text-center text-gray-400 text-sm">
         <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
-        Loading context…
+        {{ i18n.t('contexts.view.loading') }}
       </div>
     } @else {
       <ck-tabs
         [active]="activeTab()"
         (activeChange)="onTabChange($event)"
-        ariaLabel="Context facets"
+        [ariaLabel]="i18n.t('contexts.view.facets_aria')"
       >
-        <ck-tab id="overview" label="Overview">
+        <ck-tab id="overview" [label]="i18n.t('contexts.view.tab.overview')">
           <section class="ck-surface t-elevated rounded-md p-5 space-y-4 max-w-2xl">
             <div>
               <label class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 block mb-1">
-                Name
+                {{ i18n.t('contexts.view.name') }}
               </label>
               <input
                 type="text"
@@ -113,11 +114,11 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
             </div>
             <div class="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Version</div>
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('contexts.view.version') }}</div>
                 <div class="text-lg font-semibold text-white tabular-nums">v{{ ctx()?.version ?? 1 }}</div>
               </div>
               <div>
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Created</div>
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('contexts.view.created') }}</div>
                 <div class="text-sm text-gray-300">{{ ctx()?.created_at?.slice(0, 10) || '—' }}</div>
               </div>
             </div>
@@ -129,16 +130,16 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
-                Save name
+                {{ i18n.t('contexts.view.save_name') }}
               </button>
             </div>
           </section>
         </ck-tab>
 
-        <ck-tab id="data" label="Data refs">
+        <ck-tab id="data" [label]="i18n.t('contexts.view.tab.data')">
           <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
-              Knowledge collections the Runs powered by this Context can cite.
+              {{ i18n.t('contexts.view.data_description') }}
             </p>
             @for (ref of draftDataRefs(); track $index; let i = $index) {
               <div class="flex items-center gap-2">
@@ -146,12 +147,12 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                   class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400"
                   [ngModel]="ref"
                   (ngModelChange)="setDataRef(i, $event)"
-                  placeholder="collection name"
+                  [placeholder]="i18n.t('contexts.view.data_placeholder')"
                 />
                 <button
                   type="button"
                   class="text-gray-500 hover:text-red-400 transition p-1"
-                  title="Remove"
+                  [title]="i18n.t('contexts.view.remove')"
                   (click)="removeDataRef(i)"
                 >
                   <app-icon name="x" [size]="14" />
@@ -164,7 +165,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200"
                 (click)="addDataRef()"
               >
-                <app-icon name="plus" [size]="12" /> Add ref
+                <app-icon name="plus" [size]="12" /> {{ i18n.t('contexts.view.add_ref') }}
               </button>
               <button
                 type="button"
@@ -173,16 +174,16 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
-                Save refs
+                {{ i18n.t('contexts.view.save_refs') }}
               </button>
             </div>
           </section>
         </ck-tab>
 
-        <ck-tab id="memory" label="Memory refs">
+        <ck-tab id="memory" [label]="i18n.t('contexts.view.tab.memory')">
           <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
-              Persistent memory bins (chat histories, vector stores) the Context opens at run time.
+              {{ i18n.t('contexts.view.memory_description') }}
             </p>
             @for (ref of draftMemoryRefs(); track $index; let i = $index) {
               <div class="flex items-center gap-2">
@@ -190,12 +191,12 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                   class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400"
                   [ngModel]="ref"
                   (ngModelChange)="setMemoryRef(i, $event)"
-                  placeholder="memory key"
+                  [placeholder]="i18n.t('contexts.view.memory_placeholder')"
                 />
                 <button
                   type="button"
                   class="text-gray-500 hover:text-red-400 transition p-1"
-                  title="Remove"
+                  [title]="i18n.t('contexts.view.remove')"
                   (click)="removeMemoryRef(i)"
                 >
                   <app-icon name="x" [size]="14" />
@@ -208,7 +209,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200"
                 (click)="addMemoryRef()"
               >
-                <app-icon name="plus" [size]="12" /> Add ref
+                <app-icon name="plus" [size]="12" /> {{ i18n.t('contexts.view.add_ref') }}
               </button>
               <button
                 type="button"
@@ -217,16 +218,16 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
-                Save refs
+                {{ i18n.t('contexts.view.save_refs') }}
               </button>
             </div>
           </section>
         </ck-tab>
 
-        <ck-tab id="permissions" label="Permissions">
+        <ck-tab id="permissions" [label]="i18n.t('contexts.view.tab.permissions')">
           <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
-              Free-form permissions bag (JSON). Consumed by the run engine to gate tool and resource access.
+              {{ i18n.t('contexts.view.permissions_description') }}
             </p>
             <textarea
               [(ngModel)]="permissionsDraft"
@@ -248,25 +249,25 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
-                Save permissions
+                {{ i18n.t('contexts.view.save_permissions') }}
               </button>
               <button
                 type="button"
                 (click)="resetPermissions()"
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
               >
-                Reset
+                {{ i18n.t('contexts.view.reset') }}
               </button>
             </div>
           </section>
         </ck-tab>
 
-        <ck-tab id="systems" label="Systems">
+        <ck-tab id="systems" [label]="i18n.t('contexts.view.tab.systems')">
           @if (boundSystems().length === 0) {
             <app-empty-state
               icon="cube"
-              title="No Systems bound"
-              description="No System references this Context as its primary context_id."
+              [title]="i18n.t('contexts.view.systems_empty_title')"
+              [description]="i18n.t('contexts.view.systems_empty_description')"
             />
           } @else {
             <ul class="space-y-2">
@@ -301,13 +302,13 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
       [open]="impactPanelOpen()"
       (openChange)="impactPanelOpen.set($event)"
       position="side"
-      eyebrow="Context · impact"
-      title="Downstream impact"
+      [eyebrow]="i18n.t('contexts.view.impact_eyebrow')"
+      [title]="i18n.t('contexts.view.impact_title')"
       width="420px"
     >
       @if (boundSystems().length === 0) {
         <p class="text-xs text-gray-400">
-          No System currently references this Context. Editing or deleting it is safe.
+          {{ i18n.t('contexts.view.impact_safe') }}
         </p>
       } @else {
         <div
@@ -315,8 +316,11 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
           style="color: var(--ck-signal-warn);"
         >
           <app-icon name="alert-triangle" [size]="12" class="inline-block mr-1" />
-          {{ boundSystems().length }} System{{ boundSystems().length === 1 ? '' : 's' }} reference this Context.
-          Changes propagate on next Run.
+          {{
+            boundSystems().length === 1
+              ? i18n.t('contexts.view.impact_warning_one')
+              : i18n.t('contexts.view.impact_warning_many', { count: boundSystems().length })
+          }}
         </div>
         <ul class="space-y-1.5">
           @for (sys of boundSystems(); track sys.id) {
@@ -339,6 +343,7 @@ export class ContextViewComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
+  readonly i18n = inject(I18nService);
 
   readonly ctx = signal<Context | null>(null);
   readonly systems = signal<System[]>([]);
@@ -361,7 +366,14 @@ export class ContextViewComponent implements OnInit {
   readonly subtitle = computed(() => {
     const c = this.ctx();
     if (!c) return '';
-    return `${c.data_refs?.length ?? 0} data refs · ${c.memory_refs?.length ?? 0} memory refs · ${this.boundSystems().length} System${this.boundSystems().length === 1 ? '' : 's'} bound.`;
+    const params = {
+      data: c.data_refs?.length ?? 0,
+      memory: c.memory_refs?.length ?? 0,
+      systems: this.boundSystems().length,
+    };
+    return this.boundSystems().length === 1
+      ? this.i18n.t('contexts.view.subtitle_one', params)
+      : this.i18n.t('contexts.view.subtitle_many', params);
   });
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
@@ -369,28 +381,28 @@ export class ContextViewComponent implements OnInit {
     const bound = this.boundSystems().length;
     return [
       {
-        label: 'Data refs',
+        label: this.i18n.t('contexts.view.tab.data'),
         value: String(c?.data_refs?.length ?? 0),
         tone: 'cool',
-        hint: 'Number of knowledge refs declared on this context.',
+        hint: this.i18n.t('contexts.view.kpi.data_hint'),
       },
       {
-        label: 'Memory refs',
+        label: this.i18n.t('contexts.view.tab.memory'),
         value: String(c?.memory_refs?.length ?? 0),
         tone: 'neutral',
-        hint: 'Number of memory bins opened at run time.',
+        hint: this.i18n.t('contexts.view.kpi.memory_hint'),
       },
       {
-        label: 'Systems',
+        label: this.i18n.t('contexts.view.tab.systems'),
         value: String(bound),
         tone: bound > 0 ? 'violet' : 'neutral',
-        hint: 'Systems currently bound via context_id.',
+        hint: this.i18n.t('contexts.view.kpi.systems_hint'),
       },
       {
-        label: 'Version',
+        label: this.i18n.t('contexts.view.version'),
         value: `v${c?.version ?? 1}`,
         tone: 'neutral',
-        hint: 'Increments on every save.',
+        hint: this.i18n.t('contexts.view.kpi.version_hint'),
       },
     ];
   });
@@ -416,14 +428,14 @@ export class ContextViewComponent implements OnInit {
     this.canonical.getContext(id).subscribe({
       next: (c) => {
         if (!c) {
-          this.toast.error('Context not found', 'Contexts');
+          this.toast.error(this.i18n.t('contexts.toast.not_found'), this.i18n.t('contexts.page.title'));
           this.router.navigateByUrl('/steering/contexts');
           return;
         }
         this.applyContext(c);
       },
       error: () => {
-        this.toast.error('Could not load context', 'Contexts');
+        this.toast.error(this.i18n.t('contexts.toast.load_failed'), this.i18n.t('contexts.page.title'));
         this.router.navigateByUrl('/steering/contexts');
       },
     });
@@ -506,24 +518,30 @@ export class ContextViewComponent implements OnInit {
     const c = this.ctx();
     if (!c) return;
     const bound = this.boundSystems().length;
-    const msg = bound > 0
-      ? `Delete "${c.name}"? ${bound} System${bound === 1 ? '' : 's'} will lose their context pin.`
-      : `Delete "${c.name}"?`;
+    const msg =
+      bound === 0
+        ? this.i18n.t('contexts.confirm.delete', { name: c.name })
+        : bound === 1
+          ? this.i18n.t('contexts.confirm.delete_bound_one', { name: c.name })
+          : this.i18n.t('contexts.confirm.delete_bound_many', { name: c.name, count: bound });
     if (!confirm(msg)) return;
     this.saving.set(true);
     this.canonical.deleteContext(c.id).subscribe({
       next: (ok) => {
         this.saving.set(false);
         if (ok) {
-          this.toast.success(`${c.name} deleted`, 'Context');
+          this.toast.success(
+            this.i18n.t('contexts.toast.deleted', { name: c.name }),
+            this.i18n.t('contexts.view.title_fallback'),
+          );
           this.router.navigateByUrl('/steering/contexts');
         } else {
-          this.toast.error('Delete failed', 'Context');
+          this.toast.error(this.i18n.t('contexts.toast.delete_failed'), this.i18n.t('contexts.view.title_fallback'));
         }
       },
       error: () => {
         this.saving.set(false);
-        this.toast.error('Delete failed', 'Context');
+        this.toast.error(this.i18n.t('contexts.toast.delete_failed'), this.i18n.t('contexts.view.title_fallback'));
       },
     });
   }
@@ -537,14 +555,17 @@ export class ContextViewComponent implements OnInit {
         this.saving.set(false);
         if (updated) {
           this.applyContext(updated);
-          this.toast.success(`v${updated.version ?? '?'} saved`, 'Context updated');
+          this.toast.success(
+            this.i18n.t('contexts.toast.saved', { version: updated.version ?? '?' }),
+            this.i18n.t('contexts.toast.updated_title'),
+          );
         } else {
-          this.toast.error('Update failed', 'Context');
+          this.toast.error(this.i18n.t('contexts.toast.update_failed'), this.i18n.t('contexts.view.title_fallback'));
         }
       },
       error: () => {
         this.saving.set(false);
-        this.toast.error('Update failed', 'Context');
+        this.toast.error(this.i18n.t('contexts.toast.update_failed'), this.i18n.t('contexts.view.title_fallback'));
       },
     });
   }

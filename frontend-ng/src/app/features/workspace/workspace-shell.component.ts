@@ -3,15 +3,16 @@ import { ActivatedRoute, RouterLink, RouterLinkActive, RouterOutlet } from '@ang
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 
 interface TabItem {
   path: string;
-  label: string;
+  labelKey: string;
   icon: string;
-  description: string;
+  descriptionKey: string;
   ownerOnly?: boolean;
 }
 
@@ -30,15 +31,19 @@ interface TabItem {
     <div class="max-w-6xl mx-auto">
       @if (workspaceService.current(); as current) {
         <app-section-header
-          breadcrumb="Workspace"
+          [breadcrumb]="i18n.t('workspace.shell.breadcrumb')"
           [title]="current.name"
           icon="building-2"
-          [subtitle]="'Slug · ' + current.slug + ' · Your role · ' + current.role"
+          [subtitle]="i18n.t('workspace.shell.subtitle', { slug: current.slug, role: roleName(current.role) })"
         >
-          <app-status-pulse tone="success" label="Active" />
+          <app-status-pulse tone="success" [label]="i18n.t('workspace.status.active')" />
         </app-section-header>
       } @else {
-        <app-section-header breadcrumb="Workspace" title="Workspace" icon="building-2" />
+        <app-section-header
+          [breadcrumb]="i18n.t('workspace.shell.breadcrumb')"
+          [title]="i18n.t('workspace.shell.breadcrumb')"
+          icon="building-2"
+        />
       }
 
       <div class="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 md:gap-8">
@@ -53,9 +58,9 @@ interface TabItem {
             >
               <div class="flex items-center gap-2.5">
                 <app-icon [name]="tab.icon" [size]="16" class="text-cyan-400" />
-                <span class="font-medium">{{ tab.label }}</span>
+                <span class="font-medium">{{ i18n.t(tab.labelKey) }}</span>
               </div>
-              <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ tab.description }}</div>
+              <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ i18n.t(tab.descriptionKey) }}</div>
             </a>
           }
         </aside>
@@ -70,6 +75,7 @@ interface TabItem {
 })
 export class WorkspaceShellComponent {
   protected readonly workspaceService = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
 
   private readonly routeSlug = toSignal(
@@ -95,35 +101,52 @@ export class WorkspaceShellComponent {
   }
 
   readonly allTabs = signal<TabItem[]>([
-    { path: 'settings', label: 'General', icon: 'settings', description: 'Name, identity, metadata' },
+    {
+      path: 'settings',
+      labelKey: 'workspace.general',
+      icon: 'settings',
+      descriptionKey: 'workspace.shell.tab.general.description',
+    },
     {
       path: 'chat',
-      label: 'Chat',
+      labelKey: 'workspace.shell.tab.chat',
       icon: 'message-square',
-      description: 'Expanded workspace assistant',
+      descriptionKey: 'workspace.shell.tab.chat.description',
     },
     {
       path: 'chat-knowledge',
-      label: 'Chat & Sources',
+      labelKey: 'workspace.chat_sources.title',
       icon: 'database',
-      description: 'Sources, chat defaults',
+      descriptionKey: 'workspace.shell.tab.chat_knowledge.description',
     },
-    { path: 'members', label: 'Members', icon: 'users', description: 'Invite, roles, remove' },
+    {
+      path: 'members',
+      labelKey: 'workspace.members',
+      icon: 'users',
+      descriptionKey: 'workspace.shell.tab.members.description',
+    },
     {
       path: 'access',
-      label: 'Access & IAM',
+      labelKey: 'workspace.shell.tab.access',
       icon: 'shield-check',
-      description: 'Role templates, labels, flags',
+      descriptionKey: 'workspace.shell.tab.access.description',
     },
     {
       path: 'danger',
-      label: 'Danger zone',
+      labelKey: 'workspace.danger',
       icon: 'shield-alert',
-      description: 'Leave, transfer, delete',
+      descriptionKey: 'workspace.shell.tab.danger.description',
     },
   ]);
 
   readonly visibleTabs = computed(() =>
     this.allTabs().filter((t) => !t.ownerOnly || this.workspaceService.isOwner())
   );
+
+  /** Role values come from the API — translate with a fallback to the raw value. */
+  roleName(role: string): string {
+    const key = 'workspace.role.' + role;
+    const label = this.i18n.t(key);
+    return label === key ? role : label;
+  }
 }

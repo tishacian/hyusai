@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { AuthApiService, KcSession } from '@app/core/auth-api.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
@@ -21,9 +22,9 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
             <app-icon name="monitor" [size]="18" />
           </div>
           <div>
-            <h2 class="text-base font-semibold text-white">Active sessions</h2>
+            <h2 class="text-base font-semibold text-white">{{ i18n.t('account.sessions.title') }}</h2>
             <p class="text-sm text-gray-400 mt-0.5">
-              Review where you are signed in and sign out everywhere if needed.
+              {{ i18n.t('account.sessions.description') }}
             </p>
           </div>
         </div>
@@ -34,7 +35,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
           class="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition disabled:opacity-50"
         >
           <app-icon name="log-out" [size]="14" />
-          @if (signingOut()) { Signing out… } @else { Sign out everywhere }
+          @if (signingOut()) { {{ i18n.t('account.sessions.signing_out') }} } @else { {{ i18n.t('account.sessions.signout_all') }} }
         </button>
       </div>
 
@@ -44,7 +45,11 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
           <app-skeleton height="56px" />
         </div>
       } @else if (sessions().length === 0) {
-        <app-empty-state icon="monitor" title="No active sessions" description="Nothing to display." />
+        <app-empty-state
+          icon="monitor"
+          [title]="i18n.t('account.sessions.empty.title')"
+          [description]="i18n.t('account.sessions.empty.description')"
+        />
       } @else {
         <div class="space-y-2">
           @for (s of sessions(); track s.id) {
@@ -74,9 +79,9 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 
     <app-confirm-dialog
       [open]="confirmOpen()"
-      title="Sign out of every device?"
-      description="You will be signed out on every device including this one."
-      confirmLabel="Sign out everywhere"
+      [title]="i18n.t('account.sessions.confirm_title')"
+      [description]="i18n.t('account.sessions.confirm_description')"
+      [confirmLabel]="i18n.t('account.sessions.signout_all')"
       tone="danger"
       icon="log-out"
       (cancel)="confirmOpen.set(false)"
@@ -85,6 +90,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
   `,
 })
 export class SessionsComponent {
+  readonly i18n = inject(I18nService);
   private readonly api = inject(AuthApiService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authStore = inject(AuthStore);
@@ -126,7 +132,10 @@ export class SessionsComponent {
       },
       error: (err) => {
         this.signingOut.set(false);
-        this.toastr.error(err.error?.detail || 'Failed to sign out all sessions', 'Error');
+        this.toastr.error(
+          err.error?.detail || this.i18n.t('account.sessions.toast.failed'),
+          this.i18n.t('account.toast.error_title'),
+        );
       },
     });
   }

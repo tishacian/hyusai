@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService, UserProfile } from '@app/core/auth-api.service';
@@ -20,9 +20,9 @@ const FIELD_CLASS =
           <app-icon name="user-round" [size]="18" />
         </div>
         <div>
-          <h2 class="text-base font-semibold text-white">Profile</h2>
+          <h2 class="text-base font-semibold text-white">{{ i18n.t('account.profile') }}</h2>
           <p class="text-sm text-gray-400 mt-0.5">
-            Your identity across {{ brand() }}, shared with workspace members.
+            {{ i18n.t('account.profile.description') }}
           </p>
         </div>
       </div>
@@ -37,32 +37,32 @@ const FIELD_CLASS =
         <form (ngSubmit)="save()" class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">First name</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('account.profile.first_name') }}</label>
               <input [(ngModel)]="firstName" name="firstName" [class]="field" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Last name</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('account.profile.last_name') }}</label>
               <input [(ngModel)]="lastName" name="lastName" [class]="field" />
             </div>
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Email</label>
+            <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('account.profile.email') }}</label>
             <input
               [value]="p.email"
               disabled
               class="w-full px-3 py-2 rounded bg-black/40 border border-white/5 text-gray-500 cursor-not-allowed"
             />
-            <p class="text-xs text-gray-500 mt-1">Contact an administrator to change your email.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ i18n.t('account.profile.email_hint') }}</p>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Phone</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('account.profile.phone') }}</label>
               <input [(ngModel)]="phone" name="phone" [class]="field" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Company</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">{{ i18n.t('account.profile.company') }}</label>
               <input [(ngModel)]="company" name="company" [class]="field" />
             </div>
           </div>
@@ -79,7 +79,7 @@ const FIELD_CLASS =
               class="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
             >
               <app-icon name="save" [size]="14" />
-              @if (saving()) { Saving… } @else { Save changes }
+              @if (saving()) { {{ i18n.t('account.saving') }} } @else { {{ i18n.t('account.profile.save_cta') }} }
             </button>
           </div>
         </form>
@@ -88,8 +88,7 @@ const FIELD_CLASS =
   `,
 })
 export class ProfileComponent {
-  /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
+  readonly i18n = inject(I18nService);
   private readonly api = inject(AuthApiService);
   private readonly toastr = inject(ToastrService);
 
@@ -138,11 +137,17 @@ export class ProfileComponent {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.toastr.success('Profile updated', 'Saved');
+          this.toastr.success(
+            this.i18n.t('account.profile.toast.updated'),
+            this.i18n.t('account.toast.saved_title'),
+          );
         },
         error: (err) => {
           this.saving.set(false);
-          this.toastr.error(err.error?.detail || 'Failed to update profile', 'Error');
+          this.toastr.error(
+            err.error?.detail || this.i18n.t('account.profile.toast.update_failed'),
+            this.i18n.t('account.toast.error_title'),
+          );
         },
       });
   }

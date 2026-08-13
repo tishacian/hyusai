@@ -185,17 +185,17 @@ interface AssistantProfileDraft {
   imports: [FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
-      breadcrumb="Workspace · Defaults"
-      title="Chat & Sources"
+      [breadcrumb]="i18n.t('workspace.chat_sources.breadcrumb')"
+      [title]="i18n.t('workspace.chat_sources.title')"
       icon="database"
-      subtitle="Configure the source scopes, chat defaults and assistant metadata used by Quick ask."
+      [subtitle]="i18n.t('workspace.chat_sources.subtitle')"
     >
       <button
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
         (click)="load()"
       >
-        <app-icon name="refresh-cw" [size]="14" /> Refresh
+        <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.refresh') }}
       </button>
       <button
         type="button"
@@ -203,7 +203,7 @@ interface AssistantProfileDraft {
         [disabled]="saving() || !canEdit()"
         (click)="saveAll()"
       >
-        <app-icon name="save" [size]="14" /> {{ saving() ? 'Saving...' : 'Save defaults' }}
+        <app-icon name="save" [size]="14" /> {{ saving() ? i18n.t('workspace.saving') : i18n.t('workspace.chat_sources.save_cta') }}
       </button>
     </app-section-header>
 
@@ -218,11 +218,10 @@ interface AssistantProfileDraft {
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Source routing</p>
-              <h3 class="text-base font-semibold text-white mt-1">Source scopes</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.scopes.eyebrow') }}</p>
+              <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.scopes.title') }}</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                A scope gives Quick ask a clear label and maps it to one or more indexed collections.
-                The default scope is the workspace context used when no System is selected.
+                {{ i18n.t('workspace.chat_sources.scopes.description') }}
               </p>
             </div>
             <button
@@ -231,7 +230,7 @@ interface AssistantProfileDraft {
               [disabled]="!canEdit()"
               (click)="addScope()"
             >
-              <app-icon name="plus" [size]="14" /> Add scope
+              <app-icon name="plus" [size]="14" /> {{ i18n.t('workspace.chat_sources.scopes.add') }}
             </button>
           </div>
 
@@ -248,8 +247,8 @@ interface AssistantProfileDraft {
                       (change)="setDefaultScope(i)"
                     />
                     <span>
-                      <span class="block text-sm font-semibold text-gray-100">Default context</span>
-                      <span class="block text-xs text-gray-500">Used by Quick ask unless the default assistant profile defines another source.</span>
+                      <span class="block text-sm font-semibold text-gray-100">{{ i18n.t('workspace.chat_sources.scopes.default_badge') }}</span>
+                      <span class="block text-xs text-gray-500">{{ i18n.t('workspace.chat_sources.scopes.default_hint') }}</span>
                     </span>
                   </label>
                   <button
@@ -258,24 +257,24 @@ interface AssistantProfileDraft {
                     [disabled]="!canEdit() || scopes().length <= 1"
                     (click)="removeScope(i)"
                   >
-                    <app-icon name="trash-2" [size]="13" /> Remove
+                    <app-icon name="trash-2" [size]="13" /> {{ i18n.t('workspace.chat_sources.remove') }}
                   </button>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-[minmax(150px,0.75fr)_minmax(240px,1.25fr)]">
                   <label class="block">
-                    <span class="field-label">Key</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.field.key') }}</span>
                     <input class="ag-field font-mono" [(ngModel)]="scope.key" [disabled]="!canEdit()" />
                   </label>
                   <label class="block">
-                    <span class="field-label">Visible label</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.label') }}</span>
                     <input class="ag-field" [(ngModel)]="scope.label" [disabled]="!canEdit()" />
                   </label>
                 </div>
 
                 <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-[minmax(160px,220px)_minmax(110px,140px)_minmax(200px,1fr)_minmax(200px,1fr)]">
                   <label class="block">
-                    <span class="field-label">Retrieval mode</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.retrieval_mode') }}</span>
                     <span class="ag-select-wrap">
                       <select class="ag-select" [(ngModel)]="scope.default_mode" [disabled]="!canEdit()">
                         @for (mode of ragModes; track mode) {
@@ -286,14 +285,14 @@ interface AssistantProfileDraft {
                     </span>
                   </label>
                   <label class="block">
-                    <span class="field-label">Top-K</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.top_k') }}</span>
                     <input class="ag-field" type="number" min="1" max="50" [(ngModel)]="scope.top_k" [disabled]="!canEdit()" />
                   </label>
                   <label class="block">
-                    <span class="field-label">Table profile</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.table_profile') }}</span>
                     <span class="ag-select-wrap">
                       <select class="ag-select" [(ngModel)]="scope.table_profile_key" [disabled]="!canEdit()">
-                        <option value="">Workspace default</option>
+                        <option value="">{{ i18n.t('workspace.chat_sources.option.workspace_default') }}</option>
                         @for (profile of tableProfileOptions(); track profile.key) {
                           <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
                         }
@@ -302,10 +301,10 @@ interface AssistantProfileDraft {
                     </span>
                   </label>
                   <label class="block">
-                    <span class="field-label">Document profile</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.document_profile') }}</span>
                     <span class="ag-select-wrap">
                       <select class="ag-select" [(ngModel)]="scope.document_profile_key" [disabled]="!canEdit()">
-                        <option value="">Workspace default</option>
+                        <option value="">{{ i18n.t('workspace.chat_sources.option.workspace_default') }}</option>
                         @for (profile of documentProfileOptions(); track profile.key) {
                           <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
                         }
@@ -316,12 +315,12 @@ interface AssistantProfileDraft {
                 </div>
 
                 <label class="block mt-4">
-                  <span class="field-label">Description</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.field.description') }}</span>
                   <input class="ag-field" [(ngModel)]="scope.description" [disabled]="!canEdit()" />
                 </label>
 
                 <label class="block mt-4">
-                  <span class="field-label">Collection slugs</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.scopes.collections') }}</span>
                   <input
                     class="ag-field font-mono"
                     [(ngModel)]="scope.collection_slugs_text"
@@ -333,23 +332,23 @@ interface AssistantProfileDraft {
                 <div class="knowledge-guide-panel mt-5">
                   <div class="knowledge-guide-header">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Knowledge guide</p>
-                      <h4 class="text-sm font-semibold text-white mt-1">Markdown context for this scope</h4>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.guide.eyebrow') }}</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.guide.title') }}</h4>
                       <p class="text-xs text-gray-500 mt-1 leading-relaxed">
-                        Published guides are injected into retrieval, query expansion and the answer prompt as a source distinct from raw documents.
+                        {{ i18n.t('workspace.chat_sources.guide.description') }}
                       </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                       @if (currentGuideForScope(scope.key); as guide) {
                         <span class="guide-badge" [class.guide-badge-published]="guide.status === 'published'">
-                          v{{ guide.version }} · {{ guide.status }}
+                          v{{ guide.version }} · {{ guideStatusLabel(guide.status) }}
                         </span>
                         <button
                           type="button"
                           class="guide-button"
                           (click)="openGuideEditor(scope.key, guide)"
                         >
-                          <app-icon name="pencil" [size]="13" /> Edit
+                          <app-icon name="pencil" [size]="13" /> {{ i18n.t('common.edit') }}
                         </button>
                       } @else {
                         <button
@@ -358,7 +357,7 @@ interface AssistantProfileDraft {
                           [disabled]="!canEdit()"
                           (click)="openGuideEditor(scope.key)"
                         >
-                          <app-icon name="plus" [size]="13" /> Add guide
+                          <app-icon name="plus" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.add') }}
                         </button>
                       }
                       <button
@@ -367,7 +366,7 @@ interface AssistantProfileDraft {
                         [disabled]="guideVersionsForScope(scope.key).length === 0"
                         (click)="toggleGuideHistory(scope.key)"
                       >
-                        <app-icon name="history" [size]="13" /> History
+                        <app-icon name="history" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.history') }}
                       </button>
                     </div>
                   </div>
@@ -376,24 +375,24 @@ interface AssistantProfileDraft {
                     <div class="knowledge-guide-current">
                       <div class="min-w-0">
                         <p class="text-sm font-semibold text-gray-100 truncate">{{ guide.title }}</p>
-                        <p class="mt-1 text-xs leading-relaxed text-gray-500 line-clamp-2">{{ guide.snippet || guide.markdown || 'No markdown yet.' }}</p>
+                        <p class="mt-1 text-xs leading-relaxed text-gray-500 line-clamp-2">{{ guide.snippet || guide.markdown || i18n.t('workspace.chat_sources.guide.no_markdown') }}</p>
                       </div>
                       <div class="guide-current-actions">
                         @if (guide.status !== 'published') {
                           <button type="button" class="guide-button guide-button-good" [disabled]="!canEdit()" (click)="publishGuide(guide)">
-                            <app-icon name="send" [size]="13" /> Publish
+                            <app-icon name="send" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.publish') }}
                           </button>
                         }
                         @if (guide.status !== 'archived') {
                           <button type="button" class="guide-button guide-button-danger" [disabled]="!canEdit()" (click)="archiveGuide(guide)">
-                            <app-icon name="archive" [size]="13" /> Archive
+                            <app-icon name="archive" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.archive') }}
                           </button>
                         }
                       </div>
                     </div>
                   } @else {
                     <div class="knowledge-guide-empty">
-                      No guide attached to this scope yet. Add one when users need domain vocabulary, abbreviations or interpretation rules that should travel with retrieval.
+                      {{ i18n.t('workspace.chat_sources.guide.empty') }}
                     </div>
                   }
 
@@ -403,23 +402,23 @@ interface AssistantProfileDraft {
                         <div class="guide-history-row">
                           <div class="min-w-0">
                             <p class="text-xs font-semibold text-gray-100 truncate">
-                              v{{ version.version }} · {{ version.status }} · {{ version.title }}
+                              v{{ version.version }} · {{ guideStatusLabel(version.status) }} · {{ version.title }}
                             </p>
                             <p class="mt-1 text-[11px] text-gray-500">
-                              {{ formatDate(version.created_at) }} @if (version.published_at) { · published {{ formatDate(version.published_at) }} }
+                              {{ formatDate(version.created_at) }} @if (version.published_at) { · {{ i18n.t('workspace.chat_sources.guide.published_on', { date: formatDate(version.published_at) }) }} }
                             </p>
                           </div>
                           <div class="flex items-center gap-2">
                             <button type="button" class="guide-button" (click)="openGuideEditor(scope.key, version, 'restore')">
-                              <app-icon name="rotate-ccw" [size]="13" /> Restore
+                              <app-icon name="rotate-ccw" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.restore') }}
                             </button>
                             <button type="button" class="guide-button" (click)="openGuideEditor(scope.key, version)">
-                              <app-icon name="eye" [size]="13" /> View
+                              <app-icon name="eye" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.view') }}
                             </button>
                           </div>
                         </div>
                       } @empty {
-                        <p class="px-3 py-2 text-xs text-gray-500">No version history yet.</p>
+                        <p class="px-3 py-2 text-xs text-gray-500">{{ i18n.t('workspace.chat_sources.guide.no_history') }}</p>
                       }
                     </div>
                   }
@@ -430,20 +429,20 @@ interface AssistantProfileDraft {
                         <div class="guide-editor-bar">
                           <div>
                             <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">
-                              {{ editor.mode === 'create' ? 'New guide' : editor.mode === 'restore' ? 'Restore version' : 'Edit guide' }}
+                              {{ editor.mode === 'create' ? i18n.t('workspace.chat_sources.guide.editor.title_new') : editor.mode === 'restore' ? i18n.t('workspace.chat_sources.guide.editor.title_restore') : i18n.t('workspace.chat_sources.guide.editor.title_edit') }}
                             </p>
                             <h5 class="text-sm font-semibold text-white mt-1">
-                              {{ editor.mode === 'restore' ? 'Create a new current version from v' + editor.source_version : 'Versioned Markdown editor' }}
+                              {{ editor.mode === 'restore' ? i18n.t('workspace.chat_sources.guide.editor.restore_hint', { version: editor.source_version ?? '' }) : i18n.t('workspace.chat_sources.guide.editor.subtitle') }}
                             </h5>
                           </div>
                           <button type="button" class="guide-button" (click)="closeGuideEditor()">
-                            <app-icon name="x" [size]="13" /> Close
+                            <app-icon name="x" [size]="13" /> {{ i18n.t('common.close') }}
                           </button>
                         </div>
 
                         <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px]">
                           <label class="block">
-                            <span class="field-label">Title</span>
+                            <span class="field-label">{{ i18n.t('workspace.chat_sources.guide.editor.field_title') }}</span>
                             <input
                               class="ag-field"
                               [ngModel]="editor.title"
@@ -452,7 +451,7 @@ interface AssistantProfileDraft {
                             />
                           </label>
                           <label class="block">
-                            <span class="field-label">Status</span>
+                            <span class="field-label">{{ i18n.t('workspace.chat_sources.guide.editor.field_status') }}</span>
                             <span class="ag-select-wrap">
                               <select
                                 class="ag-select"
@@ -460,9 +459,9 @@ interface AssistantProfileDraft {
                                 [disabled]="!canEdit()"
                                 (ngModelChange)="updateGuideEditor('status', $event)"
                               >
-                                <option value="draft">draft</option>
-                                <option value="published">published</option>
-                                <option value="archived">archived</option>
+                                <option value="draft">{{ i18n.t('workspace.chat_sources.guide.status.draft') }}</option>
+                                <option value="published">{{ i18n.t('workspace.chat_sources.guide.status.published') }}</option>
+                                <option value="archived">{{ i18n.t('workspace.chat_sources.guide.status.archived') }}</option>
                               </select>
                               <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
                             </span>
@@ -471,7 +470,7 @@ interface AssistantProfileDraft {
 
                         <div class="guide-editor-grid">
                           <label class="block">
-                            <span class="field-label">Markdown</span>
+                            <span class="field-label">{{ i18n.t('workspace.chat_sources.guide.editor.markdown') }}</span>
                             <textarea
                               class="ag-field guide-markdown-field"
                               [ngModel]="editor.markdown"
@@ -481,7 +480,7 @@ interface AssistantProfileDraft {
                             ></textarea>
                           </label>
                           <div class="guide-preview">
-                            <span class="field-label">Preview</span>
+                            <span class="field-label">{{ i18n.t('workspace.chat_sources.guide.editor.preview') }}</span>
                             <div class="guide-preview-body">
                               @for (line of markdownPreviewLines(editor.markdown); track $index) {
                                 @if (markdownLineKind(line) === 'h1') {
@@ -504,7 +503,7 @@ interface AssistantProfileDraft {
 
                         <div class="guide-editor-actions">
                           <p class="text-xs text-gray-500">
-                            Saving creates a new auditable version. Published versions are used by chat retrieval immediately.
+                            {{ i18n.t('workspace.chat_sources.guide.editor.hint') }}
                           </p>
                           <div class="flex flex-wrap items-center gap-2">
                             <button
@@ -513,7 +512,7 @@ interface AssistantProfileDraft {
                               [disabled]="guideSaving() || !canEdit()"
                               (click)="saveGuide('draft')"
                             >
-                              <app-icon name="save" [size]="13" /> Save draft
+                              <app-icon name="save" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.editor.save_draft') }}
                             </button>
                             <button
                               type="button"
@@ -521,7 +520,7 @@ interface AssistantProfileDraft {
                               [disabled]="guideSaving() || !canEdit()"
                               (click)="saveGuide('published')"
                             >
-                              <app-icon name="send" [size]="13" /> Publish
+                              <app-icon name="send" [size]="13" /> {{ i18n.t('workspace.chat_sources.guide.publish') }}
                             </button>
                           </div>
                         </div>
@@ -537,11 +536,10 @@ interface AssistantProfileDraft {
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Table Intelligence</p>
-              <h3 class="text-base font-semibold text-white mt-1">Analytical spreadsheet profiles</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.tables.eyebrow') }}</p>
+              <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.tables.title') }}</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                Profiles tell {{ brand() }} how to interpret table facts for lookup, comparison and calculation. They guide
-                query expansion and aggregation, while raw cells remain the proof source.
+                {{ i18n.t('workspace.chat_sources.tables.description') }}
               </p>
             </div>
             <button
@@ -550,16 +548,16 @@ interface AssistantProfileDraft {
               [disabled]="!canEdit()"
               (click)="addTableProfile()"
             >
-              <app-icon name="plus" [size]="14" /> Add profile
+              <app-icon name="plus" [size]="14" /> {{ i18n.t('workspace.chat_sources.profiles.add') }}
             </button>
           </div>
 
           <div class="p-5 space-y-5">
             <label class="block max-w-md">
-              <span class="field-label">Workspace default profile</span>
+              <span class="field-label">{{ i18n.t('workspace.chat_sources.tables.default_label') }}</span>
               <span class="ag-select-wrap">
                 <select class="ag-select" [(ngModel)]="tableIntelligenceDraft.default_profile" [disabled]="!canEdit()">
-                  <option value="">Generic default</option>
+                  <option value="">{{ i18n.t('workspace.chat_sources.profiles.generic_default') }}</option>
                   @for (profile of tableIntelligenceDraft.profiles; track profile.key) {
                     <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
                   }
@@ -573,8 +571,8 @@ interface AssistantProfileDraft {
                 <article class="table-profile-card">
                   <div class="table-profile-head">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Profile {{ i + 1 }}</p>
-                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || 'Untitled profile' }}</h4>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.profiles.numbered', { index: i + 1 }) }}</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || i18n.t('workspace.chat_sources.profiles.untitled') }}</h4>
                     </div>
                     <button
                       type="button"
@@ -582,34 +580,34 @@ interface AssistantProfileDraft {
                       [disabled]="!canEdit()"
                       (click)="removeTableProfile(i)"
                     >
-                      <app-icon name="trash-2" [size]="13" /> Remove
+                      <app-icon name="trash-2" [size]="13" /> {{ i18n.t('workspace.chat_sources.remove') }}
                     </button>
                   </div>
 
                   <div class="grid gap-4 md:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1fr)]">
                     <label class="block">
-                      <span class="field-label">Key</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.key') }}</span>
                       <input class="ag-field font-mono" [(ngModel)]="profile.key" [disabled]="!canEdit()" placeholder="generic_industrial_tests" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Label</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.label') }}</span>
                       <input class="ag-field" [(ngModel)]="profile.label" [disabled]="!canEdit()" placeholder="Industrial test tables" />
                     </label>
                   </div>
 
                   <label class="block mt-4">
-                    <span class="field-label">Description</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.field.description') }}</span>
                     <input
                       class="ag-field"
                       [(ngModel)]="profile.description"
                       [disabled]="!canEdit()"
-                      placeholder="How this profile should interpret spreadsheet facts."
+                      [placeholder]="i18n.t('workspace.chat_sources.tables.desc_placeholder')"
                     />
                   </label>
 
                   <div class="grid gap-4 mt-4 lg:grid-cols-2">
                     <label class="block">
-                      <span class="field-label">Synonyms</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.synonyms') }}</span>
                       <textarea
                         class="ag-field table-map-field"
                         [(ngModel)]="profile.synonyms_text"
@@ -619,7 +617,7 @@ interface AssistantProfileDraft {
                       ></textarea>
                     </label>
                     <label class="block">
-                      <span class="field-label">Metric aliases</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.tables.metric_aliases') }}</span>
                       <textarea
                         class="ag-field table-map-field"
                         [(ngModel)]="profile.metric_aliases_text"
@@ -634,34 +632,34 @@ interface AssistantProfileDraft {
                     <label class="voice-toggle-row voice-toggle-compact">
                       <input type="checkbox" [(ngModel)]="profile.allow_mean" [disabled]="!canEdit()" />
                       <span>
-                        <strong>Allow mean</strong>
-                        <small>Permit average calculations when evidence is compatible.</small>
+                        <strong>{{ i18n.t('workspace.chat_sources.tables.allow_mean') }}</strong>
+                        <small>{{ i18n.t('workspace.chat_sources.tables.allow_mean_hint') }}</small>
                       </span>
                     </label>
                     <label class="voice-toggle-row voice-toggle-compact">
                       <input type="checkbox" [(ngModel)]="profile.require_compatible_units" [disabled]="!canEdit()" />
                       <span>
-                        <strong>Require compatible units</strong>
-                        <small>Block aggregate answers when units cannot be reconciled.</small>
+                        <strong>{{ i18n.t('workspace.chat_sources.tables.require_units') }}</strong>
+                        <small>{{ i18n.t('workspace.chat_sources.tables.require_units_hint') }}</small>
                       </span>
                     </label>
                     <label class="voice-toggle-row voice-toggle-compact">
                       <input type="checkbox" [(ngModel)]="profile.exclude_non_numeric" [disabled]="!canEdit()" />
                       <span>
-                        <strong>Exclude non numeric</strong>
-                        <small>Keep textual or empty values visible as exclusions.</small>
+                        <strong>{{ i18n.t('workspace.chat_sources.tables.exclude_non_numeric') }}</strong>
+                        <small>{{ i18n.t('workspace.chat_sources.tables.exclude_non_numeric_hint') }}</small>
                       </span>
                     </label>
                   </div>
 
                   <div class="grid gap-4 mt-4 md:grid-cols-3">
                     <label class="block">
-                      <span class="field-label">Ambiguity policy</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.tables.ambiguity') }}</span>
                       <span class="ag-select-wrap">
                         <select class="ag-select" [(ngModel)]="profile.ambiguity_policy" [disabled]="!canEdit()">
-                          <option value="ask_when_metric_unclear">Ask when metric unclear</option>
-                          <option value="answer_with_assumptions">Answer with assumptions</option>
-                          <option value="evidence_gap">Say when sources are insufficient</option>
+                          <option value="ask_when_metric_unclear">{{ i18n.t('workspace.chat_sources.tables.ambiguity.clarify') }}</option>
+                          <option value="answer_with_assumptions">{{ i18n.t('workspace.chat_sources.tables.ambiguity.assume') }}</option>
+                          <option value="evidence_gap">{{ i18n.t('workspace.chat_sources.tables.ambiguity.evidence_gap') }}</option>
                         </select>
                         <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
                       </span>
@@ -669,22 +667,22 @@ interface AssistantProfileDraft {
                     <label class="voice-toggle-row voice-toggle-compact">
                       <input type="checkbox" [(ngModel)]="profile.require_cell_citations" [disabled]="!canEdit()" />
                       <span>
-                        <strong>Cell citations</strong>
-                        <small>Require file, sheet and cell evidence.</small>
+                        <strong>{{ i18n.t('workspace.chat_sources.tables.cell_citations') }}</strong>
+                        <small>{{ i18n.t('workspace.chat_sources.tables.cell_citations_hint') }}</small>
                       </span>
                     </label>
                     <label class="voice-toggle-row voice-toggle-compact">
                       <input type="checkbox" [(ngModel)]="profile.show_excluded_values" [disabled]="!canEdit()" />
                       <span>
-                        <strong>Show exclusions</strong>
-                        <small>Expose rows skipped by calculation.</small>
+                        <strong>{{ i18n.t('workspace.chat_sources.tables.show_exclusions') }}</strong>
+                        <small>{{ i18n.t('workspace.chat_sources.tables.show_exclusions_hint') }}</small>
                       </span>
                     </label>
                   </div>
                 </article>
               } @empty {
                 <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
-                  No custom table profile. {{ brand() }} will use its generic provider-agnostic table interpretation profile.
+                  {{ i18n.t('workspace.chat_sources.tables.empty') }}
                 </div>
               }
             </div>
@@ -694,11 +692,10 @@ interface AssistantProfileDraft {
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Document & OCR Intelligence</p>
-              <h3 class="text-base font-semibold text-white mt-1">Manuals, scans and visual evidence</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.docs.eyebrow') }}</p>
+              <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.docs.title') }}</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                Document profiles guide procedure, warning and parameter lookup. OCR settings control how scans,
-                images and low-text PDFs become searchable evidence.
+                {{ i18n.t('workspace.chat_sources.docs.description') }}
               </p>
             </div>
             <button
@@ -707,17 +704,17 @@ interface AssistantProfileDraft {
               [disabled]="!canEdit()"
               (click)="addDocumentProfile()"
             >
-              <app-icon name="plus" [size]="14" /> Add profile
+              <app-icon name="plus" [size]="14" /> {{ i18n.t('workspace.chat_sources.profiles.add') }}
             </button>
           </div>
 
           <div class="p-5 space-y-5">
             <div class="grid gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
               <label class="block">
-                <span class="field-label">Workspace default document profile</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.docs.default_label') }}</span>
                 <span class="ag-select-wrap">
                   <select class="ag-select" [(ngModel)]="documentIntelligenceDraft.default_profile" [disabled]="!canEdit()">
-                    <option value="">Generic default</option>
+                    <option value="">{{ i18n.t('workspace.chat_sources.profiles.generic_default') }}</option>
                     @for (profile of documentIntelligenceDraft.profiles; track profile.key) {
                       <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
                     }
@@ -726,8 +723,7 @@ interface AssistantProfileDraft {
                 </span>
               </label>
               <div class="rounded border border-cyan-400/20 bg-cyan-500/5 px-4 py-3 text-xs leading-relaxed text-cyan-50/80">
-                V1 extracts structure and document facts. V1.5 exposes OCR evidence in the UI. V2 adds provider gating,
-                OpenAI Vision enrichment and service-first OCR without locking {{ brand() }} to one provider.
+                {{ i18n.t('workspace.chat_sources.docs.version_note') }}
               </div>
             </div>
 
@@ -736,8 +732,8 @@ interface AssistantProfileDraft {
                 <article class="table-profile-card">
                   <div class="table-profile-head">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Document profile {{ i + 1 }}</p>
-                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || 'Untitled profile' }}</h4>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.docs.numbered', { index: i + 1 }) }}</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || i18n.t('workspace.chat_sources.profiles.untitled') }}</h4>
                     </div>
                     <button
                       type="button"
@@ -745,29 +741,29 @@ interface AssistantProfileDraft {
                       [disabled]="!canEdit()"
                       (click)="removeDocumentProfile(i)"
                     >
-                      <app-icon name="trash-2" [size]="13" /> Remove
+                      <app-icon name="trash-2" [size]="13" /> {{ i18n.t('workspace.chat_sources.remove') }}
                     </button>
                   </div>
 
                   <div class="grid gap-4 md:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1fr)]">
                     <label class="block">
-                      <span class="field-label">Key</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.key') }}</span>
                       <input class="ag-field font-mono" [(ngModel)]="profile.key" [disabled]="!canEdit()" placeholder="manuals_generic" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Label</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.label') }}</span>
                       <input class="ag-field" [(ngModel)]="profile.label" [disabled]="!canEdit()" placeholder="Manuals and procedures" />
                     </label>
                   </div>
 
                   <label class="block mt-4">
-                    <span class="field-label">Description</span>
-                    <input class="ag-field" [(ngModel)]="profile.description" [disabled]="!canEdit()" placeholder="How this profile should interpret manuals and OCR facts." />
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.field.description') }}</span>
+                    <input class="ag-field" [(ngModel)]="profile.description" [disabled]="!canEdit()" [placeholder]="i18n.t('workspace.chat_sources.docs.desc_placeholder')" />
                   </label>
 
                   <div class="grid gap-4 mt-4 lg:grid-cols-[minmax(0,1fr)_180px_180px]">
                     <label class="block">
-                      <span class="field-label">Synonyms</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.synonyms') }}</span>
                       <textarea
                         class="ag-field table-map-field"
                         [(ngModel)]="profile.synonyms_text"
@@ -777,18 +773,18 @@ interface AssistantProfileDraft {
                       ></textarea>
                     </label>
                     <label class="block">
-                      <span class="field-label">Max candidate facts</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.docs.max_facts') }}</span>
                       <input class="ag-field" type="number" min="100" max="20000" [(ngModel)]="profile.max_candidate_facts" [disabled]="!canEdit()" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Max evidence rows</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.docs.max_rows') }}</span>
                       <input class="ag-field" type="number" min="3" max="100" [(ngModel)]="profile.max_evidence_rows" [disabled]="!canEdit()" />
                     </label>
                   </div>
                 </article>
               } @empty {
                 <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
-                  No custom document profile. {{ brand() }} will use its generic provider-neutral document interpretation profile.
+                  {{ i18n.t('workspace.chat_sources.docs.empty') }}
                 </div>
               }
             </div>
@@ -796,10 +792,10 @@ interface AssistantProfileDraft {
             <article class="table-profile-card">
               <div class="table-profile-head">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">OCR providers</p>
-                  <h4 class="text-sm font-semibold text-white mt-1">Visual document ingestion</h4>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.ocr.eyebrow') }}</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.ocr.title') }}</h4>
                   <p class="mt-1 text-xs text-gray-500">
-                    Provider order is tried left-to-right. OpenAI Vision is opt-in and only used when enabled.
+                    {{ i18n.t('workspace.chat_sources.ocr.description') }}
                   </p>
                 </div>
               </div>
@@ -807,64 +803,64 @@ interface AssistantProfileDraft {
               <div class="grid gap-3 lg:grid-cols-3">
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.enabled" [disabled]="!canEdit()" />
-                  <span><strong>OCR enabled</strong><small>Allow image and scanned-PDF text extraction.</small></span>
+                  <span><strong>{{ i18n.t('workspace.chat_sources.ocr.enabled') }}</strong><small>{{ i18n.t('workspace.chat_sources.ocr.enabled_hint') }}</small></span>
                 </label>
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.scan_detection" [disabled]="!canEdit()" />
-                  <span><strong>Auto scan detection</strong><small>Run OCR when native PDF text is weak.</small></span>
+                  <span><strong>{{ i18n.t('workspace.chat_sources.ocr.auto_detect') }}</strong><small>{{ i18n.t('workspace.chat_sources.ocr.auto_detect_hint') }}</small></span>
                 </label>
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.required" [disabled]="!canEdit()" />
-                  <span><strong>Required</strong><small>Fail ingestion if no OCR provider can return text.</small></span>
+                  <span><strong>{{ i18n.t('workspace.chat_sources.ocr.required') }}</strong><small>{{ i18n.t('workspace.chat_sources.ocr.required_hint') }}</small></span>
                 </label>
               </div>
 
               <div class="grid gap-4 mt-4 lg:grid-cols-2">
                 <label class="block">
-                  <span class="field-label">Provider priority</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.priority') }}</span>
                   <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.provider_priority_text" [disabled]="!canEdit()" placeholder="ppocr_service, tesseract_local, openai_vision" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Languages</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.languages') }}</span>
                   <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.languages_text" [disabled]="!canEdit()" placeholder="eng, fra" />
                 </label>
               </div>
 
               <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-4">
                 <label class="block">
-                  <span class="field-label">Min native PDF chars</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.min_native_chars') }}</span>
                   <input class="ag-field" type="number" min="0" max="5000" [(ngModel)]="documentIntelligenceDraft.ocr.min_native_pdf_chars" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Min confidence</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.min_confidence') }}</span>
                   <input class="ag-field" type="number" min="0" max="1" step="0.05" [(ngModel)]="documentIntelligenceDraft.ocr.min_confidence" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Timeout seconds</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.timeout') }}</span>
                   <input class="ag-field" type="number" min="1" max="180" [(ngModel)]="documentIntelligenceDraft.ocr.timeout_seconds" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Retries</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.retries') }}</span>
                   <input class="ag-field" type="number" min="0" max="5" [(ngModel)]="documentIntelligenceDraft.ocr.retries" [disabled]="!canEdit()" />
                 </label>
               </div>
 
               <label class="block mt-4">
-                <span class="field-label">PP-OCR endpoint URL</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.endpoint') }}</span>
                 <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.ppocr_endpoint_url" [disabled]="!canEdit()" placeholder="http://ocr-service:8000" />
               </label>
 
               <div class="grid gap-3 mt-4 lg:grid-cols-3">
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.force_ocr" [disabled]="!canEdit()" />
-                  <span><strong>Force OCR</strong><small>OCR every PDF page even if native text exists.</small></span>
+                  <span><strong>{{ i18n.t('workspace.chat_sources.ocr.force') }}</strong><small>{{ i18n.t('workspace.chat_sources.ocr.force_hint') }}</small></span>
                 </label>
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.openai_vision_enabled" [disabled]="!canEdit()" />
-                  <span><strong>OpenAI Vision fallback</strong><small>Use only when listed in priority and deterministic OCR is weak.</small></span>
+                  <span><strong>{{ i18n.t('workspace.chat_sources.ocr.openai_fallback') }}</strong><small>{{ i18n.t('workspace.chat_sources.ocr.openai_fallback_hint') }}</small></span>
                 </label>
                 <label class="block">
-                  <span class="field-label">OpenAI detail</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.openai_detail') }}</span>
                   <span class="ag-select-wrap">
                     <select class="ag-select" [(ngModel)]="documentIntelligenceDraft.ocr.openai_detail" [disabled]="!canEdit()">
                       <option value="low">low</option>
@@ -878,19 +874,19 @@ interface AssistantProfileDraft {
 
               <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-4">
                 <label class="block">
-                  <span class="field-label">OpenAI model</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.openai_model') }}</span>
                   <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.openai_model" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Max image bytes</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.max_image_bytes') }}</span>
                   <input class="ag-field" type="number" min="100000" max="50000000" [(ngModel)]="documentIntelligenceDraft.ocr.openai_max_image_bytes" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Enrich min chars</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.enrich_min_chars') }}</span>
                   <input class="ag-field" type="number" min="0" max="1000" [(ngModel)]="documentIntelligenceDraft.ocr.openai_enrich_min_chars" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Enrich confidence</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.ocr.enrich_confidence') }}</span>
                   <input class="ag-field" type="number" min="0" max="1" step="0.05" [(ngModel)]="documentIntelligenceDraft.ocr.openai_enrich_min_confidence" [disabled]="!canEdit()" />
                 </label>
               </div>
@@ -900,35 +896,34 @@ interface AssistantProfileDraft {
 
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Chat surface</p>
-              <h3 class="text-base font-semibold text-white mt-1">Chat defaults</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.chat.eyebrow') }}</p>
+              <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.chat.title') }}</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-              Chat defaults are the portable baseline. The preview below shows the effective Quick ask surface after
-              assistant profile overrides and generated source prompts are applied.
+              {{ i18n.t('workspace.chat_sources.chat.description') }}
             </p>
           </div>
 
           <div class="p-5 space-y-4">
             <div class="grid gap-4 lg:grid-cols-2">
               <label class="block">
-                <span class="field-label">Empty state title</span>
-                <input class="ag-field" [(ngModel)]="chatDraft.title" [disabled]="!canEdit()" placeholder="Posez votre question" />
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.empty_title') }}</span>
+                <input class="ag-field" [(ngModel)]="chatDraft.title" [disabled]="!canEdit()" [placeholder]="i18n.t('chat.ask.title')" />
               </label>
               <label class="block">
-                <span class="field-label">Input placeholder</span>
-                <input class="ag-field" [(ngModel)]="chatDraft.placeholder" [disabled]="!canEdit()" placeholder="Posez votre question..." />
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.input_placeholder') }}</span>
+                <input class="ag-field" [(ngModel)]="chatDraft.placeholder" [disabled]="!canEdit()" [placeholder]="i18n.t('chat.ask.placeholder')" />
               </label>
             </div>
             <label class="block">
-              <span class="field-label">Subtitle</span>
-              <input class="ag-field" [(ngModel)]="chatDraft.subtitle" [disabled]="!canEdit()" placeholder="Posez une question sur le contexte du workspace." />
+              <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.subtitle') }}</span>
+              <input class="ag-field" [(ngModel)]="chatDraft.subtitle" [disabled]="!canEdit()" [placeholder]="i18n.t('chat.ask.subtitle')" />
             </label>
 
             <div class="rounded-md border border-white/10 bg-black/10">
               <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between gap-3">
                 <div>
-                  <h4 class="text-sm font-semibold text-white">Suggested prompts</h4>
-                  <p class="text-xs text-gray-500 mt-0.5">Optional. Leave empty to use generated prompts based on the active source.</p>
+                  <h4 class="text-sm font-semibold text-white">{{ i18n.t('workspace.chat_sources.chat.suggested') }}</h4>
+                  <p class="text-xs text-gray-500 mt-0.5">{{ i18n.t('workspace.chat_sources.chat.suggested_hint') }}</p>
                 </div>
                 <button
                   type="button"
@@ -936,33 +931,33 @@ interface AssistantProfileDraft {
                   [disabled]="!canEdit()"
                   (click)="addPrompt()"
                 >
-                  <app-icon name="plus" [size]="13" /> Add prompt
+                  <app-icon name="plus" [size]="13" /> {{ i18n.t('workspace.chat_sources.chat.add_prompt') }}
                 </button>
               </div>
 
               <div class="divide-y divide-white/5">
                 @if (chatDraft.prompt_pack.length === 0) {
-                  <p class="px-4 py-5 text-sm text-gray-500">No custom prompts. The chat will use contextual {{ brand() }} suggestions.</p>
+                  <p class="px-4 py-5 text-sm text-gray-500">{{ i18n.t('workspace.chat_sources.chat.no_prompts') }}</p>
                 }
                 @for (prompt of chatDraft.prompt_pack; track prompt; let i = $index) {
                   <div class="p-4 grid gap-3 lg:grid-cols-[120px_1fr_180px_140px_40px] lg:items-end">
                     <label class="block">
-                      <span class="field-label">Icon</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.icon') }}</span>
                       <input class="ag-field" [(ngModel)]="prompt.icon" [disabled]="!canEdit()" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Prompt</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.prompt') }}</span>
                       <input class="ag-field" [(ngModel)]="prompt.prompt" [disabled]="!canEdit()" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Label</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.field.label') }}</span>
                       <input class="ag-field" [(ngModel)]="prompt.label" [disabled]="!canEdit()" />
                     </label>
                     <label class="block">
-                      <span class="field-label">Scope</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.scope') }}</span>
                       <span class="ag-select-wrap">
                         <select class="ag-select" [(ngModel)]="prompt.scope_key" [disabled]="!canEdit()">
-                          <option value="">Any</option>
+                          <option value="">{{ i18n.t('workspace.chat_sources.chat.scope_any') }}</option>
                           @for (scope of scopes(); track scope.key) {
                             <option [ngValue]="scope.key">{{ scope.label || scope.key }}</option>
                           }
@@ -975,7 +970,7 @@ interface AssistantProfileDraft {
                       class="h-10 rounded bg-red-500/10 text-red-200 ring-1 ring-red-400/20 disabled:opacity-40"
                       [disabled]="!canEdit()"
                       (click)="removePrompt(i)"
-                      title="Remove prompt"
+                      [title]="i18n.t('workspace.chat_sources.chat.remove_prompt')"
                     >
                       <app-icon name="trash-2" [size]="14" class="inline" />
                     </button>
@@ -987,18 +982,18 @@ interface AssistantProfileDraft {
             <div class="effective-preview">
               <div class="effective-preview-header">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Effective Quick ask</p>
-                  <h4 class="text-sm font-semibold text-white mt-1">What the chat will show now</h4>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.preview.eyebrow') }}</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.preview.title') }}</h4>
                 </div>
                 <div class="text-right">
-                  <p class="text-[10px] uppercase tracking-[0.16em] text-gray-500">Auto source</p>
+                  <p class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('workspace.chat_sources.preview.auto_source') }}</p>
                   <p class="text-sm font-semibold text-cyan-100">{{ effectiveScopeLabel() }}</p>
                 </div>
               </div>
 
               @if (activeProfileChatOverrides()) {
                 <div class="mx-4 mt-4 rounded border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                  The default assistant profile contributes chat metadata. This is why the live chat can differ from empty workspace fields.
+                  {{ i18n.t('workspace.chat_sources.preview.profile_note') }}
                 </div>
               }
 
@@ -1012,7 +1007,7 @@ interface AssistantProfileDraft {
                       <h5 class="text-base font-semibold text-white">{{ effectiveChatTitle() }}</h5>
                       <p class="mt-1 text-sm text-gray-400 leading-relaxed">{{ effectiveChatSubtitle() }}</p>
                       <p class="mt-3 rounded bg-black/25 px-3 py-2 text-xs text-gray-500 ring-1 ring-white/10">
-                        Placeholder: <span class="text-gray-300">{{ effectiveChatPlaceholder() }}</span>
+                        {{ i18n.t('workspace.chat_sources.preview.placeholder_label') }} <span class="text-gray-300">{{ effectiveChatPlaceholder() }}</span>
                       </p>
                     </div>
                   </div>
@@ -1038,7 +1033,7 @@ interface AssistantProfileDraft {
                   [disabled]="!canEdit()"
                   (click)="copyEffectiveChatToWorkspace()"
                 >
-                  <app-icon name="copy" [size]="13" /> Copy preview into chat defaults
+                  <app-icon name="copy" [size]="13" /> {{ i18n.t('workspace.chat_sources.preview.copy_cta') }}
                 </button>
               </div>
             </div>
@@ -1047,17 +1042,16 @@ interface AssistantProfileDraft {
 
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Voice interaction</p>
-            <h3 class="text-base font-semibold text-white mt-1">Voice conversation defaults</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.voice.eyebrow') }}</p>
+            <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.voice.title') }}</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-              These settings make voice-to-voice a reusable workspace capability. Assistant profiles may override them
-              in JSON, while demo mode only changes what users see.
+              {{ i18n.t('workspace.chat_sources.voice.description') }}
             </p>
           </div>
 
           <div class="p-5 space-y-5">
             <div>
-              <span class="field-label">Default voice mode</span>
+              <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.default_mode') }}</span>
               <div class="voice-mode-grid">
                 @for (mode of voiceModeOptions; track mode.value) {
                   <button
@@ -1069,8 +1063,8 @@ interface AssistantProfileDraft {
                   >
                     <app-icon [name]="mode.icon" [size]="16" />
                     <span>
-                      <strong>{{ mode.label }}</strong>
-                      <small>{{ mode.help }}</small>
+                      <strong>{{ i18n.t(mode.labelKey) }}</strong>
+                      <small>{{ i18n.t(mode.helpKey) }}</small>
                     </span>
                   </button>
                 }
@@ -1079,22 +1073,22 @@ interface AssistantProfileDraft {
 
             <div class="grid gap-4 md:grid-cols-3">
               <label class="block">
-                <span class="field-label">Capture mode</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.capture_mode') }}</span>
                 <select class="ag-field" [(ngModel)]="voiceLoopDraft.capture_mode" [disabled]="!canEdit()">
-                  <option value="normal">Normal</option>
-                  <option value="robust">Robust</option>
-                  <option value="manual_safe">Manual safe</option>
+                  <option value="normal">{{ i18n.t('workspace.chat_sources.voice.capture.normal') }}</option>
+                  <option value="robust">{{ i18n.t('workspace.chat_sources.voice.capture.robust') }}</option>
+                  <option value="manual_safe">{{ i18n.t('workspace.chat_sources.voice.capture.manual_safe') }}</option>
                 </select>
               </label>
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_capture_mode_enabled" [disabled]="!canEdit()" />
                 <span>
-                  <strong>Auto robust capture</strong>
-                  <small>Reserved for metric-based degradation detection; off by default.</small>
+                  <strong>{{ i18n.t('workspace.chat_sources.voice.auto_robust') }}</strong>
+                  <small>{{ i18n.t('workspace.chat_sources.voice.auto_robust_hint') }}</small>
                 </span>
               </label>
               <label class="block">
-                <span class="field-label">RMS threshold</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.rms_threshold') }}</span>
                 <input class="ag-field" type="number" min="0.001" max="0.15" step="0.001" [(ngModel)]="voiceLoopDraft.rms_threshold" [disabled]="!canEdit()" />
               </label>
             </div>
@@ -1103,71 +1097,71 @@ interface AssistantProfileDraft {
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_send_final_transcript" [disabled]="!canEdit()" />
                 <span>
-                  <strong>Auto-send final transcript</strong>
-                  <small>Final speech becomes one chat turn; existing draft text is replaced.</small>
+                  <strong>{{ i18n.t('workspace.chat_sources.voice.auto_send') }}</strong>
+                  <small>{{ i18n.t('workspace.chat_sources.voice.auto_send_hint') }}</small>
                 </span>
               </label>
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_endpoint" [disabled]="!canEdit()" />
                 <span>
-                  <strong>Auto endpoint</strong>
-                  <small>Close the current voice turn after speech followed by silence.</small>
+                  <strong>{{ i18n.t('workspace.chat_sources.voice.auto_endpoint') }}</strong>
+                  <small>{{ i18n.t('workspace.chat_sources.voice.auto_endpoint_hint') }}</small>
                 </span>
               </label>
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_rearm_after_tts" [disabled]="!canEdit()" />
                 <span>
-                  <strong>Rearm after spoken answer</strong>
-                  <small>Reopen the microphone after TTS plus cooldown in conversation mode.</small>
+                  <strong>{{ i18n.t('workspace.chat_sources.voice.rearm') }}</strong>
+                  <small>{{ i18n.t('workspace.chat_sources.voice.rearm_hint') }}</small>
                 </span>
               </label>
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.barge_in" [disabled]="!canEdit()" />
                 <span>
-                  <strong>Barge-in</strong>
-                  <small>Pause agent speech if the user starts talking again.</small>
+                  <strong>{{ i18n.t('workspace.chat_sources.voice.barge_in') }}</strong>
+                  <small>{{ i18n.t('workspace.chat_sources.voice.barge_in_hint') }}</small>
                 </span>
               </label>
             </div>
 
             <div class="grid gap-4 md:grid-cols-4">
               <label class="block">
-                <span class="field-label">Silence ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.silence_ms') }}</span>
                 <input class="ag-field" type="number" min="300" max="5000" [(ngModel)]="voiceLoopDraft.silence_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Min speech ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.min_speech_ms') }}</span>
                 <input class="ag-field" type="number" min="100" max="3000" [(ngModel)]="voiceLoopDraft.min_speech_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Max turn ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.max_turn_ms') }}</span>
                 <input class="ag-field" type="number" min="5000" max="180000" [(ngModel)]="voiceLoopDraft.max_turn_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Cooldown ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.cooldown_ms') }}</span>
                 <input class="ag-field" type="number" min="0" max="5000" [(ngModel)]="voiceLoopDraft.cooldown_ms" [disabled]="!canEdit()" />
               </label>
             </div>
 
             <div class="grid gap-4 md:grid-cols-5">
               <label class="block">
-                <span class="field-label">Dictation silence ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.dictation_silence_ms') }}</span>
                 <input class="ag-field" type="number" min="300" max="30000" [(ngModel)]="voiceLoopDraft.dictation_silence_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Dictation min speech ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.dictation_min_speech_ms') }}</span>
                 <input class="ag-field" type="number" min="100" max="3000" [(ngModel)]="voiceLoopDraft.dictation_min_speech_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Endpoint grace ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.endpoint_grace_ms') }}</span>
                 <input class="ag-field" type="number" min="0" max="3000" [(ngModel)]="voiceLoopDraft.endpoint_grace_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">VAD hangover ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.vad_hangover_ms') }}</span>
                 <input class="ag-field" type="number" min="0" max="2000" [(ngModel)]="voiceLoopDraft.vad_hangover_ms" [disabled]="!canEdit()" />
               </label>
               <label class="block">
-                <span class="field-label">Min silence frames ms</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.min_silence_frames_ms') }}</span>
                 <input class="ag-field" type="number" min="0" max="2000" [(ngModel)]="voiceLoopDraft.vad_min_silence_frames_ms" [disabled]="!canEdit()" />
               </label>
             </div>
@@ -1177,22 +1171,22 @@ interface AssistantProfileDraft {
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="voiceLoopDraft.commands_enabled" [disabled]="!canEdit()" />
                   <span>
-                    <strong>Voice commands enabled</strong>
-                    <small>Generic commands can be inherited by AYA, Andritz and future workspace assistants.</small>
+                    <strong>{{ i18n.t('workspace.chat_sources.voice.commands') }}</strong>
+                    <small>{{ i18n.t('workspace.chat_sources.voice.commands_hint') }}</small>
                   </span>
                 </label>
                 <label class="block min-w-56 flex-1">
-                  <span class="field-label">Optional trigger word</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.trigger_word') }}</span>
                   <input class="ag-field" [(ngModel)]="voiceLoopDraft.trigger_word" [disabled]="!canEdit()" [placeholder]="brand()" />
                 </label>
               </div>
               <div class="grid gap-4 mt-4 lg:grid-cols-2">
                 <label class="block">
-                  <span class="field-label">Command packs</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.command_packs') }}</span>
                   <input class="ag-field font-mono" [(ngModel)]="voiceLoopDraft.command_packs_text" [disabled]="!canEdit()" placeholder="generic, fr_basic" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Stop phrases</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.stop_phrases') }}</span>
                   <input
                     class="ag-field"
                     [(ngModel)]="voiceLoopDraft.stop_phrases_text"
@@ -1202,57 +1196,55 @@ interface AssistantProfileDraft {
                 </label>
               </div>
               <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-                Profiles can override this with <span class="font-mono text-gray-300">voice_loop</span>. Example:
-                AYA can keep the same voice conversation while changing only command wording or default mode.
+                {{ i18n.t('workspace.chat_sources.voice.override_hint_before') }} <span class="font-mono text-gray-300">voice_loop</span>{{ i18n.t('workspace.chat_sources.voice.override_hint_after') }}
               </p>
             </div>
 
             <div class="rounded-md border border-cyan-400/20 bg-cyan-500/5 p-4">
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Voice output</p>
-                  <h4 class="text-sm font-semibold text-white mt-1">Low-latency TTS playback</h4>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.tts.eyebrow') }}</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.tts.title') }}</h4>
                   <p class="text-xs text-gray-400 mt-1 max-w-xl leading-relaxed">
-                    Fast mode starts synthesis on short text chunks while the answer is still streaming. Demo mode shows
-                    this as Voice output · Fast without revealing provider or model.
+                    {{ i18n.t('workspace.chat_sources.tts.description') }}
                   </p>
                 </div>
                 <label class="voice-toggle-row voice-toggle-compact">
                   <input type="checkbox" [(ngModel)]="voiceOutputDraft.interrupt_on_user_speech" [disabled]="!canEdit()" />
                   <span>
-                    <strong>Interrupt on speech</strong>
-                    <small>Stop queued TTS when the user starts speaking again.</small>
+                    <strong>{{ i18n.t('workspace.chat_sources.tts.interrupt') }}</strong>
+                    <small>{{ i18n.t('workspace.chat_sources.tts.interrupt_hint') }}</small>
                   </span>
                 </label>
               </div>
               <div class="mt-4 grid gap-4 md:grid-cols-3">
                 <label class="block">
-                  <span class="field-label">Latency profile</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.tts.latency_profile') }}</span>
                   <span class="ag-select-wrap">
                     <select class="ag-select" [(ngModel)]="voiceOutputDraft.latency_profile" [disabled]="!canEdit()">
-                      <option value="fast">Fast</option>
-                      <option value="balanced">Balanced</option>
-                      <option value="quality">Quality</option>
+                      <option value="fast">{{ i18n.t('workspace.chat_sources.tts.latency.fast') }}</option>
+                      <option value="balanced">{{ i18n.t('workspace.chat_sources.tts.latency.balanced') }}</option>
+                      <option value="quality">{{ i18n.t('workspace.chat_sources.tts.latency.quality') }}</option>
                     </select>
                     <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
                   </span>
                 </label>
                 <label class="block">
-                  <span class="field-label">Voice</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.tts.voice') }}</span>
                   <input class="ag-field" [(ngModel)]="voiceOutputDraft.voice" [disabled]="!canEdit()" placeholder="nova" />
                 </label>
                 <label class="block">
-                  <span class="field-label">First flush ms</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.tts.first_flush') }}</span>
                   <input class="ag-field" type="number" min="250" max="5000" [(ngModel)]="voiceOutputDraft.flush_timeout_ms" [disabled]="!canEdit()" />
                 </label>
               </div>
               <div class="mt-4 grid gap-4 md:grid-cols-2">
                 <label class="block">
-                  <span class="field-label">First chunk chars</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.tts.first_chunk') }}</span>
                   <input class="ag-field" type="number" min="12" max="240" [(ngModel)]="voiceOutputDraft.flush_first_chars" [disabled]="!canEdit()" />
                 </label>
                 <label class="block">
-                  <span class="field-label">Next chunk chars</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.tts.next_chunk') }}</span>
                   <input class="ag-field" type="number" min="40" max="600" [(ngModel)]="voiceOutputDraft.flush_next_chars" [disabled]="!canEdit()" />
                 </label>
               </div>
@@ -1262,17 +1254,16 @@ interface AssistantProfileDraft {
 
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Actions & Assistants</p>
-            <h3 class="text-base font-semibold text-white mt-1">Action inheritance</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.actions.eyebrow') }}</p>
+            <h3 class="text-base font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.actions.title') }}</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-              Action packs are inherited by Chat, Voice, Flow Builder and System workbenches. Sentinel-CI keeps AYA
-              actions isolated; Andritz inherits industrial Knowledge actions unless explicitly changed here.
+              {{ i18n.t('workspace.chat_sources.actions.description') }}
             </p>
           </div>
           <div class="p-5 space-y-4">
             <div class="grid gap-4 lg:grid-cols-2">
               <label class="block">
-                <span class="field-label">Enabled packs</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.actions.enabled_packs') }}</span>
                 <input
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.enabled_packs_text"
@@ -1281,7 +1272,7 @@ interface AssistantProfileDraft {
                 />
               </label>
               <label class="block">
-                <span class="field-label">Hidden packs</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.actions.hidden_packs') }}</span>
                 <input
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.hidden_packs_text"
@@ -1290,7 +1281,7 @@ interface AssistantProfileDraft {
                 />
               </label>
               <label class="block">
-                <span class="field-label">Enabled actions</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.actions.enabled_actions') }}</span>
                 <input
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.enabled_actions_text"
@@ -1299,7 +1290,7 @@ interface AssistantProfileDraft {
                 />
               </label>
               <label class="block">
-                <span class="field-label">Hidden actions</span>
+                <span class="field-label">{{ i18n.t('workspace.chat_sources.actions.hidden_actions') }}</span>
                 <input
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.hidden_actions_text"
@@ -1309,8 +1300,7 @@ interface AssistantProfileDraft {
               </label>
             </div>
             <div class="rounded-md border border-white/10 bg-black/10 px-4 py-3 text-xs text-gray-400 leading-relaxed">
-              Resolution order: system override → assistant profile → workspace action pack → capability template → global default.
-              Side-effect actions require confirmation unless marked direct-safe by the backend manifest.
+              {{ i18n.t('workspace.chat_sources.actions.note') }}
             </div>
           </div>
         </section>
@@ -1318,11 +1308,10 @@ interface AssistantProfileDraft {
 
       <aside class="space-y-5">
         <section class="ck-surface rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Available collections</p>
-          <h3 class="text-sm font-semibold text-white mt-1">Indexed collections</h3>
+          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.collections.eyebrow') }}</p>
+          <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.collections.title') }}</h3>
           <p class="text-xs text-gray-500 mt-2">
-            Collections are raw indexed stores. Add one to the default context so Chat can use it, or open the
-            collection for diagnostics. Copying the slug is only for manual edits.
+            {{ i18n.t('workspace.chat_sources.collections.description') }}
           </p>
           <div class="mt-4 max-h-72 overflow-y-auto space-y-2 pr-1">
             @for (collection of collections(); track collection) {
@@ -1335,32 +1324,32 @@ interface AssistantProfileDraft {
                 >
                   <span class="font-mono">{{ collection }}</span>
                   <small>
-                    {{ collectionInDefaultScope(collection) ? 'In default context' : 'Add to default context' }}
+                    {{ collectionInDefaultScope(collection) ? i18n.t('workspace.chat_sources.collections.in_default') : i18n.t('workspace.chat_sources.collections.add_to_default') }}
                   </small>
                 </button>
                 <div class="collection-option-actions">
                   <a class="guide-button" [routerLink]="['/knowledge', collection]">
-                    <app-icon name="external-link" [size]="13" /> Open
+                    <app-icon name="external-link" [size]="13" /> {{ i18n.t('common.open') }}
                   </a>
                   <button type="button" class="guide-button" (click)="copyCollection(collection)">
-                    <app-icon name="copy" [size]="13" /> Copy
+                    <app-icon name="copy" [size]="13" /> {{ i18n.t('common.copy') }}
                   </button>
                 </div>
               </article>
             } @empty {
-              <p class="text-sm text-gray-500">No indexed collection reported yet.</p>
+              <p class="text-sm text-gray-500">{{ i18n.t('workspace.chat_sources.collections.empty') }}</p>
             }
           </div>
         </section>
 
         <section class="ck-surface rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Assistant profile</p>
-          <h3 class="text-sm font-semibold text-white mt-1">Default assistant</h3>
+          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.assistant.eyebrow') }}</p>
+          <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('workspace.chat_sources.assistant.title') }}</h3>
           <p class="mt-2 text-xs text-gray-500 leading-relaxed">
-            The default assistant may set the automatic source scope and, when configured, the visible Quick ask surface.
+            {{ i18n.t('workspace.chat_sources.assistant.description') }}
           </p>
           <div class="effective-source-note mt-4">
-            <span class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Effective Quick ask source</span>
+            <span class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('workspace.chat_sources.assistant.effective_source') }}</span>
             <strong>{{ effectiveScopeLabel() }}</strong>
             <small>{{ effectiveScopeOrigin() }}</small>
           </div>
@@ -1368,7 +1357,7 @@ interface AssistantProfileDraft {
             <span class="field-label">assistant_profile_default</span>
             <span class="ag-select-wrap">
               <select class="ag-select" [(ngModel)]="assistantProfileDefault" [disabled]="!canEdit()">
-                <option value="">None</option>
+                <option value="">{{ i18n.t('workspace.chat_sources.assistant.none') }}</option>
                 @for (profile of assistantProfileOptions(); track profile) {
                   <option [ngValue]="profile">{{ profile }}</option>
                 }
@@ -1380,8 +1369,8 @@ interface AssistantProfileDraft {
           <div class="mt-5 rounded-md border border-white/10 bg-black/10 overflow-hidden">
             <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between gap-3">
               <div>
-                <h4 class="text-sm font-semibold text-white">Profile editor</h4>
-                <p class="text-xs text-gray-500 mt-0.5">Edit the reusable assistant persona without touching raw JSON.</p>
+                <h4 class="text-sm font-semibold text-white">{{ i18n.t('workspace.chat_sources.assistant.editor_title') }}</h4>
+                <p class="text-xs text-gray-500 mt-0.5">{{ i18n.t('workspace.chat_sources.assistant.editor_hint') }}</p>
               </div>
               <button
                 type="button"
@@ -1389,7 +1378,7 @@ interface AssistantProfileDraft {
                 [disabled]="!canEdit()"
                 (click)="addAssistantProfile()"
               >
-                <app-icon name="plus" [size]="13" /> Add
+                <app-icon name="plus" [size]="13" /> {{ i18n.t('workspace.chat_sources.assistant.add') }}
               </button>
             </div>
 
@@ -1404,7 +1393,7 @@ interface AssistantProfileDraft {
                       (ngModelChange)="selectedAssistantProfileIndex.set($event)"
                     >
                       @for (item of assistantProfiles(); track item.key || $index; let i = $index) {
-                        <option [ngValue]="i">{{ item.label || item.key || ('Profile ' + (i + 1)) }}</option>
+                        <option [ngValue]="i">{{ item.label || item.key || i18n.t('workspace.chat_sources.profiles.numbered', { index: i + 1 }) }}</option>
                       }
                     </select>
                     <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
@@ -1414,7 +1403,7 @@ interface AssistantProfileDraft {
                     class="h-10 px-3 rounded bg-red-500/10 text-red-200 ring-1 ring-red-400/20 disabled:opacity-40"
                     [disabled]="!canEdit()"
                     (click)="removeAssistantProfile(selectedAssistantProfileIndex())"
-                    title="Remove profile"
+                    [title]="i18n.t('workspace.chat_sources.assistant.remove_profile')"
                   >
                     <app-icon name="trash-2" [size]="14" class="inline" />
                   </button>
@@ -1422,22 +1411,22 @@ interface AssistantProfileDraft {
 
                 <div class="grid gap-3 md:grid-cols-2">
                   <label class="block">
-                    <span class="field-label">Key</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.field.key') }}</span>
                     <input class="ag-field font-mono" [ngModel]="profile.key || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('key', $event)" />
                   </label>
                   <label class="block">
-                    <span class="field-label">Label</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.field.label') }}</span>
                     <input class="ag-field" [ngModel]="profile.label || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('label', $event)" />
                   </label>
                 </div>
 
                 <label class="block">
-                  <span class="field-label">Subtitle</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.chat.subtitle') }}</span>
                   <input class="ag-field" [ngModel]="profile.subtitle || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('subtitle', $event)" />
                 </label>
 
                 <label class="block">
-                  <span class="field-label">Default source scope</span>
+                  <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.default_scope') }}</span>
                   <span class="ag-select-wrap">
                     <select
                       class="ag-select"
@@ -1445,7 +1434,7 @@ interface AssistantProfileDraft {
                       [disabled]="!canEdit()"
                       (ngModelChange)="updateAssistantProfileField('default_knowledge_scope', $event)"
                     >
-                      <option value="">Workspace default</option>
+                      <option value="">{{ i18n.t('workspace.chat_sources.option.workspace_default') }}</option>
                       @for (scope of scopes(); track scope.key) {
                         <option [ngValue]="scope.key">{{ scope.label || scope.key }}</option>
                       }
@@ -1456,11 +1445,11 @@ interface AssistantProfileDraft {
 
                 <div class="grid gap-3 md:grid-cols-2">
                   <label class="block">
-                    <span class="field-label">Design mode</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.design_mode') }}</span>
                     <input class="ag-field" [ngModel]="profile.design_mode || ''" [disabled]="!canEdit()" placeholder="agentium, sentinel_ci" (ngModelChange)="updateAssistantProfileField('design_mode', $event)" />
                   </label>
                   <label class="block">
-                    <span class="field-label">Tone</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.tone') }}</span>
                     <input class="ag-field" [ngModel]="profile.tone || ''" [disabled]="!canEdit()" placeholder="technical, ministerial" (ngModelChange)="updateAssistantProfileField('tone', $event)" />
                   </label>
                 </div>
@@ -1468,8 +1457,8 @@ interface AssistantProfileDraft {
                 <div class="rounded-md border border-white/10 bg-white/[0.025] p-3 space-y-3">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="text-sm font-semibold text-white">Profile chat override</p>
-                      <p class="text-xs text-gray-500 mt-0.5">Optional surface metadata for Quick ask.</p>
+                      <p class="text-sm font-semibold text-white">{{ i18n.t('workspace.chat_sources.assistant.chat_override') }}</p>
+                      <p class="text-xs text-gray-500 mt-0.5">{{ i18n.t('workspace.chat_sources.assistant.chat_override_hint') }}</p>
                     </div>
                     <button
                       type="button"
@@ -1477,24 +1466,24 @@ interface AssistantProfileDraft {
                       [disabled]="!canEdit()"
                       (click)="copyWorkspaceChatToProfile()"
                     >
-                      <app-icon name="copy" [size]="12" /> Use workspace chat
+                      <app-icon name="copy" [size]="12" /> {{ i18n.t('workspace.chat_sources.assistant.use_workspace_chat') }}
                     </button>
                   </div>
                   <label class="block">
-                    <span class="field-label">Chat title</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.chat_title') }}</span>
                     <input class="ag-field" [ngModel]="profileChatField('title')" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileChatField('title', $event)" />
                   </label>
                   <label class="block">
-                    <span class="field-label">Placeholder</span>
+                    <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.placeholder_field') }}</span>
                     <input class="ag-field" [ngModel]="profileChatField('placeholder')" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileChatField('placeholder', $event)" />
                   </label>
                 </div>
 
                 <div class="rounded-md border border-white/10 bg-white/[0.025] p-3 space-y-3">
-                  <p class="text-sm font-semibold text-white">Profile voice override</p>
+                  <p class="text-sm font-semibold text-white">{{ i18n.t('workspace.chat_sources.assistant.voice_override') }}</p>
                   <div class="grid gap-3 md:grid-cols-2">
                     <label class="block">
-                      <span class="field-label">Voice mode</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.voice_mode') }}</span>
                       <span class="ag-select-wrap">
                         <select
                           class="ag-select"
@@ -1502,16 +1491,16 @@ interface AssistantProfileDraft {
                           [disabled]="!canEdit()"
                           (ngModelChange)="updateAssistantProfileVoiceField('default_mode', $event)"
                         >
-                          <option value="">Workspace default</option>
+                          <option value="">{{ i18n.t('workspace.chat_sources.option.workspace_default') }}</option>
                           @for (mode of voiceModeOptions; track mode.value) {
-                            <option [ngValue]="mode.value">{{ mode.label }}</option>
+                            <option [ngValue]="mode.value">{{ i18n.t(mode.labelKey) }}</option>
                           }
                         </select>
                         <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
                       </span>
                     </label>
                     <label class="block">
-                      <span class="field-label">Stop phrases</span>
+                      <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.stop_phrases') }}</span>
                       <input
                         class="ag-field"
                         [ngModel]="profileVoiceListField('stop_phrases')"
@@ -1524,12 +1513,12 @@ interface AssistantProfileDraft {
                 </div>
               </div>
             } @else {
-              <p class="px-4 py-5 text-sm text-gray-500">No assistant profiles yet. Add one to define a reusable chat and voice persona.</p>
+              <p class="px-4 py-5 text-sm text-gray-500">{{ i18n.t('workspace.chat_sources.assistant.empty') }}</p>
             }
           </div>
 
           <label class="block mt-4">
-            <span class="field-label">assistant_profiles JSON · advanced</span>
+            <span class="field-label">{{ i18n.t('workspace.chat_sources.assistant.advanced_label') }}</span>
             <textarea
               class="ag-field min-h-56 font-mono text-xs leading-relaxed"
               [(ngModel)]="assistantProfilesJson"
@@ -1538,7 +1527,7 @@ interface AssistantProfileDraft {
             ></textarea>
           </label>
           <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-            This remains an advanced field until assistant profiles get a dedicated editor.
+            {{ i18n.t('workspace.chat_sources.assistant.advanced_hint') }}
           </p>
         </section>
       </aside>
@@ -2051,10 +2040,10 @@ export class ChatKnowledgeSettingsComponent {
   readonly selectedAssistantProfileIndex = signal(0);
 
   readonly ragModes: RagMode[] = ['auto', 'naive', 'hybrid', 'hah', 'chah'];
-  readonly voiceModeOptions: { value: VoiceLoopDefaultMode; label: string; icon: string; help: string }[] = [
-    { value: 'batch', label: 'Batch', icon: 'mic', help: 'Push-to-talk voice turn.' },
-    { value: 'session_loop', label: 'Conversation', icon: 'waves', help: 'Hands-free voice conversation.' },
-    { value: 'realtime', label: 'Realtime', icon: 'radio', help: 'WebRTC lane when enabled.' },
+  readonly voiceModeOptions: { value: VoiceLoopDefaultMode; labelKey: string; icon: string; helpKey: string }[] = [
+    { value: 'batch', labelKey: 'workspace.chat_sources.voice.mode.batch', icon: 'mic', helpKey: 'workspace.chat_sources.voice.mode.batch_help' },
+    { value: 'session_loop', labelKey: 'workspace.chat_sources.voice.mode.session_loop', icon: 'waves', helpKey: 'workspace.chat_sources.voice.mode.session_loop_help' },
+    { value: 'realtime', labelKey: 'workspace.chat_sources.voice.mode.realtime', icon: 'radio', helpKey: 'workspace.chat_sources.voice.mode.realtime_help' },
   ];
   assistantProfileDefault = '';
   assistantProfilesJson = '[]';
@@ -2116,10 +2105,10 @@ export class ChatKnowledgeSettingsComponent {
   readonly effectiveScopeOrigin = computed(() => {
     const profile = this.activeAssistantProfile();
     if (profile?.default_knowledge_scope) {
-      const label = profile.label || profile.key || 'default assistant profile';
-      return `Selected by assistant profile "${label}", overriding the default context.`;
+      const label = profile.label || profile.key || this.i18n.t('workspace.chat_sources.origin.fallback_profile');
+      return this.i18n.t('workspace.chat_sources.origin.profile', { label });
     }
-    return 'Selected from the default context.';
+    return this.i18n.t('workspace.chat_sources.origin.default');
   });
 
   tableProfileOptions(): TableProfileDraft[] {
@@ -2232,7 +2221,7 @@ export class ChatKnowledgeSettingsComponent {
       error: () => {
         if (!this.isLoadCurrent(scope, generation)) return;
         this.loadRequest = null;
-        this.error.set('Unable to load workspace chat and Knowledge settings.');
+        this.error.set(this.i18n.t('workspace.chat_sources.error.load'));
       },
       complete: () => {
         if (generation === this.loadGeneration) this.loadRequest = null;
@@ -2291,12 +2280,15 @@ export class ChatKnowledgeSettingsComponent {
       placeholder: this.effectiveChatPlaceholder(),
       prompt_pack: this.effectivePromptCards().map((prompt) => ({ ...prompt })),
     };
-    this.toastr.info('Preview copied into editable chat defaults', 'Workspace');
+    this.toastr.info(
+      this.i18n.t('workspace.chat_sources.toast.preview_copied'),
+      this.i18n.t('workspace.chat_sources.toast.workspace_title'),
+    );
   }
 
   copyCollection(collection: string): void {
     void navigator.clipboard?.writeText(collection);
-    this.toastr.info(collection, 'Collection slug copied');
+    this.toastr.info(collection, this.i18n.t('workspace.chat_sources.toast.slug_copied_title'));
   }
 
   addCollectionToDefaultScope(collection: string): void {
@@ -2321,13 +2313,16 @@ export class ChatKnowledgeSettingsComponent {
       const current = next[index];
       const slugs = this.collectionSlugs(current);
       if (slugs.includes(slug)) {
-        this.toastr.info(slug, 'Already in default context');
+        this.toastr.info(slug, this.i18n.t('workspace.chat_sources.toast.already_in_default_title'));
         return;
       }
       next[index] = { ...current, collection_slugs_text: [...slugs, slug].join(', ') };
     }
     this.scopes.set(next);
-    this.toastr.success('Save defaults to apply this routing change.', 'Added to default context');
+    this.toastr.success(
+      this.i18n.t('workspace.chat_sources.toast.added_to_default'),
+      this.i18n.t('workspace.chat_sources.toast.added_to_default_title'),
+    );
   }
 
   collectionInDefaultScope(collection: string): boolean {
@@ -2398,7 +2393,7 @@ export class ChatKnowledgeSettingsComponent {
     const title = editor.title.trim();
     const markdown = editor.markdown.trim();
     if (!title || !markdown) {
-      this.error.set('Knowledge guide needs a title and Markdown content.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.guide_needs_content'));
       return;
     }
     const payload = {
@@ -2427,13 +2422,18 @@ export class ChatKnowledgeSettingsComponent {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
           this.guideEditor.set(null);
-          this.toastr.success(payload.status === 'published' ? 'Guide published' : 'Guide saved', 'Knowledge guide');
+          this.toastr.success(
+            payload.status === 'published'
+              ? this.i18n.t('workspace.chat_sources.toast.guide_published')
+              : this.i18n.t('workspace.chat_sources.toast.guide_saved'),
+            this.i18n.t('workspace.chat_sources.toast.guide_title'),
+          );
           this.loadKnowledgeGuides(scope, generation, operation);
         },
         error: (err) => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
-          this.error.set(err?.error?.detail || 'Unable to save Knowledge guide.');
+          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.guide_save'));
           this.finishGuide(operation, generation);
         },
       }),
@@ -2451,10 +2451,18 @@ export class ChatKnowledgeSettingsComponent {
   }
 
   formatDate(value?: string | null): string {
-    if (!value) return 'no date';
+    if (!value) return this.i18n.t('workspace.chat_sources.no_date');
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  guideStatusLabel(status: string | null | undefined): string {
+    const raw = (status || '').trim();
+    if (!raw) return '';
+    const key = 'workspace.chat_sources.guide.status.' + raw;
+    const label = this.i18n.t(key);
+    return label === key ? raw : label;
   }
 
   markdownPreviewLines(markdown: string): string[] {
@@ -2538,7 +2546,10 @@ export class ChatKnowledgeSettingsComponent {
     this.mutateSelectedAssistantProfile((profile) => {
       profile.chat = this.cleanChatSettings(this.asRecord(profile.chat));
     });
-    this.toastr.info('Workspace chat defaults copied into selected profile', 'Assistant profile');
+    this.toastr.info(
+      this.i18n.t('workspace.chat_sources.toast.chat_copied_to_profile'),
+      this.i18n.t('workspace.chat_sources.toast.assistant_profile_title'),
+    );
   }
 
   profileVoiceField(field: string): string {
@@ -2575,7 +2586,7 @@ export class ChatKnowledgeSettingsComponent {
     if (!detail) return;
     const scope = this.workspace.captureRequestScope();
     if (!scope.workspaceSlug || detail.slug !== scope.workspaceSlug) {
-      this.error.set('Workspace changed before save. Reload these settings and try again.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.workspace_changed_save'));
       return;
     }
     const scopePayload = this.toScopePayload();
@@ -2584,9 +2595,9 @@ export class ChatKnowledgeSettingsComponent {
     let assistantProfiles: unknown;
     try {
       assistantProfiles = JSON.parse(this.assistantProfilesJson || '[]');
-      if (!Array.isArray(assistantProfiles)) throw new Error('assistant_profiles must be an array');
+      if (!Array.isArray(assistantProfiles)) throw new Error(this.i18n.t('workspace.chat_sources.error.profiles_not_array'));
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Invalid assistant_profiles JSON.');
+      this.error.set(err instanceof Error ? err.message : this.i18n.t('workspace.chat_sources.error.profiles_json'));
       return;
     }
 
@@ -2629,7 +2640,10 @@ export class ChatKnowledgeSettingsComponent {
                 if (!this.isSaveCurrent(scope, generation, request)) return;
                 this.saving.set(false);
                 this.detail.set(workspace);
-                this.toastr.success('Chat and source defaults saved', 'Workspace');
+                this.toastr.success(
+                  this.i18n.t('workspace.chat_sources.toast.saved'),
+                  this.i18n.t('workspace.chat_sources.toast.workspace_title'),
+                );
                 this.finishSave(request, generation);
                 // Reload the authoritative scopes/settings just as before. The
                 // load owns its own A scope and is cancelled by the same reset.
@@ -2638,7 +2652,7 @@ export class ChatKnowledgeSettingsComponent {
               error: (err) => {
                 if (!this.isSaveCurrent(scope, generation, request)) return;
                 this.saving.set(false);
-                this.error.set(err?.error?.detail || 'Source scopes saved, but chat defaults could not be saved.');
+                this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.settings_save'));
                 this.finishSave(request, generation);
               },
             }),
@@ -2647,7 +2661,7 @@ export class ChatKnowledgeSettingsComponent {
         error: (err) => {
           if (!this.isSaveCurrent(scope, generation, request)) return;
           this.saving.set(false);
-          this.error.set(err?.error?.detail || 'Unable to save source scopes.');
+          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.scopes_save'));
           this.finishSave(request, generation);
         },
       }),
@@ -2733,7 +2747,10 @@ export class ChatKnowledgeSettingsComponent {
         },
         error: () => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
-          this.toastr.warning('Knowledge guides could not be refreshed.', 'Workspace');
+          this.toastr.warning(
+            this.i18n.t('workspace.chat_sources.toast.guides_refresh_failed'),
+            this.i18n.t('workspace.chat_sources.toast.workspace_title'),
+          );
           this.finishGuide(operation, generation);
         },
         complete: () => this.finishGuide(operation, generation),
@@ -2761,13 +2778,18 @@ export class ChatKnowledgeSettingsComponent {
         next: () => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
-          this.toastr.success(status === 'published' ? 'Guide published' : 'Guide archived', 'Knowledge guide');
+          this.toastr.success(
+            status === 'published'
+              ? this.i18n.t('workspace.chat_sources.toast.guide_published')
+              : this.i18n.t('workspace.chat_sources.toast.guide_archived'),
+            this.i18n.t('workspace.chat_sources.toast.guide_title'),
+          );
           this.loadKnowledgeGuides(scope, generation, operation);
         },
         error: (err) => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
-          this.error.set(err?.error?.detail || 'Unable to update Knowledge guide.');
+          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.guide_update'));
           this.finishGuide(operation, generation);
         },
       }),
@@ -2777,7 +2799,7 @@ export class ChatKnowledgeSettingsComponent {
   private captureCurrentRouteScope(): WorkspaceRequestScope | null {
     const scope = this.workspace.captureRequestScope();
     if (!scope.workspaceSlug || this.routeSlug() !== scope.workspaceSlug) {
-      this.error.set('Workspace changed. Reload these settings and try again.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.workspace_changed'));
       return null;
     }
     return scope;
@@ -2878,11 +2900,11 @@ export class ChatKnowledgeSettingsComponent {
     });
 
     if (payload.some((scope) => !scope.key || scope.collection_slugs.length === 0)) {
-      this.error.set('Each Knowledge scope needs a key and at least one collection slug.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.scope_incomplete'));
       return null;
     }
     if (new Set(payload.map((scope) => scope.key)).size !== payload.length) {
-      this.error.set('Knowledge scope keys must be unique.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.scope_duplicate'));
       return null;
     }
     if (!payload.some((scope) => scope.is_default)) payload[0].is_default = true;
@@ -2928,12 +2950,12 @@ export class ChatKnowledgeSettingsComponent {
     })).filter((profile) => profile.key);
 
     if (new Set(profiles.map((profile) => profile.key)).size !== profiles.length) {
-      this.error.set('Table Intelligence profile keys must be unique.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.table_duplicate'));
       return null;
     }
     const defaultProfile = this.tableIntelligenceDraft.default_profile.trim();
     if (defaultProfile && !profiles.some((profile) => profile.key === defaultProfile)) {
-      this.error.set('The default Table Intelligence profile must exist in the profile list.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.table_default_missing'));
       return null;
     }
     return {
@@ -2953,12 +2975,12 @@ export class ChatKnowledgeSettingsComponent {
     })).filter((profile) => profile.key);
 
     if (new Set(profiles.map((profile) => profile.key)).size !== profiles.length) {
-      this.error.set('Document Intelligence profile keys must be unique.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.doc_duplicate'));
       return null;
     }
     const defaultProfile = this.documentIntelligenceDraft.default_profile.trim();
     if (defaultProfile && !profiles.some((profile) => profile.key === defaultProfile)) {
-      this.error.set('The default Document Intelligence profile must exist in the profile list.');
+      this.error.set(this.i18n.t('workspace.chat_sources.error.doc_default_missing'));
       return null;
     }
     const ocr = this.documentIntelligenceDraft.ocr;

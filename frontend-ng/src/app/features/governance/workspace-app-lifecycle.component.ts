@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { forkJoin } from 'rxjs';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceAppGovernanceApi } from './workspace-app-governance.api';
 import {
@@ -30,21 +31,20 @@ import {
     <section class="apps-page" data-testid="workspace-app-lifecycle">
       <header class="page-head">
         <div>
-          <p class="eyebrow">Governance · Workspace App Platform</p>
-          <h1>Workspace Apps</h1>
+          <p class="eyebrow">{{ i18n.t('governance.apps.eyebrow') }}</p>
+          <h1>{{ i18n.t('governance.apps.title') }}</h1>
           <p class="lead">
-            Install, upgrade, roll back or uninstall a compiled app manifest through an exact,
-            content-addressed plan. This lifecycle never edits workspace settings or member entitlements.
+            {{ i18n.t('governance.apps.lead') }}
           </p>
         </div>
         <button type="button" class="ghost" (click)="load()" [disabled]="loading() || busy()">
-          Refresh registry
+          {{ i18n.t('governance.apps.refresh') }}
         </button>
       </header>
 
       @if (!isAdmin()) {
         <div class="notice danger" role="alert">
-          Workspace owner or admin access is required for this lifecycle.
+          {{ i18n.t('governance.apps.admin_required') }}
         </div>
       } @else {
         @if (error()) {
@@ -52,26 +52,26 @@ import {
         }
         @if (receipt(); as result) {
           <div class="notice success" data-testid="workspace-app-receipt">
-            {{ result.operation }} completed for <strong>{{ result.app_id }}</strong>
-            · revision {{ result.installation.revision }}
-            · {{ result.step_receipts.length }} lifecycle steps verified
-            · phase {{ result.lifecycle_phase }}
-            @if (result.idempotent_replay) { · idempotent replay }
+            {{ result.operation }} {{ i18n.t('governance.apps.receipt.completed') }} <strong>{{ result.app_id }}</strong>
+            · {{ i18n.t('governance.apps.receipt.revision', { revision: result.installation.revision }) }}
+            · {{ i18n.t('governance.apps.receipt.steps', { count: result.step_receipts.length }) }}
+            · {{ i18n.t('governance.apps.receipt.phase', { phase: result.lifecycle_phase }) }}
+            @if (result.idempotent_replay) { · {{ i18n.t('governance.apps.receipt.idempotent') }} }
           </div>
         }
 
-        <section class="safety-strip" aria-label="Workspace App lifecycle guarantees">
-          <span>Admin-only</span>
-          <span>Exact manifest digest</span>
-          <span>Plan before apply</span>
-          <span>Stable retry key</span>
-          <span>No entitlement mutation</span>
+        <section class="safety-strip" [attr.aria-label]="i18n.t('governance.apps.safety.aria')">
+          <span>{{ i18n.t('governance.apps.safety.admin') }}</span>
+          <span>{{ i18n.t('governance.apps.safety.digest') }}</span>
+          <span>{{ i18n.t('governance.apps.safety.plan') }}</span>
+          <span>{{ i18n.t('governance.apps.safety.retry') }}</span>
+          <span>{{ i18n.t('governance.apps.safety.entitlements') }}</span>
         </section>
 
         @if (loading()) {
-          <div class="empty">Loading the authoritative manifest registry…</div>
+          <div class="empty">{{ i18n.t('governance.apps.loading') }}</div>
         } @else if (!catalog().length) {
-          <div class="empty">No compiled Workspace App manifest is available.</div>
+          <div class="empty">{{ i18n.t('governance.apps.empty') }}</div>
         } @else {
           <div class="catalog" data-testid="workspace-app-catalog">
             @for (app of catalog(); track app.appId) {
@@ -83,21 +83,21 @@ import {
                     <code>{{ app.appId }}</code>
                   </div>
                   <span class="state" [class.installed]="isInstalled(app)">
-                    {{ isInstalled(app) ? 'installed' : 'not installed' }}
+                    {{ isInstalled(app) ? i18n.t('governance.apps.state.installed') : i18n.t('governance.apps.state.not_installed') }}
                   </span>
                 </div>
 
                 <div class="current">
                   <div>
-                    <span>Current version</span>
+                    <span>{{ i18n.t('governance.apps.card.version') }}</span>
                     <strong>{{ app.installation?.version || '—' }}</strong>
                   </div>
                   <div>
-                    <span>Revision</span>
+                    <span>{{ i18n.t('governance.apps.card.revision') }}</span>
                     <strong>{{ app.installation?.revision || 0 }}</strong>
                   </div>
                   <div class="digest">
-                    <span>Installed digest</span>
+                    <span>{{ i18n.t('governance.apps.card.digest') }}</span>
                     <code [title]="app.installation?.manifest_digest || ''">
                       {{ shortDigest(app.installation?.manifest_digest) }}
                     </code>
@@ -107,25 +107,25 @@ import {
                 @if (displayManifest(app); as manifest) {
                   <dl class="contract">
                     <div>
-                      <dt>Routes</dt>
-                      <dd>{{ manifest.manifest.routes.join(', ') || 'none' }}</dd>
+                      <dt>{{ i18n.t('governance.apps.card.routes') }}</dt>
+                      <dd>{{ manifest.manifest.routes.join(', ') || i18n.t('governance.apps.none') }}</dd>
                     </div>
                     <div>
-                      <dt>Brand namespace</dt>
+                      <dt>{{ i18n.t('governance.apps.card.namespace') }}</dt>
                       <dd>{{ manifest.manifest.branding.namespace }}</dd>
                     </div>
                     <div>
-                      <dt>Action packs</dt>
-                      <dd>{{ manifest.manifest.action_packs.join(', ') || 'none' }}</dd>
+                      <dt>{{ i18n.t('governance.apps.card.action_packs') }}</dt>
+                      <dd>{{ manifest.manifest.action_packs.join(', ') || i18n.t('governance.apps.none') }}</dd>
                     </div>
                     <div>
-                      <dt>Entitlement contract</dt>
-                      <dd>{{ manifest.manifest.entitlement_keys.join(', ') || 'none' }}</dd>
+                      <dt>{{ i18n.t('governance.apps.card.entitlements') }}</dt>
+                      <dd>{{ manifest.manifest.entitlement_keys.join(', ') || i18n.t('governance.apps.none') }}</dd>
                     </div>
                   </dl>
                 }
 
-                <div class="versions" aria-label="Available manifest versions">
+                <div class="versions" [attr.aria-label]="i18n.t('governance.apps.versions.aria')">
                   @for (manifest of app.versions; track manifest.manifest_digest) {
                     <span [title]="manifest.manifest_digest">v{{ manifest.version }}</span>
                   }
@@ -141,10 +141,10 @@ import {
                       (click)="plan(action)"
                       [disabled]="busy()"
                     >
-                      Plan {{ action.label }}
+                      {{ i18n.t('governance.apps.action.plan', { action: actionLabel(action) }) }}
                     </button>
                   } @empty {
-                    <span class="no-action">No valid lifecycle transition in this registry.</span>
+                    <span class="no-action">{{ i18n.t('governance.apps.no_action') }}</span>
                   }
                 </div>
               </article>
@@ -156,39 +156,38 @@ import {
           <section class="plan-panel" data-testid="workspace-app-plan">
             <div class="plan-head">
               <div>
-                <p class="eyebrow">Authoritative dry-run</p>
+                <p class="eyebrow">{{ i18n.t('governance.apps.plan.eyebrow') }}</p>
                 <h2>{{ pendingPlan.plan.operation }} · {{ pendingPlan.plan.app_id }}</h2>
               </div>
               <button type="button" class="ghost" (click)="discardPlan()" [disabled]="busy()">
-                Discard
+                {{ i18n.t('governance.apps.plan.discard') }}
               </button>
             </div>
             <div class="transition">
               <div>
-                <span>From</span>
+                <span>{{ i18n.t('governance.apps.plan.from') }}</span>
                 <strong>{{ pendingPlan.plan.from.state }} {{ pendingPlan.plan.from.version || '' }}</strong>
                 <code>{{ shortDigest(pendingPlan.plan.from.manifest_digest) }}</code>
               </div>
               <span class="arrow">→</span>
               <div>
-                <span>To</span>
+                <span>{{ i18n.t('governance.apps.plan.to') }}</span>
                 <strong>{{ pendingPlan.plan.to.state }} {{ pendingPlan.plan.to.version || '' }}</strong>
                 <code>{{ shortDigest(pendingPlan.plan.to.manifest_digest) }}</code>
               </div>
             </div>
             <div class="hashes">
-              <label>Manifest SHA-256</label>
+              <label>{{ i18n.t('governance.apps.plan.manifest_sha') }}</label>
               <code data-testid="workspace-app-manifest-digest">{{ pendingPlan.request.expected_manifest_digest }}</code>
-              <label>Plan SHA-256</label>
+              <label>{{ i18n.t('governance.apps.plan.plan_sha') }}</label>
               <code data-testid="workspace-app-plan-sha">{{ pendingPlan.plan.plan_sha256 }}</code>
-              <label>Lifecycle phase</label>
+              <label>{{ i18n.t('governance.apps.plan.phase') }}</label>
               <code data-testid="workspace-app-lifecycle-phase">{{ pendingPlan.plan.lifecycle_phase }}</code>
-              <label>Step chain SHA-256 ({{ pendingPlan.plan.steps.length }} steps)</label>
+              <label>{{ i18n.t('governance.apps.plan.steps_sha', { count: pendingPlan.plan.steps.length }) }}</label>
               <code data-testid="workspace-app-steps-sha">{{ pendingPlan.plan.steps_sha256 }}</code>
             </div>
             <p class="warning">
-              Apply revalidates this exact plan after a tenant lock. A stale plan is rejected;
-              retries reuse the same idempotency key.
+              {{ i18n.t('governance.apps.plan.warning') }}
             </p>
             <button
               type="button"
@@ -197,7 +196,7 @@ import {
               (click)="apply()"
               [disabled]="busy()"
             >
-              {{ busy() ? 'Applying…' : 'Apply exact plan' }}
+              {{ busy() ? i18n.t('governance.apps.plan.applying') : i18n.t('governance.apps.plan.apply') }}
             </button>
           </section>
         }
@@ -257,6 +256,7 @@ import {
 export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
   private readonly api = inject(WorkspaceAppGovernanceApi);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   private readonly ledger = new WorkspaceAppIdempotencyLedger();
   private requestSequence = 0;
   private destroyed = false;
@@ -303,7 +303,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
     }
     const scope = this.workspace.captureRequestScope();
     if (!scope.workspaceSlug || !scope.workspaceId) {
-      this.error.set('No active workspace is available.');
+      this.error.set(this.i18n.t('governance.apps.error.no_workspace'));
       return;
     }
     const sequence = ++this.requestSequence;
@@ -320,7 +320,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
           || installations.workspace_id !== scope.workspaceId
         ) {
           this.loading.set(false);
-          this.error.set('The Workspace App registry returned another tenant identity.');
+          this.error.set(this.i18n.t('governance.apps.error.tenant'));
           return;
         }
         this.catalog.set(buildWorkspaceAppCatalog(
@@ -332,7 +332,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
       error: (error) => {
         if (!this.isCurrent(sequence, scope)) return;
         this.loading.set(false);
-        this.error.set(this.errorMessage(error, 'The Workspace App registry is unavailable.'));
+        this.error.set(this.errorMessage(error, this.i18n.t('governance.apps.error.registry')));
       },
     });
   }
@@ -360,7 +360,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
               : action.request.expected_manifest_digest
           )
         ) {
-          this.error.set('The lifecycle plan does not match the selected manifest contract.');
+          this.error.set(this.i18n.t('governance.apps.error.plan_mismatch'));
           return;
         }
         this.pending.set({ request: action.request, plan, scope });
@@ -368,7 +368,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
       error: (error) => {
         if (!this.isCurrent(sequence, scope)) return;
         this.busy.set(false);
-        this.error.set(this.errorMessage(error, 'The Workspace App plan was rejected.'));
+        this.error.set(this.errorMessage(error, this.i18n.t('governance.apps.error.plan_rejected')));
       },
     });
   }
@@ -379,7 +379,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
     if (!this.workspace.isRequestScopeCurrent(pending.scope) || !pending.scope.workspaceSlug) {
       this.pending.set(null);
       this.ledger.clear();
-      this.error.set('The workspace changed. Create a new lifecycle plan.');
+      this.error.set(this.i18n.t('governance.apps.error.workspace_changed'));
       return;
     }
     const sequence = ++this.requestSequence;
@@ -402,7 +402,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
           || result.plan_sha256 !== pending.plan.plan_sha256
           || result.manifest_digest !== pending.request.expected_manifest_digest
         ) {
-          this.error.set('The lifecycle receipt does not match the applied plan.');
+          this.error.set(this.i18n.t('governance.apps.error.receipt_mismatch'));
           return;
         }
         this.ledger.complete(pending.scope, pending.plan);
@@ -413,7 +413,7 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
       error: (error) => {
         if (!this.isCurrent(sequence, pending.scope)) return;
         this.busy.set(false);
-        this.error.set(this.errorMessage(error, 'The Workspace App apply was rejected.'));
+        this.error.set(this.errorMessage(error, this.i18n.t('governance.apps.error.apply_rejected')));
       },
     });
   }
@@ -425,6 +425,21 @@ export class WorkspaceAppLifecycleComponent implements OnInit, OnDestroy {
 
   actions(item: WorkspaceAppCatalogItem): WorkspaceAppAction[] {
     return workspaceAppActions(item);
+  }
+
+  /** Rebuilds the action label from its operation + version so it follows the locale. */
+  actionLabel(action: WorkspaceAppAction): string {
+    const version = action.manifest.version;
+    switch (action.operation) {
+      case 'install':
+        return this.i18n.t('governance.apps.action.install', { version });
+      case 'upgrade':
+        return this.i18n.t('governance.apps.action.upgrade', { version });
+      case 'rollback':
+        return this.i18n.t('governance.apps.action.rollback', { version });
+      default:
+        return this.i18n.t('governance.apps.action.uninstall');
+    }
   }
 
   isInstalled(item: WorkspaceAppCatalogItem): boolean {

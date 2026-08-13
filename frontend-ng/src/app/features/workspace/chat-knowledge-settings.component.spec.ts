@@ -22,6 +22,7 @@ import {
   type WorkspaceRequestOptions,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { I18nService } from '@app/core/i18n.service';
 import { ChatKnowledgeSettingsComponent } from './chat-knowledge-settings.component';
 
@@ -40,6 +41,9 @@ class WorkspaceStub {
   private slug = 'andritz';
   private epoch = 8;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
+
+  /** The real I18nService interpolates {brand} on every t() call. */
+  brandName = () => DEFAULT_BRAND_NAME;
 
   readonly settingsWrites: Subject<WorkspaceDetail>[] = [];
   readonly settingsCalls: Array<{
@@ -285,6 +289,7 @@ test('ChatKnowledge cancels the A write chain before a late response can continu
 
 test('ChatKnowledge pins and cancels post-save reloads so late A reads cannot repopulate B', () => {
   const { injector, component, api, workspace, successMessages } = createHarness();
+  const i18n = injector.get(I18nService);
   try {
     component.saveAll();
     api.scopeWrites[0].next({ status: 'ok' });
@@ -293,7 +298,7 @@ test('ChatKnowledge pins and cancels post-save reloads so late A reads cannot re
       settings: { chat: { title: 'Saved in A' } },
     });
 
-    assert.deepEqual(successMessages, ['Chat and source defaults saved']);
+    assert.deepEqual(successMessages, [i18n.t('workspace.chat_sources.toast.saved')]);
     assert.deepEqual(workspace.workspaceLoadSlugs, ['andritz']);
     assert.deepEqual(
       api.reads.map(({ path, workspaceSlug }) => ({ path, workspaceSlug })),

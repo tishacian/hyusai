@@ -27,6 +27,7 @@ import {
   type Context,
   type System,
 } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 
 @Component({
   selector: 'app-contexts-page',
@@ -40,9 +41,9 @@ import {
   ],
   template: `
     <ck-object-header
-      eyebrow="Steer · Contexts"
-      title="Contexts"
-      subtitle="Versioned bags of state attached to Systems. Each Run references a Context snapshot."
+      [eyebrow]="i18n.t('contexts.page.eyebrow')"
+      [title]="i18n.t('contexts.page.title')"
+      [subtitle]="i18n.t('contexts.page.subtitle')"
       [kpis]="kpis()"
     >
       <a
@@ -50,7 +51,7 @@ import {
         routerLink="/systems/new"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
       >
-        <app-icon name="plus" [size]="14" /> New via Builder
+        <app-icon name="plus" [size]="14" /> {{ i18n.t('contexts.page.new_via_builder') }}
       </a>
     </ck-object-header>
 
@@ -65,14 +66,14 @@ import {
     } @else if (contexts().length === 0) {
       <app-empty-state
         icon="database"
-        title="No contexts yet"
-        description="Contexts are created from the System Builder (Context step)."
+        [title]="i18n.t('contexts.empty.title')"
+        [description]="i18n.t('contexts.empty.description')"
       >
         <a
           routerLink="/systems/new"
           class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
-          <app-icon name="plus" [size]="14" /> Open System Builder
+          <app-icon name="plus" [size]="14" /> {{ i18n.t('contexts.empty.open_builder') }}
         </a>
       </app-empty-state>
     } @else {
@@ -101,14 +102,18 @@ import {
                       class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                       style="color: var(--ck-signal-pos); border: 1px solid rgba(16,185,129,0.25); background: rgba(16,185,129,0.05);"
                     >
-                      IN USE
+                      {{ i18n.t('contexts.list.in_use') }}
                     </span>
                   }
                 </div>
                 <div class="text-[11px] text-gray-500 font-mono mt-0.5">
-                  {{ (c.data_refs?.length ?? 0) }} data ·
-                  {{ (c.memory_refs?.length ?? 0) }} mem ·
-                  {{ systemsBound(c).length }} systems
+                  {{
+                    i18n.t('contexts.list.meta', {
+                      data: c.data_refs?.length ?? 0,
+                      mem: c.memory_refs?.length ?? 0,
+                      systems: systemsBound(c).length
+                    })
+                  }}
                 </div>
               </div>
               <app-icon name="chevron-right" [size]="14" class="text-gray-500 group-hover:text-white transition shrink-0" />
@@ -121,6 +126,7 @@ import {
 })
 export class ContextsPageComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
+  readonly i18n = inject(I18nService);
 
   readonly contexts = signal<Context[]>([]);
   readonly systems = signal<System[]>([]);
@@ -132,10 +138,10 @@ export class ContextsPageComponent implements OnInit {
     const unused = total - pinned;
     const stale = this.contexts().filter((c) => (c.version ?? 1) >= 3).length;
     return [
-      { label: 'Total', value: String(total), tone: 'cool', hint: 'All contexts in this workspace.' },
-      { label: 'Pinned', value: String(pinned), tone: 'pos', hint: 'Referenced by at least one System.' },
-      { label: 'Unused', value: String(unused), tone: unused ? 'warn' : 'neutral', hint: 'Orphan contexts that no System references.' },
-      { label: 'Stale v3+', value: String(stale), tone: stale ? 'warn' : 'neutral', hint: 'Contexts that have been edited 3+ times.' },
+      { label: this.i18n.t('contexts.kpi.total'), value: String(total), tone: 'cool', hint: this.i18n.t('contexts.kpi.total_hint') },
+      { label: this.i18n.t('contexts.kpi.pinned'), value: String(pinned), tone: 'pos', hint: this.i18n.t('contexts.kpi.pinned_hint') },
+      { label: this.i18n.t('contexts.kpi.unused'), value: String(unused), tone: unused ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.unused_hint') },
+      { label: this.i18n.t('contexts.kpi.stale'), value: String(stale), tone: stale ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.stale_hint') },
     ];
   });
 

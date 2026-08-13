@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
@@ -15,9 +16,9 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
           <app-icon name="shield" [size]="18" />
         </div>
         <div>
-          <h2 class="text-base font-semibold text-white">Security</h2>
+          <h2 class="text-base font-semibold text-white">{{ i18n.t('account.security') }}</h2>
           <p class="text-sm text-gray-400 mt-0.5">
-            Add another layer of protection with two-factor authentication.
+            {{ i18n.t('account.security.description') }}
           </p>
         </div>
       </div>
@@ -32,19 +33,19 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <app-icon name="mail" [size]="16" class="text-cyan-400" />
-              <span class="font-medium text-white">Email two-factor authentication</span>
+              <span class="font-medium text-white">{{ i18n.t('account.security.mfa.title') }}</span>
               @if (enabled()) {
                 <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
-                  Enabled
+                  {{ i18n.t('account.security.mfa.enabled') }}
                 </span>
               } @else {
                 <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400 border border-gray-500/30 font-semibold">
-                  Disabled
+                  {{ i18n.t('account.security.mfa.disabled') }}
                 </span>
               }
             </div>
             <p class="text-sm text-gray-400 mt-1">
-              A 6-digit code will be sent to your email address each time you sign in.
+              {{ i18n.t('account.security.mfa.description') }}
             </p>
           </div>
           <button
@@ -64,11 +65,11 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
           >
             @if (saving()) {
               <app-icon name="loader-2" [size]="14" class="animate-spin" />
-              Saving…
+              {{ i18n.t('account.saving') }}
             } @else if (enabled()) {
-              <app-icon name="unlock" [size]="14" /> Disable
+              <app-icon name="unlock" [size]="14" /> {{ i18n.t('account.security.mfa.disable') }}
             } @else {
-              <app-icon name="lock" [size]="14" /> Enable
+              <app-icon name="lock" [size]="14" /> {{ i18n.t('account.security.mfa.enable') }}
             }
           </button>
         </div>
@@ -77,6 +78,7 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
   `,
 })
 export class SecurityComponent {
+  readonly i18n = inject(I18nService);
   private readonly api = inject(AuthApiService);
   private readonly toastr = inject(ToastrService);
 
@@ -103,14 +105,19 @@ export class SecurityComponent {
         this.saving.set(false);
         this.toastr.success(
           res.mfa_enabled
-            ? 'A code will be emailed on next sign-in.'
-            : 'Two-factor authentication disabled.',
-          res.mfa_enabled ? '2FA enabled' : '2FA disabled',
+            ? this.i18n.t('account.security.toast.enabled')
+            : this.i18n.t('account.security.toast.disabled'),
+          res.mfa_enabled
+            ? this.i18n.t('account.security.toast.enabled_title')
+            : this.i18n.t('account.security.toast.disabled_title'),
         );
       },
       error: (err) => {
         this.saving.set(false);
-        this.toastr.error(err.error?.detail || 'Failed to update 2FA setting', 'Error');
+        this.toastr.error(
+          err.error?.detail || this.i18n.t('account.security.toast.failed'),
+          this.i18n.t('account.toast.error_title'),
+        );
       },
     });
   }

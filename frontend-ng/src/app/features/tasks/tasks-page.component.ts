@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -72,9 +73,9 @@ interface TaskEvent {
   ],
   template: `
     <ck-page-frame
-      eyebrow="Run · Missions"
-      title="Autonomous missions"
-      description="Goal-oriented tasks: plan → act → verify → report — running in the background."
+      [eyebrow]="i18n.t('tasks.eyebrow')"
+      [title]="i18n.t('tasks.title')"
+      [description]="i18n.t('tasks.description')"
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
         <button
@@ -97,7 +98,7 @@ interface TaskEvent {
           [style.cursor]="'pointer'"
         >
           <ck-glyph name="orbit" [size]="12" />
-          Refresh
+          {{ i18n.t('common.refresh') }}
         </button>
         <button
           type="button"
@@ -119,27 +120,27 @@ interface TaskEvent {
           [style.cursor]="'pointer'"
         >
           <ck-glyph name="bolt" [size]="12" />
-          New mission
+          {{ i18n.t('tasks.new.cta') }}
         </button>
       </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <ck-stat-readout variant="tile" label="Total" [value]="tasks().length" icon="list-todo" />
+      <ck-stat-readout variant="tile" [label]="i18n.t('tasks.stats.total')" [value]="tasks().length" icon="list-todo" />
       <ck-stat-readout variant="tile"
-        label="Running"
+        [label]="i18n.t('tasks.status.running')"
         [value]="runningCount()"
         icon="loader-2"
         [trend]="runningCount() > 0 ? 'up' : null"
       />
-      <ck-stat-readout variant="tile" label="Completed" [value]="completedCount()" icon="check-circle-2" />
-      <ck-stat-readout variant="tile" label="Failed" [value]="failedCount()" icon="x-circle" />
+      <ck-stat-readout variant="tile" [label]="i18n.t('tasks.status.completed')" [value]="completedCount()" icon="check-circle-2" />
+      <ck-stat-readout variant="tile" [label]="i18n.t('tasks.status.failed')" [value]="failedCount()" icon="x-circle" />
     </div>
 
     <section class="ck-surface t-elevated rounded-md overflow-hidden">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
           <app-icon name="history" [size]="16" class="text-cyan-400" />
-          Recent missions
+          {{ i18n.t('tasks.recent.title') }}
         </h3>
       </div>
 
@@ -154,8 +155,8 @@ interface TaskEvent {
       } @else if (tasks().length === 0) {
         <app-empty-state
           icon="list-todo"
-          title="No missions yet"
-          description="Launch an autonomous agent mission to automate multi-step work."
+          [title]="i18n.t('tasks.empty.title')"
+          [description]="i18n.t('tasks.empty.description')"
         />
       } @else {
         <ul class="divide-y divide-white/5">
@@ -181,7 +182,7 @@ interface TaskEvent {
                 <div class="flex-1 min-w-0">
                   <div class="text-sm text-white truncate">{{ t.title }}</div>
                   <div class="text-[11px] text-gray-500 truncate mt-0.5">
-                    <span class="capitalize">{{ t.status }}</span>
+                    <span>{{ statusLabel(t.status) }}</span>
                     <span class="mx-1">·</span>
                     {{ formatDate(t.created_at) }}
                     @if (t.total_duration_ms) {
@@ -225,21 +226,21 @@ interface TaskEvent {
               <app-icon name="rocket" [size]="20" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold text-white mb-1">New autonomous mission</h2>
+              <h2 class="text-base font-semibold text-white mb-1">{{ i18n.t('tasks.create.heading') }}</h2>
               <p class="text-sm text-gray-400">
-                Describe the goal. The agent will plan, execute and report.
+                {{ i18n.t('tasks.create.description') }}
               </p>
             </div>
           </div>
           <div class="space-y-3">
             <input
               [(ngModel)]="newTitle"
-              placeholder="Title (optional)"
+              [placeholder]="i18n.t('tasks.create.title.placeholder')"
               class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400"
             />
             <textarea
               [(ngModel)]="newDescription"
-              placeholder="Describe what the agent should achieve…"
+              [placeholder]="i18n.t('tasks.create.goal.placeholder')"
               rows="5"
               class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 resize-none"
             ></textarea>
@@ -247,7 +248,7 @@ interface TaskEvent {
               [(ngModel)]="newAgentId"
               class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400"
             >
-              <option value="">Default routing</option>
+              <option value="">{{ i18n.t('tasks.create.routing.default') }}</option>
               @for (a of agents(); track a.id) {
                 <option [value]="a.id">{{ a.name }}</option>
               }
@@ -259,7 +260,7 @@ interface TaskEvent {
               (click)="createOpen.set(false)"
               class="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded"
             >
-              Cancel
+              {{ i18n.t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -272,7 +273,7 @@ interface TaskEvent {
                 [size]="14"
                 [class.animate-spin]="creating()"
               />
-              Create &amp; run
+              {{ i18n.t('tasks.create.submit') }}
             </button>
           </div>
         </div>
@@ -291,7 +292,7 @@ interface TaskEvent {
         <div class="space-y-4">
           <div class="flex items-center gap-2">
             <span
-              class="text-[10px] uppercase tracking-wider font-semibold px-2 py-1 rounded-full ring-1 capitalize"
+              class="text-[10px] tracking-wider font-semibold px-2 py-1 rounded-full ring-1"
               [class.bg-cyan-500\\/10]="d.status === 'running'"
               [class.text-cyan-300]="d.status === 'running'"
               [class.ring-cyan-500\\/30]="d.status === 'running'"
@@ -305,7 +306,7 @@ interface TaskEvent {
               [class.text-gray-400]="d.status === 'pending'"
               [class.ring-white\\/10]="d.status === 'pending'"
             >
-              {{ d.status }}
+              {{ statusLabel(d.status) }}
             </span>
             @if (d.status !== 'running') {
               <button
@@ -314,14 +315,14 @@ interface TaskEvent {
                 (click)="runTask(d.id)"
               >
                 <app-icon name="play" [size]="13" />
-                {{ d.status === 'pending' ? 'Run' : 'Rerun' }}
+                {{ d.status === 'pending' ? i18n.t('tasks.detail.run') : i18n.t('tasks.detail.rerun') }}
               </button>
             }
           </div>
 
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              Goal
+              {{ i18n.t('tasks.detail.goal') }}
             </div>
             <div class="text-sm text-gray-200 whitespace-pre-wrap">{{ d.description }}</div>
           </div>
@@ -329,7 +330,7 @@ interface TaskEvent {
           @if (d.status === 'running' || (d.progress ?? 0) > 0) {
             <div>
               <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
-                <span>Progress</span>
+                <span>{{ i18n.t('tasks.detail.progress') }}</span>
                 <span class="font-mono">{{ d.progress ?? 0 }}%</span>
               </div>
               <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
@@ -343,10 +344,10 @@ interface TaskEvent {
 
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
-              Steps
+              {{ i18n.t('tasks.detail.steps') }}
             </div>
             @if ((d.steps?.length ?? 0) === 0) {
-              <div class="text-xs text-gray-500">Waiting for the plan…</div>
+              <div class="text-xs text-gray-500">{{ i18n.t('tasks.detail.waiting') }}</div>
             } @else {
               <ol class="space-y-2">
                 @for (s of d.steps ?? []; track $index; let i = $index) {
@@ -372,12 +373,12 @@ interface TaskEvent {
                           {{ i + 1 }}
                         </span>
                         <span class="text-sm text-white truncate">
-                          {{ s.name || s.step_type || 'step' }}
+                          {{ s.name || s.step_type || i18n.t('tasks.detail.step.fallback') }}
                         </span>
                       </div>
                       @if (s.status) {
-                        <span class="text-[10px] text-gray-500 capitalize shrink-0">
-                          {{ s.status }}
+                        <span class="text-[10px] text-gray-500 shrink-0">
+                          {{ statusLabel(s.status) }}
                         </span>
                       }
                     </div>
@@ -387,7 +388,7 @@ interface TaskEvent {
                     @if (s.output) {
                       <details class="mt-2">
                         <summary class="text-[11px] text-gray-500 cursor-pointer hover:text-gray-300">
-                          output
+                          {{ i18n.t('tasks.detail.output') }}
                         </summary>
                         <pre
                           class="mt-1 text-[11px] text-gray-200 bg-black/30 rounded p-2 font-mono whitespace-pre-wrap"
@@ -403,7 +404,7 @@ interface TaskEvent {
           @if (d.artifacts && hasKeys(d.artifacts)) {
             <div>
               <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
-                Artifacts
+                {{ i18n.t('tasks.detail.artifacts') }}
               </div>
               <pre
                 class="text-[11px] text-gray-200 bg-black/30 rounded p-3 font-mono whitespace-pre-wrap max-h-64 overflow-auto"
@@ -413,7 +414,7 @@ interface TaskEvent {
 
           @if (d.error) {
             <div class="rounded bg-red-500/10 ring-1 ring-red-500/30 p-3 text-xs text-red-300">
-              <div class="font-semibold mb-1">Error</div>
+              <div class="font-semibold mb-1">{{ i18n.t('tasks.detail.error') }}</div>
               <div class="font-mono whitespace-pre-wrap">{{ d.error }}</div>
             </div>
           }
@@ -426,6 +427,7 @@ export class TasksPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly sse = inject(SseService);
   private readonly toast = inject(ToastrService);
+  readonly i18n = inject(I18nService);
 
   tasks = signal<TaskSummary[]>([]);
   agents = signal<Agent[]>([]);
@@ -501,7 +503,7 @@ export class TasksPageComponent implements OnInit {
         next: (res) => {
           this.creating.set(false);
           this.createOpen.set(false);
-          this.toast.success('Mission queued', 'Tasks');
+          this.toast.success(this.i18n.t('tasks.toast.queued'), this.i18n.t('tasks.toast.title'));
           this.refresh();
           if (res?.id) {
             // Seed the detail drawer with a pending shell and stream the run.
@@ -518,7 +520,10 @@ export class TasksPageComponent implements OnInit {
         },
         error: (err) => {
           this.creating.set(false);
-          this.toast.error(err?.error?.detail ?? 'Failed to create', 'Tasks');
+          this.toast.error(
+            err?.error?.detail ?? this.i18n.t('tasks.toast.create.error'),
+            this.i18n.t('tasks.toast.title'),
+          );
         },
       });
   }
@@ -552,7 +557,8 @@ export class TasksPageComponent implements OnInit {
         if (!evt) return;
         this.applyEvent(taskId, evt);
       },
-      error: () => this.toast.error('Mission stream error', 'Tasks'),
+      error: () =>
+        this.toast.error(this.i18n.t('tasks.toast.stream.error'), this.i18n.t('tasks.toast.title')),
       complete: () => this.refresh(),
     });
   }
@@ -588,12 +594,17 @@ export class TasksPageComponent implements OnInit {
             }
           : d,
       );
-      this.toast.success('Mission complete', 'Tasks');
+      this.toast.success(this.i18n.t('tasks.toast.complete'), this.i18n.t('tasks.toast.title'));
     } else if (evt.type === 'task_error') {
       this.detail.update((d) =>
-        d && d.id === taskId ? { ...d, status: 'failed', error: evt.message ?? 'Unknown error' } : d,
+        d && d.id === taskId
+          ? { ...d, status: 'failed', error: evt.message ?? this.i18n.t('tasks.detail.error.unknown') }
+          : d,
       );
-      this.toast.error(evt.message ?? 'Mission failed', 'Tasks');
+      this.toast.error(
+        evt.message ?? this.i18n.t('tasks.toast.failed'),
+        this.i18n.t('tasks.toast.title'),
+      );
     }
   }
 
@@ -628,6 +639,13 @@ export class TasksPageComponent implements OnInit {
     if (status === 'failed') return 'x-circle';
     if (status === 'running') return 'loader-2';
     return 'clock';
+  }
+
+  /** `tasks.status.<value>` with the raw API value as fallback. */
+  statusLabel(status: string): string {
+    const key = 'tasks.status.' + status;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
   }
 
   formatDate(iso?: string | null): string {

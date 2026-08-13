@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -211,17 +212,17 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
   ],
   template: `
     <app-section-header
-      breadcrumb="Govern"
-      title="Chat history"
+      [breadcrumb]="i18n.t('governance.breadcrumb')"
+      [title]="i18n.t('governance.chat.title')"
       icon="message-square"
-      subtitle="Read-only view of every member's chat and expert-capture sessions across the workspace."
+      [subtitle]="i18n.t('governance.chat.subtitle')"
     >
       <button
         type="button"
         (click)="reload()"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
       >
-        <app-icon name="refresh-cw" [size]="14" /> Refresh
+        <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.refresh') }}
       </button>
     </app-section-header>
 
@@ -230,9 +231,9 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
         [ngModel]="memberFilter()"
         (ngModelChange)="setMember($event)"
         class="ch-select"
-        title="Filter by member"
+        [title]="i18n.t('governance.chat.filter.member')"
       >
-        <option value="">All members</option>
+        <option value="">{{ i18n.t('governance.chat.filter.member.all') }}</option>
         @for (m of members(); track m.user_id) {
           <option [value]="m.user_id">{{ m.label }}</option>
         }
@@ -249,7 +250,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
             [class.text-gray-400]="kindFilter() !== f.key"
             [class.hover:text-gray-200]="kindFilter() !== f.key"
           >
-            {{ f.label }}
+            {{ i18n.t(f.labelKey) }}
           </button>
         }
       </div>
@@ -265,13 +266,13 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
             [class.text-gray-400]="status() !== f.key"
             [class.hover:text-gray-200]="status() !== f.key"
           >
-            {{ f.label }}
+            {{ i18n.t(f.labelKey) }}
           </button>
         }
       </div>
 
       <span class="text-[11px] text-gray-500 font-mono ml-auto">
-        {{ rows().length }} session{{ rows().length === 1 ? '' : 's' }}
+        {{ rows().length === 1 ? i18n.t('governance.chat.count.one') : i18n.t('governance.chat.count.many', { count: rows().length }) }}
       </span>
     </div>
 
@@ -291,21 +292,21 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
       } @else if (rows().length === 0) {
         <app-empty-state
           icon="message-square"
-          title="No sessions"
-          description="Member conversations and expert-capture sessions in this workspace will show up here."
+          [title]="i18n.t('governance.chat.empty.title')"
+          [description]="i18n.t('governance.chat.empty.description')"
         />
       } @else {
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-                <th class="px-5 py-3 font-semibold">Author</th>
-                <th class="px-5 py-3 font-semibold">Type</th>
-                <th class="px-5 py-3 font-semibold">Title</th>
-                <th class="px-5 py-3 font-semibold">Last activity</th>
-                <th class="px-5 py-3 font-semibold text-center">Count</th>
-                <th class="px-5 py-3 font-semibold">System / Context</th>
-                <th class="px-5 py-3 font-semibold">Status</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.author') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.type') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.title') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.last_activity') }}</th>
+                <th class="px-5 py-3 font-semibold text-center">{{ i18n.t('governance.chat.column.count') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.context') }}</th>
+                <th class="px-5 py-3 font-semibold">{{ i18n.t('governance.chat.column.status') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
@@ -360,14 +361,14 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
         @if (hasMore()) {
           <div class="px-5 py-3 flex items-center justify-between border-t border-white/5">
             <span class="text-[11px] text-gray-500 font-mono">
-              Showing {{ rows().length }}
+              {{ i18n.t('governance.chat.showing', { count: rows().length }) }}
             </span>
             <button
               type="button"
               (click)="loadMore()"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
             >
-              <app-icon name="chevron-down" [size]="12" /> Load more
+              <app-icon name="chevron-down" [size]="12" /> {{ i18n.t('governance.load_more') }}
             </button>
           </div>
         }
@@ -389,34 +390,34 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
         <div class="space-y-5">
           <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Author</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.column.author') }}</dt>
               <dd class="text-gray-200 mt-0.5">{{ row.authorLabel }}</dd>
             </div>
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Type</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.column.type') }}</dt>
               <dd class="text-gray-200 mt-0.5">{{ kindLabel(row.kind) }}</dd>
             </div>
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Status</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.column.status') }}</dt>
               <dd class="text-gray-200 mt-0.5">{{ statusLabel(row.status) }}</dd>
             </div>
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Last activity</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.column.last_activity') }}</dt>
               <dd class="text-gray-200 mt-0.5">{{ row.lastActivity | date: 'MMM d, y HH:mm' }}</dd>
             </div>
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Created</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.detail.created') }}</dt>
               <dd class="text-gray-200 mt-0.5">{{ row.createdAt | date: 'MMM d, y HH:mm' }}</dd>
             </div>
             <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">System / Context</dt>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">{{ i18n.t('governance.chat.column.context') }}</dt>
               <dd class="text-gray-200 mt-0.5 font-mono text-[11px]">{{ row.context }}</dd>
             </div>
           </dl>
 
           @if (row.kind !== 'chat' && captureObjective()) {
             <div class="rounded-md bg-white/[0.03] ring-1 ring-white/5 px-3 py-2.5">
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Objective</div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ i18n.t('governance.chat.detail.objective') }}</div>
               <div class="text-sm text-gray-200 leading-relaxed">{{ captureObjective() }}</div>
             </div>
           }
@@ -439,7 +440,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
           <div class="border-t border-white/10 pt-4">
             <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
               <app-icon name="message-circle" [size]="13" class="text-cyan-400" />
-              Transcript
+              {{ i18n.t('governance.chat.detail.transcript') }}
             </h3>
 
             @if (detailLoading()) {
@@ -453,8 +454,8 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                 <app-empty-state
                   icon="inbox"
                   size="sm"
-                  title="No messages"
-                  description="This conversation has no recorded messages."
+                  [title]="i18n.t('governance.chat.detail.empty.title')"
+                  [description]="i18n.t('governance.chat.detail.empty.description')"
                 />
               } @else {
                 <div class="space-y-4">
@@ -508,8 +509,8 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                 <app-empty-state
                   icon="inbox"
                   size="sm"
-                  title="No recorded turns"
-                  description="This capture session has no recorded conversation turns."
+                  [title]="i18n.t('governance.chat.detail.capture_empty.title')"
+                  [description]="i18n.t('governance.chat.detail.capture_empty.description')"
                 />
               } @else {
                 <div class="space-y-4">
@@ -520,7 +521,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                           <div class="text-[10px] uppercase tracking-wider text-white/70 mb-1">{{ entry.label }}</div>
                           @if (entry.rawText) {
                             <div class="mb-1.5 rounded bg-black/15 px-2 py-1 text-[12px] text-white/80">
-                              <span class="text-[9px] uppercase tracking-wider text-white/60 mr-1">Raw</span>
+                              <span class="text-[9px] uppercase tracking-wider text-white/60 mr-1">{{ i18n.t('governance.chat.detail.raw') }}</span>
                               {{ entry.rawText }}
                             </div>
                           }
@@ -545,7 +546,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
             <div class="border-t border-white/10 pt-4">
               <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
                 <app-icon name="file-text" [size]="13" class="text-cyan-400" />
-                Proposed knowledge
+                {{ i18n.t('governance.chat.detail.proposal') }}
                 @if (captureProposalStatus(); as st) {
                   <span class="ml-1 inline-flex items-center px-1.5 py-0.5 text-[9px] rounded-full" [ngClass]="statusClass(st)">
                     {{ statusLabel(st) }}
@@ -618,6 +619,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
 export class ChatHistoryComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly rows = signal<UnifiedRow[]>([]);
   readonly members = signal<MemberOption[]>([]);
@@ -646,28 +648,32 @@ export class ChatHistoryComponent implements OnInit {
 
   readonly skeletonRows = Array(6);
 
-  readonly kindFilters: { key: 'all' | SessionKind; label: string }[] = [
-    { key: 'all', label: 'All types' },
-    { key: 'chat', label: 'Chat' },
-    { key: 'capture', label: 'Capture' },
-    { key: 'correction', label: 'Corrections' },
+  readonly kindFilters: { key: 'all' | SessionKind; labelKey: string }[] = [
+    { key: 'all', labelKey: 'governance.chat.filter.kind.all' },
+    { key: 'chat', labelKey: 'governance.chat.filter.kind.chat' },
+    { key: 'capture', labelKey: 'governance.chat.filter.kind.capture' },
+    { key: 'correction', labelKey: 'governance.chat.filter.kind.correction' },
   ];
 
-  readonly statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'active', label: 'Active' },
-    { key: 'archived', label: 'Archived' },
-    { key: 'all', label: 'All' },
+  readonly statusFilters: { key: StatusFilter; labelKey: string }[] = [
+    { key: 'active', labelKey: 'governance.chat.filter.status.active' },
+    { key: 'archived', labelKey: 'governance.chat.filter.status.archived' },
+    { key: 'all', labelKey: 'governance.chat.filter.status.all' },
   ];
 
   readonly hasMore = computed(() => this.hasMoreFlag());
 
-  readonly drawerTitle = computed(() => this.selectedRow()?.title || 'Session');
+  readonly drawerTitle = computed(
+    () => this.selectedRow()?.title || this.i18n.t('governance.chat.detail.session'),
+  );
 
   readonly drawerSubtitle = computed(() => {
     const row = this.selectedRow();
     if (!row) return undefined;
     const unit = row.kind === 'chat' ? 'message' : 'turn';
-    return `${row.authorLabel} · ${this.kindLabel(row.kind)} · ${row.count} ${unit}${row.count === 1 ? '' : 's'}`;
+    const countKey =
+      `governance.chat.detail.count.${unit}.` + (row.count === 1 ? 'one' : 'many');
+    return `${row.authorLabel} · ${this.kindLabel(row.kind)} · ${this.i18n.t(countKey, { count: row.count })}`;
   });
 
   ngOnInit(): void {
@@ -744,8 +750,8 @@ export class ChatHistoryComponent implements OnInit {
               catchError((err) => {
                 chatError =
                   err?.status === 403
-                    ? 'Admin role is required to view workspace chat history.'
-                    : 'Unable to load chat sessions.';
+                    ? this.i18n.t('governance.chat.error.forbidden')
+                    : this.i18n.t('governance.chat.error.chat');
                 return of<AdminSessionListResponse>({ sessions: [] });
               }),
             );
@@ -769,7 +775,7 @@ export class ChatHistoryComponent implements OnInit {
       error: () => {
         this.rows.set([]);
         this.loading.set(false);
-        this.error.set('Unable to load session history.');
+        this.error.set(this.i18n.t('governance.chat.error.load'));
       },
     });
   }
@@ -814,9 +820,9 @@ export class ChatHistoryComponent implements OnInit {
         (s.author_label || '').trim() ||
         (s.author_email || '').trim() ||
         s.user_id ||
-        'Unknown',
+        this.i18n.t('governance.chat.author.unknown'),
       authorEmail: s.author_email ?? null,
-      title: (s.title || '').trim() || 'Untitled conversation',
+      title: (s.title || '').trim() || this.i18n.t('governance.chat.untitled.chat'),
       status: s.status || 'active',
       createdAt: s.created_at ?? null,
       lastActivity: s.last_activity || s.created_at || null,
@@ -832,9 +838,15 @@ export class ChatHistoryComponent implements OnInit {
       id: c.id,
       kind: status === 'chat_correction' ? 'correction' : 'capture',
       userId: c.created_by_user_id ?? null,
-      authorLabel: (c.created_by_label || '').trim() || c.created_by_user_id || 'Unknown',
+      authorLabel:
+        (c.created_by_label || '').trim() ||
+        c.created_by_user_id ||
+        this.i18n.t('governance.chat.author.unknown'),
       authorEmail: null,
-      title: (c.title || '').trim() || (c.objective || '').trim() || 'Untitled capture',
+      title:
+        (c.title || '').trim() ||
+        (c.objective || '').trim() ||
+        this.i18n.t('governance.chat.untitled.capture'),
       status,
       createdAt: c.created_at ?? null,
       lastActivity: c.last_activity || c.updated_at || c.created_at || null,
@@ -874,7 +886,7 @@ export class ChatHistoryComponent implements OnInit {
         },
         error: () => {
           this.detailLoading.set(false);
-          this.error.set('Unable to load this conversation.');
+          this.error.set(this.i18n.t('governance.chat.error.conversation'));
         },
       });
   }
@@ -905,7 +917,7 @@ export class ChatHistoryComponent implements OnInit {
       },
       error: () => {
         this.detailLoading.set(false);
-        this.error.set('Unable to load this capture session.');
+        this.error.set(this.i18n.t('governance.chat.error.capture'));
       },
     });
   }
@@ -929,11 +941,11 @@ export class ChatHistoryComponent implements OnInit {
   kindLabel(kind: SessionKind): string {
     switch (kind) {
       case 'capture':
-        return 'Expert capture';
+        return this.i18n.t('governance.chat.kind.capture');
       case 'correction':
-        return 'Correction';
+        return this.i18n.t('governance.chat.kind.correction');
       default:
-        return 'Chat';
+        return this.i18n.t('governance.chat.kind.chat');
     }
   }
 
@@ -959,10 +971,12 @@ export class ChatHistoryComponent implements OnInit {
     }
   }
 
+  /** Status comes from the API; translate known values, fall back to the raw one. */
   statusLabel(status?: string): string {
-    if (!status) return 'active';
-    if (status === 'chat_correction') return 'correction';
-    return status.replace(/_/g, ' ');
+    const value = status || 'active';
+    const key = 'governance.chat.status.' + value;
+    const label = this.i18n.t(key);
+    return label === key ? value.replace(/_/g, ' ') : label;
   }
 
   statusClass(status?: string): string {
@@ -1061,20 +1075,20 @@ export class ChatHistoryComponent implements OnInit {
 
   private speakerLabel(speaker: string, turnKind?: string | null): string {
     if (speaker === 'expert') {
-      if (turnKind === 'correction') return 'Expert · correction';
-      if (turnKind === 'complement') return 'Expert · complement';
-      return 'Expert';
+      if (turnKind === 'correction') return this.i18n.t('governance.chat.speaker.expert_correction');
+      if (turnKind === 'complement') return this.i18n.t('governance.chat.speaker.expert_complement');
+      return this.i18n.t('governance.chat.speaker.expert');
     }
-    if (speaker === 'operator') return 'Operator';
-    return 'Interviewer';
+    if (speaker === 'operator') return this.i18n.t('governance.chat.speaker.operator');
+    return this.i18n.t('governance.chat.speaker.interviewer');
   }
 
   private eventLabel(eventType: string): string {
     switch (eventType) {
       case 'chat_correction_voice':
-        return 'Voice correction';
+        return this.i18n.t('governance.chat.event.chat_correction_voice');
       case 'expert_turn_finalized':
-        return 'Expert';
+        return this.i18n.t('governance.chat.speaker.expert');
       default:
         return eventType.replace(/_/g, ' ');
     }
