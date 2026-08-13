@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from uuid import uuid4
 
-from app.models.client360 import Client360Opportunity
+from app.models.client360 import Client360DataSource, Client360Opportunity
 from app.models.workspace import Workspace
 from app.services import client360_chat, client360_pdr
 from app.services.actions.registry import ANDRITZ_ACTIONS
@@ -53,6 +53,73 @@ def _seed_opportunity(db_session, workspace: Workspace, **overrides) -> Client36
     db_session.add(opportunity)
     db_session.flush()
     return opportunity
+
+
+def _spc_record(**overrides) -> dict:
+    record = {
+        "customer_name": "Karafiber Tekstil Sanayi Ve Ticaret",
+        "customer_key": "karafiber tekstil",
+        "country": "TR",
+        "part_reference": "208125957",
+        "part_description": "SLEEVE MPC100 EQUIPED LM3750 LG4040 D516 | L 4040 D 520 MM |",
+        "installed_quantity": 3.0,
+        "machine_label": "400443417",
+        "technology": None,
+        "role": "spc",
+    }
+    record.update(overrides)
+    return record
+
+
+def _seed_spc_source(
+    db_session,
+    workspace: Workspace,
+    records: list[dict],
+    *,
+    filename: str = "Installed base - SPC.xlsx",
+) -> Client360DataSource:
+    source = Client360DataSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        source_type="installed_base",
+        label=filename,
+        filename=filename,
+        status="ready",
+        row_count=float(len(records)),
+        meta_data={"role": "spc", "records": records},
+        evidence_refs=[{"kind": "client360_spl_adapter", "origin_file": filename}],
+    )
+    db_session.add(source)
+    db_session.flush()
+    return source
+
+
+_DEMO_PARK_RECORDS = [
+    _spc_record(),  # Karafiber · TR · MPC100 · qty 3
+    _spc_record(
+        customer_name="Eruslu Nonwoven",
+        customer_key="eruslu nonwoven",
+        installed_quantity=2.0,
+    ),  # same MPC reference at a second Turkish customer
+    _spc_record(
+        customer_name="Eruslu Nonwoven",
+        customer_key="eruslu nonwoven",
+        part_reference="208180630",
+        part_description="SLEEVE MPC50 JETLACE ESSENTIEL",
+        installed_quantity=4.0,
+    ),
+    _spc_record(
+        part_reference="100004511",
+        part_description="PLAIN WASHER ISO7089 | - 10 - 200HV |",
+        installed_quantity=4816.0,
+    ),  # most installed overall but not MPC
+    _spc_record(
+        customer_name="Septona S.A.",
+        customer_key="septona",
+        country="GR",
+        installed_quantity=50.0,
+    ),  # MPC but wrong country: must stay out of the Turkey aggregate
+]
 
 
 def _run(coro):
@@ -519,7 +586,7 @@ def test_handler_opportunity_detail_explains_formula(db_session) -> None:
     formula = result["result"]["formula"]
     assert "installed_quantity" in formula["annual_theoretical_qty"]
     assert "sales_known_qty" in formula["potential_gap_qty"]
-    assert formula["plan_shorthand"] == "installed × periodicity − sales"
+    assert formula["plan_shorthand"] == "installed × recommended × 52/periodicity − sales"
     assert "besoin_annuel" in result["content"]
     assert "SEPTONA - Client 360.xlsx" in result["content"]
     assert result["evidence_refs"]
@@ -541,3 +608,161 @@ def test_phase3_intents_remain_filter_bounded(db_session) -> None:
     assert result is not None
     assert set(result["filters"].keys()) <= set(client360_chat._ALLOWED_FILTER_KEYS)
     assert "evil" not in result["filters"]
+
+
+# ---------------------------------------------------------------------------
+# Installed base (SPC park) intent
+# ---------------------------------------------------------------------------
+_DEMO_QUESTION = "quelle est la référence MPC la plus installée chez nos clients en turquie ?"
+
+
+def test_detect_intent_installed_base() -> None:
+    assert client360_chat._detect_intent(_DEMO_QUESTION) == "installed_base"
+    assert client360_chat._detect_intent("top références du parc installé") == "installed_base"
+    assert (
+        client360_chat._detect_intent("most installed MPC reference for Turkish customers")
+        == "installed_base"
+    )
+    # The park intent also passes the research-chat trigger guard.
+    assert client360_chat.is_client360_query(_DEMO_QUESTION)
+    # Neighbouring intents keep their routing.
+    assert client360_chat._detect_intent("montre la fiche client de Septona") == "customer"
+    assert client360_chat._detect_intent("ouvre l'onglet parc installé") == "navigation"
+    assert client360_chat._detect_intent("montre les opportunités Turquie") == "opportunities"
+
+
+def test_installed_base_part_filter_extraction() -> None:
+    records = [
+        {"customer_name": "Karafiber Tekstil Sanayi Ve Ticaret", "country": "TR", "technology": "Spunlace"}
+    ]
+    assert client360_chat._installed_base_part_filter(_DEMO_QUESTION, records) == "MPC"
+    assert (
+        client360_chat._installed_base_part_filter("référence 208180630 la plus installée", records)
+        == "208180630"
+    )
+    # Facet values (country, customer, technology) and question words never
+    # become free-text part filters.
+    assert client360_chat._installed_base_part_filter("parc installé EN TURQUIE", records) is None
+    assert (
+        client360_chat._installed_base_part_filter("top références les plus installées", records)
+        is None
+    )
+    assert (
+        client360_chat._installed_base_part_filter("parc installé de KARAFIBER TEKSTIL", records)
+        is None
+    )
+
+
+def test_build_facets_extra_values_and_country_aliases(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    facets = client360_chat._build_facets(
+        db_session,
+        workspace,
+        [],
+        extra_facet_values={"country": ["TR"], "customer": ["Karafiber Tekstil"]},
+    )
+    assert facets["country"]["tr"] == "TR"
+    assert facets["country"]["turquie"] == "TR"
+    assert facets["customer"][client360_chat._norm("Karafiber Tekstil")] == "Karafiber Tekstil"
+    filters = client360_chat._deterministic_filters("parc installé en turquie", facets)
+    assert filters["country"] == "TR"
+    # Short country codes only match as whole words ("montre" must not yield TR).
+    assert "country" not in client360_chat._deterministic_filters("montre le parc installé", facets)
+
+
+def test_handler_installed_base_aggregates_turkey_park(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_spc_source(db_session, workspace, _DEMO_PARK_RECORDS)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session, workspace, None, query=_DEMO_QUESTION, require_trigger=False
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "installed_base"
+    # « en turquie » resolved against the park countries (code "TR").
+    assert result["filters"].get("country") == "TR"
+
+    content = result["content"]
+    assert "**" not in content  # plain text contract
+    assert "parc installé" in content
+    assert "pays=TR" in content and "filtre=MPC" in content
+    assert "2 référence(s)" in content
+    assert "9 unité(s)" in content
+    assert "2 client(s)" in content
+    # Top reference first: MPC100 (3+2 units across two Turkish customers).
+    assert content.index("208125957") < content.index("208180630")
+
+    rows = result["result"]["installed_base"]
+    assert rows[0]["part_reference"] == "208125957"
+    assert rows[0]["installed_quantity"] == 5.0
+    assert rows[0]["customer_count"] == 2
+    assert result["result"]["count"] == 2
+    assert result["result"]["total_installed_quantity"] == 9.0
+    assert result["result"]["customer_count"] == 2
+    assert result["result"]["filters"] == {"country": "TR", "part_filter": "MPC"}
+
+    assert [src["title"] for src in result["sources"]] == ["Installed base - SPC.xlsx"]
+    assert result["sources"][0]["kind"] == "client360_data_source"
+    assert result["evidence_refs"] == [
+        {"kind": "client360_spl_adapter", "origin_file": "Installed base - SPC.xlsx"}
+    ]
+    assert result["cta"]["route"] == client360_chat.CLIENT360_CTA_ROUTE
+    assert result["cta"]["query_params"] == {"view": "customer", "country": "TR"}
+
+
+def test_handler_installed_base_dedupes_duplicate_sources(db_session) -> None:
+    """The same SPC file registered twice (with/without folder prefix) must not
+    double the installed quantities."""
+    workspace = _seed_workspace(db_session)
+    _seed_spc_source(db_session, workspace, _DEMO_PARK_RECORDS)
+    _seed_spc_source(
+        db_session,
+        workspace,
+        _DEMO_PARK_RECORDS,
+        filename="Installed_base_SPL__Installed base - SPC.xlsx",
+    )
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="top références du parc installé en turquie",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "installed_base"
+    assert result["result"]["count"] == 3
+    assert result["result"]["total_installed_quantity"] == 4825.0
+    rows = result["result"]["installed_base"]
+    assert rows[0]["part_reference"] == "100004511"
+    assert rows[0]["installed_quantity"] == 4816.0  # not 9632
+    assert len(result["sources"]) == 1  # only the contributing file is cited
+
+
+def test_handler_installed_base_empty_filter_is_honest(db_session) -> None:
+    workspace = _seed_workspace(db_session)
+    _seed_spc_source(db_session, workspace, _DEMO_PARK_RECORDS)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session,
+            workspace,
+            None,
+            query="quelle est la référence XQZ9 la plus installée chez nos clients en turquie ?",
+            require_trigger=False,
+        )
+    )
+    assert result is not None
+    assert result["intent"] == "installed_base"
+    assert "aucune référence trouvée pour ce filtre" in result["content"]
+    assert "Filtres compris" in result["content"]
+    assert "filtre=XQZ9" in result["content"]
+    assert result["sources"] == []
+    assert result["evidence_refs"] == []
+    assert result["result"]["installed_base"] == []
+
+
+def test_help_mentions_installed_base_example() -> None:
+    content = client360_chat._help_response()["content"]
+    assert "la plus installée" in content

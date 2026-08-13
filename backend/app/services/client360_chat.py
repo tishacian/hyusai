@@ -5,7 +5,10 @@ Client360 read functions (:func:`list_opportunities`, :func:`customer_payload`,
 :func:`campaign_stats`, :func:`list_campaigns` from :mod:`app.services.client360_pdr`).
 
 Extended dedicated intents (Phase 3): ``customer_audit``, ``forecast``,
-``navigation``, ``opportunity_detail`` — still filter-bounded, never free SQL.
+``navigation``, ``opportunity_detail``, ``installed_base`` — still
+filter-bounded, never free SQL. ``installed_base`` answers deterministic
+park aggregations ("quelle référence est la plus installée en Turquie ?")
+from the persisted SPC records (« Installed base - SPC.xlsx »).
 
 Guardrails (deterministic, explainable, workspace-scoped):
 
@@ -45,9 +48,11 @@ from app.services.client360_pdr import (
     CAMPAIGN_SELECTION_KEYS,
     _client360_mail_ai_config,
     _mail_ai_configured,
+    _raw_source_records_by_roles,
     campaign_stats,
     customer_payload,
     list_campaigns,
+    list_data_sources,
     list_opportunities,
 )
 from app.services.workspace_features import workspace_family
@@ -89,6 +94,9 @@ _TRIGGER_TOKENS: tuple[str, ...] = (
     "campaign",
     "parc installe",
     "installed base",
+    "base installee",
+    "plus installe",
+    "most installed",
     "a relancer",
     "relance",
     "haute confiance",
@@ -125,6 +133,48 @@ _CONFIDENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 _LIMIT_RE = re.compile(r"\b(?:top|meilleures?|meilleurs?|premi[eè]res?|first)\s+(\d{1,3})\b")
+
+# Installed-base (SPC park) intent vocabulary. Matched on the ``_norm``-alised
+# question, so « la plus installée » / « les plus installées » both hit
+# "plus installe".
+_INSTALLED_BASE_TOKENS: tuple[str, ...] = (
+    "plus installe",
+    "parc installe",
+    "base installee",
+    "installed base",
+    "most installed",
+)
+
+# The workspace data mixes ISO-ish country codes (SPC/registry: "TR", "GR")
+# with full names (pilot opportunities: "Turkey", "Greece") and users ask in
+# French (« en Turquie »). Each group lists the normalised spellings that
+# designate the same country, so facet lookups and record filters can match
+# across conventions without any free-text widening.
+_COUNTRY_EQUIVALENTS: tuple[frozenset[str], ...] = (
+    frozenset({"tr", "turkey", "turquie", "turkiye"}),
+    frozenset({"gr", "greece", "grece"}),
+)
+
+# Free-text part filter (e.g. « la référence MPC la plus installée »):
+# either the token right after « référence(s) », or an uppercase code token.
+_PART_KEYWORD_RE = re.compile(
+    r"\br[ée]f(?:[ée]rences?)?\.?\s+([A-Za-z0-9][A-Za-z0-9\-_./]{1,39})",
+    re.IGNORECASE,
+)
+_PART_CODE_RE = re.compile(r"\b([A-Z][A-Z0-9][A-Z0-9\-_./]{1,38})\b")
+
+# Question words / domain acronyms that must never become a part text filter.
+_PART_FILTER_STOP_TOKENS = frozenset(
+    {
+        "quel", "quels", "quelle", "quelles", "combien", "donne", "montre",
+        "liste", "top", "les", "la", "le", "un", "une", "des", "de", "du",
+        "en", "et", "ou", "chez", "nos", "vos", "est", "plus", "pour",
+        "installe", "installes", "installee", "installees", "installed",
+        "most", "base", "parc", "reference", "references", "ref",
+        "client", "clients", "pdr", "spc", "spl", "ib", "ibs", "sspa",
+        "client360", "what", "which",
+    }
+)
 
 _LLM_SYSTEM_PROMPT = (
     "You translate an Andritz Client360 spare-parts question into a STRICT JSON "
@@ -238,28 +288,75 @@ def _registry_customer_names(db: DBSession, workspace: Workspace) -> list[str]:
     return list(dict.fromkeys(names))
 
 
+def _merge_facet_allowlist(
+    facets: dict[str, dict[str, str]],
+    field: str,
+    values: list[str],
+) -> dict[str, dict[str, str]]:
+    """Enrich one facet map with extra allow-listed values (bounded, no free text)."""
+    facet = dict(facets.get(field) or {})
+    for value in values:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not text:
+            continue
+        facet.setdefault(_norm(text), text[:120])
+    merged = dict(facets)
+    merged[field] = facet
+    return merged
+
+
 def _merge_customer_allowlist(
     facets: dict[str, dict[str, str]],
     customer_names: list[str],
 ) -> dict[str, dict[str, str]]:
     """Enrich the customer facet map with registry/directory names (allow-list)."""
-    customer_facet = dict(facets.get("customer") or {})
-    for name in customer_names:
-        text = re.sub(r"\s+", " ", str(name or "")).strip()
-        if not text:
-            continue
-        customer_facet.setdefault(_norm(text), text[:120])
-    merged = dict(facets)
-    merged["customer"] = customer_facet
-    return merged
+    return _merge_facet_allowlist(facets, "customer", customer_names)
+
+
+def _country_aliases(norm_value: str) -> frozenset[str]:
+    for group in _COUNTRY_EQUIVALENTS:
+        if norm_value in group:
+            return group
+    return frozenset()
+
+
+def _expand_country_aliases(country_facet: dict[str, str]) -> dict[str, str]:
+    """Register known spellings (« turquie », "TR", "Turkey") of present countries.
+
+    Only countries already in the facet vocabulary gain aliases, so the filter
+    surface never widens beyond values that exist in the workspace data.
+    """
+    expanded = dict(country_facet)
+    for norm_value, canonical in list(country_facet.items()):
+        for alias in _country_aliases(norm_value):
+            expanded.setdefault(alias, canonical)
+    return expanded
+
+
+def _country_matches(expected: Any, actual: Any) -> bool:
+    """True when both values designate the same country across conventions."""
+    expected_norm = _norm(expected)
+    if not expected_norm:
+        return True
+    actual_norm = _norm(actual)
+    if expected_norm == actual_norm:
+        return True
+    return actual_norm in _country_aliases(expected_norm)
 
 
 def _build_facets(
     db: DBSession,
     workspace: Workspace,
     items: list[dict[str, Any]],
+    *,
+    extra_facet_values: Optional[dict[str, list[str]]] = None,
 ) -> dict[str, dict[str, str]]:
-    return _merge_customer_allowlist(_facets(items), _registry_customer_names(db, workspace))
+    facets = _merge_customer_allowlist(_facets(items), _registry_customer_names(db, workspace))
+    for field, values in (extra_facet_values or {}).items():
+        if field in facets:
+            facets = _merge_facet_allowlist(facets, field, values)
+    facets["country"] = _expand_country_aliases(facets.get("country") or {})
+    return facets
 
 
 def _sanitize_filters(raw: dict[str, Any], facets: dict[str, dict[str, str]]) -> dict[str, Any]:
@@ -325,10 +422,18 @@ def _deterministic_filters(query: str, facets: dict[str, dict[str, str]]) -> dic
     for field in ("country", "hub", "technology", "part_family", "customer"):
         best: tuple[int, str] | None = None
         for norm_value, canonical in facets.get(field, {}).items():
-            if norm_value and norm_value in normalized:
-                score = len(norm_value)
-                if best is None or score > best[0]:
-                    best = (score, canonical)
+            if not norm_value:
+                continue
+            # Short values (country codes like "TR") only count as whole words,
+            # otherwise they would fire inside unrelated words ("montre" ⊃ "tr").
+            if len(norm_value) <= 3:
+                if f" {norm_value} " not in padded:
+                    continue
+            elif norm_value not in normalized:
+                continue
+            score = len(norm_value)
+            if best is None or score > best[0]:
+                best = (score, canonical)
         if best is not None:
             raw[field] = best[1]
 
@@ -350,11 +455,12 @@ async def _llm_filters(
     if not configured:
         return None
 
+    # ``set`` because alias facet keys (« turquie » → "TR") share canonicals.
     vocab = {
-        "country": sorted(facets["country"].values()),
-        "hub": sorted(facets["hub"].values()),
-        "technology": sorted(facets["technology"].values()),
-        "part_family": sorted(facets["part_family"].values()),
+        "country": sorted(set(facets["country"].values())),
+        "hub": sorted(set(facets["hub"].values())),
+        "technology": sorted(set(facets["technology"].values())),
+        "part_family": sorted(set(facets["part_family"].values())),
     }
     user_prompt = (
         "Vocabulary (choose exact values from these lists, or omit):\n"
@@ -409,13 +515,17 @@ async def translate_query_to_filters(
     workspace: Workspace,
     query: str,
     items: list[dict[str, Any]],
+    *,
+    extra_facet_values: Optional[dict[str, list[str]]] = None,
 ) -> tuple[dict[str, Any], str]:
     """Return ``(filters, method)`` where ``method`` is ``"llm"`` or ``"deterministic"``.
 
     Both paths run through :func:`_sanitize_filters`, so the result is always
     bounded to the existing filter vocabulary regardless of translation method.
+    ``extra_facet_values`` lets an intent enrich the facet allow-list with
+    values from its own data (e.g. SPC park countries), still bounded.
     """
-    facets = _build_facets(db, workspace, items)
+    facets = _build_facets(db, workspace, items, extra_facet_values=extra_facet_values)
     deterministic = _deterministic_filters(query, facets)
     try:
         llm_result = await _llm_filters(db, workspace, query, facets)
@@ -529,11 +639,11 @@ def _detect_intent(query: str) -> str:
         return "navigation"
     if "campagne" in normalized or "campaign" in normalized:
         return "campaign"
-    if (
-        "fiche client" in normalized
-        or "parc installe" in normalized
-        or "installed base" in normalized
-    ):
+    # Park aggregation questions (« la référence la plus installée … ») must
+    # win over the customer fiche and the opportunities fallback.
+    if any(token in normalized for token in _INSTALLED_BASE_TOKENS):
+        return "installed_base"
+    if "fiche client" in normalized:
         return "customer"
     # Checked last so e.g. "aide-moi a auditer Septona" still routes to audit.
     if any(token in normalized for token in _HELP_TOKENS):
@@ -610,6 +720,7 @@ def _help_response() -> dict[str, Any]:
             "Exemples de questions :",
             "- « Opportunités en Turquie en confiance haute »",
             "- « Fiche client Septona » ou « Audite Septona »",
+            "- « Quelle est la référence MPC la plus installée chez nos clients en Turquie ? » (parc installé)",
             "- « Quelles pièces à prévoir dans les 6 prochains mois ? »",
             "- « Pourquoi cette opportunité O'ring ? » (détail du calcul)",
             "- « Campagnes en cours » ou « Ouvre l'onglet campagnes »",
@@ -1206,7 +1317,7 @@ def _opportunity_detail_response(
                     "installed_quantity × recommended_quantity × (52 / periodicity_weeks)"
                 ),
                 "potential_gap_qty": "max(annual_theoretical_qty − sales_known_qty, 0)",
-                "plan_shorthand": "installed × periodicity − sales",
+                "plan_shorthand": "installed × recommended × 52/periodicity − sales",
                 "inputs": {
                     "installed_quantity": item.get("installed_quantity"),
                     "recommended_quantity": item.get("recommended_quantity"),
@@ -1222,6 +1333,282 @@ def _opportunity_detail_response(
         },
         "sources": _sources_for([item]),
         "evidence_refs": _evidence_refs_for([item]),
+        "cta": _cta(cta_params),
+    }
+
+
+def _installed_base_records(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
+    """SPC park records (aggregated customer × material at ingestion).
+
+    The same SFTP file can be registered under several ``Client360DataSource``
+    rows (with/without folder prefix in the label), so rows are deduplicated on
+    (customer, part_reference) first-seen — same convention as the purchases
+    reader in :mod:`app.services.client360_pdr`.
+    """
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for record in _raw_source_records_by_roles(db, workspace, {"spc"}):
+        ref_key = _norm(record.get("part_reference"))
+        if not ref_key:
+            continue
+        key = (str(record.get("customer_key") or ""), ref_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(record)
+    return deduped
+
+
+def _installed_base_part_filter(query: str, records: list[dict[str, Any]]) -> Optional[str]:
+    """Extract a bounded free-text part filter (« MPC ») from the question.
+
+    Candidates are the token following « référence(s) » and uppercase code
+    tokens. Anything that resolves to a country, a customer or a technology of
+    the park is rejected so facet values never leak into the text filter. The
+    filter is only ever applied as a case-insensitive substring match in
+    Python — never SQL.
+    """
+    candidates: list[str] = []
+    keyword_match = _PART_KEYWORD_RE.search(query)
+    if keyword_match:
+        candidates.append(keyword_match.group(1))
+    candidates.extend(_PART_CODE_RE.findall(query))
+
+    excluded: set[str] = set(_PART_FILTER_STOP_TOKENS)
+    for group in _COUNTRY_EQUIVALENTS:
+        excluded.update(group)
+    for record in records:
+        for field in ("country", "technology"):
+            value_norm = _norm(record.get(field))
+            if value_norm:
+                excluded.add(value_norm)
+    customer_norms = {
+        _norm(record.get("customer_name")) for record in records if record.get("customer_name")
+    }
+
+    for candidate in candidates:
+        text = str(candidate).strip().strip(".,;:!?")[:40]
+        norm = _norm(text)
+        if len(norm) < 2 or norm in excluded:
+            continue
+        if any(norm in name or name in norm for name in customer_norms if name):
+            continue
+        return text
+    return None
+
+
+def _short_text(value: Any, max_len: int = 60) -> Optional[str]:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" |")
+    if not text:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def _installed_base_scope_summary(
+    country: Any, customer: Any, part_filter: Optional[str]
+) -> str:
+    parts: list[str] = []
+    if country:
+        parts.append(f"pays={country}")
+    if customer:
+        parts.append(f"client={customer}")
+    if part_filter:
+        parts.append(f"filtre={part_filter}")
+    return ", ".join(parts) if parts else "tout le parc"
+
+
+def _installed_base_sources(
+    db: DBSession,
+    workspace: Workspace,
+    source_files: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Chat sources for the contributing SPC files (Client360DataSource rows)."""
+    serialized = {
+        item.get("id"): item
+        for item in list_data_sources(db, workspace)
+        if item.get("id")
+    }
+    sources: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for source_id, fallback_filename in source_files.items():
+        row = serialized.get(source_id) or {}
+        filename = row.get("filename") or row.get("label") or fallback_filename
+        if not filename or filename in seen_titles:
+            continue
+        seen_titles.add(filename)
+        evidence = row.get("evidence_refs") or [
+            {"kind": "client360_data_source", "source_id": source_id, "filename": filename}
+        ]
+        sources.append(
+            {
+                "title": filename,
+                "source_label": filename,
+                "kind": "client360_data_source",
+                "source_id": source_id,
+                "evidence_refs": evidence,
+            }
+        )
+        if len(sources) >= _MAX_CHAT_SOURCES:
+            break
+    return sources
+
+
+def _installed_base_response(
+    db: DBSession,
+    workspace: Workspace,
+    query: str,
+    records: list[dict[str, Any]],
+    filters: dict[str, Any],
+) -> dict[str, Any]:
+    """Deterministic park aggregation: top references by installed quantity.
+
+    Bounded read: persisted SPC records filtered in Python on the sanitised
+    country/customer facets plus an optional free-text part filter, then
+    summed per reference. No SQL is built from the question.
+    """
+    part_filter = _installed_base_part_filter(query, records)
+    country = filters.get("country")
+    customer = filters.get("customer")
+    top_n = max(1, min(int(filters.get("limit") or 5), 10))
+    scope = _installed_base_scope_summary(country, customer, part_filter)
+    cta_params: dict[str, str] = {"view": "customer"}
+    if country:
+        cta_params["country"] = str(country)
+    if customer:
+        cta_params["customer"] = str(customer)
+    applied_filters = {
+        key: value
+        for key, value in (
+            ("country", country),
+            ("customer", customer),
+            ("part_filter", part_filter),
+        )
+        if value
+    }
+
+    if not records:
+        return {
+            "intent": "installed_base",
+            "content": (
+                "**Client360 — parc installé** : aucune donnée de parc (fichier SPC) "
+                "n'est chargée dans ce workspace."
+            ),
+            "result": {"installed_base": [], "count": 0, "filters": applied_filters},
+            "sources": [],
+            "evidence_refs": [],
+            "cta": _cta(cta_params),
+        }
+
+    customer_norm = _norm(customer) if customer else ""
+    part_norm = _norm(part_filter) if part_filter else ""
+    matched: list[dict[str, Any]] = []
+    for record in records:
+        if country and not _country_matches(country, record.get("country")):
+            continue
+        if customer_norm:
+            haystack = _norm(
+                f"{record.get('customer_name') or ''} {record.get('customer_key') or ''}"
+            )
+            if customer_norm not in haystack:
+                continue
+        if part_norm:
+            haystack = _norm(
+                f"{record.get('part_reference') or ''} {record.get('part_description') or ''}"
+            )
+            if part_norm not in haystack:
+                continue
+        matched.append(record)
+
+    if not matched:
+        return {
+            "intent": "installed_base",
+            "content": "\n".join(
+                [
+                    "**Client360 — parc installé** : aucune référence trouvée pour ce filtre.",
+                    f"Filtres compris : {scope}.",
+                ]
+            ),
+            "result": {
+                "installed_base": [],
+                "count": 0,
+                "total_installed_quantity": 0,
+                "customer_count": 0,
+                "filters": applied_filters,
+            },
+            "sources": [],
+            "evidence_refs": [],
+            "cta": _cta(cta_params),
+        }
+
+    buckets: dict[str, dict[str, Any]] = {}
+    customers: set[str] = set()
+    total_qty = 0.0
+    source_files: dict[str, str] = {}
+    for record in matched:
+        reference = str(record.get("part_reference"))
+        try:
+            qty = float(record.get("installed_quantity") or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        bucket = buckets.setdefault(
+            _norm(reference),
+            {
+                "part_reference": reference,
+                "part_description": None,
+                "installed_quantity": 0.0,
+                "customer_keys": set(),
+            },
+        )
+        bucket["installed_quantity"] += qty
+        total_qty += qty
+        if not bucket["part_description"] and record.get("part_description"):
+            bucket["part_description"] = str(record["part_description"])
+        customer_key = str(record.get("customer_key") or _norm(record.get("customer_name")))
+        if customer_key:
+            bucket["customer_keys"].add(customer_key)
+            customers.add(customer_key)
+        source_id = record.get("source_id")
+        if source_id:
+            source_files.setdefault(str(source_id), str(record.get("source_filename") or ""))
+
+    top = sorted(
+        buckets.values(),
+        key=lambda bucket: (-bucket["installed_quantity"], bucket["part_reference"]),
+    )
+    lines = [
+        f"**Client360 — parc installé** ({scope}) : {len(buckets)} référence(s), "
+        f"{_fmt_qty(total_qty)} unité(s) chez {len(customers)} client(s)."
+    ]
+    for bucket in top[:top_n]:
+        lines.append(
+            f"- {bucket['part_reference']} · {_short_text(bucket['part_description']) or '—'} · "
+            f"{_fmt_qty(bucket['installed_quantity'])} unité(s) · "
+            f"{len(bucket['customer_keys'])} client(s)"
+        )
+
+    sources = _installed_base_sources(db, workspace, source_files)
+    return {
+        "intent": "installed_base",
+        "content": "\n".join(lines),
+        "result": {
+            "installed_base": [
+                {
+                    "part_reference": bucket["part_reference"],
+                    "part_description": bucket["part_description"],
+                    "installed_quantity": round(bucket["installed_quantity"], 4),
+                    "customer_count": len(bucket["customer_keys"]),
+                }
+                for bucket in top[:top_n]
+            ],
+            "count": len(buckets),
+            "total_installed_quantity": round(total_qty, 4),
+            "customer_count": len(customers),
+            "filters": applied_filters,
+        },
+        "sources": sources,
+        "evidence_refs": _evidence_refs_for(sources),
         "cta": _cta(cta_params),
     }
 
@@ -1266,7 +1653,21 @@ async def handle_client360_chat_query(
     # Single bounded scan reused for facet vocabulary and (for the list intent)
     # to seed the translation. No arbitrary DB access beyond the read API.
     scope_items = list_opportunities(db, workspace, limit=500)
-    filters, method = await translate_query_to_filters(db, workspace, query, scope_items)
+    spc_records: list[dict[str, Any]] = []
+    extra_facet_values: Optional[dict[str, list[str]]] = None
+    if intent == "installed_base":
+        # The opportunity facets do not necessarily cover the whole SPC park
+        # (countries come as "TR"/"GR" codes there); enrich the allow-list with
+        # the park's own values so « en Turquie » resolves even without
+        # matching opportunities.
+        spc_records = _installed_base_records(db, workspace)
+        extra_facet_values = {
+            "country": [r["country"] for r in spc_records if r.get("country")],
+            "customer": [r["customer_name"] for r in spc_records if r.get("customer_name")],
+        }
+    filters, method = await translate_query_to_filters(
+        db, workspace, query, scope_items, extra_facet_values=extra_facet_values
+    )
 
     if intent == "campaign":
         response = _campaign_response(db, workspace, query, filters, method)
@@ -1280,6 +1681,8 @@ async def handle_client360_chat_query(
         response = _navigation_response(filters, query)
     elif intent == "opportunity_detail":
         response = _opportunity_detail_response(db, workspace, filters, method)
+    elif intent == "installed_base":
+        response = _installed_base_response(db, workspace, query, spc_records, filters)
     else:
         response = _opportunities_response(db, workspace, filters, method)
 
