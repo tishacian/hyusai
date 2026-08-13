@@ -16,6 +16,7 @@ import {
   TokenResponse,
   MfaChallengeResponse,
 } from '@app/core/auth-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
@@ -45,7 +46,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         <h2 class="ck-auth-title">{{ signinExperience().title }}</h2>
         <p class="ck-auth-sub">{{ signinExperience().subtitle }}</p>
         @if (signinExperience().sovereignTag; as sovereignTag) {
-          <p class="ck-auth-sovereign-tag" aria-label="Mention souveraine">
+          <p class="ck-auth-sovereign-tag" [attr.aria-label]="i18n.t('auth.signin.sovereign_aria')">
             {{ sovereignTag }}
           </p>
         }
@@ -53,7 +54,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
 
       <form (ngSubmit)="onSubmit()" class="ck-auth-form">
         <div class="ck-field">
-          <label class="ck-label" for="signin-email">Email</label>
+          <label class="ck-label" for="signin-email">{{ i18n.t('auth.signin.email') }}</label>
           <input
             id="signin-email"
             type="email"
@@ -62,12 +63,12 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
             required
             autocomplete="username"
             class="ck-input"
-            placeholder="you&#64;company.com"
+            [placeholder]="i18n.t('auth.signin.email_placeholder')"
           />
         </div>
 
         <div class="ck-field">
-          <label class="ck-label" for="signin-password">Password</label>
+          <label class="ck-label" for="signin-password">{{ i18n.t('auth.signin.password') }}</label>
           <div class="ck-input-wrap">
             <input
               id="signin-password"
@@ -83,7 +84,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
               type="button"
               (click)="showPassword.set(!showPassword())"
               class="ck-input-suffix"
-              [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+              [attr.aria-label]="i18n.t(showPassword() ? 'auth.signin.hide_password' : 'auth.signin.show_password')"
             >
               <app-icon [name]="showPassword() ? 'eye-off' : 'eye'" [size]="16" />
             </button>
@@ -97,7 +98,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
             name="rememberMe"
           />
           <span class="ck-check-box" aria-hidden="true"></span>
-          <span class="ck-check-label">Keep me signed in on this workstation</span>
+          <span class="ck-check-label">{{ i18n.t('auth.signin.remember') }}</span>
         </label>
 
         @if (error()) {
@@ -111,7 +112,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         >
           @if (loading()) {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
-            <span>SIGNING IN…</span>
+            <span>{{ i18n.t('auth.signin.submitting') }}</span>
           } @else {
             <span>{{ signinExperience().submitLabel }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
@@ -119,12 +120,12 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         </button>
       </form>
 
-      <nav class="ck-auth-links" aria-label="Account actions">
-        <a routerLink="/auth/password-reset" class="ck-auth-link">Forgot password?</a>
+      <nav class="ck-auth-links" [attr.aria-label]="i18n.t('auth.signin.links_aria')">
+        <a routerLink="/auth/password-reset" class="ck-auth-link">{{ i18n.t('auth.signin.forgot') }}</a>
         <span class="ck-auth-links-sep" aria-hidden="true"></span>
         <span class="ck-auth-links-meta">
-          New to Agentium?
-          <a routerLink="/auth/signup" class="ck-auth-link ck-auth-link-strong">Request access</a>
+          {{ i18n.t('auth.signin.new_to') }}
+          <a routerLink="/auth/signup" class="ck-auth-link ck-auth-link-strong">{{ i18n.t('auth.signin.request_access') }}</a>
         </span>
       </nav>
     } @else {
@@ -132,10 +133,10 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         <div class="ck-auth-mfa-icon" aria-hidden="true">
           <app-icon name="shield-check" [size]="22" />
         </div>
-        <span class="ck-auth-eyebrow">STEP-UP AUTH</span>
-        <h2 class="ck-auth-title">Two-factor verification</h2>
+        <span class="ck-auth-eyebrow">{{ i18n.t('auth.mfa.eyebrow') }}</span>
+        <h2 class="ck-auth-title">{{ i18n.t('auth.mfa.title') }}</h2>
         <p class="ck-auth-sub">
-          We sent a 6-digit code to
+          {{ i18n.t('auth.mfa.sent_prefix') }}
           <span class="ck-auth-sub-strong">{{ mfaChallenge()!.email_hint }}</span>.
         </p>
       </header>
@@ -152,7 +153,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
               (input)="onDigitInput(i, $event)"
               (keydown)="onDigitKeydown(i, $event)"
               class="ck-otp-cell"
-              [attr.aria-label]="'Digit ' + (i + 1) + ' of 6'"
+              [attr.aria-label]="i18n.t('auth.mfa.digit_of', { n: i + 1 })"
             />
           }
         </div>
@@ -160,10 +161,10 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         <div class="ck-otp-meta">
           @if (secondsLeft() > 0) {
             <span class="ck-otp-meta-dot ck-otp-meta-dot-live" aria-hidden="true"></span>
-            <span class="ck-otp-meta-text">CODE VALID · {{ formatCountdown() }}</span>
+            <span class="ck-otp-meta-text">{{ i18n.t('auth.mfa.code_valid') }} · {{ formatCountdown() }}</span>
           } @else {
             <span class="ck-otp-meta-dot ck-otp-meta-dot-neg" aria-hidden="true"></span>
-            <span class="ck-otp-meta-text ck-otp-meta-text-neg">CODE EXPIRED · SIGN IN AGAIN</span>
+            <span class="ck-otp-meta-text ck-otp-meta-text-neg">{{ i18n.t('auth.mfa.code_expired') }}</span>
           }
         </div>
 
@@ -178,9 +179,9 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         >
           @if (loading()) {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
-            <span>VERIFYING…</span>
+            <span>{{ i18n.t('auth.mfa.verifying') }}</span>
           } @else {
-            <span>VERIFY</span>
+            <span>{{ i18n.t('auth.mfa.verify') }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
           }
         </button>
@@ -190,7 +191,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
           (click)="resetToLogin()"
           class="ck-btn-ghost"
         >
-          ← Back to sign in
+          ← {{ i18n.t('auth.mfa.back') }}
         </button>
       </form>
     }
@@ -547,6 +548,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   ],
 })
 export class SigninComponent implements OnDestroy {
+  protected readonly i18n = inject(I18nService);
   private readonly authApi = inject(AuthApiService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authStore = inject(AuthStore);
@@ -616,7 +618,7 @@ export class SigninComponent implements OnDestroy {
         },
         error: (err) => {
           this.loading.set(false);
-          this.error.set(err.error?.detail || 'Invalid credentials');
+          this.error.set(err.error?.detail || this.i18n.t('auth.signin.error.credentials'));
         },
       });
   }
@@ -686,7 +688,7 @@ export class SigninComponent implements OnDestroy {
         next: (tokens) => this.completeLogin(tokens),
         error: (err) => {
           this.loading.set(false);
-          this.error.set(err.error?.detail || 'Invalid code');
+          this.error.set(err.error?.detail || this.i18n.t('auth.mfa.error.code'));
           this.otpDigits.set(['', '', '', '', '', '']);
           queueMicrotask(() => this.otpInputs()[0]?.nativeElement.focus());
         },
@@ -711,13 +713,13 @@ export class SigninComponent implements OnDestroy {
           () => this.loading.set(false),
           () => {
             this.loading.set(false);
-            this.error.set('Signed in, but navigation could not complete. Please retry from the workspace switcher.');
+            this.error.set(this.i18n.t('auth.signin.error.nav'));
           },
         );
       },
       error: (err) => {
         this.loading.set(false);
-        this.error.set(err.error?.detail || 'Signed in, but workspace loading failed. Please retry.');
+        this.error.set(err.error?.detail || this.i18n.t('auth.signin.error.workspaces'));
       },
     });
   }
