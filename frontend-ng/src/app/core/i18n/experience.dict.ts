@@ -269,6 +269,8 @@ export const EXPERIENCE_FR = {
   'experience.wizard.finish': 'Ouvrir l’éditeur',
   'experience.wizard.saving': 'Enregistrement…',
   'experience.wizard.error': 'L’application n’a pas pu être créée.',
+  'experience.wizard.error_after_create':
+    'L’application a bien été créée, mais sa mise en page n’a pas pu être enregistrée. Retrouvez-la dans la liste des applications.',
   'experience.wizard.bind.intro':
     'Une action de votre application appelle un System publié par son point d’entrée. Reliez ceux dont vous avez besoin — vous pourrez en ajouter d’autres depuis l’éditeur.',
   'experience.wizard.bind.catalog': 'Systems publiés',
@@ -306,6 +308,8 @@ export const EXPERIENCE_FR = {
   'experience.editor.save_error': 'Le brouillon n’a pas pu être enregistré.',
   'experience.editor.conflict':
     'Ce brouillon a changé dans une autre session. Rechargez l’application avant de continuer.',
+  'experience.error.outdated_tab':
+    'Cet onglet a été ouvert avant une mise à jour. Rechargez-le pour continuer.',
   'experience.editor.undo': 'Annuler',
   'experience.editor.redo': 'Rétablir',
   'experience.editor.publish': 'Publier',
@@ -757,6 +761,8 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.wizard.finish': 'Open the editor',
   'experience.wizard.saving': 'Saving…',
   'experience.wizard.error': 'The application could not be created.',
+  'experience.wizard.error_after_create':
+    'The application was created, but its layout could not be saved. You will find it in the list of applications.',
   'experience.wizard.bind.intro':
     'An action of your application calls a published System through its entry point. Link the ones you need — you can add more from the editor.',
   'experience.wizard.bind.catalog': 'Published Systems',
@@ -793,6 +799,8 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.editor.save_error': 'The draft could not be saved.',
   'experience.editor.conflict':
     'This draft changed in another session. Reload the application before continuing.',
+  'experience.error.outdated_tab':
+    'This tab was opened before an update. Reload it to continue.',
   'experience.editor.undo': 'Undo',
   'experience.editor.redo': 'Redo',
   'experience.editor.publish': 'Publish',

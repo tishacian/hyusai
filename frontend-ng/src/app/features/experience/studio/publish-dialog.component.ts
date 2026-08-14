@@ -3,7 +3,7 @@ import { A11yModule } from '@angular/cdk/a11y';
 import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
-import { apiCode, apiMessage, StudioApiService, type StudioDraft, type StudioRelease } from './studio-api.service';
+import { apiCode, studioError, StudioApiService, type StudioDraft, type StudioRelease } from './studio-api.service';
 import { canCreateRelease, canDeploy, type ReadyCheck } from './studio-publish';
 
 /** What the release freezes, as the author reads it before confirming. */
@@ -219,7 +219,7 @@ export class ExperiencePublishDialogComponent {
       this.channel.set('pilot');
       this.api.readyCheck(this.experienceId()).subscribe({
         next: (body) => this.check.set(body),
-        error: (err) => this.error.set(apiMessage(err, this.i18n.t('experience.publish.error'))),
+        error: (err) => this.error.set(studioError(this.i18n, err, 'experience.publish.error')),
       });
     });
   }
@@ -289,7 +289,7 @@ export class ExperiencePublishDialogComponent {
         this.error.set(
           code === 'EXPERIENCE_DRAFT_REVISION_CONFLICT' || code === 'EXPERIENCE_DRAFT_CONTENT_CONFLICT'
             ? this.i18n.t('experience.publish.conflict')
-            : apiMessage(err, this.i18n.t('experience.publish.error')),
+            : studioError(this.i18n, err, 'experience.publish.error'),
         );
         this.busy.set(false);
       },
@@ -313,7 +313,7 @@ export class ExperiencePublishDialogComponent {
           this.close();
         },
         error: (err) => {
-          this.error.set(apiMessage(err, this.i18n.t('experience.publish.error')));
+          this.error.set(studioError(this.i18n, err, 'experience.publish.error'));
           this.busy.set(false);
         },
       });

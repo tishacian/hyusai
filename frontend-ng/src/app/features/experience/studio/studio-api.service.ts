@@ -4,6 +4,7 @@ import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import type { I18nService } from '@app/core/i18n.service';
 import { hydrateDocument } from './studio-document';
 import type { ReadyCheck } from './studio-publish';
 import type { StudioExperience } from './studio-model';
@@ -77,7 +78,7 @@ export function apiCode(err: unknown): string | null {
     : null;
 }
 
-export function apiMessage(err: unknown, fallback: string): string {
+function apiMessage(err: unknown, fallback: string): string {
   if (err instanceof HttpErrorResponse) {
     const detail = err.error?.detail;
     if (typeof detail === 'string' && detail.trim()) return detail;
@@ -86,6 +87,22 @@ export function apiMessage(err: unknown, fallback: string): string {
     }
   }
   return fallback;
+}
+
+/**
+ * A business rejection always carries a `{code, message}` detail; the API only
+ * answers with a detail *array* when it refuses the payload's shape. So an array
+ * means this bundle and the API no longer agree on the contract — a tab that
+ * outlived a deployment — and no retry will help until the page is reloaded.
+ */
+export function isContractMismatch(err: unknown): boolean {
+  return err instanceof HttpErrorResponse && err.status === 422 && Array.isArray(err.error?.detail);
+}
+
+/** Resolves an API failure into text the author can act on. */
+export function studioError(i18n: I18nService, err: unknown, fallbackKey: string): string {
+  if (isContractMismatch(err)) return i18n.t('experience.error.outdated_tab');
+  return apiMessage(err, i18n.t(fallbackKey));
 }
 
 @Injectable({ providedIn: 'root' })

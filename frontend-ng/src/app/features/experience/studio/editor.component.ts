@@ -15,7 +15,7 @@ import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.componen
 import { acceptAssistantPatch, proposeAssistantPatch, type AssistantProposal } from './studio-assistant';
 import {
   apiCode,
-  apiMessage,
+  studioError,
   StudioApiService,
   type StudioBinding,
   type StudioDetail,
@@ -1397,7 +1397,7 @@ export class ExperienceEditorComponent {
       next: (row) => {
         this.bindings.update((list) => list.map((item) => (item.binding_key === row.binding_key ? row : item)));
       },
-      error: (err) => this.error.set(apiMessage(err, this.i18n.t('experience.editor.save_error'))),
+      error: (err) => this.error.set(studioError(this.i18n, err, 'experience.editor.save_error')),
     });
   }
 
@@ -1530,7 +1530,7 @@ export class ExperienceEditorComponent {
         this.error.set(
           apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
             ? this.i18n.t('experience.editor.conflict')
-            : apiMessage(err, this.i18n.t('experience.editor.save_error')),
+            : studioError(this.i18n, err, 'experience.editor.save_error'),
         );
         this.publishRequested = false;
         this.saveQueued = false;
@@ -1564,7 +1564,7 @@ export class ExperienceEditorComponent {
       },
       error: (err) => {
         this.lifecycleBusy.set(false);
-        this.error.set(apiMessage(err, this.i18n.t('experience.editor.lifecycle.error')));
+        this.error.set(studioError(this.i18n, err, 'experience.editor.lifecycle.error'));
       },
     });
   }
@@ -1588,7 +1588,7 @@ export class ExperienceEditorComponent {
       },
       error: (err) => {
         this.lifecycleBusy.set(false);
-        this.error.set(apiMessage(err, this.i18n.t('experience.editor.lifecycle.error')));
+        this.error.set(studioError(this.i18n, err, 'experience.editor.lifecycle.error'));
       },
     });
   }
@@ -1629,7 +1629,7 @@ export class ExperienceEditorComponent {
   private load(id: string): void {
     this.api.getExperience(id).subscribe({
       next: (row) => this.hydrate(row),
-      error: (err) => this.error.set(apiMessage(err, this.i18n.t('experience.editor.load_error'))),
+      error: (err) => this.error.set(studioError(this.i18n, err, 'experience.editor.load_error')),
     });
   }
 

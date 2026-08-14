@@ -6,7 +6,7 @@ import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.componen
 import { SystemHomeService } from '../system-home.service';
 import {
   apiCode,
-  apiMessage,
+  studioError,
   StudioApiService,
   type StudioBinding,
   type StudioIngress,
@@ -421,7 +421,7 @@ export class ExperienceWizardComponent {
           this.busy.set(false);
         },
         error: (err) => {
-          this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
+          this.error.set(studioError(this.i18n, err, 'experience.wizard.error'));
           this.busy.set(false);
         },
       });
@@ -589,7 +589,7 @@ export class ExperienceWizardComponent {
         this.persistDraft(done);
       },
       error: (err) => {
-        this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
+        this.error.set(studioError(this.i18n, err, 'experience.wizard.error'));
         this.busy.set(false);
       },
     });
@@ -611,14 +611,21 @@ export class ExperienceWizardComponent {
         done();
       },
       error: (err) => {
-        this.error.set(
-          apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
-            ? this.i18n.t('experience.editor.conflict')
-            : apiMessage(err, this.i18n.t('experience.wizard.error')),
-        );
+        this.error.set(this.draftError(err));
         this.busy.set(false);
       },
     });
+  }
+
+  /**
+   * The application row already exists once a draft is saved, so a failure here
+   * never means the creation failed — only that the layout did not land. Saying
+   * otherwise sends the author back to create a duplicate.
+   */
+  private draftError(err: unknown): string {
+    return apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
+      ? this.i18n.t('experience.editor.conflict')
+      : studioError(this.i18n, err, 'experience.wizard.error_after_create');
   }
 
   private persistAccess(done: () => void): void {
@@ -634,7 +641,7 @@ export class ExperienceWizardComponent {
       .subscribe({
         next: () => this.persistDraft(done),
         error: (err) => {
-          this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
+          this.error.set(studioError(this.i18n, err, 'experience.wizard.error'));
           this.busy.set(false);
         },
       });
