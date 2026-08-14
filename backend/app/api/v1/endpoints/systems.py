@@ -1641,6 +1641,18 @@ async def delete_system(
     if not s:
         raise HTTPException(404, "System not found")
     _enforce_system_admin(db, user=user, workspace=workspace, system=s)
+    references = version_service.experience_release_references(
+        db, system_id=s.id
+    )
+    if references:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SYSTEM_REFERENCED_BY_EXPERIENCE_RELEASE",
+                "message": "This System is referenced by an immutable Experience release.",
+                "references": references,
+            },
+        )
     db.delete(s)
     db.commit()
     return None

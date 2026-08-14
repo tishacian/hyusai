@@ -5,6 +5,7 @@
   <ck-help titleHelp id="concept.business-application" />
 
   <div class="xp-hub">
+    @if (canEdit()) {
     <form class="xp-composer" (submit)="$event.preventDefault()">
       <span class="xp-composer-glyph" aria-hidden="true">
         <ck-glyph name="focus" [size]="16" />
@@ -45,10 +46,22 @@
         </article>
       }
     </div>
+    } @else {
+      <section class="xp-review-card">
+        <div>
+          <h2>{{ i18n.t('experience.hub.review.title') }}</h2>
+          <p>{{ i18n.t('experience.hub.review.body') }}</p>
+        </div>
+        <a routerLink="/create/apps" class="xp-card-cta">
+          {{ i18n.t('experience.hub.resume.all') }}
+          <ck-glyph name="arrow-right" [size]="12" />
+        </a>
+      </section>
+    }
 
     <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.resume.title')">
       <h2 class="xp-section-title">{{ i18n.t('experience.hub.resume.title') }}</h2>
-      @if (deployedApps().length === 0) {
+      @if (recentApps().length === 0) {
         <app-empty-state
           icon="inbox"
           size="sm"
@@ -57,11 +70,11 @@
         />
       } @else {
         <ul class="xp-resume-apps">
-          @for (app of deployedApps(); track app.id) {
+          @for (app of recentApps(); track app.id) {
             <li>
-              <span>{{ app.name }}</span>
-              <a [routerLink]="['/work', app.slug]" class="xp-card-cta">
-                {{ i18n.t('experience.work.view_app') }}
+              <span><strong>{{ app.name }}</strong><small>{{ state(app) }} · /work/{{ app.slug }}</small></span>
+              <a [routerLink]="['/create/apps', app.id]" class="xp-card-cta">
+                {{ i18n.t('experience.apps.action.continue') }}
                 <ck-glyph name="arrow-right" [size]="12" />
               </a>
             </li>
@@ -69,7 +82,7 @@
         </ul>
       }
       <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
-      <a routerLink="/create/preview" class="xp-preview-link">{{ i18n.t('experience.runtime.preview.link') }}</a>
+      <a routerLink="/create/apps" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
     </section>
 
     <section class="xp-articulation" [attr.aria-label]="i18n.t('experience.hub.articulation.title')">

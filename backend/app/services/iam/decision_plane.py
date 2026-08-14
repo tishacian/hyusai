@@ -1087,6 +1087,7 @@ def build_authorization_v2_backfill(
             "binding.view": parsed_mode.value,
             "binding.manage": parsed_mode.value,
             "experience.view": parsed_mode.value,
+            "experience.consume": parsed_mode.value,
             "experience.edit": parsed_mode.value,
             "experience.release": parsed_mode.value,
             "experience.deploy": parsed_mode.value,

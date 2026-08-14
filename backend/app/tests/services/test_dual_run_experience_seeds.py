@@ -7,7 +7,10 @@ from uuid import uuid4
 import pytest
 import sqlalchemy as sa
 
-from app.services.experience.dual_run_seeds import seed_dual_run_experiences
+from app.services.experience.dual_run_seeds import (
+    repair_mutated_091_releases,
+    seed_dual_run_experiences,
+)
 from app.services.experience.keys import (
     mission_nav_binding_key,
     ANDRITZ_FSE_KEY,
@@ -427,3 +430,96 @@ def test_existing_slug_is_left_alone(bind):
     ).one()
     assert row._mapping["name"] == "Operator Recherche"
     assert row._mapping["theme"]["live_href"] == "/custom"
+
+
+def test_092_repairs_091_in_place_release_with_immutable_successor(bind):
+    (
+        workspaces,
+        systems,
+        versions,
+        _bindings,
+        experiences,
+        drafts,
+        releases,
+        deployments,
+    ) = _schema(bind)
+    _insert_workspace(
+        bind,
+        workspaces,
+        workspace_id="ws-repair",
+        slug="repair-mission",
+        settings={"mission_room": {"enabled": True, "profile": "generic"}},
+    )
+    _insert_published_system(
+        bind,
+        systems,
+        versions,
+        system_id="sys-repair-intel",
+        workspace_id="ws-repair",
+        name="Open Intelligence",
+        flow_definition={"variant": "intelligence"},
+    )
+    seed_dual_run_experiences(bind)
+    experience_id = bind.execute(
+        sa.select(experiences.c.id).where(
+            experiences.c.slug == MISSION_CONTROL_EXPERIENCE_SLUG
+        )
+    ).scalar_one()
+    original = bind.execute(
+        sa.select(releases.c.id, releases.c.pages).where(
+            releases.c.experience_id == experience_id,
+            releases.c.release_number == 1,
+        )
+    ).one()
+    assert any(
+        item["type"] == "intelligence_feed"
+        for item in original._mapping["pages"]["pages"][0]["components"]
+    )
+
+    repair_mutated_091_releases(bind)
+
+    repaired = bind.execute(
+        sa.select(
+            releases.c.id,
+            releases.c.release_number,
+            releases.c.pages,
+        )
+        .where(releases.c.experience_id == experience_id)
+        .order_by(releases.c.release_number)
+    ).all()
+    assert [row._mapping["release_number"] for row in repaired] == [1, 2]
+    assert repaired[0]._mapping["id"] == original._mapping["id"]
+    assert [
+        item["type"]
+        for item in repaired[0]._mapping["pages"]["pages"][0]["components"]
+    ] == ["header", "callout"]
+    assert "intelligence_feed" in {
+        item["type"]
+        for item in repaired[1]._mapping["pages"]["pages"][0]["components"]
+    }
+    deployment = bind.execute(
+        sa.select(deployments.c.release_id, deployments.c.previous_release_id).where(
+            deployments.c.experience_id == experience_id
+        )
+    ).one()
+    assert deployment._mapping["release_id"] == repaired[1]._mapping["id"]
+    assert deployment._mapping["previous_release_id"] == repaired[0]._mapping["id"]
+    draft = bind.execute(
+        sa.select(drafts.c.pages, drafts.c.revision).where(
+            drafts.c.experience_id == experience_id
+        )
+    ).one()
+    # 092 repairs immutable release history without overwriting or bumping the
+    # current authoring draft.
+    assert draft._mapping["revision"] == 1
+    assert "intelligence_feed" in {
+        item["type"]
+        for item in draft._mapping["pages"]["pages"][0]["components"]
+    }
+
+    repair_mutated_091_releases(bind)
+    assert bind.execute(
+        sa.select(sa.func.count()).select_from(releases).where(
+            releases.c.experience_id == experience_id
+        )
+    ).scalar_one() == 2

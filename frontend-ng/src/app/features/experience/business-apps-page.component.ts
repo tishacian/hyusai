@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent, TagComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { canEditExperienceStudio } from './experience-access';
 import { StudioApiService } from './studio/studio-api.service';
 import {
   audienceLabel,
@@ -29,9 +31,11 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
       [description]="i18n.t('experience.apps.description')"
     >
       <ck-help titleHelp id="concept.business-application" />
-      <a actions routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
-        {{ i18n.t('experience.apps.new') }}
-      </a>
+      @if (canEdit()) {
+        <a actions routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
+          {{ i18n.t('experience.apps.new') }}
+        </a>
+      }
 
       <ol class="xp-life" [attr.aria-label]="i18n.t('experience.apps.lifecycle.aria')">
         @for (step of lifecycle; track step) {
@@ -39,18 +43,26 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
         }
       </ol>
 
+      <div class="xp-inventory-tools">
       <div class="xp-filters" role="tablist" [attr.aria-label]="i18n.t('experience.apps.filter.all')">
-        @for (item of filters; track item) {
+        @for (item of filters; track item; let index = $index) {
           <button
             type="button"
             role="tab"
             [attr.aria-selected]="filter() === item"
+            [tabIndex]="filter() === item ? 0 : -1"
             [class.is-on]="filter() === item"
             (click)="filter.set(item)"
+            (keydown)="onFilterKey($event, index)"
           >
             {{ i18n.t('experience.apps.filter.' + item) }}
           </button>
         }
+      </div>
+      <label class="xp-search">
+        <span class="xp-sr-only">{{ i18n.t('experience.apps.search') }}</span>
+        <input type="search" [value]="query()" [placeholder]="i18n.t('experience.apps.search')" (input)="query.set(inputValue($event))" />
+      </label>
       </div>
 
       @if (rows().length === 0) {
@@ -60,9 +72,11 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
           [title]="i18n.t('experience.apps.empty.title')"
           [description]="i18n.t('experience.apps.empty.description')"
         >
-          <a routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
-            {{ i18n.t('experience.apps.new') }}
-          </a>
+          @if (canEdit()) {
+            <a routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
+              {{ i18n.t('experience.apps.new') }}
+            </a>
+          }
         </app-empty-state>
       } @else {
         <div class="xp-table-wrap">
@@ -100,13 +114,15 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                   <td>{{ releaseLabel(app) }}</td>
                   <td>{{ audienceText(app) }}</td>
                   <td class="xp-actions">
-                    <a [routerLink]="['/create/apps', app.id]">
-                      {{
-                        stateOf(app) === 'draft'
-                          ? i18n.t('experience.apps.action.continue')
-                          : i18n.t('experience.apps.action.edit')
-                      }}
-                    </a>
+                    @if (canEdit()) {
+                      <a [routerLink]="['/create/apps', app.id]">
+                        {{
+                          stateOf(app) === 'draft'
+                            ? i18n.t('experience.apps.action.continue')
+                            : i18n.t('experience.apps.action.edit')
+                        }}
+                      </a>
+                    }
                     @if (viewHref(app); as href) {
                       <a [routerLink]="href">
                         {{ i18n.t('experience.apps.action.view') }} ↗
@@ -126,15 +142,44 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
 export class BusinessAppsPageComponent {
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
+  private readonly workspace = inject(WorkspaceService);
   readonly all = signal<StudioExperience[]>([]);
   readonly filter = signal<InventoryFilter>('all');
+  readonly query = signal('');
   readonly filters = ['all', 'live', 'pilot', 'drafts'] as const;
   readonly lifecycle = LIFECYCLE;
-  readonly rows = computed(() => filterInventory(this.all(), this.filter()));
+  readonly canEdit = computed(() => canEditExperienceStudio(
+    this.workspace.current()?.role_template,
+    this.workspace.current()?.role,
+    this.workspace.isAdmin(),
+  ));
+  readonly rows = computed(() => {
+    const filtered = filterInventory(this.all(), this.filter());
+    const query = this.query().trim().toLocaleLowerCase();
+    if (!query) return filtered;
+    return filtered.filter((row) => `${row.name} ${row.slug} ${(row.binding_keys ?? []).join(' ')}`.toLocaleLowerCase().includes(query));
+  });
   readonly viewHref = viewHref;
 
   constructor() {
     this.api.listExperiences().subscribe((rows) => this.all.set(rows));
+  }
+
+  inputValue(event: Event): string {
+    return (event.target as HTMLInputElement).value;
+  }
+
+  onFilterKey(event: KeyboardEvent, index: number): void {
+    let next: number | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % this.filters.length;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + this.filters.length) % this.filters.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = this.filters.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    this.filter.set(this.filters[next]!);
+    const tabs = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLElement>('[role="tab"]');
+    queueMicrotask(() => tabs?.[next!]?.focus());
   }
 
   stateOf(app: StudioExperience): InventoryState {

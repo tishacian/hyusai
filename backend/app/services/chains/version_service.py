@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.models.run import Run
+from app.models.experience import ExperienceDeployment, ExperienceRelease
 from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
@@ -83,6 +84,43 @@ class ChainVersionError(Exception):
 
 class ConfigurationSnapshotError(ValueError):
     """Raised when configuration evidence exceeds its positive allowlist."""
+
+
+def experience_release_references(
+    db: DBSession,
+    *,
+    system_id: str,
+    version_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Release references that make a SystemVersion retention authority."""
+    rows = (
+        db.query(ExperienceRelease, ExperienceDeployment)
+        .outerjoin(
+            ExperienceDeployment,
+            ExperienceDeployment.release_id == ExperienceRelease.id,
+        )
+        .all()
+    )
+    references: list[dict[str, Any]] = []
+    for release, deployment in rows:
+        for snapshot in release.bindings_snapshot or []:
+            if not isinstance(snapshot, Mapping) or snapshot.get("system_id") != system_id:
+                continue
+            referenced_version_id = snapshot.get("published_flow_version_id")
+            if version_id is not None and referenced_version_id != version_id:
+                continue
+            references.append(
+                {
+                    "experience_id": release.experience_id,
+                    "release_id": release.id,
+                    "deployment_id": deployment.id if deployment is not None else None,
+                    "channel": deployment.channel if deployment is not None else None,
+                    "active": deployment is not None,
+                    "binding_key": str(snapshot.get("binding_key") or ""),
+                    "version_id": str(referenced_version_id or ""),
+                }
+            )
+    return references
 
 
 def _lock_system_for_versioning(db: DBSession, system_id: str) -> System:
@@ -440,6 +478,11 @@ def _purge_window(*, db: DBSession, system_id: str) -> list[str]:
         )
         if value is not None
     }
+    protected_ids.update(
+        item["version_id"]
+        for item in experience_release_references(db, system_id=system_id)
+        if item["version_id"]
+    )
     to_purge = (
         db.query(SystemVersion)
         .filter(SystemVersion.system_id == system_id)

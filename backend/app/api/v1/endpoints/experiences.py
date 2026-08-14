@@ -33,6 +33,7 @@ from app.services.iam.decision_plane import enforce_action
 router = APIRouter()
 
 _EDIT_ROLES = {WORKSPACE_CONTRIBUTOR, WORKSPACE_ADMIN, WORKSPACE_OWNER}
+_VIEW_ROLES = _EDIT_ROLES | {WORKSPACE_REVIEWER}
 _RELEASE_ROLES = {WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER}
 _DEPLOY_ROLES = {WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER}
 
@@ -45,6 +46,7 @@ class ExperienceCreateBody(BaseModel):
     pattern: str = Field(min_length=1, max_length=32)
     languages: list[str] = Field(default_factory=list)
     theme: dict[str, Any] = Field(default_factory=dict)
+    access_policy: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExperiencePatchBody(BaseModel):
@@ -55,6 +57,7 @@ class ExperiencePatchBody(BaseModel):
     pattern: Optional[str] = Field(default=None, min_length=1, max_length=32)
     languages: Optional[list[str]] = None
     theme: Optional[dict[str, Any]] = None
+    access_policy: Optional[dict[str, Any]] = None
 
 
 class DraftSaveBody(BaseModel):
@@ -62,12 +65,15 @@ class DraftSaveBody(BaseModel):
 
     pages: dict[str, Any]
     binding_keys: list[str] = Field(default_factory=list)
+    expected_revision: int = Field(ge=1)
 
 
 class ReleaseCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     notes: str = Field(min_length=1)
+    expected_draft_revision: int = Field(ge=1)
+    expected_content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class DeployBody(BaseModel):
@@ -126,7 +132,13 @@ def _enforce(db: DBSession, *, user: User, workspace: Workspace, action: str, le
 
 
 def _enforce_view(db: DBSession, *, user: User, workspace: Workspace) -> None:
-    _enforce(db, user=user, workspace=workspace, action="view", legacy_allowed=True)
+    _enforce(
+        db,
+        user=user,
+        workspace=workspace,
+        action="view",
+        legacy_allowed=_legacy_role(db, user=user, workspace=workspace, allowed=_VIEW_ROLES),
+    )
 
 
 def _enforce_edit(db: DBSession, *, user: User, workspace: Workspace) -> None:
@@ -250,6 +262,7 @@ async def create_experience(
             pattern=body.pattern,
             languages=body.languages,
             theme=body.theme,
+            access_policy=body.access_policy,
         )
         db.commit()
         db.refresh(row)
@@ -297,6 +310,7 @@ async def patch_experience(
             pattern=body.pattern,
             languages=body.languages,
             theme=body.theme,
+            access_policy=body.access_policy,
         )
         db.commit()
         row, draft, deployments = experience_service.get_experience(
@@ -324,6 +338,7 @@ async def save_experience_draft(
             experience_id=experience_id,
             pages=body.pages,
             binding_keys=body.binding_keys,
+            expected_revision=body.expected_revision,
             actor=_actor(user),
         )
         db.commit()
@@ -366,6 +381,8 @@ async def create_experience_release(
             workspace=workspace,
             experience_id=experience_id,
             notes=body.notes,
+            expected_draft_revision=body.expected_draft_revision,
+            expected_content_sha256=body.expected_content_sha256,
             actor=_actor(user),
         )
         db.commit()

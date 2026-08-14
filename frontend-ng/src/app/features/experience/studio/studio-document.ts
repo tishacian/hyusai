@@ -175,7 +175,8 @@ export function newNodeId(type: string): string {
 }
 
 export function newPageId(doc: ExperienceDocument, title: string): string {
-  const base = slugify(title) || 'page';
+  const token = slugify(title) || 'page';
+  const base = /^[A-Za-z]/.test(token) ? token : `page-${token}`;
   const taken = new Set(doc.pages.map((page) => page.id));
   if (!taken.has(base)) return base;
   let n = 2;
@@ -208,7 +209,7 @@ export function findNode(
 }
 
 export function pagesPayload(doc: ExperienceDocument): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     pages: doc.pages.map((page) => ({
       id: page.id,
       title: page.title,
@@ -224,4 +225,6 @@ export function pagesPayload(doc: ExperienceDocument): Record<string, unknown> {
       }),
     })),
   };
+  if (doc.i18n && Object.keys(doc.i18n).length > 0) payload['i18n'] = cloneDocument(doc).i18n;
+  return payload;
 }

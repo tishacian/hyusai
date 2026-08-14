@@ -29,6 +29,9 @@ from app.services.audit_logger import emit_audit_event
 from app.services.experience import bindings as binding_service
 
 SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,119}$")
+DOCUMENT_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,159}$")
+SELECTOR_RE = re.compile(r"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$")
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$")
 COMPONENT_TYPES = frozenset(
     {
         "page",
@@ -67,6 +70,7 @@ ABSOLUTE_POSITION_KEYS = frozenset(
 )
 EMPTY_STATE_PATTERNS = frozenset({"queue", "approval"})
 EMPTY_PAGES = {"pages": []}
+AUDIENCE_KEYS = frozenset({"roles", "role_templates", "groups"})
 
 
 @dataclass(slots=True)
@@ -106,6 +110,7 @@ def serialize_experience(
         "pattern": row.pattern,
         "languages": copy.deepcopy(row.languages or []),
         "theme": copy.deepcopy(row.theme or {}),
+        "access_policy": copy.deepcopy(row.access_policy or {}),
         "created_by": row.created_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -137,6 +142,7 @@ def serialize_release(row: ExperienceRelease) -> dict[str, Any]:
         "pages": copy.deepcopy(row.pages),
         "bindings_snapshot": copy.deepcopy(row.bindings_snapshot or []),
         "access_snapshot": copy.deepcopy(row.access_snapshot or {}),
+        "identity_snapshot": copy.deepcopy(row.identity_snapshot or {}),
         "languages": copy.deepcopy(row.languages or []),
         "theme": copy.deepcopy(row.theme or {}),
         "renderer_version": row.renderer_version,
@@ -225,7 +231,30 @@ def _validate_audience(value: Any) -> dict[str, Any]:
             message="audience must be an object.",
             status_code=422,
         )
-    return copy.deepcopy(value)
+    unknown = set(value) - AUDIENCE_KEYS
+    if unknown or ("roles" in value and "role_templates" in value):
+        raise ExperienceError(
+            code="EXPERIENCE_AUDIENCE_INVALID",
+            message="audience accepts roles (or role_templates) and groups only.",
+            status_code=422,
+            details={"fields": sorted(unknown)},
+        )
+    normalized: dict[str, list[str]] = {}
+    for source, target in (("roles", "roles"), ("role_templates", "roles"), ("groups", "groups")):
+        if source not in value:
+            continue
+        raw = value[source]
+        if not isinstance(raw, list) or any(
+            not isinstance(item, str) or not item.strip() for item in raw
+        ):
+            raise ExperienceError(
+                code="EXPERIENCE_AUDIENCE_INVALID",
+                message=f"audience.{source} must be an array of non-empty strings.",
+                status_code=422,
+                details={"field": source},
+            )
+        normalized[target] = list(dict.fromkeys(item.strip() for item in raw))
+    return normalized
 
 
 def _reject_absolute_positioning(node: Mapping[str, Any], *, path: str) -> None:
@@ -246,6 +275,13 @@ def _reject_absolute_positioning(node: Mapping[str, Any], *, path: str) -> None:
         )
 
 
+def _text_value(value: Any) -> bool:
+    return bool(
+        (isinstance(value, str) and value.strip())
+        or (isinstance(value, Mapping) and "$i18n" in value)
+    )
+
+
 def validate_pages_document(pages: Any) -> dict[str, Any]:
     if not isinstance(pages, dict):
         raise ExperienceError(
@@ -262,6 +298,8 @@ def validate_pages_document(pages: Any) -> dict[str, Any]:
         )
     _reject_absolute_positioning(pages, path="pages")
     cleaned_pages: list[dict[str, Any]] = []
+    page_ids: set[str] = set()
+    component_ids: set[str] = set()
     for index, page in enumerate(raw_pages):
         path = f"pages[{index}]"
         if not isinstance(page, dict):
@@ -278,7 +316,23 @@ def validate_pages_document(pages: Any) -> dict[str, Any]:
                 status_code=422,
                 details={"path": path},
             )
-        if not isinstance(page.get("title"), str) or not page["title"].strip():
+        page_id = page["id"].strip()
+        if not DOCUMENT_ID_RE.fullmatch(page_id):
+            raise ExperienceError(
+                code="DRAFT_PAGE_ID_INVALID",
+                message="Page ids must be safe URL and DOM identifiers.",
+                status_code=422,
+                details={"path": path, "id": page_id},
+            )
+        if page_id in page_ids:
+            raise ExperienceError(
+                code="DRAFT_PAGE_ID_DUPLICATE",
+                message="Page ids must be unique.",
+                status_code=422,
+                details={"path": path, "id": page_id},
+            )
+        page_ids.add(page_id)
+        if not _text_value(page.get("title")):
             raise ExperienceError(
                 code="DRAFT_PAGES_INVALID",
                 message="Each page must have a title.",
@@ -312,9 +366,56 @@ def validate_pages_document(pages: Any) -> dict[str, Any]:
                     status_code=422,
                     details={"path": c_path, "type": component_type},
                 )
+            component_id = component.get("id")
+            if not isinstance(component_id, str) or not component_id.strip():
+                raise ExperienceError(
+                    code="DRAFT_COMPONENT_ID_REQUIRED",
+                    message="Each component must have a stable id.",
+                    status_code=422,
+                    details={"path": c_path},
+                )
+            component_id = component_id.strip()
+            if not DOCUMENT_ID_RE.fullmatch(component_id):
+                raise ExperienceError(
+                    code="DRAFT_COMPONENT_ID_INVALID",
+                    message="Component ids must be safe DOM identifiers.",
+                    status_code=422,
+                    details={"path": c_path, "id": component_id},
+                )
+            if component_id in component_ids:
+                raise ExperienceError(
+                    code="DRAFT_COMPONENT_ID_DUPLICATE",
+                    message="Component ids must be unique across the document.",
+                    status_code=422,
+                    details={"path": c_path, "id": component_id},
+                )
+            component_ids.add(component_id)
             _reject_absolute_positioning(component, path=c_path)
-            cleaned_components.append(copy.deepcopy(component))
+            cleaned_component = copy.deepcopy(component)
+            cleaned_component["id"] = component_id
+            props = cleaned_component.get("props")
+            if isinstance(props, dict):
+                if isinstance(props.get("accent"), str):
+                    props["accent"] = props["accent"].strip()
+                if isinstance(props.get("bindingKey"), str):
+                    props["bindingKey"] = props["bindingKey"].strip()
+                query = props.get("queryBinding")
+                if isinstance(query, dict):
+                    if isinstance(query.get("bindingKey"), str):
+                        query["bindingKey"] = query["bindingKey"].strip()
+                    if isinstance(query.get("selector"), str):
+                        query["selector"] = query["selector"].strip()
+                data = props.get("dataBinding")
+                if isinstance(data, dict):
+                    if isinstance(data.get("componentId"), str):
+                        data["componentId"] = data["componentId"].strip()
+                    if isinstance(data.get("selector"), str):
+                        data["selector"] = data["selector"].strip()
+                if isinstance(props.get("sourceComponentId"), str):
+                    props["sourceComponentId"] = props["sourceComponentId"].strip()
+            cleaned_components.append(cleaned_component)
         cleaned = copy.deepcopy(page)
+        cleaned["id"] = page_id
         cleaned["components"] = cleaned_components
         cleaned_pages.append(cleaned)
     document = copy.deepcopy(pages)
@@ -477,39 +578,84 @@ def inventory_index(db: DBSession, *, workspace_id: str) -> dict[str, dict[str, 
     return index
 
 
-def audience_allows(audience: Any, role: str) -> bool:
-    """Pilot visibility: empty audience (or empty roles) is open; otherwise match role.
-
-    Accepted shapes: ``{"roles": [...]}`` or ``{"role_templates": [...]}``.
-    """
-    if not isinstance(audience, dict):
+def audience_allows(
+    audience: Any,
+    role: str,
+    groups: tuple[str, ...] | list[str] | set[str] = (),
+) -> bool:
+    """Return membership in a valid deployment audience; malformed data closes."""
+    if not isinstance(audience, dict) or set(audience) - AUDIENCE_KEYS:
+        return False
+    if "roles" in audience and "role_templates" in audience:
+        return False
+    role_values = audience.get("roles", audience.get("role_templates", []))
+    group_values = audience.get("groups", [])
+    if not isinstance(role_values, list) or not isinstance(group_values, list):
+        return False
+    if any(
+        not isinstance(item, str) or not item.strip() or item != item.strip()
+        for item in role_values + group_values
+    ):
+        return False
+    allowed_roles = {item.strip() for item in role_values}
+    allowed_groups = {item.strip() for item in group_values}
+    if not allowed_roles and not allowed_groups:
         return True
-    raw = audience.get("roles")
-    if raw is None:
-        raw = audience.get("role_templates")
-    if not isinstance(raw, list) or not raw:
-        return True
-    allowed = [item.strip() for item in raw if isinstance(item, str) and item.strip()]
-    if not allowed:
-        return True
-    return role in allowed
+    return role in allowed_roles or bool(allowed_groups.intersection(groups))
 
 
-def pick_work_channel(
-    deployments: list[ExperienceDeployment], *, role: str
-) -> ExperienceDeployment | None:
-    """Prefer live (anyone with view). Else entitled pilot."""
-    live = next((item for item in deployments if item.channel == "live"), None)
-    if live is not None:
-        return live
-    pilot = next((item for item in deployments if item.channel == "pilot"), None)
-    if pilot is not None and audience_allows(pilot.audience, role):
-        return pilot
+def _pick_work_release(
+    db: DBSession,
+    *,
+    experience: Experience,
+    deployments: list[ExperienceDeployment],
+    role: str,
+    groups: tuple[str, ...] = (),
+) -> tuple[ExperienceDeployment, ExperienceRelease] | None:
+    """Pilot overrides Live only when both release and deployment allow it."""
+    by_channel = {item.channel: item for item in deployments}
+    for channel in ("pilot", "live"):
+        deployment = by_channel.get(channel)
+        if deployment is None or not audience_allows(deployment.audience, role, groups):
+            continue
+        release = _owned_release(db, experience=experience, release_id=deployment.release_id)
+        if audience_allows(release.access_snapshot, role, groups):
+            return deployment, release
     return None
 
 
+def release_identity(release: ExperienceRelease) -> dict[str, str]:
+    """Return the immutable public identity or fail closed on corrupt evidence."""
+    raw = release.identity_snapshot
+    if not isinstance(raw, Mapping):
+        raw = {}
+    name = raw.get("name")
+    slug = raw.get("slug")
+    pattern = raw.get("pattern")
+    if (
+        not isinstance(name, str)
+        or not name.strip()
+        or name != name.strip()
+        or not isinstance(slug, str)
+        or not SLUG_RE.fullmatch(slug)
+        or pattern not in EXPERIENCE_PATTERNS
+    ):
+        raise ExperienceError(
+            code="EXPERIENCE_RELEASE_IDENTITY_INVALID",
+            message="The deployed release contains an invalid identity snapshot.",
+            status_code=409,
+            details={"release_id": release.id},
+        )
+    return {"name": name, "slug": slug, "pattern": str(pattern)}
+
+
 def resolve_work(
-    db: DBSession, *, workspace_id: str, slug: str, role: str
+    db: DBSession,
+    *,
+    workspace_id: str,
+    slug: str,
+    role: str,
+    groups: tuple[str, ...] = (),
 ) -> tuple[Experience, ExperienceDeployment, ExperienceRelease]:
     row = (
         db.query(Experience)
@@ -522,17 +668,64 @@ def resolve_work(
             message="Experience not found.",
             status_code=404,
         )
-    chosen = pick_work_channel(
-        _deployments_for(db, workspace_id=workspace_id, experience_id=row.id),
+    selected = _pick_work_release(
+        db,
+        experience=row,
+        deployments=_deployments_for(
+            db, workspace_id=workspace_id, experience_id=row.id
+        ),
         role=role,
+        groups=groups,
     )
-    if chosen is None:
+    if selected is None:
         raise ExperienceError(
             code="EXPERIENCE_NOT_FOUND",
             message="Experience not found.",
             status_code=404,
         )
-    return row, chosen, _owned_release(db, experience=row, release_id=chosen.release_id)
+    chosen, release = selected
+    identity = release_identity(release)
+    if identity["slug"] != slug or identity["slug"] != row.slug:
+        raise ExperienceError(
+            code="EXPERIENCE_NOT_FOUND",
+            message="Experience not found.",
+            status_code=404,
+        )
+    return row, chosen, release
+
+
+def list_work(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    role: str,
+    groups: tuple[str, ...] = (),
+) -> list[tuple[Experience, ExperienceDeployment, ExperienceRelease]]:
+    """Return only deployments consumable by the caller."""
+    result: list[tuple[Experience, ExperienceDeployment, ExperienceRelease]] = []
+    deployments = list_deployments_for_workspace(db, workspace_id=workspace_id)
+    by_experience: dict[str, list[ExperienceDeployment]] = {}
+    for item in deployments:
+        by_experience.setdefault(item.experience_id, []).append(item)
+    for experience in list_experiences(db, workspace_id=workspace_id):
+        selected = _pick_work_release(
+            db,
+            experience=experience,
+            deployments=by_experience.get(experience.id, []),
+            role=role,
+            groups=groups,
+        )
+        if selected is None:
+            continue
+        chosen, release = selected
+        try:
+            identity = release_identity(release)
+        except ExperienceError:
+            continue
+        if identity["slug"] != experience.slug:
+            continue
+        result.append((experience, chosen, release))
+    return result
 
 
 def serialize_work(
@@ -540,18 +733,136 @@ def serialize_work(
     deployment: ExperienceDeployment,
     release: ExperienceRelease,
 ) -> dict[str, Any]:
+    identity = release_identity(release)
+    public_bindings = [
+        {
+            "binding_key": item.get("binding_key"),
+            "confirmation_policy": item.get("confirmation_policy"),
+            "on_unavailable": item.get("on_unavailable"),
+        }
+        for item in release.bindings_snapshot or []
+        if isinstance(item, Mapping)
+    ]
     return {
-        "experience": serialize_experience(experience),
+        "experience": {
+            "id": experience.id,
+            **identity,
+        },
         "channel": deployment.channel,
         "release": {
             "id": release.id,
             "pages": copy.deepcopy(release.pages),
-            "bindings_snapshot": copy.deepcopy(release.bindings_snapshot or []),
+            "bindings_snapshot": public_bindings,
             "languages": copy.deepcopy(release.languages or []),
             "theme": copy.deepcopy(release.theme or {}),
             "renderer_version": release.renderer_version,
         },
     }
+
+
+def serialize_public_binding_resolution(resolved: Mapping[str, Any]) -> dict[str, Any]:
+    binding = resolved.get("binding") if isinstance(resolved.get("binding"), Mapping) else {}
+    return {
+        "status": resolved.get("status"),
+        "reasons": list(resolved.get("reasons") or []),
+        "binding": {
+            "binding_key": binding.get("binding_key"),
+            "confirmation_policy": binding.get("confirmation_policy"),
+            "on_unavailable": binding.get("on_unavailable"),
+        },
+    }
+
+
+def serialize_work_catalog_item(
+    experience: Experience,
+    deployment: ExperienceDeployment,
+    release: ExperienceRelease,
+) -> dict[str, Any]:
+    """Safe launcher projection: no author draft or executable document."""
+    identity = release_identity(release)
+    return {
+        "experience": {
+            "id": experience.id,
+            **identity,
+            "languages": copy.deepcopy(release.languages or []),
+            "theme": copy.deepcopy(release.theme or {}),
+        },
+        "channel": deployment.channel,
+        "release": {
+            "id": release.id,
+            "release_number": release.release_number,
+            "languages": copy.deepcopy(release.languages or []),
+            "theme": copy.deepcopy(release.theme or {}),
+            "renderer_version": release.renderer_version,
+        },
+    }
+
+
+def work_binding_snapshot(release: ExperienceRelease, *, binding_key: str) -> dict[str, Any]:
+    key = (binding_key or "").strip()
+    if not binding_service.BINDING_KEY_RE.fullmatch(key):
+        raise ExperienceError(
+            code="BINDING_KEY_INVALID",
+            message="binding_key must be a lowercase dotted identifier.",
+            status_code=422,
+        )
+    for item in release.bindings_snapshot or []:
+        if isinstance(item, Mapping) and item.get("binding_key") == key:
+            return copy.deepcopy(dict(item))
+    raise ExperienceError(
+        code="EXPERIENCE_BINDING_NOT_RELEASED",
+        message="The binding is not part of this deployed release.",
+        status_code=404,
+        details={"binding_key": key, "release_id": release.id},
+    )
+
+
+def work_binding_context(
+    release: ExperienceRelease,
+    *,
+    binding_key: str,
+    page_id: str | None,
+    component_id: str | None,
+) -> tuple[str, str]:
+    matches: list[tuple[str, str]] = []
+    pages = release.pages if isinstance(release.pages, Mapping) else {}
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        current_page_id = page.get("id")
+        for component in page.get("components") or []:
+            if not isinstance(component, Mapping):
+                continue
+            props = component.get("props")
+            if not isinstance(props, Mapping):
+                continue
+            query = props.get("queryBinding")
+            references = props.get("bindingKey") == binding_key or (
+                isinstance(query, Mapping) and query.get("bindingKey") == binding_key
+            )
+            if not references:
+                continue
+            current_component_id = component.get("id")
+            if isinstance(current_page_id, str) and isinstance(current_component_id, str):
+                matches.append((current_page_id, current_component_id))
+    if page_id is not None or component_id is not None:
+        candidate = (page_id or "", component_id or "")
+        if candidate not in matches:
+            raise ExperienceError(
+                code="EXPERIENCE_BINDING_CONTEXT_INVALID",
+                message="The component does not reference this released binding.",
+                status_code=422,
+                details={"binding_key": binding_key},
+            )
+        return candidate
+    if len(matches) == 1:
+        return matches[0]
+    raise ExperienceError(
+        code="EXPERIENCE_BINDING_CONTEXT_REQUIRED",
+        message="page_id and component_id are required for this binding.",
+        status_code=422,
+        details={"binding_key": binding_key, "references": len(matches)},
+    )
 
 
 def get_experience(
@@ -573,6 +884,7 @@ def create_experience(
     pattern: str,
     languages: Any,
     theme: Any,
+    access_policy: Any,
 ) -> tuple[Experience, ExperienceDraftRevision]:
     cleaned_name = (name or "").strip()
     if not cleaned_name:
@@ -585,6 +897,7 @@ def create_experience(
     cleaned_pattern = _validate_pattern(pattern)
     cleaned_languages = _validate_languages(languages)
     cleaned_theme = _validate_theme(theme)
+    cleaned_access_policy = _validate_audience(access_policy)
     existing = (
         db.query(Experience)
         .filter(Experience.workspace_id == workspace.id, Experience.slug == cleaned_slug)
@@ -606,6 +919,7 @@ def create_experience(
         pattern=cleaned_pattern,
         languages=cleaned_languages,
         theme=cleaned_theme,
+        access_policy=cleaned_access_policy,
         created_by=actor,
         created_at=now,
         updated_at=now,
@@ -656,6 +970,7 @@ def update_experience(
     pattern: str | None = None,
     languages: Any = None,
     theme: Any = None,
+    access_policy: Any = None,
 ) -> Experience:
     row = _owned(db, workspace_id=workspace_id, experience_id=experience_id, lock=True)
     if name is not None:
@@ -669,6 +984,25 @@ def update_experience(
         row.name = cleaned
     if slug is not None:
         cleaned_slug = _validate_slug(slug)
+        deployment = (
+            db.query(ExperienceDeployment)
+            .filter(
+                ExperienceDeployment.experience_id == row.id,
+                ExperienceDeployment.workspace_id == workspace_id,
+            )
+            .first()
+        )
+        if deployment is not None and cleaned_slug != row.slug:
+            raise ExperienceError(
+                code="EXPERIENCE_DEPLOYED_SLUG_IMMUTABLE",
+                message="The URL slug cannot change while this experience is deployed.",
+                status_code=409,
+                details={
+                    "slug": row.slug,
+                    "channel": deployment.channel,
+                    "release_id": deployment.release_id,
+                },
+            )
         clash = (
             db.query(Experience)
             .filter(
@@ -692,6 +1026,8 @@ def update_experience(
         row.languages = _validate_languages(languages)
     if theme is not None:
         row.theme = _validate_theme(theme)
+    if access_policy is not None:
+        row.access_policy = _validate_audience(access_policy)
     row.updated_at = datetime.utcnow()
     try:
         db.flush()
@@ -712,13 +1048,25 @@ def save_draft(
     experience_id: str,
     pages: Any,
     binding_keys: Any,
+    expected_revision: int,
     actor: str | None,
 ) -> ExperienceDraftRevision:
     experience = _owned(db, workspace_id=workspace_id, experience_id=experience_id, lock=True)
     document = validate_pages_document(pages)
     keys = _validate_binding_keys(binding_keys)
+    _component_binding_keys(document)
     digest = content_sha256(document, keys)
     draft = _draft_for(db, experience)
+    if int(draft.revision) != expected_revision:
+        raise ExperienceError(
+            code="EXPERIENCE_DRAFT_REVISION_CONFLICT",
+            message="The draft changed; reload it before saving.",
+            status_code=409,
+            details={
+                "expected_revision": expected_revision,
+                "current_revision": int(draft.revision),
+            },
+        )
     if draft.content_sha256 == digest and draft.pages == document and list(draft.binding_keys or []) == keys:
         return draft
     draft.pages = document
@@ -792,6 +1140,319 @@ def _has_empty_state(pages: Mapping[str, Any]) -> bool:
     return False
 
 
+def _component_binding_keys(pages: Mapping[str, Any]) -> list[str]:
+    """Binding references in stable document order, without trusting the side list."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        for component in page.get("components") or []:
+            if not isinstance(component, Mapping):
+                continue
+            props = component.get("props")
+            if not isinstance(props, Mapping):
+                continue
+            query = props.get("queryBinding")
+            raw_values = [props.get("bindingKey")]
+            if isinstance(query, Mapping):
+                raw_values.append(query.get("bindingKey"))
+            for raw in raw_values:
+                if raw in (None, ""):
+                    continue
+                if not isinstance(raw, str) or not binding_service.BINDING_KEY_RE.fullmatch(raw.strip()):
+                    raise ExperienceError(
+                        code="COMPONENT_BINDING_KEY_INVALID",
+                        message="A component bindingKey is invalid.",
+                        status_code=422,
+                        details={"component_id": component.get("id")},
+                    )
+                key = raw.strip()
+                if key not in seen:
+                    seen.add(key)
+                    result.append(key)
+    return result
+
+
+def _i18n_issues(pages: Mapping[str, Any], languages: list[str]) -> list[dict[str, Any]]:
+    dictionaries = pages.get("i18n") if isinstance(pages.get("i18n"), Mapping) else {}
+    issues: list[dict[str, Any]] = []
+    refs: list[tuple[str, str]] = []
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, f"{path}[{index}]")
+            return
+        if not isinstance(value, Mapping):
+            return
+        if "$i18n" in value:
+            key = value.get("$i18n")
+            fallback = value.get("fallback")
+            if not isinstance(key, str) or not key.strip() or not isinstance(fallback, str) or not fallback.strip():
+                issues.append(
+                    {
+                        "code": "I18N_REFERENCE_INVALID",
+                        "message": "Localized text requires non-empty $i18n and fallback.",
+                        "path": path,
+                    }
+                )
+                return
+            refs.append((key.strip(), path))
+            return
+        for name, item in value.items():
+            if name != "i18n":
+                visit(item, f"{path}.{name}" if path else str(name))
+
+    visit(pages, "")
+    for key, path in refs:
+        for language in languages:
+            exact = dictionaries.get(language)
+            base = dictionaries.get(language.lower().split("-", 1)[0])
+            translated = (
+                exact.get(key)
+                if isinstance(exact, Mapping) and key in exact
+                else base.get(key)
+                if isinstance(base, Mapping)
+                else None
+            )
+            if not isinstance(translated, str) or not translated.strip():
+                issues.append(
+                    {
+                        "code": "I18N_TRANSLATION_MISSING",
+                        "message": "A localized text is missing a declared-language translation.",
+                        "path": path,
+                        "key": key,
+                        "language": language,
+                    }
+                )
+    return issues
+
+
+def _selector_valid(value: Any) -> bool:
+    if value in (None, ""):
+        return True
+    if not isinstance(value, str) or not SELECTOR_RE.fullmatch(value.strip()):
+        return False
+    return not {"__proto__", "prototype", "constructor"}.intersection(
+        value.strip().split(".")
+    )
+
+
+def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        components = [item for item in page.get("components") or [] if isinstance(item, Mapping)]
+        by_id = {item.get("id"): item for item in components}
+        for component in components:
+            component_id = component.get("id")
+            props = component.get("props")
+            if not isinstance(props, Mapping):
+                continue
+            query = props.get("queryBinding")
+            if "queryBinding" in props:
+                if not isinstance(query, Mapping):
+                    issues.append(
+                        {
+                            "code": "QUERY_BINDING_INVALID",
+                            "message": "queryBinding must be an object.",
+                            "component_id": component_id,
+                        }
+                    )
+                else:
+                    unknown = set(query) - {"source", "bindingKey", "selector", "input"}
+                    query_key = query.get("bindingKey")
+                    if (
+                        unknown
+                        or query.get("source") != "system-binding"
+                        or not isinstance(query_key, str)
+                        or not binding_service.BINDING_KEY_RE.fullmatch(query_key.strip())
+                        or not isinstance(query.get("input"), Mapping)
+                        or not _selector_valid(query.get("selector"))
+                    ):
+                        issues.append(
+                            {
+                                "code": "QUERY_BINDING_INVALID",
+                                "message": "queryBinding has an invalid closed contract.",
+                                "component_id": component_id,
+                                "fields": sorted(unknown),
+                            }
+                        )
+            data = props.get("dataBinding")
+            if "dataBinding" in props:
+                if not isinstance(data, Mapping):
+                    issues.append(
+                        {
+                            "code": "DATA_BINDING_INVALID",
+                            "message": "dataBinding must be an object.",
+                            "component_id": component_id,
+                        }
+                    )
+                else:
+                    unknown = set(data) - {"source", "componentId", "selector"}
+                    source_id = data.get("componentId")
+                    source = by_id.get(source_id) if isinstance(source_id, str) else None
+                    source_props = source.get("props") if isinstance(source, Mapping) else None
+                    actionable = isinstance(source, Mapping) and (
+                        source.get("type") in {"form", "action_button"}
+                        or (isinstance(source_props, Mapping) and isinstance(source_props.get("queryBinding"), Mapping))
+                    )
+                    if (
+                        unknown
+                        or data.get("source") != "run-output"
+                        or not isinstance(source_id, str)
+                        or not source_id.strip()
+                        or not actionable
+                        or not _selector_valid(data.get("selector"))
+                    ):
+                        issues.append(
+                            {
+                                "code": "DATA_BINDING_INVALID",
+                                "message": "dataBinding must reference an actionable component on the same page.",
+                                "component_id": component_id,
+                                "fields": sorted(unknown),
+                            }
+                        )
+            source_id = props.get("sourceComponentId")
+            if source_id is not None:
+                source = by_id.get(source_id) if isinstance(source_id, str) else None
+                source_props = source.get("props") if isinstance(source, Mapping) else None
+                actionable = isinstance(source, Mapping) and (
+                    source.get("type") in {"form", "action_button"}
+                    or (isinstance(source_props, Mapping) and isinstance(source_props.get("queryBinding"), Mapping))
+                )
+                if not isinstance(source_id, str) or not source_id.strip() or not actionable:
+                    issues.append(
+                        {
+                            "code": "SOURCE_COMPONENT_INVALID",
+                            "message": "sourceComponentId must reference an actionable component on the same page.",
+                            "component_id": component_id,
+                        }
+                    )
+    return issues
+
+
+def _after_success_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
+    page_ids = {
+        page.get("id")
+        for page in pages.get("pages") or []
+        if isinstance(page, Mapping) and isinstance(page.get("id"), str)
+    }
+    issues: list[dict[str, Any]] = []
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        for component in page.get("components") or []:
+            if not isinstance(component, Mapping):
+                continue
+            props = component.get("props")
+            if not isinstance(props, Mapping) or "afterSuccess" not in props:
+                continue
+            outcome = props.get("afterSuccess")
+            if isinstance(outcome, str) and outcome in {"stay", "result", "reset"}:
+                continue
+            if isinstance(outcome, str) and outcome.startswith("page:"):
+                target_page_id = outcome.removeprefix("page:")
+                if not DOCUMENT_ID_RE.fullmatch(target_page_id):
+                    issues.append(
+                        {
+                            "code": "AFTER_SUCCESS_INVALID",
+                            "message": "afterSuccess page targets must use a safe page id.",
+                            "component_id": component.get("id"),
+                            "after_success": outcome,
+                        }
+                    )
+                elif target_page_id not in page_ids:
+                    issues.append(
+                        {
+                            "code": "AFTER_SUCCESS_PAGE_MISSING",
+                            "message": "afterSuccess must target a page in the same release.",
+                            "component_id": component.get("id"),
+                            "target_page_id": target_page_id,
+                        }
+                    )
+                continue
+            issues.append(
+                {
+                    "code": "AFTER_SUCCESS_INVALID",
+                    "message": "afterSuccess must be stay, result, reset, or page:<page-id>.",
+                    "component_id": component.get("id"),
+                }
+            )
+    return issues
+
+
+def _hex_luminance(value: str) -> float:
+    raw = value[1:]
+    if len(raw) == 3:
+        raw = "".join(character * 2 for character in raw)
+    channels = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
+    linear = [
+        channel / 12.92
+        if channel <= 0.03928
+        else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(left: float, right: float) -> float:
+    return (max(left, right) + 0.05) / (min(left, right) + 0.05)
+
+
+def _accent_issues(
+    pages: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    dark_luminance = _hex_luminance("#0c1014")
+    light_luminance = _hex_luminance("#fafaf6")
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        page_props = page.get("props")
+        raw_theme = page_props.get("theme") if isinstance(page_props, Mapping) else None
+        theme = raw_theme if raw_theme in {"light", "dark"} else "inherit"
+        for component in page.get("components") or []:
+            if not isinstance(component, Mapping):
+                continue
+            props = component.get("props")
+            if not isinstance(props, Mapping) or "accent" not in props:
+                continue
+            accent = props.get("accent")
+            if not isinstance(accent, str) or not HEX_COLOR_RE.fullmatch(accent):
+                blockers.append(
+                    {
+                        "code": "ACCENT_COLOR_INVALID",
+                        "message": "Component accent must be a 3- or 6-digit hex color.",
+                        "page_id": page.get("id"),
+                        "component_id": component.get("id"),
+                    }
+                )
+                continue
+            luminance = _hex_luminance(accent)
+            weak_dark = _contrast(luminance, dark_luminance) < 3
+            weak_light = _contrast(luminance, light_luminance) < 3
+            if (
+                (theme == "dark" and weak_dark)
+                or (theme == "light" and weak_light)
+                or (theme == "inherit" and (weak_dark or weak_light))
+            ):
+                warnings.append(
+                    {
+                        "code": "ACCENT_CONTRAST_LOW",
+                        "message": "Component accent has less than 3:1 UI contrast.",
+                        "page_id": page.get("id"),
+                        "component_id": component.get("id"),
+                        "accent": accent,
+                        "theme": theme,
+                    }
+                )
+    return blockers, warnings
+
+
 def ready_check(
     db: DBSession,
     *,
@@ -807,10 +1468,36 @@ def ready_check(
     raw_pages = pages.get("pages") if isinstance(pages.get("pages"), list) else []
     if not raw_pages:
         blockers.append({"code": "NO_PAGES", "message": "The draft has no pages."})
-    for key in list(draft.binding_keys or []):
+    referenced_keys = _component_binding_keys(pages)
+    declared_keys = list(draft.binding_keys or [])
+    for key in referenced_keys:
+        if key not in declared_keys:
+            blockers.append(
+                {
+                    "code": "COMPONENT_BINDING_UNLISTED",
+                    "message": "A component references a binding outside the draft binding list.",
+                    "binding_key": key,
+                }
+            )
+    for key in dict.fromkeys(referenced_keys + declared_keys):
         _resolved, issue = _resolve_referenced(db, workspace=workspace, key=key)
         if issue is not None:
             blockers.append(issue)
+    for key in declared_keys:
+        if key not in referenced_keys:
+            warnings.append(
+                {
+                    "code": "BINDING_UNUSED",
+                    "message": "A declared binding is not referenced by a component.",
+                    "binding_key": key,
+                }
+            )
+    blockers.extend(_i18n_issues(pages, list(experience.languages or [])))
+    blockers.extend(_data_binding_issues(pages))
+    blockers.extend(_after_success_issues(pages))
+    accent_blockers, accent_warnings = _accent_issues(pages)
+    blockers.extend(accent_blockers)
+    warnings.extend(accent_warnings)
     if experience.pattern in EMPTY_STATE_PATTERNS and not _has_empty_state(pages):
         warnings.append(
             {
@@ -870,6 +1557,8 @@ def create_release(
     workspace: Any,
     experience_id: str,
     notes: str,
+    expected_draft_revision: int,
+    expected_content_sha256: str,
     actor: str | None,
 ) -> ExperienceRelease:
     cleaned_notes = (notes or "").strip()
@@ -881,6 +1570,26 @@ def create_release(
         )
     experience = _owned(db, workspace_id=workspace.id, experience_id=experience_id, lock=True)
     draft = _draft_for(db, experience)
+    if int(draft.revision) != expected_draft_revision:
+        raise ExperienceError(
+            code="EXPERIENCE_DRAFT_REVISION_CONFLICT",
+            message="The draft changed; review it before releasing.",
+            status_code=409,
+            details={
+                "expected_revision": expected_draft_revision,
+                "current_revision": int(draft.revision),
+            },
+        )
+    if draft.content_sha256 != expected_content_sha256:
+        raise ExperienceError(
+            code="EXPERIENCE_DRAFT_CONTENT_CONFLICT",
+            message="The draft content changed; review it before releasing.",
+            status_code=409,
+            details={
+                "expected_content_sha256": expected_content_sha256,
+                "current_content_sha256": draft.content_sha256,
+            },
+        )
     check = ready_check(db, workspace=workspace, experience_id=experience.id)
     if check["blockers"]:
         raise ExperienceError(
@@ -903,9 +1612,16 @@ def create_release(
         content_sha256=draft.content_sha256,
         pages=copy.deepcopy(draft.pages),
         bindings_snapshot=_bindings_snapshot(
-            db, workspace=workspace, keys=list(draft.binding_keys or [])
+            db,
+            workspace=workspace,
+            keys=_component_binding_keys(draft.pages or EMPTY_PAGES),
         ),
-        access_snapshot={},
+        access_snapshot=copy.deepcopy(experience.access_policy or {}),
+        identity_snapshot={
+            "name": experience.name,
+            "slug": experience.slug,
+            "pattern": experience.pattern,
+        },
         languages=copy.deepcopy(experience.languages or []),
         theme=copy.deepcopy(experience.theme or {}),
         renderer_version=DEFAULT_RENDERER_VERSION,
@@ -969,7 +1685,32 @@ def deploy(
     cleaned_channel = _channel(channel)
     experience = _owned(db, workspace_id=workspace.id, experience_id=experience_id, lock=True)
     release = _owned_release(db, experience=experience, release_id=release_id)
-    cleaned_audience = _validate_audience(audience)
+    identity = release_identity(release)
+    if identity["slug"] != experience.slug:
+        raise ExperienceError(
+            code="EXPERIENCE_RELEASE_IDENTITY_STALE",
+            message="This release was created for a different URL slug.",
+            status_code=409,
+            details={
+                "release_id": release.id,
+                "release_slug": identity["slug"],
+                "current_slug": experience.slug,
+            },
+        )
+    release_audience = _validate_audience(release.access_snapshot)
+    if cleaned_channel == "live":
+        if audience is not None and _validate_audience(audience) != release_audience:
+            raise ExperienceError(
+                code="EXPERIENCE_LIVE_AUDIENCE_IMMUTABLE",
+                message="Live audience is frozen by the release access snapshot.",
+                status_code=409,
+                details={"release_id": release.id},
+            )
+        cleaned_audience = release_audience
+    else:
+        cleaned_audience = _validate_audience(
+            release.access_snapshot if audience is None else audience
+        )
     now = datetime.utcnow()
     row = (
         db.query(ExperienceDeployment)
@@ -1057,8 +1798,18 @@ def rollback_deployment(
     if target_id == row.release_id:
         return row
     release = _owned_release(db, experience=experience, release_id=target_id)
+    identity = release_identity(release)
+    if identity["slug"] != experience.slug:
+        raise ExperienceError(
+            code="EXPERIENCE_RELEASE_IDENTITY_STALE",
+            message="This release was created for a different URL slug.",
+            status_code=409,
+            details={"release_id": release.id},
+        )
     row.previous_release_id = row.release_id
     row.release_id = release.id
+    if cleaned_channel == "live":
+        row.audience = _validate_audience(release.access_snapshot)
     row.updated_by = actor
     row.updated_at = datetime.utcnow()
     db.flush()
@@ -1082,20 +1833,20 @@ def delete_experience(
     db: DBSession, *, workspace_id: str, experience_id: str, actor: str | None = None
 ) -> None:
     row = _owned(db, workspace_id=workspace_id, experience_id=experience_id, lock=True)
-    live = (
+    deployment = (
         db.query(ExperienceDeployment)
         .filter(
             ExperienceDeployment.experience_id == row.id,
-            ExperienceDeployment.channel == "live",
+            ExperienceDeployment.workspace_id == workspace_id,
         )
-        .one_or_none()
+        .first()
     )
-    if live is not None:
+    if deployment is not None:
         raise ExperienceError(
-            code="EXPERIENCE_LIVE_DEPLOYED",
-            message="An experience with a live deployment cannot be deleted.",
+            code="EXPERIENCE_DEPLOYED",
+            message="A deployed experience cannot be deleted.",
             status_code=409,
-            details={"release_id": live.release_id},
+            details={"channel": deployment.channel, "release_id": deployment.release_id},
         )
     emit_audit_event(
         workspace_id=workspace_id,

@@ -57,6 +57,22 @@
   gap: 12px;
 }
 
+.xp-review-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  background: var(--ck-bg-panel);
+}
+
+.xp-review-card h2,
+.xp-review-card p { margin: 0; }
+.xp-review-card h2 { color: var(--ck-fg-1); font-size: 16px; }
+.xp-review-card p { margin-top: 6px; color: var(--ck-fg-3); font-size: 13px; }
+
 .xp-card {
   display: flex;
   flex-direction: column;
@@ -143,6 +159,18 @@
   border-radius: 8px;
   font-size: 13px;
   color: var(--ck-fg-1);
+}
+
+.xp-resume-apps li > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.xp-resume-apps small {
+  color: var(--ck-fg-4);
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
 }
 
 .xp-resume-note {

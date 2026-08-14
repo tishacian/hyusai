@@ -559,6 +559,97 @@ def resolve_binding(
     return _resolve_payload("ok", row, [])
 
 
+def resolve_binding_snapshot(
+    db: DBSession,
+    *,
+    workspace: Any,
+    snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve immutable release evidence without reading SystemBinding."""
+    required = (
+        "binding_key",
+        "system_id",
+        "published_flow_version_id",
+        "flow_sha256",
+        "ingress_id",
+        "input_schema_sha256",
+        "confirmation_policy",
+        "on_unavailable",
+    )
+    if any(
+        not isinstance(snapshot.get(field), str)
+        or not snapshot[field]
+        or snapshot[field] != snapshot[field].strip()
+        for field in required
+    ):
+        raise BindingError(
+            code="RELEASE_BINDING_SNAPSHOT_INVALID",
+            message="The deployed release contains an invalid binding snapshot.",
+            status_code=409,
+        )
+    binding = copy.deepcopy(dict(snapshot))
+    if (
+        not BINDING_KEY_RE.fullmatch(binding["binding_key"])
+        or not SHA256_RE.fullmatch(binding["flow_sha256"])
+        or not SHA256_RE.fullmatch(binding["input_schema_sha256"])
+        or (
+            binding.get("output_schema_sha256") is not None
+            and (
+                not isinstance(binding["output_schema_sha256"], str)
+                or not SHA256_RE.fullmatch(binding["output_schema_sha256"])
+            )
+        )
+        or binding["confirmation_policy"] not in CONFIRMATION_POLICIES
+        or binding["on_unavailable"] not in ON_UNAVAILABLE_POLICIES
+    ):
+        raise BindingError(
+            code="RELEASE_BINDING_SNAPSHOT_INVALID",
+            message="The deployed release contains an invalid binding snapshot.",
+            status_code=409,
+        )
+    system = (
+        db.query(System)
+        .filter(
+            System.id == binding["system_id"],
+            System.workspace_id == workspace.id,
+        )
+        .one_or_none()
+    )
+    if system is None:
+        return {"status": "unavailable", "binding": binding, "reasons": ["system_missing"]}
+    if system.status != "active":
+        return {"status": "unavailable", "binding": binding, "reasons": ["system_inactive"]}
+    try:
+        _version, _flow, flow_sha256, contract = flow_publication.version_run_evidence(
+            db,
+            system=system,
+            workspace=workspace,
+            version_id=binding["published_flow_version_id"],
+        )
+    except flow_publication.FlowPublicationError as exc:
+        return {
+            "status": "unavailable",
+            "binding": binding,
+            "reasons": [exc.code.lower()],
+        }
+    try:
+        ingress = _contract_ingress(contract, binding["ingress_id"])
+    except BindingError:
+        return {"status": "unavailable", "binding": binding, "reasons": ["ingress_missing"]}
+    reasons: list[str] = []
+    if flow_sha256 != binding["flow_sha256"]:
+        reasons.append("flow_sha256_mismatch")
+    if ingress.get("input_schema_sha256") != binding["input_schema_sha256"]:
+        reasons.append("input_schema_sha256_mismatch")
+    if _output_schema_sha256(contract) != binding.get("output_schema_sha256"):
+        reasons.append("output_schema_sha256_mismatch")
+    return {
+        "status": "drift" if reasons else "ok",
+        "binding": binding,
+        "reasons": reasons,
+    }
+
+
 def _resolve_payload(
     status: ResolveStatus,
     row: SystemBinding,
@@ -649,6 +740,85 @@ def invoke_binding(
             "run_id": run.id,
             "ingress_id": row.ingress_id,
             "published_flow_version_id": version_id,
+        },
+        db=db,
+    )
+    return run
+
+
+def invoke_binding_snapshot(
+    db: DBSession,
+    *,
+    workspace: Any,
+    snapshot: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    confirmed: bool | None,
+    initiated_by_user_id: str | None,
+    actor: str,
+    provenance: Mapping[str, Any],
+) -> Run:
+    """Invoke exactly the SystemVersion captured by an ExperienceRelease."""
+    resolved = resolve_binding_snapshot(db, workspace=workspace, snapshot=snapshot)
+    if resolved["status"] != "ok":
+        raise BindingError(
+            code="BINDING_NOT_OK",
+            message="The released binding is not currently invokable.",
+            status_code=409,
+            details=resolved,
+        )
+    binding = resolved["binding"]
+    if binding["confirmation_policy"] == "confirm" and confirmed is not True:
+        raise BindingError(
+            code="BINDING_CONFIRMATION_REQUIRED",
+            message="This binding requires confirmed=true before a Run can start.",
+            status_code=409,
+            details={"confirmation_policy": "confirm", "status": "confirm_required"},
+        )
+    system = _owned_system(
+        db,
+        workspace_id=workspace.id,
+        system_id=binding["system_id"],
+    )
+    try:
+        _version, _flow, flow_sha256, contract = flow_publication.version_run_evidence(
+            db,
+            system=system,
+            workspace=workspace,
+            version_id=binding["published_flow_version_id"],
+        )
+        ingress = _contract_ingress(contract, binding["ingress_id"])
+        run = flow_ingress.create_published_ingress_run(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            ingress_id=binding["ingress_id"],
+            kind=str(ingress.get("kind") or "manual"),
+            payload=payload,
+            initiated_by_user_id=initiated_by_user_id,
+            expected_published_version_id=binding["published_flow_version_id"],
+            expected_flow_sha256=flow_sha256,
+            adapter_evidence=copy.deepcopy(dict(provenance)),
+            trigger="manual",
+            authority_version_id=binding["published_flow_version_id"],
+        )
+    except (flow_publication.FlowPublicationError, flow_ingress.FlowIngressError) as exc:
+        raise BindingError(
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=copy.deepcopy(exc.details),
+        ) from exc
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="experience.binding.invoked",
+        actor=actor,
+        agent_id=system.id,
+        details={
+            **copy.deepcopy(dict(provenance)),
+            "system_id": system.id,
+            "run_id": run.id,
+            "ingress_id": binding["ingress_id"],
+            "published_flow_version_id": binding["published_flow_version_id"],
         },
         db=db,
     )

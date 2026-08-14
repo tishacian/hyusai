@@ -569,6 +569,7 @@ def test_backfill_document_is_explicit_and_idempotent():
     assert desired["modes"]["adaptive_policy.read"] == "shadow"
     assert desired["modes"]["adaptive_policy.admin"] == "shadow"
     assert desired["modes"]["action.read"] == "shadow"
+    assert desired["modes"]["experience.consume"] == "shadow"
     assert "workspace.admin" not in desired["modes"]
 
     first, changed = merge_authorization_v2_backfill({"existing": {"kept": True}})

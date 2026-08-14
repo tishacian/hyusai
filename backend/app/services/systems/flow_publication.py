@@ -1041,3 +1041,40 @@ def published_run_evidence(
             ),
         )
     return version, copy.deepcopy(version.flow_definition), version_digest, contract
+
+
+def version_run_evidence(
+    db: DBSession,
+    *,
+    system: System,
+    workspace: Any,
+    version_id: str,
+) -> tuple[SystemVersion, dict[str, Any], str, dict[str, Any]]:
+    """Resolve one immutable version without consulting the mutable publish pointer."""
+    version = _owned_version(db, system=system, version_id=version_id)
+    shape_issues = dag_validator.validate_flow_shape(version.flow_definition)
+    if shape_issues:
+        raise FlowPublicationError(
+            code="PERSISTED_FLOW_SHAPE_INVALID",
+            message="The pinned SystemVersion has a malformed Flow graph shape.",
+            status_code=422,
+            details={"issues": dag_validator.issues_to_payload(shape_issues)},
+        )
+    flow = copy.deepcopy(canonical_flow(version.flow_definition))
+    digest = canonical_flow_sha256(flow)
+    if version.flow_sha256 != digest:
+        raise FlowPublicationError(
+            code="PINNED_FLOW_VERSION_HASH_MISMATCH",
+            message="The pinned SystemVersion does not match its immutable digest.",
+            status_code=409,
+            details={"version_id": version.id},
+        )
+    contract = _pinned_execution_contract(version)
+    if contract is None:
+        raise FlowPublicationError(
+            code="PINNED_EXECUTION_CONTRACT_MISSING",
+            message="The pinned SystemVersion has no valid immutable execution contract.",
+            status_code=409,
+            details={"version_id": version.id},
+        )
+    return version, flow, digest, contract

@@ -8,12 +8,11 @@ import {
   evidencePathFor,
   expectedSha,
   experienceCanaryEnabled,
-  launchableExperiences,
   login,
   logout,
   sha256,
   writeEvidence,
-  type ExperienceRow,
+  type WorkCatalogItem,
 } from '../fixtures/experience-canary';
 
 /**
@@ -57,13 +56,13 @@ test.describe('US-8 — Experience /work canary', () => {
       return;
     }
 
-    const listed = await api<{ experiences: ExperienceRow[] }>(
+    const listed = await api<{ experiences: WorkCatalogItem[] }>(
       page,
       workspace.slug,
-      '/experiences',
+      '/work',
     );
-    expect(listed.ok, `GET /experiences failed (${listed.status})`).toBe(true);
-    const apps = launchableExperiences(listed.body.experiences ?? [], workspace);
+    expect(listed.ok, `GET /work failed (${listed.status})`).toBe(true);
+    const apps = listed.body.experiences ?? [];
     if (apps.length === 0) {
       test.skip(true, 'no Pilot/In-service Experience is visible to this principal');
       return;

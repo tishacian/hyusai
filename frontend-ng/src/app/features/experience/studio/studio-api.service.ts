@@ -33,19 +33,48 @@ export interface StudioIngressList {
   ingresses: StudioIngress[];
 }
 
-export interface StudioDetail extends Omit<StudioExperience, 'draft'> {
-  draft: {
-    pages: unknown;
-    binding_keys: string[];
-    revision: number;
-    content_sha256?: string;
-  } | null;
+export interface StudioDraft {
+  pages: unknown;
+  binding_keys: string[];
+  revision: number;
+  content_sha256: string;
+}
+
+export interface StudioDeployment {
+  id?: string;
+  channel: 'pilot' | 'live' | string;
+  release_id: string;
+  previous_release_id?: string | null;
+  audience?: Record<string, unknown> | null;
+  updated_at?: string | null;
+}
+
+export interface StudioDetail extends Omit<StudioExperience, 'draft' | 'deployments'> {
+  draft: StudioDraft | null;
+  deployments?: StudioDeployment[];
 }
 
 export interface StudioRelease {
   id: string;
   release_number: number;
+  content_sha256?: string;
+  renderer_version?: string | null;
   notes?: string;
+  created_at?: string | null;
+}
+
+export interface StudioDrift {
+  status: 'drift' | 'unavailable';
+  binding: StudioBinding;
+  reasons: string[];
+}
+
+export function apiCode(err: unknown): string | null {
+  if (!(err instanceof HttpErrorResponse)) return null;
+  const detail = err.error?.detail;
+  return detail && typeof detail === 'object' && typeof detail.code === 'string'
+    ? detail.code
+    : null;
 }
 
 export function apiMessage(err: unknown, fallback: string): string {
@@ -81,6 +110,7 @@ export class StudioApiService {
     pattern: string;
     languages: string[];
     theme: Record<string, unknown>;
+    access_policy?: Record<string, unknown>;
   }): Observable<StudioDetail> {
     return this.api.post<StudioDetail>('/experiences', body);
   }
@@ -93,15 +123,22 @@ export class StudioApiService {
       pattern: string;
       languages: string[];
       theme: Record<string, unknown>;
+      access_policy: Record<string, unknown>;
     }>,
   ): Observable<StudioDetail> {
     return this.api.patch<StudioDetail>(`/experiences/${encodeURIComponent(id)}`, body);
   }
 
-  saveDraft(id: string, pages: unknown, bindingKeys: readonly string[]): Observable<unknown> {
-    return this.api.put(`/experiences/${encodeURIComponent(id)}/draft`, {
+  saveDraft(
+    id: string,
+    pages: unknown,
+    bindingKeys: readonly string[],
+    expectedRevision: number,
+  ): Observable<StudioDraft> {
+    return this.api.put<StudioDraft>(`/experiences/${encodeURIComponent(id)}/draft`, {
       pages,
       binding_keys: [...bindingKeys],
+      expected_revision: expectedRevision,
     });
   }
 
@@ -109,8 +146,15 @@ export class StudioApiService {
     return this.api.get<ReadyCheck>(`/experiences/${encodeURIComponent(id)}/ready-check`);
   }
 
-  createRelease(id: string, notes: string): Observable<StudioRelease> {
-    return this.api.post<StudioRelease>(`/experiences/${encodeURIComponent(id)}/releases`, { notes });
+  createRelease(
+    id: string,
+    body: { notes: string; expectedDraftRevision: number; expectedContentSha256: string },
+  ): Observable<StudioRelease> {
+    return this.api.post<StudioRelease>(`/experiences/${encodeURIComponent(id)}/releases`, {
+      notes: body.notes,
+      expected_draft_revision: body.expectedDraftRevision,
+      expected_content_sha256: body.expectedContentSha256,
+    });
   }
 
   listReleases(id: string): Observable<StudioRelease[]> {
@@ -126,10 +170,23 @@ export class StudioApiService {
     return this.api.post(`/experiences/${encodeURIComponent(id)}/deployments`, body);
   }
 
+  rollback(id: string, channel: 'pilot' | 'live', releaseId?: string): Observable<StudioDeployment> {
+    return this.api.post<StudioDeployment>(
+      `/experiences/${encodeURIComponent(id)}/deployments/${channel}/rollback`,
+      releaseId ? { release_id: releaseId } : {},
+    );
+  }
+
   listBindings(): Observable<StudioBinding[]> {
     return this.api.get<{ bindings: StudioBinding[] }>('/system-bindings').pipe(
       map((body) => body.bindings ?? []),
       catchError(() => of([])),
+    );
+  }
+
+  listDriftedBindings(): Observable<StudioDrift[]> {
+    return this.api.get<{ bindings: StudioDrift[] }>('/system-bindings/drift').pipe(
+      map((body) => body.bindings ?? []),
     );
   }
 
@@ -146,7 +203,12 @@ export class StudioApiService {
 
   patchBinding(
     key: string,
-    body: Partial<{ confirmation_policy: string; on_unavailable: string }>,
+    body: Partial<{
+      confirmation_policy: string;
+      on_unavailable: string;
+      published_flow_version_id: string;
+      ingress_id: string;
+    }>,
   ): Observable<StudioBinding> {
     return this.api.patch<StudioBinding>(`/system-bindings/${encodeURIComponent(key)}`, body);
   }

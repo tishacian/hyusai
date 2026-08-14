@@ -270,7 +270,9 @@ async def invoke_system_binding(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
-    _enforce_view(db, user=user, workspace=workspace)
+    # Direct invocation is an author preview surface. End-user execution must
+    # cross the deployed release boundary in /work/{slug}/bindings/{key}/runs.
+    _enforce_manage(db, user=user, workspace=workspace)
     try:
         preview = binding_service.resolve_binding(db, workspace=workspace, binding_key=key)
     except binding_service.BindingError as exc:

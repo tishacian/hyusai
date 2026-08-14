@@ -35,6 +35,7 @@ export interface SystemHomeCreateResult {
 interface ExperienceCreated {
   id: string;
   slug: string;
+  draft?: { revision?: number } | null;
 }
 
 function readSession(): ExperienceDocument | null {
@@ -105,6 +106,7 @@ export class SystemHomeService {
                 .put(`/experiences/${encodeURIComponent(created.id)}/draft`, {
                   pages: input.document,
                   binding_keys: keys,
+                  expected_revision: created.draft?.revision ?? 1,
                 })
                 .pipe(map(() => ({ id: created.id, slug: created.slug })));
             }),

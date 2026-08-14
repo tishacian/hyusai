@@ -6,7 +6,7 @@
  * validated against the certified catalog (no unknown types, no absolute layout).
  */
 
-import type { ExperienceDocument } from '../runtime/model';
+import { textFallback, type ExperienceDocument } from '../runtime/model';
 import { a11yPayload } from '../runtime/style';
 import { applyPatch, findNode, isCertified, type DocumentPatch } from './studio-document';
 
@@ -68,7 +68,7 @@ export function proposeAssistantPatch(
       summary = 'set_empty_state';
     }
   } else if (RENAME.test(text)) {
-    const title = quoted(text) || trailingName(text) || page.title;
+    const title = quoted(text) || trailingName(text) || textFallback(page.title);
     patch = { kind: 'rename_page', pageId: page.id, title };
     summary = 'rename_page';
   } else if (APPROVAL.test(text)) {

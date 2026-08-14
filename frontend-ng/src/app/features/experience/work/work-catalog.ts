@@ -2,10 +2,9 @@
  * Pure /work projections: which apps a viewer may open, and how the
  * launcher behaves. Angular-free so `work-catalog.spec.ts` can run as a unit.
  *
- * Audience assumption (list API does not filter):
- * - `live` is visible to anyone with experience.view
- * - `pilot` is visible when `audience.roles` / `audience.role_templates`
- *   includes the viewer's role, or when that list is missing/empty
+ * `/work` is already filtered by the server. This module deliberately contains
+ * no audience evaluator: Studio may display access, but only the API decides
+ * whether this principal receives Pilot or Live.
  */
 
 export type WorkChannel = 'live' | 'pilot';
@@ -27,6 +26,18 @@ export interface WorkExperience {
   deployments?: WorkDeployment[];
 }
 
+export interface WorkCatalogItem {
+  experience: WorkExperience;
+  channel: WorkChannel | string;
+  release: {
+    id: string;
+    release_number?: number;
+    languages?: string[];
+    theme?: Record<string, unknown>;
+    renderer_version?: string | null;
+  };
+}
+
 export interface WorkResolve {
   experience: WorkExperience;
   channel: WorkChannel | string;
@@ -38,40 +49,6 @@ export interface WorkResolve {
     theme?: Record<string, unknown>;
     renderer_version?: string | null;
   };
-}
-
-export function audienceAllows(audience: unknown, roles: readonly string[]): boolean {
-  if (!audience || typeof audience !== 'object' || Array.isArray(audience)) return true;
-  const rec = audience as Record<string, unknown>;
-  const raw = rec['roles'] ?? rec['role_templates'];
-  if (!Array.isArray(raw) || raw.length === 0) return true;
-  const allowed = raw.filter((item): item is string => typeof item === 'string' && !!item.trim());
-  if (allowed.length === 0) return true;
-  return roles.some((role) => allowed.includes(role));
-}
-
-export function preferredChannel(
-  deployments: WorkDeployment[] | undefined,
-  roles: readonly string[],
-): WorkChannel | null {
-  const list = deployments ?? [];
-  if (list.some((item) => item.channel === 'live')) return 'live';
-  const pilot = list.find((item) => item.channel === 'pilot');
-  if (pilot && audienceAllows(pilot.audience, roles)) return 'pilot';
-  return null;
-}
-
-export function launchableApps(
-  experiences: readonly WorkExperience[],
-  roles: readonly string[],
-): WorkExperience[] {
-  return experiences.filter((item) => preferredChannel(item.deployments, roles) !== null);
-}
-
-export function hasDeployment(experience: WorkExperience): boolean {
-  return (experience.deployments ?? []).some(
-    (item) => item.channel === 'live' || item.channel === 'pilot',
-  );
 }
 
 export type LauncherDecision =
@@ -91,6 +68,26 @@ export function launchHref(app: WorkExperience): string {
   return liveHref(app.theme) ?? `/work/${app.slug}`;
 }
 
+export function catalogLaunchHref(item: WorkCatalogItem): string {
+  return liveHref(item.release.theme) ?? launchHref(item.experience);
+}
+
+export function workPageHref(slug: string, pageId?: string | null): string {
+  const root = `/work/${encodeURIComponent(slug)}`;
+  return pageId ? `${root}/${encodeURIComponent(pageId)}` : root;
+}
+
+export function workTheme(theme: Record<string, unknown> | null | undefined): {
+  mode: 'light' | 'dark';
+  accent: string;
+} {
+  const mode = theme?.['mode'] === 'dark' ? 'dark' : 'light';
+  const accent = typeof theme?.['accent'] === 'string' && /^#[0-9a-f]{6}$/i.test(theme['accent'])
+    ? theme['accent']
+    : '';
+  return { mode, accent };
+}
+
 export function launcherDecision(apps: readonly WorkExperience[]): LauncherDecision {
   if (apps.length === 0) return { kind: 'empty' };
   if (apps.length === 1) {
@@ -98,10 +95,6 @@ export function launcherDecision(apps: readonly WorkExperience[]): LauncherDecis
     return { kind: 'redirect', slug: only.slug, href: launchHref(only) };
   }
   return { kind: 'list', apps: [...apps] };
-}
-
-export function viewerRoles(roleTemplate?: string | null, role?: string | null): string[] {
-  return [roleTemplate, role].filter((item): item is string => !!item);
 }
 
 export function studioHref(experienceId: string | null | undefined): string {
@@ -156,8 +149,12 @@ export function bindingKeys(snapshot: readonly Record<string, unknown>[]): strin
   return keys;
 }
 
-export function pendingValidationOrigins(snapshot: readonly Record<string, unknown>[]): string[] {
-  return bindingKeys(snapshot).map((key) => `experience:${key}`);
+export function pendingValidationOrigins(
+  _snapshot: readonly Record<string, unknown>[],
+  experienceSlug: string,
+): string[] {
+  const slug = experienceSlug.trim();
+  return slug ? [`experience:${slug}`] : [];
 }
 
 export function workLocales(languages: readonly string[] | undefined): Array<'fr' | 'en'> {

@@ -1,20 +1,26 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { HelpTooltipComponent, PageFrameComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { SystemHomeService } from '../system-home.service';
-import { apiMessage, StudioApiService, type StudioBinding, type StudioIngress } from './studio-api.service';
+import {
+  apiCode,
+  apiMessage,
+  StudioApiService,
+  type StudioBinding,
+  type StudioIngress,
+} from './studio-api.service';
 import { pagesPayload } from './studio-document';
 import {
   ACCESS_ROLES,
+  bindSeedDocument,
   CONFIRMATION_POLICIES,
   EXPERIENCE_PATTERNS,
   experienceSlug,
   seedDocument,
   uniqueBindingKey,
   uniqueExperienceSlug,
-  withAudience,
   type ExperiencePattern,
 } from './studio-model';
 import type { System } from '@app/core/canonical-api.service';
@@ -24,16 +30,20 @@ import type { ExperienceDocument } from '../runtime/model';
   selector: 'app-experience-wizard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HelpTooltipComponent, PageFrameComponent, ExperienceRuntimeHostComponent],
+  imports: [RouterLink, HelpTooltipComponent, ExperienceRuntimeHostComponent],
   styleUrl: './studio.scss',
   template: `
-    <ck-page-frame
-      [eyebrow]="i18n.t('experience.wizard.eyebrow')"
-      [title]="i18n.t('experience.wizard.title')"
-      [description]="i18n.t('experience.wizard.step.of', { current: step(), total: 3 })"
-    >
-      <ck-help titleHelp id="concept.business-application" />
-      <a actions routerLink="/create/apps" class="xp-btn">{{ i18n.t('common.back') }}</a>
+    <section class="xp-wizard" [attr.aria-label]="i18n.t('experience.wizard.title')">
+      <header class="xp-wizard-topbar">
+        <a routerLink="/create/apps" class="xp-wizard-close">× {{ i18n.t('experience.wizard.close') }}</a>
+        <div class="xp-wizard-title">
+          <strong>{{ i18n.t('experience.wizard.title') }}</strong>
+          <span>{{ i18n.t('experience.wizard.autosave') }}</span>
+        </div>
+        <button type="button" class="xp-btn" [disabled]="busy()" (click)="saveAndClose()">
+          {{ i18n.t('experience.wizard.save_close') }}
+        </button>
+      </header>
 
       <ol class="xp-steps" [attr.aria-label]="i18n.t('experience.wizard.step.of', { current: step(), total: 3 })">
         @for (label of stepLabels; track label; let i = $index) {
@@ -44,9 +54,10 @@ import type { ExperienceDocument } from '../runtime/model';
         }
       </ol>
 
-      @if (error(); as err) {
-        <p class="xp-error" role="alert">{{ err }}</p>
-      }
+      <div class="xp-wizard-body">
+        @if (error(); as err) {
+          <p class="xp-error" role="alert">{{ err }}</p>
+        }
 
       @switch (step()) {
         @case (1) {
@@ -67,13 +78,15 @@ import type { ExperienceDocument } from '../runtime/model';
           }
 
           <div class="xp-cards" role="radiogroup" [attr.aria-label]="i18n.t('experience.wizard.pattern.aria')">
-            @for (pattern of patterns; track pattern) {
+            @for (pattern of patterns; track pattern; let i = $index) {
               <button
                 type="button"
                 class="xp-choice"
                 role="radio"
                 [attr.aria-checked]="!fromHome() && selectedPattern() === pattern"
+                [tabIndex]="!fromHome() && selectedPattern() === pattern ? 0 : -1"
                 (click)="pickPattern(pattern)"
+                (keydown)="onPatternKey($event, i)"
               >
                 <span class="xp-thumb" aria-hidden="true">
                   <i class="is-wide"></i>
@@ -96,7 +109,9 @@ import type { ExperienceDocument } from '../runtime/model';
                 class="xp-choice"
                 role="radio"
                 [attr.aria-checked]="fromHome()"
+                [tabIndex]="fromHome() ? 0 : -1"
                 (click)="pickHome()"
+                (keydown)="onPatternKey($event, patterns.length)"
               >
                 <span class="xp-thumb" aria-hidden="true">
                   <i class="is-wide is-accent"></i>
@@ -122,10 +137,19 @@ import type { ExperienceDocument } from '../runtime/model';
                 <h3>{{ i18n.t('experience.wizard.bind.catalog') }}</h3>
                 <ck-help id="concept.entry-point" />
               </div>
+              <label class="xp-search">
+                <span class="sr-only">{{ i18n.t('experience.wizard.bind.search') }}</span>
+                <input
+                  type="search"
+                  [value]="systemQuery()"
+                  [placeholder]="i18n.t('experience.wizard.bind.search')"
+                  (input)="systemQuery.set(inputValue($event))"
+                />
+              </label>
               @if (systems().length === 0) {
                 <p class="xp-hint">{{ i18n.t('experience.wizard.bind.none_published') }}</p>
               }
-              @for (sys of systems(); track sys.id) {
+              @for (sys of visibleSystems(); track sys.id) {
                 <article class="xp-sys">
                   <div class="xp-sys-head">
                     <strong>{{ sys.name }}</strong>
@@ -226,11 +250,14 @@ import type { ExperienceDocument } from '../runtime/model';
             }
           </div>
           <h3>{{ i18n.t('experience.wizard.preview') }}</h3>
-          <app-experience-runtime-host [document]="previewDoc()" />
+          <p class="xp-hint" role="status">{{ i18n.t('experience.wizard.preview.safe') }}</p>
+          <div class="xp-wizard-preview" inert>
+            <app-experience-runtime-host [document]="previewDoc()" />
+          </div>
         }
       }
 
-      <div class="xp-foot">
+      <footer class="xp-foot">
         @if (step() > 1) {
           <button type="button" class="xp-btn" [disabled]="busy()" (click)="back()">
             {{ i18n.t('experience.wizard.back') }}
@@ -252,8 +279,9 @@ import type { ExperienceDocument } from '../runtime/model';
             </button>
           }
         </div>
+      </footer>
       </div>
-    </ck-page-frame>
+    </section>
   `,
 })
 export class ExperienceWizardComponent {
@@ -278,6 +306,7 @@ export class ExperienceWizardComponent {
   readonly selectedPattern = signal<ExperiencePattern>('form_result');
   readonly fromHome = signal(false);
   readonly experienceId = signal<string | null>(null);
+  readonly draftRevision = signal(1);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly taken = signal<string[]>([]);
@@ -286,10 +315,17 @@ export class ExperienceWizardComponent {
   readonly systems = signal<Array<System & { published_flow_version_id?: string | null }>>([]);
   readonly entries = signal<Record<string, StudioIngress[]>>({});
   readonly versions = signal<Record<string, string>>({});
+  readonly systemQuery = signal('');
   readonly langs = signal<string[]>(['fr']);
   readonly themeMode = signal('default');
   readonly audience = signal<string[]>([]);
   readonly homeDoc = computed(() => this.home.document());
+  readonly visibleSystems = computed(() => {
+    const query = this.systemQuery().trim().toLocaleLowerCase();
+    return query
+      ? this.systems().filter((row) => row.name.toLocaleLowerCase().includes(query))
+      : this.systems();
+  });
 
   readonly previewDoc = computed(() => this.document());
 
@@ -416,6 +452,21 @@ export class ExperienceWizardComponent {
     this.selectedPattern.set('form_result');
   }
 
+  onPatternKey(event: KeyboardEvent, index: number): void {
+    const count = this.patterns.length + (this.homeDoc() ? 1 : 0);
+    let next = index;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % count;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + count) % count;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = count - 1;
+    else return;
+    event.preventDefault();
+    if (next < this.patterns.length) this.pickPattern(this.patterns[next]!);
+    else this.pickHome();
+    const radios = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLElement>('[role="radio"]');
+    queueMicrotask(() => radios?.[next]?.focus());
+  }
+
   next(): void {
     if (this.step() === 1) {
       this.persistStep1(() => {
@@ -443,6 +494,15 @@ export class ExperienceWizardComponent {
 
   back(): void {
     this.step.update((n) => Math.max(1, n - 1));
+  }
+
+  saveAndClose(): void {
+    if (!this.experienceId()) {
+      void this.router.navigate(['/create/apps']);
+      return;
+    }
+    this.busy.set(true);
+    this.persistDraft(() => void this.router.navigate(['/create/apps']));
   }
 
   finish(): void {
@@ -489,11 +549,19 @@ export class ExperienceWizardComponent {
 
   private document(): ExperienceDocument {
     if (this.fromHome() && this.homeDoc()) return this.homeDoc()!;
-    return seedDocument(this.selectedPattern(), this.name(), {
+    const seeded = seedDocument(this.selectedPattern(), this.name(), {
       subtitle: this.i18n.t('experience.home.subtitle'),
       empty: this.i18n.t('state.empty.description'),
       approvalBody: this.i18n.t('experience.home.approval.body'),
     });
+    return bindSeedDocument(
+      seeded,
+      this.selectedBindings().map((row) => ({
+        bindingKey: row.binding_key,
+        ingressId: row.ingress_id,
+        inputSchema: this.entriesOf(row.system_id).find((entry) => entry.ingress_id === row.ingress_id)?.input_schema,
+      })),
+    );
   }
 
   private persistStep1(done: () => void): void {
@@ -507,6 +575,7 @@ export class ExperienceWizardComponent {
       pattern: this.selectedPattern(),
       languages: this.langs(),
       theme: { mode: this.themeMode() },
+      access_policy: { roles: this.audience() },
     };
     const existing = this.experienceId();
     const req = existing
@@ -516,6 +585,7 @@ export class ExperienceWizardComponent {
       next: (row) => {
         this.experienceId.set(row.id);
         this.slug.set(row.slug);
+        this.draftRevision.set(row.draft?.revision ?? this.draftRevision());
         this.persistDraft(done);
       },
       error: (err) => {
@@ -532,13 +602,20 @@ export class ExperienceWizardComponent {
       done();
       return;
     }
-    this.api.saveDraft(id, pagesPayload(this.document()), this.selectedKeys()).subscribe({
-      next: () => {
+    this.api
+      .saveDraft(id, pagesPayload(this.document()), this.selectedKeys(), this.draftRevision())
+      .subscribe({
+      next: (draft) => {
+        this.draftRevision.set(draft.revision);
         this.busy.set(false);
         done();
       },
       error: (err) => {
-        this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
+        this.error.set(
+          apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
+            ? this.i18n.t('experience.editor.conflict')
+            : apiMessage(err, this.i18n.t('experience.wizard.error')),
+        );
         this.busy.set(false);
       },
     });
@@ -551,7 +628,8 @@ export class ExperienceWizardComponent {
     this.api
       .patchExperience(id, {
         languages: this.langs(),
-        theme: withAudience({ mode: this.themeMode() }, this.audience()),
+        theme: { mode: this.themeMode() },
+        access_policy: { roles: this.audience() },
       })
       .subscribe({
         next: () => this.persistDraft(done),

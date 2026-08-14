@@ -4,11 +4,16 @@ import {
   CERTIFIED_RENDERER_VERSION,
   extractCitations,
   fieldsFromSchema,
+  isReadyFileReference,
+  localizeDocument,
   mapRunStatus,
   parseDocument,
   renderableComponents,
   rendererPinMatches,
   resolveCatalogType,
+  runtimeAfterSuccess,
+  runtimeDataBinding,
+  selectRuntimeData,
   validateValues,
   valuesToPayload,
 } from './model';
@@ -56,11 +61,73 @@ test('validateValues flags required and invalid numbers, accepts a filled form',
 });
 
 test('renderer pin matches the catalog constant and refuses a foreign pin', () => {
-  assert.equal(rendererPinMatches(undefined), true);
-  assert.equal(rendererPinMatches(null), true);
-  assert.equal(rendererPinMatches(''), true);
+  assert.equal(rendererPinMatches(undefined), false);
+  assert.equal(rendererPinMatches(null), false);
+  assert.equal(rendererPinMatches(''), false);
   assert.equal(rendererPinMatches(CERTIFIED_RENDERER_VERSION), true);
   assert.equal(rendererPinMatches('certified-components-9.9.9'), false);
+});
+
+test('document copy resolves explicit i18n refs with a controlled fallback', () => {
+  const raw = {
+    i18n: {
+      fr: { 'orders.title': 'Commandes', 'orders.hero': 'À traiter' },
+      en: { 'orders.title': 'Orders' },
+    },
+    pages: [{
+      id: 'home',
+      title: { $i18n: 'orders.title', fallback: 'Orders' },
+      components: [{
+        type: 'header',
+        id: 'hero',
+        props: { title: { $i18n: 'orders.hero', fallback: 'Pending' } },
+      }],
+    }],
+  };
+  assert.equal(localizeDocument(raw, 'fr-FR').pages[0]?.title, 'Commandes');
+  assert.equal(localizeDocument(raw, 'fr-FR').pages[0]?.components[0]?.props?.['title'], 'À traiter');
+  assert.equal(localizeDocument(raw, 'en').pages[0]?.components[0]?.props?.['title'], 'Pending');
+  assert.deepEqual(parseDocument(raw).pages[0]?.title, { $i18n: 'orders.title', fallback: 'Orders' });
+});
+
+test('data/query bindings are closed and selectors cannot traverse prototypes', () => {
+  assert.deepEqual(
+    runtimeDataBinding({
+      type: 'table',
+      props: { dataBinding: { source: 'run-output', componentId: 'load', selector: 'rows.0' } },
+    }),
+    { source: 'run-output', componentId: 'load', bindingKey: undefined, selector: 'rows.0', input: {} },
+  );
+  assert.equal(
+    runtimeDataBinding({
+      type: 'table',
+      props: { dataBinding: { source: 'url', componentId: 'load', selector: 'rows' } },
+    }),
+    null,
+  );
+  assert.equal(
+    runtimeDataBinding({
+      type: 'table',
+      props: { queryBinding: { source: 'system-binding', bindingKey: 'orders.list', selector: 'rows' } },
+    })?.bindingKey,
+    'orders.list',
+  );
+  assert.deepEqual(selectRuntimeData({ rows: [{ id: 7 }] }, 'rows.0'), { id: 7 });
+  assert.equal(selectRuntimeData({}, '__proto__.polluted'), undefined);
+});
+
+test('only an uploaded document id is a ready file reference', () => {
+  assert.equal(isReadyFileReference({ kind: 'document', document_id: null, filename: 'a.pdf', job_id: 'j1' }), false);
+  assert.equal(isReadyFileReference({ kind: 'document', document_id: 'doc-1', filename: 'a.pdf' }), true);
+});
+
+test('after-success behavior is a closed catalog with safe page ids', () => {
+  assert.deepEqual(runtimeAfterSuccess('result'), { kind: 'result' });
+  assert.deepEqual(runtimeAfterSuccess('reset'), { kind: 'reset' });
+  assert.deepEqual(runtimeAfterSuccess('page:review_2'), { kind: 'page', pageId: 'review_2' });
+  assert.deepEqual(runtimeAfterSuccess('page:'), { kind: 'stay' });
+  assert.deepEqual(runtimeAfterSuccess('page:../admin'), { kind: 'stay' });
+  assert.deepEqual(runtimeAfterSuccess('https://evil.example'), { kind: 'stay' });
 });
 
 test('unknown types fall back; nested page is ignored', () => {

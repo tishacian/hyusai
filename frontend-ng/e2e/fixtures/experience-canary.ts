@@ -19,14 +19,21 @@ export interface WorkspaceSummary {
   settings?: Record<string, unknown>;
 }
 
-export interface ExperienceRow {
-  id: string;
-  name: string;
-  slug: string;
-  deployments?: Array<{
-    channel: string;
-    audience?: Record<string, unknown> | null;
-  }>;
+export interface WorkCatalogItem {
+  experience: {
+    id: string;
+    name: string;
+    slug: string;
+    pattern: string;
+    languages?: string[];
+    theme?: Record<string, unknown> | null;
+  };
+  channel: 'pilot' | 'live' | string;
+  release: {
+    id: string;
+    release_number?: number;
+    renderer_version?: string | null;
+  };
 }
 
 export interface ApiResult<T> {
@@ -156,31 +163,6 @@ export async function discoverExperienceWorkspace(
     }
   }
   return null;
-}
-
-function audienceAllows(audience: unknown, roles: readonly string[]): boolean {
-  const rec = asRecord(audience);
-  if (!rec) return true;
-  const raw = rec['roles'] ?? rec['role_templates'];
-  if (!Array.isArray(raw) || raw.length === 0) return true;
-  const allowed = raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  if (allowed.length === 0) return true;
-  return roles.some((role) => allowed.includes(role));
-}
-
-export function launchableExperiences(
-  rows: readonly ExperienceRow[],
-  workspace: WorkspaceSummary,
-): ExperienceRow[] {
-  const roles = [workspace.role_template, workspace.role].filter(
-    (item): item is string => typeof item === 'string' && item.length > 0,
-  );
-  return rows.filter((row) => {
-    const deployments = row.deployments ?? [];
-    if (deployments.some((item) => item.channel === 'live')) return true;
-    const pilot = deployments.find((item) => item.channel === 'pilot');
-    return Boolean(pilot && audienceAllows(pilot.audience, roles));
-  });
 }
 
 export async function assertDeployedRevision(page: Page): Promise<void> {

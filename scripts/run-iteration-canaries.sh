@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Light iteration gate — runs on carakai (protected runner host) as root.
 #
-# Executes the two protected canary specs (11-system360-canary and
-# 12-protected-runner-canaries) from the reviewed source checkout against the
-# deployed SHA, WITHOUT the orchestrator and WITHOUT signing tokens.  This is
+# Executes the protected runtime canaries and the flag-aware Experience
+# Work/Studio canaries from the reviewed source checkout against the deployed
+# SHA, WITHOUT the orchestrator and WITHOUT signing tokens. This is
 # the per-iteration smoke gate; the signed 7-token attestation stays reserved
 # for milestones (scripts/agentium_protected_runner_orchestrator.py).
 #
@@ -49,6 +49,8 @@ export E2E_BASE_URL="https://agentium.papai.ai"
 export E2E_DEPLOYMENT_ID="$RUN_ID"
 export E2E_EVIDENCE_CLASS=acceptance
 export E2E_EXPECTED_SHA="$SHA"
+export E2E_EXPERIENCE_CANARY=1
+export E2E_EXPERIENCE_EVIDENCE="$WORK/experience.json"
 export E2E_FORMAL_RELEASE_ELIGIBLE=false
 export E2E_LOT6_CANARY=1
 export E2E_LOT6_RUNNER_ATTESTATION="$WORK/system360-runner.json"
@@ -98,25 +100,10 @@ cd "$SOURCE_ROOT/frontend-ng"
 ./node_modules/.bin/playwright test \
   e2e/tests/11-system360-canary.spec.ts \
   e2e/tests/12-protected-runner-canaries.spec.ts \
+  e2e/tests/16-experience-work-canary.spec.ts \
+  e2e/tests/17-experience-studio-canary.spec.ts \
   --project=chromium \
   --reporter=list \
   --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
-
-# Experience canaries (16/17) are not part of the default iteration gate.
-# Opt in with E2E_EXPERIENCE_CANARY=1 on this script, or invoke separately:
-#   E2E_EXPERIENCE_CANARY=1 E2E_EXPERIENCE_EVIDENCE="$WORK/experience.json" \
-#     ./node_modules/.bin/playwright test \
-#       e2e/tests/16-experience-work-canary.spec.ts \
-#       e2e/tests/17-experience-studio-canary.spec.ts \
-#       --project=chromium --reporter=list --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
-if [ "${E2E_EXPERIENCE_CANARY:-}" = 1 ]; then
-  export E2E_EXPERIENCE_EVIDENCE="${E2E_EXPERIENCE_EVIDENCE:-$WORK/experience.json}"
-  ./node_modules/.bin/playwright test \
-    e2e/tests/16-experience-work-canary.spec.ts \
-    e2e/tests/17-experience-studio-canary.spec.ts \
-    --project=chromium \
-    --reporter=list \
-    --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
-fi
 
 echo "iteration canaries passed for $SHA — artifacts: $WORK"

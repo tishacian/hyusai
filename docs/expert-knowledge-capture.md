@@ -193,11 +193,11 @@ Méthodes : `listVoiceRuntimes`, `createCapturePlan`, `listCaptureSessions`, `st
 
 ### 8.5 i18n
 
-**Fichier :** `frontend-ng/src/app/core/i18n.dict.ts`
+**Fichiers :** `frontend-ng/src/app/core/i18n/<domaine>.dict.ts` (les clés `capture.*` vivent dans `capture.dict.ts`), fusionnés par `frontend-ng/src/app/core/i18n.dict.ts`. Convention : `frontend-ng/src/app/core/i18n/CONVENTION.md`.
 
-Clés notables : `nav.capture`, `nav.review`, `palette.view.expert_capture`, `palette.view.expert_capture.hint` (FR + EN).
+Clés notables : `nav.capture`, `nav.review`, `palette.view.expert_capture`, `palette.view.expert_capture.hint` (FR + EN, dans `chrome.dict.ts`).
 
-**Audit nav :** `frontend-ng/scripts/check-i18n-nav.mjs` + script npm `check:i18n` dans `frontend-ng/package.json`.
+**Guard :** `frontend-ng/scripts/check-i18n.mjs` + script npm `check:i18n` (parité FR/EN, couverture nav, chaînes en dur, lexique).
 
 ---
 

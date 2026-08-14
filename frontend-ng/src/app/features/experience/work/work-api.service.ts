@@ -4,11 +4,15 @@ import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
-import type { WorkExperience, WorkResolve } from './work-catalog';
+import type { WorkCatalogItem, WorkResolve } from './work-catalog';
 
 export type WorkResolveResult =
   | { kind: 'ok'; body: WorkResolve }
   | { kind: 'missing' }
+  | { kind: 'unavailable' };
+
+export type WorkListResult =
+  | { kind: 'ok'; items: WorkCatalogItem[] }
   | { kind: 'unavailable' };
 
 @Injectable({ providedIn: 'root' })
@@ -16,10 +20,10 @@ export class WorkApiService {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
 
-  listExperiences(): Observable<WorkExperience[]> {
-    return this.api.get<{ experiences: WorkExperience[] }>('/experiences').pipe(
-      map((body) => body.experiences ?? []),
-      catchError(() => of([])),
+  listExperiences(): Observable<WorkListResult> {
+    return this.api.get<{ experiences: WorkCatalogItem[] }>('/work').pipe(
+      map((body) => ({ kind: 'ok' as const, items: body.experiences ?? [] })),
+      catchError(() => of({ kind: 'unavailable' as const })),
     );
   }
 

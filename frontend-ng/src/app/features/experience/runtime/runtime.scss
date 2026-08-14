@@ -136,12 +136,21 @@
   padding: 0 12px;
   border: 0;
   border-radius: 4px;
-  background: var(--xp-accent, var(--ck-signal-cool));
+  background: var(--xp-accent, var(--xp-app-accent, var(--ck-signal-cool)));
   color: var(--ck-on-signal, #0b1220);
   font-family: var(--ck-font-sans);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.xp-rt-btn:focus-visible,
+.xp-rt-field input:focus-visible,
+.xp-rt-field select:focus-visible,
+.xp-rt-link:focus-visible,
+.xp-rt-node[tabindex='-1']:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--xp-app-accent, var(--ck-signal-cool)) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .xp-rt-btn:disabled {
@@ -244,4 +253,23 @@
   border: 1px solid var(--ck-stroke-hot);
   border-radius: 6px;
   background: var(--ck-status-info-bg);
+}
+
+.xp-rt-query {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.xp-rt-preview-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ck-status-preview-line);
+  background: var(--ck-status-preview-bg);
+  color: var(--ck-status-preview-fg);
+  font-size: 12px;
+}
+
+.xp-rt-field input[type='file'] {
+  padding: 4px;
 }

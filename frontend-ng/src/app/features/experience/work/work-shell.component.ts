@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { timer } from 'rxjs';
+import { Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService, type Locale } from '@app/core/i18n.service';
@@ -9,7 +9,12 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { type Run } from '@app/core/canonical-api.service';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
-import { parseDocument, rendererPinMatches, type ExperienceDocument } from '../runtime/model';
+import {
+  localizeDocument,
+  rendererPinMatches,
+  textFallback,
+  type ExperienceDocument,
+} from '../runtime/model';
 import { WorkApiService } from './work-api.service';
 import {
   canEditExperience,
@@ -17,6 +22,8 @@ import {
   liveHref,
   pendingValidationOrigins,
   studioHref,
+  workPageHref,
+  workTheme,
   workLocales,
   type WorkResolve,
 } from './work-catalog';
@@ -31,7 +38,11 @@ const POLL_MS = 8000;
   imports: [RouterLink, EmptyStateComponent, ExperienceRuntimeHostComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work">
+    <div
+      class="xp-work"
+      [attr.data-theme]="theme().mode"
+      [style.--xp-app-accent]="theme().accent || null"
+    >
       <header class="xp-work-bar">
         <div class="xp-work-brand">
           <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
@@ -40,25 +51,23 @@ const POLL_MS = 8000;
         @if (state() === 'ready') {
           <nav class="xp-work-nav" [attr.aria-label]="i18n.t('experience.work.pages')">
             @for (page of document().pages; track page.id) {
-              <button
-                type="button"
+              <a
+                [routerLink]="pageHref(page.id)"
                 [attr.aria-current]="activePage() === page.id ? 'page' : null"
-                (click)="activePage.set(page.id)"
               >
-                {{ page.title }}
-              </button>
+                {{ pageTitle(page.title) }}
+              </a>
             }
             @if (showValidations()) {
-              <button
-                type="button"
+              <a
+                [routerLink]="pageHref(validationsPage)"
                 [attr.aria-current]="activePage() === validationsPage ? 'page' : null"
-                (click)="activePage.set(validationsPage)"
               >
                 {{ i18n.t('experience.work.validations') }}
                 @if (pending().length > 0) {
                   <span class="xp-work-badge">{{ pending().length }}</span>
                 }
-              </button>
+              </a>
             }
           </nav>
         }
@@ -125,7 +134,7 @@ const POLL_MS = 8000;
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}
                       <textarea
-                        [value]="reasons()[run.id] ?? ''"
+                        [value]="reasons()[run.id]"
                         (input)="setReason(run.id, reasonValue($event))"
                       ></textarea>
                     </label>
@@ -144,7 +153,12 @@ const POLL_MS = 8000;
                 }
               </section>
             } @else {
-              <app-experience-runtime-host [document]="document()" [pageId]="activePage()" />
+              <app-experience-runtime-host
+                [document]="document()"
+                [pageId]="activePage()"
+                [experienceSlug]="slug()"
+                mode="live"
+              />
             }
           }
         }
@@ -159,12 +173,19 @@ export class WorkShellComponent {
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly workspace = inject(WorkspaceService);
   private readonly destroy = inject(DestroyRef);
+  private validationWatch: Subscription | null = null;
   readonly i18n = inject(I18nService);
 
   readonly validationsPage = VALIDATIONS;
+  readonly slug = signal('');
+  private readonly requestedPage = signal<string | null>(null);
   readonly state = signal<'loading' | 'ready' | 'missing' | 'unavailable'>('loading');
   readonly title = signal('');
-  readonly document = signal<ExperienceDocument>({ pages: [] });
+  readonly rawDocument = signal<unknown>({ pages: [] });
+  readonly document = computed<ExperienceDocument>(() =>
+    localizeDocument(this.rawDocument(), this.i18n.locale()),
+  );
+  readonly theme = signal<{ mode: 'light' | 'dark'; accent: string }>({ mode: 'light', accent: '' });
   readonly activePage = signal<string | null>(null);
   readonly locales = signal<Locale[]>([]);
   readonly pending = signal<Run[]>([]);
@@ -180,20 +201,40 @@ export class WorkShellComponent {
   );
 
   constructor() {
-    this.runtime.reset();
-    const slug = this.route.snapshot.paramMap.get('slug') ?? '';
-    this.api.resolve(slug).subscribe((result) => {
-      if (result.kind !== 'ok') {
-        this.state.set(result.kind);
-        this.title.set(this.i18n.t('experience.work.title'));
+    let generation = 0;
+    this.route.paramMap.pipe(takeUntilDestroyed(this.destroy)).subscribe((params) => {
+      const slug = params.get('slug') ?? '';
+      this.requestedPage.set(params.get('pageId'));
+      if (slug === this.slug() && this.state() === 'ready') {
+        this.activateRequestedPage(true);
         return;
       }
-      this.open(result.body);
+      this.resetExperienceState();
+      this.slug.set(slug);
+      this.state.set('loading');
+      const request = ++generation;
+      this.api.resolve(slug).subscribe((result) => {
+        if (request !== generation) return;
+        if (result.kind !== 'ok') {
+          this.state.set(result.kind);
+          this.title.set(this.i18n.t('experience.work.title'));
+          return;
+        }
+        this.open(result.body);
+      });
     });
   }
 
   studioLink(): string {
     return studioHref(this.experienceId());
+  }
+
+  pageHref(pageId: string): string {
+    return workPageHref(this.slug(), pageId);
+  }
+
+  pageTitle(title: ExperienceDocument['pages'][number]['title']): string {
+    return textFallback(title);
   }
 
   reasonValue(event: Event): string {
@@ -224,7 +265,7 @@ export class WorkShellComponent {
       return;
     }
     this.experienceId.set(body.experience.id);
-    const document = parseDocument(body.release.pages);
+    const document = localizeDocument(body.release.pages, this.i18n.locale());
     this.title.set(body.experience.name);
     if (document.pages.length === 0) {
       this.state.set('unavailable');
@@ -232,32 +273,52 @@ export class WorkShellComponent {
     }
     if (!rendererPinMatches(body.release.renderer_version)) {
       this.pinMismatch.set(true);
-      this.document.set(document);
+      this.rawDocument.set(body.release.pages);
       this.state.set('unavailable');
       return;
     }
     const locales = workLocales(body.release.languages ?? body.experience.languages);
     if (locales.length === 1) this.i18n.setLocale(locales[0]!);
-    const origins = pendingValidationOrigins(body.release.bindings_snapshot);
+    const origins = pendingValidationOrigins(body.release.bindings_snapshot, body.experience.slug);
     const needsQueue = documentNeedsValidations(document.pages, body.experience.pattern);
-    this.document.set(document);
+    this.rawDocument.set(body.release.pages);
+    this.theme.set(workTheme(body.release.theme ?? body.experience.theme));
     this.locales.set(locales);
-    this.activePage.set(document.pages[0]!.id);
     this.showValidations.set(needsQueue);
     this.leftover.set(needsQueue && origins.length === 0);
     this.state.set('ready');
+    this.activateRequestedPage(true);
     this.watchValidations(origins, needsQueue);
   }
 
+  private activateRequestedPage(replaceInvalid: boolean): void {
+    const requested = this.requestedPage();
+    const pages = this.document().pages;
+    const first = pages[0]?.id;
+    if (!first) return;
+    const active =
+      requested === VALIDATIONS && this.showValidations()
+        ? VALIDATIONS
+        : pages.some((page) => page.id === requested)
+          ? requested!
+          : first;
+    this.activePage.set(active);
+    if (replaceInvalid && requested !== active) {
+      void this.router.navigateByUrl(workPageHref(this.slug(), active), { replaceUrl: true });
+    }
+  }
+
   private watchValidations(origins: string[], needsQueue: boolean): void {
+    this.validationWatch?.unsubscribe();
+    this.validationWatch = null;
     if (!needsQueue && origins.length === 0) return;
-    timer(0, POLL_MS)
+    this.validationWatch = timer(0, POLL_MS)
       .pipe(
         switchMap(() => this.api.listPendingValidations(origins)),
         takeUntilDestroyed(this.destroy),
       )
       .subscribe((rows) => {
-        const current = this.runtime.run();
+        const current = this.runtime.runs().find((run) => run.status === 'hitl_pending');
         const merged = [...rows];
         if (current?.status === 'hitl_pending' && !merged.some((item) => item.id === current.id)) {
           merged.unshift(current);
@@ -265,5 +326,22 @@ export class WorkShellComponent {
         this.pending.set(merged);
         if (merged.length > 0) this.showValidations.set(true);
       });
+  }
+
+  private resetExperienceState(): void {
+    this.validationWatch?.unsubscribe();
+    this.validationWatch = null;
+    this.runtime.reset();
+    this.pending.set([]);
+    this.reasons.set({});
+    this.reasonError.set(null);
+    this.showValidations.set(false);
+    this.leftover.set(false);
+    this.pinMismatch.set(false);
+    this.experienceId.set(null);
+    this.rawDocument.set({ pages: [] });
+    this.activePage.set(null);
+    this.locales.set([]);
+    this.theme.set({ mode: 'light', accent: '' });
   }
 }

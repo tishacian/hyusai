@@ -233,6 +233,12 @@ Agentium is not an agent builder.
 
 Agentium is an **operating system for intelligent systems**, designed to transform business objectives into measurable outcomes through orchestrated, observable and optimizable AI systems.
 
+An **Experience** (labelled *Application métier* in the UI) does not weaken that
+positioning. It is the governed usage contract of one or more published Systems:
+pages, certified components, semantic bindings, audience, language, theme and an
+immutable release. It cannot create hidden execution authority, install arbitrary
+code or bypass the System / Flow / policy lifecycle.
+
 It is the **agentic counterpart of papAI**:
 
 - papAI = orchestration of data, models and workflows
@@ -380,7 +386,14 @@ Impact is the **measured value produced**:
 
 ## 4. Layered Abstraction Model · ◻️ Implementation claim — non attesté
 
-Agentium is built on progressive disclosure:
+Agentium is built on progressive disclosure. A genuine end user starts one layer
+before the platform vocabulary:
+
+### Layer 0 — Work / Experience (end-user default)
+- Tasks and forms
+- Answers and business results
+- Approvals
+- Business applications
 
 ### Layer 1 — Business (default)
 - Systems
@@ -399,7 +412,10 @@ Agentium is built on progressive disclosure:
 - Models
 - Tools
 
-The UI must **never force complexity**, but always allow access to it.
+Layer 0 is the default for a business user. Layer 1 is the default for a business
+owner or author in Studio. The UI must **never force complexity**, but always
+allow authorised users to reach it without losing application, page or release
+context.
 
 > **◻️ Implementation claim — non attesté** — the semantic zoom shortcut `⌘Z` / `⇧⌘Z` uses `frontend-ng/src/app/core/zoom-context.service.ts` to move across layers while preserving context. Default entry is Layer 1 (Hypervisor → Systems).
 
@@ -421,9 +437,10 @@ Not:
 
 ---
 
-### 5.2 System-Centric UX
+### 5.2 System-Centric intelligence, Experience-Centric usage
 
-The UI revolves around Systems, not features.
+Studio revolves around Systems, not features. Work revolves around the task the
+user must accomplish, not the engine that performs it.
 
 Users interact with:
 - Systems
@@ -434,6 +451,11 @@ Not:
 - nodes
 - prompts
 - pipelines
+
+An end user on `/work/:slug` does not need to learn System, Run, Skill or Flow.
+An authorised author can follow the contextual bridge back to the exact
+Experience draft, component and SystemBinding. The underlying object graph stays
+System-centric and measurable.
 
 > **◻️ Implementation claim — non attesté** — the cockpit side rail orders routes as `Hypervisor → Systems → Runs → Capabilities → Skills → Steering → Knowledge → …`, privileging systems over primitives.
 
@@ -494,7 +516,7 @@ This creates trust and engagement.
 
 ---
 
-## 5bis. Navigation Model — 4 Orthogonal Axes · ◻️ Implementation claim — non attesté (axes v2), 🟡 (lens-aware data)
+## 5bis. Navigation Model — 5 Orthogonal Axes · ◻️ Implementation claim — non attesté (axes v2), 🟡 (lens-aware data)
 
 Agentium's navigation is deliberately **not menu-first**. It is **cognitive-first** — each surface answers a different question about the same world.
 
@@ -510,6 +532,19 @@ Agentium's navigation is deliberately **not menu-first**. It is **cognitive-firs
 
 Navigation is a change of **perspective**, never of **context**. The breadcrumb updates *only when the object changes*.
 
+This five-axis model applies to **Studio**. Work is not a sixth lens: an
+Experience can bind several Systems, so forcing it into the canonical hierarchy
+would create a false parent-child relation. Agentium exposes two explicit spaces
+in the same product and session:
+
+| Space | Default audience | Canonical routes | Rule |
+| --- | --- | --- | --- |
+| Work | Business users | `/work`, `/work/:slug` | Application-owned shell; no Studio or engine chrome |
+| Studio | Authors, operators, governors | `/create`, `/systems`, `/runs`, … | Five cognitive axes and full progressive disclosure |
+
+`Work ↔ Studio` is RBAC-gated navigation, not a visual mode toggle. Both spaces
+share workspace identity, canonical object ids, audit history and deep links.
+
 ### 5bis.2 Canonical hierarchy (corrected)
 
 ```
@@ -523,6 +558,11 @@ Rationale:
 
 The previous ordering (`System › Skill › Run`) was wrong: it placed the ephemeral (Run) below the compositional (Skill), which inverts the mental model. ⌘Z / ⇧⌘Z traverse this corrected chain.
 
+An Experience is deliberately absent from this chain. `ExperienceBinding` is a
+many-to-many edge from a released UI action to the exact published System
+ingress and contract hash. In Studio, an `ExperienceContext` chip may sit beside
+the canonical breadcrumb; it never rewrites it as `App › System`.
+
 ### 5bis.3 Function axis — verbs as lenses (Option A — Outcome-injected)
 
 Each verb is both an intent and a lens on the hierarchy. The verb does not change what object you're on; it changes **what projection** of that object you see.
@@ -530,12 +570,18 @@ Each verb is both an intent and a lens on the hierarchy. The verb does not chang
 | Verb        | Intent                | Lens (sublabel)                                  |
 | ----------- | --------------------- | ------------------------------------------------ |
 | Hypervisor  | Decide                | `balance sheet, outcomes, what-if`               |
-| Build       | Create                | `Systems, Capabilities, Skills, Knowledge`       |
+| Create      | Build                 | `Applications métier, Systems, Knowledge`        |
 | Operate     | Run                   | `runtime, runs, missions`                        |
 | Steer       | Optimize              | `levers, policies, simulations`                  |
 | Govern      | Control               | `audit, access, settings`                        |
 
 Same `System X` under `Operate` shows runtime metrics; under `Steer` it shows impact and levers; under `Govern` it shows audit trail. The **tabs stay identical across lenses** — only the projection of their content changes.
+
+Applications métier belong to Create, not Operate. Operate remains the runtime
+projection (Runs, health and missions); using a business application belongs to
+Work. Advanced catalogues such as Capabilities, Skills, components and Flow
+remain available through the Object Index, command palette and explicit
+advanced disclosure.
 
 ### 5bis.4 Scope axis — mini-rail as **Object Index** (not navigation)
 
@@ -3470,6 +3516,12 @@ Agentium must explicitly support a **Builder Onboarding Mode** where ROI is not 
 > finer adaptation of surface density and business copy as a workspace
 > matures.
 
+`workspace.mode` is a workspace maturity/default-density preference. It is not
+an IAM role, does not grant authority and must not decide whether an individual
+member can enter Work or Studio. Effective navigation comes from the member's
+permissions; the selected workspace mode only chooses the initial Studio home
+and how much economic or technical detail is revealed by default.
+
 ---
 
 ### 34.1 Why This Mode Is Required
@@ -3585,8 +3637,12 @@ No duplication, no translation layer.
 
 ### 35.6 Product Rule
 
-- Builder and Hypervisor must never be separate apps
-- Only abstraction level changes
+- Builder and Hypervisor must never become separate products, sessions or
+  object graphs.
+- Audience-adapted shells are allowed and desirable. Work and immersive
+  applications may own their page as long as canonical ids, APIs, history,
+  deep links and contextual bridges remain shared.
+- Inside Studio, only abstraction level and lens change.
 
 > **◻️ Implementation claim — non attesté** — single Angular app, route-based but sharing chrome.
 
@@ -3770,6 +3826,10 @@ Instead of a mode switch, introduce a gradual layering:
 - ROI appears inline (not via navigation)
 - No dedicated "switch mode" button
 - System suggests activation ("Track value?")
+
+This prohibition concerns a maturity toggle *inside Studio*. It does not forbid
+the explicit, permission-aware Work ↔ Studio boundary: using an application and
+authoring or governing it are different user intents, not two maturity stages.
 
 ---
 
@@ -4574,6 +4634,83 @@ matrice.
 
 ---
 
+## 46. Experience Platform — governed System Apps · ◻️ Implementation claim — non attesté
+
+Experience ajoute une couche de présentation gouvernée au-dessus des Systems,
+sans devenir un website builder ou un quatrième moteur d'exécution.
+
+```text
+ExperienceDraft (mutable, revisionné)
+  → Ready check
+  → ExperienceRelease (immuable)
+  → ExperienceDeployment (pilot | live, audience)
+  → /work/:slug
+```
+
+La publication et la mise en ligne sont deux autorités séparées. Une release
+fige le document, les versions et hashes de contrats SystemBinding, l'accès,
+les langues, le thème et la version du renderer certifié. Un déploiement est un
+pointeur atomique par canal ; un rollback repointe une release antérieure et ne
+réécrit jamais son contenu.
+
+### 46.1 Contrat d'exécution
+
+Chaque action d'une release est résolue exclusivement dans son
+`bindings_snapshot`. L'invocation utilise la `SystemVersion`, le Flow SHA,
+l'ingress et les schemas figés par cette release. Retargeter ou supprimer le
+SystemBinding mutable ne peut donc ni modifier ni casser une application déjà
+déployée. Le serveur revalide workspace, audience, canal, release et composant ;
+le client ne choisit jamais une autorité plus récente.
+
+Un membre éligible au canal Pilot voit Pilot avant Live afin que les deux
+versions puissent réellement coexister. Les autres membres ne voient que le
+canal Live auquel leur rôle ou groupe donne accès. Le catalogue `/work` est
+filtré côté serveur ; masquer une carte dans le navigateur n'est pas un contrôle
+d'accès.
+
+### 46.2 Contrat no-code
+
+Le Studio est majoritairement no-code : pages et composants certifiés, layouts
+contraints, formulaires issus du schéma d'ingress, liaisons sémantiques de
+données et d'actions, états loading / empty / error / denied, langues, thème,
+audience, preview et publication. Un auteur travaille dans trois zones
+synchronisées : outline, DOM responsive, inspecteur ; Data, Actions, Tests et
+Journal restent dans un tiroir de profondeur.
+
+`Avancé` expose le JSON/YAML, les expressions, versions, hashes, payloads de
+test, policies, logs et source package du **même brouillon**. Ce n'est ni un
+builder parallèle ni une perte de capacité. Le code custom passe par le
+lifecycle WorkspaceAppPackage attesté ; il ne peut être injecté dans une
+Experience pour contourner la supply chain.
+
+### 46.3 Accessible by construction
+
+- Le catalogue n'accepte que des composants certifiés avec landmarks, noms,
+  erreurs, focus, reflow et reduced motion définis.
+- L'outline est l'équivalent clavier et lecteur d'écran du canvas ; tout ajout,
+  déplacement, liaison et suppression pointer possède une commande sémantique.
+- L'ordre DOM est l'ordre visuel. Un drag a une commande « déplacer avant /
+  après », un graphe a une outline, un graphique a une table.
+- Les dialogs gèrent focus initial, trap, Escape, arrière-plan inerte et retour
+  au déclencheur. Les popovers interactifs ne prennent pas `role=tooltip`.
+- Le mode avancé reste soumis au même contrat ; une exception est gouvernée,
+  visible et bornée, jamais silencieuse.
+
+### 46.4 Terminologie canonique
+
+| Type interne | Label produit | Verbe de lifecycle |
+| --- | --- | --- |
+| `Experience` | Application métier | créer / publier / déployer |
+| `SystemBinding` | Liaison | relier / mettre à jour explicitement |
+| `WorkspaceAppPackage` | Package d'application | installer / mettre à niveau |
+| `Integration` | Intégration | connecter / autoriser |
+
+`/apps` ne doit donc plus employer « Applications métier » pour des
+connecteurs. Une Experience n'est pas placée au-dessus de System dans le
+breadcrumb ; son contexte est adjacent et sa relation est many-to-many.
+
+---
+
 ## Appendix A — Gap ledger (what to build next)
 
 Aggregated from the status annotations above, sorted by product impact.
@@ -4618,4 +4755,4 @@ Aggregated from the status annotations above, sorted by product impact.
 
 ---
 
-_Last reconciled: 2026-07-22 (Lots 7–9: object graph, value loop and Workspace App lifecycle contracts). Update this document when either the vision or the repository implementation state changes — never let them drift._
+_Last reconciled: 2026-08-14 (Lots 7–9 plus Experience Platform contract). Update this document when either the vision or the repository implementation state changes — never let them drift._

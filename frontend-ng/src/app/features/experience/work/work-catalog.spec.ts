@@ -1,20 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  audienceAllows,
   bindingSystemIds,
+  catalogLaunchHref,
   pendingValidationOrigins,
   canEditExperience,
   documentNeedsValidations,
-  hasDeployment,
   launchHref,
-  launchableApps,
   launcherDecision,
   liveHref,
-  preferredChannel,
   studioHref,
-  viewerRoles,
   workLocales,
+  workPageHref,
+  workTheme,
   type WorkExperience,
 } from './work-catalog';
 
@@ -28,45 +26,6 @@ function app(over: Partial<WorkExperience> = {}): WorkExperience {
     deployments: over.deployments ?? [{ channel: 'live' }],
   };
 }
-
-test('live is always launchable; draft-only is not', () => {
-  const roles = ['workspace_viewer'];
-  assert.equal(preferredChannel([{ channel: 'live' }], roles), 'live');
-  assert.equal(preferredChannel([], roles), null);
-  assert.equal(hasDeployment(app({ deployments: [] })), false);
-  assert.deepEqual(launchableApps([app({ deployments: [] })], roles), []);
-});
-
-test('pilot is open when audience is empty, closed when role is missing', () => {
-  const viewer = ['workspace_viewer'];
-  assert.equal(preferredChannel([{ channel: 'pilot', audience: {} }], viewer), 'pilot');
-  assert.equal(preferredChannel([{ channel: 'pilot', audience: { roles: [] } }], viewer), 'pilot');
-  assert.equal(
-    preferredChannel([{ channel: 'pilot', audience: { roles: ['workspace_admin'] } }], viewer),
-    null,
-  );
-  assert.equal(
-    preferredChannel(
-      [{ channel: 'pilot', audience: { roles: ['workspace_admin'] } }],
-      ['workspace_admin'],
-    ),
-    'pilot',
-  );
-  assert.equal(audienceAllows({ role_templates: ['workspace_viewer'] }, viewer), true);
-});
-
-test('live wins over an entitled pilot', () => {
-  assert.equal(
-    preferredChannel(
-      [
-        { channel: 'pilot', audience: { roles: ['workspace_viewer'] } },
-        { channel: 'live' },
-      ],
-      ['workspace_viewer'],
-    ),
-    'live',
-  );
-});
 
 test('launcher redirects when exactly one app is openable', () => {
   assert.deepEqual(launcherDecision([]), { kind: 'empty' });
@@ -105,15 +64,26 @@ test('validations surface from pattern or certified nodes', () => {
       { binding_key: 'nawa.password_reset', system_id: 's1' },
       { binding_key: 'nawa.password_reset', system_id: 's1' },
       { binding_key: 'rapprochement.po.factures', system_id: 's1' },
-    ]),
-    ['experience:nawa.password_reset', 'experience:rapprochement.po.factures'],
+    ], 'nawa-itsd'),
+    ['experience:nawa-itsd'],
   );
   assert.equal(
-    pendingValidationOrigins([{ binding_key: 'nawa.password_reset' }]).includes(
+    pendingValidationOrigins([{ binding_key: 'nawa.password_reset' }], 'nawa-itsd').includes(
       'experience:other.app',
     ),
     false,
   );
+});
+
+test('release theme and page links are safe, stable projections', () => {
+  assert.deepEqual(workTheme({ mode: 'dark', accent: '#0e7490' }), { mode: 'dark', accent: '#0e7490' });
+  assert.deepEqual(workTheme({ mode: 'other', accent: 'url(evil)' }), { mode: 'light', accent: '' });
+  assert.equal(workPageHref('my app', 'daily/queue'), '/work/my%20app/daily%2Fqueue');
+  assert.equal(catalogLaunchHref({
+    experience: app({ slug: 'orders', theme: { live_href: '/legacy' } }),
+    channel: 'live',
+    release: { id: 'r1', theme: {} },
+  }), '/legacy');
 });
 
 test('studioHref opens the editor when the experience id is known', () => {
@@ -126,6 +96,5 @@ test('author roles can edit; locale list keeps fr/en only', () => {
   assert.equal(canEditExperience('workspace_contributor'), true);
   assert.equal(canEditExperience('workspace_viewer'), false);
   assert.equal(canEditExperience('workspace_viewer', true), true);
-  assert.deepEqual(viewerRoles('workspace_admin', 'admin'), ['workspace_admin', 'admin']);
   assert.deepEqual(workLocales(['fr-FR', 'en', 'de']), ['fr', 'en']);
 });

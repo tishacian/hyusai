@@ -53,6 +53,7 @@ class Experience(Base):
     pattern = Column(String(32), nullable=False)
     languages = Column(JSON, nullable=False, default=list)
     theme = Column(JSON, nullable=False, default=dict)
+    access_policy = Column(JSON, nullable=False, default=dict)
     created_by = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
@@ -131,6 +132,7 @@ class ExperienceRelease(Base):
     pages = Column(JSON, nullable=False)
     bindings_snapshot = Column(JSON, nullable=False)
     access_snapshot = Column(JSON, nullable=False, default=dict)
+    identity_snapshot = Column(JSON, nullable=False, default=dict)
     languages = Column(JSON, nullable=False)
     theme = Column(JSON, nullable=False)
     renderer_version = Column(

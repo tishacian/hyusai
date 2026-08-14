@@ -2,6 +2,8 @@
 
 Flag: `settings.features.experience_v1` (opt-in). Off → existing Studio navigation is unchanged.
 
+Implementation baseline: 2026-08-14, migrations `087` through `092`. Lots 0–8 are integrated behind the flag; the certified component catalogue remains intentionally closed.
+
 This document is the architecture for the **Experience** concept (on screen: **Application métier** / **Business application**). It does not replace Lot 9 Workspace Apps or Flow publication.
 
 ## Three objects that are not the same thing
@@ -25,7 +27,7 @@ Workspace App: Blueprint plan → apply / receipts → runtime authority (Lot 9)
 ```
 
 - **Flow publish** makes a System executable. It does **not** put an application in users’ hands.
-- **Experience release** freezes pages, bindings (published Flow versions + contract hashes), access, languages, theme, and the certified renderer version. Rollback is atomic to a previous release.
+- **Experience release** freezes identity, pages, only the bindings actually referenced by the document (published Flow versions + contract hashes), access, languages, theme, and the certified renderer version. Rollback is atomic to a previous release.
 - **Lot 9 install** puts a packaged Workspace App into a tenant. It does **not** author an Experience and it does **not** publish a Flow.
 
 A published Flow may generate a **System Home** (usage page). That page can be published as-is, customised, or folded into a wider Experience. It is still not a WorkspaceAppPackage.
@@ -41,6 +43,22 @@ The primitive between an Experience action and a System:
 
 On screen the object is a **Liaison** / **Binding**. `SystemBinding` stays internal.
 
+The live runtime never resolves a mutable `SystemBinding`. `/work` invokes the exact binding snapshot in the selected immutable Release, including the exact `SystemVersion`, ingress and contract hashes. Retargeting or deleting the authoring binding cannot modify an already deployed application.
+
+## No-code document contract
+
+Studio is no-code by default and stores a constrained, accessible document rather than executable browser code:
+
+- Pages and stable component ids form the route/DOM outline. Absolute positioning is rejected.
+- Certified components cover content, forms/actions, results, tables, KPI, queues, feeds, maps and agendas.
+- `dataBinding: { source: "run-output", componentId, selector }` projects a previous component result.
+- `queryBinding: { source: "system-binding", bindingKey, input, selector }` executes only on an explicit user action through the Release-scoped `/work` API. Free URLs and auto-run queries are forbidden.
+- `afterSuccess` is a closed catalogue: stay, focus the result, reset the form, or navigate to an existing page id.
+- Localized content uses `{ "$i18n": key, "fallback": text }` plus document dictionaries. Ready-check requires every declared language.
+- File fields upload through the governed document ingestion endpoint and submit only a completed `document_id`.
+
+The Advanced surfaces expose hashes, schemas and the Flow/System contracts; they do not create a second document model or allow arbitrary JavaScript.
+
 ## Two spaces, one product
 
 | Space | Route | Audience | Chrome |
@@ -49,6 +67,8 @@ On screen the object is a **Liaison** / **Binding**. `SystemBinding` stays inter
 | **Studio** | `/create`, `/systems`, … | Authors / operators | Cockpit (dark by default) |
 
 Bridges: « Modifier dans le Studio » / « Voir l'application ». Flow Builder scratchpad (`/orchestration`) is a Studio facet, reachable via ⌘K when `experience_v1` is on — not a top-level Create item.
+
+`GET /api/v1/work` is the sole launcher catalogue. It is filtered server-side by Release access, deployment audience and the current member's role/groups. An entitled Pilot takes precedence over Live for that member; clients never reproduce audience logic. Viewer/business roles only receive the public projection, while contributor/reviewer/admin/owner roles can enter Studio. Contributors author; reviewers/admins release and deploy.
 
 ## Recommended lot order
 
@@ -90,17 +110,17 @@ Filter the existing list:
 
 ## Hypervisor / runs origin
 
-Binding invoke tags `input_ref._ingress.adapter.origin = "experience:{binding_key}"`.
+Binding invoke tags `input_ref._ingress.adapter.origin = "experience:{release_slug}"` and records Experience, Release, Deployment, channel, binding, page and component provenance.
 
-`GET /api/v1/runs?origin=experience:{key}` filters that JSON path (no extra index). Large workspaces scan the workspace run list.
+`GET /api/v1/runs?origin=experience:{slug}` filters that JSON path (no extra index). Large workspaces scan the workspace run list.
 
 ## Legacy workspace apps
 
 `PUT /api/v1/workspaces/{slug}/apps` is Lot 9 / legacy enablement for installed Workspace App packages. Experience draft → release → deploy is the source of truth for business applications. Do not delete the legacy endpoint; do not author Experiences through it.
 
-## Quality gates (opt-in)
+## Quality gates
 
-Playwright canaries for `/work` and Studio. They are **not** part of the default iteration deploy path (`scripts/run-iteration-canaries.sh` still runs only `11-system360-canary` and `12-protected-runner-canaries`).
+Playwright canaries for `/work` and Studio are part of the default iteration gate alongside System360 and protected-runner canaries. They skip, rather than fail, when the feature flag is off; `/work` also skips when its server-filtered catalogue is empty.
 
 ```bash
 cd frontend-ng
@@ -114,13 +134,13 @@ E2E_EXPERIENCE_CANARY=1 \
     --project=chromium
 ```
 
-Skip (do not fail) when `settings.features.experience_v1` is off, or when `/work` has no Pilot/In-service app visible to the principal. Traces stay off. Optional: `E2E_EXPERIENCE_CANARY=1 scripts/run-iteration-canaries.sh <sha>` after the default 11+12 specs.
+`scripts/run-iteration-canaries.sh <sha>` enables these specs and writes their JSON evidence by default. Traces stay off because the canaries use a live principal.
 
-## Leftovers
+## Deliberate boundaries and follow-ups
 
-- `on_unavailable` is stored on `SystemBinding` and is not executed at invoke time.
-- `candidate_config_sha256` lives on the IAM decision plane, not on Experience rows.
-- No “Réparer les liaisons” UI on `/create/apps` (Lot 5 owns that page). Drift list + retarget are API-only: `GET /api/v1/system-bindings/drift`, `POST /api/v1/system-bindings/{key}/retarget`.
-- Runs `origin=` has no JSON index.
-- Chat / Client360 / capture stay id-resolved. Mission Room rails prefer bindings when `experience_v1` is on.
+- `candidate_config_sha256` remains on the IAM decision plane, not on Experience rows.
+- Runs `origin=` has no JSON index; very large workspaces may need one after measurement.
+- Preview is effect-free. A later governed “preview as role/group” projection may be added, but it must use server-computed effective access rather than impersonation in the client.
+- Custom domains and arbitrary custom components are not part of the certified no-code runtime. A custom component still requires the WorkspaceAppPackage/Git/CI/SBOM path.
+- Chat / Client360 / capture stay id-resolved during dual-run. Mission Room rails prefer bindings when `experience_v1` is on.
 - First API Publish of an 089 seed-shaped contract auto-retargets seed bindings. Author bindings stay locked.

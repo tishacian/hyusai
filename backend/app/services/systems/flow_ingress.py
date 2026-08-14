@@ -208,16 +208,43 @@ def create_published_ingress_run(
     trigger: str | None = None,
     trigger_dedup_key: str | None = None,
     allow_debug: bool = False,
+    authority_version_id: str | None = None,
 ) -> Run:
     """Validate an ingress and freeze all evidence before inserting one Run."""
-
-    system, version, flow, flow_sha256, contract = _published_evidence(
-        db,
-        system_id=system_id,
-        workspace=workspace,
-        require_active=True,
-        lock_system=True,
-    )
+    if authority_version_id is None:
+        system, version, flow, flow_sha256, contract = _published_evidence(
+            db,
+            system_id=system_id,
+            workspace=workspace,
+            require_active=True,
+            lock_system=True,
+        )
+    else:
+        system = (
+            db.query(System)
+            .filter(System.id == system_id, System.workspace_id == workspace.id)
+            .populate_existing()
+            .with_for_update(of=System)
+            .one_or_none()
+        )
+        if system is None:
+            raise FlowIngressError("SYSTEM_NOT_FOUND", "System not found.", 404)
+        if system.status != "active":
+            raise FlowIngressError(
+                "FLOW_INGRESS_SYSTEM_INACTIVE",
+                "Published ingresses accept Runs only while the System is active.",
+                409,
+                {"status": system.status},
+            )
+        try:
+            version, flow, flow_sha256, contract = flow_publication.version_run_evidence(
+                db,
+                system=system,
+                workspace=workspace,
+                version_id=authority_version_id,
+            )
+        except flow_publication.FlowPublicationError as exc:
+            raise _translate_publication(exc) from exc
     version_id = getattr(version, "id", None)
     if expected_published_version_id is not None and version_id != expected_published_version_id:
         raise FlowIngressError(
@@ -226,7 +253,7 @@ def create_published_ingress_run(
             409,
             {
                 "expected_published_version_id": expected_published_version_id,
-                "current_published_version_id": version_id,
+                "authority_version_id": version_id,
             },
         )
     if expected_flow_sha256 is not None and expected_flow_sha256 != flow_sha256:

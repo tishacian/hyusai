@@ -40,13 +40,56 @@ export interface ExperienceNode {
 
 export interface ExperiencePage {
   id: string;
-  title: string;
+  title: string | LocalizedText;
   props?: Record<string, unknown>;
   components: ExperienceNode[];
 }
 
 export interface ExperienceDocument {
   pages: ExperiencePage[];
+  i18n?: Record<string, Record<string, string>>;
+}
+
+export interface LocalizedText {
+  $i18n: string;
+  fallback: string;
+}
+
+export function textFallback(value: string | LocalizedText): string {
+  return typeof value === 'string' ? value : value.fallback || value.$i18n;
+}
+
+export type RuntimeMode = 'live' | 'preview';
+
+export interface RuntimeNodeContext {
+  experienceSlug: string;
+  pageId: string;
+  componentId: string;
+  stateKey: string;
+  sourceStateKey: string;
+  mode: RuntimeMode;
+}
+
+export interface RuntimeDataBinding {
+  source: 'run-output' | 'system-binding';
+  componentId?: string;
+  bindingKey?: string;
+  selector: string;
+  input: Record<string, unknown>;
+}
+
+export type RuntimeAfterSuccess =
+  | { kind: 'stay' | 'result' | 'reset' }
+  | { kind: 'page'; pageId: string };
+
+/** Closed post-action catalog. Page ids are route segments, never URLs. */
+export function runtimeAfterSuccess(value: unknown): RuntimeAfterSuccess {
+  if (value === 'result' || value === 'reset') return { kind: value };
+  if (typeof value === 'string' && value.startsWith('page:')) {
+    const pageId = value.slice(5);
+    if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(pageId)) return { kind: 'page', pageId };
+  }
+  return { kind: 'stay' };
 }
 
 export type CatalogResolution =
@@ -58,7 +101,6 @@ export function rendererPinMatches(
   releaseVersion: string | null | undefined,
   catalogVersion = CERTIFIED_RENDERER_VERSION,
 ): boolean {
-  if (!releaseVersion) return true;
   return releaseVersion === catalogVersion;
 }
 
@@ -97,7 +139,15 @@ export function parseDocument(raw: unknown): ExperienceDocument {
   for (const item of raw['pages']) {
     if (!isRecord(item)) continue;
     const id = typeof item['id'] === 'string' && item['id'] ? item['id'] : `page-${pages.length}`;
-    const title = typeof item['title'] === 'string' ? item['title'] : id;
+    const rawTitle = item['title'];
+    const title =
+      typeof rawTitle === 'string'
+        ? rawTitle
+        : isRecord(rawTitle)
+          && typeof rawTitle['$i18n'] === 'string'
+          && typeof rawTitle['fallback'] === 'string'
+            ? { $i18n: rawTitle['$i18n'], fallback: rawTitle['fallback'] }
+            : id;
     const components: ExperienceNode[] = [];
     if (Array.isArray(item['components'])) {
       for (const node of item['components']) {
@@ -116,7 +166,112 @@ export function parseDocument(raw: unknown): ExperienceDocument {
       components,
     });
   }
-  return { pages };
+  const dictionaries: Record<string, Record<string, string>> = {};
+  if (isRecord(raw['i18n'])) {
+    for (const [locale, entries] of Object.entries(raw['i18n'])) {
+      if (!isRecord(entries)) continue;
+      const copy: Record<string, string> = {};
+      for (const [key, value] of Object.entries(entries)) {
+        if (typeof value === 'string') copy[key] = value;
+      }
+      dictionaries[locale] = copy;
+    }
+  }
+  return Object.keys(dictionaries).length > 0 ? { pages, i18n: dictionaries } : { pages };
+}
+
+/**
+ * Resolve explicit document copy references without guessing which strings are
+ * translatable. A persisted document uses:
+ *
+ *   { "$i18n": "expense.title", "fallback": "Expense request" }
+ *   i18n: { fr: { "expense.title": "Note de frais" } }
+ *
+ * Missing release copy falls back to the author-provided text. Ready-check is
+ * responsible for rejecting missing declared-language entries before release.
+ */
+export function localizeDocument(raw: unknown, locale: string): ExperienceDocument {
+  if (!isRecord(raw)) return parseDocument(raw);
+  const dictionaries = isRecord(raw['i18n']) ? raw['i18n'] : {};
+  const exact = isRecord(dictionaries[locale]) ? dictionaries[locale] : {};
+  const baseCode = locale.toLowerCase().slice(0, 2);
+  const base = isRecord(dictionaries[baseCode]) ? dictionaries[baseCode] : {};
+  return parseDocument(resolveLocalizedValue(raw, exact, base));
+}
+
+function resolveLocalizedValue(
+  value: unknown,
+  exact: Record<string, unknown>,
+  base: Record<string, unknown>,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveLocalizedValue(item, exact, base));
+  }
+  if (!isRecord(value)) return value;
+  const key = value['$i18n'];
+  if (typeof key === 'string' && key.trim()) {
+    const translated = exact[key] ?? base[key];
+    if (typeof translated === 'string' && translated.trim()) return translated;
+    return typeof value['fallback'] === 'string' ? value['fallback'] : key;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [name, item] of Object.entries(value)) {
+    if (name !== 'i18n') out[name] = resolveLocalizedValue(item, exact, base);
+  }
+  return out;
+}
+
+export function runtimeDataBinding(node: ExperienceNode): RuntimeDataBinding | null {
+  const direct = node.props?.['dataBinding'];
+  const query = node.props?.['queryBinding'];
+  const raw = isRecord(query) ? query : isRecord(direct) ? direct : null;
+  if (!raw) return null;
+  const source = isRecord(query) ? 'system-binding' : 'run-output';
+  if (raw['source'] !== source) return null;
+  const bindingKey = typeof raw['bindingKey'] === 'string' ? raw['bindingKey'].trim() : '';
+  const componentId = typeof raw['componentId'] === 'string' ? raw['componentId'].trim() : '';
+  if (source === 'system-binding' && !bindingKey) return null;
+  if (source === 'run-output' && !componentId) return null;
+  return {
+    source,
+    bindingKey: bindingKey || undefined,
+    componentId: componentId || undefined,
+    selector: typeof raw['selector'] === 'string' ? raw['selector'].trim() : '',
+    input: isRecord(raw['input']) ? raw['input'] : {},
+  };
+}
+
+/** Safe property projection only: no expressions, calls, or prototype keys. */
+export function selectRuntimeData(value: unknown, selector: string): unknown {
+  if (!selector) return value;
+  const parts = selector.split('.').filter(Boolean);
+  let current = value;
+  for (const part of parts) {
+    if (part === '__proto__' || part === 'prototype' || part === 'constructor') return undefined;
+    if (Array.isArray(current) && /^\d+$/.test(part)) {
+      current = current[Number(part)];
+      continue;
+    }
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, part)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+export function runtimeStateKey(slug: string, pageId: string, componentId: string): string {
+  return [slug || 'preview', pageId, componentId].map((part) => encodeURIComponent(part)).join(':');
+}
+
+export function isReadyFileReference(value: unknown): value is {
+  kind: 'document';
+  document_id: string;
+  filename: string;
+} {
+  return isRecord(value)
+    && value['kind'] === 'document'
+    && typeof value['document_id'] === 'string'
+    && !!value['document_id'].trim()
+    && typeof value['filename'] === 'string';
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +294,7 @@ export interface RuntimeField {
   label: string;
   description: string;
   options: readonly string[];
+  accept: string;
 }
 
 export function fieldsFromSchema(schema: unknown): RuntimeField[] {
@@ -161,6 +317,7 @@ export function fieldsFromSchema(schema: unknown): RuntimeField[] {
       label: typeof spec['title'] === 'string' && spec['title'] ? spec['title'] : name,
       description: typeof spec['description'] === 'string' ? spec['description'] : '',
       options,
+      accept: typeof spec['contentMediaType'] === 'string' ? spec['contentMediaType'] : '',
     });
   }
   return fields;
@@ -205,7 +362,7 @@ export function validateValues(
       value === undefined
       || value === null
       || (typeof value === 'string' && value.trim() === '');
-    if (field.required && empty && field.kind !== 'boolean') {
+    if (field.required && empty) {
       errors[field.name] = 'required';
       continue;
     }

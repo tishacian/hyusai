@@ -46,6 +46,12 @@ ALL_CAPTURE_ROLES = (
 REVIEW_ROLES = (WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER)
 ADMIN_ROLES = (WORKSPACE_ADMIN, WORKSPACE_OWNER)
 CONTRIBUTOR_OR_ADMIN = (WORKSPACE_CONTRIBUTOR, WORKSPACE_ADMIN, WORKSPACE_OWNER)
+EXPERIENCE_STUDIO_ROLES = (
+    WORKSPACE_CONTRIBUTOR,
+    WORKSPACE_REVIEWER,
+    WORKSPACE_ADMIN,
+    WORKSPACE_OWNER,
+)
 # These are the legacy Knowledge Capture roles. Reviewer removal must be
 # introduced as an authorization-v2 candidate and compared in shadow before
 # it can become authoritative; changing this manifest would bypass rollout and
@@ -282,7 +288,8 @@ AGENTIUM_OBJECT_ACTIONS_MANIFEST = CapabilityIAMManifest(
         PermissionRule("action", "admin", ADMIN_ROLES),
         PermissionRule("binding", "view", ALL_CAPTURE_ROLES),
         PermissionRule("binding", "manage", CONTRIBUTOR_OR_ADMIN),
-        PermissionRule("experience", "view", ALL_CAPTURE_ROLES),
+        PermissionRule("experience", "view", EXPERIENCE_STUDIO_ROLES),
+        PermissionRule("experience", "consume", ALL_CAPTURE_ROLES),
         PermissionRule("experience", "edit", CONTRIBUTOR_OR_ADMIN),
         PermissionRule("experience", "release", REVIEW_ROLES),
         PermissionRule("experience", "deploy", REVIEW_ROLES),

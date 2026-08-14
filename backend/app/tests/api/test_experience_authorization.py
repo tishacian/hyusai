@@ -159,7 +159,7 @@ def _pages() -> dict[str, Any]:
             {
                 "id": "home",
                 "title": "Home",
-                "components": [{"type": "form"}],
+                "components": [{"type": "form", "id": "form"}],
             }
         ]
     }
@@ -182,10 +182,19 @@ def _ready_experience(admin_client: TestClient) -> str:
     experience_id = created.json()["id"]
     saved = admin_client.put(
         f"/experiences/{experience_id}/draft",
-        json={"pages": _pages(), "binding_keys": []},
+        json={"pages": _pages(), "binding_keys": [], "expected_revision": 1},
     )
     assert saved.status_code == 200, saved.text
     return experience_id
+
+
+def _release_body(client: TestClient, experience_id: str, notes: str) -> dict[str, Any]:
+    draft = client.get(f"/experiences/{experience_id}").json()["draft"]
+    return {
+        "notes": notes,
+        "expected_draft_revision": draft["revision"],
+        "expected_content_sha256": draft["content_sha256"],
+    }
 
 
 def test_viewer_can_list_cannot_edit_release_deploy_or_manage(db_session) -> None:
@@ -203,7 +212,7 @@ def test_viewer_can_list_cannot_edit_release_deploy_or_manage(db_session) -> Non
     edited = client.post("/experiences", json=_experience_body(slug="viewer-app"))
     released = client.post(
         f"/experiences/{experience_id}/releases",
-        json={"notes": "viewer must not release"},
+        json=_release_body(admin_client, experience_id, "viewer must not release"),
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",
@@ -211,8 +220,7 @@ def test_viewer_can_list_cannot_edit_release_deploy_or_manage(db_session) -> Non
     )
     managed = client.post("/system-bindings", json=_binding_body(version))
 
-    assert listed.status_code == 200
-    assert [item["slug"] for item in listed.json()["experiences"]] == ["password-reset"]
+    assert listed.status_code == 403
     assert bindings.status_code == 200
     assert audit.status_code == 403
     assert edited.status_code == 403
@@ -238,12 +246,12 @@ def test_contributor_can_edit_and_manage_cannot_release_or_deploy(db_session) ->
     created = client.post("/experiences", json=_experience_body(slug="contributor-app"))
     saved = client.put(
         f"/experiences/{created.json()['id']}/draft",
-        json={"pages": _pages(), "binding_keys": []},
+        json={"pages": _pages(), "binding_keys": [], "expected_revision": 1},
     )
     binding = client.post("/system-bindings", json=_binding_body(version))
     released = client.post(
         f"/experiences/{experience_id}/releases",
-        json={"notes": "contributor must not release"},
+        json=_release_body(client, experience_id, "contributor must not release"),
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",
@@ -271,7 +279,7 @@ def test_reviewer_can_release_and_deploy_cannot_edit_or_manage(db_session) -> No
     managed = client.post("/system-bindings", json=_binding_body(version))
     released = client.post(
         f"/experiences/{experience_id}/releases",
-        json={"notes": "reviewer release"},
+        json=_release_body(client, experience_id, "reviewer release"),
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",

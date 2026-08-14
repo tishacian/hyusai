@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   type Type,
   computed,
   effect,
@@ -8,7 +9,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { TagComponent, type CkTagTone } from '@app/shared/cockpit';
@@ -18,11 +19,16 @@ import {
   type CertifiedType,
   type ExperienceNode,
   type RuntimeField,
+  type RuntimeNodeContext,
   extractCitations,
   extractResult,
   fieldsFromSchema,
+  isReadyFileReference,
   mapRunStatus,
+  runtimeAfterSuccess,
+  runtimeDataBinding,
   seedFromSchema,
+  selectRuntimeData,
   unavailablePolicy,
   validateValues,
   valuesToPayload,
@@ -49,6 +55,27 @@ function slotOf(node: ExperienceNode, empty: boolean, loading = false, error = f
   if (typeof node.props?.['error'] === 'string' || error) return 'error';
   if (empty) return 'empty';
   return 'ready';
+}
+
+function dynamicValue(
+  runtime: ExperienceRuntimeService,
+  node: ExperienceNode,
+  context: RuntimeNodeContext,
+): unknown {
+  const binding = runtimeDataBinding(node);
+  if (!binding) return undefined;
+  return selectRuntimeData(runtime.run(context.sourceStateKey)?.output_ref, binding.selector);
+}
+
+function dynamicSlot(
+  runtime: ExperienceRuntimeService,
+  node: ExperienceNode,
+  context: RuntimeNodeContext,
+  empty: boolean,
+): Slot {
+  if (!runtimeDataBinding(node)) return slotOf(node, empty);
+  const phase = runtime.phase(context.sourceStateKey);
+  return slotOf(node, empty, phase === 'loading' || phase === 'running', phase === 'error');
 }
 
 @Component({
@@ -193,36 +220,163 @@ export class CalloutBlock {
 }
 
 @Component({
-  selector: 'xp-rt-kpi',
+  selector: 'xp-rt-query-control',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './runtime.scss',
   template: `
+    @if (query(); as binding) {
+      <div class="xp-rt-query">
+        @if (context().mode === 'preview') {
+          <p class="xp-rt-hint">{{ i18n.t('experience.runtime.preview.read_only') }}</p>
+        } @else if (confirming()) {
+          <div
+            class="xp-rt-confirm"
+            role="group"
+            [attr.aria-labelledby]="confirmTitleId()"
+            (keydown.escape)="cancelConfirmation()"
+          >
+            <p class="xp-rt-sub" [id]="confirmTitleId()">{{ i18n.t('experience.runtime.query.confirm') }}</p>
+            <div class="xp-rt-actions">
+              <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="cancelConfirmation()">
+                {{ i18n.t('common.cancel') }}
+              </button>
+              <button type="button" class="xp-rt-btn" data-confirm-accept (click)="invoke(true)">
+                {{ i18n.t('common.confirm') }}
+              </button>
+            </div>
+          </div>
+        } @else {
+          <button
+            type="button"
+            class="xp-rt-btn xp-rt-btn-ghost"
+            data-action-trigger
+            [disabled]="busy() || blocked()"
+            (click)="load()"
+          >
+            {{ i18n.t(hasRun() ? 'experience.runtime.query.refresh' : 'experience.runtime.query.load') }}
+          </button>
+          @if (blocked()) {
+            <p class="xp-rt-err" role="alert">{{ i18n.t('experience.runtime.unavailable.body') }}</p>
+          }
+        }
+      </div>
+    }
+  `,
+})
+export class RuntimeQueryControlComponent {
+  private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
+  readonly i18n = inject(I18nService);
+  readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
+  readonly confirming = signal(false);
+  readonly resolveStatus = signal<string | null>(null);
+  private confirmation = false;
+
+  readonly query = computed(() => {
+    const binding = runtimeDataBinding(this.node());
+    return binding?.source === 'system-binding' ? binding : null;
+  });
+  readonly busy = computed(() => {
+    const phase = this.runtime.phase(this.context().stateKey);
+    return phase === 'loading' || phase === 'running';
+  });
+  readonly blocked = computed(() => {
+    const status = this.resolveStatus();
+    return !!status && status !== 'ok';
+  });
+  readonly hasRun = computed(() => !!this.runtime.run(this.context().stateKey));
+  readonly confirmTitleId = computed(() =>
+    `xp-rt-${this.context().stateKey.replace(/[^a-zA-Z0-9_-]/g, '-')}-query-confirm`,
+  );
+
+  constructor() {
+    effect(() => {
+      const query = this.query();
+      const context = this.context();
+      if (!query?.bindingKey || context.mode !== 'live') {
+        this.resolveStatus.set(null);
+        return;
+      }
+      this.runtime.resolve(context, query.bindingKey).pipe(take(1)).subscribe((resolved) => {
+        this.resolveStatus.set(resolved?.status ?? 'unavailable');
+        this.confirmation = resolved?.binding.confirmation_policy === 'confirm';
+      });
+    });
+  }
+
+  load(): void {
+    if (this.busy() || this.blocked()) return;
+    if (this.confirmation) {
+      this.confirming.set(true);
+      queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
+      return;
+    }
+    this.invoke(false);
+  }
+
+  invoke(confirmed: boolean): void {
+    const query = this.query();
+    if (!query?.bindingKey) return;
+    this.confirming.set(false);
+    const context = this.context();
+    this.runtime.invoke(context, query.bindingKey, query.input, confirmed || undefined).subscribe((started) => {
+      if (started?.id) this.runtime.poll(context, started.id).subscribe();
+    });
+  }
+
+  cancelConfirmation(): void {
+    this.confirming.set(false);
+    queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
+  }
+}
+
+@Component({
+  selector: 'xp-rt-kpi',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuntimeQueryControlComponent, RuntimeSlotComponent],
+  styleUrl: './runtime.scss',
+  template: `
     <article class="xp-rt-block" [attr.aria-label]="ariaName() || null">
       <p class="xp-rt-sub">{{ label() }}</p>
-      <p class="xp-rt-kpi">{{ value() }}</p>
+      <xp-rt-slot [state]="slot()" [detail]="errorText()">
+        <p class="xp-rt-kpi">{{ value() }}</p>
+      </xp-rt-slot>
       @if (description()) {
         <p class="xp-rt-sub">{{ description() }}</p>
       }
+      <xp-rt-query-control [node]="node()" [context]="context()" />
     </article>
   `,
 })
 export class KpiBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly label = computed(() => str(this.node(), 'label'));
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly value = computed(() => {
+    const dynamic = dynamicValue(this.runtime, this.node(), this.context());
+    if (runtimeDataBinding(this.node())) {
+      return dynamic === undefined || dynamic === null ? '—' : String(dynamic);
+    }
     const raw = this.node().props?.['value'];
     return raw === undefined || raw === null ? '—' : String(raw);
   });
+  readonly slot = computed(() =>
+    dynamicSlot(this.runtime, this.node(), this.context(), false),
+  );
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 @Component({
   selector: 'xp-rt-table',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent],
   styleUrl: './runtime.scss',
   template: `
     <div class="xp-rt-block" [attr.aria-label]="ariaName() || null">
@@ -232,7 +386,8 @@ export class KpiBlock {
       @if (description()) {
         <p class="xp-rt-sub">{{ description() }}</p>
       }
-      <xp-rt-slot [state]="slot()" [empty]="emptyText()">
+      <xp-rt-query-control [node]="node()" [context]="context()" />
+      <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
         <table class="xp-rt-table">
           @if (caption()) {
             <caption class="xp-rt-sub">{{ caption() }}</caption>
@@ -259,10 +414,12 @@ export class KpiBlock {
   `,
 })
 export class TableBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly columns = computed(() => {
     const raw = list(this.node().props?.['columns']);
-    return raw.map((item, index) => {
+    const configured = raw.map((item, index) => {
       if (typeof item === 'string') return { key: item, label: item };
       if (isRecord(item) && typeof item['key'] === 'string') {
         return {
@@ -272,14 +429,24 @@ export class TableBlock {
       }
       return { key: `c${index}`, label: String(item) };
     });
+    if (configured.length > 0) return configured;
+    const first = this.rows()[0];
+    return first ? Object.keys(first).map((key) => ({ key, label: key })) : [];
   });
-  readonly rows = computed(() => list(this.node().props?.['rows']).filter(isRecord));
+  readonly rows = computed(() => {
+    const dynamic = dynamicValue(this.runtime, this.node(), this.context());
+    const value = runtimeDataBinding(this.node()) ? dynamic : this.node().props?.['rows'];
+    return list(value).filter(isRecord);
+  });
   readonly caption = computed(() => str(this.node(), 'caption'));
   readonly title = computed(() => appearanceOf(this.node()).title);
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
-  readonly slot = computed(() => slotOf(this.node(), this.rows().length === 0));
+  readonly slot = computed(() =>
+    dynamicSlot(this.runtime, this.node(), this.context(), this.rows().length === 0),
+  );
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
   cell(row: Record<string, unknown>, key: string): string {
     const value = row[key];
     return value === undefined || value === null ? '' : String(value);
@@ -290,7 +457,7 @@ export class TableBlock {
   selector: 'xp-rt-queue',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="ariaName() || i18n.t('experience.runtime.queue.title')">
@@ -298,7 +465,8 @@ export class TableBlock {
       @if (description()) {
         <p class="xp-rt-sub">{{ description() }}</p>
       }
-      <xp-rt-slot [state]="slot()" [empty]="emptyText()">
+      <xp-rt-query-control [node]="node()" [context]="context()" />
+      <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
         <ul class="xp-rt-list">
           @for (item of items(); track $index) {
             <li>{{ item }}</li>
@@ -309,10 +477,16 @@ export class TableBlock {
   `,
 })
 export class QueueBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly items = computed(() =>
-    list(this.node().props?.['items']).map((item) => {
+    list(
+      runtimeDataBinding(this.node())
+        ? dynamicValue(this.runtime, this.node(), this.context())
+        : this.node().props?.['items'],
+    ).map((item) => {
       if (typeof item === 'string') return item;
       if (isRecord(item) && typeof item['title'] === 'string') return item['title'];
       return String(item);
@@ -322,7 +496,10 @@ export class QueueBlock {
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
-  readonly slot = computed(() => slotOf(this.node(), this.items().length === 0));
+  readonly slot = computed(() =>
+    dynamicSlot(this.runtime, this.node(), this.context(), this.items().length === 0),
+  );
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 @Component({
@@ -412,7 +589,7 @@ export class HistoryBlock {
   imports: [TagComponent],
   styleUrl: './runtime.scss',
   template: `
-    <div class="xp-rt-block xp-rt-row">
+    <div class="xp-rt-block xp-rt-row" role="status" aria-live="polite">
       <ck-tag [tone]="tone()">{{ label() }}</ck-tag>
     </div>
   `,
@@ -421,8 +598,9 @@ export class RuntimeStatusBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly vocab = computed(() => {
-    const raw = str(this.node(), 'status') || this.runtime.run()?.status;
+    const raw = str(this.node(), 'status') || this.runtime.run(this.context().sourceStateKey)?.status;
     return mapRunStatus(raw);
   });
   readonly label = computed(() => {
@@ -481,10 +659,11 @@ export class ResultBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly data = computed(() => {
     const fromProps = this.node().props?.['value'];
     if (fromProps !== undefined) return fromProps;
-    return extractResult(this.runtime.run());
+    return extractResult(this.runtime.run(this.context().sourceStateKey));
   });
   readonly pairs = computed(() => {
     const data = this.data();
@@ -507,11 +686,12 @@ export class ResultBlock {
     slotOf(
       this.node(),
       this.data() === null || this.data() === undefined,
-      this.runtime.phase() === 'loading' || this.runtime.phase() === 'running',
-      this.runtime.phase() === 'error',
+      this.runtime.phase(this.context().sourceStateKey) === 'loading'
+        || this.runtime.phase(this.context().sourceStateKey) === 'running',
+      this.runtime.phase(this.context().sourceStateKey) === 'error',
     ),
   );
-  readonly errorText = computed(() => this.runtime.lastError() ?? '');
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 @Component({
@@ -543,12 +723,13 @@ export class EvidenceBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly citations = computed(() => {
     const fromProps = this.node().props?.['citations'];
     if (Array.isArray(fromProps)) {
       return extractCitations({ output_ref: { citations: fromProps } });
     }
-    return extractCitations(this.runtime.run());
+    return extractCitations(this.runtime.run(this.context().sourceStateKey));
   });
 }
 
@@ -561,6 +742,7 @@ export class EvidenceBlock {
   template: `
     <form
       class="xp-rt-block"
+      novalidate
       (submit)="$event.preventDefault(); submit()"
       [attr.aria-busy]="busy()"
       [attr.aria-label]="ariaName() || null"
@@ -570,6 +752,9 @@ export class EvidenceBlock {
       }
       @if (description()) {
         <p class="xp-rt-sub">{{ description() }}</p>
+      }
+      @if (context().mode === 'preview') {
+        <p class="xp-rt-preview-note" role="status">{{ i18n.t('experience.runtime.preview.read_only') }}</p>
       }
       @if (blocked()) {
         <app-empty-state
@@ -594,7 +779,10 @@ export class EvidenceBlock {
         >
           @for (field of fields(); track field.name) {
             <div class="xp-rt-field">
-              <label [for]="fid(field)">{{ field.label }}</label>
+              <label [for]="fid(field)">
+                {{ field.label }}
+                @if (field.required) { <span aria-hidden="true">*</span> }
+              </label>
               @switch (field.kind) {
                 @case ('boolean') {
                   <input
@@ -602,7 +790,8 @@ export class EvidenceBlock {
                     [id]="fid(field)"
                     [checked]="values()[field.name] === true"
                     [attr.aria-invalid]="!!errors()[field.name]"
-                    [attr.aria-describedby]="descId(field)"
+                    [attr.aria-required]="field.required"
+                    [attr.aria-describedby]="descIds(field)"
                     (change)="set(field.name, checkboxValue($event))"
                   />
                 }
@@ -610,8 +799,9 @@ export class EvidenceBlock {
                   <select
                     [id]="fid(field)"
                     [value]="strVal(field.name)"
+                    [required]="field.required"
                     [attr.aria-invalid]="!!errors()[field.name]"
-                    [attr.aria-describedby]="descId(field)"
+                    [attr.aria-describedby]="descIds(field)"
                     (change)="set(field.name, inputValue($event))"
                   >
                     <option value=""></option>
@@ -620,19 +810,44 @@ export class EvidenceBlock {
                     }
                   </select>
                 }
+                @case ('file') {
+                  <input
+                    type="file"
+                    [id]="fid(field)"
+                    [accept]="field.accept"
+                    [required]="field.required"
+                    [disabled]="context().mode === 'preview' || uploading()[field.name] === true"
+                    [attr.aria-invalid]="!!errors()[field.name]"
+                    [attr.aria-describedby]="descIds(field)"
+                    (change)="selectFile(field, $event)"
+                  />
+                }
                 @default {
                   <input
                     [type]="inputType(field)"
                     [id]="fid(field)"
                     [value]="strVal(field.name)"
+                    [required]="field.required"
                     [attr.aria-invalid]="!!errors()[field.name]"
-                    [attr.aria-describedby]="descId(field)"
+                    [attr.aria-describedby]="descIds(field)"
                     (input)="set(field.name, inputValue($event))"
                   />
                 }
               }
+              @if (field.description) {
+                <p class="xp-rt-hint" [id]="fid(field) + '-desc'">{{ field.description }}</p>
+              }
               @if (field.kind === 'file') {
                 <p class="xp-rt-hint" [id]="fid(field) + '-hint'">{{ i18n.t('experience.runtime.form.file_hint') }}</p>
+                @if (uploading()[field.name]) {
+                  <p class="xp-rt-hint" [id]="fid(field) + '-upload'" role="status">
+                    {{ i18n.t('experience.runtime.form.file_uploading') }}
+                  </p>
+                } @else if (fileNames()[field.name]; as filename) {
+                  <p class="xp-rt-hint" [id]="fid(field) + '-upload'" role="status">
+                    {{ i18n.t('experience.runtime.form.file_ready', { name: filename }) }}
+                  </p>
+                }
               }
               @if (errors()[field.name]; as err) {
                 <p class="xp-rt-err" [id]="fid(field) + '-err'" role="alert">
@@ -643,24 +858,35 @@ export class EvidenceBlock {
           }
         </xp-rt-slot>
         @if (confirming()) {
-          <div class="xp-rt-confirm" role="dialog" aria-modal="true" [attr.aria-labelledby]="confirmTitleId">
-            <h3 [id]="confirmTitleId">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
+          <div
+            class="xp-rt-confirm"
+            role="group"
+            data-confirm
+            [attr.aria-labelledby]="confirmTitleId()"
+            (keydown.escape)="cancelConfirmation()"
+          >
+            <h3 [id]="confirmTitleId()">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
             <p class="xp-rt-sub">{{ i18n.t('experience.runtime.form.confirm_body') }}</p>
             <div class="xp-rt-actions">
-              <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="confirming.set(false)">
+              <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="cancelConfirmation()">
                 {{ i18n.t('common.cancel') }}
               </button>
-              <button type="button" class="xp-rt-btn" (click)="invoke(true)">
+              <button type="button" class="xp-rt-btn" data-confirm-accept (click)="invoke(true)">
                 {{ i18n.t('common.confirm') }}
               </button>
             </div>
           </div>
         } @else {
           <div class="xp-rt-actions">
-            <button type="submit" class="xp-rt-btn" [disabled]="busy() || blocked()">
+            <button
+              type="submit"
+              class="xp-rt-btn"
+              data-action-trigger
+              [disabled]="busy() || blocked() || context().mode === 'preview' || hasUpload()"
+            >
               {{ submitLabel() }}
             </button>
-            @if (canRetry()) {
+            @if (canRetry() && context().mode === 'live') {
               <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="retry()">
                 {{ i18n.t('common.retry') }}
               </button>
@@ -673,14 +899,19 @@ export class EvidenceBlock {
 })
 export class FormBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly values = signal<Record<string, unknown>>({});
   readonly errors = signal<Record<string, 'required' | 'invalid'>>({});
   readonly confirming = signal(false);
+  readonly uploading = signal<Record<string, boolean>>({});
+  readonly fileNames = signal<Record<string, string>>({});
   readonly resolveStatus = signal<string | null>(null);
   readonly policy = signal(unavailablePolicy(undefined));
-  readonly confirmTitleId = 'xp-rt-confirm-title';
+  readonly confirmTitleId = computed(() => `${this.domPrefix()}-confirm-title`);
 
   readonly fields = computed(() => fieldsFromSchema(this.node().props?.['schema']));
   readonly title = computed(() => appearanceOf(this.node()).title);
@@ -693,8 +924,12 @@ export class FormBlock {
     () => str(this.node(), 'submitLabel') || this.i18n.t('experience.runtime.form.submit'),
   );
   readonly busy = computed(
-    () => this.runtime.phase() === 'loading' || this.runtime.phase() === 'running',
+    () => {
+      const phase = this.runtime.phase(this.context().stateKey);
+      return phase === 'loading' || phase === 'running';
+    },
   );
+  readonly hasUpload = computed(() => Object.values(this.uploading()).some(Boolean));
   readonly blocked = computed(() => {
     const status = this.resolveStatus();
     return !!status && status !== 'ok';
@@ -711,22 +946,26 @@ export class FormBlock {
     return this.i18n.t('experience.runtime.unavailable.body');
   });
   readonly canRetry = computed(() => {
-    const status = mapRunStatus(this.runtime.run()?.status);
-    return status === 'error' || status === 'retry' || this.runtime.phase() === 'error';
+    const status = mapRunStatus(this.runtime.run(this.context().stateKey)?.status);
+    return status === 'error' || status === 'retry' || this.runtime.phase(this.context().stateKey) === 'error';
   });
 
   constructor() {
+    let seeded = false;
     effect(() => {
+      if (seeded) return;
       this.values.set({ ...seedFromSchema(this.node().props?.['schema']) });
       this.errors.set({});
+      seeded = true;
     });
     effect(() => {
       const key = this.bindingKey();
-      if (!key) {
+      const context = this.context();
+      if (!key || context.mode !== 'live') {
         this.resolveStatus.set(null);
         return;
       }
-      this.runtime.resolve(key).pipe(take(1)).subscribe((resolved) => {
+      this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
         if (!resolved) {
           this.resolveStatus.set('unavailable');
           this.policy.set('unavailable');
@@ -742,13 +981,18 @@ export class FormBlock {
   private confirmation = false;
 
   fid(field: RuntimeField): string {
-    return `xp-rt-${this.node().id ?? 'form'}-${field.name}`;
+    return `${this.domPrefix()}-${field.name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   }
 
-  descId(field: RuntimeField): string | null {
-    if (this.errors()[field.name]) return `${this.fid(field)}-err`;
-    if (field.kind === 'file') return `${this.fid(field)}-hint`;
-    return null;
+  descIds(field: RuntimeField): string | null {
+    const ids: string[] = [];
+    if (field.description) ids.push(`${this.fid(field)}-desc`);
+    if (field.kind === 'file') ids.push(`${this.fid(field)}-hint`);
+    if (field.kind === 'file' && (this.uploading()[field.name] || this.fileNames()[field.name])) {
+      ids.push(`${this.fid(field)}-upload`);
+    }
+    if (this.errors()[field.name]) ids.push(`${this.fid(field)}-err`);
+    return ids.length > 0 ? ids.join(' ') : null;
   }
 
   strVal(name: string): string {
@@ -764,6 +1008,13 @@ export class FormBlock {
 
   set(name: string, value: unknown): void {
     this.values.update((current) => ({ ...current, [name]: value }));
+    if (this.errors()[name]) {
+      this.errors.update((current) => {
+        const next = { ...current };
+        delete next[name];
+        return next;
+      });
+    }
   }
 
   inputValue(event: Event): string {
@@ -774,12 +1025,42 @@ export class FormBlock {
     return (event.target as HTMLInputElement).checked;
   }
 
+  selectFile(field: RuntimeField, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.context().mode !== 'live') return;
+    this.uploading.update((current) => ({ ...current, [field.name]: true }));
+    this.fileNames.update((current) => {
+      const next = { ...current };
+      delete next[field.name];
+      return next;
+    });
+    const collection = str(this.node(), 'collectionName') || 'documents';
+    this.runtime.uploadFile(this.context(), file, collection).subscribe((reference) => {
+      this.uploading.update((current) => ({ ...current, [field.name]: false }));
+      if (!isReadyFileReference(reference)) {
+        this.errors.update((current) => ({ ...current, [field.name]: 'invalid' }));
+        return;
+      }
+      this.set(field.name, reference);
+      this.fileNames.update((current) => ({ ...current, [field.name]: reference.filename }));
+    });
+  }
+
   submit(): void {
     const next = validateValues(this.fields(), this.values());
     this.errors.set(next);
-    if (Object.keys(next).length > 0 || this.blocked() || !this.bindingKey()) return;
+    if (
+      Object.keys(next).length > 0
+      || this.blocked()
+      || !this.bindingKey()
+      || this.context().mode !== 'live'
+      || this.hasUpload()
+    ) return;
     if (this.confirmation) {
       this.confirming.set(true);
+      queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
       return;
     }
     this.invoke(false);
@@ -788,15 +1069,62 @@ export class FormBlock {
   invoke(confirmed: boolean): void {
     this.confirming.set(false);
     const payload = valuesToPayload(this.fields(), this.values());
-    this.runtime.invoke(this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
-      if (started?.id) this.runtime.poll(started.id).subscribe();
+    const context = this.context();
+    this.runtime.invoke(context, this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
+      if (!started?.id) return;
+      this.runtime.poll(context, started.id).subscribe((run) => {
+        if (run?.status === 'completed') this.applyAfterSuccess();
+      });
     });
   }
 
   retry(): void {
-    this.runtime.retry().subscribe((started) => {
-      if (started?.id) this.runtime.poll(started.id).subscribe();
+    const context = this.context();
+    this.runtime.retry(context).subscribe((started) => {
+      if (!started?.id) return;
+      this.runtime.poll(context, started.id).subscribe((run) => {
+        if (run?.status === 'completed') this.applyAfterSuccess();
+      });
     });
+  }
+
+  cancelConfirmation(): void {
+    this.confirming.set(false);
+    queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
+  }
+
+  private domPrefix(): string {
+    return `xp-rt-${this.context().stateKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  }
+
+  private applyAfterSuccess(): void {
+    const outcome = runtimeAfterSuccess(this.node().props?.['afterSuccess']);
+    if (outcome.kind === 'reset') {
+      this.values.set(seedFromSchema(this.node().props?.['schema']));
+      this.errors.set({});
+      this.fileNames.set({});
+      return;
+    }
+    if (outcome.kind === 'page') {
+      this.navigateToPage(outcome.pageId);
+      return;
+    }
+    if (outcome.kind !== 'result') return;
+    queueMicrotask(() => {
+      const result = this.element.nativeElement
+        .closest('.xp-rt-page')
+        ?.querySelector<HTMLElement>('[data-component-type="result"]');
+      result?.scrollIntoView({ block: 'nearest' });
+      result?.focus();
+    });
+  }
+
+  private navigateToPage(pageId: string): void {
+    const context = this.context();
+    if (context.mode !== 'live' || !context.experienceSlug) return;
+    void this.router.navigateByUrl(
+      `/work/${encodeURIComponent(context.experienceSlug)}/${encodeURIComponent(pageId)}`,
+    );
   }
 }
 
@@ -807,30 +1135,41 @@ export class FormBlock {
   styleUrl: './runtime.scss',
   template: `
     <div class="xp-rt-block">
+      @if (context().mode === 'preview') {
+        <p class="xp-rt-preview-note" role="status">{{ i18n.t('experience.runtime.preview.read_only') }}</p>
+      }
       @if (confirming()) {
-        <div class="xp-rt-confirm" role="dialog" aria-modal="true" aria-labelledby="xp-rt-action-confirm">
-          <h3 id="xp-rt-action-confirm">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
+        <div
+          class="xp-rt-confirm"
+          role="group"
+          [attr.aria-labelledby]="confirmTitleId()"
+          (keydown.escape)="cancelConfirmation()"
+        >
+          <h3 [id]="confirmTitleId()">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
           <p class="xp-rt-sub">{{ i18n.t('experience.runtime.form.confirm_body') }}</p>
           <div class="xp-rt-actions">
-            <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="confirming.set(false)">
+            <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="cancelConfirmation()">
               {{ i18n.t('common.cancel') }}
             </button>
-            <button type="button" class="xp-rt-btn" (click)="invoke(true)">{{ i18n.t('common.confirm') }}</button>
+            <button type="button" class="xp-rt-btn" data-confirm-accept (click)="invoke(true)">
+              {{ i18n.t('common.confirm') }}
+            </button>
           </div>
         </div>
       } @else {
         <button
           type="button"
           class="xp-rt-btn"
-          [disabled]="busy() || blocked() || unlinked()"
+          data-action-trigger
+          [disabled]="busy() || blocked() || unlinked() || context().mode === 'preview'"
           [attr.aria-label]="ariaName() || null"
-          [attr.aria-describedby]="unlinked() ? noLinkHintId : null"
+          [attr.aria-describedby]="unlinked() ? noLinkHintId() : null"
           (click)="onClick()"
         >
           {{ label() }}
         </button>
         @if (unlinked()) {
-          <p class="xp-rt-hint" [id]="noLinkHintId">{{ i18n.t('experience.runtime.action.no_link') }}</p>
+          <p class="xp-rt-hint" [id]="noLinkHintId()">{{ i18n.t('experience.runtime.action.no_link') }}</p>
         }
       }
     </div>
@@ -838,8 +1177,11 @@ export class FormBlock {
 })
 export class ActionButtonBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly confirming = signal(false);
   readonly resolveStatus = signal<string | null>(null);
   private confirmation = false;
@@ -850,9 +1192,13 @@ export class ActionButtonBlock {
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly bindingKey = computed(() => str(this.node(), 'bindingKey'));
   readonly unlinked = computed(() => !this.bindingKey());
-  readonly noLinkHintId = 'xp-rt-action-no-link';
+  readonly noLinkHintId = computed(() => `${this.domPrefix()}-no-link`);
+  readonly confirmTitleId = computed(() => `${this.domPrefix()}-confirm-title`);
   readonly busy = computed(
-    () => this.runtime.phase() === 'loading' || this.runtime.phase() === 'running',
+    () => {
+      const phase = this.runtime.phase(this.context().stateKey);
+      return phase === 'loading' || phase === 'running';
+    },
   );
   readonly blocked = computed(() => {
     const status = this.resolveStatus();
@@ -862,11 +1208,12 @@ export class ActionButtonBlock {
   constructor() {
     effect(() => {
       const key = this.bindingKey();
-      if (!key) {
+      const context = this.context();
+      if (!key || context.mode !== 'live') {
         this.resolveStatus.set(null);
         return;
       }
-      this.runtime.resolve(key).pipe(take(1)).subscribe((resolved) => {
+      this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
         if (!resolved) {
           this.resolveStatus.set('unavailable');
           return;
@@ -878,9 +1225,10 @@ export class ActionButtonBlock {
   }
 
   onClick(): void {
-    if (this.blocked() || !this.bindingKey()) return;
+    if (this.blocked() || !this.bindingKey() || this.context().mode !== 'live') return;
     if (this.confirmation) {
       this.confirming.set(true);
+      queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
       return;
     }
     this.invoke(false);
@@ -890,8 +1238,42 @@ export class ActionButtonBlock {
     this.confirming.set(false);
     const input = this.node().props?.['input'];
     const payload = isRecord(input) ? input : {};
-    this.runtime.invoke(this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
-      if (started?.id) this.runtime.poll(started.id).subscribe();
+    const context = this.context();
+    this.runtime.invoke(context, this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
+      if (!started?.id) return;
+      this.runtime.poll(context, started.id).subscribe((run) => {
+        if (run?.status === 'completed') this.applyAfterSuccess();
+      });
+    });
+  }
+
+  cancelConfirmation(): void {
+    this.confirming.set(false);
+    queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
+  }
+
+  private domPrefix(): string {
+    return `xp-rt-${this.context().stateKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  }
+
+  private applyAfterSuccess(): void {
+    const outcome = runtimeAfterSuccess(this.node().props?.['afterSuccess']);
+    if (outcome.kind === 'page') {
+      const context = this.context();
+      if (context.mode === 'live' && context.experienceSlug) {
+        void this.router.navigateByUrl(
+          `/work/${encodeURIComponent(context.experienceSlug)}/${encodeURIComponent(outcome.pageId)}`,
+        );
+      }
+      return;
+    }
+    if (outcome.kind !== 'result') return;
+    queueMicrotask(() => {
+      const result = this.element.nativeElement
+        .closest('.xp-rt-page')
+        ?.querySelector<HTMLElement>('[data-component-type="result"]');
+      result?.scrollIntoView({ block: 'nearest' });
+      result?.focus();
     });
   }
 }
@@ -900,7 +1282,7 @@ export class ActionButtonBlock {
   selector: 'xp-rt-feed',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, TagComponent, RouterLink],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, TagComponent, RouterLink],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="ariaName() || title()">
@@ -910,7 +1292,8 @@ export class ActionButtonBlock {
       @if (description()) {
         <p class="xp-rt-sub">{{ description() }}</p>
       }
-      <xp-rt-slot [state]="slot()" [empty]="emptyText()">
+      <xp-rt-query-control [node]="node()" [context]="context()" />
+      <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
         <ul class="xp-rt-list">
           @for (item of items(); track $index) {
             <li>
@@ -935,8 +1318,10 @@ export class ActionButtonBlock {
   `,
 })
 export class FeedBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
   readonly title = computed(() => {
     const custom = appearanceOf(this.node()).title;
     if (custom) return custom;
@@ -964,7 +1349,11 @@ export class FeedBlock {
     return trimmed;
   });
   readonly items = computed(() =>
-    list(this.node().props?.['items']).map((item) => {
+    list(
+      runtimeDataBinding(this.node())
+        ? dynamicValue(this.runtime, this.node(), this.context())
+        : this.node().props?.['items'],
+    ).map((item) => {
       if (typeof item === 'string') return { title: item, detail: '', when: '', tone: '' as CkTagTone | '' };
       if (!isRecord(item)) return { title: String(item), detail: '', when: '', tone: '' as CkTagTone | '' };
       const toneRaw = typeof item['tone'] === 'string' ? item['tone'].toLowerCase() : '';
@@ -1002,7 +1391,10 @@ export class FeedBlock {
       };
     }),
   );
-  readonly slot = computed(() => slotOf(this.node(), this.items().length === 0));
+  readonly slot = computed(() =>
+    dynamicSlot(this.runtime, this.node(), this.context(), this.items().length === 0),
+  );
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 export const CATALOG: Record<CertifiedType, Type<unknown>> = {

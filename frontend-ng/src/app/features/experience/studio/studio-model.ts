@@ -3,7 +3,13 @@
  * can run as a pure unit. Reuses `slugify` from System Home.
  */
 
-import { CERTIFIED_TYPES, type CertifiedType, type ExperienceDocument } from '../runtime/model';
+import {
+  CERTIFIED_TYPES,
+  fieldsFromSchema,
+  type CertifiedType,
+  type ExperienceDocument,
+  type ExperienceNode,
+} from '../runtime/model';
 import { slugify } from '../runtime/system-home';
 import { liveHref, type WorkDeployment } from '../work/work-catalog';
 
@@ -44,6 +50,7 @@ export interface StudioExperience {
   pattern: string;
   languages?: string[];
   theme?: Record<string, unknown>;
+  access_policy?: Record<string, unknown>;
   binding_keys?: string[];
   draft_revision?: number;
   latest_release_number?: number | null;
@@ -161,6 +168,51 @@ export interface SeedLabels {
   approvalBody: string;
 }
 
+export interface GeneratedBinding {
+  bindingKey: string;
+  ingressId: string;
+  inputSchema?: unknown;
+}
+
+/**
+ * Turns the wizard's selected entry points into an immediately usable page.
+ * The first form/action supplied by the template is reused; extra entry
+ * points become certified forms (when they take inputs) or action buttons.
+ */
+export function bindSeedDocument(
+  document: ExperienceDocument,
+  links: readonly GeneratedBinding[],
+): ExperienceDocument {
+  const next = JSON.parse(JSON.stringify(document)) as ExperienceDocument;
+  const page = next.pages[0];
+  if (!page || links.length === 0) return next;
+
+  links.forEach((link, index) => {
+    const schema = link.inputSchema && typeof link.inputSchema === 'object'
+      ? link.inputSchema
+      : { type: 'object', properties: {} };
+    const hasInputs = fieldsFromSchema(schema).length > 0;
+    const reusable = index === 0
+      ? page.components.find(
+          (node) => (node.type === 'form' || node.type === 'action_button') && !node.props?.['bindingKey'],
+        )
+      : undefined;
+    const target: ExperienceNode = reusable ?? {
+      type: hasInputs ? 'form' : 'action_button',
+      id: `wizard-${index + 1}-${slugify(link.bindingKey).slice(0, 32) || 'action'}`,
+      props: {},
+    };
+    const label = link.ingressId.replace(/[._-]+/g, ' ').trim() || link.bindingKey;
+    target.props = {
+      ...(target.props ?? {}),
+      bindingKey: link.bindingKey,
+      ...(target.type === 'form' ? { schema, submitLabel: label } : { label }),
+    };
+    if (!reusable) page.components.push(target);
+  });
+  return next;
+}
+
 export function seedDocument(
   pattern: ExperiencePattern,
   name: string,
@@ -233,7 +285,7 @@ function page(title: string, components: ExperienceDocument['pages'][number]['co
   return { pages: [{ id: 'home', title, components }] };
 }
 
-export function themeAudience(theme: Record<string, unknown> | undefined): string[] {
+function legacyThemeAudience(theme: Record<string, unknown> | undefined): string[] {
   const raw = theme?.['audience'];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
   const roles = (raw as Record<string, unknown>)['roles'];
@@ -241,9 +293,10 @@ export function themeAudience(theme: Record<string, unknown> | undefined): strin
   return roles.filter((item): item is string => typeof item === 'string' && !!item.trim());
 }
 
-export function withAudience(
-  theme: Record<string, unknown> | undefined,
-  roles: readonly string[],
-): Record<string, unknown> {
-  return { ...(theme ?? {}), audience: { roles: [...roles] } };
+export function experienceAudience(row: Pick<StudioExperience, 'access_policy' | 'theme'> | null | undefined): string[] {
+  const raw = row?.access_policy?.['roles'];
+  if (Array.isArray(raw)) {
+    return raw.filter((item): item is string => typeof item === 'string' && !!item.trim());
+  }
+  return legacyThemeAudience(row?.theme);
 }

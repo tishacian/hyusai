@@ -7,11 +7,13 @@ import {
   emptyStack,
   newPageId,
   nodeIndex,
+  pagesPayload,
   redoRevision,
   undoRevision,
   type DocumentPatch,
 } from './studio-document';
 import {
+  bindSeedDocument,
   bindingSharedWith,
   experienceSlug,
   filterInventory,
@@ -61,6 +63,61 @@ test('a binding key names its System entry point and never collides', () => {
     uniqueBindingKey('App', 'alpha', 'start', []),
     uniqueBindingKey('App', 'beta', 'start', []),
   );
+});
+
+test('wizard bindings hydrate the generated form and add usable extra actions', () => {
+  const seeded: ExperienceDocument = {
+    pages: [{
+      id: 'home',
+      title: 'Reset',
+      components: [
+        { type: 'header', id: 'head', props: { title: 'Reset' } },
+        { type: 'form', id: 'form', props: { schema: { type: 'object', properties: {} } } },
+      ],
+    }],
+  };
+  const linked = bindSeedDocument(seeded, [
+    {
+      bindingKey: 'reset.submit',
+      ingressId: 'submit-reset',
+      inputSchema: {
+        type: 'object',
+        properties: { employee: { type: 'string', title: 'Employee' } },
+        required: ['employee'],
+      },
+    },
+    { bindingKey: 'reset.cancel', ingressId: 'cancel' },
+  ]);
+  const form = linked.pages[0]?.components.find((node) => node.id === 'form');
+  const extra = linked.pages[0]?.components.find((node) => node.props?.['bindingKey'] === 'reset.cancel');
+  assert.equal(form?.props?.['bindingKey'], 'reset.submit');
+  assert.equal(
+    (form?.props?.['schema'] as { properties?: Record<string, unknown> }).properties?.['employee'] != null,
+    true,
+  );
+  assert.equal(extra?.type, 'action_button');
+  assert.equal(seeded.pages[0]?.components[1]?.props?.['bindingKey'], undefined);
+});
+
+test('draft payload keeps localized copy dictionaries and references intact', () => {
+  const localized: ExperienceDocument = {
+    pages: [{
+      id: 'home',
+      title: { $i18n: 'page.home.title', fallback: 'Home' },
+      components: [{
+        type: 'header',
+        id: 'head',
+        props: { title: { $i18n: 'component.head.title', fallback: 'Welcome' } },
+      }],
+    }],
+    i18n: {
+      fr: { 'page.home.title': 'Accueil', 'component.head.title': 'Bienvenue' },
+      en: { 'page.home.title': 'Home', 'component.head.title': 'Welcome' },
+    },
+  };
+  const payload = pagesPayload(localized);
+  assert.deepEqual(payload['i18n'], localized.i18n);
+  assert.deepEqual((payload['pages'] as ExperienceDocument['pages'])[0]?.title, localized.pages[0]?.title);
 });
 
 test('bindingSharedWith names the other applications a binding serves', () => {
@@ -131,6 +188,7 @@ test('pages can be added and removed, never below the last one', () => {
 
   assert.equal(newPageId(DOC, 'Ma page'), 'ma-page');
   assert.equal(newPageId(DOC, 'Home'), 'home-2');
+  assert.equal(newPageId(DOC, '2026'), 'page-2026');
   assert.equal(newPageId(DOC, '  '), 'page');
 });
 

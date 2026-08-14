@@ -5,6 +5,58 @@
   font-family: var(--ck-font-sans);
 }
 
+.xp-work-launcher {
+  background: var(--ck-bg-base);
+}
+
+.xp-work-global-bar {
+  justify-content: space-between;
+  min-height: 64px;
+}
+
+.xp-work-brand-line,
+.xp-work-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.xp-work-brand-line > span:last-child {
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.xp-work-logo,
+.xp-work-app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--xp-app-accent, var(--ck-signal-cool));
+  color: #fff;
+  font-weight: 700;
+}
+
+.xp-work-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--ck-stroke-2);
+}
+
+.xp-work-search input {
+  width: min(320px, 38vw);
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  background: var(--ck-bg-panel-hi);
+  color: var(--ck-fg-1);
+}
+
 .xp-work-bar {
   display: flex;
   align-items: center;
@@ -45,6 +97,7 @@
 }
 
 .xp-work-nav button,
+.xp-work-nav a,
 .xp-work-link,
 .xp-work-btn {
   min-height: 32px;
@@ -61,6 +114,7 @@
 }
 
 .xp-work-nav button[aria-current='page'],
+.xp-work-nav a[aria-current='page'],
 .xp-work-btn-primary {
   background: var(--ck-signal-cool);
   border-color: transparent;
@@ -94,6 +148,61 @@
   padding: 28px 24px 48px;
 }
 
+.xp-work-home {
+  max-width: 1240px;
+  padding-top: 56px;
+}
+
+.xp-work-intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 36px;
+}
+
+.xp-work-intro h1 {
+  margin: 8px 0;
+  font-size: clamp(30px, 4vw, 46px);
+  letter-spacing: -0.04em;
+}
+
+.xp-work-intro p {
+  margin: 0;
+  color: var(--ck-fg-3);
+}
+
+.xp-work-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.xp-work-studio-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px dashed var(--ck-stroke-3);
+  border-radius: 8px;
+  color: var(--ck-fg-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.xp-work-studio-link span {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--ck-status-preview-bg);
+  color: var(--ck-status-preview-fg);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .xp-work-count {
   margin: 0;
   font-size: 12px;
@@ -124,6 +233,14 @@
   text-decoration: none;
 }
 
+.xp-work-card-head {
+  justify-content: space-between;
+}
+
+.xp-work-card .xp-work-app-icon {
+  background: var(--ck-signal-cool);
+}
+
 .xp-work-card:hover {
   border-color: var(--ck-stroke-hot);
 }
@@ -150,6 +267,34 @@
   color: var(--ck-status-info-fg);
   font-size: 11px;
   font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .xp-work-bar,
+  .xp-work-intro {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .xp-work-search input {
+    width: 100%;
+  }
+
+  .xp-work-nav {
+    order: 3;
+  }
 }
 
 .xp-work-status-live {

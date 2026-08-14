@@ -340,6 +340,33 @@ def _slug_exists(bind, experiences, *, workspace_id: str, slug: str) -> bool:
     )
 
 
+def _set_release_identity_if_supported(
+    bind,
+    *,
+    release_id: str,
+    name: str,
+    slug: str,
+    pattern: str,
+) -> None:
+    """090 has no identity column; 092+ seed calls still write complete evidence."""
+    columns = {
+        item["name"]
+        for item in sa.inspect(bind).get_columns("experience_releases")
+    }
+    if "identity_snapshot" not in columns:
+        return
+    releases = sa.table(
+        "experience_releases",
+        sa.column("id"),
+        sa.column("identity_snapshot", sa.JSON()),
+    )
+    bind.execute(
+        releases.update()
+        .where(releases.c.id == release_id)
+        .values(identity_snapshot={"name": name, "slug": slug, "pattern": pattern})
+    )
+
+
 def _pointer_pages(*, title: str, body: str, href: str) -> dict[str, Any]:
     return {
         "pages": [
@@ -511,6 +538,13 @@ def _insert_experience(
             created_by=actor,
             created_at=now,
         )
+    )
+    _set_release_identity_if_supported(
+        bind,
+        release_id=release_id,
+        name=name,
+        slug=slug,
+        pattern=pattern,
     )
     bind.execute(
         sa.insert(deployments).values(
@@ -933,10 +967,11 @@ def _upgrade_seed_mission_pages(bind) -> None:
         "experiences",
         "experience_draft_revisions",
         "experience_releases",
+        "experience_deployments",
         "system_bindings",
     }.issubset(tables_present):
         return
-    _workspaces, _systems, _versions, _bindings, experiences, drafts, releases, _deployments = _tables()
+    _workspaces, _systems, _versions, bindings, experiences, drafts, releases, deployments = _tables()
     actor = f"system:{SEED_ORIGIN}"
     mission_slugs = {
         SENTINEL_EXPERIENCE_SLUG,
@@ -949,6 +984,7 @@ def _upgrade_seed_mission_pages(bind) -> None:
             experiences.c.workspace_id,
             experiences.c.slug,
             experiences.c.name,
+            experiences.c.languages,
             experiences.c.theme,
             experiences.c.created_by,
         ).where(
@@ -959,16 +995,23 @@ def _upgrade_seed_mission_pages(bind) -> None:
     for row in rows:
         mapping = row._mapping
         draft = bind.execute(
-            sa.select(drafts.c.pages, drafts.c.binding_keys).where(
+            sa.select(
+                drafts.c.pages,
+                drafts.c.binding_keys,
+                drafts.c.revision,
+                drafts.c.updated_by,
+            ).where(
                 drafts.c.experience_id == mapping["id"]
             )
         ).first()
-        if draft is None or _pages_have_certified_widgets(draft._mapping["pages"]):
+        if (
+            draft is None
+            or draft._mapping["updated_by"] != actor
+            or _pages_have_certified_widgets(draft._mapping["pages"])
+        ):
             continue
         theme = _as_dict(mapping["theme"])
         href = str(theme.get("live_href") or "/hypervisor/mission-room")
-        keys = [item for item in _as_list(draft._mapping["binding_keys"]) if isinstance(item, str)]
-        key_set = set(keys)
         family = (
             "sentinel"
             if mapping["slug"] == SENTINEL_EXPERIENCE_SLUG
@@ -977,6 +1020,32 @@ def _upgrade_seed_mission_pages(bind) -> None:
             else "mission"
         )
         prefix = {"sentinel": "sentinel", "octocity": "octocity", "mission": "mission"}[family]
+        desired = [
+            f"{prefix}.cockpit",
+            f"{prefix}.map",
+            f"{prefix}.agenda",
+            f"{prefix}.intelligence",
+            f"{prefix}.decisions",
+        ]
+        binding_rows = bind.execute(
+            sa.select(
+                bindings.c.binding_key,
+                bindings.c.system_id,
+                bindings.c.published_flow_version_id,
+                bindings.c.flow_sha256,
+                bindings.c.ingress_id,
+                bindings.c.input_schema_sha256,
+                bindings.c.output_schema_sha256,
+                bindings.c.confirmation_policy,
+                bindings.c.on_unavailable,
+            ).where(
+                bindings.c.workspace_id == mapping["workspace_id"],
+                bindings.c.binding_key.in_(desired),
+            )
+        ).all()
+        by_key = {item._mapping["binding_key"]: item for item in binding_rows}
+        keys = [key for key in desired if key in by_key]
+        key_set = set(keys)
         pages = _certified_mission_pages(
             title=mapping["name"],
             body=f"Open {mapping['name']} on {href} — the immersive shell stays on that route.",
@@ -987,19 +1056,205 @@ def _upgrade_seed_mission_pages(bind) -> None:
             decisions_key=f"{prefix}.decisions" if f"{prefix}.decisions" in key_set else None,
         )
         digest = _content_sha256(pages, keys)
+        latest = bind.execute(
+            sa.select(
+                releases.c.id,
+                releases.c.release_number,
+                releases.c.access_snapshot,
+            )
+            .where(releases.c.experience_id == mapping["id"])
+            .order_by(releases.c.release_number.desc())
+        ).first()
+        if latest is None:
+            continue
+        now = datetime.utcnow()
+        release_id = str(uuid4())
         bind.execute(
             drafts.update()
             .where(drafts.c.experience_id == mapping["id"])
-            .values(pages=pages, content_sha256=digest, updated_at=datetime.utcnow())
+            .values(
+                pages=pages,
+                binding_keys=keys,
+                content_sha256=digest,
+                revision=int(draft._mapping["revision"] or 1) + 1,
+                updated_by=actor,
+                updated_at=now,
+            )
         )
         bind.execute(
-            releases.update()
-            .where(
-                releases.c.experience_id == mapping["id"],
-                releases.c.created_by == actor,
-                releases.c.release_number == 1,
+            sa.insert(releases).values(
+                id=release_id,
+                experience_id=mapping["id"],
+                workspace_id=mapping["workspace_id"],
+                release_number=int(latest._mapping["release_number"]) + 1,
+                content_sha256=digest,
+                pages=pages,
+                bindings_snapshot=[_snapshot_from_row(by_key[key]) for key in keys],
+                access_snapshot=_as_dict(latest._mapping["access_snapshot"]),
+                languages=_as_list(mapping["languages"]),
+                theme=theme,
+                renderer_version=RENDERER_VERSION,
+                notes="Lot 8 migration: certified Mission widgets (immutable successor release).",
+                created_by=actor,
+                created_at=now,
             )
-            .values(pages=pages, content_sha256=digest)
+        )
+        _set_release_identity_if_supported(
+            bind,
+            release_id=release_id,
+            name=mapping["name"],
+            slug=mapping["slug"],
+            pattern="mission_cockpit",
+        )
+        bind.execute(
+            deployments.update()
+            .where(
+                deployments.c.experience_id == mapping["id"],
+                deployments.c.updated_by == actor,
+            )
+            .values(
+                previous_release_id=deployments.c.release_id,
+                release_id=release_id,
+                updated_by=actor,
+                updated_at=now,
+            )
+        )
+
+
+def repair_mutated_091_releases(bind) -> None:
+    """Restore the 090 release bytes, then publish the certified page as r2.
+
+    Early 091 installations rewrote seed release #1 in place. The original
+    pointer page is deterministic. The certified bytes are copied to a new
+    release before #1 is restored, so an operator-authored draft is untouched.
+    """
+    tables_present = set(sa.inspect(bind).get_table_names())
+    if not {
+        "experiences",
+        "experience_draft_revisions",
+        "experience_releases",
+        "experience_deployments",
+        "system_bindings",
+    }.issubset(tables_present):
+        return
+    _workspaces, _systems, _versions, _bindings, experiences, _drafts, releases, deployments = _tables()
+    actor = f"system:{SEED_ORIGIN}"
+    rows = bind.execute(
+        sa.select(
+            experiences.c.id,
+            experiences.c.workspace_id,
+            experiences.c.slug,
+            experiences.c.name,
+            experiences.c.pattern,
+            experiences.c.theme,
+            releases.c.id.label("release_id"),
+            releases.c.pages.label("release_pages"),
+            releases.c.bindings_snapshot,
+            releases.c.access_snapshot,
+            releases.c.languages,
+            releases.c.theme.label("release_theme"),
+            releases.c.renderer_version,
+        )
+        .join(releases, releases.c.experience_id == experiences.c.id)
+        .where(
+            experiences.c.created_by == actor,
+            releases.c.created_by == actor,
+            releases.c.release_number == 1,
+            experiences.c.slug.in_(
+                [
+                    SENTINEL_EXPERIENCE_SLUG,
+                    OCTOCITY_EXPERIENCE_SLUG,
+                    MISSION_CONTROL_EXPERIENCE_SLUG,
+                ]
+            ),
+        )
+    ).all()
+    for row in rows:
+        mapping = row._mapping
+        release_pages = mapping["release_pages"]
+        if not _pages_have_certified_widgets(release_pages):
+            continue
+        theme = _as_dict(mapping["theme"])
+        href = str(theme.get("live_href") or "/hypervisor/mission-room")
+        body = (
+            f"Open SENTINEL-CI on {href} — AYA and the immersive shell stay on that route."
+            if mapping["slug"] == SENTINEL_EXPERIENCE_SLUG
+            else f"Open Octocity on {href} — same certified widgets as SENTINEL, different branding."
+            if mapping["slug"] == OCTOCITY_EXPERIENCE_SLUG
+            else f"Open Mission Control on {href} — the immersive shell stays on that route."
+        )
+        pointer = _pointer_pages(title=mapping["name"], body=body, href=href)
+        snapshot = [
+            item
+            for item in _as_list(mapping["bindings_snapshot"])
+            if isinstance(item, dict) and isinstance(item.get("binding_key"), str)
+        ]
+        keys = [item["binding_key"] for item in snapshot]
+        # A seed-owned release #1 containing certified widgets can only have
+        # been produced by the old 091 in-place UPDATE. The fixed migration
+        # always keeps #1 as the pointer page and appends #2, regardless of
+        # whether the set of bindings happened to change.
+        certified_digest = _content_sha256(release_pages, keys)
+        successor = bind.execute(
+            sa.select(releases.c.id, releases.c.release_number).where(
+                releases.c.experience_id == mapping["id"],
+                releases.c.release_number > 1,
+                releases.c.created_by == actor,
+                releases.c.content_sha256 == certified_digest,
+            )
+        ).first()
+        if successor is None:
+            latest_number = bind.execute(
+                sa.select(sa.func.max(releases.c.release_number)).where(
+                    releases.c.experience_id == mapping["id"]
+                )
+            ).scalar_one()
+            successor_id = str(uuid4())
+            bind.execute(
+                sa.insert(releases).values(
+                    id=successor_id,
+                    experience_id=mapping["id"],
+                    workspace_id=mapping["workspace_id"],
+                    release_number=int(latest_number or 1) + 1,
+                    content_sha256=certified_digest,
+                    pages=release_pages,
+                    bindings_snapshot=snapshot,
+                    access_snapshot=_as_dict(mapping["access_snapshot"]),
+                    languages=_as_list(mapping["languages"]),
+                    theme=_as_dict(mapping["release_theme"]),
+                    renderer_version=mapping["renderer_version"],
+                    notes="Lot 8 repair: certified Mission widgets copied from mutated 091 release #1.",
+                    created_by=actor,
+                    created_at=datetime.utcnow(),
+                )
+            )
+            _set_release_identity_if_supported(
+                bind,
+                release_id=successor_id,
+                name=mapping["name"],
+                slug=mapping["slug"],
+                pattern=mapping["pattern"],
+            )
+        else:
+            successor_id = successor._mapping["id"]
+        bind.execute(
+            deployments.update()
+            .where(
+                deployments.c.experience_id == mapping["id"],
+                deployments.c.release_id == mapping["release_id"],
+                deployments.c.updated_by == actor,
+            )
+            .values(
+                previous_release_id=mapping["release_id"],
+                release_id=successor_id,
+                updated_at=datetime.utcnow(),
+            )
+        )
+        pointer_digest = _content_sha256(pointer, keys)
+        bind.execute(
+            releases.update()
+            .where(releases.c.id == mapping["release_id"])
+            .values(pages=pointer, content_sha256=pointer_digest)
         )
 
 

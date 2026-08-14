@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -9,8 +9,10 @@ import {
   type CkGlyphName,
 } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
-import { WorkApiService } from './work/work-api.service';
-import { hasDeployment, type WorkExperience } from './work/work-catalog';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { canEditExperienceStudio } from './experience-access';
+import { StudioApiService } from './studio/studio-api.service';
+import { inventoryState, type StudioExperience } from './studio/studio-model';
 
 @Component({
   selector: 'app-create-hub',
@@ -29,13 +31,21 @@ import { hasDeployment, type WorkExperience } from './work/work-catalog';
 })
 export class CreateHubComponent {
   readonly i18n = inject(I18nService);
-  private readonly workApi = inject(WorkApiService);
-  readonly deployedApps = signal<WorkExperience[]>([]);
+  private readonly studioApi = inject(StudioApiService);
+  private readonly workspace = inject(WorkspaceService);
+  readonly recentApps = signal<StudioExperience[]>([]);
+  readonly canEdit = computed(() => canEditExperienceStudio(
+    this.workspace.current()?.role_template,
+    this.workspace.current()?.role,
+    this.workspace.isAdmin(),
+  ));
 
   constructor() {
-    this.workApi.listExperiences().subscribe((rows) => {
-      this.deployedApps.set(rows.filter(hasDeployment));
-    });
+    this.studioApi.listExperiences().subscribe((rows) => this.recentApps.set(rows.slice(0, 4)));
+  }
+
+  state(app: StudioExperience): string {
+    return this.i18n.t(`experience.apps.state.${inventoryState(app.deployments)}`);
   }
 
   readonly intents: readonly {
