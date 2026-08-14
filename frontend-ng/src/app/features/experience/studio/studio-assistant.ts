@@ -54,11 +54,12 @@ export function proposeAssistantPatch(
   let summary = '';
   if (EMPTY.test(text)) {
     const selected = targetId ? findNode(doc, targetId) : null;
-    if (selected && needsEmpty(selected.node.type)) {
+    const nodeId = selected?.node.id || targetId;
+    if (selected && nodeId && needsEmpty(selected.node.type)) {
       patch = {
         kind: 'update_node',
         pageId: selected.pageId,
-        nodeId: selected.node.id ?? targetId,
+        nodeId,
         props: { a11y: a11yPayload(selected.node, 'emptyText', labels.empty) },
       };
       summary = 'set_empty_state';
