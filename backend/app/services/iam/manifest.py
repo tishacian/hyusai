@@ -280,6 +280,12 @@ AGENTIUM_OBJECT_ACTIONS_MANIFEST = CapabilityIAMManifest(
             CONTRIBUTOR_OR_ADMIN + (WORKSPACE_REVIEWER,),
         ),
         PermissionRule("action", "admin", ADMIN_ROLES),
+        PermissionRule("binding", "view", ALL_CAPTURE_ROLES),
+        PermissionRule("binding", "manage", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("experience", "view", ALL_CAPTURE_ROLES),
+        PermissionRule("experience", "edit", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("experience", "release", REVIEW_ROLES),
+        PermissionRule("experience", "deploy", REVIEW_ROLES),
     ),
 )
 

@@ -1,17 +1,22 @@
 /**
  * NAWA WE — data access for the two ITSD surfaces.
  *
- * No new backend endpoint (SPEC §7.3): the catalogue is a static asset, and
- * the Password Reset page drives the existing systems/runs API only.
+ * The catalogue is a static asset. Password Reset still drives systems/runs;
+ * when `experience_v1` is on, System lookup prefers the seeded
+ * `nawa.password_reset` binding and falls back to name-match.
  */
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of, shareReplay } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError, map, switchMap } from 'rxjs/operators';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
+import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
   NAWA_APP_FULL_NAME,
+  NAWA_PASSWORD_RESET_BINDING_KEY,
   NAWA_SYSTEM_NAME_MATCH,
+  systemIdFromBindingResolve,
   type NawaCatalog,
   type NawaScenario,
 } from './nawa-itsd.model';
@@ -36,6 +41,8 @@ const EMPTY_CATALOG: NawaCatalog = {
 export class NawaItsdService {
   private readonly http = inject(HttpClient);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   private catalog$: Observable<NawaCatalog> | null = null;
 
@@ -50,12 +57,42 @@ export class NawaItsdService {
 
   /** Resolve the Password Reset System of the active workspace by name. */
   resolveSystem(): Observable<System | null> {
-    return this.canonical.listSystems().pipe(
+    const byName = () => this.canonical.listSystems().pipe(
       map((systems) =>
         systems.find((system) =>
           (system.name || '').toLowerCase().includes(NAWA_SYSTEM_NAME_MATCH),
         ) ?? null,
       ),
+    );
+    if (!this.experienceV1Enabled()) return byName();
+    return this.api.get<{
+      status?: string;
+      binding?: { system_id?: string };
+    }>(`/system-bindings/${encodeURIComponent(NAWA_PASSWORD_RESET_BINDING_KEY)}/resolve`).pipe(
+      switchMap((resolved) => {
+        const systemId = systemIdFromBindingResolve(resolved);
+        if (systemId) return this.canonical.getSystem(systemId);
+        console.warn(
+          `NAWA: binding ${NAWA_PASSWORD_RESET_BINDING_KEY} missed; falling back to name-match`,
+        );
+        return byName();
+      }),
+      catchError(() => {
+        console.warn(
+          `NAWA: binding ${NAWA_PASSWORD_RESET_BINDING_KEY} resolve failed; falling back to name-match`,
+        );
+        return byName();
+      }),
+    );
+  }
+
+  private experienceV1Enabled(): boolean {
+    const raw = this.workspace.current()?.settings?.['features'];
+    return Boolean(
+      raw
+      && typeof raw === 'object'
+      && !Array.isArray(raw)
+      && (raw as Record<string, unknown>)['experience_v1'] === true,
     );
   }
 

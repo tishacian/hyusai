@@ -46,6 +46,7 @@ _SERVER_AUDIT_PREFIXES = (
     "decision.",
     "deposit.",
     "evaluation.",
+    "experience.",
     "iam.",
     "kc.",
     "knowledge.",
@@ -460,6 +461,7 @@ async def create_audit_event(
 async def list_audit_logs(
     limit: int = Query(50, ge=1, le=500),
     event_type: str | None = None,
+    event_type_prefix: str | None = None,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -472,6 +474,8 @@ async def list_audit_logs(
     )
     if event_type:
         query = query.filter(AuditLog.event_type == event_type)
+    elif event_type_prefix:
+        query = query.filter(AuditLog.event_type.startswith(event_type_prefix))
     logs = query.limit(limit).all()
     return {
         "logs": [

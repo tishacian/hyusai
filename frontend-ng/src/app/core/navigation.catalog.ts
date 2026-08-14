@@ -166,6 +166,30 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: "Capture contrainte pour les rapports d'intervention FSE (template systeme).",
   },
   {
+    id: 'create',
+    label: 'Create',
+    route: '/create',
+    lens: 'build',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/experiences',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Studio hub: create a business application, a System or Knowledge.',
+  },
+  {
+    id: 'create-apps',
+    label: 'Business applications',
+    route: '/create/apps',
+    lens: 'build',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/experiences',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Inventory of business applications authored in Studio.',
+  },
+  {
     id: 'orchestration',
     label: 'Flow Builder',
     route: '/orchestration',
@@ -547,7 +571,10 @@ export type CockpitSectionKey =
   | 'apps'
   | 'resources'
   | 'connectors'
-  | 'presets';
+  | 'presets'
+  | 'business_apps'
+  | 'certified'
+  | 'integrations';
 
 export interface CockpitSection {
   key: CockpitSectionKey;
@@ -559,6 +586,8 @@ export interface CockpitSection {
   scopeType: CockpitScopeType;
   /** The target canvas consumes the routed hierarchy instead of going global. */
   ancestryAware: boolean;
+  /** Mini-rail group; used by the experience_v1 Build menu. */
+  group?: 'create' | 'library';
 }
 
 export interface CockpitVerb {
@@ -574,6 +603,8 @@ export interface CockpitVerb {
   v4Sections?: CockpitSection[];
   /** Pre-Lot-3 section set, retained while the routed axes feature is gated. */
   legacySections?: CockpitSection[];
+  /** Build menu when `settings.features.experience_v1` is on. */
+  experienceSections?: CockpitSection[];
   hiddenInModes?: WorkspaceMode[];
 }
 
@@ -774,6 +805,15 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
     ],
+    experienceSections: [
+      { ...section('business_apps', 'Business application', 'orbit', 'create-apps', 'app'), group: 'create' },
+      { ...section('systems', 'Systems', 'cube', 'systems', 'system'), group: 'create' },
+      { ...section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'), group: 'create' },
+      { ...section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'), group: 'library' },
+      { ...section('skills', 'Skills', 'bolt', 'skills', 'skill'), group: 'library' },
+      { ...section('certified', 'Certified components', 'check', 'apps', 'app'), group: 'library' },
+      { ...section('integrations', 'Integrations', 'layers', 'connectors', 'connector'), group: 'library' },
+    ],
   },
   {
     key: 'operate',
@@ -850,6 +890,18 @@ export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
   (acc, verb) => ({ ...acc, [verb.key]: verb.matches }),
   {} as Record<CockpitLens, string[]>,
 );
+
+export function cockpitVerbSections(
+  verb: CockpitVerb,
+  flags: { axesV3: boolean; axesV4: boolean; experienceV1: boolean },
+): CockpitSection[] {
+  if (flags.experienceV1 && verb.key === 'build' && verb.experienceSections) {
+    return verb.experienceSections;
+  }
+  if (flags.axesV4) return verb.v4Sections ?? verb.sections ?? [];
+  if (flags.axesV3) return verb.sections ?? [];
+  return verb.legacySections ?? [];
+}
 
 export function matchCockpitVerb(path: string): CockpitVerb | null {
   const surface = matchAgentiumSurface(path);

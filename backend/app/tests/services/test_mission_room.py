@@ -13,6 +13,8 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.rag_preset import RagPreset
 from app.models.system import System
+from app.models.system_binding import SystemBinding
+from app.services.experience.keys import SENTINEL_INTELLIGENCE_KEY
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
@@ -1171,6 +1173,138 @@ def test_mission_room_navigation_prefers_workspace_intelligence_system(db_sessio
 
     assert presse["system_name"] == "Veille Presse & Signaux Faibles"
     assert "veille" not in {item["key"] for item in payload["items"]}
+
+
+def _bind_intelligence(db_session, workspace, system, *, experience_v1: bool) -> None:
+    settings = dict(workspace.settings or {})
+    features = dict(settings.get("features") or {})
+    features["experience_v1"] = experience_v1
+    settings["features"] = features
+    workspace.settings = settings
+    db_session.add(
+        SystemBinding(
+            workspace_id=workspace.id,
+            binding_key=SENTINEL_INTELLIGENCE_KEY,
+            system_id=system.id,
+            published_flow_version_id="version-unused",
+            flow_sha256="a" * 64,
+            ingress_id="source.request",
+            input_schema_sha256="b" * 64,
+            confirmation_policy="confirm",
+            on_unavailable="unavailable",
+        )
+    )
+    db_session.commit()
+
+
+def test_mission_room_navigation_ignores_binding_when_experience_v1_is_off(db_session):
+    seed_skills_and_capabilities(db_session)
+    ensure_sentinel_ci_workspace(db_session)
+    workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
+    capability = (
+        db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    )
+    news_lab = System(
+        workspace_id=workspace.id,
+        name="News Lab",
+        objective="Generic intelligence system",
+        capability_id=capability.id,
+        flow_definition={"variant": "intelligence"},
+        status="active",
+    )
+    db_session.add(news_lab)
+    db_session.commit()
+    _bind_intelligence(db_session, workspace, news_lab, experience_v1=False)
+
+    payload = navigation_payload(db_session, workspace)
+    presse = next(item for item in payload["items"] if item["key"] == "presse")
+
+    assert presse["system_name"] == "Veille Presse & Signaux Faibles"
+    assert presse["system_id"] != news_lab.id
+
+
+def test_mission_room_navigation_prefers_binding_when_experience_v1_is_on(db_session):
+    seed_skills_and_capabilities(db_session)
+    ensure_sentinel_ci_workspace(db_session)
+    workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
+    capability = (
+        db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    )
+    news_lab = System(
+        workspace_id=workspace.id,
+        name="News Lab",
+        objective="Generic intelligence system",
+        capability_id=capability.id,
+        flow_definition={"variant": "intelligence"},
+        status="active",
+    )
+    db_session.add(news_lab)
+    db_session.commit()
+    _bind_intelligence(db_session, workspace, news_lab, experience_v1=True)
+
+    payload = navigation_payload(db_session, workspace)
+    presse = next(item for item in payload["items"] if item["key"] == "presse")
+
+    assert presse["system_id"] == news_lab.id
+    assert presse["system_name"] == "News Lab"
+
+
+def test_mission_room_navigation_prefers_cockpit_and_decisions_bindings(db_session):
+    from app.services.experience.keys import SENTINEL_COCKPIT_KEY, SENTINEL_DECISIONS_KEY
+
+    seed_skills_and_capabilities(db_session)
+    ensure_sentinel_ci_workspace(db_session)
+    workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
+    capability = (
+        db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    )
+    other_cockpit = System(
+        workspace_id=workspace.id,
+        name="Other cockpit",
+        objective="Bound cockpit",
+        capability_id=capability.id,
+        flow_definition={"variant": "government_mission_room"},
+        status="active",
+    )
+    other_decisions = System(
+        workspace_id=workspace.id,
+        name="Other decisions",
+        objective="Bound decisions",
+        capability_id=capability.id,
+        flow_definition={"variant": "executive_instruction_drafting"},
+        status="active",
+    )
+    db_session.add_all([other_cockpit, other_decisions])
+    db_session.commit()
+    settings = dict(workspace.settings or {})
+    features = dict(settings.get("features") or {})
+    features["experience_v1"] = True
+    settings["features"] = features
+    workspace.settings = settings
+    for key, system in (
+        (SENTINEL_COCKPIT_KEY, other_cockpit),
+        (SENTINEL_DECISIONS_KEY, other_decisions),
+    ):
+        db_session.add(
+            SystemBinding(
+                workspace_id=workspace.id,
+                binding_key=key,
+                system_id=system.id,
+                published_flow_version_id="version-unused",
+                flow_sha256="a" * 64,
+                ingress_id="source.request",
+                input_schema_sha256="b" * 64,
+                confirmation_policy="confirm",
+                on_unavailable="unavailable",
+            )
+        )
+    db_session.commit()
+
+    payload = navigation_payload(db_session, workspace)
+    cockpit = next(item for item in payload["items"] if item["key"] == "cockpit")
+    decisions = next(item for item in payload["items"] if item["key"] == "decisions")
+    assert cockpit["system_id"] == other_cockpit.id
+    assert decisions["system_id"] == other_decisions.id
 
 
 def test_octocity_mission_room_navigation_items_bind_to_active_systems(db_session):

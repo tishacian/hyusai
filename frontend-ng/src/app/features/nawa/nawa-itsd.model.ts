@@ -62,11 +62,21 @@ export interface NawaCatalog {
 
 /**
  * System lookup. The Password Reset System is created in the `nawa` workspace
- * by the demo migration, so the front resolves it by name over
- * `GET /api/v1/systems` rather than carrying a hardcoded id that would change
- * between environments. `?systemId=<id>` on the detail route overrides it.
+ * by the demo migration. With `experience_v1` the front prefers the seeded
+ * `nawa.password_reset` binding; otherwise it resolves by name over
+ * `GET /api/v1/systems`. `?systemId=<id>` on the detail route overrides it.
  */
 export const NAWA_SYSTEM_NAME_MATCH = 'password reset';
+
+/** Stable SystemBinding key seeded by migration 086/088 when the System exists. */
+export const NAWA_PASSWORD_RESET_BINDING_KEY = 'nawa.password_reset';
+
+export function systemIdFromBindingResolve(
+  resolved: { status?: string; binding?: { system_id?: string } } | null | undefined,
+): string | null {
+  const id = resolved?.status === 'ok' ? resolved.binding?.system_id : undefined;
+  return typeof id === 'string' && id ? id : null;
+}
 
 /**
  * Flow node ids behind each business step, as authored in

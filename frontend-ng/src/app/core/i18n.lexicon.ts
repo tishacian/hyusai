@@ -116,6 +116,28 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     banned: [],
   },
   {
+    id: 'business-application',
+    en: 'Business application',
+    fr: 'Application métier',
+    definition: {
+      en: 'The interface teams use every day, assembled from published Systems and served on /work.',
+      fr: "L'interface que les équipes utilisent au quotidien, assemblée à partir de Systems publiés.",
+    },
+    banned: [],
+    internal: ['ExperienceDraft'],
+  },
+  {
+    id: 'binding',
+    en: 'Binding',
+    fr: 'Liaison',
+    definition: {
+      en: 'A stable link from an app action to one published System version and its contract.',
+      fr: "Le lien stable d'une action vers une version publiée d'un System et son contrat.",
+    },
+    banned: [],
+    internal: ['SystemBinding'],
+  },
+  {
     id: 'run',
     en: 'Run',
     fr: 'Exécution',
@@ -152,6 +174,36 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     definition: {
       en: 'The version that actually runs; changing it takes a new publication.',
       fr: "La version qui s'exécute réellement ; la modifier demande une nouvelle publication.",
+    },
+    banned: [],
+  },
+  {
+    id: 'release',
+    en: 'Release',
+    fr: 'Release',
+    definition: {
+      en: 'An immutable snapshot of pages, bindings, access, languages and theme.',
+      fr: 'Un instantané immuable des pages, liaisons, accès, langues et thème.',
+    },
+    banned: [],
+  },
+  {
+    id: 'pilot',
+    en: 'Pilot',
+    fr: 'Pilote',
+    definition: {
+      en: 'A limited deployment of a release, before it serves everyone.',
+      fr: "Un déploiement limité d'une release, avant qu'elle ne serve tout le monde.",
+    },
+    banned: [],
+  },
+  {
+    id: 'in-service',
+    en: 'In service',
+    fr: 'En service',
+    definition: {
+      en: 'The release currently serving users on /work.',
+      fr: 'La release qui sert actuellement les utilisateurs sur /work.',
     },
     banned: [],
   },

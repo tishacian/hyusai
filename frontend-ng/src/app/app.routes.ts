@@ -4,6 +4,7 @@ import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
 import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
+import { experienceV1Guard } from './features/experience/experience.guard';
 
 export const routes: Routes = [
   {
@@ -24,6 +25,13 @@ export const routes: Routes = [
     path: 'nawa',
     canActivate: [authGuard, workspaceHydrationGuard],
     loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
+  },
+  {
+    // Business launcher: no cockpit chrome. Same hydration + flag gate as /create.
+    path: 'work',
+    canActivate: [authGuard, workspaceHydrationGuard, experienceV1Guard],
+    loadChildren: () =>
+      import('./features/experience/work/work.routes').then((m) => m.workRoutes),
   },
   {
     path: '',
@@ -79,6 +87,11 @@ export const routes: Routes = [
         path: 'steering/contexts/:id',
         loadComponent: () =>
           import('./features/contexts/context-view.component').then((m) => m.ContextViewComponent),
+      },
+      {
+        path: 'create',
+        loadChildren: () =>
+          import('./features/experience/experience.routes').then((m) => m.experienceRoutes),
       },
       {
         path: 'capabilities',

@@ -38,6 +38,8 @@ from app.services.action_plans import (
 )
 from app.services.audit_logger import emit_audit_event
 from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
+from app.services.experience.bindings import experience_v1_enabled, lookup_bound_system_id
+from app.services.experience.keys import mission_nav_binding_key
 from app.services.iam.app_entitlements import (
     BUSINESS_APP_KEYS,
     app_entitlements_enabled,
@@ -3262,7 +3264,10 @@ def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Ru
     preferred = _system_for_navigation_item(
         _system_map(db, workspace),
         systems,
-        {"variant": "intelligence"},
+        {"key": "presse", "variant": "intelligence"},
+        workspace=workspace,
+        db=db,
+        profile=mission_room_profile(workspace),
     )
     query = db.query(Run).filter(Run.workspace_id == workspace.id)
     if preferred:
@@ -3530,6 +3535,10 @@ def _system_for_navigation_item(
     systems_by_variant: dict[str, System],
     all_systems: list[System],
     item: dict[str, Any],
+    *,
+    workspace: Workspace | None = None,
+    db: DBSession | None = None,
+    profile: str = "",
 ) -> Optional[System]:
     """Pick the concrete System behind a mission-room rail item.
 
@@ -3540,7 +3549,20 @@ def _system_for_navigation_item(
     wrong product object. The selector stays generic by preferring the
     ``template_id`` produced by the workspace-app seed and only falling back to
     the first variant match.
+
+    When ``experience_v1`` is on, a seeded SystemBinding wins over the
+    variant/name heuristic. Flag off keeps the heuristic unchanged.
     """
+    if workspace is not None and db is not None and experience_v1_enabled(workspace):
+        binding_key = mission_nav_binding_key(profile, str(item.get("key") or ""))
+        if binding_key:
+            bound_id = lookup_bound_system_id(
+                db, workspace_id=workspace.id, binding_key=binding_key
+            )
+            if bound_id:
+                bound = next((system for system in all_systems if system.id == bound_id), None)
+                if bound is not None:
+                    return bound
     variant = str(item.get("variant") or "")
     if variant == "intelligence":
         preferred = next(
@@ -3654,7 +3676,14 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         key = str(item.get("key") or "")
         if key not in api_by_view:
             continue
-        system = _system_for_navigation_item(systems_by_variant, all_systems, item)
+        system = _system_for_navigation_item(
+            systems_by_variant,
+            all_systems,
+            item,
+            workspace=workspace,
+            db=db,
+            profile=profile,
+        )
         items.append(
             {
                 **item,

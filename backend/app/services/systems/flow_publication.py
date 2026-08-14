@@ -814,6 +814,9 @@ def publish_draft(
         db=db,
     )
     db.flush()
+    from app.services.experience.bindings import retarget_seed_stub_bindings
+
+    retarget_seed_stub_bindings(db, workspace=workspace, system=system, actor=actor)
     version_service.purge_version_window(db=db, system_id=system.id)
     return version, draft, False
 

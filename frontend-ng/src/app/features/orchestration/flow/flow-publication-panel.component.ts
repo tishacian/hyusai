@@ -6,8 +6,23 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
+import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import {
+  ExperienceApiMissingError,
+  SystemHomeService,
+} from '@app/features/experience/system-home.service';
+import {
+  compileSystemHome,
+  firstManualIngress,
+  hasHitlHint,
+  uniqueBindingKey,
+  uniqueSlug,
+} from '@app/features/experience/runtime/system-home';
+import { FlowStore } from './flow.store';
 import { FlowPersistenceService } from './flow-persistence.service';
 
 /** Explicit, secret-free semantic review between a saved server draft and the
@@ -142,24 +157,59 @@ import { FlowPersistenceService } from './flow-persistence.service';
             <p class="ck-publish__error" role="alert">{{ error }}</p>
           }
 
+          @if (showHome()) {
+            <aside class="ck-publish__home">
+              @if (persistence.publishSucceeded()) {
+                <p class="ck-publish__home-ready">{{ i18n.t('experience.home.ready') }}</p>
+              }
+              <h3>{{ i18n.t('experience.home.section.title') }}</h3>
+              <p>{{ i18n.t('experience.home.section.body') }}</p>
+              <div class="ck-publish__home-actions">
+                <button type="button" (click)="previewHome()">
+                  {{ i18n.t('experience.home.preview') }}
+                </button>
+                <button
+                  type="button"
+                  class="is-primary"
+                  [disabled]="creating() || apiMissing()"
+                  (click)="createHome()"
+                >
+                  @if (creating()) {
+                    {{ i18n.t('experience.home.create.busy') }}
+                  } @else {
+                    {{ i18n.t('experience.home.create') }}
+                  }
+                </button>
+              </div>
+              @if (apiMissing()) {
+                <p class="ck-publish__home-note">{{ i18n.t('experience.home.create.unavailable') }}</p>
+              }
+              @if (createError(); as err) {
+                <p class="ck-publish__error" role="alert">{{ err }}</p>
+              }
+            </aside>
+          }
+
           <footer class="ck-publish__actions">
             <button type="button" (click)="close()" [disabled]="persistence.publishing()">
               {{ i18n.t('flow.publish.cancel') }}
             </button>
-            <button
-              type="button"
-              class="is-primary"
-              [disabled]="!canSubmit()"
-              (click)="publish()"
-            >
-              @if (persistence.publishing()) {
-                <app-icon name="loader-2" [size]="14" class="is-spinning" />
-                {{ i18n.t('flow.publish.submitting') }}
-              } @else {
-                <app-icon name="upload-cloud" [size]="14" />
-                {{ i18n.t('flow.publish.submit') }}
-              }
-            </button>
+            @if (!persistence.publishSucceeded()) {
+              <button
+                type="button"
+                class="is-primary"
+                [disabled]="!canSubmit()"
+                (click)="publish()"
+              >
+                @if (persistence.publishing()) {
+                  <app-icon name="loader-2" [size]="14" class="is-spinning" />
+                  {{ i18n.t('flow.publish.submitting') }}
+                } @else {
+                  <app-icon name="upload-cloud" [size]="14" />
+                  {{ i18n.t('flow.publish.submit') }}
+                }
+              </button>
+            }
           </footer>
         </section>
       </div>
@@ -169,16 +219,32 @@ import { FlowPersistenceService } from './flow-persistence.service';
 export class FlowPublicationPanelComponent {
   protected readonly persistence = inject(FlowPersistenceService);
   readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly store = inject(FlowStore);
+  private readonly home = inject(SystemHomeService);
+  private readonly router = inject(Router);
+  private readonly toastr = inject(ToastrService);
   protected readonly message = signal('');
+  protected readonly creating = signal(false);
+  protected readonly apiMissing = signal(false);
+  protected readonly createError = signal<string | null>(null);
   protected readonly canSubmit = computed(
     () =>
       this.message().trim().length > 0 &&
       this.persistence.canConfirmPublication(),
   );
+  protected readonly showHome = computed(
+    () =>
+      this.workspace.experienceV1Enabled() &&
+      this.persistence.publishedExecutionContract() !== null,
+  );
 
   constructor() {
     effect(() => {
-      if (!this.persistence.publishReviewOpen()) this.message.set('');
+      if (!this.persistence.publishReviewOpen()) {
+        this.message.set('');
+        this.createError.set(null);
+      }
     });
   }
 
@@ -202,5 +268,85 @@ export class FlowPublicationPanelComponent {
 
   protected close(): void {
     this.persistence.closePublicationReview();
+  }
+
+  protected previewHome(): void {
+    const compiled = this.compileHome();
+    if (!compiled) return;
+    this.home.provide(compiled.document);
+    void this.router.navigate(['/create/preview'], { queryParams: { source: 'home' } });
+  }
+
+  protected createHome(): void {
+    const compiled = this.compileHome();
+    const systemId = this.persistence.systemId();
+    const publishedVersionId = this.persistence.publishedVersionId();
+    if (!compiled || !systemId || !publishedVersionId || this.creating() || this.apiMissing()) {
+      return;
+    }
+    this.creating.set(true);
+    this.createError.set(null);
+    const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const name = compiled.systemName;
+    this.home
+      .createDraft({
+        name,
+        slug: uniqueSlug(name, nonce),
+        languages: [this.i18n.locale()],
+        document: compiled.document,
+        bindingKey: compiled.bindingKey,
+        systemId,
+        publishedVersionId,
+        ingressId: compiled.ingressId,
+      })
+      .subscribe({
+        next: () => {
+          this.creating.set(false);
+          this.toastr.success(this.i18n.t('experience.home.created'));
+        },
+        error: (err: unknown) => {
+          this.creating.set(false);
+          if (err instanceof ExperienceApiMissingError) {
+            this.apiMissing.set(true);
+            return;
+          }
+          this.createError.set(this.i18n.t('experience.home.create.error'));
+        },
+      });
+  }
+
+  private compileHome(): {
+    document: ReturnType<typeof compileSystemHome>;
+    bindingKey: string;
+    ingressId: string | null;
+    systemName: string;
+  } | null {
+    const contract = this.persistence.publishedExecutionContract();
+    if (!contract) return null;
+    const systemName =
+      (this.persistence.systemDisplayName() || '').trim() ||
+      this.i18n.t('experience.home.preview.title');
+    const ingress = firstManualIngress(contract);
+    const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const bindingKey = uniqueBindingKey(systemName, ingress?.ingress_id ?? 'submit', nonce);
+    const kinds = this.store.snapshot().nodes.map((node) => node.kind ?? '');
+    return {
+      systemName,
+      bindingKey,
+      ingressId: ingress?.ingress_id ?? null,
+      document: compileSystemHome({
+        systemName,
+        bindingKey,
+        ingress,
+        hasHitl: hasHitlHint(contract, kinds),
+        labels: {
+          subtitle: this.i18n.t('experience.home.subtitle'),
+          submit: this.i18n.t('experience.runtime.form.submit'),
+          missingEntry: this.i18n.t('experience.home.missing_entry'),
+          approvalTitle: this.i18n.t('experience.runtime.approval.title'),
+          approvalBody: this.i18n.t('experience.home.approval.body'),
+        },
+      }),
+    };
   }
 }

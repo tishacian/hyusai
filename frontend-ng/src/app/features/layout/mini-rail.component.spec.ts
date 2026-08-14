@@ -32,6 +32,7 @@ test('Capability scope hides its own level and routes Systems inside the same an
           lens,
           axesV3Enabled: () => true,
           axesV4Enabled: () => false,
+          experienceV1Enabled: () => false,
           loading: () => false,
           route,
           scope,
@@ -82,6 +83,7 @@ test('clicking the active mini-rail scope is a strict no-op', () => {
           lens,
           axesV3Enabled: () => true,
           axesV4Enabled: () => false,
+          experienceV1Enabled: () => false,
           loading: () => false,
           route,
           scope,
@@ -123,6 +125,7 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
           lens: () => 'operate',
           axesV3Enabled: () => false,
           axesV4Enabled: () => false,
+          experienceV1Enabled: () => false,
           loading: () => false,
           route: () => navigationRouteContext('/runs', false),
           scope: () => null,
@@ -167,6 +170,7 @@ function railWithFlowScope(axesV3: boolean, systemId: string | null): MiniRailCo
           lens: () => 'build',
           axesV3Enabled: () => axesV3,
           axesV4Enabled: () => false,
+          experienceV1Enabled: () => false,
           loading: () => false,
           route: () => navigationRouteContext('/skills', axesV3),
           scope: () => null,
@@ -228,6 +232,7 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
           lens: () => 'hypervisor',
           axesV3Enabled: () => true,
           axesV4Enabled: () => true,
+          experienceV1Enabled: () => false,
           loading: () => false,
           route: () => navigationRouteContext('/hypervisor'),
           scope: () => null,
@@ -248,4 +253,50 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
     ],
   });
   assert.deepEqual(injector.get(MiniRailComponent).visibleSections(), []);
+});
+
+test('experience_v1 Build menu is grouped Create plus library and has no Flow entry', () => {
+  const injector = Injector.create({
+    providers: [
+      MiniRailComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'build',
+          axesV3Enabled: () => true,
+          axesV4Enabled: () => false,
+          experienceV1Enabled: () => true,
+          loading: () => false,
+          route: () => navigationRouteContext('/create'),
+          scope: () => null,
+          capabilityId: () => null,
+          systemId: () => null,
+          runId: () => null,
+          skillInvocationId: () => null,
+          skillRef: () => null,
+          capabilityLabel: () => null,
+          systemLabel: () => null,
+          runLabel: () => null,
+          skillInvocationLabel: () => null,
+          skillLabel: () => null,
+          urlForScope: (section: CockpitSection) => section.route,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(MiniRailComponent);
+  const keys = rail.visibleSections().map((section) => section.key);
+  assert.deepEqual(keys, [
+    'business_apps',
+    'systems',
+    'knowledge',
+    'capabilities',
+    'skills',
+    'certified',
+    'integrations',
+  ]);
+  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[0], 0), 'nav.group.create');
+  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[3], 3), 'nav.group.library');
+  assert.equal(rail.sectionLabel(rail.visibleSections()[0]), 'Business application');
 });

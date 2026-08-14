@@ -87,6 +87,33 @@ def test_reviewer_reads_only_the_active_workspace_audit(db_session):
     assert foreign.id != workspace.id
 
 
+def test_audit_list_filters_by_event_type_prefix(db_session):
+    workspace, user = _subject(
+        db_session,
+        suffix="prefix",
+        role_template="workspace_reviewer",
+    )
+    extra = AuditLog(
+        id="log-audit-prefix-experience",
+        workspace_id=workspace.id,
+        timestamp=datetime.utcnow(),
+        event_type="experience.released",
+        actor="server-actor",
+        details={"experience_id": "exp-1"},
+        severity="info",
+    )
+    db_session.add(extra)
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    prefixed = client.get("/api/v1/audit", params={"event_type_prefix": "experience."})
+    exact = client.get("/api/v1/audit", params={"event_type": "system.updated"})
+
+    assert prefixed.status_code == 200
+    assert [item["id"] for item in prefixed.json()["logs"]] == ["log-audit-prefix-experience"]
+    assert [item["id"] for item in exact.json()["logs"]] == ["log-audit-prefix"]
+
+
 def test_exact_enforcement_and_invalid_attestation_are_fail_closed(
     db_session,
     attest_authorization_v2,

@@ -218,7 +218,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private unregisterContextReset: () => void = () => undefined;
 
   private get viewCommands(): CommandItem[] {
-    return [
+    const commands: CommandItem[] = [
     { id: 'view.hypervisor', label: this.i18n.t('palette.view.hypervisor'), hint: this.i18n.t('palette.view.hypervisor.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('hypervisor'), keywords: 'dashboard balance overview portfolio' },
     { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('steering'), keywords: 'levers policy control governance' },
     { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('review-queue'), keywords: 'review eval evaluation queue triage hallucination threshold' },
@@ -240,7 +240,30 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     { id: 'view.observability', label: this.i18n.t('palette.view.observability'), hint: this.i18n.t('palette.view.observability.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('observability'), keywords: 'observability quality performance metrics' },
     { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('runs'), keywords: 'runs traces executions logs history' },
     { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: `${agentiumSurfaceRoute('systems')}/new`, keywords: 'create new build wizard' },
-  ];
+    ];
+    if (this.workspace.experienceV1Enabled()) {
+      commands.push(
+        {
+          id: 'view.create',
+          label: this.i18n.t('palette.view.create'),
+          hint: this.i18n.t('palette.view.create.hint'),
+          tone: 'pos',
+          kind: 'view',
+          route: agentiumSurfaceRoute('create'),
+          keywords: 'create hub studio business application experience',
+        },
+        {
+          id: 'view.scratchpad',
+          label: this.i18n.t('palette.view.scratchpad'),
+          hint: this.i18n.t('palette.view.scratchpad.hint'),
+          tone: 'cool',
+          kind: 'view',
+          route: agentiumSurfaceRoute('orchestration'),
+          keywords: 'flow builder scratchpad orchestration canvas',
+        },
+      );
+    }
+    return commands;
   }
 
   /**

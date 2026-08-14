@@ -420,6 +420,15 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['model_portal_beta'] === true,
     );
   });
+  readonly experienceV1Enabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['experience_v1'] === true,
+    );
+  });
 
   captureRequestScope(): WorkspaceRequestScope {
     const state = this.state();

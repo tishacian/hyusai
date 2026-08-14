@@ -102,4 +102,21 @@ cd "$SOURCE_ROOT/frontend-ng"
   --reporter=list \
   --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
 
+# Experience canaries (16/17) are not part of the default iteration gate.
+# Opt in with E2E_EXPERIENCE_CANARY=1 on this script, or invoke separately:
+#   E2E_EXPERIENCE_CANARY=1 E2E_EXPERIENCE_EVIDENCE="$WORK/experience.json" \
+#     ./node_modules/.bin/playwright test \
+#       e2e/tests/16-experience-work-canary.spec.ts \
+#       e2e/tests/17-experience-studio-canary.spec.ts \
+#       --project=chromium --reporter=list --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
+if [ "${E2E_EXPERIENCE_CANARY:-}" = 1 ]; then
+  export E2E_EXPERIENCE_EVIDENCE="${E2E_EXPERIENCE_EVIDENCE:-$WORK/experience.json}"
+  ./node_modules/.bin/playwright test \
+    e2e/tests/16-experience-work-canary.spec.ts \
+    e2e/tests/17-experience-studio-canary.spec.ts \
+    --project=chromium \
+    --reporter=list \
+    --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"
+fi
+
 echo "iteration canaries passed for $SHA — artifacts: $WORK"

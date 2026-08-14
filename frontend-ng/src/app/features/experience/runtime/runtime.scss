@@ -1,0 +1,247 @@
+.xp-rt {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.xp-rt-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.xp-rt-node {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xp-rt-page.xp-rt-compact,
+.xp-rt-node.xp-rt-compact .xp-rt-block {
+  gap: 6px;
+}
+
+.xp-rt-page.xp-rt-compact .xp-rt-block,
+.xp-rt-node.xp-rt-compact .xp-rt-block {
+  padding: 8px;
+}
+
+.xp-rt-page.xp-rt-compact .xp-rt-node.xp-rt-comfortable .xp-rt-block {
+  padding: 14px;
+}
+
+.xp-rt-node.xp-rt-accent .xp-rt-block {
+  border-left: 3px solid var(--xp-accent);
+}
+
+.xp-rt-page > h2 {
+  margin: 0;
+  font-family: var(--ck-font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+}
+
+.xp-rt-block h3,
+.xp-rt-head {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ck-fg-3);
+}
+
+.xp-rt-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-signal-cool);
+  text-decoration: none;
+}
+
+.xp-rt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp-rt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xp-rt-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-field input,
+.xp-rt-field select,
+.xp-rt-field textarea {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: 4px;
+  background: var(--ck-bg-inset);
+  color: var(--ck-fg-1);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+}
+
+.xp-rt-field input[aria-invalid='true'],
+.xp-rt-field select[aria-invalid='true'] {
+  border-color: var(--ck-status-neg-fg);
+}
+
+.xp-rt-err,
+.xp-rt-hint {
+  margin: 0;
+  font-size: 11px;
+}
+
+.xp-rt-err {
+  color: var(--ck-status-neg-fg);
+}
+
+.xp-rt-hint {
+  color: var(--ck-fg-4);
+}
+
+.xp-rt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xp-rt-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--xp-accent, var(--ck-signal-cool));
+  color: var(--ck-on-signal, #0b1220);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.xp-rt-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.xp-rt-btn-ghost {
+  background: transparent;
+  color: var(--ck-fg-2);
+  border: 1px solid var(--ck-stroke-3);
+}
+
+.xp-rt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.xp-rt-table th,
+.xp-rt-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-table th {
+  color: var(--ck-fg-4);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.xp-rt-pre {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  background: var(--ck-bg-code);
+  border-radius: 4px;
+  color: var(--ck-fg-2);
+  font-family: var(--ck-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.xp-rt-kv {
+  display: grid;
+  grid-template-columns: minmax(80px, 140px) 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.xp-rt-kv dt {
+  color: var(--ck-fg-4);
+}
+
+.xp-rt-kv dd {
+  margin: 0;
+  color: var(--ck-fg-1);
+}
+
+.xp-rt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-rt-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ck-stroke-1);
+  font-size: 13px;
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-fallback {
+  border-color: var(--ck-status-warn-line);
+  background: var(--ck-status-warn-bg);
+}
+
+.xp-rt-kpi {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--xp-accent, var(--ck-fg-1));
+}
+
+.xp-rt-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-hot);
+  border-radius: 6px;
+  background: var(--ck-status-info-bg);
+}

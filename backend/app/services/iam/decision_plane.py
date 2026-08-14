@@ -1084,6 +1084,12 @@ def build_authorization_v2_backfill(
             "adaptive_policy.admin": parsed_mode.value,
             "action.read": parsed_mode.value,
             "action.execute": parsed_mode.value,
+            "binding.view": parsed_mode.value,
+            "binding.manage": parsed_mode.value,
+            "experience.view": parsed_mode.value,
+            "experience.edit": parsed_mode.value,
+            "experience.release": parsed_mode.value,
+            "experience.deploy": parsed_mode.value,
         },
     }
 

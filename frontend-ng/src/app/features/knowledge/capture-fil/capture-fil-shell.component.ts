@@ -1,11 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { PageFrameComponent } from '@app/shared/cockpit';
-import type { CaptureViewReference } from '@app/core/api.service';
+import { ApiService, type CaptureViewReference } from '@app/core/api.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { CaptureEngine, type CaptureSessionInfo } from './capture-engine';
 import { FSE_INTERVENTION_V1 } from './capture-templates';
+import {
+  ANDRITZ_FSE_BINDING_KEY,
+  pickFseSystem,
+  systemIdFromBindingResolve,
+} from './fse-system-resolve';
 import { LeFilSessionComponent } from './le-fil-session.component';
 import { ReportProvenanceComponent } from './report-provenance.component';
 import { CaptureFilDashboardComponent } from './surfaces/capture-fil-dashboard.component';
@@ -122,6 +130,8 @@ export class CaptureFilShellComponent {
   private readonly engine = inject(CaptureEngine);
   private readonly route = inject(ActivatedRoute);
   private readonly systems = inject(CanonicalApiService);
+  private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
 
   /** Active surface. Defaults to the dashboard entry point. */
   readonly surface = signal<CaptureFilSurface>('dashboard');
@@ -178,24 +188,25 @@ export class CaptureFilShellComponent {
 
   /** Find the workspace system seeded with the FSE capture template. */
   private resolveFseSystem(): void {
+    const apply = (rows: System[], boundId: string | null) => {
+      const match = pickFseSystem(rows, FSE_INTERVENTION_V1.id, boundId);
+      if (match?.id) this.bindSystem(match.id);
+    };
     this.systems.listSystems().subscribe((rows) => {
-      const match = (rows || []).find((sys) => this.systemTemplateId(sys) === FSE_INTERVENTION_V1.id)
-        || (rows || []).find((sys) => /intervention|fse/i.test(sys.name || ''));
-      if (match?.id) {
-        this.bindSystem(match.id);
+      const list = rows || [];
+      if (!this.workspace.experienceV1Enabled()) {
+        apply(list, null);
+        return;
       }
+      this.api.get<{
+        status?: string;
+        binding?: { system_id?: string };
+      }>(`/system-bindings/${encodeURIComponent(ANDRITZ_FSE_BINDING_KEY)}/resolve`).pipe(
+        catchError(() => of(null)),
+      ).subscribe((resolved) => {
+        apply(list, systemIdFromBindingResolve(resolved));
+      });
     });
-  }
-
-  private systemTemplateId(sys: System): string | null {
-    const settings = sys.settings && typeof sys.settings === 'object'
-      ? sys.settings as Record<string, unknown>
-      : null;
-    const capture = settings?.['capture'] && typeof settings['capture'] === 'object'
-      ? settings['capture'] as Record<string, unknown>
-      : null;
-    const raw = capture?.['template_id'];
-    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
   }
 
   protected readonly tabs: SurfaceTab[] = [

@@ -1,0 +1,103 @@
+<ck-page-frame
+  [eyebrow]="i18n.t('experience.hub.eyebrow')"
+  [title]="i18n.t('experience.hub.title')"
+>
+  <ck-help titleHelp id="concept.business-application" />
+
+  <div class="xp-hub">
+    <form class="xp-composer" (submit)="$event.preventDefault()">
+      <span class="xp-composer-glyph" aria-hidden="true">
+        <ck-glyph name="focus" [size]="16" />
+      </span>
+      <input
+        type="text"
+        disabled
+        [placeholder]="i18n.t('experience.hub.composer.placeholder')"
+        [attr.aria-label]="i18n.t('experience.hub.composer.placeholder')"
+      />
+      <button type="button" class="xp-composer-submit" disabled [title]="i18n.t('experience.hub.composer.soon')">
+        {{ i18n.t('experience.hub.composer.submit') }}
+      </button>
+    </form>
+
+    <div class="xp-intents">
+      @for (intent of intents; track intent.route) {
+        <article class="xp-card">
+          <header class="xp-card-head">
+            <span class="xp-card-glyph" aria-hidden="true">
+              <ck-glyph [name]="intent.glyph" [size]="16" />
+            </span>
+            <h2>{{ i18n.t(intent.titleKey) }}</h2>
+            @if (intent.helpId) {
+              <ck-help [id]="intent.helpId" />
+            }
+          </header>
+          <p>{{ i18n.t(intent.bodyKey) }}</p>
+          <div class="xp-card-badges">
+            @for (badge of intent.badges; track badge) {
+              <ck-tag tone="cool">{{ i18n.t(badge) }}</ck-tag>
+            }
+          </div>
+          <a [routerLink]="intent.route" class="xp-card-cta">
+            {{ i18n.t(intent.ctaKey) }}
+            <ck-glyph name="arrow-right" [size]="12" />
+          </a>
+        </article>
+      }
+    </div>
+
+    <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.resume.title')">
+      <h2 class="xp-section-title">{{ i18n.t('experience.hub.resume.title') }}</h2>
+      @if (deployedApps().length === 0) {
+        <app-empty-state
+          icon="inbox"
+          size="sm"
+          [title]="i18n.t('experience.hub.resume.empty.title')"
+          [description]="i18n.t('experience.hub.resume.empty.description')"
+        />
+      } @else {
+        <ul class="xp-resume-apps">
+          @for (app of deployedApps(); track app.id) {
+            <li>
+              <span>{{ app.name }}</span>
+              <a [routerLink]="['/work', app.slug]" class="xp-card-cta">
+                {{ i18n.t('experience.work.view_app') }}
+                <ck-glyph name="arrow-right" [size]="12" />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+      <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
+      <a routerLink="/create/preview" class="xp-preview-link">{{ i18n.t('experience.runtime.preview.link') }}</a>
+    </section>
+
+    <section class="xp-articulation" [attr.aria-label]="i18n.t('experience.hub.articulation.title')">
+      <header class="xp-articulation-head">
+        <h2 class="xp-section-title">{{ i18n.t('experience.hub.articulation.title') }}</h2>
+        <p>{{ i18n.t('experience.hub.articulation.aside') }}</p>
+      </header>
+      <div class="xp-strip">
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('nav.business_apps') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.app.body') }}</p>
+        </article>
+        <div class="xp-strip-link">
+          <span>{{ i18n.t('experience.hub.articulation.bindings') }}</span>
+          <ck-help id="concept.binding" />
+        </div>
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('experience.hub.articulation.systems.title') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.systems.body') }}</p>
+        </article>
+        <div class="xp-strip-link">
+          <span>{{ i18n.t('experience.hub.articulation.anchored') }}</span>
+        </div>
+        <article class="xp-strip-node">
+          <h3>{{ i18n.t('nav.knowledge') }}</h3>
+          <p>{{ i18n.t('experience.hub.articulation.knowledge.body') }}</p>
+        </article>
+      </div>
+    </section>
+  </div>
+</ck-page-frame>

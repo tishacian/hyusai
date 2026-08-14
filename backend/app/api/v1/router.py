@@ -57,7 +57,10 @@ from app.api.v1.endpoints import (
     sharepoint,
     skills,
     # Canonical (mental-model) layer.
+    experiences,
+    system_bindings,
     systems,
+    work,
     tasks,
     telemetry,
     traces,
@@ -103,6 +106,17 @@ api_router.include_router(model_portal.router, prefix="/models", tags=["model-po
 
 # Canonical mental-model layer.
 api_router.include_router(systems.router,       prefix="/systems",       tags=["systems"])
+api_router.include_router(
+    system_bindings.router,
+    prefix="/system-bindings",
+    tags=["system-bindings"],
+)
+api_router.include_router(
+    experiences.router,
+    prefix="/experiences",
+    tags=["experiences"],
+)
+api_router.include_router(work.router, prefix="/work", tags=["work"])
 api_router.include_router(flow_publication.router, prefix="/systems", tags=["flow-publication"])
 api_router.include_router(flow_ingresses.router, prefix="/systems", tags=["flow-ingresses"])
 api_router.include_router(flow_runner.router, prefix="/systems", tags=["flow-runner"])

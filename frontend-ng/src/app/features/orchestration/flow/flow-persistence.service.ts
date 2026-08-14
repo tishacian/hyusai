@@ -238,6 +238,7 @@ export class FlowPersistenceService {
   readonly publishDiffState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly publishError = signal<string | null>(null);
   readonly publishing = signal(false);
+  readonly publishSucceeded = signal(false);
   readonly breakingChangeAcknowledged = signal(false);
 
   /** Hash-bound analyser state exposed to the strip and Execute gate. Unlike
@@ -325,7 +326,7 @@ export class FlowPersistenceService {
   private lastRevision = -1;
   private baselineFlow: CanonicalFlow | null = null;
   private systemStatus: SystemStatus | null = null;
-  private systemName: string | null = null;
+  readonly systemDisplayName = signal<string | null>(null);
   /** One-shot authority, scoped to the exact graph revision the user saw. */
   private replacementIntentRevision: number | null = null;
   private sharePayloadPending = false;
@@ -487,7 +488,7 @@ export class FlowPersistenceService {
     // advance the client to a server revision it cannot render.
     this.systemId.set(system.id);
     this.systemStatus = system.status ?? 'draft';
-    this.systemName = system.name;
+    this.systemDisplayName.set(system.name);
     this.savedFlowSha256.set(system.flow_sha256 ?? null);
     this.baselineFlow = cloneFlow(this.store.snapshot());
     this.hydrationError.set(null);
@@ -542,7 +543,7 @@ export class FlowPersistenceService {
 
     this.systemId.set(system.id);
     this.systemStatus = flowState.status ?? system.status ?? 'draft';
-    this.systemName = system.name;
+    this.systemDisplayName.set(system.name);
     this.publicationMode.set(true);
     this.draftRevision.set(flowState.draft.revision);
     this.savedFlowSha256.set(flowState.draft.flow_sha256);
@@ -747,6 +748,7 @@ export class FlowPersistenceService {
     this.publishDiff.set(null);
     this.publishDiffState.set('loading');
     this.publishError.set(null);
+    this.publishSucceeded.set(false);
     this.breakingChangeAcknowledged.set(false);
     const scope = this.workspace.captureRequestScope();
     const expectedDraftHash = this.savedFlowSha256();
@@ -791,6 +793,7 @@ export class FlowPersistenceService {
     this.publishDiff.set(null);
     this.publishDiffState.set('idle');
     this.publishError.set(null);
+    this.publishSucceeded.set(false);
     this.breakingChangeAcknowledged.set(false);
   }
 
@@ -863,7 +866,7 @@ export class FlowPersistenceService {
             result.draft.base_published_version_id ?? result.published.version_id,
           );
           this.draftUpdatedAt.set(result.draft.updated_at ?? null);
-          this.publishReviewOpen.set(false);
+          this.publishSucceeded.set(true);
           this.publishDiff.set(null);
           this.publishDiffState.set('idle');
           this.breakingChangeAcknowledged.set(false);
@@ -1150,7 +1153,7 @@ export class FlowPersistenceService {
             this.baselineFlow = cloneFlow(flow);
             this.savedFlowSha256.set(res.system.flow_sha256 ?? null);
             this.systemStatus = res.system.status ?? this.systemStatus;
-            this.systemName = res.system.name ?? this.systemName;
+            this.systemDisplayName.set(res.system.name ?? this.systemDisplayName());
             const acknowledged = this.store.markSaved(sentRevision);
             this.lastSavedAt.set(Date.now());
             // If validation was unavailable/in flight at save time, refresh it
@@ -1333,8 +1336,10 @@ export class FlowPersistenceService {
     this.publishDiff.set(null);
     this.publishDiffState.set('idle');
     this.publishError.set(null);
+    this.publishSucceeded.set(false);
     this.breakingChangeAcknowledged.set(false);
     this.publishing.set(false);
+    this.systemDisplayName.set(null);
   }
 
   private publicationErrorMessage(error: unknown, fallback: string): string {

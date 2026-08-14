@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, exists, or_
@@ -354,6 +354,7 @@ async def list_runs(
     system_id: Optional[str] = None,
     capability_id: Optional[str] = None,
     status: Optional[str] = None,
+    origin: Optional[list[str]] = Query(None),
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -404,6 +405,14 @@ async def list_runs(
         )
     if status:
         q = q.filter(Run.status == status)
+    if origin:
+        # Binding invoke tags input_ref._ingress.adapter.origin. No JSON index.
+        origins = [item for item in origin if item]
+        origin_col = Run.input_ref["_ingress"]["adapter"]["origin"].as_string()
+        if len(origins) == 1:
+            q = q.filter(origin_col == origins[0])
+        elif origins:
+            q = q.filter(origin_col.in_(origins))
     rows = readable_run_page(
         db,
         query=q.order_by(Run.started_at.desc()),

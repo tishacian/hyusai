@@ -5,6 +5,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { I18nService } from '@app/core/i18n.service';
 import {
   COCKPIT_VERBS,
+  cockpitVerbSections,
   navigationSectionNaming,
   type CockpitScopeType,
   type CockpitSection,
@@ -60,7 +61,10 @@ const SCOPE_ORDER: CockpitScopeType[] = [
           </header>
 
           <nav class="ck-mini-nav">
-            @for (s of visibleSections(); track s.key) {
+            @for (s of visibleSections(); track s.key; let i = $index) {
+              @if (sectionGroupLabel(s, i); as group) {
+                <span class="ck-mini-group">{{ group }}</span>
+              }
               <a
                 [routerLink]="routeTreeFor(s)"
                 class="ck-mini-item"
@@ -134,6 +138,14 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         display: flex;
         flex-direction: column;
         gap: 1px;
+      }
+      .ck-mini-group {
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4);
+        padding: 10px 10px 4px;
       }
       .ck-mini-item {
         position: relative;
@@ -211,12 +223,12 @@ export class MiniRailComponent {
   readonly visibleSections = computed<CockpitSection[]>(() => {
     const verb = this.activeVerb();
     if (!verb) return [];
-    const sections = this.navigation.axesV4Enabled()
-      ? verb.v4Sections ?? verb.sections
-      : this.navigation.axesV3Enabled()
-        ? verb.sections
-        : verb.legacySections;
-    if (!sections) return [];
+    const sections = cockpitVerbSections(verb, {
+      axesV3: this.navigation.axesV3Enabled(),
+      axesV4: this.navigation.axesV4Enabled(),
+      experienceV1: this.navigation.experienceV1Enabled(),
+    });
+    if (!sections.length) return [];
     const deepest = this.deepestResolvedScope();
     if (!this.navigation.axesV3Enabled() || !deepest) return sections;
     const cutoff = SCOPE_ORDER.indexOf(deepest);
@@ -284,11 +296,13 @@ export class MiniRailComponent {
     return this.navigation.urlTreeForScope(s);
   }
 
-  /**
-   * Suffix dynamic labels with a scope hint so the mini-rail reads as an
-   * Object Index rather than a parallel navigation. E.g. `Systems` becomes
-   * `Systems · of cap:3a4f9c` when a capability is focused.
-   */
+  sectionGroupLabel(s: CockpitSection, index: number): string | null {
+    if (!s.group) return null;
+    const previous = this.visibleSections()[index - 1];
+    if (previous?.group === s.group) return null;
+    return this.i18n.t(s.group === 'library' ? 'nav.group.library' : 'nav.group.create');
+  }
+
   sectionLabel(s: CockpitSection): string {
     // Name the destination this item actually links to, not the section in
     // the abstract: the Flow entry reads "Scratchpad" while it opens one.

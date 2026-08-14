@@ -15,7 +15,7 @@ test('side rail delegates every lens route to the route-owned navigation project
       SideRailComponent,
       {
         provide: WorkspaceService,
-        useValue: { mode: () => 'portfolio', isDemoMode: () => false },
+        useValue: { mode: () => 'portfolio', isDemoMode: () => false, experienceV1Enabled: () => false },
       },
       {
         provide: ZoomContextService,
@@ -55,6 +55,7 @@ test('demo rail uses Mission Room home only when the extension is enabled', () =
           current: () => current,
           mode: () => 'demo',
           isDemoMode: () => true,
+          experienceV1Enabled: () => false,
         },
       },
       {
@@ -88,6 +89,7 @@ test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () 
           current: () => ({ mode: 'demo', settings: { mission_room: { enabled: true } } }),
           mode: () => 'demo',
           isDemoMode: () => true,
+          experienceV1Enabled: () => false,
         },
       },
       {
@@ -105,4 +107,33 @@ test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () 
   const rail = injector.get(SideRailComponent);
   const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
   assert.equal(rail.routeFor(hypervisor), '/hypervisor');
+});
+
+test('experience_v1 Build verb opens the Create hub', () => {
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          mode: () => 'portfolio',
+          isDemoMode: () => false,
+          experienceV1Enabled: () => true,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'build',
+          axesV4Enabled: () => false,
+          urlForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(SideRailComponent);
+  const build = rail.visibleVerbs().find((verb) => verb.key === 'build')!;
+  assert.equal(rail.routeFor(build), '/create');
+  assert.equal(rail.verbLabel(build), 'nav.build.create');
 });

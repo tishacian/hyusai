@@ -1,0 +1,234 @@
+.xp-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.xp-composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+}
+
+.xp-composer-glyph {
+  flex: 0 0 auto;
+  color: var(--ck-signal-cool);
+}
+
+.xp-composer input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--ck-fg-1);
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
+}
+
+.xp-composer input::placeholder {
+  color: var(--ck-fg-4);
+}
+
+.xp-composer-submit {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--ck-signal-cool);
+  color: var(--ck-on-signal, #0b1220);
+  font-family: var(--ck-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.xp-intents {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.xp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  min-height: 180px;
+}
+
+.xp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp-card-glyph {
+  color: var(--ck-signal-cool);
+}
+
+.xp-card h2 {
+  margin: 0;
+  font-family: var(--ck-font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-card p {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ck-fg-3);
+}
+
+.xp-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.xp-card-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--ck-signal-cool);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.xp-card-cta:hover {
+  color: var(--ck-fg-1);
+}
+
+.xp-section-title {
+  margin: 0 0 10px;
+  font-family: var(--ck-font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-resume-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-resume-apps li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ck-fg-1);
+}
+
+.xp-resume-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ck-fg-4);
+}
+
+.xp-preview-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ck-fg-4);
+  text-decoration: none;
+}
+
+.xp-preview-link:hover {
+  color: var(--ck-signal-cool);
+}
+
+.xp-articulation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.xp-articulation-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ck-fg-4);
+}
+
+.xp-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.xp-strip-node {
+  flex: 1 1 160px;
+  padding: 12px;
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+}
+
+.xp-strip-node h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-strip-node p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ck-fg-3);
+}
+
+.xp-strip-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 88px;
+  padding: 8px 4px;
+  font-family: var(--ck-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-signal-cool);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .xp-intents {
+    grid-template-columns: 1fr;
+  }
+}

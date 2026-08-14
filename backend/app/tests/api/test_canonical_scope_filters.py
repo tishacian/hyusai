@@ -258,3 +258,77 @@ def test_global_capabilities_remain_valid_scope_parents(db_session):
             "runs"
         ]
     } == {global_run.id}
+
+
+def test_list_runs_filters_by_ingress_origin(db_session):
+    workspace = Workspace(id="ws-origin", slug="origin", name="Origin")
+    tagged = Run(
+        id="run-origin-experience",
+        workspace_id=workspace.id,
+        status="completed",
+        input_ref={"_ingress": {"adapter": {"origin": "experience:expenses.submit"}}},
+    )
+    other = Run(
+        id="run-origin-manual",
+        workspace_id=workspace.id,
+        status="completed",
+        input_ref={"_ingress": {"adapter": {"origin": "manual"}}},
+    )
+    untagged = Run(
+        id="run-origin-plain",
+        workspace_id=workspace.id,
+        status="completed",
+        input_ref={},
+    )
+    db_session.add_all([workspace, tagged, other, untagged])
+    db_session.commit()
+    client = _client(db_session, workspace)
+
+    matched = client.get("/runs", params={"origin": "experience:expenses.submit"})
+    empty = client.get("/runs", params={"origin": "experience:missing"})
+
+    assert matched.status_code == 200
+    assert [row["id"] for row in matched.json()["runs"]] == ["run-origin-experience"]
+    assert empty.json() == {"runs": []}
+
+
+def test_list_runs_hitl_inbox_excludes_other_binding_origin(db_session):
+    workspace = Workspace(id="ws-hitl-origin", slug="hitl-origin", name="HITL origin")
+    ours = Run(
+        id="run-hitl-nawa",
+        workspace_id=workspace.id,
+        status="hitl_pending",
+        input_ref={"_ingress": {"adapter": {"origin": "experience:nawa.password_reset"}}},
+    )
+    other_app = Run(
+        id="run-hitl-recon",
+        workspace_id=workspace.id,
+        status="hitl_pending",
+        input_ref={"_ingress": {"adapter": {"origin": "experience:rapprochement.po.factures"}}},
+    )
+    untagged = Run(
+        id="run-hitl-system",
+        workspace_id=workspace.id,
+        status="hitl_pending",
+        input_ref={"_ingress": {"adapter": {"origin": "manual"}}},
+    )
+    db_session.add_all([workspace, ours, other_app, untagged])
+    db_session.commit()
+    client = _client(db_session, workspace)
+
+    scoped = client.get(
+        "/runs",
+        params={"status": "hitl_pending", "origin": "experience:nawa.password_reset"},
+    )
+    both = client.get(
+        "/runs",
+        params=[
+            ("status", "hitl_pending"),
+            ("origin", "experience:nawa.password_reset"),
+            ("origin", "experience:rapprochement.po.factures"),
+        ],
+    )
+
+    assert scoped.status_code == 200
+    assert [row["id"] for row in scoped.json()["runs"]] == ["run-hitl-nawa"]
+    assert {row["id"] for row in both.json()["runs"]} == {"run-hitl-nawa", "run-hitl-recon"}

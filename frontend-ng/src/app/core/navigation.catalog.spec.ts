@@ -5,6 +5,7 @@ import {
   BUSINESS_NAVIGATION_SURFACE_IDS,
   COCKPIT_VERBS,
   agentiumSurfaceById,
+  cockpitVerbSections,
   matchCockpitVerb,
   navigationLensUrl,
   navigationObjectUrl,
@@ -65,7 +66,11 @@ test('destination naming exposes a dedicated key so a locale can override it', (
 
 test('sections without a dynamic destination keep their catalog naming', () => {
   for (const verb of COCKPIT_VERBS) {
-    for (const section of [...(verb.sections ?? []), ...(verb.legacySections ?? [])]) {
+    for (const section of [
+        ...(verb.sections ?? []),
+        ...(verb.legacySections ?? []),
+        ...(verb.experienceSections ?? []),
+      ]) {
       if (section.key === 'flows') continue;
       const naming = navigationSectionNaming(section, section.route);
       assert.equal(naming.label, section.label, section.key);
@@ -116,7 +121,11 @@ test('surface registry owns unique ids and every rail section references it', ()
   );
   for (const verb of COCKPIT_VERBS) {
     assert.ok(agentiumSurfaceById(verb.primarySurfaceId), verb.primarySurfaceId);
-    for (const section of [...(verb.sections ?? []), ...(verb.legacySections ?? [])]) {
+    for (const section of [
+        ...(verb.sections ?? []),
+        ...(verb.legacySections ?? []),
+        ...(verb.experienceSections ?? []),
+      ]) {
       assert.ok(agentiumSurfaceById(section.surfaceId), section.surfaceId);
     }
   }
@@ -273,4 +282,30 @@ test('unknown navigation query values never influence the cockpit projection', (
   assert.equal(parsed.scope, null);
   assert.deepEqual(parsed.query, { lens: 'destroy', scope: 'unknown' });
   assert.equal(parsed.capabilityId, null);
+});
+
+test('experience_v1 Build menu replaces the flat sections and drops the scratchpad', () => {
+  const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
+  const off = cockpitVerbSections(build, { axesV3: false, axesV4: false, experienceV1: false });
+  assert.deepEqual(off.map((section) => section.key), [
+    'systems',
+    'capabilities',
+    'skills',
+    'knowledge',
+    'flows',
+  ]);
+
+  const on = cockpitVerbSections(build, { axesV3: true, axesV4: false, experienceV1: true });
+  assert.deepEqual(on.map((section) => section.key), [
+    'business_apps',
+    'systems',
+    'knowledge',
+    'capabilities',
+    'skills',
+    'certified',
+    'integrations',
+  ]);
+  assert.equal(on.some((section) => section.key === 'flows'), false);
+  assert.equal(matchCockpitVerb('/create')?.key, 'build');
+  assert.equal(matchCockpitVerb('/create/apps')?.key, 'build');
 });

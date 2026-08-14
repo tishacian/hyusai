@@ -24,6 +24,7 @@ them and declares which key prefixes each domain owns (`I18N_DOMAINS`).
 | `client360` | `client360.` | client 360 |
 | `mission` | `mission.` | mission room |
 | `hypervisor` | `hypervisor.` `steering.` | hypervisor and steering |
+| `experience` | `experience.` | create hub, business-application inventory, `/work` |
 
 The guard fails if a key sits in a module that doesn't own its prefix, or if
 two modules define the same key (the merge would silently pick one). Need a

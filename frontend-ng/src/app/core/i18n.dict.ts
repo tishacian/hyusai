@@ -26,6 +26,7 @@ import { CLIENT360_EN, CLIENT360_FR } from './i18n/client360.dict';
 import { COMMON_EN, COMMON_FR } from './i18n/common.dict';
 import { CONTEXTS_EN, CONTEXTS_FR } from './i18n/contexts.dict';
 import { DEPOSIT_EN, DEPOSIT_FR } from './i18n/deposit.dict';
+import { EXPERIENCE_EN, EXPERIENCE_FR } from './i18n/experience.dict';
 import { FLOW_EN, FLOW_FR } from './i18n/flow.dict';
 import { GOVERNANCE_EN, GOVERNANCE_FR } from './i18n/governance.dict';
 import { HYPERVISOR_EN, HYPERVISOR_FR } from './i18n/hypervisor.dict';
@@ -64,6 +65,7 @@ export const I18N_DOMAINS = {
     en: HYPERVISOR_EN,
   },
   deposit: { prefixes: ['deposit'], fr: DEPOSIT_FR, en: DEPOSIT_EN },
+  experience: { prefixes: ['experience'], fr: EXPERIENCE_FR, en: EXPERIENCE_EN },
   knowledge: { prefixes: ['knowledge'], fr: KNOWLEDGE_FR, en: KNOWLEDGE_EN },
   contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
   governance: { prefixes: ['governance'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
@@ -95,6 +97,7 @@ export const FR_DICT = {
   ...MISSION_FR,
   ...HYPERVISOR_FR,
   ...DEPOSIT_FR,
+  ...EXPERIENCE_FR,
   ...KNOWLEDGE_FR,
   ...CONTEXTS_FR,
   ...GOVERNANCE_FR,
@@ -119,6 +122,7 @@ export const EN_DICT: Record<I18nKey, string> = {
   ...MISSION_EN,
   ...HYPERVISOR_EN,
   ...DEPOSIT_EN,
+  ...EXPERIENCE_EN,
   ...KNOWLEDGE_EN,
   ...CONTEXTS_EN,
   ...GOVERNANCE_EN,

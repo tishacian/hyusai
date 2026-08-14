@@ -1016,7 +1016,9 @@ stateful.
   ni signature. Les identifiants sont lus depuis
   `/root/.attestation-username` / `/root/.attestation-password` (root-only)
   en mémoire, jamais écrits sur disque — corrige le `E2E_PASSWORD` en clair
-  de `/tmp/rb-job/job.env`.
+  de `/tmp/rb-job/job.env`. Les canaries Experience (`16-experience-work-canary`,
+  `17-experience-studio-canary`) restent hors de ce gate ; opt-in uniquement
+  via `E2E_EXPERIENCE_CANARY=1`.
 
 Boucle d'itération cible :
 

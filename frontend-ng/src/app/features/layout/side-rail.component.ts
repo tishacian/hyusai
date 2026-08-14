@@ -14,7 +14,7 @@ import {
   missionRoomExtensionState,
 } from '@app/features/mission-room/mission-room.extension';
 import { I18nService } from '@app/core/i18n.service';
-import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
+import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
@@ -49,7 +49,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
             [routerLink]="routeTreeFor(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
-            [title]="i18n.t('nav.' + v.key) + ' — ' + i18n.t('nav.hint.' + v.key)"
+            [title]="verbTitle(v)"
             [attr.aria-current]="isActive(v) ? 'page' : null"
           >
             @if (isActive(v)) {
@@ -59,8 +59,8 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
               <ck-glyph [name]="v.glyph" [size]="18" />
             </span>
             <span class="ck-rail-label">
-              <span class="ck-rail-label-name">{{ i18n.t('nav.' + v.key) }}</span>
-              <span class="ck-rail-label-hint">{{ i18n.t('nav.hint.' + v.key) }}</span>
+              <span class="ck-rail-label-name">{{ verbLabel(v) }}</span>
+              <span class="ck-rail-label-hint">{{ verbHint(v) }}</span>
             </span>
           </a>
         }
@@ -234,6 +234,22 @@ export class SideRailComponent {
     return this.navigation.lens() === v.key;
   }
 
+  verbLabel(v: CockpitVerb): string {
+    return v.key === 'build' && this.workspace.experienceV1Enabled()
+      ? this.i18n.t('nav.build.create')
+      : this.i18n.t('nav.' + v.key);
+  }
+
+  verbHint(v: CockpitVerb): string {
+    return v.key === 'build' && this.workspace.experienceV1Enabled()
+      ? this.i18n.t('nav.hint.build.create')
+      : this.i18n.t('nav.hint.' + v.key);
+  }
+
+  verbTitle(v: CockpitVerb): string {
+    return `${this.verbLabel(v)} — ${this.verbHint(v)}`;
+  }
+
   routeFor(v: CockpitVerb): string {
     const fallback = this.fallbackRoute(v);
     return this.navigation.urlForLens(v.key, fallback);
@@ -245,6 +261,9 @@ export class SideRailComponent {
   }
 
   private fallbackRoute(v: CockpitVerb): string {
+    if (v.key === 'build' && this.workspace.experienceV1Enabled()) {
+      return agentiumSurfaceRoute('create');
+    }
     if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
       return v.primaryRoute;
     }

@@ -807,7 +807,8 @@ test('P1 Publish requires rendered diff, release message and breaking acknowledg
       contract_sha256: 'contract-published-v3',
     });
     assert.equal(harness.service.draftMatchesPublished(), true);
-    assert.equal(harness.service.publishReviewOpen(), false);
+    assert.equal(harness.service.publishReviewOpen(), true);
+    assert.equal(harness.service.publishSucceeded(), true);
     assert.equal(harness.manifestReloads.count, 1);
   } finally {
     harness.cleanup();

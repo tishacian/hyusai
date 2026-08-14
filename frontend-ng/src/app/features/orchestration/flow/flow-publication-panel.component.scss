@@ -27,7 +27,7 @@
   width: min(720px, calc(100vw - 32px));
   max-height: min(780px, calc(100vh - 32px));
   padding: 18px;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid var(--ck-stroke-3, rgba(255, 255, 255, 0.16));
   border-radius: var(--ck-radius-lg, 10px);
   background: var(--ck-bg-1, #11151b);
@@ -229,6 +229,70 @@
 .ck-publish__error {
   margin: 0;
   color: var(--ck-signal-neg, #ef6b73);
+  font-size: 12px;
+}
+
+.ck-publish__home {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3 {
+    color: var(--ck-fg-1, #f2f5f8);
+    font-size: 13px;
+  }
+
+  p {
+    color: var(--ck-fg-3, #8891a0);
+    font-size: 12px;
+  }
+}
+
+.ck-publish__home-ready {
+  color: var(--ck-signal-cool, #6ea8fe) !important;
+  font: 600 11px / 1.4 inherit;
+}
+
+.ck-publish__home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 11px;
+    border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.12));
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--ck-fg-1, #f2f5f8) 4%, transparent);
+    color: var(--ck-fg-2, #c8cdd4);
+    cursor: pointer;
+
+    &.is-primary {
+      color: var(--ck-signal-cool, #6ea8fe);
+      border-color: color-mix(in srgb, var(--ck-signal-cool, #6ea8fe) 45%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.ck-publish__home-note {
+  margin: 0;
+  color: var(--ck-fg-3, #8891a0);
   font-size: 12px;
 }
 

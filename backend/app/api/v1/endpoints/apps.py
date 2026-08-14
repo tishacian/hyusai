@@ -75,6 +75,12 @@ async def put_workspace_apps(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
+    """Lot 9 / legacy workspace-app enablement toggles.
+
+    Experience draft → release → deploy is the source of truth for business
+    apps (``/api/v1/experiences``). This endpoint stays for installed
+    Workspace App packages and must not be used to author Experiences.
+    """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
     return apps_service.set_enabled_apps(db, workspace, body.enabled)
